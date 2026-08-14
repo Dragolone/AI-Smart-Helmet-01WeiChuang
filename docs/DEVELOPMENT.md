@@ -38,6 +38,18 @@ docker compose down      # 停止
 - PostgreSQL 本地凭证：`helmet / helmet_local_dev`，库名 `helmet`（仅本地开发用）。
 - EMQX Dashboard：http://localhost:18083（默认 admin/public）。
 
+**首次启动后端前**（一次性）：
+
+```bash
+cp backend/.env.example backend/.env
+# 编辑 backend/.env，按上面的本地凭证组装 DATABASE_URL：
+# DATABASE_URL=postgresql://helmet:helmet_local_dev@localhost:5432/helmet
+cd backend && npx prisma migrate dev   # 建表（要求 docker 里的 postgres 已启动）
+```
+
+- 后端起来后访问 http://localhost:3000/api/v1/health 应返回 `{"status":"ok","database":"connected"}`。
+- 数据库表结构改动一律通过 `npx prisma migrate dev --name <名字>`（backend 目录）生成 migration，禁止手改库。
+
 ## 常用命令（都在仓库根目录执行）
 
 | 目的 | 命令 |

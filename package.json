@@ -12,5 +12,8 @@
     "admin",
     "mock-device",
     "packages/*"
-  ]
+  ],
+  "allowScripts": {
+    "@prisma/engines@7.9.1": true
+  }
 }

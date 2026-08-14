@@ -33,6 +33,12 @@
 | RATE_LIMITED | 429 | 触发限流 |
 | INTERNAL_ERROR | 500 | 服务端异常（带 requestId 供排查） |
 
+## 1.2 健康检查（✅ 已实现）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /health | 服务与数据库连通性：`200 { "status": "ok", "database": "connected" }`；数据库不可达时 `503 { "status": "error", "database": "unreachable" }`。无需认证，供负载均衡/运维探活 |
+
 ## 2. 认证与用户
 
 | 方法 | 路径 | 说明 |
