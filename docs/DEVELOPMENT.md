@@ -2,7 +2,7 @@
 
 ## 一次性环境安装（macOS）
 
-1. **Cursor**：https://cursor.com 下载安装（日常写代码都在这里）。
+1. **VS Code**：https://code.visualstudio.com 下载安装（日常写代码都在这里），并在扩展商店安装 **Claude Code** 插件（或直接在终端运行 `claude`）。用 Cursor 也可以，任选其一。
 2. **Xcode**：Mac App Store 安装 → 打开一次 → 组件只勾选 iOS → 等待安装完成。仅作 iOS 构建工具链，平时不用打开。
 3. **Android Studio**：https://developer.android.com/studio 下载 Mac Apple 芯片版 → 首次打开选 Standard → License 全部 Accept → 等 SDK 装完即可关闭。仅作 Android SDK/工具链。
 4. **Homebrew**：https://brew.sh 按首页命令安装。
@@ -16,6 +16,8 @@
 7. **Docker Desktop**：https://docker.com 下载安装（本地跑 PostgreSQL + EMQX）。
 
 ## 克隆与安装
+
+**⚠️ 仓库必须放在不含空格和中文的路径下**（例如 `~/Desktop/AI-Smart-Helmet-01WeiChuang`）。iOS 原生构建脚本无法处理带空格/中文的路径，会在编译末期报 `No such file or directory` 失败。
 
 ```bash
 git clone <仓库地址>
