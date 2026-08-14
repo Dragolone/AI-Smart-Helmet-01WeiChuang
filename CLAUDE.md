@@ -1,7 +1,7 @@
 # CLAUDE.md — AI 智能头盔软件项目
 
 > 本文件是整个项目的长期开发约定。Claude Code 和两位开发者在每次开发前都必须先读本文件。
-> 状态：**架构 V3 已定稿，等待负责人回复“架构确认，可以开始初始化项目”。在此之前禁止编写正式业务代码。**
+> 状态：**架构 V3 已确认，项目已初始化并推送 GitHub（<https://github.com/Dragolone/AI-Smart-Helmet-01WeiChuang>，CI 全绿）。Week 1 进行中：本地全链路（后端 + 双端模拟器）已验证，API/EVENTS Contract 初稿待 Review；剩双端真机安装与第三方账号申请。**
 > 已拍板的技术决策记录在 `docs/DECISIONS.md`，**不允许无理由重新推翻**。
 
 ---
@@ -122,7 +122,7 @@ possible_fall / manual_sos 事件
 | 部分 | 选型 | 说明 |
 |------|------|------|
 | Node 版本 | **Node 24 LTS**（后端、admin、mock-device、工具链统一） | 仓库根放 `.nvmrc` 锁定；禁止使用已 EOL 的 Node 20 |
-| App | React Native + **Expo（当前稳定 SDK，计划 SDK 57）+ Development Build / Prebuild** | **禁止 Expo Go 作为开发环境**；初始化前核对 Expo 官方当前稳定版，若处于 SDK 57 transition 用官方推荐 template；不用 beta/canary |
+| App | React Native + **Expo SDK 57（已采用）+ Development Build / Prebuild** | **禁止 Expo Go 作为开发环境**；原生工程由 prebuild 生成，`app/ios`、`app/android` 不进 Git（CNG 工作流）；不用 beta/canary |
 | App 路由 | **Expo Router**（正式方案） | Deep Link、Push 点击跳转都按 Expo Router 设计；除非遇到明确无法解决的问题，不重新评估 |
 | App 主要库 | TanStack Query、Zustand、react-native-ble-plx | 新增大依赖需双人同意；原生库双端真机验证后定案并记入 DECISIONS.md |
 | 后端 | **NestJS (TypeScript, Node 24 LTS)** | REST + WebSocket + MQTT 消费在同一应用 |
@@ -167,7 +167,7 @@ AI-Smart-Helmet-01WeiChuang/
   CLAUDE.md
 ```
 
-（当前 docs/DEVICE_PROTOCOL.md 与 docs/DECISIONS.md 已在本目录先行创建，项目初始化时随 CLAUDE.md 一起移入仓库。）
+仓库地址：<https://github.com/Dragolone/AI-Smart-Helmet-01WeiChuang>。本地开发环境搭建与常用命令见 docs/DEVELOPMENT.md。
 
 ## Coding Standards
 
@@ -354,6 +354,6 @@ AI-Smart-Helmet-01WeiChuang/
 
 **仍开放：**
 
-1. **Apple Developer 公司账号**：立即申请（审核 1～2 周）；Week 1 真机安装可先用个人开发证书，TestFlight 与正式推送需公司账号。
+1. **Apple Developer 公司账号**：立即申请（审核 1～2 周）；Week 1 真机安装可先用个人开发证书，TestFlight 与正式推送需公司账号。账号定下后须把 App 包名/Bundle ID 从脚手架占位的 `com.anonymous.app` 改为正式 ID（改 app.json 后重新 prebuild，最晚 TestFlight 分发前完成）。
 2. **短信签名/模板、地图企业 Key、推送厂商通道、云服务器、域名/HTTPS**：负责人第 1 周启动申请；审核期间开发用 Mock Provider，不阻塞。
 3. **DEVICE_PROTOCOL.md 中标 ⚠️ 的传输层细节**：待硬件团队在联调前（最晚 Week 10）逐项确认。
