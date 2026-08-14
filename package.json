@@ -1,0 +1,16 @@
+{
+  "name": "ai-smart-helmet",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI 智能头盔软件系统：用户 App + 云端后端 + 管理后台（Monorepo）",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "workspaces": [
+    "app",
+    "backend",
+    "admin",
+    "mock-device",
+    "packages/*"
+  ]
+}

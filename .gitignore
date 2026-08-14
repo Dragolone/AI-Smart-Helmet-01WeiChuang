@@ -1,0 +1,35 @@
+# dependencies
+node_modules/
+
+# env & secrets
+.env
+.env.*
+!.env.example
+
+# build output
+dist/
+build/
+out/
+
+# expo / react native
+.expo/
+app/ios/build/
+app/android/build/
+app/android/app/build/
+*.jks
+*.keystore
+*.p8
+*.p12
+*.mobileprovision
+
+# logs & caches
+*.log
+.cache/
+coverage/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
