@@ -8,8 +8,8 @@
 
 | 角色 | 主负责范围 | 姓名 |
 |------|-----------|------|
-| **Developer A — App 主负责** | React Native App、UI、地图、定位、Push、BLE、App 端 SOS/事件界面 | （填名字） |
-| **Developer B — Backend 主负责** | NestJS 后端、数据库、MQTT、事件接入、SOS 状态机、Mock 设备、管理后台、部署 | （填名字） |
+| **Developer A — App 主负责** | React Native App、UI、地图、定位、Push、BLE、RTC 对讲 App 端、App 端 SOS/事件界面 | （同事，入职后填） |
+| **Developer B — Backend 主负责** | NestJS 后端、数据库、MQTT、事件接入、SOS 状态机、Mock 设备、管理后台、部署 | Draven Zhong（Dragolone） |
 
 **主负责 ≠ 独占**：两人都必须能在自己电脑上跑起全部项目、看懂对方的代码、互相 Review。每天固定 10 分钟同步进度和卡点；每周至少一次一起过一遍对方的代码。
 
