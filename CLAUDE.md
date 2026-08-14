@@ -1,7 +1,7 @@
 # CLAUDE.md — AI 智能头盔软件项目
 
 > 本文件是整个项目的长期开发约定。Claude Code 和两位开发者在每次开发前都必须先读本文件。
-> 状态：**架构 V3 已确认，项目已初始化并推送 GitHub（<https://github.com/Dragolone/AI-Smart-Helmet-01WeiChuang>，CI 全绿）。Week 1 进行中：本地全链路（后端 + 双端模拟器）已验证，API/EVENTS Contract 初稿待 Review；剩双端真机安装与第三方账号申请。**
+> 状态：**Week 1 出口标准已达成（2026-08-14）：CI 全绿；双端真机（iPhone 13 Pro Max + 华为 P30 Pro）安装运行验证通过；API/EVENTS Contract 初稿已合并。待办：第三方账号申请启动（负责人）、新成员环境上手。下一阶段 Week 2：双端技术 Spike + 首条 Mock 事件入库（分工见 `plan/weekly-plan.md`）。仓库：<https://github.com/Dragolone/AI-Smart-Helmet-01WeiChuang>**
 > 已拍板的技术决策记录在 `docs/DECISIONS.md`，**不允许无理由重新推翻**。
 
 ---
@@ -155,6 +155,8 @@ AI-Smart-Helmet-01WeiChuang/
   mock-device/        # Mock Device Simulator（Node，发 MQTT/HTTP）
   packages/
     shared/           # TS 共享类型：事件 Schema、API DTO、枚举
+  plan/
+    weekly-plan.md    # 12 周两人分工计划 + 新成员上手指引（每周对表、周五验收）
   docs/
     API.md            # REST API Contract（定义“传什么”给 App/Admin）
     EVENTS.md         # 事件 Contract：定义“传什么”（字段、类型、必填、单位、枚举、值域）
@@ -354,6 +356,6 @@ AI-Smart-Helmet-01WeiChuang/
 
 **仍开放：**
 
-1. **Apple Developer 公司账号**：立即申请（审核 1～2 周）；Week 1 真机安装可先用个人开发证书，TestFlight 与正式推送需公司账号。账号定下后须把 App 包名/Bundle ID 从脚手架占位的 `com.anonymous.app` 改为正式 ID（改 app.json 后重新 prebuild，最晚 TestFlight 分发前完成）。
+1. **Apple Developer 公司账号**：立即申请（审核 1～2 周）；真机当前用个人开发证书（7 天过期需重装），TestFlight 与正式推送需公司账号。当前开发期包名/Bundle ID 为 `com.dravenzhong.helmet`（原脚手架 `com.anonymous.app` 已被他人注册）；公司账号定下后须换成正式 ID（改 app.json 后 `npx expo prebuild --clean`，最晚 TestFlight 分发前完成）。
 2. **短信签名/模板、地图企业 Key、推送厂商通道、云服务器、域名/HTTPS**：负责人第 1 周启动申请；审核期间开发用 Mock Provider，不阻塞。
 3. **DEVICE_PROTOCOL.md 中标 ⚠️ 的传输层细节**：待硬件团队在联调前（最晚 Week 10）逐项确认。
