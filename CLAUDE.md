@@ -25,7 +25,8 @@ AI 智能头盔的**软件系统**：手机 App + 云端后端 + 管理后台。
 3. 危险事件（collision_risk / obstacle_risk）接收、展示、记录、查询、媒体关联
 4. 定位、地图、历史轨迹、事故地点、位置分享与导航跳转
 5. 管理后台（实用为主）
-6. 休眠/防丢的软件配合（参数设置、状态展示、BLE 断连提醒）
+6. **网络对讲**：头盔作蓝牙耳机，实时语音走 App + RTC 云服务（决策 #20/#21；依赖手机蜂窝网络覆盖）
+7. 休眠/防丢的软件配合（参数设置、状态展示、BLE 断连提醒）——**优先级最低，Week 11 或 MVP 后**（给对讲让路，决策 #21）
 
 硬件/算法接口未就绪前，全部功能用 **Mock Device Simulator** 驱动，软件必须能独立运行和演示。
 
@@ -157,6 +158,7 @@ AI-Smart-Helmet-01WeiChuang/
     shared/           # TS 共享类型：事件 Schema、API DTO、枚举
   plan/
     weekly-plan.md    # 12 周两人分工计划 + 新成员上手指引（每周对表、周五验收）
+    onboarding.md     # 新成员从零上手指南（项目理解、名词、上手路线、Claude 协作规矩）
   docs/
     API.md            # REST API Contract（定义“传什么”给 App/Admin）
     EVENTS.md         # 事件 Contract：定义“传什么”（字段、类型、必填、单位、枚举、值域）
@@ -342,12 +344,12 @@ AI-Smart-Helmet-01WeiChuang/
 | 周 | 重点 | 出口标准（验收依据） |
 |----|------|---------|
 | 1 | 架构确认、需求冻结、Repo（npm workspaces + .nvmrc）、GitHub Actions CI（install/typecheck/lint/test/build）、API/Event Contract 初稿、DEVICE_PROTOCOL 初稿、第三方账号申请启动、**Android + iOS Development Build** | **Android 真机和 iPhone 真机都能安装运行基础 App**；CI 全绿 |
-| 2 | **双端技术 Spike**：地图、定位、BLE、Push 基础（双端真机逐项验证，结论记入 DECISIONS.md）；Backend 基础 + PG + MQTT + Mock Device | **确认技术栈可靠支持双端，无重大阻塞**；第一条 Mock 事件经 Ingest 层进入数据库 |
+| 2 | **双端技术 Spike**：地图、定位、BLE、Push、**RTC 语音（含蓝牙耳机路由、iOS 后台音频）**（双端真机逐项验证，结论记入 DECISIONS.md）；Backend 基础 + PG + MQTT + Mock Device | **确认技术栈可靠支持双端，无重大阻塞**；第一条 Mock 事件经 Ingest 层进入数据库 |
 | 3–4 | Auth、设备绑定、设备状态、Admin 基础（双端同步开发） | App 双端完成注册→登录→绑定→看到状态电量 |
 | 5–6 | 定位入库、地图当前位置、历史轨迹、WebSocket、Mock 骑行剧本 | 双端地图实时看 Mock 头盔移动并回放轨迹 |
 | 7–8 | 紧急联系人、possible_fall、manual_sos、**服务端 SOS 状态机**、60 秒倒计时、Cancel/SOS Now、Push、SMS、事故记录 | 双端完整演示 SOS 全链路（含超时通知） |
-| 9–10 | collision_risk、obstacle_risk、事件历史、媒体关联、设备设置下发、休眠、BLE 防丢、Admin 对应页面 | 双端危险事件与防丢流程可演示 |
-| 11 | 真机硬件/算法联调（若就绪，否则以 Mock 完成 MVP 验收）、双端回归、性能、Bug 修复 | 核心链路双端回归清单全绿 |
+| 9–10 | collision_risk、obstacle_risk、事件历史、媒体关联、设备设置下发、**网络对讲（App + RTC，频道/PTT，决策 #21）**、Admin 对应页面 | 双端危险事件可演示；**双端两台真机对讲通话成功** |
+| 11 | 真机硬件/算法联调（若就绪，否则以 Mock 完成 MVP 验收）、**休眠/BLE 防丢（自 Week 9–10 顺延，联调挤压则移 MVP 后）**、双端回归、性能、Bug 修复 | 核心链路双端回归清单全绿 |
 | 12 | 只做：Bug 修复、UI 打磨、部署、Demo、文档、双端最终回归；**不开发大型新功能** | 完整可演示 MVP + 部署与演示文档 |
 
 ## 待确认事项
@@ -357,5 +359,7 @@ AI-Smart-Helmet-01WeiChuang/
 **仍开放：**
 
 1. **Apple Developer 公司账号**：立即申请（审核 1～2 周）；真机当前用个人开发证书（7 天过期需重装），TestFlight 与正式推送需公司账号。当前开发期包名/Bundle ID 为 `com.dravenzhong.helmet`（原脚手架 `com.anonymous.app` 已被他人注册）；公司账号定下后须换成正式 ID（改 app.json 后 `npx expo prebuild --clean`，最晚 TestFlight 分发前完成）。
-2. **短信签名/模板、地图企业 Key、推送厂商通道、云服务器、域名/HTTPS**：负责人第 1 周启动申请；审核期间开发用 Mock Provider，不阻塞。
-3. **DEVICE_PROTOCOL.md 中标 ⚠️ 的传输层细节**：待硬件团队在联调前（最晚 Week 10）逐项确认。
+2. **RTC 云服务账号（腾讯云 TRTC / 声网，二选一前两家都可先注册）**：与 Apple Developer 并列第一优先（决策 #21，Week 2 Spike 就要用）。
+3. **短信签名/模板、地图企业 Key、推送厂商通道、云服务器、域名/HTTPS**：负责人第 1 周启动申请；审核期间开发用 Mock Provider，不阻塞。
+4. **DEVICE_PROTOCOL.md 中标 ⚠️ 的传输层细节**：待硬件团队在联调前（最晚 Week 10）逐项确认。
+5. **硬件对讲电台（双模兜底）**：频段/功率/实测距离由硬件团队评估（决策 #20）；软件仅承担频道设置下发。
