@@ -15,6 +15,22 @@
 
 ## 新成员第一天上手（第一次开发必读）
 
+### 推荐方式：让 Claude Code 带你
+
+本仓库根目录的 `CLAUDE.md` 是整个项目的开发约定，**Claude Code 打开本项目时会自动读取它**——所以你不需要先看懂全部文档，直接让 Claude 带你走。步骤：
+
+1. 先装好 VS Code 和 Claude Code 插件（或终端 `claude`），装机清单见 `docs/DEVELOPMENT.md` 第 1 节；
+2. `git clone` 本仓库（命令见下方），用 VS Code 打开仓库根目录；
+3. 打开 Claude Code，把下面这段话原样粘贴发送：
+
+> 我是本项目的新成员，第一次做 App 开发，本地环境还没搭。请先读 CLAUDE.md、docs/DEVELOPMENT.md 和 plan/weekly-plan.md，然后带我一步一步完成环境搭建和全链路验证（Docker、后端、双端模拟器 App），每一步都告诉我要执行什么命令、应该看到什么结果；出错时先解释原因再给解决办法。在我明确要求之前不要写任何业务代码。
+
+4. 全部跑通后，在群里说一声「环境 OK」，然后让 Claude 带你 Review 两个进行中的文档 PR，熟悉项目内容。
+
+**规矩**（对人和对 Claude 一样）：Claude 产出的代码必须自己逐行看懂并自测后才能提 PR；卡住超过 20 分钟发群里，别闷头折腾。
+
+### 手动方式：照命令逐条执行
+
 目标：把整个项目在自己的 Mac 上跑起来。**照顺序执行，每步都有"应该看到什么"。** 装机细节（Xcode、Android Studio、Docker 等一次性安装）见 `docs/DEVELOPMENT.md`，先装完再回来。
 
 ```bash
