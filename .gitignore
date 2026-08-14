@@ -38,3 +38,8 @@ coverage/
 
 # prisma 生成的客户端代码（prisma generate 产物，不进 Git）
 backend/src/generated/
+
+# prisma.config.ts 被编译器偶发误编译的杂散产物（见 docs/DEVELOPMENT.md 已知坑）
+backend/prisma.config.js
+backend/prisma.config.d.ts
+backend/prisma.config.js.map
