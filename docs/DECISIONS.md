@@ -24,6 +24,7 @@
 | 17 | 2026-08-14 | CI 用 GitHub Actions；Week 1 最低门槛：install、typecheck、lint、test、build/check | 与 GitHub PR 流程一体 | main 分支 PR 必须 CI 全绿 |
 | 18 | 2026-08-14 | 事件 envelope 含 schemaVersion / eventId / deviceId / eventType / timestamp / firmwareVersion / payload；receivedAt 由服务器生成；EVENTS.md 所有字段必须写类型、必填性、单位、值域；坐标必须显式 coordinateSystem | 硬件/算法对接的歧义是最大联调风险 | EVENTS.md 按此标准编写；Contract 字段只增不改不删 |
 | 19 | 2026-08-14 | 两位开发者均有 iPhone 真机与 macOS；第三方资质（Apple Developer、地图 Key、短信、Push、云、域名）由负责人申请 | 负责人确认 | 双端开发条件成立；Week 1 启动各项申请 |
+| 20 | 2026-08-14 | **对讲功能技术方向**：头盔仅作蓝牙耳机（音频外设），实时语音走「手机 App + RTC 云服务」（服务商待选型：腾讯云 TRTC / 声网 Agora）；**不做硬件自组网/自建 AP**。前提口径：对讲依赖手机蜂窝网络覆盖，无信号即不可用（与定位/SOS 依赖 4G 同一前提）。老板提出的另两项需求映射到既有链路：受伤定位=SOS/possible_fall 链路（Week 7–8），后方靠近预警=collision_risk 链路（Week 9–10，头盔本地即时报警，软件展示留档） | 硬件负责人与软件负责人 2026-08-14 对齐：自组网触无线电法规且无必要；RTC 云服务成熟省时 | 软件新增实时语音模块（双端约 2–3 周，用 RTC SDK 不自研）；**排期待定**（见下表）；RTC 服务商账号加入第三方申请清单 |
 
 ## 待定决策（占位，定案后移入上表）
 
@@ -35,3 +36,5 @@
 | 坐标转换位置（wgs84→gcj02 在服务端还是 App 端） | EVENTS.md 定稿时 | 取决于硬件 GPS 输出与地图库要求 |
 | DEVICE_PROTOCOL.md 中标 ⚠️ 的传输层细节 | 最晚 Week 10 联调前 | 待硬件团队逐项确认 |
 | 短信/推送服务商最终确认 | 资质下来后 | 当前暂定阿里云短信 + 极光 |
+| 对讲功能排期（MVP 12 周内 vs MVP 后第一迭代） | 老板确认后 | 软件侧建议 MVP 后第一迭代，保 SOS 链路优先；若进 MVP 需顺延休眠/防丢并重排 Week 9–10 |
+| RTC 服务商选型（腾讯云 TRTC vs 声网 Agora） | 对讲排期确定后 Spike | 双端真机验证（含蓝牙耳机路由、iOS 后台音频）后定案；账号申请随第三方清单提前启动 |
