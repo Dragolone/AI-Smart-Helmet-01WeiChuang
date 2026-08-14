@@ -1,0 +1,52 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  // NestJS 工程按 CommonJS 编译；默认的 ESM 输出（含 import.meta）会在运行时崩溃
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           String   @id @default(cuid())
+  phone        String   @unique
+  passwordHash String   @map("password_hash")
+  nickname     String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  devices      Device[]
+
+  @@map("users")
+}
+
+model Device {
+  // 主键直接用硬件团队分配的 deviceId（如 helmet_001），不另造代理键
+  deviceId         String    @id @map("device_id")
+  deviceSecretHash String    @map("device_secret_hash")
+  bindUserId       String?   @map("bind_user_id")
+  bindUser         User?     @relation(fields: [bindUserId], references: [id])
+  lastSeenAt       DateTime? @map("last_seen_at")
+  battery          Int?
+  firmwareVersion  String?   @map("firmware_version")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  @@map("devices")
+}
+
+model RawEvent {
+  id              String   @id @default(cuid())
+  // 幂等去重依据：设备/算法侧生成的 eventId，唯一约束兜底并发重复
+  eventId         String   @unique @map("event_id")
+  // 故意不建到 devices 的外键：未注册设备/未知来源的事件也必须能原样落库（Ingest 层规则）
+  deviceId        String   @map("device_id")
+  eventType       String   @map("event_type")
+  timestamp       DateTime
+  receivedAt      DateTime @default(now()) @map("received_at")
+  schemaVersion   Int      @map("schema_version")
+  firmwareVersion String?  @map("firmware_version")
+  payload         Json
+
+  @@index([deviceId, timestamp])
+  @@map("raw_events")
+}

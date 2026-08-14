@@ -35,3 +35,6 @@ coverage/
 
 # ts build cache
 *.tsbuildinfo
+
+# prisma 生成的客户端代码（prisma generate 产物，不进 Git）
+backend/src/generated/
