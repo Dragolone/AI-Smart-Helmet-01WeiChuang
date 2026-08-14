@@ -1,0 +1,65 @@
+# DEVELOPMENT.md — 本地开发环境与常用命令
+
+## 一次性环境安装（macOS）
+
+1. **Cursor**：https://cursor.com 下载安装（日常写代码都在这里）。
+2. **Xcode**：Mac App Store 安装 → 打开一次 → 组件只勾选 iOS → 等待安装完成。仅作 iOS 构建工具链，平时不用打开。
+3. **Android Studio**：https://developer.android.com/studio 下载 Mac Apple 芯片版 → 首次打开选 Standard → License 全部 Accept → 等 SDK 装完即可关闭。仅作 Android SDK/工具链。
+4. **Homebrew**：https://brew.sh 按首页命令安装。
+5. **命令行工具**：`brew install watchman cocoapods gh`
+6. **nvm + Node 24**：
+   ```bash
+   curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+   # 重开终端后：
+   nvm install 24
+   ```
+7. **Docker Desktop**：https://docker.com 下载安装（本地跑 PostgreSQL + EMQX）。
+
+## 克隆与安装
+
+```bash
+git clone <仓库地址>
+cd AI-Smart-Helmet-01WeiChuang
+nvm use          # 切到 .nvmrc 锁定的 Node 24
+npm install      # 根目录一次装完所有 workspace（唯一 lockfile 在根目录）
+```
+
+**规则：只在仓库根目录跑 `npm install`。禁止在子目录用 yarn/pnpm，禁止生成第二个 lockfile。**
+
+## 本地基础设施
+
+```bash
+docker compose up -d     # 启动 PostgreSQL(5432) + EMQX(1883, Dashboard 18083)
+docker compose down      # 停止
+```
+
+- PostgreSQL 本地凭证：`helmet / helmet_local_dev`，库名 `helmet`（仅本地开发用）。
+- EMQX Dashboard：http://localhost:18083（默认 admin/public）。
+
+## 常用命令（都在仓库根目录执行）
+
+| 目的 | 命令 |
+|------|------|
+| 启动 App 开发服务器 | `npm run start -w app`（然后按 `i` 开 iOS 模拟器 / `a` 开 Android 模拟器） |
+| App 装到 iOS 真机/模拟器（含原生构建） | `npx expo run:ios`（在 `app/` 目录） |
+| App 装到 Android 真机/模拟器（含原生构建） | `npx expo run:android`（在 `app/` 目录） |
+| 启动后端（热重载） | `npm run start:dev -w backend` |
+| 启动管理后台 | `npm run dev -w admin` |
+| 全部类型检查 | `npm run typecheck --workspaces --if-present` |
+| 全部 lint | `npm run lint --workspaces --if-present` |
+| 全部测试 | `npm test --workspaces --if-present` |
+
+原生构建（`expo run:ios/android`）只在首次和新增原生模块后需要；日常改代码保存即热更新（Fast Refresh）。
+
+## 真机调试
+
+- **iPhone**：设置 → 隐私与安全性 → 开发者模式 → 打开并重启；用数据线连 Mac，首次需在手机上信任此电脑。
+- **Android**：设置 → 关于手机 → 连点「版本号」7 次开启开发者选项 → 打开「USB 调试」；连线后允许调试授权。
+
+## 平台限制清单（持续维护）
+
+> 记录 Week 2 Spike 及后续开发中实测到的 iOS / Android 系统限制。禁止静默降级——任何限制先记录在此并与负责人确认口径。
+
+| 日期 | 平台 | 能力 | 实测限制 | 口径/结论 |
+|------|------|------|---------|----------|
+| （待 Week 2 Spike 填写） | | | | |

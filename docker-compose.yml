@@ -1,0 +1,33 @@
+# 本地开发基础设施：PostgreSQL + EMQX
+# 启动：docker compose up -d    停止：docker compose down
+# 凭证仅用于本地开发环境；development/production 环境使用独立的强凭证（不入库）。
+services:
+  postgres:
+    image: postgres:16
+    container_name: helmet-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: helmet
+      POSTGRES_PASSWORD: helmet_local_dev
+      POSTGRES_DB: helmet
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U helmet"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  emqx:
+    image: emqx:5
+    container_name: helmet-emqx
+    ports:
+      - "1883:1883"   # MQTT（本地明文；云端环境必须 TLS 8883）
+      - "18083:18083" # EMQX Dashboard（本地默认账号 admin/public）
+    volumes:
+      - emqx_data:/opt/emqx/data
+
+volumes:
+  postgres_data:
+  emqx_data:

@@ -1,0 +1,14 @@
+{
+  "name": "@helmet/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "共享 TS 类型：事件 Schema、API DTO、枚举",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

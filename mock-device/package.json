@@ -1,0 +1,13 @@
+{
+  "name": "@helmet/mock-device",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mock 头盔模拟器：与真机同 Contract/Topic/认证，发 MQTT 事件",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
