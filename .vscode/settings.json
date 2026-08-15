@@ -1,0 +1,7 @@
+{
+  // 用仓库自带的 TypeScript 而不是 VSCode 内置版本：内置版本较老，不认识
+  // admin/app tsconfig 里的 erasableSyntaxOnly（TS 5.8+），会误报"未知编译选项"。
+  // 命令行与 CI 的检查结果不受此项影响，它只决定编辑器里用哪个 tsc。
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true
+}
