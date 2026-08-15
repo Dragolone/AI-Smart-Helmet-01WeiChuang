@@ -61,6 +61,29 @@ export interface UpdateMeRequest {
   avatarUrl?: string;
 }
 
+// —— §3 紧急联系人（已实现） ——
+
+/** 紧急联系人：SOS 通知（SMS）的发送对象；每用户上限 5 个（API.md §3 定稿） */
+export interface EmergencyContact {
+  id: string;
+  name: string;
+  phone: string;
+  relation: string | null;
+  createdAt: string;
+}
+
+export interface CreateEmergencyContactRequest {
+  name: string;
+  phone: string;
+  relation?: string;
+}
+
+export interface UpdateEmergencyContactRequest {
+  name?: string;
+  phone?: string;
+  relation?: string;
+}
+
 // —— §4 设备（已实现） ——
 
 export interface BindDeviceRequest {

@@ -10,16 +10,33 @@ datasource db {
 }
 
 model User {
-  id            String         @id @default(cuid())
-  phone         String         @unique
-  passwordHash  String         @map("password_hash")
-  nickname      String?
-  avatarUrl     String?        @map("avatar_url")
-  createdAt     DateTime       @default(now()) @map("created_at")
-  devices       Device[]
-  refreshTokens RefreshToken[]
+  id                String             @id @default(cuid())
+  phone             String             @unique
+  passwordHash      String             @map("password_hash")
+  nickname          String?
+  avatarUrl         String?            @map("avatar_url")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  devices           Device[]
+  refreshTokens     RefreshToken[]
+  emergencyContacts EmergencyContact[]
 
   @@map("users")
+}
+
+// 紧急联系人（API.md §3）：SOS 超时/确认后的 SMS 通知对象，上限 5 个（活跃计数，定稿）
+model EmergencyContact {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id])
+  name      String
+  phone     String
+  relation  String?
+  createdAt DateTime  @default(now()) @map("created_at")
+  // 软删除（Contract 要求）：已删联系人不占名额、不再接收通知；历史 SOS 通知记录留档不受影响
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([userId])
+  @@map("emergency_contacts")
 }
 
 model RefreshToken {
