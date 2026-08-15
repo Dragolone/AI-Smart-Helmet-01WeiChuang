@@ -9,6 +9,7 @@
     "build": "prisma generate && nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "provision:device": "tsx scripts/provision-device.ts",
+    "create:admin": "tsx scripts/create-admin.ts",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",

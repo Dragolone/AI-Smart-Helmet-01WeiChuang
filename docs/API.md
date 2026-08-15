@@ -139,19 +139,28 @@ SOS 状态机为服务端权威（DECISIONS #8）：`pending → notified | canc
 
 ## 10. Admin API（/api/v1/admin/*，独立角色守卫）
 
-MVP 实用为主，全部只读 + 少量运维操作：
+MVP 实用为主，全部只读 + 少量运维操作。
+
+**Admin 认证口径（✅ 已定稿并实现，2026-08-15）**：管理员与 App 用户是两套完全独立的体系（独立 `admin_users` 表 + 独立 JWT 签名密钥 `ADMIN_JWT_SECRET`）。密钥隔离使 admin token 与用户 token 互不可用（双向 401）。**admin accessToken 12 小时，无 refresh**，过期重新登录。管理员账号由脚本创建（`npm run create:admin -w backend`），不做自助注册；管理后台不对公网匿名开放。
+
+### 10.1 已实现（✅ Week 3–4 Admin 基础）
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | /admin/auth/login | 管理员登录（独立于 App 用户体系） |
-| GET | /admin/users?page=&keyword= | 用户列表/搜索 |
-| GET | /admin/devices?page=&keyword=&online= | 设备列表（绑定用户、在线状态、电量、固件版本） |
+| POST | /admin/auth/login | body：`{ username, password }` → `{ admin: { id, username }, accessToken }`。失败统一 401 UNAUTHORIZED（不区分账号不存在与密码错误） |
+| GET | /admin/users?page=&pageSize=&keyword= | 用户列表/搜索（keyword 匹配 phone/nickname）。item：`{ id, phone, nickname, avatarUrl, createdAt, deviceCount }` |
+| GET | /admin/devices?page=&pageSize=&keyword=&online= | 设备列表（keyword 匹配 deviceId/绑定手机号；`online=true|false` 按 90s 心跳窗口筛选，口径与 §4 status 一致）。item：`{ deviceId, online, lastSeenAt, battery, charging, signalLevel, sleeping, firmwareVersion, boundAt, createdAt, bindUser: { id, phone, nickname } | null }` |
+
+分页响应用 §1 统一结构 `{ items, total, page, pageSize }`。
+
+### 10.2 规划中（随对应业务功能落地）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
 | GET | /admin/devices/{deviceId} | 设备详情 + 最近事件 |
 | GET | /admin/events?type=&deviceId=&from=&to=&page= | 全量事件查询（含未知类型/校验失败的原始事件 ⚠️ 是否单独端点待定稿） |
-| GET | /admin/accidents?status=&page= | 事故/SOS 记录与通知发送结果 |
+| GET | /admin/accidents?status=&page= | 事故/SOS 记录与通知发送结果（Week 7–8 SOS 后） |
 | GET | /admin/stats/overview | 概览：设备总数/在线数、今日事件数、进行中 SOS 数（⚠️ 指标集待定） |
-
-管理员账号 MVP 由种子脚本创建，不做自助注册；管理后台不对公网匿名开放。
 
 ## 11. WebSocket（App 实时通道）
 
