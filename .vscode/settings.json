@@ -3,5 +3,32 @@
   // admin/app tsconfig 里的 erasableSyntaxOnly（TS 5.8+），会误报"未知编译选项"。
   // 命令行与 CI 的检查结果不受此项影响，它只决定编辑器里用哪个 tsc。
   "typescript.tsdk": "node_modules/typescript/lib",
-  "typescript.enablePromptUseWorkspaceTsdk": true
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+
+  // 保存即格式化 + 自动修可修的 lint 问题，避免"格式没对齐导致 CI 红"的返工提交
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+
+  // 关键安全阀：只格式化所在目录树里确实有 Prettier 配置的文件。
+  // backend 有 .prettierrc（单引号+尾逗号）；admin/app 没有且风格不同
+  //（admin 不加分号），无此项会被默认规则整目录改写。
+  "prettier.requireConfig": true,
+
+  // monorepo：让 ESLint 为每个文件自动找最近的配置目录
+  //（backend/eslint.config.mjs、app/eslint.config.js；admin 用 oxlint 会被跳过）
+  "eslint.workingDirectories": [{ "mode": "auto" }],
+
+  // schema.prisma 由 Prisma 扩展格式化（Prettier 不处理这个文件类型）
+  "[prisma]": {
+    "editor.defaultFormatter": "Prisma.prisma"
+  },
+
+  // 文档不自动格式化：docs 与 plan 下的中文 Markdown 含大量表格，
+  // 自动重排会产生与内容无关的巨大 diff
+  "[markdown]": {
+    "editor.formatOnSave": false
+  }
 }

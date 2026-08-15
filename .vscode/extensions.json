@@ -1,0 +1,13 @@
+{
+  // 打开本项目时 VSCode 会提示一键安装这些；新成员照装即可，不用自己摸索
+  "recommendations": [
+    // 与 CI 同一套 ESLint 规则实时显示在编辑器里，不用等命令行或 CI 才发现问题
+    "dbaeumer.vscode-eslint",
+    // schema.prisma 的语法高亮、字段补全、格式化
+    "Prisma.prisma",
+    // backend 的 .prettierrc 由它执行（保存即格式化，见 settings.json）
+    "esbenp.prettier-vscode",
+    // 本地 PostgreSQL + EMQX 走 docker compose，用它看容器状态和日志
+    "ms-azuretools.vscode-docker"
+  ]
+}
