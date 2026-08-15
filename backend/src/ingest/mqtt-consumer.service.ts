@@ -92,7 +92,7 @@ export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
     let lastError: unknown;
     for (let attempt = 0; attempt <= PERSIST_RETRIES; attempt++) {
       try {
-        const outcome = await this.ingest.ingestRaw(raw, topicDeviceId);
+        const outcome = await this.ingest.ingestRaw(raw, topicDeviceId, 'mqtt');
         this.logger.log(`[${sanitize(topic)}] → ${outcome}`);
         return;
       } catch (err) {
