@@ -1,8 +1,9 @@
 # CLAUDE.md — AI 智能头盔软件项目
 
 > 本文件是整个项目的长期开发约定。Claude Code 和两位开发者在每次开发前都必须先读本文件。
-> 状态（2026-08-15）：**Week 1、2 已达成。Week 3–4 进行中，B 线任务已全部完成并验收：**
-> **B 线（Week 3–4 全部合入 main）**：Auth（JWT access+refresh 轮换与盗用防护，#19）、设备绑定/凭证/状态快照（#20）、EMQX 设备认证 + Topic ACL（#22/#23）、raw_events source/clock_skew（#18）、**Admin 基础：管理员登录 + 用户/设备列表前后端（#26，负责人验收通过）**；另修复 MQTT 消费者订阅失败不重试 bug（#27）。Admin 认证口径已定稿 API.md §10（独立 admin_users 表 + ADMIN_JWT_SECRET，12h 无 refresh；建号用 `npm run create:admin -w backend`）。**B 线下一任务：packages/shared 落 TS 类型**，随后 Week 5–6 定位/轨迹/WebSocket。
+> 状态（2026-08-15）：**Week 1、2 已达成；Week 3–4 B 线全部完成并验收；Week 5–6 B 线亦已完成并验收（超前进度）：**
+> **Week 3–4 B 线（全部合入 main）**：Auth（#19）、设备绑定/凭证/状态快照（#20）、EMQX 设备认证 + Topic ACL（#22/#23）、raw_events source/clock_skew（#18）、**Admin 基础（#26，验收通过）**、MQTT 订阅重试修复（#27）。Admin 认证口径见 API.md §10（独立 admin_users + ADMIN_JWT_SECRET，12h 无 refresh）。
+> **Week 5–6 B 线 + shared（#29/#30，负责人 2026-08-15 验收通过）**：packages/shared 落 TS 类型（Contract 编译期约束，四端引用）；location_points 表 + latest/轨迹查询 API（24h 上限定稿）+ **WebSocket 实时通道（原生 ws，决策 #25）**；**滑雪场景**：altitude 全链路透传、Mock 新增 SCENARIO=ski 滑雪剧本。**B 线下一任务：Week 7–8 服务端 SOS 状态机**（先出方案）。
 > **A 线**：4/5 Spike 双端通过且结论已定案入 DECISIONS.md（TRTC 选型、定位持续监听口径、双 Bundle ID 口径）；expo-dev-client 双端落地；当前对接 Week 3–4 App UI（注册/登录/绑定/状态页，后端 API 已就绪）。剩余：地图 Spike（等高德 Key，Week 5–6 前必须定案）、BLE 后台断连（Week 11 防丢前必测）、APNs 远程推送（等公司账号）。
 > 第三方：Apple 公司账号走到 D-U-N-S 建档（待重提）；高德企业认证对公打款在途；云服务器/域名/备案待办；RTC 选型已定案（腾讯 TRTC），个人测试应用可用、正式应用待公司资质。进度明细见 `plan/weekly-plan.md`。仓库：<https://github.com/Dragolone/AI-Smart-Helmet-01WeiChuang>
 > 已拍板的技术决策记录在 `docs/DECISIONS.md`，**不允许无理由重新推翻**。
