@@ -15,5 +15,10 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.useGlobalFilters(new UnifiedExceptionFilter());
   await app.listen(process.env.PORT ?? 3000);
+  // EMQX 认证回调用 keep-alive 连接池（宣称 30s）；Node 默认 5s 就关空闲连接，
+  // 会让 EMQX 复用到死连接导致认证超时。放宽到 65s 覆盖对方的复用窗口。
+  const server = app.getHttpServer() as import('node:http').Server;
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 66_000;
 }
 void bootstrap();

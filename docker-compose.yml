@@ -29,6 +29,11 @@ services:
       - "127.0.0.1:18083:18083" # EMQX Dashboard（本地默认账号 admin/public）
     volumes:
       - emqx_data:/opt/emqx/data
+      # 设备认证 + Topic ACL（追加在官方默认配置之后，见 emqx/emqx.conf 尾部注释）
+      - ./emqx/emqx.conf:/opt/emqx/etc/emqx.conf:ro
+    extra_hosts:
+      # Linux 服务器上也能解析宿主机（Docker Desktop 自带，此行为部署兼容）
+      - "host.docker.internal:host-gateway"
 
 volumes:
   postgres_data:

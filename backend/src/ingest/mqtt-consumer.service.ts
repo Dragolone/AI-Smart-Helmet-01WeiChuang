@@ -42,6 +42,9 @@ export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
     this.client = connect(url, {
       clientId: process.env.MQTT_BACKEND_CLIENT_ID ?? 'backend_ingest',
       clean: false,
+      // 服务账号凭证：EMQX 开启认证后后端消费者也必须带证（emqx-hook 校验）
+      username: process.env.MQTT_BACKEND_USERNAME ?? 'backend_ingest',
+      password: process.env.MQTT_BACKEND_PASSWORD,
     });
 
     // 覆写 handleMessage：mqtt.js 只有在本回调完成后才回 PUBACK——
