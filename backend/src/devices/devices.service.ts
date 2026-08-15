@@ -7,7 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 
 /** 在线判定：lastSeenAt 距今 ≤ 90s（1.5 × 60s 心跳，DEVICE_PROTOCOL §5）。服务端权威，App 不自行判断。 */
-const ONLINE_WINDOW_MS = 90_000;
+export const ONLINE_WINDOW_MS = 90_000;
 
 const DEVICE_PUBLIC_SELECT = {
   deviceId: true,

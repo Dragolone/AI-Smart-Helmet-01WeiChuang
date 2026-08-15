@@ -53,6 +53,8 @@ cd backend && npx prisma migrate dev   # 建表（要求 docker 里的 postgres 
 
 **已知坑：`prisma generate` / `migrate` 与后端 watch 进程抢文件**——生成器重写 `src/generated` 时可能把正在跑的 `start:dev` 绊倒（表现为后端悄悄退出、接口拒绝连接、或启动报 `Cannot find module dist/main`）。处理：停掉 start:dev → `rm -rf backend/dist backend/tsconfig.build.tsbuildinfo` → 重新 `npm run start:dev -w backend`。建议习惯：跑 generate/migrate 前先停后端。
 
+**已知坑：残留后端进程会「劫持」EMQX 的认证/授权回调**（2026-08-15 实测定位）——EMQX 调后端 hook 用 keep-alive 连接池；若忘记关的旧后端进程还活着（哪怕已不监听 3000），池里的旧连接仍指向它，授权请求会打到旧代码上得到 404，EMQX fail-closed 全拒。症状：新后端日志「已连接 MQTT Broker」但紧跟「订阅失败」，设备连接被 Not authorized。处理：`ps aux | grep dist/main` 找出并 kill 所有残留 node 进程（含 `nest start --watch` 的父进程）后重启后端。同理，Mock 设备重开通（provision）后旧密钥即失效，旧 Mock 进程会每秒被拒刷屏——一并 kill。
+
 ## 常用命令（都在仓库根目录执行）
 
 | 目的 | 命令 |
@@ -60,6 +62,7 @@ cd backend && npx prisma migrate dev   # 建表（要求 docker 里的 postgres 
 | 启动 App 开发服务器（日常 JS 开发） | `npm run start -w app` 后**在模拟器里手动点开已安装的 app**。⚠️ 不要按 `i`/`a`、不要扫码——当前 app 未装 expo-dev-client，那样会进被禁止的 Expo Go。首次或原生依赖变更后先用下面的 run 命令装一次 |
 | 启动 Mock 头盔模拟器 | 先用下行命令开通拿到凭证，再 `DEVICE_ID=<id> DEVICE_SECRET=<密钥> npm run start -w mock-device`。**EMQX 已开启认证**：无凭证/错密钥会被 Broker 拒绝（Connection refused: Not authorized） |
 | 开通一台设备（生成 deviceId/密钥/绑定码） | `npm run provision:device -w backend`（可选参数指定 deviceId：`-- helmet_mock_002`；deviceSecret 只显示一次） |
+| 创建管理后台账号 | `npm run create:admin -w backend`（可选用户名参数：`-- ops`；重置密码：`-- admin --reset`；密码只显示一次。需 backend/.env 配好 `ADMIN_JWT_SECRET`） |
 | App 装到 iOS 真机/模拟器（含原生构建） | `npx expo run:ios`（在 `app/` 目录） |
 | App 装到 Android 真机/模拟器（含原生构建） | `npx expo run:android`（在 `app/` 目录） |
 | 启动后端（热重载） | `npm run start:dev -w backend` |

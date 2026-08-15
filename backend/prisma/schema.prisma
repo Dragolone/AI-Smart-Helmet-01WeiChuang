@@ -58,6 +58,16 @@ model Device {
   @@map("devices")
 }
 
+// 管理员与 App 用户完全分离（API.md §10）：种子脚本创建，不做自助注册
+model AdminUser {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("admin_users")
+}
+
 model RawEvent {
   id              String   @id @default(cuid())
   // 幂等去重依据：设备/算法侧生成的 eventId，唯一约束兜底并发重复

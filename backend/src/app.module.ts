@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AdminModule } from './admin/admin.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
@@ -10,7 +11,14 @@ import { PrismaModule } from './prisma/prisma.module';
 import { UsersController } from './users/users.controller';
 
 @Module({
-  imports: [PrismaModule, IngestModule, AuthModule, DevicesModule, EmqxModule],
+  imports: [
+    PrismaModule,
+    IngestModule,
+    AuthModule,
+    DevicesModule,
+    EmqxModule,
+    AdminModule,
+  ],
   controllers: [AppController, HealthController, UsersController],
   providers: [AppService],
 })
