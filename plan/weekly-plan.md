@@ -27,7 +27,7 @@
 
 > 我是本项目的新成员，第一次做 App 开发，本地环境还没搭。请先读 CLAUDE.md、docs/DEVELOPMENT.md 和 plan/weekly-plan.md，然后带我一步一步完成环境搭建和全链路验证（Docker、后端、双端模拟器 App），每一步都告诉我要执行什么命令、应该看到什么结果；出错时先解释原因再给解决办法。在我明确要求之前不要写任何业务代码。
 
-4. 全部跑通后，在群里说一声「环境 OK」，然后让 Claude 带你 Review 两个进行中的文档 PR，熟悉项目内容。
+4. 全部跑通后，在群里说一声「环境 OK」，然后让 Claude 带你通读已合并的两份 Contract（docs/EVENTS.md、docs/API.md）做事后 Review——有疑问或异议直接在群里提或开 GitHub Issue。
 
 **规矩**（对人和对 Claude 一样）：Claude 产出的代码必须自己逐行看懂并自测后才能提 PR；卡住超过 20 分钟发群里，别闷头折腾。
 
@@ -49,10 +49,19 @@ npm ci
 # 4. 启动本地数据库和 MQTT Broker（需要 Docker Desktop 在运行）
 docker compose up -d            # 应看到 helmet-postgres 和 helmet-emqx 两个容器
 
-# 5. 启动后端
-npm run start:dev -w backend    # 浏览器开 http://localhost:3000 应看到 Hello World!
+# 5. 配置后端环境变量（一次性）
+cp backend/.env.example backend/.env
+# 编辑 backend/.env，填入本地数据库地址（凭证来自 docker-compose.yml）：
+# DATABASE_URL=postgresql://helmet:helmet_local_dev@localhost:5432/helmet
 
-# 6. 启动 App（另开一个终端；首次构建 10 分钟级别，属正常）
+# 6. 初始化数据库表（一次性；也会顺带生成 Prisma 客户端代码）
+cd backend && npx prisma migrate dev && cd ..
+
+# 7. 启动后端
+npm run start:dev -w backend
+# 浏览器开 http://localhost:3000/api/v1/health 应看到 {"status":"ok","database":"connected"}
+
+# 8. 启动 App（另开一个终端；首次构建 10 分钟级别，属正常）
 cd app
 npx expo run:ios                # iOS 模拟器打开 App，看到欢迎页
 npx expo run:android            # Android 模拟器同理（需先在 Android Studio 里启动一个模拟器）
@@ -101,6 +110,9 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 | A | App：注册/登录页、Token 管理、设备绑定流程 UI、设备状态页（在线/电量/固件版本） | 用户拿到手机第一眼的完整闭环 |
 | B | 后端：Auth 模块（JWT access+refresh）、设备绑定 API、device_status 事件入库并透出状态 API | 支撑 A 的全部界面 |
 | B | Admin 基础：管理员登录 + 用户/设备列表页 | 运营侧从第一天就能看到数据 |
+| B | **设备接入安全**：EMQX 认证对接后端（设备凭证校验）+ Topic ACL + 后端消费者自身凭证 | 审查高危项：DEVICE_PROTOCOL 标 ✅ 但零实现；设备绑定功能上线前必须有，否则任何人可伪装任意头盔 |
+| B | 小 migration：raw_events 补 clock_skew 标记 + source 字段；评估 eventId 幂等改 (device_id, event_id) 复合唯一 | 兑现 DEVICE_PROTOCOL §8 / EVENTS.md §1 已承诺的服务端字段（详见 docs/DATABASE.md） |
+| A | App 基建：安装 expo-dev-client 并双端重装验证 | 当前无 dev-client，误操作会进被禁止的 Expo Go；顺带获得开发者菜单 |
 | 共同 | 双端同步开发：每个功能 Android 和 iOS 同周完成 | 项目铁律，不允许"iOS 以后补" |
 
 **验收标准**：双端真机走通「注册 → 登录 → 绑定 Mock 设备 → 看到在线状态和电量」；Admin 里能看到这个用户和设备。
