@@ -60,12 +60,16 @@ Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / 
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | /users/me/emergency-contacts | 列表（MVP 上限 5 个 ⚠️ 数量待定） |
-| POST | /users/me/emergency-contacts | body：`{ name, phone, relation? }` |
-| PATCH | /users/me/emergency-contacts/{contactId} | 更新 |
-| DELETE | /users/me/emergency-contacts/{contactId} | 删除（软删除） |
+| GET | /users/me/emergency-contacts | 列表（按创建先后排序） |
+| POST | /users/me/emergency-contacts | body：`{ name, phone, relation? }`；超上限 → 409 `EMERGENCY_CONTACT_LIMIT_REACHED` |
+| PATCH | /users/me/emergency-contacts/{contactId} | 更新（name/phone/relation 任意子集） |
+| DELETE | /users/me/emergency-contacts/{contactId} | 删除（软删除，释放名额；历史 SOS 通知记录留档不受影响） |
 
-`contact` 对象：`{ id, name, phone, relation?, createdAt }`。SOS 通知（SMS/Push）发送对象即此列表。
+`contact` 对象：`{ id, name, phone, relation: string|null, createdAt }`（TS 类型见 `@helmet/shared` EmergencyContact）。SOS 通知（SMS）发送对象即此列表。
+
+- **上限 5 个（✅ 定稿 2026-08-16）**：按活跃（未删）联系人计数。
+- phone 校验与注册同口径（大陆手机号）；对他人/已删联系人的改删一律 404（不泄露存在性）。
+- ✅ 本节已实现（2026-08-16）。
 
 ## 4. 设备
 
@@ -193,6 +197,6 @@ MVP 实用为主，全部只读 + 少量运维操作。
 
 ## 13. 待定稿清单汇总
 
-**负责人**：注册凭据形式与验证码要求、紧急联系人上限、位置分享是否需要网页版、Admin 概览指标集。
+**负责人**：注册凭据形式与验证码要求、位置分享是否需要网页版、Admin 概览指标集。（~~紧急联系人上限~~ 已定稿 5 个，2026-08-16）
 **硬件团队**：设备绑定凭证形式（bindCode 来源）、设置参数清单、媒体上传方式。
 **软件侧内部**：token 有效期、active SOS 空响应形式、轨迹单次查询范围上限、预签名 URL 时效、WebSocket 实现选型、原始事件 Admin 端点形式。
