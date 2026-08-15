@@ -30,6 +30,8 @@
 | DEVICE_NOT_FOUND | 404 | 设备不存在或未绑定到当前用户 |
 | CONFLICT | 409 | 通用冲突 |
 | DEVICE_ALREADY_BOUND | 409 | 设备已被绑定 |
+| PHONE_ALREADY_REGISTERED | 409 | 注册手机号已存在 |
+| BIND_CODE_INVALID | 403 | 设备绑定码不正确 |
 | RATE_LIMITED | 429 | 触发限流 |
 | INTERNAL_ERROR | 500 | 服务端异常（带 requestId 供排查） |
 
@@ -52,7 +54,7 @@
 
 `user` 对象：`{ id, phone, nickname, avatarUrl?, createdAt }`。密码 bcrypt/argon2 存储，任何接口不回传。
 
-Token 有效期 ⚠️ 待定稿（建议 access 15min / refresh 30d）。
+Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / refresh 30 天**；refresh 轮换制——每次刷新旧 token 作废，已作废 token 被复用视为盗用信号、撤销该用户全部会话。本节 register/login/refresh/logout 与 /users/me 均已实现（短信验证码待 SmsProvider 接入后补）。
 
 ## 3. 紧急联系人
 
@@ -76,7 +78,8 @@ Token 有效期 ⚠️ 待定稿（建议 access 15min / refresh 30d）。
 | GET | /devices/{deviceId}/status | 设备状态：`{ online, lastSeenAt, battery, charging?, signalLevel?, sleeping, firmwareVersion }` |
 
 - MVP 绑定关系：一台设备同时只能绑定一个用户；一个用户可绑多台。⚠️ 家庭共享/多人查看不在 MVP。
-- `online` 判定规则见 DEVICE_PROTOCOL §5，由服务端计算，App 不自行判断。
+- `online` 判定规则见 DEVICE_PROTOCOL §5，由服务端计算（lastSeenAt 距今 ≤ 90s），App 不自行判断。
+- ✅ 本节已实现（2026-08-15）：bind / 列表 / 详情 / 解绑 / status；设备开通用 `npm run provision:device -w backend`（生成 deviceId+deviceSecret+bindCode，Mock 与真机同机制）；绑定码 MVP 为 8 位数字（真机随附形式待硬件确认）。
 
 ## 5. 位置与轨迹
 

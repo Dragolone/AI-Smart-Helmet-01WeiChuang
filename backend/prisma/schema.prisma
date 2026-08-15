@@ -10,24 +10,48 @@ datasource db {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  phone        String   @unique
-  passwordHash String   @map("password_hash")
-  nickname     String?
-  createdAt    DateTime @default(now()) @map("created_at")
-  devices      Device[]
+  id            String         @id @default(cuid())
+  phone         String         @unique
+  passwordHash  String         @map("password_hash")
+  nickname      String?
+  avatarUrl     String?        @map("avatar_url")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  devices       Device[]
+  refreshTokens RefreshToken[]
 
   @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id])
+  // 库中只存 sha256 哈希，明文只出现在下发响应里
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  // 轮换/登出即置位；已置位的 token 再次出现视为盗用信号
+  revokedAt DateTime? @map("revoked_at")
+
+  @@index([userId])
+  @@map("refresh_tokens")
 }
 
 model Device {
   // 主键直接用硬件团队分配的 deviceId（如 helmet_001），不另造代理键
   deviceId         String    @id @map("device_id")
   deviceSecretHash String    @map("device_secret_hash")
+  // 绑定码：出厂随附（真机形式待硬件确认，Mock/开通脚本生成同机制）
+  bindCode         String?   @unique @map("bind_code")
   bindUserId       String?   @map("bind_user_id")
   bindUser         User?     @relation(fields: [bindUserId], references: [id])
+  boundAt          DateTime? @map("bound_at")
+  // ↓ 状态快照：由 Ingest 收到设备事件时更新，App 的"在线/电量"数据源
   lastSeenAt       DateTime? @map("last_seen_at")
   battery          Int?
+  charging         Boolean?
+  signalLevel      Int?      @map("signal_level")
+  sleeping         Boolean   @default(false)
   firmwareVersion  String?   @map("firmware_version")
   createdAt        DateTime  @default(now()) @map("created_at")
 
@@ -46,6 +70,10 @@ model RawEvent {
   schemaVersion   Int      @map("schema_version")
   firmwareVersion String?  @map("firmware_version")
   payload         Json
+  // 事件入口（mqtt/webhook）：仅供排查，业务模块不可见不可依赖（EVENTS.md §1）
+  source          String   @default("mqtt")
+  // 设备时钟偏移标记：|timestamp - receivedAt| 超阈值时置真（DEVICE_PROTOCOL §8）
+  clockSkew       Boolean  @default(false) @map("clock_skew")
 
   @@index([deviceId, timestamp])
   @@map("raw_events")

@@ -1,0 +1,153 @@
+import {
+  ConflictException,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { createHash, randomBytes } from 'node:crypto';
+import * as bcrypt from 'bcrypt';
+import { PrismaService } from '../prisma/prisma.service';
+
+/** API.md §2 定稿：access 15 分钟 / refresh 30 天（轮换制） */
+const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const BCRYPT_ROUNDS = 10;
+
+export interface TokenPair {
+  accessToken: string;
+  refreshToken: string;
+}
+
+export interface SafeUser {
+  id: string;
+  phone: string;
+  nickname: string | null;
+  avatarUrl: string | null;
+  createdAt: Date;
+}
+
+const hashRefreshToken = (token: string): string =>
+  createHash('sha256').update(token).digest('hex');
+
+@Injectable()
+export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly jwt: JwtService,
+  ) {}
+
+  async register(
+    phone: string,
+    password: string,
+    nickname?: string,
+  ): Promise<{ user: SafeUser } & TokenPair> {
+    const existing = await this.prisma.user.findUnique({ where: { phone } });
+    if (existing) {
+      throw new ConflictException({
+        code: 'PHONE_ALREADY_REGISTERED',
+        message: '该手机号已注册',
+      });
+    }
+    const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+    const user = await this.prisma.user.create({
+      data: { phone, passwordHash, nickname: nickname ?? null },
+    });
+    const tokens = await this.issueTokens(user.id);
+    return { user: this.toSafeUser(user), ...tokens };
+  }
+
+  async login(
+    phone: string,
+    password: string,
+  ): Promise<{ user: SafeUser } & TokenPair> {
+    const user = await this.prisma.user.findUnique({ where: { phone } });
+    // 手机号不存在与密码错误返回同一错误，不给撞库者区分信息
+    if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+      throw new UnauthorizedException({
+        code: 'UNAUTHORIZED',
+        message: '手机号或密码错误',
+      });
+    }
+    const tokens = await this.issueTokens(user.id);
+    return { user: this.toSafeUser(user), ...tokens };
+  }
+
+  /** refresh 轮换：旧 token 立即作废；检测到已作废 token 被复用 → 撤销该用户全部会话。 */
+  async refresh(refreshToken: string): Promise<TokenPair> {
+    const tokenHash = hashRefreshToken(refreshToken);
+    const record = await this.prisma.refreshToken.findUnique({
+      where: { tokenHash },
+    });
+    if (!record) {
+      throw new UnauthorizedException({
+        code: 'UNAUTHORIZED',
+        message: 'refresh token 无效',
+      });
+    }
+    if (record.revokedAt) {
+      // 已轮换掉的 token 再次出现 = 疑似被盗用，终止该用户所有会话
+      this.logger.warn(
+        `refresh token 复用检测：撤销用户 ${record.userId} 全部会话`,
+      );
+      await this.prisma.refreshToken.updateMany({
+        where: { userId: record.userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      throw new UnauthorizedException({
+        code: 'UNAUTHORIZED',
+        message: 'refresh token 已失效，请重新登录',
+      });
+    }
+    if (record.expiresAt.getTime() < Date.now()) {
+      throw new UnauthorizedException({
+        code: 'UNAUTHORIZED',
+        message: 'refresh token 已过期，请重新登录',
+      });
+    }
+    await this.prisma.refreshToken.update({
+      where: { tokenHash },
+      data: { revokedAt: new Date() },
+    });
+    return this.issueTokens(record.userId);
+  }
+
+  /** 登出：作废指定 refresh token（幂等——不存在也返回成功）。 */
+  async logout(refreshToken: string): Promise<void> {
+    await this.prisma.refreshToken.updateMany({
+      where: { tokenHash: hashRefreshToken(refreshToken), revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
+
+  private async issueTokens(userId: string): Promise<TokenPair> {
+    const accessToken = await this.jwt.signAsync({ sub: userId });
+    // refresh 用不透明随机串（非 JWT）：可撤销、可轮换，库中只存哈希
+    const refreshToken = randomBytes(48).toString('base64url');
+    await this.prisma.refreshToken.create({
+      data: {
+        userId,
+        tokenHash: hashRefreshToken(refreshToken),
+        expiresAt: new Date(Date.now() + REFRESH_TTL_MS),
+      },
+    });
+    return { accessToken, refreshToken };
+  }
+
+  private toSafeUser(u: {
+    id: string;
+    phone: string;
+    nickname: string | null;
+    avatarUrl: string | null;
+    createdAt: Date;
+  }): SafeUser {
+    return {
+      id: u.id,
+      phone: u.phone,
+      nickname: u.nickname,
+      avatarUrl: u.avatarUrl,
+      createdAt: u.createdAt,
+    };
+  }
+}

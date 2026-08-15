@@ -14,6 +14,7 @@
     "packages/*"
   ],
   "allowScripts": {
-    "@prisma/engines@7.9.1": true
+    "@prisma/engines@7.9.1": true,
+    "bcrypt@6.0.0": true
   }
 }
