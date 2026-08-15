@@ -127,19 +127,23 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 
 | 谁 | 做什么 | 为了什么 | 状态 |
 |----|--------|----------|------|
-| A | App：注册/登录页、Token 管理、设备绑定流程 UI、设备状态页（在线/电量/固件版本） | 用户拿到手机第一眼的完整闭环 | 🔄 后端已就绪待对接 |
+| A | App：注册/登录页、Token 管理、设备绑定流程 UI、设备状态页（在线/电量/固件版本） | 用户拿到手机第一眼的完整闭环 | 🔄 代码已合入 main（546e84a，五页 + 401 静默刷新 + SecureStore）；**双端真机 DoD 待复验** |
 | B | 后端：Auth 模块（JWT access+refresh）、设备绑定 API、device_status 事件入库并透出状态 API | 支撑 A 的全部界面 | ✅ PR #19/#20（含开通脚本、状态快照、在线判定） |
 | B | Admin 基础：管理员登录 + 用户/设备列表页 | 运营侧从第一天就能看到数据 | ✅ PR #26（前后端 + e2e 双向 token 隔离；负责人 2026-08-15 验收通过） |
 | B | **设备接入安全**：EMQX 认证对接后端（设备凭证校验）+ Topic ACL + 后端消费者自身凭证 | 原审查高危项 | ✅ PR #22/#23（三连验收：匿名拒、正凭证通、越权丢） |
 | B | 小 migration：raw_events 补 clock_skew 标记 + source 字段 | 兑现 DEVICE_PROTOCOL §8 / EVENTS.md §1 承诺字段 | ✅ PR #18（复合幂等评估仍待硬件确认 eventId 规则） |
 | A | App 基建：安装 expo-dev-client 并双端重装验证 | 杜绝误入 Expo Go；获得开发者菜单 | ✅ 2026-08-15 |
 | 共同 | 双端同步开发：每个功能 Android 和 iOS 同周完成 | 项目铁律，不允许"iOS 以后补" | 持续 |
-| 共同 | packages/shared 落 TS 类型（Contract → 编译期约束） | 前后端字段不一致在编译期报错 | 🔄 **B 线下一任务**（Admin 已完成，前置解除） |
+| 共同 | packages/shared 落 TS 类型（Contract → 编译期约束） | 前后端字段不一致在编译期报错 | ✅ PR #29（四端引用；App 侧已按 main 定义对齐） |
 
-**验收标准**：双端真机走通「注册 → 登录 → 绑定 Mock 设备 → 看到在线状态和电量」；Admin 里能看到这个用户和设备（Admin 侧 2026-08-15 已验收，双端 App 侧待 A 线对接完成后合验）。
+**验收标准**：双端真机走通「注册 → 登录 → 绑定 Mock 设备 → 看到在线状态和电量」；Admin 里能看到这个用户和设备。
+**验收状态（2026-08-16）：未关闭。** Admin 侧 2026-08-15 已验收；App 侧代码已合入 main，但只做到双端**模拟器**端到端通过——按 CLAUDE.md「Definition of Done」，Android 真机 + iPhone 真机各过一遍才算 Done，真机复验完成后由负责人合验关闭本周。
 
 **B 线补充（2026-08-15）**：修复 MQTT 消费者订阅失败不重试的静默失聪 bug（PR #27，SUBACK 被拒时连着 Broker 却收不到消息）；定位并记录「残留后端进程劫持 EMQX 回调连接池 → 授权 fail-closed 全拒」环境坑（见 DEVELOPMENT.md 已知坑）。Admin 认证口径已定稿于 API.md §10（独立 admin_users 表 + ADMIN_JWT_SECRET，12h 无 refresh）。
 **Week 2 遗留待核**：地图 SDK 渲染 Spike（Spike 批次验证了定位但未见地图 SDK 本体；Week 5–6 前必须定案高德 RN 库 vs WebView）。
+
+**A 线进度（2026-08-16）**：Week 3–4 App 主线 UI 合入 main（546e84a）——登录/注册/我的设备/绑定/设备详情五页、Stack.Protected 登录门控、API 客户端（401 静默刷新与并发请求排队）、Zustand 会话 + expo-secure-store、错误码规范化文案；shared 类型与 #29 冲突处以 main 为准，App 侧引用已随之更名。环境提示：联调需要 `JWT_SECRET` / `EMQX_INTERNAL_TOKEN` / `MQTT_BACKEND_USERNAME` / `MQTT_BACKEND_PASSWORD`——这些键 `backend/.env.example` 里都有，本地 `.env` 建的早的照 example 补齐即可（`EMQX_INTERNAL_TOKEN` 本地填 `local_dev_emqx_token`）。
+**遗留两项**：① **双端真机复验未做**（仅模拟器验证，见上方验收状态）；② 该批代码**直推 main 未走 PR/Review**，流程口径已与负责人重申——后续功能一律走 `feat/*` 分支 + PR，涉及 `packages/shared` 的改动按公共文件规则必须 Review。
 
 ## Week 5–6：定位、地图、轨迹
 
@@ -147,7 +151,7 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 
 | 谁 | 做什么 | 为了什么 | 状态 |
 |----|--------|----------|------|
-| A | 地图页：当前位置、实时移动（WebSocket）、历史轨迹回放、位置分享与导航跳转 | 用户最常看的页面 | 🔄 后端 API/WS/类型已就绪（PR #29/#30）；地图 SDK Spike 待高德 Key |
+| A | 地图页：当前位置、实时移动（WebSocket）、历史轨迹回放、位置分享与导航跳转 | 用户最常看的页面 | 🔄 后端 API/WS/类型已就绪（PR #29/#30）；**被高德 Key 阻塞——当前 A 线关键路径**，Key 到位即先定案地图 SDK |
 | B | location_update 入库（高频表索引）、位置/轨迹查询 API、WebSocket 通道 | 数据侧与实时侧支撑 | ✅ PR #30（location_points 表、latest/范围查询 24h 上限定稿、原生 ws 决策 #25、4401 鉴权、定向推送；负责人 2026-08-15 验收通过） |
 | B | Mock 骑行剧本：模拟一段真实骑行轨迹循环播放 | 随时可演示"头盔在动" | ✅ Week 2 已有骑行环路；PR #30 新增**滑雪剧本**（SCENARIO=ski，海拔 2110→1790 滑降+缆车循环，负责人滑雪场景需求） |
 
