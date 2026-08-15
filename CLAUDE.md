@@ -1,7 +1,10 @@
 # CLAUDE.md — AI 智能头盔软件项目
 
 > 本文件是整个项目的长期开发约定。Claude Code 和两位开发者在每次开发前都必须先读本文件。
-> 状态（2026-08-15）：**Week 1 已达成（CI 全绿 + 双端真机）。Week 2 B 线已完成**：Prisma 三表 + /health、MQTT 消费者 + Ingest（校验/eventId 幂等/无效留档/入库成功才 PUBACK/持久会话）、Mock Device v1（骑行剧本）全链路验证通过；全量代码审查 33 项确认——19 项已修、6 项排入 Week 3–4（见周计划表：EMQX 认证+ACL、clock_skew/source migration、expo-dev-client 等）。**A 线待同事上手**（五个 Spike：地图/定位/BLE/Push/RTC，入口 `plan/onboarding.md`）。第三方：Apple 公司账号走到 D-U-N-S 建档（待重提）；高德企业认证对公打款在途；云服务器/域名/备案、RTC Key 待办。B 线下一任务：Week 3 Auth 方案。仓库：<https://github.com/Dragolone/AI-Smart-Helmet-01WeiChuang>**
+> 状态（2026-08-15）：**Week 1 已达成（CI 全绿 + 双端真机）。Week 2 双线齐头并进：**
+> **B 线已完成**：Prisma 三表 + /health、MQTT 消费者 + Ingest（校验/eventId 幂等/无效留档/入库成功才 PUBACK/持久会话）、Mock Device v1（骑行剧本）全链路验证通过；全量代码审查 33 项确认——19 项已修、6 项排入 Week 3–4（见周计划表：EMQX 认证+ACL、clock_skew/source migration、expo-dev-client 等）。B 线下一任务：Week 3 Auth 方案。
+> **A 线已上手并完成 4/5 Spike（2026-08-15）**：环境全链路本机复验 + Mock 事件入库验证通过；定位（含华为无 GMS）、Push 本地通知、BLE 前台扫描/连接/断连检测、RTC（腾讯 TRTC：双机对讲互通、锁屏后台音频、蓝牙耳机路由全过，**选型证据齐备待定案**）均双端真机通过。剩余：地图 Spike（等高德 Key）、BLE 后台断连（Week 11 防丢前必测）、APNs 远程推送（等公司账号）。实证：Bundle ID 无法跨两个个人开发团队共用（见 docs/DEVELOPMENT.md 平台限制清单）。
+> 第三方：Apple 公司账号走到 D-U-N-S 建档（待重提，Spike 实证支持加急）；高德企业认证对公打款在途；云服务器/域名/备案待办；RTC 已有 TRTC 个人测试应用可用（正式 Key 待定案后申请）。进度明细见 `plan/weekly-plan.md`。仓库：<https://github.com/Dragolone/AI-Smart-Helmet-01WeiChuang>
 > 已拍板的技术决策记录在 `docs/DECISIONS.md`，**不允许无理由重新推翻**。
 
 ---
