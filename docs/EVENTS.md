@@ -103,7 +103,8 @@
 |------|------|------|------|-------------|
 | location | object | 选填 | — | 同 4.3 location |
 
-> SOS 状态机为服务端权威（DECISIONS #8）：创建后服务端持久化 deadline 并经 WebSocket/Push 下发，App 只渲染倒计时；重复上报（同 eventId）不重复建单；不同 eventId 但该设备已有进行中 SOS 时的合并规则在 SOS 模块设计时定稿（⚠️ 软件侧待定，Week 7 前）。
+> SOS 状态机为服务端权威（DECISIONS #8）：创建后服务端持久化 deadline 并经 WebSocket/Push 下发，App 只渲染倒计时；重复上报（同 eventId）不重复建单。
+> **并发合并规则（✅ 定稿 2026-08-16，DECISIONS #26）**：该设备已有进行中（pending）SOS 时——新 **possible_fall** 只留档不建单（同一事故的重复判定）；新 **manual_sos** 不建单但**立即触发通知**（倒计时中按实体键 = 明确人为求救，等价 App 端 SOS Now）。终态（notified/cancelled）后的新事件正常建新单。未绑定用户的设备只留档不建单。deadline 一律按服务器时间计算，设备时钟偏移（clock_skew）不影响状态机。
 
 ### 4.5 collision_risk / obstacle_risk
 
@@ -184,6 +185,6 @@
 
 **硬件团队**：device_status/location_update 上报频率与无效值口径、signalLevel 分级、sleep reason 集合、GPS 输出坐标系、video 上传方式与 storageKey、可下发参数清单与错误码表、是否需要额外命令类型。
 **算法团队**：riskLevel 档位口径、objectType/direction 集合、Webhook 场景 firmwareVersion 取值。
-**软件侧内部**：同设备并发 SOS 合并规则（Week 7 前）、wgs84→gcj02 转换位置（随地图 Spike 定稿）。
+**软件侧内部**：wgs84→gcj02 转换位置（随地图 Spike 定稿）。（~~同设备并发 SOS 合并规则~~ 已定稿 2026-08-16，见 §4.4 / DECISIONS #26。）
 
 以上确认前，Mock Device 按本文件当前默认值出数据；确认后更新本文件并同步 Mock 与 `packages/shared`。

@@ -34,7 +34,7 @@ const client = connect(MQTT_URL, {
   password: DEVICE_SECRET,
 });
 
-function publish<T extends EventType>(kind: 'status' | 'location', eventType: T, payload: EventPayloadMap[T]): void {
+function publish<T extends EventType>(kind: 'status' | 'location' | 'event', eventType: T, payload: EventPayloadMap[T]): void {
   const envelope = buildEnvelope(DEVICE_ID, FIRMWARE_VERSION, eventType, payload);
   client.publish(`helmet/${DEVICE_ID}/${kind}`, JSON.stringify(envelope), { qos: 1 }, (err) => {
     if (err) {
@@ -53,10 +53,47 @@ function sendStatus(): void {
 }
 
 // —— location_update 剧本：沿内置路线逐点前进，循环播放 ——
-// SCENARIO=ski 切滑雪剧本（带海拔的滑降+缆车，速度高低交替）；默认骑行环路
-const SCENARIO = process.env.SCENARIO === 'ski' ? 'ski' : 'riding';
+// SCENARIO=ski 滑雪剧本（带海拔）；SCENARIO=fall / sos：骑行途中触发一次
+// possible_fall / manual_sos（SOS 状态机端到端演示）；默认骑行环路
+type Scenario = 'riding' | 'ski' | 'fall' | 'sos';
+const SCENARIO: Scenario = (() => {
+  const s = process.env.SCENARIO;
+  return s === 'ski' || s === 'fall' || s === 'sos' ? s : 'riding';
+})();
 const ROUTE = SCENARIO === 'ski' ? buildSkiLoop() : expandRoute(RIDING_LOOP, 30);
 let routeIndex = 0;
+
+// 触发点：发满 EMERGENCY_AFTER_POINTS 个位置后发一次紧急事件（可 Ctrl+C 重跑重放）
+const EMERGENCY_AFTER_POINTS = (() => {
+  const n = Number(process.env.EMERGENCY_AFTER_POINTS);
+  return Number.isInteger(n) && n >= 1 ? n : 5;
+})();
+let pointsSent = 0;
+let emergencySent = false;
+function maybeSendEmergency(current: (typeof ROUTE)[number]): void {
+  if (SCENARIO !== 'fall' && SCENARIO !== 'sos') return;
+  if (emergencySent || pointsSent < EMERGENCY_AFTER_POINTS) return;
+  emergencySent = true;
+  const location = {
+    latitude: current.latitude,
+    longitude: current.longitude,
+    coordinateSystem: 'wgs84' as const,
+    accuracy: 8,
+  };
+  if (SCENARIO === 'fall') {
+    // confidence/algorithmVersion 原样落库不参与软件判断（EVENTS.md §2.5）
+    publish('event', 'possible_fall', {
+      confidence: 0.87,
+      algorithmVersion: 'mock-fall-v1',
+      location,
+    });
+  } else {
+    publish('event', 'manual_sos', { location });
+  }
+  log(
+    `🚨 已触发 ${SCENARIO === 'fall' ? 'possible_fall' : 'manual_sos'}（服务端将开始 SOS 倒计时）`,
+  );
+}
 function sendLocation(): void {
   const current = ROUTE[routeIndex];
   const next = ROUTE[(routeIndex + 1) % ROUTE.length];
@@ -73,6 +110,8 @@ function sendLocation(): void {
       : {}),
   });
   routeIndex = (routeIndex + 1) % ROUTE.length;
+  pointsSent += 1;
+  maybeSendEmergency(current);
 }
 
 let timers: NodeJS.Timeout[] = [];
@@ -89,8 +128,16 @@ client.on('connect', () => {
       `⚠️ 连接被反复顶替——可能有另一个 ${DEVICE_ID} 实例在运行（MQTT 同 clientId 互踢）。请只保留一个实例，或用 DEVICE_ID 环境变量区分。`,
     );
   }
+  const scenarioName =
+    SCENARIO === 'ski'
+      ? '滑雪'
+      : SCENARIO === 'fall'
+        ? '骑行+摔倒'
+        : SCENARIO === 'sos'
+          ? '骑行+手动SOS'
+          : '骑行';
   log(
-    `已连接 ${MQTT_URL}，开始${SCENARIO === 'ski' ? '滑雪' : '骑行'}剧本（位置每 ${LOCATION_INTERVAL_MS / 1000}s / 心跳每 ${STATUS_INTERVAL_MS / 1000}s）`,
+    `已连接 ${MQTT_URL}，开始${scenarioName}剧本（位置每 ${LOCATION_INTERVAL_MS / 1000}s / 心跳每 ${STATUS_INTERVAL_MS / 1000}s）`,
   );
   // 重连会再次触发 connect：先清旧定时器，避免越跑越快
   timers.forEach(clearInterval);

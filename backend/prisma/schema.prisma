@@ -99,6 +99,58 @@ model LocationPoint {
   @@map("location_points")
 }
 
+// SOS 单 = 事故记录（API.md §7 一表两用）：possible_fall / manual_sos 触发，
+// 服务端权威状态机（决策 #8）：pending → notified | cancelled，deadline 持久化 + 周期扫描 + 重启接管
+model SosCase {
+  id             String  @id @default(cuid())
+  deviceId       String  @map("device_id")
+  // 触发时的绑定用户，冗余固化：解绑后事故记录不失主；取消/确认权限与通知对象均以此为准
+  userId         String  @map("user_id")
+  // 与触发事件 1:1（幂等兜底）；不建外键：与 raw_events 同原则
+  triggerEventId String  @unique @map("trigger_event_id")
+  triggerType    String  @map("trigger_type") // possible_fall | manual_sos
+  status         String  @default("pending") // pending | notified | cancelled
+  // deadline 一律按服务器时间计算（createdAt + 倒计时秒数）；设备时钟不参与，clock_skew 不影响保命链路
+  deadline       DateTime
+  finalizedAt    DateTime? @map("finalized_at")
+  // 事故位置快照（口径 2026-08-16 定稿）：优先触发事件 payload.location（逐字段校验），
+  // 回落该设备最新轨迹点；都没有则为空但单照建。source: event | last_point
+  latitude         Float?
+  longitude        Float?
+  coordinateSystem String? @map("coordinate_system")
+  accuracy         Float?
+  locationSource   String? @map("location_source")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  notifications  SosNotification[]
+
+  // 附加约束（见本次 migration SQL）：partial unique index「每设备至多一个 pending」，
+  // 并发触发的兜底闸门（Prisma schema 语法不支持 partial index，故此处仅注释留痕）
+  @@index([deviceId, createdAt])
+  @@index([status, deadline])
+  @@map("sos_cases")
+}
+
+// SOS 通知发送留档（Contract：成功/失败/通道必须可查；失败由扫描任务重试，超上限终态 failed）
+model SosNotification {
+  id          String    @id @default(cuid())
+  sosId       String    @map("sos_id")
+  sos         SosCase   @relation(fields: [sosId], references: [id])
+  channel     String // sms | push
+  // 发送目标（sms=联系人手机号原值，push=user:<id>）：留档历史事实，联系人事后改删不影响；日志侧脱敏
+  target      String
+  contactName String?   @map("contact_name")
+  status      String    @default("pending") // pending | sent | failed
+  attempts    Int       @default(0)
+  lastError   String?   @map("last_error")
+  sentAt      DateTime? @map("sent_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([sosId])
+  @@index([status])
+  @@map("sos_notifications")
+}
+
 // 管理员与 App 用户完全分离（API.md §10）：种子脚本创建，不做自助注册
 model AdminUser {
   id           String   @id @default(cuid())
