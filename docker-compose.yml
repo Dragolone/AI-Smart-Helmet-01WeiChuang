@@ -6,7 +6,8 @@ services:
     image: postgres:16
     container_name: helmet-postgres
     ports:
-      - "5432:5432"
+      # 只绑本机回环：避免同一局域网内其他设备直连开发库
+      - "127.0.0.1:5432:5432"
     environment:
       POSTGRES_USER: helmet
       POSTGRES_PASSWORD: helmet_local_dev
@@ -23,8 +24,9 @@ services:
     image: emqx:5
     container_name: helmet-emqx
     ports:
-      - "1883:1883"   # MQTT（本地明文；云端环境必须 TLS 8883）
-      - "18083:18083" # EMQX Dashboard（本地默认账号 admin/public）
+      # 只绑本机回环（局域网隔离）；需要真机/局域网设备连入联调时再临时放开并知会对方
+      - "127.0.0.1:1883:1883"   # MQTT（本地明文；云端环境必须 TLS 8883）
+      - "127.0.0.1:18083:18083" # EMQX Dashboard（本地默认账号 admin/public）
     volumes:
       - emqx_data:/opt/emqx/data
 

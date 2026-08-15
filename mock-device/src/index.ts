@@ -15,7 +15,8 @@ function parseIntervalMs(raw: string | undefined, fallback: number): number {
   return Number.isFinite(n) && n >= 500 ? n : fallback;
 }
 const LOCATION_INTERVAL_MS = parseIntervalMs(process.env.LOCATION_INTERVAL_MS, 5000);
-const STATUS_INTERVAL_MS = parseIntervalMs(process.env.STATUS_INTERVAL_MS, 15_000);
+// 心跳默认 60s：对齐 EVENTS.md §4.1 / DEVICE_PROTOCOL Keep Alive 的建议值；演示要更密可用环境变量调小
+const STATUS_INTERVAL_MS = parseIntervalMs(process.env.STATUS_INTERVAL_MS, 60_000);
 
 const log = (msg: string): void =>
   console.log(`[${new Date().toISOString()}] [${DEVICE_ID}] ${msg}`);
