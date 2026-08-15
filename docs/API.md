@@ -30,6 +30,7 @@
 | DEVICE_NOT_FOUND | 404 | 设备不存在或未绑定到当前用户 |
 | CONFLICT | 409 | 通用冲突 |
 | DEVICE_ALREADY_BOUND | 409 | 设备已被绑定 |
+| PHONE_ALREADY_REGISTERED | 409 | 注册手机号已存在 |
 | RATE_LIMITED | 429 | 触发限流 |
 | INTERNAL_ERROR | 500 | 服务端异常（带 requestId 供排查） |
 
@@ -52,7 +53,7 @@
 
 `user` 对象：`{ id, phone, nickname, avatarUrl?, createdAt }`。密码 bcrypt/argon2 存储，任何接口不回传。
 
-Token 有效期 ⚠️ 待定稿（建议 access 15min / refresh 30d）。
+Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / refresh 30 天**；refresh 轮换制——每次刷新旧 token 作废，已作废 token 被复用视为盗用信号、撤销该用户全部会话。本节 register/login/refresh/logout 与 /users/me 均已实现（短信验证码待 SmsProvider 接入后补）。
 
 ## 3. 紧急联系人
 
