@@ -6,6 +6,7 @@
     "@expo/ui": "~57.0.10",
     "expo": "~57.0.12",
     "expo-constants": "~57.0.10",
+    "expo-dev-client": "~57.0.12",
     "expo-device": "~57.0.1",
     "expo-font": "~57.0.1",
     "expo-glass-effect": "~57.0.1",
