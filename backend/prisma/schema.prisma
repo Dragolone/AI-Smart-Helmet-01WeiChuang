@@ -46,6 +46,10 @@ model RawEvent {
   schemaVersion   Int      @map("schema_version")
   firmwareVersion String?  @map("firmware_version")
   payload         Json
+  // 事件入口（mqtt/webhook）：仅供排查，业务模块不可见不可依赖（EVENTS.md §1）
+  source          String   @default("mqtt")
+  // 设备时钟偏移标记：|timestamp - receivedAt| 超阈值时置真（DEVICE_PROTOCOL §8）
+  clockSkew       Boolean  @default(false) @map("clock_skew")
 
   @@index([deviceId, timestamp])
   @@map("raw_events")
