@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { IngestService } from './ingest.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { DeviceSnapshotService } from '../devices/device-snapshot.service';
 import { Prisma } from '../generated/prisma/client';
 import { validateEnvelope } from './envelope';
 
@@ -86,14 +87,17 @@ describe('validateEnvelope', () => {
 
 describe('IngestService', () => {
   const create = jest.fn();
+  const applyEvent = jest.fn();
   let service: IngestService;
 
   beforeEach(async () => {
     create.mockReset();
+    applyEvent.mockReset();
     const moduleRef = await Test.createTestingModule({
       providers: [
         IngestService,
         { provide: PrismaService, useValue: { rawEvent: { create } } },
+        { provide: DeviceSnapshotService, useValue: { applyEvent } },
       ],
     }).compile();
     service = moduleRef.get(IngestService);

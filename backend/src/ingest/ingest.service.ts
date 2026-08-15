@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { DeviceSnapshotService } from '../devices/device-snapshot.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '../generated/prisma/client';
 import {
@@ -18,7 +19,10 @@ const CLOCK_SKEW_THRESHOLD_MS = 5 * 60_000;
 export class IngestService {
   private readonly logger = new Logger(IngestService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly snapshot: DeviceSnapshotService,
+  ) {}
 
   /** 所有入口（MQTT / 未来的 Webhook / Mock）都汇聚到这里；返回值仅用于日志与测试。 */
   async ingestRaw(
@@ -40,6 +44,10 @@ export class IngestService {
     }
 
     const stored = await this.persist(result.envelope, source);
+    if (stored) {
+      // 已注册设备的状态快照（在线/电量），未注册设备静默跳过
+      await this.snapshot.applyEvent(result.envelope);
+    }
     return stored ? 'stored' : 'duplicate';
   }
 
