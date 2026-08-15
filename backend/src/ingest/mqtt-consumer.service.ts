@@ -20,6 +20,9 @@ const TOPIC_PATTERN = /^helmet\/([^/]+)\/(status|location|event)$/;
 const PERSIST_RETRIES = 2;
 const PERSIST_RETRY_DELAY_MS = 300;
 
+/** 订阅失败重试间隔：订阅失败 = 连着 Broker 却收不到任何消息，只告警不重试会静默失聪 */
+const SUBSCRIBE_RETRY_DELAY_MS = 5_000;
+
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -30,6 +33,8 @@ const sanitize = (s: string): string => s.replace(/[\r\n]+/g, ' ');
 export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MqttConsumerService.name);
   private client: MqttClient | null = null;
+  private subscribeTimer: NodeJS.Timeout | null = null;
+  private shuttingDown = false;
 
   constructor(private readonly ingest: IngestService) {}
 
@@ -69,19 +74,39 @@ export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
 
     this.client.on('connect', () => {
       this.logger.log(`已连接 MQTT Broker：${url}`);
-      this.client?.subscribe(SUBSCRIBE_TOPICS, { qos: 1 }, (err) => {
-        if (err) {
-          this.logger.error(`订阅失败：${err.message}`);
-        } else {
-          this.logger.log(`已订阅：${SUBSCRIBE_TOPICS.join(', ')}`);
-        }
-      });
+      this.subscribeWithRetry(1);
     });
 
     this.client.on('reconnect', () => this.logger.warn('MQTT 重连中…'));
     this.client.on('error', (err) =>
       this.logger.error(`MQTT 错误：${err.message}`),
     );
+  }
+
+  /**
+   * 订阅失败必须重试直到成功：SUBACK 被拒（如授权侧瞬时故障）时连接仍在，
+   * mqtt.js 不会自动补订阅，不重试就会"连着却永远收不到消息"。
+   * 断线重连后 'connect' 会重新进入本方法，先清掉旧的待重试计时器避免并发订阅。
+   */
+  private subscribeWithRetry(attempt: number): void {
+    if (this.subscribeTimer) {
+      clearTimeout(this.subscribeTimer);
+      this.subscribeTimer = null;
+    }
+    this.client?.subscribe(SUBSCRIBE_TOPICS, { qos: 1 }, (err) => {
+      if (!err) {
+        this.logger.log(`已订阅：${SUBSCRIBE_TOPICS.join(', ')}`);
+        return;
+      }
+      if (this.shuttingDown) return;
+      this.logger.error(
+        `订阅失败（第 ${attempt} 次）：${err.message}；${SUBSCRIBE_RETRY_DELAY_MS}ms 后重试`,
+      );
+      this.subscribeTimer = setTimeout(
+        () => this.subscribeWithRetry(attempt + 1),
+        SUBSCRIBE_RETRY_DELAY_MS,
+      );
+    });
   }
 
   private async processPublish(topic: string, raw: string): Promise<void> {
@@ -112,6 +137,11 @@ export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
+    this.shuttingDown = true;
+    if (this.subscribeTimer) {
+      clearTimeout(this.subscribeTimer);
+      this.subscribeTimer = null;
+    }
     await this.client?.endAsync();
   }
 }
