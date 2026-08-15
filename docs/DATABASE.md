@@ -11,6 +11,7 @@
 | devices | 主键直接用硬件 deviceId，不造代理键 | 设备全链路（MQTT Topic、事件、绑定）都以硬件 ID 为准，翻译层只会添乱 |
 | raw_events | event_id 全局唯一约束 = 幂等去重的兜底；**不建**到 devices 的外键 | 幂等必须由数据库保证（并发/重发场景应用层拦不住）；未注册设备/未知来源的事件也必须能原样落库（Ingest 规则） |
 | raw_events | `(device_id, timestamp)` 复合索引 | 高频表按设备+时间查询是唯一主路径（CLAUDE.md Database Rules） |
+| location_points | 类型化列而非复用 raw_events 的 JSON payload；event_id 唯一（与源事件 1:1）；不建外键；仅已注册设备写入 | 轨迹查询是高频主路径，JSON 提取查不动索引；event_id 唯一兜底并发重放幂等；未注册设备只留 raw；altitude 单列保留（滑雪场景核心维度） |
 
 ## 已知的后续演进点（审查发现，已排期）
 

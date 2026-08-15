@@ -85,14 +85,15 @@ Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / 
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | /devices/{deviceId}/locations/latest | 最新位置一条 |
-| GET | /devices/{deviceId}/locations?from=&to=&page=&pageSize= | 历史轨迹（时间范围必填，单次范围上限 24h ⚠️ 待定；按 timestamp 升序） |
+| GET | /devices/{deviceId}/locations/latest | 最新位置：`200 { "location": <location 对象> \| null }`（设备存在但尚无数据时为 null，✅ 定稿） |
+| GET | /devices/{deviceId}/locations?from=&to=&page=&pageSize= | 历史轨迹（from/to 必填 ISO 8601；**单次范围上限 24h，✅ 定稿**；按 timestamp 升序；统一分页结构） |
 
-`location` 对象（与 EVENTS.md 4.2 对齐）：`{ latitude, longitude, coordinateSystem, accuracy, speed, heading, altitude?, timestamp, receivedAt }`。
+`location` 对象（与 EVENTS.md 4.2 对齐，TS 类型见 `@helmet/shared` LocationPoint）：`{ latitude, longitude, coordinateSystem, accuracy, speed, heading, altitude, timestamp, receivedAt }`（altitude 无值为 null——滑雪场景核心维度，设备上报则全链路透传）。
 
 - 坐标系原样返回并带 `coordinateSystem`；是否服务端统一转 gcj02 随地图 Spike 定稿（DECISIONS 待定项）。
 - 轨迹查询走服务层（为未来 Retention/降采样留余地），App/Admin 不假设“所有点都在”。
 - 位置分享：MVP 用 App 端生成分享内容（坐标 + 高德跳转链接），**不做服务端分享短链** ⚠️ 若产品要求可访问网页版分享再评估。
+- ✅ 本节已实现（2026-08-15）：位置由 Ingest 从 location_update 事件写入 location_points 表（仅已注册设备；payload 逐字段校验，不合法只留 raw）；归属校验与 §4 同口径（非本人 404）。
 
 ## 6. 事件查询（危险事件 / 全量事件历史）
 
@@ -164,9 +165,9 @@ MVP 实用为主，全部只读 + 少量运维操作。
 
 ## 11. WebSocket（App 实时通道）
 
-- 端点：`/ws`（⚠️ 具体实现 Socket.IO vs 原生 ws 随 NestJS Gateway 实现定稿）；连接时用 accessToken 鉴权，失败即断开。
-- 连接后服务端自动按“当前用户绑定的设备”推送，无需客户端订阅指令（MVP 简化）。
-- 消息统一格式：
+- 端点：`/ws?token=<accessToken>`（✅ 定稿：**原生 ws**，决策 #25；token 走查询参数——RN/浏览器原生 WebSocket 无法可靠设置 header）；鉴权失败以关闭码 **4401** 断开。
+- 连接后服务端自动按“当前用户绑定的设备”推送，无需客户端订阅指令（MVP 简化）；data 内带 `deviceId` 区分多设备。
+- 消息统一格式（TS 类型见 `@helmet/shared` WsMessage）：
 
 ```json
 { "type": "sos_update", "data": { }, "sentAt": "2026-08-14T03:00:00Z" }
@@ -181,6 +182,7 @@ MVP 实用为主，全部只读 + 少量运维操作。
 | device_event | §6 event 列表项 | 其余事件（sleep_*、bluetooth_lost、video_ready） |
 
 - WebSocket 是加速通道不是可靠通道：App 重连后须用 REST 拉取兜底；SOS 兜底靠 Push（deadline 持久化在服务端）。
+- ✅ 实现状态（2026-08-15）：通道 + `device_status` / `location_update` 两类推送已实现；`sos_update` / `risk_event` / `device_event` 随对应功能（Week 7+）接入。
 
 ## 12. Ingest Webhook（云端算法服务 → 后端）
 

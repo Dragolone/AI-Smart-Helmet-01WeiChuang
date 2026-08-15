@@ -3,7 +3,13 @@
 import { connect } from 'mqtt';
 import type { EventPayloadMap, EventType } from '@helmet/shared';
 import { buildEnvelope } from './envelope.ts';
-import { RIDING_LOOP, distanceMeters, expandRoute, headingDegrees } from './route.ts';
+import {
+  RIDING_LOOP,
+  buildSkiLoop,
+  distanceMeters,
+  expandRoute,
+  headingDegrees,
+} from './route.ts';
 
 const MQTT_URL = process.env.MQTT_URL ?? 'mqtt://localhost:1883';
 const DEVICE_ID = process.env.DEVICE_ID ?? 'helmet_mock_001';
@@ -46,8 +52,10 @@ function sendStatus(): void {
   battery = battery <= 5 ? 100 : battery - 1;
 }
 
-// —— location_update 骑行剧本：沿内置环路逐点前进，循环播放 ——
-const ROUTE = expandRoute(RIDING_LOOP, 30);
+// —— location_update 剧本：沿内置路线逐点前进，循环播放 ——
+// SCENARIO=ski 切滑雪剧本（带海拔的滑降+缆车，速度高低交替）；默认骑行环路
+const SCENARIO = process.env.SCENARIO === 'ski' ? 'ski' : 'riding';
+const ROUTE = SCENARIO === 'ski' ? buildSkiLoop() : expandRoute(RIDING_LOOP, 30);
 let routeIndex = 0;
 function sendLocation(): void {
   const current = ROUTE[routeIndex];
@@ -60,6 +68,9 @@ function sendLocation(): void {
     accuracy: 5 + Math.round(Math.random() * 10),
     speed: Number(speed.toFixed(2)),
     heading: Number(headingDegrees(current, next).toFixed(1)),
+    ...(current.altitude !== undefined
+      ? { altitude: Number(current.altitude.toFixed(1)) }
+      : {}),
   });
   routeIndex = (routeIndex + 1) % ROUTE.length;
 }
@@ -78,7 +89,9 @@ client.on('connect', () => {
       `⚠️ 连接被反复顶替——可能有另一个 ${DEVICE_ID} 实例在运行（MQTT 同 clientId 互踢）。请只保留一个实例，或用 DEVICE_ID 环境变量区分。`,
     );
   }
-  log(`已连接 ${MQTT_URL}，开始骑行剧本（位置每 ${LOCATION_INTERVAL_MS / 1000}s / 心跳每 ${STATUS_INTERVAL_MS / 1000}s）`);
+  log(
+    `已连接 ${MQTT_URL}，开始${SCENARIO === 'ski' ? '滑雪' : '骑行'}剧本（位置每 ${LOCATION_INTERVAL_MS / 1000}s / 心跳每 ${STATUS_INTERVAL_MS / 1000}s）`,
+  );
   // 重连会再次触发 connect：先清旧定时器，避免越跑越快
   timers.forEach(clearInterval);
   sendStatus();

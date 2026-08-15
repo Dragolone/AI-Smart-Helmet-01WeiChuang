@@ -1,6 +1,7 @@
 // Admin 基础全链路集成测试：管理员登录 → 用户/设备列表 → 双向 token 隔离。
 import 'dotenv/config';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { WsAdapter } from '@nestjs/platform-ws';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { createHash } from 'node:crypto';
@@ -39,6 +40,8 @@ describe('Admin 基础 (e2e)', () => {
       new ValidationPipe({ whitelist: true, transform: true }),
     );
     app.useGlobalFilters(new UnifiedExceptionFilter());
+    // RealtimeGateway 在模块图中，init 前必须装 WS 适配器（与 main.ts 一致）
+    app.useWebSocketAdapter(new WsAdapter(app));
     await app.init();
     http = app.getHttpServer();
     prisma = app.get(PrismaService);

@@ -2,6 +2,7 @@
 // 需要可用的 PostgreSQL（本地 docker compose / CI postgres service）+ 已跑 migration。
 import 'dotenv/config';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { WsAdapter } from '@nestjs/platform-ws';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
@@ -32,6 +33,8 @@ describe('Auth 全链路 (e2e)', () => {
       new ValidationPipe({ whitelist: true, transform: true }),
     );
     app.useGlobalFilters(new UnifiedExceptionFilter());
+    // RealtimeGateway 在模块图中，init 前必须装 WS 适配器（与 main.ts 一致）
+    app.useWebSocketAdapter(new WsAdapter(app));
     await app.init();
     http = app.getHttpServer();
   });
