@@ -1,5 +1,6 @@
 import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import type { AdminLoginResponse } from '@helmet/shared';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { ADMIN_JWT_SECRET, ADMIN_TOKEN_TTL } from './admin.constants';
@@ -30,6 +31,6 @@ export class AdminAuthService {
     return {
       admin: { id: admin.id, username: admin.username },
       accessToken,
-    };
+    } satisfies AdminLoginResponse;
   }
 }

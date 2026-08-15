@@ -12,6 +12,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@helmet/shared": "^0.1.0",
     "mqtt": "^5.15.2"
   }
 }

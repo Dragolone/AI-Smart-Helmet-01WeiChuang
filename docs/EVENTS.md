@@ -1,7 +1,7 @@
 # EVENTS.md — 事件 Contract（定义“传什么”）
 
 > 与 `DEVICE_PROTOCOL.md` 的分工：**本文件定义传什么（字段、类型、必填性、单位、枚举、值域）；DEVICE_PROTOCOL.md 定义怎么传（连接、认证、Topic、QoS、重连、ACK）。**
-> 状态：**初稿（待双人 Review + 负责人确认后定稿）**。定稿后在 `packages/shared` 落为 TS 类型，App/Backend/Mock 统一引用。
+> 状态：**初稿（待双人 Review + 负责人确认后定稿）**。已在 `packages/shared` 落为 TS 类型（2026-08-15，含 ⚠️ 字段按当前默认值）；本文件变更时必须同步 `@helmet/shared`。
 > 标记：✅ 软件侧已定 ｜ ⚠️ 默认建议，待硬件/算法团队确认。
 > 兼容原则（DECISIONS #18）：**字段只增不改不删（新增一律选填）；破坏性变更必须升 schemaVersion 并双方确认。**
 

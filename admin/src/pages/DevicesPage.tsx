@@ -4,7 +4,7 @@ import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 import { useState } from 'react'
 import { api } from '../api/client'
-import type { AdminDeviceRow, Paginated } from '../api/types'
+import type { AdminDeviceRow, Paginated } from '@helmet/shared'
 
 const formatTime = (v: string | null): string =>
   v ? dayjs(v).format('YYYY-MM-DD HH:mm:ss') : '—'

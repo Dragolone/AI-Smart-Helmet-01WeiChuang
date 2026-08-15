@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // 产物必须是 CJS + d.ts：backend(CommonJS)/admin(Vite)/app(Metro)/mock-device(Node ESM) 四端唯一通吃形态
+    "module": "CommonJS",
+    "moduleResolution": "node10",
+    "noEmit": false,
+    "declaration": true,
+    "outDir": "dist"
+  }
+}

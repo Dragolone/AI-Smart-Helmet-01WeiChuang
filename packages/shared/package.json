@@ -3,9 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "description": "共享 TS 类型：事件 Schema、API DTO、枚举",
-  "main": "src/index.ts",
-  "types": "src/index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "npm run build",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

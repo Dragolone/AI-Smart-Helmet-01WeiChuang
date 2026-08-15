@@ -1,6 +1,7 @@
 // Mock Device Simulator v1：假扮真头盔连 EMQX，按 docs/EVENTS.md 持续发
 // device_status 心跳 + location_update 骑行剧本。对 Backend 完全不可区分。
 import { connect } from 'mqtt';
+import type { EventPayloadMap, EventType } from '@helmet/shared';
 import { buildEnvelope } from './envelope.ts';
 import { RIDING_LOOP, distanceMeters, expandRoute, headingDegrees } from './route.ts';
 
@@ -27,7 +28,7 @@ const client = connect(MQTT_URL, {
   password: DEVICE_SECRET,
 });
 
-function publish(kind: 'status' | 'location', eventType: string, payload: Record<string, unknown>): void {
+function publish<T extends EventType>(kind: 'status' | 'location', eventType: T, payload: EventPayloadMap[T]): void {
   const envelope = buildEnvelope(DEVICE_ID, FIRMWARE_VERSION, eventType, payload);
   client.publish(`helmet/${DEVICE_ID}/${kind}`, JSON.stringify(envelope), { qos: 1 }, (err) => {
     if (err) {
