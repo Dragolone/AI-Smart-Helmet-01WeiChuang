@@ -58,7 +58,7 @@ cd backend && npx prisma migrate dev   # 建表（要求 docker 里的 postgres 
 | 目的 | 命令 |
 |------|------|
 | 启动 App 开发服务器（日常 JS 开发） | `npm run start -w app` 后**在模拟器里手动点开已安装的 app**。⚠️ 不要按 `i`/`a`、不要扫码——当前 app 未装 expo-dev-client，那样会进被禁止的 Expo Go。首次或原生依赖变更后先用下面的 run 命令装一次 |
-| 启动 Mock 头盔模拟器 | `npm run start -w mock-device`（需 EMQX 和后端已启动；Ctrl+C 停止；DEVICE_ID/间隔可用环境变量覆盖） |
+| 启动 Mock 头盔模拟器 | 先用下行命令开通拿到凭证，再 `DEVICE_ID=<id> DEVICE_SECRET=<密钥> npm run start -w mock-device`。**EMQX 已开启认证**：无凭证/错密钥会被 Broker 拒绝（Connection refused: Not authorized） |
 | 开通一台设备（生成 deviceId/密钥/绑定码） | `npm run provision:device -w backend`（可选参数指定 deviceId：`-- helmet_mock_002`；deviceSecret 只显示一次） |
 | App 装到 iOS 真机/模拟器（含原生构建） | `npx expo run:ios`（在 `app/` 目录） |
 | App 装到 Android 真机/模拟器（含原生构建） | `npx expo run:android`（在 `app/` 目录） |
