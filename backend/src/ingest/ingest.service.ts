@@ -3,6 +3,7 @@ import { DeviceSnapshotService } from '../devices/device-snapshot.service';
 import { LocationRecorderService } from '../locations/location-recorder.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimePushService } from '../realtime/realtime-push.service';
+import { SosTriggerService } from '../sos/sos-trigger.service';
 import { Prisma } from '../generated/prisma/client';
 import {
   buildInvalidRecord,
@@ -26,6 +27,7 @@ export class IngestService {
     private readonly snapshot: DeviceSnapshotService,
     private readonly locationRecorder: LocationRecorderService,
     private readonly push: RealtimePushService,
+    private readonly sosTrigger: SosTriggerService,
   ) {}
 
   /** 所有入口（MQTT / 未来的 Webhook / Mock）都汇聚到这里；返回值仅用于日志与测试。 */
@@ -72,6 +74,11 @@ export class IngestService {
       e.eventType === 'location_update'
         ? await this.locationRecorder.record(e)
         : null;
+
+    // SOS 状态机入口（Week 7-8）：内部吞错——与副表同哲学，失败大声留日志、raw 可回放
+    if (e.eventType === 'possible_fall' || e.eventType === 'manual_sos') {
+      await this.sosTrigger.handleTrigger(e, device.bindUserId);
+    }
 
     if (device.bindUserId) {
       if (e.eventType === 'device_status') {

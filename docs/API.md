@@ -110,20 +110,22 @@ Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / 
 
 ## 7. SOS / 事故记录
 
-SOS 状态机为服务端权威（DECISIONS #8）：`pending → notified | cancelled`；App 仅渲染。
+SOS 状态机为服务端权威（DECISIONS #8/#26）：`pending → notified | cancelled`；App 仅渲染。deadline = 服务端接收时间 + 60s（`SOS_COUNTDOWN_SECONDS`），设备时钟不参与。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | /devices/{deviceId}/sos/active | 当前进行中 SOS（无则 404/空 ⚠️ 响应形式待定稿，建议 200 + `null`） |
-| POST | /sos/{sosId}/cancel | 取消（仅 pending 可取消；已 notified 返回 CONFLICT） |
+| GET | /devices/{deviceId}/sos/active | 当前进行中 SOS：`200 { "sos": <sos 对象> \| null }`（无进行中时为 null，**✅ 定稿**，与 §5 latest 同口径） |
+| POST | /sos/{sosId}/cancel | 取消（仅 pending 可取消；终态返回 409 `SOS_ALREADY_FINALIZED`） |
 | POST | /sos/{sosId}/confirm | “SOS Now”：跳过剩余倒计时立即通知 |
 | GET | /devices/{deviceId}/accidents?page= | 事故记录列表（含已取消，供留档） |
 | GET | /accidents/{accidentId} | 事故详情：触发事件、位置快照、SOS 状态流转、通知发送记录（成功/失败/通道） |
 
-`sos` 对象：`{ sosId, deviceId, triggerEventId, triggerType: "possible_fall"|"manual_sos", status: "pending"|"notified"|"cancelled", deadline, createdAt, updatedAt }`。
+`sos` 对象（TS 类型见 `@helmet/shared` Sos）：`{ sosId, deviceId, triggerEventId, triggerType: "possible_fall"|"manual_sos", status: "pending"|"notified"|"cancelled", deadline, createdAt, updatedAt }`。
 
 - App 收到 WebSocket/Push 的 `sos` 对象后按 `deadline` 本地倒计时渲染，不自行计时判断超时。
-- 新增错误码：`SOS_ALREADY_FINALIZED`（409，取消/确认时状态机已终态）。
+- 错误码：`SOS_ALREADY_FINALIZED`（409，取消/确认时状态机已终态）；取消/确认权限以**建单时固化的绑定用户**为准，他人操作一律 404（不泄露存在性）。
+- 通知：超时/确认后逐个紧急联系人发 SMS（同号去重）+ 本人 Push，逐条留档（成功/失败/通道/重试次数，失败重试上限 3 次）；事故位置快照优先取触发事件内嵌位置，回落最新轨迹点（✅ 口径 2026-08-16 定稿）。
+- ✅ 实现状态（2026-08-16）：active / cancel / confirm + 状态机（触发/合并/倒计时/扫描/重启接管/通知重试）已实现；**accidents 两个查询端点随下一批实现**。
 
 ## 8. 设备设置下发（命令）
 
@@ -199,4 +201,4 @@ MVP 实用为主，全部只读 + 少量运维操作。
 
 **负责人**：注册凭据形式与验证码要求、位置分享是否需要网页版、Admin 概览指标集。（~~紧急联系人上限~~ 已定稿 5 个，2026-08-16）
 **硬件团队**：设备绑定凭证形式（bindCode 来源）、设置参数清单、媒体上传方式。
-**软件侧内部**：token 有效期、active SOS 空响应形式、轨迹单次查询范围上限、预签名 URL 时效、WebSocket 实现选型、原始事件 Admin 端点形式。
+**软件侧内部**：token 有效期、轨迹单次查询范围上限、预签名 URL 时效、WebSocket 实现选型、原始事件 Admin 端点形式。（~~active SOS 空响应形式~~ 已定稿 200 + null，2026-08-16。）

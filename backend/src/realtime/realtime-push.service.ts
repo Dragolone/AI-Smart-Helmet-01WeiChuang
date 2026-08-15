@@ -2,17 +2,29 @@ import { Injectable } from '@nestjs/common';
 import type {
   DeviceStatusPayload,
   LocationPoint as WireLocationPoint,
+  Sos,
   WsDeviceStatusData,
   WsLocationData,
   WsMessage,
+  WsSosData,
 } from '@helmet/shared';
 import type { ValidEnvelope } from '../ingest/envelope';
 import { RealtimeGateway } from './realtime.gateway';
 
-/** 事件 → §11 WS 消息的组装与投递；本期实现 device_status / location_update 两类（其余随对应功能加） */
+/** 事件 → §11 WS 消息的组装与投递；已实现 device_status / location_update / sos_update（其余随对应功能加） */
 @Injectable()
 export class RealtimePushService {
   constructor(private readonly gateway: RealtimeGateway) {}
+
+  /** SOS 创建/取消/确认/超时通知四个时机都推（API.md §11） */
+  pushSosUpdate(userId: string, sos: Sos): void {
+    const message: WsMessage<WsSosData> = {
+      type: 'sos_update',
+      data: sos,
+      sentAt: new Date().toISOString(),
+    };
+    this.gateway.pushToUser(userId, message);
+  }
 
   pushLocation(
     userId: string,

@@ -9,6 +9,7 @@ import { EmqxModule } from './emqx/emqx.module';
 import { HealthController } from './health/health.controller';
 import { IngestModule } from './ingest/ingest.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { SosModule } from './sos/sos.module';
 import { UsersController } from './users/users.controller';
 
 @Module({
@@ -20,6 +21,7 @@ import { UsersController } from './users/users.controller';
     DevicesModule,
     EmqxModule,
     AdminModule,
+    SosModule,
   ],
   controllers: [AppController, HealthController, UsersController],
   providers: [AppService],

@@ -30,6 +30,7 @@
 | 23 | 2026-08-15 | **定位实现口径：一律持续监听（watchPosition）+ 中间状态展示，禁止一次性 getCurrentPosition 等待** | 华为（无 GMS）实测：冷启动锁星需 1–2 分钟，一次性等待长时间无反馈形同卡死；锁星后持续监听每 2s 稳定更新、精度可达 5m（负责人确认） | Week 5–6 地图/轨迹页按此口径实现；App 端定位封装层遵循此模式 |
 | 24 | 2026-08-15 | **开发期双 Bundle ID 口径**：A 用 `com.zixim.helmet.spike`、B 用 `com.dravenzhong.helmet`；远程推送完整验证与签名统一等待公司 Apple Developer 账号 | iOS 免费个人团队无法签远程推送 entitlement，且同一 Bundle ID 无法注册到第二个个人团队（Week 2 实测，负责人确认） | 不阻塞开发；公司账号到位后统一换正式 Bundle ID（见 CLAUDE.md 待确认事项） |
 | 25 | 2026-08-15 | **WebSocket 实时通道选型：原生 ws（@nestjs/platform-ws），不用 Socket.IO** | RN 与浏览器用平台原生 WebSocket 直连、App 端零客户端依赖；MVP 无房间/轮询降级需求，不引 Socket.IO 私有协议开销。鉴权 `?token=` + 失败 4401；「按绑定设备自动推送、不做补发、REST 兜底」口径见 API.md §11 | App 端（Week 5–6 地图页）用原生 WebSocket 接入；若未来需要房间/广播语义再评估，不推翻现有消息格式 |
+| 26 | 2026-08-16 | **SOS 状态机落地口径（负责人确认四项）**：① 并发合并规则——设备已有 pending 时新 possible_fall 只留档不建单、新 manual_sos 立即触发通知（等价 SOS Now），终态后新事件建新单；② active 空响应 = `200 { sos: null }`；③ 事故位置快照优先触发事件内嵌位置（逐字段校验），回落最新轨迹点，都无则空快照照建单；④ 紧急联系人上限 5 个（活跃计数）。附加口径：仅绑定用户的设备建单（无绑定即无人可通知/取消）；deadline 一律服务器时间（clock_skew 不影响保命链路）；每设备至多一个 pending 由 partial unique index 兜底 | 倒计时中实体键求救是明确人为意图不该再等；摔倒算法连发大概率是同一事故重复判定；快照缺失不能阻塞建单 | EVENTS.md §4.4、API.md §3/§7 同步定稿；实现于 backend/src/sos（触发/调度/通知三服务 + 条件更新竞态防护） |
 
 ## 待定决策（占位，定案后移入上表）
 
