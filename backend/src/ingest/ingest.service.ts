@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DeviceSnapshotService } from '../devices/device-snapshot.service';
+import { LocationRecorderService } from '../locations/location-recorder.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { RealtimePushService } from '../realtime/realtime-push.service';
 import { Prisma } from '../generated/prisma/client';
 import {
   buildInvalidRecord,
@@ -22,6 +24,8 @@ export class IngestService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly snapshot: DeviceSnapshotService,
+    private readonly locationRecorder: LocationRecorderService,
+    private readonly push: RealtimePushService,
   ) {}
 
   /** 所有入口（MQTT / 未来的 Webhook / Mock）都汇聚到这里；返回值仅用于日志与测试。 */
@@ -45,10 +49,37 @@ export class IngestService {
 
     const stored = await this.persist(result.envelope, source);
     if (stored) {
-      // 已注册设备的状态快照（在线/电量），未注册设备静默跳过
-      await this.snapshot.applyEvent(result.envelope);
+      await this.dispatchStored(result.envelope);
     }
     return stored ? 'stored' : 'duplicate';
+  }
+
+  /**
+   * 入库成功后的业务分发：快照 → 位置表 → WS 推送。
+   * 只对已注册设备生效（未注册的仅 raw 留档）；推送只发给绑定用户。
+   */
+  private async dispatchStored(e: ValidEnvelope): Promise<void> {
+    const device = await this.prisma.device.findUnique({
+      where: { deviceId: e.deviceId },
+      select: { deviceId: true, bindUserId: true },
+    });
+    if (!device) return;
+
+    await this.snapshot.applyEvent(e);
+
+    // 位置表只收校验通过的 location_update；推送复用同一份校验结果（不推脏数据）
+    const point =
+      e.eventType === 'location_update'
+        ? await this.locationRecorder.record(e)
+        : null;
+
+    if (device.bindUserId) {
+      if (e.eventType === 'device_status') {
+        this.push.pushDeviceStatus(device.bindUserId, e);
+      } else if (point) {
+        this.push.pushLocation(device.bindUserId, e.deviceId, point);
+      }
+    }
   }
 
   /** eventId 幂等：唯一约束兜底并发，重复上报只存一次（EVENTS.md §2）。 */

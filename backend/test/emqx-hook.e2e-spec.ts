@@ -1,6 +1,7 @@
 // EMQX 内部回调接口集成测试：内部令牌校验 + 认证/授权应答格式。
 import 'dotenv/config';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { WsAdapter } from '@nestjs/platform-ws';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { createHash } from 'node:crypto';
@@ -29,6 +30,8 @@ describe('EMQX 内部回调 (e2e)', () => {
       new ValidationPipe({ whitelist: true, transform: true }),
     );
     app.useGlobalFilters(new UnifiedExceptionFilter());
+    // RealtimeGateway 在模块图中，init 前必须装 WS 适配器（与 main.ts 一致）
+    app.useWebSocketAdapter(new WsAdapter(app));
     await app.init();
     http = app.getHttpServer();
     prisma = app.get(PrismaService);

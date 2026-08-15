@@ -58,6 +58,30 @@ model Device {
   @@map("devices")
 }
 
+// 位置轨迹（API.md §5）：由 Ingest 从 location_update 事件写入，仅已注册设备；
+// 类型化列（不用 raw_events 的 JSON payload）——轨迹查询是高频主路径，且为 Retention/降采样留余地
+model LocationPoint {
+  id               String   @id @default(cuid())
+  // 与源事件 1:1（并发/重放的幂等兜底）；不建外键：与 raw_events 同原则
+  eventId          String   @unique @map("event_id")
+  deviceId         String   @map("device_id")
+  // 设备侧事件发生时间；receivedAt 为服务器接收时间（时钟不可信时的兜底，见 DEVICE_PROTOCOL §8）
+  timestamp        DateTime
+  receivedAt       DateTime @default(now()) @map("received_at")
+  latitude         Float
+  longitude        Float
+  // wgs84 | gcj02，随事件原样保存（EVENTS.md §2.4：坐标系不允许隐含）
+  coordinateSystem String   @map("coordinate_system")
+  accuracy         Float
+  speed            Float
+  heading          Float
+  // 海拔（米）：滑雪场景的核心维度，设备未上报则为空
+  altitude         Float?
+
+  @@index([deviceId, timestamp])
+  @@map("location_points")
+}
+
 // 管理员与 App 用户完全分离（API.md §10）：种子脚本创建，不做自助注册
 model AdminUser {
   id           String   @id @default(cuid())

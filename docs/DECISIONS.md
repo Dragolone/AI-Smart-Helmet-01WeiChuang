@@ -29,6 +29,7 @@
 | 22 | 2026-08-15 | **RTC 选型定案：腾讯云 TRTC** | Week 2 Spike 双端真机通过：双机对讲互通、锁屏后台音频（iOS UIBackgroundModes: audio）、蓝牙耳机路由（Developer A 实测，负责人确认） | Week 9–10 对讲功能直接基于 TRTC 开发；声网备选不再评估，除非 TRTC 出现阻塞性问题 |
 | 23 | 2026-08-15 | **定位实现口径：一律持续监听（watchPosition）+ 中间状态展示，禁止一次性 getCurrentPosition 等待** | 华为（无 GMS）实测：冷启动锁星需 1–2 分钟，一次性等待长时间无反馈形同卡死；锁星后持续监听每 2s 稳定更新、精度可达 5m（负责人确认） | Week 5–6 地图/轨迹页按此口径实现；App 端定位封装层遵循此模式 |
 | 24 | 2026-08-15 | **开发期双 Bundle ID 口径**：A 用 `com.zixim.helmet.spike`、B 用 `com.dravenzhong.helmet`；远程推送完整验证与签名统一等待公司 Apple Developer 账号 | iOS 免费个人团队无法签远程推送 entitlement，且同一 Bundle ID 无法注册到第二个个人团队（Week 2 实测，负责人确认） | 不阻塞开发；公司账号到位后统一换正式 Bundle ID（见 CLAUDE.md 待确认事项） |
+| 25 | 2026-08-15 | **WebSocket 实时通道选型：原生 ws（@nestjs/platform-ws），不用 Socket.IO** | RN 与浏览器用平台原生 WebSocket 直连、App 端零客户端依赖；MVP 无房间/轮询降级需求，不引 Socket.IO 私有协议开销。鉴权 `?token=` + 失败 4401；「按绑定设备自动推送、不做补发、REST 兜底」口径见 API.md §11 | App 端（Week 5–6 地图页）用原生 WebSocket 接入；若未来需要房间/广播语义再评估，不推翻现有消息格式 |
 
 ## 待定决策（占位，定案后移入上表）
 

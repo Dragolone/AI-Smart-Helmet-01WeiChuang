@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { WsAdapter } from '@nestjs/platform-ws';
 import { AppModule } from './app.module';
 import { UnifiedExceptionFilter } from './common/http-exception.filter';
 import { requestIdMiddleware } from './common/request-id.middleware';
@@ -9,6 +10,8 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   // 不开启此项则 SIGTERM/Ctrl+C 时所有 onModuleDestroy 不会执行（Prisma/MQTT 连接被硬切断）
   app.enableShutdownHooks();
+  // 原生 ws（决策 #25）：App 用平台原生 WebSocket 直连，不用 Socket.IO
+  app.useWebSocketAdapter(new WsAdapter(app));
   app.setGlobalPrefix('api/v1');
   app.use(requestIdMiddleware);
   // whitelist：丢弃 DTO 未声明的字段，防参数污染

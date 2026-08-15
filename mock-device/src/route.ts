@@ -1,10 +1,12 @@
 /**
- * 内置骑行路线：深圳湾公园沿海绿道的一段环路（WGS84）。
- * 相邻航点间距几十米，模拟器每个 tick 前进一个航点、到终点后原路循环。
+ * 内置剧本路线（WGS84）。相邻航点间距几十米，模拟器每个 tick 前进一个航点、
+ * 到终点后循环。riding：深圳湾沿海绿道环路；ski：崇礼风格雪道（滑降 + 缆车回升）。
  */
 export interface RoutePoint {
   latitude: number;
   longitude: number;
+  /** 海拔（米）：滑雪剧本必带；骑行剧本省略（近海平面） */
+  altitude?: number;
 }
 
 export const RIDING_LOOP: RoutePoint[] = [
@@ -49,24 +51,67 @@ export function distanceMeters(a: RoutePoint, b: RoutePoint): number {
 }
 
 /**
- * 把稀疏航点细分为固定步长的密集轨迹点：原始航点间距上百米，直接按 5s 一点上报
- * 会得到 ~25m/s 的“摩托车速度”；细分到 ~30m 一步才是真实骑行（~6m/s）。
+ * 开放路径细分：对每对相邻航点插值（含海拔），不含每段终点——多段拼接时不产生重复点。
+ * 步长决定速度：step / 上报间隔 = 米每秒（如 30m/5s = 6m/s 骑行，80m/5s = 16m/s 滑降）。
  */
-export function expandRoute(points: RoutePoint[], stepMeters: number): RoutePoint[] {
+export function expandPath(points: RoutePoint[], stepMeters: number): RoutePoint[] {
   const expanded: RoutePoint[] = [];
-  for (let i = 0; i < points.length; i++) {
+  for (let i = 0; i < points.length - 1; i++) {
     const a = points[i];
-    const b = points[(i + 1) % points.length];
+    const b = points[i + 1];
     const segments = Math.max(1, Math.round(distanceMeters(a, b) / stepMeters));
     for (let s = 0; s < segments; s++) {
       const t = s / segments;
-      expanded.push({
+      const point: RoutePoint = {
         latitude: a.latitude + (b.latitude - a.latitude) * t,
         longitude: a.longitude + (b.longitude - a.longitude) * t,
-      });
+      };
+      if (a.altitude !== undefined && b.altitude !== undefined) {
+        point.altitude = a.altitude + (b.altitude - a.altitude) * t;
+      }
+      expanded.push(point);
     }
   }
   return expanded;
+}
+
+/**
+ * 环路细分：首尾自动闭合（骑行环路用）。原始航点间距上百米，直接按 5s 一点上报
+ * 会得到 ~25m/s 的“摩托车速度”；细分到 ~30m 一步才是真实骑行（~6m/s）。
+ */
+export function expandRoute(points: RoutePoint[], stepMeters: number): RoutePoint[] {
+  return expandPath([...points, points[0]], stepMeters);
+}
+
+/**
+ * 滑雪剧本（崇礼风格，海拔 2110m → 1790m）：
+ * S 弯滑降段（步长 80m ≈ 16m/s）+ 缆车回升段（步长 25m ≈ 5m/s），拼成完整循环。
+ * 滑降终点与缆车起点、缆车终点与滑降起点相接。
+ */
+export const SKI_DOWNHILL: RoutePoint[] = [
+  { latitude: 40.9490, longitude: 115.4180, altitude: 2110 },
+  { latitude: 40.9502, longitude: 115.4196, altitude: 2072 },
+  { latitude: 40.9509, longitude: 115.4183, altitude: 2041 },
+  { latitude: 40.9521, longitude: 115.4199, altitude: 2003 },
+  { latitude: 40.9530, longitude: 115.4218, altitude: 1968 },
+  { latitude: 40.9538, longitude: 115.4204, altitude: 1935 },
+  { latitude: 40.9550, longitude: 115.4221, altitude: 1897 },
+  { latitude: 40.9560, longitude: 115.4240, altitude: 1861 },
+  { latitude: 40.9569, longitude: 115.4226, altitude: 1830 },
+  { latitude: 40.9580, longitude: 115.4243, altitude: 1802 },
+  { latitude: 40.9585, longitude: 115.4255, altitude: 1790 },
+];
+
+export const SKI_LIFT: RoutePoint[] = [
+  { latitude: 40.9585, longitude: 115.4255, altitude: 1790 },
+  { latitude: 40.9553, longitude: 115.4230, altitude: 1896 },
+  { latitude: 40.9521, longitude: 115.4205, altitude: 2003 },
+  { latitude: 40.9490, longitude: 115.4180, altitude: 2110 },
+];
+
+/** 滑雪完整循环：滑降（快）→ 缆车（慢）→ 回到出发点 */
+export function buildSkiLoop(): RoutePoint[] {
+  return [...expandPath(SKI_DOWNHILL, 80), ...expandPath(SKI_LIFT, 25)];
 }
 
 /** a→b 的航向角（度，正北为 0 顺时针 0–360，对齐 EVENTS.md location_update.heading）。 */

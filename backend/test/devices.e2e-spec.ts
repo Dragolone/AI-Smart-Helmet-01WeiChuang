@@ -1,6 +1,7 @@
 // 设备绑定全链路集成测试：开通 → 绑定（错码/冲突/幂等）→ 状态 → 解绑。
 import 'dotenv/config';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { WsAdapter } from '@nestjs/platform-ws';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { createHash } from 'node:crypto';
@@ -35,6 +36,8 @@ describe('设备绑定全链路 (e2e)', () => {
       new ValidationPipe({ whitelist: true, transform: true }),
     );
     app.useGlobalFilters(new UnifiedExceptionFilter());
+    // RealtimeGateway 在模块图中，init 前必须装 WS 适配器（与 main.ts 一致）
+    app.useWebSocketAdapter(new WsAdapter(app));
     await app.init();
     http = app.getHttpServer();
     prisma = app.get(PrismaService);

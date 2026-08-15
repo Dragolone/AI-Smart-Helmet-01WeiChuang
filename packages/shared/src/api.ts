@@ -1,5 +1,6 @@
 // REST API Contract（docs/API.md 已实现部分落型）。全部为线上格式：
 // 时间字段一律 ISO 8601 UTC 字符串（后端内部用 Date，由序列化层转换）。
+import type { CoordinateSystem } from './events';
 
 // —— §1 通用约定 ——
 
@@ -83,6 +84,52 @@ export interface DevicePublic extends DeviceStatus {
   deviceId: string;
   boundAt: string | null;
   createdAt: string;
+}
+
+// —— §5 位置与轨迹（已实现） ——
+
+/** 轨迹点/位置对象（与 EVENTS.md 4.2 对齐；timestamp 为设备侧时间，receivedAt 为服务器接收时间） */
+export interface LocationPoint {
+  latitude: number;
+  longitude: number;
+  coordinateSystem: CoordinateSystem;
+  accuracy: number;
+  speed: number;
+  heading: number;
+  altitude: number | null;
+  timestamp: string;
+  receivedAt: string;
+}
+
+/** GET /devices/{id}/locations/latest：设备存在但尚无位置数据时 location 为 null */
+export interface LatestLocationResponse {
+  location: LocationPoint | null;
+}
+
+// —— §11 WebSocket（App 实时通道） ——
+
+export type WsMessageType =
+  | 'device_status'
+  | 'location_update'
+  | 'sos_update'
+  | 'risk_event'
+  | 'device_event';
+
+/** WS 是加速通道不是可靠通道：重连后须用 REST 拉取兜底（API.md §11） */
+export interface WsMessage<T = unknown> {
+  type: WsMessageType;
+  data: T;
+  sentAt: string;
+}
+
+/** type=location_update 的 data：轨迹点 + 设备号（一个连接可能收到多台绑定设备的消息） */
+export interface WsLocationData extends LocationPoint {
+  deviceId: string;
+}
+
+/** type=device_status 的 data：§4 status 对象 + 设备号 */
+export interface WsDeviceStatusData extends DeviceStatus {
+  deviceId: string;
 }
 
 // —— §10 Admin（已实现子集） ——
