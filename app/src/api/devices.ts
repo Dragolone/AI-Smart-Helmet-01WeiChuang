@@ -1,0 +1,21 @@
+// 设备接口（docs/API.md §4；backend/src/devices 已实现并核对）
+import type { BindDeviceRequest, DevicePublic, DeviceStatus } from '@helmet/shared';
+import { api } from './client';
+
+export const devicesApi = {
+  bind: (body: BindDeviceRequest) =>
+    api<DevicePublic>('/devices/bind', { method: 'POST', body }),
+
+  list: () => api<DevicePublic[]>('/devices'),
+
+  detail: (deviceId: string) =>
+    api<DevicePublic>(`/devices/${encodeURIComponent(deviceId)}`),
+
+  status: (deviceId: string) =>
+    api<DeviceStatus>(`/devices/${encodeURIComponent(deviceId)}/status`),
+
+  unbind: (deviceId: string) =>
+    api<void>(`/devices/${encodeURIComponent(deviceId)}/binding`, {
+      method: 'DELETE',
+    }),
+};

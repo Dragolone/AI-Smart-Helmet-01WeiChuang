@@ -12,7 +12,9 @@
       "bundleIdentifier": "com.dravenzhong.helmet",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "用于队友间的实时语音对讲。",
-        "UIBackgroundModes": ["audio"]
+        "UIBackgroundModes": [
+          "audio"
+        ]
       }
     },
     "android": {
@@ -50,7 +52,8 @@
           "imageWidth": 76
         }
       ],
-      "react-native-ble-plx"
+      "react-native-ble-plx",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,
