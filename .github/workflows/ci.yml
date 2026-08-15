@@ -9,6 +9,20 @@ on:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: helmet
+          POSTGRES_PASSWORD: helmet_ci
+          POSTGRES_DB: helmet_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U helmet"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -28,6 +42,13 @@ jobs:
 
       - name: Test
         run: npm test --workspaces --if-present
+
+      # CLAUDE.md Testing Rules：migration 必须能在空库从头跑通
+      - name: Migrations on empty DB
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql://helmet:helmet_ci@localhost:5432/helmet_ci
+        run: npx prisma migrate deploy
 
       - name: Build
         run: npm run build --workspace backend --if-present && npm run build --workspace admin --if-present
