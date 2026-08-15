@@ -46,7 +46,10 @@ export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
 
     // 覆写 handleMessage：mqtt.js 只有在本回调完成后才回 PUBACK——
     // 即"入库成功才签收"。默认行为是收到即签收，数据库故障窗口内消息会被永久丢弃。
-    this.client.handleMessage = (packet: Packet, done: (err?: Error) => void) => {
+    this.client.handleMessage = (
+      packet: Packet,
+      done: (err?: Error) => void,
+    ) => {
       if (packet.cmd !== 'publish') {
         done();
         return;
