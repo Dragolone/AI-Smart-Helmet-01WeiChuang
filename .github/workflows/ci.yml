@@ -50,5 +50,13 @@ jobs:
           DATABASE_URL: postgresql://helmet:helmet_ci@localhost:5432/helmet_ci
         run: npx prisma migrate deploy
 
+      # 关键 API 集成测试（注册/登录/刷新全链路，跑在上一步刚建好的库上）
+      - name: Backend e2e
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql://helmet:helmet_ci@localhost:5432/helmet_ci
+          JWT_SECRET: ci_only_test_secret
+        run: npm run test:e2e
+
       - name: Build
         run: npm run build --workspace backend --if-present && npm run build --workspace admin --if-present
