@@ -1,10 +1,10 @@
 # CLAUDE.md — AI 智能头盔软件项目
 
 > 本文件是整个项目的长期开发约定。Claude Code 和两位开发者在每次开发前都必须先读本文件。
-> 状态（2026-08-15）：**Week 1 已达成（CI 全绿 + 双端真机）。Week 2 双线齐头并进：**
-> **B 线已完成**：Prisma 三表 + /health、MQTT 消费者 + Ingest（校验/eventId 幂等/无效留档/入库成功才 PUBACK/持久会话）、Mock Device v1（骑行剧本）全链路验证通过；全量代码审查 33 项确认——19 项已修、6 项排入 Week 3–4（见周计划表：EMQX 认证+ACL、clock_skew/source migration、expo-dev-client 等）。B 线下一任务：Week 3 Auth 方案。
-> **A 线已上手并完成 4/5 Spike（2026-08-15）**：环境全链路本机复验 + Mock 事件入库验证通过；定位（含华为无 GMS）、Push 本地通知、BLE 前台扫描/连接/断连检测、RTC（腾讯 TRTC：双机对讲互通、锁屏后台音频、蓝牙耳机路由全过，**选型证据齐备待定案**）均双端真机通过。剩余：地图 Spike（等高德 Key）、BLE 后台断连（Week 11 防丢前必测）、APNs 远程推送（等公司账号）。实证：Bundle ID 无法跨两个个人开发团队共用（见 docs/DEVELOPMENT.md 平台限制清单）。
-> 第三方：Apple 公司账号走到 D-U-N-S 建档（待重提，Spike 实证支持加急）；高德企业认证对公打款在途；云服务器/域名/备案待办；RTC 已有 TRTC 个人测试应用可用（正式 Key 待定案后申请）。进度明细见 `plan/weekly-plan.md`。仓库：<https://github.com/Dragolone/AI-Smart-Helmet-01WeiChuang>
+> 状态（2026-08-15）：**Week 1、2 已达成。Week 3–4 进行中，B 线任务已全部完成并验收：**
+> **B 线（Week 3–4 全部合入 main）**：Auth（JWT access+refresh 轮换与盗用防护，#19）、设备绑定/凭证/状态快照（#20）、EMQX 设备认证 + Topic ACL（#22/#23）、raw_events source/clock_skew（#18）、**Admin 基础：管理员登录 + 用户/设备列表前后端（#26，负责人验收通过）**；另修复 MQTT 消费者订阅失败不重试 bug（#27）。Admin 认证口径已定稿 API.md §10（独立 admin_users 表 + ADMIN_JWT_SECRET，12h 无 refresh；建号用 `npm run create:admin -w backend`）。**B 线下一任务：packages/shared 落 TS 类型**，随后 Week 5–6 定位/轨迹/WebSocket。
+> **A 线**：4/5 Spike 双端通过且结论已定案入 DECISIONS.md（TRTC 选型、定位持续监听口径、双 Bundle ID 口径）；expo-dev-client 双端落地；当前对接 Week 3–4 App UI（注册/登录/绑定/状态页，后端 API 已就绪）。剩余：地图 Spike（等高德 Key，Week 5–6 前必须定案）、BLE 后台断连（Week 11 防丢前必测）、APNs 远程推送（等公司账号）。
+> 第三方：Apple 公司账号走到 D-U-N-S 建档（待重提）；高德企业认证对公打款在途；云服务器/域名/备案待办；RTC 选型已定案（腾讯 TRTC），个人测试应用可用、正式应用待公司资质。进度明细见 `plan/weekly-plan.md`。仓库：<https://github.com/Dragolone/AI-Smart-Helmet-01WeiChuang>
 > 已拍板的技术决策记录在 `docs/DECISIONS.md`，**不允许无理由重新推翻**。
 
 ---
@@ -362,7 +362,7 @@ AI-Smart-Helmet-01WeiChuang/
 **仍开放：**
 
 1. **Apple Developer 公司账号**（进行中，2026-08-15）：公司专用 Apple ID 已建（QQ 邮箱 3840404902，凭证入密码库共享）、管理人实名通过、Organization 流程已走到 **D-U-N-S 邓白氏建档**（提交遇接口故障待重提；建档 1–7 个工作日出编码 → 回 Apple Developer App 填 Organization Details → 付 ¥688 → Apple 审核可能电话核实公司）。真机当前用个人开发证书（7 天过期需重装），TestFlight 与正式推送需公司账号。当前开发期包名/Bundle ID 为 `com.dravenzhong.helmet`（原脚手架 `com.anonymous.app` 已被他人注册）；公司账号定下后须换成正式 ID（改 app.json 后 `npx expo prebuild --clean`，最晚 TestFlight 分发前完成）。公司信息：深圳零一唯创科技有限公司 / 91440300MAK7XEPD38 / 深圳市坪山区竹坑社区翠景路33号3栋坪山工匠园402（最新地址，以此为准）。
-2. **RTC 云服务账号（腾讯云 TRTC / 声网，二选一前两家都可先注册）**：与 Apple Developer 并列第一优先（决策 #21，Week 2 Spike 就要用）。
+2. **RTC 云服务账号**：选型已定案腾讯 TRTC（DECISIONS.md，2026-08-15）；当前用个人测试应用，正式应用/Key 待公司资质就绪后创建。
 3. **短信签名/模板、地图企业 Key、推送厂商通道、云服务器、域名/HTTPS**：负责人启动申请；审核期间开发用 Mock Provider，不阻塞。（进度 2026-08-15：高德企业认证已提交**对公打款**，等中行对公账户到账几分钱后回填金额完成；云服务器/域名/备案、短信、推送待启动。）
 4. **DEVICE_PROTOCOL.md 中标 ⚠️ 的传输层细节**：待硬件团队在联调前（最晚 Week 10）逐项确认。
 5. **硬件对讲电台（双模兜底）**：频段/功率/实测距离由硬件团队评估（决策 #20）；软件仅承担频道设置下发。

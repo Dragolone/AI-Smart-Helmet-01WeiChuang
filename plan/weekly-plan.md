@@ -125,17 +125,21 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 
 **为了实现什么**：App 有真实的用户和设备了——用户能注册登录、把（Mock）头盔绑到自己账号、看到头盔在线/电量状态。这是后面一切功能的前提：没有"谁的设备"，就没有"谁的轨迹、谁的 SOS"。
 
-| 谁 | 做什么 | 为了什么 |
-|----|--------|----------|
-| A | App：注册/登录页、Token 管理、设备绑定流程 UI、设备状态页（在线/电量/固件版本） | 用户拿到手机第一眼的完整闭环 |
-| B | 后端：Auth 模块（JWT access+refresh）、设备绑定 API、device_status 事件入库并透出状态 API | 支撑 A 的全部界面 |
-| B | Admin 基础：管理员登录 + 用户/设备列表页 | 运营侧从第一天就能看到数据 |
-| B | **设备接入安全**：EMQX 认证对接后端（设备凭证校验）+ Topic ACL + 后端消费者自身凭证 | 审查高危项：DEVICE_PROTOCOL 标 ✅ 但零实现；设备绑定功能上线前必须有，否则任何人可伪装任意头盔 |
-| B | 小 migration：raw_events 补 clock_skew 标记 + source 字段；评估 eventId 幂等改 (device_id, event_id) 复合唯一 | 兑现 DEVICE_PROTOCOL §8 / EVENTS.md §1 已承诺的服务端字段（详见 docs/DATABASE.md） |
-| A | App 基建：安装 expo-dev-client 并双端重装验证 | 当前无 dev-client，误操作会进被禁止的 Expo Go；顺带获得开发者菜单 |
-| 共同 | 双端同步开发：每个功能 Android 和 iOS 同周完成 | 项目铁律，不允许"iOS 以后补" |
+| 谁 | 做什么 | 为了什么 | 状态 |
+|----|--------|----------|------|
+| A | App：注册/登录页、Token 管理、设备绑定流程 UI、设备状态页（在线/电量/固件版本） | 用户拿到手机第一眼的完整闭环 | 🔄 后端已就绪待对接 |
+| B | 后端：Auth 模块（JWT access+refresh）、设备绑定 API、device_status 事件入库并透出状态 API | 支撑 A 的全部界面 | ✅ PR #19/#20（含开通脚本、状态快照、在线判定） |
+| B | Admin 基础：管理员登录 + 用户/设备列表页 | 运营侧从第一天就能看到数据 | ✅ PR #26（前后端 + e2e 双向 token 隔离；负责人 2026-08-15 验收通过） |
+| B | **设备接入安全**：EMQX 认证对接后端（设备凭证校验）+ Topic ACL + 后端消费者自身凭证 | 原审查高危项 | ✅ PR #22/#23（三连验收：匿名拒、正凭证通、越权丢） |
+| B | 小 migration：raw_events 补 clock_skew 标记 + source 字段 | 兑现 DEVICE_PROTOCOL §8 / EVENTS.md §1 承诺字段 | ✅ PR #18（复合幂等评估仍待硬件确认 eventId 规则） |
+| A | App 基建：安装 expo-dev-client 并双端重装验证 | 杜绝误入 Expo Go；获得开发者菜单 | ✅ 2026-08-15 |
+| 共同 | 双端同步开发：每个功能 Android 和 iOS 同周完成 | 项目铁律，不允许"iOS 以后补" | 持续 |
+| 共同 | packages/shared 落 TS 类型（Contract → 编译期约束） | 前后端字段不一致在编译期报错 | 🔄 **B 线下一任务**（Admin 已完成，前置解除） |
 
-**验收标准**：双端真机走通「注册 → 登录 → 绑定 Mock 设备 → 看到在线状态和电量」；Admin 里能看到这个用户和设备。
+**验收标准**：双端真机走通「注册 → 登录 → 绑定 Mock 设备 → 看到在线状态和电量」；Admin 里能看到这个用户和设备（Admin 侧 2026-08-15 已验收，双端 App 侧待 A 线对接完成后合验）。
+
+**B 线补充（2026-08-15）**：修复 MQTT 消费者订阅失败不重试的静默失聪 bug（PR #27，SUBACK 被拒时连着 Broker 却收不到消息）；定位并记录「残留后端进程劫持 EMQX 回调连接池 → 授权 fail-closed 全拒」环境坑（见 DEVELOPMENT.md 已知坑）。Admin 认证口径已定稿于 API.md §10（独立 admin_users 表 + ADMIN_JWT_SECRET，12h 无 refresh）。
+**Week 2 遗留待核**：地图 SDK 渲染 Spike（Spike 批次验证了定位但未见地图 SDK 本体；Week 5–6 前必须定案高德 RN 库 vs WebView）。
 
 ## Week 5–6：定位、地图、轨迹
 
