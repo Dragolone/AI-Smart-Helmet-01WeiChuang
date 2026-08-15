@@ -1,6 +1,6 @@
 # API.md — REST / WebSocket API Contract（App / Admin ↔ Backend）
 
-> 状态：**初稿（待双人 Review + 负责人确认后定稿）**。定稿后 DTO 在 `packages/shared` 落为 TS 类型。
+> 状态：**初稿（待双人 Review + 负责人确认后定稿）**。已实现部分（§1/§2/§4/§10）的 DTO 已在 `packages/shared` 落为 TS 类型（2026-08-15）；本文件变更时必须同步 `@helmet/shared`。
 > 破坏性变更流程见 CLAUDE.md「API Rules」：先改本文件 + shared 并确认，再改实现；后端先合并并对旧字段保持一版兼容。
 > 标记：✅ 已定 ｜ ⚠️ 待定稿。
 

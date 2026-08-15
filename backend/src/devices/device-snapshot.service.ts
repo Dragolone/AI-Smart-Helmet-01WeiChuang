@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import type { DeviceStatusPayload } from '@helmet/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import type { ValidEnvelope } from '../ingest/envelope';
 
@@ -20,7 +21,8 @@ export class DeviceSnapshotService {
     };
 
     if (e.eventType === 'device_status') {
-      const p = e.payload;
+      // 类型来自 Contract（EVENTS.md 4.1）；设备侧输入不可信，运行时 typeof 校验保留
+      const p = e.payload as Partial<DeviceStatusPayload>;
       if (typeof p.battery === 'number') data.battery = p.battery;
       if (typeof p.charging === 'boolean') data.charging = p.charging;
       if (typeof p.signalLevel === 'number') data.signalLevel = p.signalLevel;

@@ -1,24 +1,20 @@
 import { randomUUID } from 'node:crypto';
+import {
+  CURRENT_SCHEMA_VERSION,
+  type EventEnvelope,
+  type EventPayloadMap,
+  type EventType,
+} from '@helmet/shared';
 
-/** 与 docs/EVENTS.md §1 完全一致的事件 envelope——对 Backend 而言 Mock 与真机不可区分。 */
-export interface EventEnvelope {
-  schemaVersion: 1;
-  eventId: string;
-  deviceId: string;
-  eventType: string;
-  timestamp: string;
-  firmwareVersion: string;
-  payload: Record<string, unknown>;
-}
-
-export function buildEnvelope(
+/** envelope 结构与类型来自 @helmet/shared（EVENTS.md §1）——对 Backend 而言 Mock 与真机不可区分。 */
+export function buildEnvelope<T extends EventType>(
   deviceId: string,
   firmwareVersion: string,
-  eventType: string,
-  payload: Record<string, unknown>,
-): EventEnvelope {
+  eventType: T,
+  payload: EventPayloadMap[T],
+): EventEnvelope<T> {
   return {
-    schemaVersion: 1,
+    schemaVersion: CURRENT_SCHEMA_VERSION,
     eventId: randomUUID(),
     deviceId,
     eventType,

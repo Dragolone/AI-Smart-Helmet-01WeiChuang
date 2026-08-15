@@ -3,7 +3,7 @@ import { useMutation } from '@tanstack/react-query'
 import { App, Button, Card, Form, Input, Typography } from 'antd'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { api, getToken, saveSession } from '../api/client'
-import type { AdminLoginResponse } from '../api/types'
+import type { AdminLoginResponse } from '@helmet/shared'
 
 interface LoginForm {
   username: string

@@ -4,7 +4,7 @@ import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 import { useState } from 'react'
 import { api } from '../api/client'
-import type { AdminUserRow, Paginated } from '../api/types'
+import type { AdminUserRow, Paginated } from '@helmet/shared'
 
 const columns: ColumnsType<AdminUserRow> = [
   { title: '手机号', dataIndex: 'phone' },
