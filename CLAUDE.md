@@ -1,7 +1,7 @@
 # CLAUDE.md — AI 智能头盔软件项目
 
 > 本文件是整个项目的长期开发约定。Claude Code 和两位开发者在每次开发前都必须先读本文件。
-> 状态：**Week 1 出口标准已达成（2026-08-14）：CI 全绿；双端真机（iPhone 13 Pro Max + 华为 P30 Pro）安装运行验证通过；API/EVENTS Contract 初稿已合并。待办：第三方账号申请启动（负责人）、新成员环境上手。下一阶段 Week 2：双端技术 Spike + 首条 Mock 事件入库（分工见 `plan/weekly-plan.md`）。仓库：<https://github.com/Dragolone/AI-Smart-Helmet-01WeiChuang>**
+> 状态（2026-08-15）：**Week 1 已达成（CI 全绿 + 双端真机）。Week 2 B 线已完成**：Prisma 三表 + /health、MQTT 消费者 + Ingest（校验/eventId 幂等/无效留档/入库成功才 PUBACK/持久会话）、Mock Device v1（骑行剧本）全链路验证通过；全量代码审查 33 项确认——19 项已修、6 项排入 Week 3–4（见周计划表：EMQX 认证+ACL、clock_skew/source migration、expo-dev-client 等）。**A 线待同事上手**（五个 Spike：地图/定位/BLE/Push/RTC，入口 `plan/onboarding.md`）。第三方：Apple 公司账号走到 D-U-N-S 建档（待重提）；高德企业认证对公打款在途；云服务器/域名/备案、RTC Key 待办。B 线下一任务：Week 3 Auth 方案。仓库：<https://github.com/Dragolone/AI-Smart-Helmet-01WeiChuang>**
 > 已拍板的技术决策记录在 `docs/DECISIONS.md`，**不允许无理由重新推翻**。
 
 ---
@@ -358,8 +358,8 @@ AI-Smart-Helmet-01WeiChuang/
 
 **仍开放：**
 
-1. **Apple Developer 公司账号**：立即申请（审核 1～2 周）；真机当前用个人开发证书（7 天过期需重装），TestFlight 与正式推送需公司账号。当前开发期包名/Bundle ID 为 `com.dravenzhong.helmet`（原脚手架 `com.anonymous.app` 已被他人注册）；公司账号定下后须换成正式 ID（改 app.json 后 `npx expo prebuild --clean`，最晚 TestFlight 分发前完成）。
+1. **Apple Developer 公司账号**（进行中，2026-08-15）：公司专用 Apple ID 已建（QQ 邮箱 3840404902，凭证入密码库共享）、管理人实名通过、Organization 流程已走到 **D-U-N-S 邓白氏建档**（提交遇接口故障待重提；建档 1–7 个工作日出编码 → 回 Apple Developer App 填 Organization Details → 付 ¥688 → Apple 审核可能电话核实公司）。真机当前用个人开发证书（7 天过期需重装），TestFlight 与正式推送需公司账号。当前开发期包名/Bundle ID 为 `com.dravenzhong.helmet`（原脚手架 `com.anonymous.app` 已被他人注册）；公司账号定下后须换成正式 ID（改 app.json 后 `npx expo prebuild --clean`，最晚 TestFlight 分发前完成）。公司信息：深圳零一唯创科技有限公司 / 91440300MAK7XEPD38 / 深圳市坪山区竹坑社区翠景路33号3栋坪山工匠园402（最新地址，以此为准）。
 2. **RTC 云服务账号（腾讯云 TRTC / 声网，二选一前两家都可先注册）**：与 Apple Developer 并列第一优先（决策 #21，Week 2 Spike 就要用）。
-3. **短信签名/模板、地图企业 Key、推送厂商通道、云服务器、域名/HTTPS**：负责人第 1 周启动申请；审核期间开发用 Mock Provider，不阻塞。
+3. **短信签名/模板、地图企业 Key、推送厂商通道、云服务器、域名/HTTPS**：负责人启动申请；审核期间开发用 Mock Provider，不阻塞。（进度 2026-08-15：高德企业认证已提交**对公打款**，等中行对公账户到账几分钱后回填金额完成；云服务器/域名/备案、短信、推送待启动。）
 4. **DEVICE_PROTOCOL.md 中标 ⚠️ 的传输层细节**：待硬件团队在联调前（最晚 Week 10）逐项确认。
 5. **硬件对讲电台（双模兜底）**：频段/功率/实测距离由硬件团队评估（决策 #20）；软件仅承担频道设置下发。
