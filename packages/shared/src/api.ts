@@ -129,6 +129,30 @@ export interface LatestLocationResponse {
   location: LocationPoint | null;
 }
 
+// —— §7 SOS / 事故记录（已实现） ——
+
+export type SosTriggerType = 'possible_fall' | 'manual_sos';
+
+/** 服务端权威状态机（决策 #8）：pending → notified | cancelled；App 仅渲染 */
+export type SosStatus = 'pending' | 'notified' | 'cancelled';
+
+/** sos 对象（API.md §7）：App 收到后按 deadline 本地倒计时渲染，不自行计时判断超时 */
+export interface Sos {
+  sosId: string;
+  deviceId: string;
+  triggerEventId: string;
+  triggerType: SosTriggerType;
+  status: SosStatus;
+  deadline: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** GET /devices/{id}/sos/active：无进行中 SOS 时 sos 为 null（与 locations/latest 同口径，定稿） */
+export interface ActiveSosResponse {
+  sos: Sos | null;
+}
+
 // —— §11 WebSocket（App 实时通道） ——
 
 export type WsMessageType =
@@ -154,6 +178,9 @@ export interface WsLocationData extends LocationPoint {
 export interface WsDeviceStatusData extends DeviceStatus {
   deviceId: string;
 }
+
+/** type=sos_update 的 data：§7 sos 对象（创建/取消/确认/超时通知四个时机都推） */
+export type WsSosData = Sos;
 
 // —— §10 Admin（已实现子集） ——
 

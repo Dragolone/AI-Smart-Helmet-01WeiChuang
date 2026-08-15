@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { DeviceSnapshotService } from '../devices/device-snapshot.service';
 import { LocationRecorderService } from '../locations/location-recorder.service';
 import { RealtimePushService } from '../realtime/realtime-push.service';
+import { SosTriggerService } from '../sos/sos-trigger.service';
 import { Prisma } from '../generated/prisma/client';
 import { validateEnvelope } from './envelope';
 
@@ -94,6 +95,7 @@ describe('IngestService', () => {
   const record = jest.fn();
   const pushLocation = jest.fn();
   const pushDeviceStatus = jest.fn();
+  const handleTrigger = jest.fn();
   let service: IngestService;
 
   beforeEach(async () => {
@@ -103,6 +105,7 @@ describe('IngestService', () => {
     record.mockReset();
     pushLocation.mockReset();
     pushDeviceStatus.mockReset();
+    handleTrigger.mockReset();
     const moduleRef = await Test.createTestingModule({
       providers: [
         IngestService,
@@ -116,6 +119,7 @@ describe('IngestService', () => {
           provide: RealtimePushService,
           useValue: { pushLocation, pushDeviceStatus },
         },
+        { provide: SosTriggerService, useValue: { handleTrigger } },
       ],
     }).compile();
     service = moduleRef.get(IngestService);
@@ -225,5 +229,36 @@ describe('IngestService', () => {
     record.mockResolvedValue(null);
     await service.ingestRaw(validMessage, 'helmet_001', 'mqtt');
     expect(pushLocation).not.toHaveBeenCalled();
+  });
+
+  it('possible_fall / manual_sos → 分发 SOS 触发器（带绑定关系）；其余事件不分发', async () => {
+    create.mockResolvedValue({});
+    findUnique.mockResolvedValue({
+      deviceId: 'helmet_001',
+      bindUserId: 'user_1',
+    });
+    const fall = JSON.parse(validMessage) as Record<string, unknown>;
+    fall.eventType = 'possible_fall';
+    fall.payload = {};
+    await service.ingestRaw(JSON.stringify(fall), 'helmet_001', 'mqtt');
+    expect(handleTrigger).toHaveBeenCalledTimes(1);
+    expect(handleTrigger.mock.calls[0][1]).toBe('user_1');
+
+    handleTrigger.mockClear();
+    await service.ingestRaw(validMessage, 'helmet_001', 'mqtt'); // location_update
+    expect(handleTrigger).not.toHaveBeenCalled();
+  });
+
+  it('重复 eventId 的 possible_fall：连触发器都不进（幂等在 raw 层拦截）', async () => {
+    create.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('duplicate', {
+        code: 'P2002',
+        clientVersion: 'test',
+      }),
+    );
+    const fall = JSON.parse(validMessage) as Record<string, unknown>;
+    fall.eventType = 'possible_fall';
+    await service.ingestRaw(JSON.stringify(fall), 'helmet_001', 'mqtt');
+    expect(handleTrigger).not.toHaveBeenCalled();
   });
 });
