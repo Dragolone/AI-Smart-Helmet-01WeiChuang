@@ -101,6 +101,16 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 
 **验收标准**：① Mock Device 发一条 location_update，能在数据库表里查到这条记录；② 四个 Spike 双端真机结论写进 DECISIONS.md，无"无法支持"的红灯项。
 
+### 进度记录（2026-08-15，分支 feat/spike-location）
+
+- ✅ 验收① 达成：Mock Device → EMQX → Ingest → PostgreSQL 全链路在新成员机器跑通（17 条事件入库；幂等去重与 `_invalid` 留档同步验证）
+- ✅ 定位 Spike 双端通过：华为 P30 Pro（无 GMS）精度收敛至 5m、iPhone 14 Pro Max 15m；结论：正式功能须用持续监听而非一次性获取（冷启动锁星慢）；原始坐标为 WGS-84，接高德前须转 GCJ-02
+- ✅ Push Spike 双端通过（本地通知：权限/通道/定时/后台弹出）；⚠️ APNs 远程推送个人团队无法签名，待公司账号
+- ✅ BLE Spike 双端通过（前台扫描/连接/断开检测，react-native-ble-plx 3.5.1 兼容 RN 新架构）；⚠️ 后台断连检测未测，Week 11 防丢开发前必补（iOS bluetooth-central + 华为杀后台）
+- ✅ RTC Spike 双端全关卡通过（腾讯 TRTC）：双机对讲互通（进房 243/251ms）、锁屏后台音频、蓝牙耳机路由——**选型证据齐备，待负责人确认后写入 DECISIONS.md 定案**
+- ⬜ 地图 Spike：等高德 Key（已明确注册路径与包名/SHA1）
+- 环境新发现已记入 docs/DEVELOPMENT.md：Android 构建需 JDK 17；Bundle ID 跨个人团队冲突（公司 Apple Developer 账号加急的实证）
+
 ## Week 3–4：用户系统 + 设备绑定
 
 **为了实现什么**：App 有真实的用户和设备了——用户能注册登录、把（Mock）头盔绑到自己账号、看到头盔在线/电量状态。这是后面一切功能的前提：没有"谁的设备"，就没有"谁的轨迹、谁的 SOS"。

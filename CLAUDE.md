@@ -1,7 +1,7 @@
 # CLAUDE.md — AI 智能头盔软件项目
 
 > 本文件是整个项目的长期开发约定。Claude Code 和两位开发者在每次开发前都必须先读本文件。
-> 状态：**Week 1 出口标准已达成（2026-08-14）：CI 全绿；双端真机（iPhone 13 Pro Max + 华为 P30 Pro）安装运行验证通过；API/EVENTS Contract 初稿已合并。待办：第三方账号申请启动（负责人）、新成员环境上手。下一阶段 Week 2：双端技术 Spike + 首条 Mock 事件入库（分工见 `plan/weekly-plan.md`）。仓库：<https://github.com/Dragolone/AI-Smart-Helmet-01WeiChuang>**
+> 状态：**Week 2 主体已达成（2026-08-15）：新成员环境上手完成（后端/DB/EMQX/双端构建全链路本机复验，Mock 事件入库验证通过）；四项 Spike 双端真机通过——定位（含华为无 GMS）、Push 本地通知、BLE 前台扫描/连接/断连检测、RTC（腾讯 TRTC：双机对讲互通、锁屏后台音频、蓝牙耳机路由全过，选型证据齐备待定案）。剩余：地图 Spike（等高德 Key）、iOS/Android BLE 后台断连（Week 11 防丢前必测）、APNs 远程推送（等公司账号）。实证提醒：Bundle ID 无法跨两个个人开发团队共用，公司 Apple Developer 账号需加急（详见 docs/DEVELOPMENT.md 平台限制清单）。进度明细见 `plan/weekly-plan.md`。仓库：<https://github.com/Dragolone/AI-Smart-Helmet-01WeiChuang>**
 > 已拍板的技术决策记录在 `docs/DECISIONS.md`，**不允许无理由重新推翻**。
 
 ---
