@@ -35,10 +35,21 @@ export function buildInvalidRecord(
   };
 }
 
+/** 单条消息上限（EMQX 默认包上限 1MB，业务事件远小于此；超限按无效留档防 DoS） */
+export const MAX_RAW_BYTES = 65_536;
+
+/** EVENTS.md §1：timestamp 必须为 ISO 8601 且带显式时区（Z 或 ±hh:mm）。
+ *  缺时区的字符串 JS 会按服务器本地时区解释，导致静默偏移数小时落库。 */
+const ISO8601_WITH_TZ =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/;
+
 export function validateEnvelope(
   raw: string,
   topicDeviceId: string,
 ): EnvelopeResult {
+  if (Buffer.byteLength(raw, 'utf-8') > MAX_RAW_BYTES) {
+    return { ok: false, reason: 'payload_too_large' };
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -72,15 +83,16 @@ export function validateEnvelope(
   if (typeof o.timestamp !== 'string') {
     return { ok: false, reason: 'timestamp_missing' };
   }
+  if (!ISO8601_WITH_TZ.test(o.timestamp)) {
+    return { ok: false, reason: 'timestamp_not_iso8601_with_timezone' };
+  }
   const ts = new Date(o.timestamp);
   if (Number.isNaN(ts.getTime())) {
     return { ok: false, reason: 'timestamp_unparseable' };
   }
-  if (
-    o.firmwareVersion !== undefined &&
-    typeof o.firmwareVersion !== 'string'
-  ) {
-    return { ok: false, reason: 'firmware_version_not_string' };
+  // EVENTS.md §1：firmwareVersion 为必填字段
+  if (typeof o.firmwareVersion !== 'string' || o.firmwareVersion.length === 0) {
+    return { ok: false, reason: 'firmware_version_missing' };
   }
   const payload = o.payload;
   if (
@@ -100,7 +112,7 @@ export function validateEnvelope(
       deviceId: o.deviceId,
       eventType: o.eventType,
       timestamp: ts,
-      firmwareVersion: o.firmwareVersion ?? null,
+      firmwareVersion: o.firmwareVersion,
       payload: payload as Record<string, unknown>,
     },
   };

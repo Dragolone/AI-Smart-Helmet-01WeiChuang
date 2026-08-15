@@ -41,6 +41,7 @@ describe('validateEnvelope', () => {
     ['eventId', 'event_id_missing'],
     ['eventType', 'event_type_missing'],
     ['timestamp', 'timestamp_missing'],
+    ['firmwareVersion', 'firmware_version_missing'],
     ['payload', 'payload_missing_or_not_object'],
   ])('缺失必填字段 %s 时拒绝', (field, reason) => {
     const msg = JSON.parse(validMessage) as Record<string, unknown>;
@@ -49,11 +50,37 @@ describe('validateEnvelope', () => {
     expect(r).toEqual({ ok: false, reason });
   });
 
-  it('拒绝不可解析的 timestamp', () => {
+  it.each([
+    ['not-a-date'],
+    ['2026-08-14T03:00:00'],
+    ['8/14/2026'],
+    ['2026-08-14 03:00:00Z'],
+  ])('拒绝无时区或非 ISO 8601 的 timestamp：%s', (ts) => {
     const msg = JSON.parse(validMessage) as Record<string, unknown>;
-    msg.timestamp = 'not-a-date';
+    msg.timestamp = ts;
     const r = validateEnvelope(JSON.stringify(msg), 'helmet_001');
-    expect(r).toEqual({ ok: false, reason: 'timestamp_unparseable' });
+    expect(r).toEqual({
+      ok: false,
+      reason: 'timestamp_not_iso8601_with_timezone',
+    });
+  });
+
+  it('接受带偏移量时区的 timestamp', () => {
+    const msg = JSON.parse(validMessage) as Record<string, unknown>;
+    msg.timestamp = '2026-08-14T11:00:00+08:00';
+    const r = validateEnvelope(JSON.stringify(msg), 'helmet_001');
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.envelope.timestamp.toISOString()).toBe(
+        '2026-08-14T03:00:00.000Z',
+      );
+    }
+  });
+
+  it('拒绝超过大小上限的消息', () => {
+    const huge = JSON.stringify({ x: 'a'.repeat(70_000) });
+    const r = validateEnvelope(huge, 'helmet_001');
+    expect(r).toEqual({ ok: false, reason: 'payload_too_large' });
   });
 });
 
