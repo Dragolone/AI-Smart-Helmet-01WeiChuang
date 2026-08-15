@@ -1,7 +1,11 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { Public } from '../common/public.decorator';
 import { AdminAuthGuard } from './admin-auth.guard';
-import { AdminDevicesQueryDto, AdminListQueryDto } from './admin.dto';
+import {
+  AdminAccidentsQueryDto,
+  AdminDevicesQueryDto,
+  AdminListQueryDto,
+} from './admin.dto';
 import { AdminService } from './admin.service';
 
 // @Public() 只是跳过全局用户守卫；实际访问控制由 AdminAuthGuard 承担（独立密钥）
@@ -23,6 +27,16 @@ export class AdminController {
       query.pageSize,
       query.keyword,
       query.online === undefined ? undefined : query.online === 'true',
+    );
+  }
+
+  @Get('accidents')
+  accidents(@Query() query: AdminAccidentsQueryDto) {
+    return this.admin.listAccidents(
+      query.page,
+      query.pageSize,
+      query.status,
+      query.deviceId,
     );
   }
 }

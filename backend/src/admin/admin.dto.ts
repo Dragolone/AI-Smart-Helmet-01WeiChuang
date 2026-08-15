@@ -48,3 +48,14 @@ export class AdminDevicesQueryDto extends AdminListQueryDto {
   @IsIn(['true', 'false'])
   online?: 'true' | 'false';
 }
+
+export class AdminAccidentsQueryDto extends AdminListQueryDto {
+  @IsOptional()
+  @IsIn(['pending', 'notified', 'cancelled'])
+  status?: 'pending' | 'notified' | 'cancelled';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  deviceId?: string;
+}
