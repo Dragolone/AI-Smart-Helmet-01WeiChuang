@@ -153,6 +153,39 @@ export interface ActiveSosResponse {
   sos: Sos | null;
 }
 
+/** 事故位置快照（口径见 DECISIONS #26）：event=触发事件内嵌位置 / last_point=最新轨迹点回落 */
+export interface AccidentLocation {
+  latitude: number;
+  longitude: number;
+  coordinateSystem: CoordinateSystem;
+  accuracy: number | null;
+  source: 'event' | 'last_point';
+}
+
+/** 事故记录列表项（= SOS 单，含已取消供留档） */
+export interface AccidentListItem extends Sos {
+  location: AccidentLocation | null;
+}
+
+/** 通知发送记录；target 已脱敏（手机号打码），联系人以 contactName 辨识 */
+export interface SosNotificationPublic {
+  id: string;
+  channel: 'sms' | 'push';
+  target: string;
+  contactName: string | null;
+  status: 'pending' | 'sent' | 'failed';
+  attempts: number;
+  lastError: string | null;
+  sentAt: string | null;
+  createdAt: string;
+}
+
+/** 事故详情：触发事件原始 payload（raw 留档，可能为 null）+ 通知发送记录 */
+export interface AccidentDetail extends AccidentListItem {
+  triggerPayload: Record<string, unknown> | null;
+  notifications: SosNotificationPublic[];
+}
+
 // —— §11 WebSocket（App 实时通道） ——
 
 export type WsMessageType =
@@ -211,4 +244,9 @@ export interface AdminUserRow {
 
 export interface AdminDeviceRow extends DevicePublic {
   bindUser: { id: string; phone: string; nickname: string | null } | null;
+}
+
+/** GET /admin/accidents 列表项：事故 + 归属用户（建单时固化，解绑不失联） */
+export interface AdminAccidentRow extends AccidentListItem {
+  user: { id: string; phone: string; nickname: string | null } | null;
 }

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ONLINE_WINDOW_MS } from '../devices/devices.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { toWireAccident } from '../sos/sos-wire';
 import type { Prisma } from '../generated/prisma/client';
 
 @Injectable()
@@ -110,6 +111,43 @@ export class AdminService {
         boundAt: d.boundAt,
         createdAt: d.createdAt,
         bindUser: d.bindUser,
+      })),
+      total,
+      page,
+      pageSize,
+    };
+  }
+
+  /** 事故/SOS 记录（API.md §10：状态/设备可筛，最新在前）；userId 无外键，归属用户单独批查 */
+  async listAccidents(
+    page: number,
+    pageSize: number,
+    status?: string,
+    deviceId?: string,
+  ) {
+    const where: Prisma.SosCaseWhereInput = {
+      ...(status ? { status } : {}),
+      ...(deviceId?.trim() ? { deviceId: deviceId.trim() } : {}),
+    };
+    const [total, cases] = await this.prisma.$transaction([
+      this.prisma.sosCase.count({ where }),
+      this.prisma.sosCase.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
+    const userIds = [...new Set(cases.map((c) => c.userId))];
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, phone: true, nickname: true },
+    });
+    const byId = new Map(users.map((u) => [u.id, u]));
+    return {
+      items: cases.map((c) => ({
+        ...toWireAccident(c),
+        user: byId.get(c.userId) ?? null,
       })),
       total,
       page,

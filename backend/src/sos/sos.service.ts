@@ -3,13 +3,19 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { ActiveSosResponse, Sos } from '@helmet/shared';
+import type {
+  AccidentDetail,
+  AccidentListItem,
+  ActiveSosResponse,
+  Paginated,
+  Sos,
+} from '@helmet/shared';
 import type { SosCase } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimePushService } from '../realtime/realtime-push.service';
 import { SOS_STATUS } from './sos.constants';
 import { SosNotifierService } from './sos-notifier.service';
-import { toWireSos } from './sos-wire';
+import { toWireAccident, toWireNotification, toWireSos } from './sos-wire';
 
 const notFound = () =>
   new NotFoundException({ code: 'NOT_FOUND', message: 'SOS 不存在' });
@@ -30,17 +36,7 @@ export class SosService {
 
   /** 当前进行中 SOS；无则 sos: null（200，与 locations/latest 同口径，定稿） */
   async active(userId: string, deviceId: string): Promise<ActiveSosResponse> {
-    // 归属校验与 §4/§5 同口径：非本人绑定设备一律 DEVICE_NOT_FOUND，不泄露存在性
-    const device = await this.prisma.device.findUnique({
-      where: { deviceId },
-      select: { bindUserId: true },
-    });
-    if (!device || device.bindUserId !== userId) {
-      throw new NotFoundException({
-        code: 'DEVICE_NOT_FOUND',
-        message: '设备不存在或未绑定到当前用户',
-      });
-    }
+    await this.ensureDeviceOwned(userId, deviceId);
     const active = await this.prisma.sosCase.findFirst({
       where: { deviceId, userId, status: SOS_STATUS.pending },
     });
@@ -78,6 +74,76 @@ export class SosService {
       where: { id: sosId },
     });
     return toWireSos(notified);
+  }
+
+  /** 事故记录列表（含已取消供留档，最新在前）；按 deviceId+userId 双过滤——换绑后新主看不到旧主的事故 */
+  async accidents(
+    userId: string,
+    deviceId: string,
+    page: number,
+    pageSize: number,
+  ): Promise<Paginated<AccidentListItem>> {
+    await this.ensureDeviceOwned(userId, deviceId);
+    const where = { deviceId, userId };
+    const [total, cases] = await this.prisma.$transaction([
+      this.prisma.sosCase.count({ where }),
+      this.prisma.sosCase.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
+    return { items: cases.map(toWireAccident), total, page, pageSize };
+  }
+
+  /** 事故详情：触发事件原始 payload（raw 留档）+ 通知发送记录（target 脱敏） */
+  async accidentDetail(
+    userId: string,
+    accidentId: string,
+  ): Promise<AccidentDetail> {
+    const sosCase = await this.prisma.sosCase.findUnique({
+      where: { id: accidentId },
+    });
+    if (!sosCase || sosCase.userId !== userId) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: '事故记录不存在',
+      });
+    }
+    const [rawEvent, notifications] = await this.prisma.$transaction([
+      this.prisma.rawEvent.findUnique({
+        where: { eventId: sosCase.triggerEventId },
+        select: { payload: true },
+      }),
+      this.prisma.sosNotification.findMany({
+        where: { sosId: accidentId },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ]);
+    return {
+      ...toWireAccident(sosCase),
+      triggerPayload:
+        (rawEvent?.payload as Record<string, unknown> | undefined) ?? null,
+      notifications: notifications.map(toWireNotification),
+    };
+  }
+
+  /** 设备归属校验（与 §4/§5 同口径）：非本人绑定设备一律 DEVICE_NOT_FOUND */
+  private async ensureDeviceOwned(
+    userId: string,
+    deviceId: string,
+  ): Promise<void> {
+    const device = await this.prisma.device.findUnique({
+      where: { deviceId },
+      select: { bindUserId: true },
+    });
+    if (!device || device.bindUserId !== userId) {
+      throw new NotFoundException({
+        code: 'DEVICE_NOT_FOUND',
+        message: '设备不存在或未绑定到当前用户',
+      });
+    }
   }
 
   /** 归属：取消/确认权限以建单时固化的 userId 为准（解绑不影响进行中 SOS 的处置权） */

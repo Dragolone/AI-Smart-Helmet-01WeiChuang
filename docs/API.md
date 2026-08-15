@@ -117,15 +117,15 @@ SOS 状态机为服务端权威（DECISIONS #8/#26）：`pending → notified | 
 | GET | /devices/{deviceId}/sos/active | 当前进行中 SOS：`200 { "sos": <sos 对象> \| null }`（无进行中时为 null，**✅ 定稿**，与 §5 latest 同口径） |
 | POST | /sos/{sosId}/cancel | 取消（仅 pending 可取消；终态返回 409 `SOS_ALREADY_FINALIZED`） |
 | POST | /sos/{sosId}/confirm | “SOS Now”：跳过剩余倒计时立即通知 |
-| GET | /devices/{deviceId}/accidents?page= | 事故记录列表（含已取消，供留档） |
-| GET | /accidents/{accidentId} | 事故详情：触发事件、位置快照、SOS 状态流转、通知发送记录（成功/失败/通道） |
+| GET | /devices/{deviceId}/accidents?page=&pageSize= | 事故记录列表（含已取消供留档，最新在前；TS 类型 AccidentListItem）。换绑后新主看不到旧主的事故（deviceId+userId 双过滤） |
+| GET | /accidents/{accidentId} | 事故详情（TS 类型 AccidentDetail）：sos 对象 + `location`（快照，source: event\|last_point）+ `triggerPayload`（触发事件原始 payload）+ `notifications`（通道/状态/重试次数/错误；**target 已脱敏**） |
 
 `sos` 对象（TS 类型见 `@helmet/shared` Sos）：`{ sosId, deviceId, triggerEventId, triggerType: "possible_fall"|"manual_sos", status: "pending"|"notified"|"cancelled", deadline, createdAt, updatedAt }`。
 
 - App 收到 WebSocket/Push 的 `sos` 对象后按 `deadline` 本地倒计时渲染，不自行计时判断超时。
 - 错误码：`SOS_ALREADY_FINALIZED`（409，取消/确认时状态机已终态）；取消/确认权限以**建单时固化的绑定用户**为准，他人操作一律 404（不泄露存在性）。
 - 通知：超时/确认后逐个紧急联系人发 SMS（同号去重）+ 本人 Push，逐条留档（成功/失败/通道/重试次数，失败重试上限 3 次）；事故位置快照优先取触发事件内嵌位置，回落最新轨迹点（✅ 口径 2026-08-16 定稿）。
-- ✅ 实现状态（2026-08-16）：active / cancel / confirm + 状态机（触发/合并/倒计时/扫描/重启接管/通知重试）已实现；**accidents 两个查询端点随下一批实现**。
+- ✅ 实现状态（2026-08-16）：本节全部端点已实现（active / cancel / confirm / accidents 列表与详情 + 状态机：触发/合并/倒计时/扫描/重启接管/通知重试）。
 
 ## 8. 设备设置下发（命令）
 
@@ -157,6 +157,7 @@ MVP 实用为主，全部只读 + 少量运维操作。
 | POST | /admin/auth/login | body：`{ username, password }` → `{ admin: { id, username }, accessToken }`。失败统一 401 UNAUTHORIZED（不区分账号不存在与密码错误） |
 | GET | /admin/users?page=&pageSize=&keyword= | 用户列表/搜索（keyword 匹配 phone/nickname）。item：`{ id, phone, nickname, avatarUrl, createdAt, deviceCount }` |
 | GET | /admin/devices?page=&pageSize=&keyword=&online= | 设备列表（keyword 匹配 deviceId/绑定手机号；`online=true|false` 按 90s 心跳窗口筛选，口径与 §4 status 一致）。item：`{ deviceId, online, lastSeenAt, battery, charging, signalLevel, sleeping, firmwareVersion, boundAt, createdAt, bindUser: { id, phone, nickname } | null }` |
+| GET | /admin/accidents?status=&deviceId=&page=&pageSize= | 事故/SOS 记录（✅ 2026-08-16，Week 7–8）：`status=pending\|notified\|cancelled`、deviceId 精确筛；item = AccidentListItem + `user: { id, phone, nickname } \| null`（TS 类型 AdminAccidentRow），最新在前 |
 
 分页响应用 §1 统一结构 `{ items, total, page, pageSize }`。
 
@@ -166,7 +167,6 @@ MVP 实用为主，全部只读 + 少量运维操作。
 |------|------|------|
 | GET | /admin/devices/{deviceId} | 设备详情 + 最近事件 |
 | GET | /admin/events?type=&deviceId=&from=&to=&page= | 全量事件查询（含未知类型/校验失败的原始事件 ⚠️ 是否单独端点待定稿） |
-| GET | /admin/accidents?status=&page= | 事故/SOS 记录与通知发送结果（Week 7–8 SOS 后） |
 | GET | /admin/stats/overview | 概览：设备总数/在线数、今日事件数、进行中 SOS 数（⚠️ 指标集待定） |
 
 ## 11. WebSocket（App 实时通道）
