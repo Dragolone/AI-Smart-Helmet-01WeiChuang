@@ -18,6 +18,8 @@ import TRTCCloud, {
   TRTCParams,
 } from 'trtc-react-native';
 
+import { Image } from 'expo-image';
+
 import { Badge } from '@/components/badge';
 import { PrimaryButton } from '@/components/form';
 import { PulseRing } from '@/components/pulse-ring';
@@ -38,10 +40,13 @@ function MemberAvatar({
   name,
   speaking,
   self = false,
+  avatarUrl,
 }: {
   name: string;
   speaking: boolean;
   self?: boolean;
+  /** 本人取自会话档案;远端成员头像待频道接后端(#43 成员信息)后补 */
+  avatarUrl?: string | null;
 }) {
   const theme = useTheme();
   return (
@@ -53,11 +58,15 @@ function MemberAvatar({
           styles.avatarRing,
           { borderColor: speaking ? theme.brand : 'transparent' },
         ]}>
-        <View style={[styles.avatar, { backgroundColor: theme.backgroundSelected }]}>
-          <ThemedText type="smallBold" style={{ fontSize: 18 }}>
-            {name.slice(0, 1).toUpperCase()}
-          </ThemedText>
-        </View>
+        {avatarUrl ? (
+          <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+        ) : (
+          <View style={[styles.avatar, { backgroundColor: theme.backgroundSelected }]}>
+            <ThemedText type="smallBold" style={{ fontSize: 18 }}>
+              {name.slice(0, 1).toUpperCase()}
+            </ThemedText>
+          </View>
+        )}
         {speaking && (
           <View style={[styles.speakBubble, { backgroundColor: theme.brand }]}>
             <Ionicons name="pulse" size={10} color={theme.onBrand} />
@@ -241,7 +250,12 @@ export default function IntercomScreen() {
 
             {/* 成员头像横排（发言荧光环） */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.avatarRow}>
-              <MemberAvatar name={user?.nickname ?? myId} speaking={isSpeaking(myId) || talking} self />
+              <MemberAvatar
+                name={user?.nickname ?? myId}
+                speaking={isSpeaking(myId) || talking}
+                self
+                avatarUrl={user?.avatarUrl}
+              />
               {members.map((m) => (
                 <MemberAvatar key={m} name={m} speaking={isSpeaking(m)} />
               ))}
@@ -306,9 +320,13 @@ export default function IntercomScreen() {
             </View>
 
             <View style={[styles.memberRow, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-              <View style={[styles.memberAvatar, { backgroundColor: theme.backgroundSelected }]}>
-                <ThemedText type="smallBold">{(user?.nickname ?? myId).slice(0, 1).toUpperCase()}</ThemedText>
-              </View>
+              {user?.avatarUrl ? (
+                <Image source={{ uri: user.avatarUrl }} style={styles.memberAvatar} />
+              ) : (
+                <View style={[styles.memberAvatar, { backgroundColor: theme.backgroundSelected }]}>
+                  <ThemedText type="smallBold">{(user?.nickname ?? myId).slice(0, 1).toUpperCase()}</ThemedText>
+                </View>
+              )}
               <View style={styles.memberBody}>
                 <ThemedText type="smallBold">{user?.nickname ?? myId}</ThemedText>
               </View>

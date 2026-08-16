@@ -8,6 +8,13 @@ import { authApi } from '@/api/auth';
 const TOKEN_KEY = 'helmet.session.tokens';
 const USER_KEY = 'helmet.session.user';
 
+/** SecureStore 只存最小档案:iOS 钥匙串单值上限 2KB,data-URI 头像(≈20KB)绝不能入;
+ *  完整档案(含头像)启动后由 /users/me 拉取进内存。 */
+const toPersistable = (user: UserProfile): UserProfile => ({
+  ...user,
+  avatarUrl: null,
+});
+
 type AuthState = {
   /** SecureStore 读取完成前为 false，路由门控需等它 */
   hydrated: boolean;
@@ -30,11 +37,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         SecureStore.getItemAsync(TOKEN_KEY),
         SecureStore.getItemAsync(USER_KEY),
       ]);
+      const tokens = rawTokens ? (JSON.parse(rawTokens) as AuthTokens) : null;
       set({
-        tokens: rawTokens ? (JSON.parse(rawTokens) as AuthTokens) : null,
+        tokens,
         user: rawUser ? (JSON.parse(rawUser) as UserProfile) : null,
         hydrated: true,
       });
+      // 后台补拉全量档案(含头像);失败不影响启动,401 由 api 层刷新/清理
+      if (tokens) {
+        authApi
+          .me()
+          .then((full) => set({ user: full }))
+          .catch(() => undefined);
+      }
     } catch {
       // 存储损坏按未登录处理，不阻塞启动
       set({ tokens: null, user: null, hydrated: true });
@@ -54,7 +69,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           refreshToken: auth.refreshToken,
         }),
       ),
-      SecureStore.setItemAsync(USER_KEY, JSON.stringify(auth.user)),
+      SecureStore.setItemAsync(USER_KEY, JSON.stringify(toPersistable(auth.user))),
     ]);
   },
 
@@ -77,7 +92,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   setUser: async (user) => {
     set({ user });
-    await SecureStore.setItemAsync(USER_KEY, JSON.stringify(user));
+    await SecureStore.setItemAsync(USER_KEY, JSON.stringify(toPersistable(user)));
   },
 }));
 
