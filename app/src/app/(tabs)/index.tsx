@@ -44,8 +44,8 @@ function BatteryBar({ level }: { level: number | null }) {
 /** 头盔演示图池：设备暂无型号字段（待硬件定稿），按 deviceId 稳定散列分配——
  *  同一设备永远同一张图，不同设备尽量错开。正式型号图到位后改为按型号映射。 */
 const HELMET_IMAGES = [
-  require('@/assets/images/helmet-urban-v3.webp'),
-  require('@/assets/images/helmet-ski-v3.webp'),
+  require('@/assets/images/helmet-urban-v5.webp'),
+  require('@/assets/images/helmet-ski-v5.webp'),
 ] as const;
 
 function helmetImageFor(deviceId: string) {
@@ -331,8 +331,8 @@ const styles = StyleSheet.create({
   },
   cardTop: { flexDirection: 'row', gap: 14 },
   helmetImage: {
-    width: 108,
-    height: 108,
+    width: 128,
+    height: 128,
     borderRadius: 14,
     alignSelf: 'center',
   },
