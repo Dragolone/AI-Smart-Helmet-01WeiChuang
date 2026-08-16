@@ -1,0 +1,63 @@
+## EMQX 生产配置模板 —— 由 deploy/render-config.sh 渲染出 deploy/generated/emqx.conf（gitignored）
+## 与本地 emqx/emqx.conf 的差异：
+##   ① 认证/授权回调直连容器网络的 backend:3000（本地是 host.docker.internal:3000——写死端口的坑见 DEVELOPMENT.md）
+##   ② 内部令牌来自 deploy/.env 的 EMQX_INTERNAL_TOKEN（占位符渲染，不进 Git）
+## MQTT TLS(8883) 暂不启用：4G 模组是否支持 TLS 待硬件确认（DEVICE_PROTOCOL §3 ⚠️）；
+## 联调期 1883 明文 + 云防火墙限源 IP，硬件确认后在此追加 ssl listener 并同步 DEPLOYMENT.md。
+
+node {
+  name = "emqx@127.0.0.1"
+  cookie = "emqxsecretcookie"
+  data_dir = "data"
+}
+
+cluster {
+  name = emqxcl
+  discovery_strategy = manual
+}
+
+dashboard {
+    listeners {
+        http.bind = 18083
+    }
+}
+
+## ———— 设备认证 + Topic ACL（DEVICE_PROTOCOL §3/§4）：转发后端内部接口校验 ————
+## enable_pipelining=1：避免连接池复用与后端 keep-alive 空闲关闭的竞态（与本地配置一致）。
+
+authentication = [
+  {
+    mechanism = password_based
+    backend = http
+    method = post
+    url = "http://backend:3000/api/v1/internal/emqx/authenticate?token=__EMQX_INTERNAL_TOKEN__"
+    body {
+      clientid = "${clientid}"
+      username = "${username}"
+      password = "${password}"
+    }
+    enable_pipelining = 1
+    connect_timeout = "5s"
+    request_timeout = "5s"
+  }
+]
+
+authorization {
+  no_match = deny
+  sources = [
+    {
+      type = http
+      method = post
+      url = "http://backend:3000/api/v1/internal/emqx/authorize?token=__EMQX_INTERNAL_TOKEN__"
+      body {
+        clientid = "${clientid}"
+        username = "${username}"
+        topic = "${topic}"
+        action = "${action}"
+      }
+      enable_pipelining = 1
+      connect_timeout = "5s"
+      request_timeout = "5s"
+    }
+  ]
+}

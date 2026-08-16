@@ -1,0 +1,86 @@
+# development/production 环境编排（CLAUDE.md 环境规划：Docker Compose 起 后端 + EMQX + PG）
+# 使用前提：deploy/.env 已从 .env.example 复制填好；sh render-config.sh 已生成 generated/emqx.conf
+# 启动：cd deploy && docker compose -f docker-compose.prod.yml up -d --build
+# 完整步骤与验收清单：docs/DEPLOYMENT.md
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    # 不映射宿主端口：数据库仅容器网络内可达，杜绝公网扫库
+    environment:
+      POSTGRES_USER: helmet
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?deploy/.env 未配置 POSTGRES_PASSWORD}
+      POSTGRES_DB: helmet
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U helmet"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  emqx:
+    image: emqx:5
+    restart: unless-stopped
+    ports:
+      # MQTT 明文：TLS 待硬件确认（DEVICE_PROTOCOL §3 ⚠️）；公网暴露面靠云防火墙限源 IP 收紧
+      - "1883:1883"
+      # Dashboard 仅绑本机：运维经 SSH 隧道访问（ssh -L 18083:localhost:18083 <server>）
+      - "127.0.0.1:18083:18083"
+    volumes:
+      - emqx_data:/opt/emqx/data
+      - ./generated/emqx.conf:/opt/emqx/etc/emqx.conf:ro
+    environment:
+      # 覆盖模板里的占位 cookie（Erlang 分布式协议凭证，单节点也别用默认值）
+      EMQX_NODE__COOKIE: ${EMQX_NODE_COOKIE:?deploy/.env 未配置 EMQX_NODE_COOKIE}
+      # Dashboard 首登密码（默认 admin/public 必须换掉；仅本机可达是第二道防线不是理由）
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_DASHBOARD_PASSWORD:?deploy/.env 未配置 EMQX_DASHBOARD_PASSWORD}
+
+  backend:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    # 不映射宿主端口：REST/WS 一律经 gateway 443 进来；EMQX 回调走容器网络 backend:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      emqx:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql://helmet:${POSTGRES_PASSWORD}@postgres:5432/helmet
+      MQTT_URL: mqtt://emqx:1883
+      MQTT_BACKEND_CLIENT_ID: backend_ingest
+      MQTT_BACKEND_USERNAME: ${MQTT_BACKEND_USERNAME:-backend_ingest}
+      MQTT_BACKEND_PASSWORD: ${MQTT_BACKEND_PASSWORD:?deploy/.env 未配置 MQTT_BACKEND_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET:?deploy/.env 未配置 JWT_SECRET}
+      ADMIN_JWT_SECRET: ${ADMIN_JWT_SECRET:?deploy/.env 未配置 ADMIN_JWT_SECRET}
+      EMQX_INTERNAL_TOKEN: ${EMQX_INTERNAL_TOKEN:?deploy/.env 未配置 EMQX_INTERNAL_TOKEN}
+      TRTC_SDK_APP_ID: ${TRTC_SDK_APP_ID:-}
+      TRTC_SECRET_KEY: ${TRTC_SECRET_KEY:-}
+
+  gateway:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.gateway
+    restart: unless-stopped
+    ports:
+      - "80:80"   # ACME HTTP 验证 + 自动跳转 https
+      - "443:443"
+    depends_on:
+      - backend
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data      # 证书与 ACME 账号——删卷=重新签发，触发 Let's Encrypt 频率限制
+      - caddy_config:/config
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?deploy/.env 未配置 API_DOMAIN}
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN:?deploy/.env 未配置 ADMIN_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?deploy/.env 未配置 ACME_EMAIL}
+
+volumes:
+  postgres_data:
+  emqx_data:
+  caddy_data:
+  caddy_config:

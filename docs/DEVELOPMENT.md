@@ -59,6 +59,8 @@ cd backend && npx prisma migrate dev   # 建表（要求 docker 里的 postgres 
 
 **已知坑：其他项目的 Docker 容器抢 3000 端口**（2026-08-16 验收实测）——本机 c3322 项目的 `c3322-node` 容器映射了 3000-3001 且设了自启，Docker Desktop 一重启它就把 3000 占走，后端启动报 `EADDRINUSE`。排查：`lsof -nP -iTCP:3000 -sTCP:LISTEN`（COMMAND 显示 `com.docke` 即是容器）；处理：`docker stop c3322-node`（要用那个项目时再 `docker start`）。
 
+**连带坑：改 `PORT` 绕开端口冲突会让设备认证静默全拒**（2026-08-16 实测）——`emqx/emqx.conf` 的认证/授权回调 URL **写死 `host.docker.internal:3000`**，所以用 `PORT=3100 npm run start:dev` 换端口后，后端自身起得来、REST 也正常，但 EMQX 仍回调 3000（此时多半是别的项目的容器），设备与后端消费者一律 `Connection refused: Not authorized`，日志表现为无限「MQTT 重连中…」。两条路二选一：① 优先 `docker stop c3322-node` 腾出 3000 用默认端口；② 确需换端口则 `emqx/emqx.conf` 里两处 URL 同步改端口并 `docker restart helmet-emqx`，**用完记得 `git checkout emqx/emqx.conf` 还原**，勿把本地端口带进提交。
+
 **已知现象（非坑）：后端启动头几秒 MQTT 报「Not authorized」后自愈**——后端 MQTT 消费者在 HTTP 服务就绪前就开始连 EMQX，而 EMQX 认证回调恰恰要调后端 HTTP（自举鸡生蛋），头几次连接必然被拒；重连机制会在 HTTP 起来后自动连上并出现「已订阅」。看到最终「已订阅：helmet/+/status, …」即健康，无需处理。
 
 ## 常用命令（都在仓库根目录执行）

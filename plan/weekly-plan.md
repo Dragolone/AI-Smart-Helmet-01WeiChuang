@@ -192,7 +192,7 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 **B 线完成记录（2026-08-16，负责人逐步实测验收通过）**：
 - **#40 事件查询**：§6 两端点 + WS 五类推送补齐（risk_event/device_event）+ Mock SCENARIO=risk；危险事件不建专表、当前危险状态 App 端推导（决策 #27①②）。**#41 媒体**：media 表双唯一幂等 + StorageProvider Mock + 预签名 URL（10min 定稿）+ §6 详情媒体关联。**#42 命令状态机**：pending→delivered→success/failed/offline、仅 success 回执写入生效设置、30s 超时判 offline、迟到回执如实覆盖；Mock 自动回执三态（MOCK_CMD_RESULT）。**#43 对讲后端**：频道模型（6 位邀请码/roomId/上限 20，决策 #27⑤）+ TLS-Sig-API-v2 UserSig 自实现（#27⑥）。**#44 Admin**：事故/事件两页 + /admin/events（invalid 视图定稿）。附 **#45**：验收现场抓到并修复 Admin dev 白屏（workspace CJS 包 Vite 预打包配置；教训——vite build 检不出 dev 白屏，**验收必须真打开页面**）。
 - 实测验收要点：危险事件三类入列带摘要；媒体换 URL 时效分秒不差；设置离线路径 `delivered→offline` 且旧值不被覆盖（铁律成立）；对讲建频道/邀请码正常、凭证在 Key 未配时明确 503；Admin 两页 1983 条真数据翻页可用。
-- **遗留（不阻塞）**：① TRTC 个人测试应用 SDKAppID/SecretKey 待 A 提供 → 填 `backend/.env` 后补验 token 接口返回 userSig（一条 curl 的事）；② 双端合验（App 收危险事件、真机对讲）待 A 线 UI 完成后按验收标准执行。
+- **遗留**：① ~~TRTC Key 补验~~ **✅ 已清零（2026-08-16）**：A 提供个人测试应用凭证，填 `backend/.env` 后实测「注册 → 建频道 → 取进房凭证」通过，userSig 正常签发（216 字符 / 24h），**Week 9–10 B 线全部收口**；② 双端合验（App 收危险事件、App 对讲接后端频道管理后的真机复验）待 A 线 UI 完成后按验收标准执行。
 - **A 线待办**：危险事件页（§6 + WS risk_event）、媒体查看（§9）、设置页（§8，注意渲染 offline=未送达）、对讲 UI（§13 + TRTC SDK PTT）；接口与 shared 类型全部就绪。
 
 ## Week 11：联调与回归（+ 顺延的休眠/防丢）
