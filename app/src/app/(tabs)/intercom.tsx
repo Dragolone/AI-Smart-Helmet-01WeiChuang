@@ -80,6 +80,7 @@ export default function IntercomScreen() {
   const [talking, setTalking] = useState(false);
   const [members, setMembers] = useState<string[]>([]);
   const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [speakerOn, setSpeakerOn] = useState(true);
   const [volumes, setVolumes] = useState<Record<string, number>>({});
@@ -94,6 +95,7 @@ export default function IntercomScreen() {
         case TRTCCloudListener.onEnterRoom:
           setInRoom(params.result >= 0);
           setJoining(false);
+          setJoinError(params.result >= 0 ? null : `进房失败（${params.result}），请重试`);
           break;
         case TRTCCloudListener.onExitRoom:
           setInRoom(false);
@@ -136,6 +138,19 @@ export default function IntercomScreen() {
       if (res !== PermissionsAndroid.RESULTS.GRANTED) return;
     }
     setJoining(true);
+    setJoinError(null);
+    // 原生 TRTC 单例跨 JS 重载存活：残留会话会让新 enterRoom 报 -3340（already in room）。
+    // 先幂等退房清场（未在房时无害），开发期 Reload 后照常可进。
+    try {
+      await trtc.current.exitRoom();
+    } catch {}
+    // 进房兜底超时：回调丢失时 8s 后解除"进入中"，避免按钮永久卡死
+    setTimeout(() => {
+      setJoining((j) => {
+        if (j) setJoinError('进房超时，请重试');
+        return false;
+      });
+    }, 8000);
     const userSig = generateTestUserSig(SDKAPPID, SECRETKEY, myId);
     const params = new TRTCParams({ sdkAppId: SDKAPPID, userId: myId, userSig, roomId: ROOM_ID });
     await trtc.current.enterRoom(params, TRTCCloudDef.TRTC_APP_SCENE_AUDIOCALL);
@@ -192,6 +207,11 @@ export default function IntercomScreen() {
                 onPress={() => void join()}
                 loading={joining}
               />
+              {joinError && (
+                <ThemedText type="small" themeColor="danger" style={styles.centerText}>
+                  {joinError}
+                </ThemedText>
+              )}
               <ThemedText type="small" themeColor="textSecondary" style={styles.centerText}>
                 频道创建 / 邀请码加入功能开发中（Week 9–10）
               </ThemedText>
