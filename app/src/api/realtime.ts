@@ -1,0 +1,106 @@
+// App 实时通道客户端（API.md §11 / backend realtime.gateway）：
+// - `ws://<host>/ws?token=<accessToken>`，服务端按用户自动推送，无订阅指令；
+// - 加速通道不是可靠通道：断线指数退避重连，REST 轮询继续作为兜底；
+// - 4401（token 失效）→ 触发一次认证请求让 api 层静默刷新，再用新 token 重连。
+import type { WsMessage } from '@helmet/shared';
+
+const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000/api/v1';
+/** http(s)://host[:port]/api/v1 → ws(s)://host[:port]/ws */
+const WS_URL = API_URL.replace(/^http/, 'ws').replace(/\/api\/v1\/?$/, '/ws');
+
+const CLOSE_UNAUTHORIZED = 4401;
+const BACKOFF_BASE_MS = 1000;
+const BACKOFF_MAX_MS = 30_000;
+
+type Listener = (message: WsMessage) => void;
+
+type Deps = {
+  getAccessToken: () => string | null;
+  /** 任意需要鉴权的轻请求：401 时由 api 层完成 refresh 轮换（见 client.ts） */
+  triggerTokenRefresh: () => Promise<unknown>;
+};
+
+class RealtimeClient {
+  private deps: Deps | null = null;
+  private ws: WebSocket | null = null;
+  private listeners = new Set<Listener>();
+  private attempts = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private running = false;
+
+  start(deps: Deps): void {
+    this.deps = deps;
+    if (this.running) return;
+    this.running = true;
+    this.attempts = 0;
+    this.connect();
+  }
+
+  stop(): void {
+    this.running = false;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.ws?.close();
+    this.ws = null;
+  }
+
+  subscribe(listener: Listener): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  private connect(): void {
+    if (!this.running || !this.deps) return;
+    const token = this.deps.getAccessToken();
+    if (!token) {
+      // 未登录：等下一次 start（登录后由 hook 重新驱动）
+      this.running = false;
+      return;
+    }
+    const ws = new WebSocket(`${WS_URL}?token=${encodeURIComponent(token)}`);
+    this.ws = ws;
+
+    ws.onopen = () => {
+      this.attempts = 0;
+      if (__DEV__) console.log('[realtime] 已连接');
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const message = JSON.parse(String(event.data)) as WsMessage;
+        for (const listener of this.listeners) listener(message);
+      } catch {
+        if (__DEV__) console.warn('[realtime] 消息解析失败，已忽略');
+      }
+    };
+
+    ws.onclose = (event) => {
+      if (this.ws !== ws) return; // stop() 或新连接已接管
+      this.ws = null;
+      if (!this.running) return;
+      if (event.code === CLOSE_UNAUTHORIZED) {
+        // token 过期：借 api 层完成刷新后立刻重连（失败则走常规退避）
+        void this.deps
+          ?.triggerTokenRefresh()
+          .catch(() => undefined)
+          .finally(() => this.scheduleReconnect());
+        return;
+      }
+      this.scheduleReconnect();
+    };
+
+    ws.onerror = () => {
+      // onclose 会随后触发并统一走重连，这里仅防未处理事件告警
+    };
+  }
+
+  private scheduleReconnect(): void {
+    if (!this.running) return;
+    const delay = Math.min(BACKOFF_BASE_MS * 2 ** this.attempts, BACKOFF_MAX_MS);
+    this.attempts += 1;
+    if (__DEV__) console.log(`[realtime] ${delay}ms 后重连（第 ${this.attempts} 次）`);
+    this.reconnectTimer = setTimeout(() => this.connect(), delay);
+  }
+}
+
+export const realtimeClient = new RealtimeClient();
