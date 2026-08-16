@@ -7,10 +7,10 @@ import {
   ThemeProvider,
 } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useColorScheme } from 'react-native';
 import { LogBox } from 'react-native';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
+import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useAuthStore } from '@/stores/auth-store';
 
 // 已知无害：开发期 iOS 摘除了推送 entitlement（个人团队签不了 aps-environment），

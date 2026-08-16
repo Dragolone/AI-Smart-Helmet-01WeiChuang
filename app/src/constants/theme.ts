@@ -7,21 +7,51 @@ import '@/global.css';
 
 import { Platform } from 'react-native';
 
+/**
+ * 设计令牌（2026-08-16 风格迭代）：深色优先的"硬件监控台"风格——
+ * 近黑底 + 深灰描边卡片 + 荧光柠檬品牌色 + 半透明底语义药丸。
+ * 参考基准见 PR 描述截图；语义色只用于状态，品牌色只用于主操作。
+ */
 export const Colors = {
   light: {
-    text: '#000000',
-    background: '#ffffff',
-    backgroundElement: '#F0F0F3',
-    backgroundSelected: '#E0E1E6',
+    text: '#16181D',
+    background: '#F4F5F7',
+    backgroundElement: '#FFFFFF',
+    backgroundSelected: '#E9EBEF',
     textSecondary: '#60646C',
+    border: 'rgba(17, 24, 39, 0.08)',
+    brand: '#C7E62E',
+    onBrand: '#151804',
+    success: '#1F9D55',
+    successBg: 'rgba(31, 157, 85, 0.12)',
+    warning: '#B97D10',
+    warningBg: 'rgba(185, 125, 16, 0.12)',
+    danger: '#D9534F',
+    dangerBg: 'rgba(217, 83, 79, 0.12)',
   },
   dark: {
-    text: '#ffffff',
-    background: '#000000',
-    backgroundElement: '#212225',
-    backgroundSelected: '#2E3135',
-    textSecondary: '#B0B4BA',
+    text: '#FFFFFF',
+    background: '#0B0C0E',
+    backgroundElement: '#151619',
+    backgroundSelected: '#1F2126',
+    textSecondary: '#9BA1AA',
+    border: 'rgba(255, 255, 255, 0.08)',
+    brand: '#D9F24A',
+    onBrand: '#131503',
+    success: '#4ADE80',
+    successBg: 'rgba(74, 222, 128, 0.14)',
+    warning: '#F5B84A',
+    warningBg: 'rgba(245, 184, 74, 0.14)',
+    danger: '#F26D5F',
+    dangerBg: 'rgba(242, 109, 95, 0.16)',
   },
+} as const;
+
+/** 组件形状与阴影基准（参考风格：大圆角卡片 + 全药丸按钮） */
+export const Radius = {
+  card: 16,
+  control: 14,
+  pill: 999,
 } as const;
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
