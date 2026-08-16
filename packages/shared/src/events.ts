@@ -21,6 +21,18 @@ export const EVENT_TYPES = [
 
 export type EventType = (typeof EVENT_TYPES)[number];
 
+/** 蓝牙版 MVP 第一期允许经 App 中转的事件类型（DEVICE_PROTOCOL §1.1，决策 #31）：
+ *  保命链路 + 危险留档完整；其余 4 种（video_ready、sleep 两种、bluetooth_lost）下一版本 */
+export const BLE_RELAY_EVENT_TYPES = [
+  'device_status',
+  'location_update',
+  'possible_fall',
+  'manual_sos',
+  'collision_risk',
+  'obstacle_risk',
+  'risk_cleared',
+] as const satisfies readonly EventType[];
+
 /** 坐标必须显式携带坐标系，不允许隐含约定（EVENTS.md §2.4） */
 export type CoordinateSystem = 'wgs84' | 'gcj02';
 
