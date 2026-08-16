@@ -13,7 +13,10 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import type { LocationPoint, WsLocationData } from '@helmet/shared';
 
 import { devicesApi } from '@/api/devices';
@@ -120,6 +123,7 @@ function SeekBar({
 
 export default function MapScreen() {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const mapRef = useRef<AmapViewHandle>(null);
   const [mapError, setMapError] = useState<string | null>(null);
   const [range, setRange] = useState<RangeHours>(1);
@@ -282,7 +286,15 @@ export default function MapScreen() {
         }}
       />
 
-      <SafeAreaView style={styles.overlay} edges={['top']} pointerEvents="box-none">
+      <SafeAreaView
+        style={[
+          styles.overlay,
+          // iOS 原生标签条是半透明玻璃且内容会垫入其下（Android 内容区不含标签条）：
+          // 浮层底部让出「home 指示条 + 标签条」的高度，卡片不被玻璃盖住
+          Platform.OS === 'ios' && { paddingBottom: insets.bottom + 62 },
+        ]}
+        edges={['top']}
+        pointerEvents="box-none">
         {/* 顶部：实时状态药丸 + 分享/导航 */}
         <View style={styles.topRow} pointerEvents="box-none">
           <View style={[styles.livePill, { backgroundColor: cardBg, borderColor: theme.border }]}>
