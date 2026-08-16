@@ -47,7 +47,7 @@ function MemberAvatar({
   return (
     <View style={styles.avatarWrap}>
       <View style={styles.avatarRingBox}>
-        <PulseRing active={speaking} size={64} color={theme.brand} />
+        <PulseRing active={speaking} size={64} color={theme.brand} maxScale={1.3} />
       <View
         style={[
           styles.avatarRing,
@@ -220,23 +220,6 @@ export default function IntercomScreen() {
               <Badge variant={talking ? 'danger' : 'success'} label={talking ? '发言中' : '空闲中'} />
             </View>
 
-            {/* 频道菜单（收缩栏）：退出频道；将来放邀请码/频道设置 */}
-            {menuOpen && (
-              <View style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-                <Pressable
-                  style={styles.menuItem}
-                  onPress={() => {
-                    setMenuOpen(false);
-                    leave();
-                  }}>
-                  <Ionicons name="exit-outline" size={20} color={theme.danger} />
-                  <ThemedText type="smallBold" style={{ color: theme.danger }}>
-                    退出频道
-                  </ThemedText>
-                </Pressable>
-              </View>
-            )}
-
             {/* 成员头像横排（发言荧光环） */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.avatarRow}>
               <MemberAvatar name={user?.nickname ?? myId} speaking={isSpeaking(myId) || talking} self />
@@ -245,26 +228,11 @@ export default function IntercomScreen() {
               ))}
             </ScrollView>
 
-            {/* 频道信息卡 */}
-            <View style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-              <View style={[styles.hashIcon, { backgroundColor: theme.backgroundSelected }]}>
-                <ThemedText type="smallBold" style={{ fontSize: 16 }}>#</ThemedText>
-              </View>
-              <View style={styles.cardBody}>
-                <ThemedText type="smallBold" style={{ fontSize: 15 }}>
-                  骑行频道 {ROOM_ID}
-                </ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  演示频道 · 邀请码与队伍管理开发中
-                </ThemedText>
-              </View>
-              <Ionicons name="pulse" size={18} color={theme.brand} />
-            </View>
-
             {/* PTT 大圆钮 */}
             <View style={styles.pttWrap}>
-              <View style={[styles.pttOuter, { borderColor: talking ? theme.dangerBg : 'rgba(217,242,74,0.15)' }]}>
+              <View style={styles.pttClip}>
                 <PulseRing active={talking} size={220} color={theme.danger} count={3} duration={1400} />
+              <View style={[styles.pttOuter, { borderColor: talking ? theme.dangerBg : 'rgba(217,242,74,0.15)' }]}>
                 <Pressable
                   onPressIn={() => void pttDown()}
                   onPressOut={() => void pttUp()}
@@ -282,6 +250,7 @@ export default function IntercomScreen() {
                     {talking ? '正在说话…' : '按住说话'}
                   </ThemedText>
                 </Pressable>
+              </View>
               </View>
             </View>
 
@@ -356,6 +325,30 @@ export default function IntercomScreen() {
 
           </ScrollView>
         )}
+
+        {/* 频道 Dropdown（浮于页面之上）：点外部关闭；将来放邀请码/频道设置 */}
+        {inRoom && menuOpen && (
+          <>
+            <Pressable style={StyleSheet.absoluteFill} onPress={() => setMenuOpen(false)} />
+            <View
+              style={[
+                styles.dropdown,
+                { backgroundColor: theme.backgroundSelected, borderColor: theme.border },
+              ]}>
+              <Pressable
+                style={styles.menuItem}
+                onPress={() => {
+                  setMenuOpen(false);
+                  leave();
+                }}>
+                <Ionicons name="exit-outline" size={20} color={theme.danger} />
+                <ThemedText type="smallBold" style={{ color: theme.danger }}>
+                  退出频道
+                </ThemedText>
+              </Pressable>
+            </View>
+          </>
+        )}
       </ThemedView>
     </SafeAreaView>
   );
@@ -370,11 +363,25 @@ const styles = StyleSheet.create({
   roomContent: { gap: 14, paddingTop: 8, paddingBottom: 16 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  menuItem: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
+  menuItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 14 },
+  dropdown: {
+    position: 'absolute',
+    top: 96,
+    left: 20,
+    minWidth: 200,
+    borderRadius: Radius.control,
+    borderWidth: 1,
+    zIndex: 20,
+    elevation: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+  },
   channelTitle: { fontSize: 28, lineHeight: 34 },
   avatarRow: { gap: 16, paddingVertical: 4 },
   avatarWrap: { alignItems: 'center', gap: 6, width: 72 },
-  avatarRingBox: { width: 64, height: 64, alignItems: 'center', justifyContent: 'center' },
+  avatarRingBox: { width: 72, height: 68, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   avatarRing: {
     width: 64,
     height: 64,
@@ -417,7 +424,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   cardBody: { flex: 1, gap: 2 },
-  pttWrap: { alignItems: 'center', paddingVertical: 10 },
+  pttWrap: { alignItems: 'center', paddingVertical: 4 },
+  pttClip: { alignSelf: 'stretch', height: 252, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
   pttOuter: {
     width: 236,
     height: 236,

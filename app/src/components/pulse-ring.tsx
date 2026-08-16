@@ -7,10 +7,12 @@ function Ring({
   progress,
   size,
   color,
+  maxScale,
 }: {
   progress: Animated.Value;
   size: number;
   color: string;
+  maxScale: number;
 }) {
   return (
     <Animated.View
@@ -30,7 +32,7 @@ function Ring({
             {
               scale: progress.interpolate({
                 inputRange: [0, 1],
-                outputRange: [1, 1.55],
+                outputRange: [1, maxScale],
               }),
             },
           ],
@@ -50,12 +52,14 @@ export function PulseRing({
   color,
   count = 2,
   duration = 1600,
+  maxScale = 1.55,
 }: {
   active: boolean;
   size: number;
   color: string;
   count?: number;
   duration?: number;
+  maxScale?: number;
 }) {
   const values = useRef(
     Array.from({ length: count }, () => new Animated.Value(0)),
@@ -92,7 +96,7 @@ export function PulseRing({
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       <View style={styles.center}>
         {values.map((v, i) => (
-          <Ring key={i} progress={v} size={size} color={color} />
+          <Ring key={i} progress={v} size={size} color={color} maxScale={maxScale} />
         ))}
       </View>
     </View>
