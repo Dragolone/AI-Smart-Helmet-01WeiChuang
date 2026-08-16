@@ -55,6 +55,7 @@ export default function RegisterScreen() {
 
           <FormInput
             label="手机号"
+            icon="phone-portrait-outline"
             value={phone}
             onChangeText={setPhone}
             keyboardType="phone-pad"
@@ -63,6 +64,7 @@ export default function RegisterScreen() {
           />
           <FormInput
             label="密码"
+            icon="lock-closed-outline"
             value={password}
             onChangeText={setPassword}
             secureTextEntry
@@ -70,6 +72,7 @@ export default function RegisterScreen() {
           />
           <FormInput
             label="确认密码"
+            icon="lock-closed-outline"
             value={confirm}
             onChangeText={setConfirm}
             secureTextEntry
@@ -77,6 +80,7 @@ export default function RegisterScreen() {
           />
           <FormInput
             label="昵称（可选）"
+            icon="person-outline"
             value={nickname}
             onChangeText={setNickname}
             maxLength={30}

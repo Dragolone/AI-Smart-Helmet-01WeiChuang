@@ -1,5 +1,6 @@
 // 我的设备（Home 标签）：设备列表 + 绑定入口 + 退出登录（API.md §4 GET /devices）
 // 2026-08-16 风格迭代：监控台风格——KPI 指标行 + 描边卡片 + 状态药丸 + 电量条
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import {
@@ -56,10 +57,13 @@ function DeviceRow({ device }: { device: DevicePublic }) {
             <ThemedText type="subtitle" style={styles.deviceId}>
               {device.deviceId}
             </ThemedText>
-            <Badge
-              variant={device.online ? 'success' : 'neutral'}
-              label={device.online ? '在线' : '离线'}
-            />
+            <View style={styles.cardHeaderRight}>
+              <Badge
+                variant={device.online ? 'success' : 'neutral'}
+                label={device.online ? '在线' : '离线'}
+              />
+              <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
+            </View>
           </View>
           <View style={styles.metaRow}>
             <View style={styles.metaItem}>
@@ -102,11 +106,13 @@ function KpiChip({
   value,
   caption,
   captionHighlight = false,
+  icon,
 }: {
   label: string;
   value: string;
   caption: string;
   captionHighlight?: boolean;
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
 }) {
   const theme = useTheme();
   return (
@@ -115,9 +121,14 @@ function KpiChip({
         styles.kpi,
         { backgroundColor: theme.backgroundElement, borderColor: theme.border },
       ]}>
-      <ThemedText type="label" themeColor="textSecondary">
-        {label}
-      </ThemedText>
+      <View style={styles.kpiHeader}>
+        <View style={[styles.kpiIcon, { backgroundColor: theme.backgroundSelected }]}>
+          <MaterialCommunityIcons name={icon} size={18} color={theme.textSecondary} />
+        </View>
+        <ThemedText type="label" themeColor="textSecondary">
+          {label}
+        </ThemedText>
+      </View>
       <ThemedText type="display" style={styles.kpiValue}>
         {value}
       </ThemedText>
@@ -175,10 +186,16 @@ export default function MyDevicesScreen() {
         </View>
 
         <View style={styles.kpiRow}>
-          <KpiChip label="设备总数" value={String(list.length)} caption="全部头盔" />
+          <KpiChip
+            label="设备总数"
+            value={String(list.length)}
+            caption="全部头盔"
+            icon="racing-helmet"
+          />
           <KpiChip
             label="在线"
             value={String(onlineCount)}
+            icon="access-point"
             caption={
               list.length > 0
                 ? `在线率 ${Math.round((onlineCount / list.length) * 100)}%`
@@ -244,6 +261,15 @@ const styles = StyleSheet.create({
     padding: 14,
     gap: 4,
   },
+  kpiHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  kpiIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   kpiValue: { fontSize: 28, lineHeight: 32 },
   card: {
     borderRadius: Radius.card,

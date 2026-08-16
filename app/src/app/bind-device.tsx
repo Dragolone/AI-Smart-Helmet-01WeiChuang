@@ -41,6 +41,7 @@ export default function BindDeviceScreen() {
       </ThemedText>
       <FormInput
         label="设备编号"
+        icon="hardware-chip-outline"
         value={deviceId}
         onChangeText={setDeviceId}
         autoCapitalize="none"
@@ -48,6 +49,7 @@ export default function BindDeviceScreen() {
       />
       <FormInput
         label="绑定码"
+        icon="key-outline"
         value={bindCode}
         onChangeText={setBindCode}
         keyboardType="number-pad"

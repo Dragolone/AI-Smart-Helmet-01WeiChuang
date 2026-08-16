@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "dependencies": {
     "@expo/ui": "~57.0.10",
+    "@expo/vector-icons": "^15.0.2",
     "@helmet/shared": "*",
     "@tanstack/react-query": "^5.101.4",
     "expo": "~57.0.12",

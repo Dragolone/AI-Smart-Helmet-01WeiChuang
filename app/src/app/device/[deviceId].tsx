@@ -1,5 +1,6 @@
 // 设备状态页（API.md §4 /devices/{id} + /devices/{id}/status；online 以服务端计算为准）
 // 2026-08-16 风格迭代：大标识标题 + 状态药丸 + 电量仪表卡 + 数据行卡片
+import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
@@ -14,7 +15,15 @@ import { ThemedView } from '@/components/themed-view';
 import { Radius } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function InfoRow({
+  icon,
+  label,
+  value,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+}) {
   const theme = useTheme();
   return (
     <View
@@ -22,9 +31,12 @@ function InfoRow({ label, value }: { label: string; value: string }) {
         styles.row,
         { backgroundColor: theme.backgroundElement, borderColor: theme.border },
       ]}>
-      <ThemedText type="label" themeColor="textSecondary">
-        {label}
-      </ThemedText>
+      <View style={styles.rowLeft}>
+        <Ionicons name={icon} size={16} color={theme.textSecondary} />
+        <ThemedText type="label" themeColor="textSecondary">
+          {label}
+        </ThemedText>
+      </View>
       <ThemedText type="smallBold">{value}</ThemedText>
     </View>
   );
@@ -124,12 +136,22 @@ export default function DeviceDetailScreen() {
           </View>
 
           <InfoRow
+            icon="cellular-outline"
             label="信号"
             value={s.signalLevel !== null ? String(s.signalLevel) : '未上报'}
           />
-          <InfoRow label="工作状态" value={s.sleeping ? '休眠中' : '活动中'} />
-          <InfoRow label="固件版本" value={s.firmwareVersion ?? '未知'} />
           <InfoRow
+            icon={s.sleeping ? 'moon-outline' : 'flash-outline'}
+            label="工作状态"
+            value={s.sleeping ? '休眠中' : '活动中'}
+          />
+          <InfoRow
+            icon="hardware-chip-outline"
+            label="固件版本"
+            value={s.firmwareVersion ?? '未知'}
+          />
+          <InfoRow
+            icon="time-outline"
             label="最后心跳"
             value={s.lastSeenAt ? new Date(s.lastSeenAt).toLocaleString() : '从未上报'}
           />
@@ -174,5 +196,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
+  rowLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   footer: { marginTop: 'auto' },
 });

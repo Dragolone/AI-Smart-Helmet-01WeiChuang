@@ -44,6 +44,7 @@ export default function LoginScreen() {
 
           <FormInput
             label="手机号"
+            icon="phone-portrait-outline"
             value={phone}
             onChangeText={setPhone}
             keyboardType="phone-pad"
@@ -53,6 +54,7 @@ export default function LoginScreen() {
           />
           <FormInput
             label="密码"
+            icon="lock-closed-outline"
             value={password}
             onChangeText={setPassword}
             secureTextEntry
