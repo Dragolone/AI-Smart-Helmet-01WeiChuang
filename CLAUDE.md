@@ -6,7 +6,7 @@
 > **Week 5–6 B 线 + shared（#29/#30，负责人 2026-08-15 验收通过）**：packages/shared 落 TS 类型（Contract 编译期约束，四端引用）；location_points 表 + latest/轨迹查询 API（24h 上限定稿）+ **WebSocket 实时通道（原生 ws，决策 #25）**；**滑雪场景**：altitude 全链路透传、Mock 新增 SCENARIO=ski 滑雪剧本。
 > **Week 7–8 B 线（#35/#38/#37，负责人 2026-08-16 逐步实测验收通过）**：紧急联系人（上限 5 定稿）；**服务端 SOS 状态机**（决策 #8/#26：60s 倒计时服务器时间权威、取消/确认、到期扫描、**重启接管实测通过**、通知重试留档、并发合并规则定稿）；Push/SMS Provider 薄接口 + Console Mock；事故记录查询（App + Admin，通知手机号接口层脱敏）；Mock 新增 SCENARIO=fall/sos。**B 线下一任务：Week 9–10（危险事件 + 设置下发 + 对讲后端）**（先出方案）。
 > **Week 9–10 B 线（#40–#45，负责人 2026-08-16 实测验收通过；六口径见决策 #27）**：事件查询 API + WS 五类推送补齐 + Mock SCENARIO=risk；媒体表 + StorageProvider + 预签名 URL（10min 定稿）；**命令与回执状态机**（delivered=PUBACK、30s 超时 offline、仅 success 写入生效设置——"绝不把未执行显示为成功"实测钉死）；**对讲后端**（频道/邀请码/成员 + TRTC UserSig 自实现，Key 待 A 提供后补验）；Admin 事故/事件两页 + /admin/events。**B 线主线功能至此全部完成；下一步：联调准备与 A 线支援（见 weekly-plan Week 9–10 遗留与 A 线待办）。**
-> **产品形态更新（2026-08-16，汤总拍板，决策 #28–#30）**：确认**双产品形态都进 MVP**——4G 版（=现有全部实现）+ **蓝牙版**（头盔经 BLE→App 中转→HTTP→统一 Ingest，后端增量小、主要增量在 App 中转模块与硬件 BLE 协议）；SOS 维持 60s 倒计时（对外口径「秒级检测、倒计时确认后自动通知」）；家属查看事故走「临时分享链接」排 MVP 后第一迭代。**蓝牙版 MVP 深度与视频边界待汤总最终确认（决策待定表），确认后重排 weekly-plan。**
+> **产品形态更新（2026-08-16，汤总拍板，决策 #28–#31，全部定稿）**：**双产品形态都进 MVP**——4G 版（=现有全部实现）+ **蓝牙版**（头盔经 BLE→App 中转→HTTP `/ingest/app-relay`→统一 Ingest；MVP 第一期中转 7 种事件，视频不走 BLE 走 SD+Wi-Fi，Contract 见 DEVICE_PROTOCOL §1.1 / API.md §12.1）；SOS 维持 60s 倒计时（对外口径「秒级检测、倒计时确认后自动通知」）；家属查看事故走「临时分享链接」排 MVP 后；**休眠/防丢正式移出 MVP**。B 线下一任务：app-relay 中转入口实现；A 线新增 App BLE 中转模块（前置：硬件 BLE 协议，联调清单已发）。
 > **A 线**：4/5 Spike 双端通过且结论已定案入 DECISIONS.md（TRTC 选型、定位持续监听口径、双 Bundle ID 口径）；expo-dev-client 双端落地。**Week 3–4 App 主线 UI 已合入 main（546e84a）**：注册/登录/我的设备/绑定/设备详情五页、Stack.Protected 登录门控、API 客户端（401 静默刷新 + 请求排队）、Zustand 会话 + expo-secure-store、错误码规范化文案。**当前状态：双端模拟器端到端通过，Android + iPhone 真机 DoD 待复验——Week 3–4 验收标准尚未关闭。** 剩余：地图 Spike（等高德 Key，**已成为 Week 5–6 A 线地图页的关键路径**）、BLE 后台断连（Week 11 防丢前必测）、APNs 远程推送（等公司账号）。**A 线下一任务：Week 3–4 双端真机复验 → 高德 Key 到位后地图 Spike 定案。**
 > 第三方：Apple 公司账号走到 D-U-N-S 建档（待重提）；高德企业认证对公打款在途；云服务器/域名/备案待办；RTC 选型已定案（腾讯 TRTC），个人测试应用可用、正式应用待公司资质。进度明细见 `plan/weekly-plan.md`。仓库：<https://github.com/Dragolone/AI-Smart-Helmet-01WeiChuang>
 > 已拍板的技术决策记录在 `docs/DECISIONS.md`，**不允许无理由重新推翻**。
@@ -33,7 +33,8 @@ AI 智能头盔的**软件系统**：手机 App + 云端后端 + 管理后台。
 4. 定位、地图、历史轨迹、事故地点、位置分享与导航跳转
 5. 管理后台（实用为主）
 6. **网络对讲**：头盔作蓝牙耳机，实时语音走 App + RTC 云服务（决策 #20/#21；依赖手机蜂窝网络覆盖）
-7. 休眠/防丢的软件配合（参数设置、状态展示、BLE 断连提醒）——**优先级最低，Week 11 或 MVP 后**（给对讲让路，决策 #21）
+7. ~~休眠/防丢的软件配合~~——**已移出 MVP**（决策 #31，为蓝牙版让路；MVP 后第一迭代）
+8. **蓝牙版产品形态**（决策 #29/#31）：头盔经 BLE→App 中转→统一 Ingest，MVP 第一期中转 7 种事件（保命链路 + 危险留档完整）；视频不走 BLE（SD + Wi-Fi 直传）
 
 硬件/算法接口未就绪前，全部功能用 **Mock Device Simulator** 驱动，软件必须能独立运行和演示。
 
@@ -356,7 +357,7 @@ AI-Smart-Helmet-01WeiChuang/
 | 5–6 | 定位入库、地图当前位置、历史轨迹、WebSocket、Mock 骑行剧本 | 双端地图实时看 Mock 头盔移动并回放轨迹 |
 | 7–8 | 紧急联系人、possible_fall、manual_sos、**服务端 SOS 状态机**、60 秒倒计时、Cancel/SOS Now、Push、SMS、事故记录 | 双端完整演示 SOS 全链路（含超时通知） |
 | 9–10 | collision_risk、obstacle_risk、事件历史、媒体关联、设备设置下发、**网络对讲（App + RTC，频道/PTT，决策 #21）**、Admin 对应页面 | 双端危险事件可演示；**双端两台真机对讲通话成功** |
-| 11 | 真机硬件/算法联调（若就绪，否则以 Mock 完成 MVP 验收）、**休眠/BLE 防丢（自 Week 9–10 顺延，联调挤压则移 MVP 后）**、双端回归、性能、Bug 修复 | 核心链路双端回归清单全绿 |
+| 11 | 真机硬件/算法联调（若就绪，否则以 Mock 完成 MVP 验收）、**蓝牙版中转链路（B：app-relay 入口；A：App BLE 中转模块，前置=硬件 BLE 协议）**、双端回归、性能、Bug 修复（休眠/防丢已移出 MVP，决策 #31） | 核心链路双端回归清单全绿；蓝牙版保命链路（摔倒→60s→通知）可演示 |
 | 12 | 只做：Bug 修复、UI 打磨、部署、Demo、文档、双端最终回归；**不开发大型新功能** | 完整可演示 MVP + 部署与演示文档 |
 
 ## 待确认事项

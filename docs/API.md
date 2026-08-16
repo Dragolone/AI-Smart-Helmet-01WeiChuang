@@ -210,6 +210,20 @@ MVP 实用为主，全部只读 + 少量运维操作。
 - 响应：`202 { "eventId": "...", "duplicate": false }`；幂等重复返回 `duplicate: true` 同样 202。
 - 本入口与 MQTT 入口在统一 Ingest 层汇合，业务模块不感知来源。
 
+### 12.1 App 中转入口（蓝牙版，✅ Contract 定稿 2026-08-16，决策 #31；实现随蓝牙版排期）
+
+- `POST /api/v1/ingest/app-relay`——蓝牙版头盔的数据经手机 App 中转模块提交云端的唯一入口。
+- 鉴权：**用户 JWT**（App 已登录态）；服务端校验 `deviceId` 必须绑定于当前用户，非本人一律 404 `DEVICE_NOT_FOUND`（与 §4 同口径）。
+- 请求体（支持断线补传的批量提交）：
+
+```json
+{ "deviceId": "helmet_001", "envelopes": [ { EVENTS.md §1 envelope }, ... ] }
+```
+
+- 单批上限 **100 条**；每条 envelope 的 `deviceId` 必须与外层一致（不一致该条按校验失败留档）；事件类型限蓝牙版范围（DEVICE_PROTOCOL §1.1 的 7 种，超范围按未知类型留档告警）。
+- 响应：`202 { "accepted": n, "duplicate": n, "invalid": n }`——重复（eventId 已存在）与校验失败都不报错，App 补传无需关心哪些已传过。
+- 进**统一 Ingest 层**（同校验、同幂等、同业务分发）；`source=app_relay` 仅排查可见，业务模块不感知。
+
 ## 13. 网络对讲（App + RTC，决策 #20/#21/#22）
 
 语音走腾讯 TRTC（App 端 SDK 直连 RTC 云），后端只做**频道管理 + 房间凭证签发**，不自研语音、不经手音频流。频道模型（✅ 口径 2026-08-16 定稿，决策 #27⑤）：**6 位数字邀请码加入、TRTC 房间号 = 频道数字 roomId、成员上限 20**（`VOICE_CHANNEL_MEMBER_LIMIT` 可调）。
