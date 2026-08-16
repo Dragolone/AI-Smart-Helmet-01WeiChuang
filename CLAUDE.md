@@ -167,6 +167,7 @@ AI-Smart-Helmet-01WeiChuang/
   plan/
     weekly-plan.md    # 12 周两人分工计划 + 新成员上手指引（每周对表、周五验收）
     onboarding.md     # 新成员从零上手指南（项目理解、名词、上手路线、Claude 协作规矩）
+  deploy/             # development/production 部署编排（compose + Caddy + EMQX 模板；手册见 docs/DEPLOYMENT.md）
   docs/
     API.md            # REST API Contract（定义“传什么”给 App/Admin）
     EVENTS.md         # 事件 Contract：定义“传什么”（字段、类型、必填、单位、枚举、值域）
@@ -174,6 +175,8 @@ AI-Smart-Helmet-01WeiChuang/
     DECISIONS.md      # 已拍板技术决策记录（Date/Decision/Reason/Impact）
     DATABASE.md       # 数据模型设计决策（schema 以 Prisma 为准）
     DEVELOPMENT.md    # 本地环境、常用命令、联调方法、平台限制清单
+    DEPLOYMENT.md     # 云端部署手册（development/production，含验收清单与排障）
+    THIRD_PARTY.md    # 第三方账号/Key 状态台账（每周对表）
   .github/workflows/  # GitHub Actions CI
   docker-compose.yml  # 本地 PostgreSQL + EMQX
   CLAUDE.md
