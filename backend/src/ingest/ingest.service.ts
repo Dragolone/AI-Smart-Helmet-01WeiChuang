@@ -18,6 +18,27 @@ export type IngestSource = 'mqtt' | 'webhook';
  *  注：补传事件本应豁免此标记，但补传语义待设备离线缓存实装后才能识别（§6 ⚠️），当前一律按偏差判定。 */
 const CLOCK_SKEW_THRESHOLD_MS = 5 * 60_000;
 
+/** §11 WS 分流：risk_event（详情级）与 device_event（列表项级）各自的事件类型集合 */
+const RISK_EVENT_TYPES = new Set([
+  'collision_risk',
+  'obstacle_risk',
+  'risk_cleared',
+]);
+const DEVICE_EVENT_TYPES = new Set([
+  'sleep_entered',
+  'sleep_exited',
+  'bluetooth_lost',
+  'video_ready',
+]);
+
+/** EVENTS.md 4.5 objectType 已知集合（⚠️ 待算法确认；未知值原样留档并告警） */
+const KNOWN_OBJECT_TYPES = new Set([
+  'vehicle',
+  'pedestrian',
+  'obstacle',
+  'unknown',
+]);
+
 @Injectable()
 export class IngestService {
   private readonly logger = new Logger(IngestService.name);
@@ -80,11 +101,28 @@ export class IngestService {
       await this.sosTrigger.handleTrigger(e, device.bindUserId);
     }
 
+    // 危险事件数据质量告警（EVENTS.md 4.5）：objectType 未知值原样留档但要出声，供与算法团队对口径
+    if (RISK_EVENT_TYPES.has(e.eventType)) {
+      const objectType = (e.payload as { objectType?: unknown }).objectType;
+      if (
+        typeof objectType === 'string' &&
+        !KNOWN_OBJECT_TYPES.has(objectType)
+      ) {
+        this.logger.warn(
+          `危险事件携带未知 objectType="${objectType}"（已原样留档）：${e.eventId}`,
+        );
+      }
+    }
+
     if (device.bindUserId) {
       if (e.eventType === 'device_status') {
         this.push.pushDeviceStatus(device.bindUserId, e);
       } else if (point) {
         this.push.pushLocation(device.bindUserId, e.deviceId, point);
+      } else if (RISK_EVENT_TYPES.has(e.eventType)) {
+        this.push.pushRiskEvent(device.bindUserId, e);
+      } else if (DEVICE_EVENT_TYPES.has(e.eventType)) {
+        this.push.pushDeviceEvent(device.bindUserId, e);
       }
     }
   }

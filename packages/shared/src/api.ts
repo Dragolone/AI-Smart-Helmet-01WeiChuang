@@ -129,6 +129,31 @@ export interface LatestLocationResponse {
   location: LocationPoint | null;
 }
 
+// —— §6 事件查询（已实现） ——
+
+/** 事件详情里的关联媒体（§9 媒体模块落地前恒为空数组） */
+export interface MediaRef {
+  mediaId: string;
+  status: string;
+  duration: number | null;
+}
+
+/** 事件历史列表项（§6）：summary 为服务端生成的一句话摘要，App 可自行渲染忽略之 */
+export interface EventListItem {
+  eventId: string;
+  deviceId: string;
+  eventType: string;
+  timestamp: string;
+  receivedAt: string;
+  summary: string;
+}
+
+/** 事件详情：追加原样 payload 与关联媒体 */
+export interface EventDetail extends EventListItem {
+  payload: Record<string, unknown>;
+  media: MediaRef[];
+}
+
 // —— §7 SOS / 事故记录（已实现） ——
 
 export type SosTriggerType = 'possible_fall' | 'manual_sos';
@@ -214,6 +239,12 @@ export interface WsDeviceStatusData extends DeviceStatus {
 
 /** type=sos_update 的 data：§7 sos 对象（创建/取消/确认/超时通知四个时机都推） */
 export type WsSosData = Sos;
+
+/** type=risk_event 的 data：collision_risk / obstacle_risk / risk_cleared 的事件详情（当前危险状态由 App 从事件流推导，决策 #27） */
+export type WsRiskEventData = EventDetail;
+
+/** type=device_event 的 data：sleep_* / bluetooth_lost / video_ready 的事件列表项 */
+export type WsDeviceEventData = EventListItem;
 
 // —— §10 Admin（已实现子集） ——
 
