@@ -13,7 +13,12 @@ import {
 } from './envelope';
 
 export type IngestOutcome = 'stored' | 'duplicate' | 'stored_invalid';
-export type IngestSource = 'mqtt' | 'webhook';
+export type IngestSource = 'mqtt' | 'webhook' | 'app_relay';
+
+export interface IngestOptions {
+  /** 入口级事件类型白名单（如蓝牙版中转的 7 种）：合法 envelope 但类型超范围 → 按校验失败留档告警 */
+  allowedEventTypes?: ReadonlySet<string>;
+}
 
 /** 设备时钟偏移阈值（DEVICE_PROTOCOL §8，默认 5 分钟）。
  *  注：补传事件本应豁免此标记，但补传语义待设备离线缓存实装后才能识别（§6 ⚠️），当前一律按偏差判定。 */
@@ -53,11 +58,12 @@ export class IngestService {
     private readonly mediaRecorder: MediaRecorderService,
   ) {}
 
-  /** 所有入口（MQTT / 未来的 Webhook / Mock）都汇聚到这里；返回值仅用于日志与测试。 */
+  /** 所有入口（MQTT / App 中转 / 未来的 Webhook / Mock）都汇聚到这里；返回值仅用于日志与测试。 */
   async ingestRaw(
     raw: string,
     topicDeviceId: string,
     source: IngestSource,
+    opts?: IngestOptions,
   ): Promise<IngestOutcome> {
     const result = validateEnvelope(raw, topicDeviceId);
 
@@ -67,6 +73,21 @@ export class IngestService {
       );
       await this.persist(
         buildInvalidRecord(topicDeviceId, raw, result.reason),
+        source,
+      );
+      return 'stored_invalid';
+    }
+
+    if (
+      opts?.allowedEventTypes &&
+      !opts.allowedEventTypes.has(result.envelope.eventType)
+    ) {
+      // 蓝牙版范围外的类型（DEVICE_PROTOCOL §1.1）：留档告警，不进业务流程
+      this.logger.warn(
+        `入口 ${source} 不允许的事件类型 ${result.envelope.eventType}，按校验失败留档：${result.envelope.eventId}`,
+      );
+      await this.persist(
+        buildInvalidRecord(topicDeviceId, raw, 'event_type_not_allowed'),
         source,
       );
       return 'stored_invalid';

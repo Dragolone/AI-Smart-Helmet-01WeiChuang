@@ -223,6 +223,7 @@ MVP 实用为主，全部只读 + 少量运维操作。
 - 单批上限 **100 条**；每条 envelope 的 `deviceId` 必须与外层一致（不一致该条按校验失败留档）；事件类型限蓝牙版范围（DEVICE_PROTOCOL §1.1 的 7 种，超范围按未知类型留档告警）。
 - 响应：`202 { "accepted": n, "duplicate": n, "invalid": n }`——重复（eventId 已存在）与校验失败都不报错，App 补传无需关心哪些已传过。
 - 进**统一 Ingest 层**（同校验、同幂等、同业务分发）；`source=app_relay` 仅排查可见，业务模块不感知。
+- ✅ 本节已实现（2026-08-16）：中转的 possible_fall 照常触发 SOS 状态机、location_update 照常入轨迹表——蓝牙版与 4G 版在业务层完全等价。
 
 ## 13. 网络对讲（App + RTC，决策 #20/#21/#22）
 

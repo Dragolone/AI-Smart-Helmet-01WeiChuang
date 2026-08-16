@@ -326,6 +326,22 @@ export interface VoiceTokenResponse {
   expiresAt: string;
 }
 
+// —— §12.1 App 中转入口（蓝牙版，已实现） ——
+
+/** 蓝牙版：App 中转模块批量提交从 BLE 收到的事件（断线补传友好，单批 ≤100） */
+export interface AppRelayRequest {
+  deviceId: string;
+  /** EVENTS.md §1 envelope 原样透传，App 不修改内容 */
+  envelopes: unknown[];
+}
+
+/** 重复与校验失败不报错（补传无需关心哪些已传过），只给计数 */
+export interface AppRelayResponse {
+  accepted: number;
+  duplicate: number;
+  invalid: number;
+}
+
 // —— §10 Admin（已实现子集） ——
 
 export interface AdminLoginRequest {
