@@ -385,3 +385,20 @@ export interface AdminEventRow extends EventListItem {
   clockSkew: boolean;
   schemaVersion: number;
 }
+
+/** GET /admin/devices/{id}：设备详情 + 最近事件（含 _invalid，排查用） */
+export interface AdminDeviceDetail extends AdminDeviceRow {
+  /** 当前生效设置（§8：仅 success 回执写入） */
+  settings: Record<string, unknown>;
+  recentEvents: AdminEventRow[];
+}
+
+/** GET /admin/stats/overview：指标集定稿（2026-08-16）；「今日」= UTC+8 自然日，事件数不含校验失败留档 */
+export interface AdminStatsOverview {
+  deviceTotal: number;
+  deviceOnline: number;
+  userTotal: number;
+  todayEvents: number;
+  activeSos: number;
+  generatedAt: string;
+}

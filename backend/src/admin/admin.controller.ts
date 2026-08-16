@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { Public } from '../common/public.decorator';
 import { AdminAuthGuard } from './admin-auth.guard';
 import {
@@ -39,6 +39,16 @@ export class AdminController {
       query.status,
       query.deviceId,
     );
+  }
+
+  @Get('devices/:deviceId')
+  deviceDetail(@Param('deviceId') deviceId: string) {
+    return this.admin.getDeviceDetail(deviceId);
+  }
+
+  @Get('stats/overview')
+  statsOverview() {
+    return this.admin.statsOverview();
   }
 
   @Get('events')

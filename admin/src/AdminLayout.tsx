@@ -1,5 +1,6 @@
 import {
   AlertOutlined,
+  DashboardOutlined,
   LogoutOutlined,
   MobileOutlined,
   ProfileOutlined,
@@ -15,6 +16,7 @@ import {
 import { clearSession, getToken, getUsername } from './api/client'
 
 const MENU_ITEMS = [
+  { key: '/overview', icon: <DashboardOutlined />, label: '概览' },
   { key: '/users', icon: <UserOutlined />, label: '用户' },
   { key: '/devices', icon: <MobileOutlined />, label: '设备' },
   { key: '/accidents', icon: <AlertOutlined />, label: '事故 / SOS' },

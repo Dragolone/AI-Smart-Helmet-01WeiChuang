@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ONLINE_WINDOW_MS } from '../devices/devices.service';
 import {
   INVALID_EVENT_TYPE,
@@ -157,6 +161,97 @@ export class AdminService {
       total,
       page,
       pageSize,
+    };
+  }
+
+  /** 设备详情 + 最近 10 条事件（含 _invalid，排查用）；不存在 404 */
+  async getDeviceDetail(deviceId: string) {
+    const onlineSince = new Date(Date.now() - ONLINE_WINDOW_MS);
+    const device = await this.prisma.device.findUnique({
+      where: { deviceId },
+      select: {
+        deviceId: true,
+        lastSeenAt: true,
+        battery: true,
+        charging: true,
+        signalLevel: true,
+        sleeping: true,
+        firmwareVersion: true,
+        settings: true,
+        boundAt: true,
+        createdAt: true,
+        bindUser: { select: { id: true, phone: true, nickname: true } },
+      },
+    });
+    if (!device) {
+      throw new NotFoundException({ code: 'NOT_FOUND', message: '设备不存在' });
+    }
+    const recent = await this.prisma.rawEvent.findMany({
+      where: { deviceId },
+      orderBy: { receivedAt: 'desc' },
+      take: 10,
+    });
+    return {
+      deviceId: device.deviceId,
+      online: device.lastSeenAt !== null && device.lastSeenAt >= onlineSince,
+      lastSeenAt: device.lastSeenAt,
+      battery: device.battery,
+      charging: device.charging,
+      signalLevel: device.signalLevel,
+      sleeping: device.sleeping,
+      firmwareVersion: device.firmwareVersion,
+      settings: device.settings ?? {},
+      boundAt: device.boundAt,
+      createdAt: device.createdAt,
+      bindUser: device.bindUser,
+      recentEvents: recent.map((e) => ({
+        eventId: e.eventId,
+        deviceId: e.deviceId,
+        eventType: e.eventType,
+        timestamp: e.timestamp,
+        receivedAt: e.receivedAt,
+        summary: buildSummary(
+          e.eventType,
+          e.payload as Record<string, unknown>,
+        ),
+        payload: e.payload,
+        source: e.source,
+        clockSkew: e.clockSkew,
+        schemaVersion: e.schemaVersion,
+      })),
+    };
+  }
+
+  /** 概览统计（指标集定稿 2026-08-16）：「今日」= UTC+8 自然日；事件数不含 _invalid 留档 */
+  async statsOverview() {
+    const onlineSince = new Date(Date.now() - ONLINE_WINDOW_MS);
+    // 目标市场中国大陆（决策 #10）：自然日按固定 UTC+8 计算，与服务器时区无关
+    const utc8 = new Date(Date.now() + 8 * 3600_000);
+    utc8.setUTCHours(0, 0, 0, 0);
+    const todayStart = new Date(utc8.getTime() - 8 * 3600_000);
+
+    const [deviceTotal, deviceOnline, userTotal, todayEvents, activeSos] =
+      await this.prisma.$transaction([
+        this.prisma.device.count(),
+        this.prisma.device.count({
+          where: { lastSeenAt: { gte: onlineSince } },
+        }),
+        this.prisma.user.count(),
+        this.prisma.rawEvent.count({
+          where: {
+            receivedAt: { gte: todayStart },
+            eventType: { not: INVALID_EVENT_TYPE },
+          },
+        }),
+        this.prisma.sosCase.count({ where: { status: 'pending' } }),
+      ]);
+    return {
+      deviceTotal,
+      deviceOnline,
+      userTotal,
+      todayEvents,
+      activeSos,
+      generatedAt: new Date().toISOString(),
     };
   }
 

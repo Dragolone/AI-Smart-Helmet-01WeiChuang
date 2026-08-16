@@ -172,15 +172,14 @@ MVP 实用为主，全部只读 + 少量运维操作。
 | GET | /admin/devices?page=&pageSize=&keyword=&online= | 设备列表（keyword 匹配 deviceId/绑定手机号；`online=true|false` 按 90s 心跳窗口筛选，口径与 §4 status 一致）。item：`{ deviceId, online, lastSeenAt, battery, charging, signalLevel, sleeping, firmwareVersion, boundAt, createdAt, bindUser: { id, phone, nickname } | null }` |
 | GET | /admin/accidents?status=&deviceId=&page=&pageSize= | 事故/SOS 记录（✅ 2026-08-16，Week 7–8）：`status=pending\|notified\|cancelled`、deviceId 精确筛；item = AccidentListItem + `user: { id, phone, nickname } \| null`（TS 类型 AdminAccidentRow），最新在前 |
 | GET | /admin/events?type=&deviceId=&from=&to=&invalid=&page=&pageSize= | 全量事件查询（✅ 2026-08-16）：默认排除校验失败留档，`invalid=true` 切换到 `_invalid` 视图（**不设独立端点，定稿**）；Admin 是排查工具，item 带业务接口不可见的 `source`/`clockSkew` 与原样 `payload`（TS 类型 AdminEventRow），按接收时间最新在前 |
+| GET | /admin/devices/{deviceId} | 设备详情 + 最近 10 条事件（含 `_invalid`，排查用）+ 当前生效设置（✅ 2026-08-16，TS 类型 AdminDeviceDetail）；不存在 404 |
+| GET | /admin/stats/overview | 概览（✅ **指标集定稿 2026-08-16**，TS 类型 AdminStatsOverview）：`{ deviceTotal, deviceOnline, userTotal, todayEvents, activeSos, generatedAt }`——「今日」按 **UTC+8 自然日**、事件数不含 `_invalid`；指标只增不改 |
 
 分页响应用 §1 统一结构 `{ items, total, page, pageSize }`。
 
-### 10.2 规划中（随对应业务功能落地）
+### 10.2 规划中
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | /admin/devices/{deviceId} | 设备详情 + 最近事件 |
-| GET | /admin/stats/overview | 概览：设备总数/在线数、今日事件数、进行中 SOS 数（⚠️ 指标集待定） |
+（§10.2 原有条目已全部实现并移入 §10.1，2026-08-16。）
 
 ## 11. WebSocket（App 实时通道）
 
