@@ -209,6 +209,33 @@ model AdminUser {
   @@map("admin_users")
 }
 
+// 对讲频道（API.md §13，口径 #27⑤）：TRTC 房间号=数字 roomId（自增，TRTC 要求 uint32）；
+// 6 位邀请码加入；后端只管频道与凭证，音频流走 App ↔ TRTC 云，不经后端
+model VoiceChannel {
+  id         String               @id @default(cuid())
+  name       String
+  roomId     Int                  @unique @default(autoincrement()) @map("room_id")
+  inviteCode String               @unique @map("invite_code")
+  ownerId    String               @map("owner_id")
+  createdAt  DateTime             @default(now()) @map("created_at")
+  members    VoiceChannelMember[]
+
+  @@map("voice_channels")
+}
+
+model VoiceChannelMember {
+  id        String       @id @default(cuid())
+  channelId String       @map("channel_id")
+  channel   VoiceChannel @relation(fields: [channelId], references: [id])
+  userId    String       @map("user_id")
+  joinedAt  DateTime     @default(now()) @map("joined_at")
+
+  // 重复加入幂等的数据库级兜底
+  @@unique([channelId, userId])
+  @@index([userId])
+  @@map("voice_channel_members")
+}
+
 model RawEvent {
   id              String   @id @default(cuid())
   // 幂等去重依据：设备/算法侧生成的 eventId，唯一约束兜底并发重复

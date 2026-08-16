@@ -288,6 +288,44 @@ export type WsRiskEventData = EventDetail;
 /** type=device_event 的 data：sleep_* / bluetooth_lost / video_ready 的事件列表项 */
 export type WsDeviceEventData = EventListItem;
 
+// —— §13 网络对讲（已实现） ——
+
+/** 频道对象（决策 #27⑤：6 位邀请码、TRTC 房间号=roomId、成员上限 20） */
+export interface VoiceChannel {
+  channelId: string;
+  name: string;
+  roomId: number;
+  inviteCode: string;
+  ownerId: string;
+  memberCount: number;
+  createdAt: string;
+}
+
+export interface CreateChannelRequest {
+  name: string;
+}
+
+export interface JoinChannelRequest {
+  inviteCode: string;
+}
+
+/** 成员列表项：phone 已脱敏 */
+export interface VoiceChannelMemberPublic {
+  userId: string;
+  nickname: string | null;
+  phone: string;
+  joinedAt: string;
+}
+
+/** 进房凭证：App 端用 TRTC SDK 携此进房（roomId）+ PTT */
+export interface VoiceTokenResponse {
+  sdkAppId: number;
+  userId: string;
+  roomId: number;
+  userSig: string;
+  expiresAt: string;
+}
+
 // —— §10 Admin（已实现子集） ——
 
 export interface AdminLoginRequest {
