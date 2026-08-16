@@ -212,6 +212,48 @@ client.on('connect', () => {
   ];
 });
 
+// —— 命令接收与回执（DEVICE_PROTOCOL §7）：真机行为的软件版 ——
+// MOCK_CMD_RESULT=success（默认）| failed | silent（不回执，演示 offline 超时判定）
+const CMD_RESULT = ((): 'success' | 'failed' | 'silent' => {
+  const r = process.env.MOCK_CMD_RESULT;
+  return r === 'failed' || r === 'silent' ? r : 'success';
+})();
+client.on('connect', () => {
+  client.subscribe(`helmet/${DEVICE_ID}/cmd`, { qos: 1 }, (err) => {
+    if (err) log(`订阅 cmd 失败: ${err.message}`);
+  });
+});
+client.on('message', (topic, payload) => {
+  if (!topic.endsWith('/cmd')) return;
+  try {
+    const cmd = JSON.parse(payload.toString('utf-8')) as {
+      commandId: string;
+      type: string;
+      params: Record<string, unknown>;
+    };
+    log(`收到命令 ${cmd.type}（${cmd.commandId.slice(0, 8)}…）params=${JSON.stringify(cmd.params)}`);
+    if (CMD_RESULT === 'silent') {
+      log('（MOCK_CMD_RESULT=silent：不回执，服务端将超时判 offline）');
+      return;
+    }
+    const ack = {
+      commandId: cmd.commandId,
+      result: CMD_RESULT,
+      ...(CMD_RESULT === 'failed' ? { errorCode: 'MOCK_REJECTED' } : {}),
+      executedAt: new Date().toISOString(),
+    };
+    // 模拟设备执行耗时后回执
+    setTimeout(() => {
+      client.publish(`helmet/${DEVICE_ID}/cmd_ack`, JSON.stringify(ack), { qos: 1 }, (err) => {
+        if (err) log(`回执发送失败: ${err.message}`);
+        else log(`已回执 ${CMD_RESULT}（${cmd.commandId.slice(0, 8)}…）`);
+      });
+    }, 500);
+  } catch {
+    log('收到无法解析的命令消息，忽略');
+  }
+});
+
 client.on('reconnect', () => log('重连中…'));
 client.on('error', (err) => log(`MQTT 错误: ${err.message}`));
 

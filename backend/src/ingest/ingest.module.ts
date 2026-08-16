@@ -16,6 +16,7 @@ import { MqttConsumerService } from './mqtt-consumer.service';
     SosModule,
   ],
   providers: [IngestService, MqttConsumerService],
-  exports: [IngestService],
+  // MqttConsumerService 亦是后端唯一 MQTT 连接的持有者：命令模块借它下发 cmd/接收 cmd_ack
+  exports: [IngestService, MqttConsumerService],
 })
 export class IngestModule {}

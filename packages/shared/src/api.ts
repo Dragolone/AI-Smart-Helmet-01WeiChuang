@@ -154,6 +154,40 @@ export interface EventDetail extends EventListItem {
   media: MediaRef[];
 }
 
+// —— §8 设备设置下发（已实现） ——
+
+/** 命令状态机（DEVICE_PROTOCOL §7）：未回执绝不显示成功；offline=回执超时（设备离线或未执行） */
+export type CommandStatus =
+  | 'pending'
+  | 'delivered'
+  | 'success'
+  | 'failed'
+  | 'offline';
+
+export interface PutSettingsRequest {
+  /** 扁平键值（标量），参数清单与取值范围待硬件定稿（⚠️） */
+  settings: Record<string, string | number | boolean>;
+}
+
+export interface CommandPublic {
+  commandId: string;
+  deviceId: string;
+  type: string;
+  params: Record<string, unknown>;
+  status: CommandStatus;
+  issuedAt: string;
+  deliveredAt: string | null;
+  ackResult: 'success' | 'failed' | null;
+  errorCode: string | null;
+  executedAt: string | null;
+}
+
+/** GET /devices/{id}/settings：当前生效设置（仅 success 回执写入）+ 最近一次下发 */
+export interface SettingsResponse {
+  settings: Record<string, unknown>;
+  lastCommand: CommandPublic | null;
+}
+
 // —— §9 媒体（已实现） ——
 
 /** GET /media/{id}/url：有时效预签名 URL（10 分钟，✅ 定稿）；过期后重新换取 */
