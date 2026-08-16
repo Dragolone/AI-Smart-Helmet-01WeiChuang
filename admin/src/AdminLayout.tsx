@@ -1,4 +1,10 @@
-import { LogoutOutlined, MobileOutlined, UserOutlined } from '@ant-design/icons'
+import {
+  AlertOutlined,
+  LogoutOutlined,
+  MobileOutlined,
+  ProfileOutlined,
+  UserOutlined,
+} from '@ant-design/icons'
 import { Button, Layout, Menu, Typography } from 'antd'
 import {
   Navigate,
@@ -11,6 +17,8 @@ import { clearSession, getToken, getUsername } from './api/client'
 const MENU_ITEMS = [
   { key: '/users', icon: <UserOutlined />, label: '用户' },
   { key: '/devices', icon: <MobileOutlined />, label: '设备' },
+  { key: '/accidents', icon: <AlertOutlined />, label: '事故 / SOS' },
+  { key: '/events', icon: <ProfileOutlined />, label: '事件历史' },
 ]
 
 export default function AdminLayout() {

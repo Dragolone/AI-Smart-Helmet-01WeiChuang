@@ -171,6 +171,7 @@ MVP 实用为主，全部只读 + 少量运维操作。
 | GET | /admin/users?page=&pageSize=&keyword= | 用户列表/搜索（keyword 匹配 phone/nickname）。item：`{ id, phone, nickname, avatarUrl, createdAt, deviceCount }` |
 | GET | /admin/devices?page=&pageSize=&keyword=&online= | 设备列表（keyword 匹配 deviceId/绑定手机号；`online=true|false` 按 90s 心跳窗口筛选，口径与 §4 status 一致）。item：`{ deviceId, online, lastSeenAt, battery, charging, signalLevel, sleeping, firmwareVersion, boundAt, createdAt, bindUser: { id, phone, nickname } | null }` |
 | GET | /admin/accidents?status=&deviceId=&page=&pageSize= | 事故/SOS 记录（✅ 2026-08-16，Week 7–8）：`status=pending\|notified\|cancelled`、deviceId 精确筛；item = AccidentListItem + `user: { id, phone, nickname } \| null`（TS 类型 AdminAccidentRow），最新在前 |
+| GET | /admin/events?type=&deviceId=&from=&to=&invalid=&page=&pageSize= | 全量事件查询（✅ 2026-08-16）：默认排除校验失败留档，`invalid=true` 切换到 `_invalid` 视图（**不设独立端点，定稿**）；Admin 是排查工具，item 带业务接口不可见的 `source`/`clockSkew` 与原样 `payload`（TS 类型 AdminEventRow），按接收时间最新在前 |
 
 分页响应用 §1 统一结构 `{ items, total, page, pageSize }`。
 
@@ -179,7 +180,6 @@ MVP 实用为主，全部只读 + 少量运维操作。
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | /admin/devices/{deviceId} | 设备详情 + 最近事件 |
-| GET | /admin/events?type=&deviceId=&from=&to=&page= | 全量事件查询（含未知类型/校验失败的原始事件 ⚠️ 是否单独端点待定稿） |
 | GET | /admin/stats/overview | 概览：设备总数/在线数、今日事件数、进行中 SOS 数（⚠️ 指标集待定） |
 
 ## 11. WebSocket（App 实时通道）
@@ -233,4 +233,4 @@ MVP 实用为主，全部只读 + 少量运维操作。
 
 **负责人**：注册凭据形式与验证码要求、位置分享是否需要网页版、Admin 概览指标集。（~~紧急联系人上限~~ 已定稿 5 个，2026-08-16）
 **硬件团队**：设备绑定凭证形式（bindCode 来源）、设置参数清单、媒体上传方式。
-**软件侧内部**：token 有效期、轨迹单次查询范围上限、WebSocket 实现选型、原始事件 Admin 端点形式。（~~active SOS 空响应形式~~ 已定稿 200 + null；~~预签名 URL 时效~~ 已定稿 10 分钟，2026-08-16。）
+**软件侧内部**：token 有效期、轨迹单次查询范围上限、WebSocket 实现选型。（~~active SOS 空响应形式~~ 200 + null；~~预签名 URL 时效~~ 10 分钟；~~原始事件 Admin 端点形式~~ 合并单端点 + invalid 筛选——均已定稿 2026-08-16。）

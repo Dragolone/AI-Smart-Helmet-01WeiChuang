@@ -59,3 +59,29 @@ export class AdminAccidentsQueryDto extends AdminListQueryDto {
   @MaxLength(64)
   deviceId?: string;
 }
+
+export class AdminEventsQueryDto extends AdminListQueryDto {
+  /** 逗号分隔多值（EVENTS.md §3 白名单，服务层校验） */
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  type?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  deviceId?: string;
+
+  @IsOptional()
+  @IsString()
+  from?: string;
+
+  @IsOptional()
+  @IsString()
+  to?: string;
+
+  // invalid=true 只看校验失败的 _invalid 留档（排查用）；缺省排除
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  invalid?: 'true' | 'false';
+}

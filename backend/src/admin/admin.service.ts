@@ -1,5 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { ONLINE_WINDOW_MS } from '../devices/devices.service';
+import {
+  INVALID_EVENT_TYPE,
+  buildSummary,
+  isKnownEventType,
+} from '../events/event-wire';
 import { PrismaService } from '../prisma/prisma.service';
 import { toWireAccident } from '../sos/sos-wire';
 import type { Prisma } from '../generated/prisma/client';
@@ -148,6 +153,78 @@ export class AdminService {
       items: cases.map((c) => ({
         ...toWireAccident(c),
         user: byId.get(c.userId) ?? null,
+      })),
+      total,
+      page,
+      pageSize,
+    };
+  }
+
+  /**
+   * 全量事件查询（API.md §10 ✅ 定稿 2026-08-16：不设独立端点，`invalid=true` 切换到
+   * 校验失败留档视图）。Admin 是排查工具，故带 source/clockSkew（业务接口不可见的字段）。
+   */
+  async listEvents(
+    page: number,
+    pageSize: number,
+    opts: {
+      type?: string;
+      deviceId?: string;
+      from?: string;
+      to?: string;
+      invalid?: boolean;
+    },
+  ) {
+    const types = opts.type
+      ?.split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (types?.length) {
+      const unknown = types.filter((t) => !isKnownEventType(t));
+      if (unknown.length > 0) {
+        throw new BadRequestException({
+          code: 'VALIDATION_FAILED',
+          message: `未知事件类型：${unknown.join(', ')}`,
+        });
+      }
+    }
+    const timestamp: Prisma.DateTimeFilter = {};
+    if (opts.from) timestamp.gte = new Date(opts.from);
+    if (opts.to) timestamp.lte = new Date(opts.to);
+
+    const where: Prisma.RawEventWhereInput = {
+      ...(opts.deviceId?.trim() ? { deviceId: opts.deviceId.trim() } : {}),
+      eventType: opts.invalid
+        ? INVALID_EVENT_TYPE
+        : types?.length
+          ? { in: types }
+          : { not: INVALID_EVENT_TYPE },
+      ...(opts.from || opts.to ? { timestamp } : {}),
+    };
+    const [total, events] = await this.prisma.$transaction([
+      this.prisma.rawEvent.count({ where }),
+      this.prisma.rawEvent.findMany({
+        where,
+        orderBy: { receivedAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
+    return {
+      items: events.map((e) => ({
+        eventId: e.eventId,
+        deviceId: e.deviceId,
+        eventType: e.eventType,
+        timestamp: e.timestamp,
+        receivedAt: e.receivedAt,
+        summary: buildSummary(
+          e.eventType,
+          e.payload as Record<string, unknown>,
+        ),
+        payload: e.payload,
+        source: e.source,
+        clockSkew: e.clockSkew,
+        schemaVersion: e.schemaVersion,
       })),
       total,
       page,

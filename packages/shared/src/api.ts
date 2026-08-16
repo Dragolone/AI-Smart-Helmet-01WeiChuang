@@ -361,3 +361,11 @@ export interface AdminDeviceRow extends DevicePublic {
 export interface AdminAccidentRow extends AccidentListItem {
   user: { id: string; phone: string; nickname: string | null } | null;
 }
+
+/** GET /admin/events 列表项：Admin 是排查工具，带业务接口不可见的 source/clockSkew */
+export interface AdminEventRow extends EventListItem {
+  payload: Record<string, unknown>;
+  source: string;
+  clockSkew: boolean;
+  schemaVersion: number;
+}
