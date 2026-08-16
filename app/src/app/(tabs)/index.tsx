@@ -19,7 +19,7 @@ import { Badge } from '@/components/badge';
 import { PrimaryButton } from '@/components/form';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, Radius } from '@/constants/theme';
+import { Radius } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useAuthStore } from '@/stores/auth-store';
 
@@ -233,7 +233,8 @@ export default function MyDevicesScreen() {
           }
         />
 
-        <View style={{ paddingBottom: BottomTabInset }}>
+        {/* 主 CTA 固定在底部标签栏正上方（对齐定稿套图） */}
+        <View style={styles.bottomCta}>
           <PrimaryButton
             title="＋ 绑定新设备"
             onPress={() => router.push('/bind-device')}
@@ -292,4 +293,5 @@ const styles = StyleSheet.create({
   },
   batteryFill: { height: 4, borderRadius: 2 },
   empty: { alignItems: 'center', gap: 6, paddingVertical: 48 },
+  bottomCta: { paddingTop: 4, paddingBottom: 10 },
 });

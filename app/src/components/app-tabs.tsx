@@ -18,7 +18,7 @@ export default function AppTabs() {
       <NativeTabs.Trigger name="index">
         <NativeTabs.Trigger.Label>设备</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/home.png')}
+          src={require('@/assets/images/tabIcons/tab-devices.png')}
           renderingMode="template"
         />
       </NativeTabs.Trigger>
@@ -26,7 +26,7 @@ export default function AppTabs() {
       <NativeTabs.Trigger name="map">
         <NativeTabs.Trigger.Label>地图</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
+          src={require('@/assets/images/tabIcons/tab-map.png')}
           renderingMode="template"
         />
       </NativeTabs.Trigger>
@@ -34,7 +34,7 @@ export default function AppTabs() {
       <NativeTabs.Trigger name="intercom">
         <NativeTabs.Trigger.Label>对讲</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
+          src={require('@/assets/images/tabIcons/tab-intercom.png')}
           renderingMode="template"
         />
       </NativeTabs.Trigger>
@@ -42,7 +42,7 @@ export default function AppTabs() {
       <NativeTabs.Trigger name="safety">
         <NativeTabs.Trigger.Label>安全</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
+          src={require('@/assets/images/tabIcons/tab-safety.png')}
           renderingMode="template"
         />
       </NativeTabs.Trigger>
@@ -50,7 +50,7 @@ export default function AppTabs() {
       <NativeTabs.Trigger name="profile">
         <NativeTabs.Trigger.Label>我的</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
+          src={require('@/assets/images/tabIcons/tab-profile.png')}
           renderingMode="template"
         />
       </NativeTabs.Trigger>

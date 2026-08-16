@@ -15,7 +15,7 @@ import { Badge } from '@/components/badge';
 import { PrimaryButton } from '@/components/form';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, Radius } from '@/constants/theme';
+import { Radius } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 const MAX_CONTACTS = 5; // API.md §3 定稿
@@ -138,7 +138,7 @@ export default function SafetyScreen() {
     <SafeAreaView style={styles.flex}>
       <ThemedView style={styles.container}>
         <ScrollView
-          contentContainerStyle={{ gap: 12, paddingBottom: BottomTabInset + 16 }}
+          contentContainerStyle={{ gap: 12, paddingBottom: 16 }}
           showsVerticalScrollIndicator={false}>
           <ThemedText type="title" style={styles.pageTitle}>
             安全中心
@@ -181,9 +181,6 @@ export default function SafetyScreen() {
               还没有紧急联系人——强烈建议至少添加一位
             </ThemedText>
           )}
-          {contactList.length < MAX_CONTACTS && (
-            <PrimaryButton title="＋ 添加联系人" onPress={() => router.push('/add-contact')} />
-          )}
 
           <View style={[styles.sectionHeader, { marginTop: 12 }]}>
             <ThemedText type="subtitle" style={styles.sectionTitle}>
@@ -199,6 +196,13 @@ export default function SafetyScreen() {
             </ThemedText>
           )}
         </ScrollView>
+
+        {/* 主 CTA 固定在底部标签栏正上方（对齐定稿套图） */}
+        {contactList.length < MAX_CONTACTS && (
+          <View style={styles.bottomCta}>
+            <PrimaryButton title="＋ 添加联系人" onPress={() => router.push('/add-contact')} />
+          </View>
+        )}
       </ThemedView>
     </SafeAreaView>
   );
@@ -239,4 +243,5 @@ const styles = StyleSheet.create({
   },
   contactBody: { flex: 1, gap: 4 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  bottomCta: { paddingTop: 4, paddingBottom: 10 },
 });
