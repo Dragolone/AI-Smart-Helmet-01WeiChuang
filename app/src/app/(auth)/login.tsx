@@ -38,7 +38,9 @@ export default function LoginScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ThemedView style={styles.container}>
           <ThemedText type="title">AI 智能头盔</ThemedText>
-          <ThemedText type="small">登录后管理你的头盔与骑行安全</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">
+            AI 赋能，智能守护每一次骑行安全
+          </ThemedText>
 
           <FormInput
             label="手机号"

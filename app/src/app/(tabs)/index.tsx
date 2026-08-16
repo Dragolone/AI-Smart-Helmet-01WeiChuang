@@ -83,6 +83,12 @@ function DeviceRow({ device }: { device: DevicePublic }) {
               </ThemedText>
               <ThemedText type="smallBold">{device.sleeping ? '休眠' : '活动'}</ThemedText>
             </View>
+            <View style={styles.metaItem}>
+              <ThemedText type="label" themeColor="textSecondary">
+                上次同步
+              </ThemedText>
+              <ThemedText type="smallBold">{relativeTime(device.lastSeenAt)}</ThemedText>
+            </View>
           </View>
           <BatteryBar level={device.battery} />
         </View>
@@ -91,7 +97,17 @@ function DeviceRow({ device }: { device: DevicePublic }) {
   );
 }
 
-function KpiChip({ label, value }: { label: string; value: string }) {
+function KpiChip({
+  label,
+  value,
+  caption,
+  captionHighlight = false,
+}: {
+  label: string;
+  value: string;
+  caption: string;
+  captionHighlight?: boolean;
+}) {
   const theme = useTheme();
   return (
     <View
@@ -105,8 +121,23 @@ function KpiChip({ label, value }: { label: string; value: string }) {
       <ThemedText type="display" style={styles.kpiValue}>
         {value}
       </ThemedText>
+      <ThemedText
+        type="small"
+        style={{ color: captionHighlight ? theme.brand : theme.textSecondary, fontSize: 12 }}>
+        {caption}
+      </ThemedText>
     </View>
   );
+}
+
+/** 相对时间（参考稿的 "1m ago" 语感，中文口径） */
+function relativeTime(iso: string | null): string {
+  if (!iso) return '从未';
+  const diffSec = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  if (diffSec < 60) return `${diffSec} 秒前`;
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)} 分钟前`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} 小时前`;
+  return `${Math.floor(diffSec / 86400)} 天前`;
 }
 
 export default function MyDevicesScreen() {
@@ -144,8 +175,17 @@ export default function MyDevicesScreen() {
         </View>
 
         <View style={styles.kpiRow}>
-          <KpiChip label="设备总数" value={String(list.length)} />
-          <KpiChip label="在线" value={String(onlineCount)} />
+          <KpiChip label="设备总数" value={String(list.length)} caption="全部头盔" />
+          <KpiChip
+            label="在线"
+            value={String(onlineCount)}
+            caption={
+              list.length > 0
+                ? `在线率 ${Math.round((onlineCount / list.length) * 100)}%`
+                : '暂无设备'
+            }
+            captionHighlight={list.length > 0 && onlineCount === list.length}
+          />
         </View>
 
         {devices.isError && (
