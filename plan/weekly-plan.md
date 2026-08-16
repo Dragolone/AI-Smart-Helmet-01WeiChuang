@@ -137,7 +137,7 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 | 共同 | packages/shared 落 TS 类型（Contract → 编译期约束） | 前后端字段不一致在编译期报错 | ✅ PR #29（四端引用；App 侧已按 main 定义对齐） |
 
 **验收标准**：双端真机走通「注册 → 登录 → 绑定 Mock 设备 → 看到在线状态和电量」；Admin 里能看到这个用户和设备。
-**验收状态（2026-08-16）：真机复验已完成，待负责人合验关闭。** Admin 侧 2026-08-15 已验收；App 侧 2026-08-16 双端真机通过：Android（华为 P30 Pro）注册→绑定→实时状态→会话恢复全流程；iOS（iPhone 14 Pro Max）同账号跨设备登录看到对侧绑定的设备。附加修复：登录门控改用 Stack.Protected（旧 Redirect 写法在 iOS 登录后卡死，已修）。
+**验收状态：✅ 已关闭（负责人合验 2026-08-17）。** Admin 侧 2026-08-15 已验收；App 侧 2026-08-16 双端真机通过：Android（华为 P30 Pro）注册→绑定→实时状态→会话恢复全流程；iOS（iPhone 14 Pro Max）同账号跨设备登录看到对侧绑定的设备。附加修复：登录门控改用 Stack.Protected（旧 Redirect 写法在 iOS 登录后卡死，已修）。
 
 **B 线补充（2026-08-15）**：修复 MQTT 消费者订阅失败不重试的静默失聪 bug（PR #27，SUBACK 被拒时连着 Broker 却收不到消息）；定位并记录「残留后端进程劫持 EMQX 回调连接池 → 授权 fail-closed 全拒」环境坑（见 DEVELOPMENT.md 已知坑）。Admin 认证口径已定稿于 API.md §10（独立 admin_users 表 + ADMIN_JWT_SECRET，12h 无 refresh）。
 **Week 2 遗留待核**：地图 SDK 渲染 Spike（Spike 批次验证了定位但未见地图 SDK 本体；Week 5–6 前必须定案高德 RN 库 vs WebView）。
