@@ -70,9 +70,34 @@ model Device {
   signalLevel      Int?      @map("signal_level")
   sleeping         Boolean   @default(false)
   firmwareVersion  String?   @map("firmware_version")
+  // 当前生效设置（API.md §8，口径 #27③）：只在命令 success 回执后写入——未回执绝不显示成功
+  settings         Json?
   createdAt        DateTime  @default(now()) @map("created_at")
 
   @@map("devices")
+}
+
+// 设备命令（API.md §8 / DEVICE_PROTOCOL §7）：pending → delivered → success | failed | offline
+// delivered = MQTT PUBACK（口径 #27④）；30s 无回执 → offline；迟到回执允许覆盖 offline（如实记录）
+model DeviceCommand {
+  id          String    @id @default(cuid())
+  deviceId    String    @map("device_id")
+  type        String // MVP: set_config（EVENTS.md §6，其他命令待硬件确认 ⚠️）
+  params      Json
+  status      String    @default("pending")
+  issuedAt    DateTime  @default(now()) @map("issued_at")
+  // 下发者（当时的绑定用户），审计留档
+  issuedBy    String?   @map("issued_by")
+  deliveredAt DateTime? @map("delivered_at")
+  // 回执（cmd_ack）字段：result=success|failed；errorCode 码表待硬件（⚠️）
+  ackResult   String?   @map("ack_result")
+  errorCode   String?   @map("error_code")
+  executedAt  DateTime? @map("executed_at")
+  ackedAt     DateTime? @map("acked_at")
+
+  @@index([deviceId, issuedAt])
+  @@index([status, issuedAt])
+  @@map("device_commands")
 }
 
 // 位置轨迹（API.md §5）：由 Ingest 从 location_update 事件写入，仅已注册设备；

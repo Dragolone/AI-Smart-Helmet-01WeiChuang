@@ -8,13 +8,17 @@ import { connect, type MqttClient } from 'mqtt';
 import type { Packet } from 'mqtt-packet';
 import { IngestService } from './ingest.service';
 
-/** 设备侧 Topic（DEVICE_PROTOCOL §4）：helmet/{deviceId}/{status|location|event} */
+/** 设备侧 Topic（DEVICE_PROTOCOL §4）：helmet/{deviceId}/{status|location|event|cmd_ack} */
 const SUBSCRIBE_TOPICS = [
   'helmet/+/status',
   'helmet/+/location',
   'helmet/+/event',
+  'helmet/+/cmd_ack',
 ];
-const TOPIC_PATTERN = /^helmet\/([^/]+)\/(status|location|event)$/;
+const TOPIC_PATTERN = /^helmet\/([^/]+)\/(status|location|event|cmd_ack)$/;
+
+/** cmd_ack 处理器：命令模块启动时注册（回调注入，避免 Ingest ↔ Commands 模块环依赖） */
+export type CmdAckHandler = (deviceId: string, raw: string) => Promise<void>;
 
 /** 数据库瞬时故障时的入库重试（次数 × 间隔）；重试耗尽才放弃并告警。 */
 const PERSIST_RETRIES = 2;
@@ -35,8 +39,33 @@ export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
   private client: MqttClient | null = null;
   private subscribeTimer: NodeJS.Timeout | null = null;
   private shuttingDown = false;
+  private cmdAckHandler: CmdAckHandler | null = null;
 
   constructor(private readonly ingest: IngestService) {}
+
+  /** 命令模块注册回执处理器（onModuleInit 时机，见 CommandsService） */
+  setCmdAckHandler(handler: CmdAckHandler): void {
+    this.cmdAckHandler = handler;
+  }
+
+  /**
+   * 命令下发（DEVICE_PROTOCOL §7）：QoS1，resolve = Broker PUBACK（送达 Broker，
+   * 非送达设备——设备侧送达以 cmd_ack 为准）。未连接/发布失败 reject，由调用方留 pending。
+   */
+  publishCommand(deviceId: string, payload: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!this.client || !this.client.connected) {
+        reject(new Error('MQTT 未连接'));
+        return;
+      }
+      this.client.publish(
+        `helmet/${deviceId}/cmd`,
+        payload,
+        { qos: 1 },
+        (err) => (err ? reject(err) : resolve()),
+      );
+    });
+  }
 
   onModuleInit(): void {
     const url = process.env.MQTT_URL ?? 'mqtt://localhost:1883';
@@ -116,6 +145,17 @@ export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
       return;
     }
     const topicDeviceId = match[1];
+
+    // cmd_ack 不是事件 envelope（EVENTS.md §6 独立格式），走命令模块，不进 Ingest
+    if (match[2] === 'cmd_ack') {
+      if (!this.cmdAckHandler) {
+        this.logger.warn(`cmd_ack 处理器未注册，消息忽略：${sanitize(topic)}`);
+        return;
+      }
+      await this.cmdAckHandler(topicDeviceId, raw);
+      this.logger.log(`[${sanitize(topic)}] → ack_processed`);
+      return;
+    }
 
     let lastError: unknown;
     for (let attempt = 0; attempt <= PERSIST_RETRIES; attempt++) {

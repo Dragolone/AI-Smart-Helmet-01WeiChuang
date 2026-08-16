@@ -136,10 +136,15 @@ SOS 状态机为服务端权威（DECISIONS #8/#26）：`pending → notified | 
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| PUT | /devices/{deviceId}/settings | 下发设置（参数清单 ⚠️ 待硬件提供，见 EVENTS.md §6）→ 创建 command，返回 `{ commandId, status: "pending" }` |
-| GET | /devices/{deviceId}/settings | 当前生效设置 + 最近一次下发状态 |
-| GET | /devices/{deviceId}/commands?page= | 命令历史 |
-| GET | /commands/{commandId} | 命令状态：`pending → delivered → success | failed | offline`（语义见 DEVICE_PROTOCOL §7，**未回执绝不显示成功**） |
+| PUT | /devices/{deviceId}/settings | body：`{ settings: { <key>: <标量> } }`（扁平键值，≤20 键；**参数清单与取值范围 ⚠️ 待硬件提供**，当前只挡结构性脏数据）→ 创建 set_config 命令并经 MQTT 下发，`202 { commandId, status: "pending" }` |
+| GET | /devices/{deviceId}/settings | `{ settings, lastCommand }`——settings 为当前生效设置（**仅 success 回执后写入**），lastCommand 为最近一次下发（TS 类型 SettingsResponse） |
+| GET | /devices/{deviceId}/commands?page=&pageSize= | 命令历史（最新在前，TS 类型 CommandPublic） |
+| GET | /commands/{commandId} | 命令状态：`pending → delivered → success \| failed \| offline`（语义见 DEVICE_PROTOCOL §7，**未回执绝不显示成功**） |
+
+- **状态口径（✅ 定稿 2026-08-16，决策 #27④）**：`delivered` = MQTT PUBACK（送达 Broker，非送达设备）；**30s**（`COMMAND_ACK_TIMEOUT_SECONDS`）无 cmd_ack → `offline`（App 显示"未送达/等待执行"）；**迟到回执如实覆盖 offline**（设备实际执行了就记 success/failed）。
+- 设备离线：命令照发（Broker 持久会话补投，依赖 Clean Session 决策 ⚠️）；发布失败留 pending 超时判 offline。
+- 归属：非本人绑定设备一律 404。
+- ✅ 本节已实现（2026-08-16）：Mock 设备订阅 cmd 并自动回执（`MOCK_CMD_RESULT=success|failed|silent` 三态可演示）。
 
 ## 9. 媒体
 
