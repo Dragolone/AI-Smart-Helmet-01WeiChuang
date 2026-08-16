@@ -1,9 +1,16 @@
-// 对讲（底部标签）：TRTC 语音对讲（决策 #22 选型已定案）。
-// 频道/队伍管理属 Week 9–10 后端任务，当前为固定演示频道；PTT 交互与最终版一致。
-// 设计对齐定稿套图：大圆 PTT（空闲品牌色/发言红色）+ 成员列表 + 状态药丸
+// 对讲（底部标签）：TRTC 语音对讲（决策 #22）。UI 对齐定稿套图（成员发言环/PTT 大圆钮/音频路由卡/成员列表）。
+// 适配说明（以项目为准）：无头像用首字母圈；SENA 耳机卡换成音频路由卡；队长/邀请码等
+// 频道管理能力属 Week 9-10 后端方案（UserSig 后端签发 + channels 表），当前为固定演示频道。
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef, useState } from 'react';
-import { PermissionsAndroid, Platform, Pressable, StyleSheet, View } from 'react-native';
+import {
+  PermissionsAndroid,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TRTCCloud, {
   TRTCCloudDef,
@@ -15,15 +22,51 @@ import { Badge } from '@/components/badge';
 import { PrimaryButton } from '@/components/form';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, Radius } from '@/constants/theme';
+import { Radius } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { generateTestUserSig } from '@/spike/generate-test-usersig';
 import { useAuthStore } from '@/stores/auth-store';
 
 const SDKAPPID = Number(process.env.EXPO_PUBLIC_TRTC_SDKAPPID ?? 0);
 const SECRETKEY = process.env.EXPO_PUBLIC_TRTC_SECRETKEY ?? '';
-// 固定演示频道：正式频道管理（建队/邀请）等 Week 9–10 后端（决策 #21 排期）
+// 固定演示频道：正式频道管理（创建/邀请码/成员）待 Week 9–10 后端契约定稿
 const ROOM_ID = 42;
+const SPEAKING_THRESHOLD = 10; // onUserVoiceVolume 0–100
+
+function MemberAvatar({
+  name,
+  speaking,
+  self = false,
+}: {
+  name: string;
+  speaking: boolean;
+  self?: boolean;
+}) {
+  const theme = useTheme();
+  return (
+    <View style={styles.avatarWrap}>
+      <View
+        style={[
+          styles.avatarRing,
+          { borderColor: speaking ? theme.brand : 'transparent' },
+        ]}>
+        <View style={[styles.avatar, { backgroundColor: theme.backgroundSelected }]}>
+          <ThemedText type="smallBold" style={{ fontSize: 18 }}>
+            {name.slice(0, 1).toUpperCase()}
+          </ThemedText>
+        </View>
+        {speaking && (
+          <View style={[styles.speakBubble, { backgroundColor: theme.brand }]}>
+            <Ionicons name="pulse" size={10} color={theme.onBrand} />
+          </View>
+        )}
+      </View>
+      <ThemedText type="small" themeColor="textSecondary" numberOfLines={1} style={styles.avatarName}>
+        {self ? '我' : name}
+      </ThemedText>
+    </View>
+  );
+}
 
 export default function IntercomScreen() {
   const theme = useTheme();
@@ -33,6 +76,12 @@ export default function IntercomScreen() {
   const [talking, setTalking] = useState(false);
   const [members, setMembers] = useState<string[]>([]);
   const [joining, setJoining] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [speakerOn, setSpeakerOn] = useState(true);
+  const [volumes, setVolumes] = useState<Record<string, number>>({});
+  const [muted, setMuted] = useState<Record<string, boolean>>({});
+
+  const myId = user?.phone ?? `rider_${Platform.OS}`;
 
   useEffect(() => {
     const cloud = trtc.current;
@@ -45,6 +94,8 @@ export default function IntercomScreen() {
         case TRTCCloudListener.onExitRoom:
           setInRoom(false);
           setMembers([]);
+          setVolumes({});
+          setMuted({});
           break;
         case TRTCCloudListener.onRemoteUserEnterRoom:
           setMembers((prev) =>
@@ -54,6 +105,15 @@ export default function IntercomScreen() {
         case TRTCCloudListener.onRemoteUserLeaveRoom:
           setMembers((prev) => prev.filter((m) => m !== params.userId));
           break;
+        case TRTCCloudListener.onUserVoiceVolume: {
+          // userId 为空串 = 本端；音量 0–100
+          const next: Record<string, number> = {};
+          for (const v of params.userVolumes ?? []) {
+            next[v.userId === '' ? myId : v.userId] = v.volume;
+          }
+          setVolumes(next);
+          break;
+        }
       }
     };
     cloud.registerListener(listener);
@@ -61,7 +121,8 @@ export default function IntercomScreen() {
       cloud.unRegisterListener(listener);
       cloud.exitRoom();
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myId]);
 
   const join = async () => {
     if (!SDKAPPID || !SECRETKEY) return;
@@ -72,12 +133,13 @@ export default function IntercomScreen() {
       if (res !== PermissionsAndroid.RESULTS.GRANTED) return;
     }
     setJoining(true);
-    const userId = user?.phone ?? `rider_${Platform.OS}`;
-    const userSig = generateTestUserSig(SDKAPPID, SECRETKEY, userId);
-    const params = new TRTCParams({ sdkAppId: SDKAPPID, userId, userSig, roomId: ROOM_ID });
+    const userSig = generateTestUserSig(SDKAPPID, SECRETKEY, myId);
+    const params = new TRTCParams({ sdkAppId: SDKAPPID, userId: myId, userSig, roomId: ROOM_ID });
     await trtc.current.enterRoom(params, TRTCCloudDef.TRTC_APP_SCENE_AUDIOCALL);
     await trtc.current.startLocalAudio(TRTCCloudDef.TRTC_AUDIO_QUALITY_SPEECH);
     await trtc.current.muteLocalAudio(true);
+    // 发言指示环所需：每 300ms 回调一次成员音量
+    await trtc.current.enableAudioVolumeEvaluation(300);
   };
 
   const leave = () => void trtc.current.exitRoom();
@@ -91,68 +153,176 @@ export default function IntercomScreen() {
     setTalking(false);
   };
 
+  const toggleRoute = async () => {
+    const next = !speakerOn;
+    await trtc.current
+      .getDeviceManager()
+      .setAudioRoute(
+        next ? TRTCCloudDef.TRTC_AUDIO_ROUTE_SPEAKER : TRTCCloudDef.TRTC_AUDIO_ROUTE_EARPIECE,
+      );
+    setSpeakerOn(next);
+  };
+
+  const toggleMuteMember = async (id: string) => {
+    const next = !muted[id];
+    await trtc.current.muteRemoteAudio(id, next);
+    setMuted((prev) => ({ ...prev, [id]: next }));
+  };
+
+  const isSpeaking = (id: string) => (volumes[id] ?? 0) >= SPEAKING_THRESHOLD && !muted[id];
+
   return (
     <SafeAreaView style={styles.flex}>
       <ThemedView style={styles.container}>
-        <View style={styles.header}>
-          <View>
+        {!inRoom ? (
+          <>
             <ThemedText type="title" style={styles.pageTitle}>
               对讲
             </ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              骑行频道 · {inRoom ? `${members.length + 1} 人在线` : '未进入'}
-            </ThemedText>
-          </View>
-          {inRoom && <Badge variant={talking ? 'danger' : 'success'} label={talking ? '发言中' : '空闲中'} />}
-        </View>
-
-        {!inRoom ? (
-          <View style={styles.joinWrap}>
-            <Ionicons name="mic-outline" size={56} color={theme.textSecondary} />
-            <ThemedText type="small" themeColor="textSecondary" style={styles.centerText}>
-              进入频道后按住下方按钮说话{'\n'}声音经蓝牙耳机（头盔）播放
-            </ThemedText>
-            <PrimaryButton
-              title={joining ? '进入中…' : '进入语音频道'}
-              onPress={() => void join()}
-              loading={joining}
-            />
-          </View>
+            <View style={styles.joinWrap}>
+              <Ionicons name="mic-outline" size={56} color={theme.textSecondary} />
+              <ThemedText type="small" themeColor="textSecondary" style={styles.centerText}>
+                进入频道后按住下方按钮说话{'\n'}连接蓝牙耳机（头盔）时声音自动走耳机
+              </ThemedText>
+              <PrimaryButton
+                title={joining ? '进入中…' : '进入语音频道'}
+                onPress={() => void join()}
+                loading={joining}
+              />
+              <ThemedText type="small" themeColor="textSecondary" style={styles.centerText}>
+                频道创建 / 邀请码加入功能开发中（Week 9–10）
+              </ThemedText>
+            </View>
+          </>
         ) : (
-          <>
-            <View style={styles.pttWrap}>
-              <Pressable
-                onPressIn={() => void pttDown()}
-                onPressOut={() => void pttUp()}
-                style={[
-                  styles.ptt,
-                  {
-                    backgroundColor: talking ? theme.danger : theme.brand,
-                    shadowColor: talking ? theme.danger : theme.brand,
-                  },
-                ]}>
-                <Ionicons name="mic" size={44} color={talking ? '#fff' : theme.onBrand} />
-                <ThemedText
-                  type="smallBold"
-                  style={{ color: talking ? '#fff' : theme.onBrand, fontSize: 16 }}>
-                  {talking ? '正在说话…' : '按住说话'}
+          <ScrollView contentContainerStyle={styles.roomContent} showsVerticalScrollIndicator={false}>
+            {/* 顶部：频道名（点击展开菜单）+ 在线数 */}
+            <View style={styles.header}>
+              <Pressable onPress={() => setMenuOpen((v) => !v)} hitSlop={8}>
+                <View style={styles.titleRow}>
+                  <ThemedText type="title" style={styles.channelTitle}>
+                    骑行频道
+                  </ThemedText>
+                  <Ionicons
+                    name={menuOpen ? 'chevron-up' : 'chevron-down'}
+                    size={22}
+                    color={theme.textSecondary}
+                  />
+                </View>
+                <ThemedText type="small" themeColor="textSecondary">
+                  {members.length + 1} 人在线
                 </ThemedText>
               </Pressable>
+              <Badge variant={talking ? 'danger' : 'success'} label={talking ? '发言中' : '空闲中'} />
             </View>
 
-            <ThemedText type="label" themeColor="textSecondary">
-              成员（{members.length + 1}）
-            </ThemedText>
-            <View
-              style={[styles.memberRow, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-              <View style={[styles.memberAvatar, { backgroundColor: theme.backgroundSelected }]}>
-                <ThemedText type="smallBold">我</ThemedText>
+            {/* 频道菜单（收缩栏）：退出频道；将来放邀请码/频道设置 */}
+            {menuOpen && (
+              <View style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+                <Pressable
+                  style={styles.menuItem}
+                  onPress={() => {
+                    setMenuOpen(false);
+                    leave();
+                  }}>
+                  <Ionicons name="exit-outline" size={20} color={theme.danger} />
+                  <ThemedText type="smallBold" style={{ color: theme.danger }}>
+                    退出频道
+                  </ThemedText>
+                </Pressable>
               </View>
-              <ThemedText type="smallBold" style={styles.memberName}>
-                {user?.nickname ?? user?.phone ?? '我'}
-              </ThemedText>
-              <Badge variant={talking ? 'danger' : 'neutral'} label={talking ? '发言中' : '静音'} />
+            )}
+
+            {/* 成员头像横排（发言荧光环） */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.avatarRow}>
+              <MemberAvatar name={user?.nickname ?? myId} speaking={isSpeaking(myId) || talking} self />
+              {members.map((m) => (
+                <MemberAvatar key={m} name={m} speaking={isSpeaking(m)} />
+              ))}
+            </ScrollView>
+
+            {/* 频道信息卡 */}
+            <View style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+              <View style={[styles.hashIcon, { backgroundColor: theme.backgroundSelected }]}>
+                <ThemedText type="smallBold" style={{ fontSize: 16 }}>#</ThemedText>
+              </View>
+              <View style={styles.cardBody}>
+                <ThemedText type="smallBold" style={{ fontSize: 15 }}>
+                  骑行频道 {ROOM_ID}
+                </ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  演示频道 · 邀请码与队伍管理开发中
+                </ThemedText>
+              </View>
+              <Ionicons name="pulse" size={18} color={theme.brand} />
             </View>
+
+            {/* PTT 大圆钮 */}
+            <View style={styles.pttWrap}>
+              <View style={[styles.pttOuter, { borderColor: talking ? theme.dangerBg : 'rgba(217,242,74,0.15)' }]}>
+                <Pressable
+                  onPressIn={() => void pttDown()}
+                  onPressOut={() => void pttUp()}
+                  style={[
+                    styles.ptt,
+                    {
+                      backgroundColor: talking ? theme.danger : theme.brand,
+                      shadowColor: talking ? theme.danger : theme.brand,
+                    },
+                  ]}>
+                  <Ionicons name="mic" size={44} color={talking ? '#fff' : theme.onBrand} />
+                  <ThemedText
+                    type="smallBold"
+                    style={{ color: talking ? '#fff' : theme.onBrand, fontSize: 16 }}>
+                    {talking ? '正在说话…' : '按住说话'}
+                  </ThemedText>
+                </Pressable>
+              </View>
+            </View>
+
+            {/* 音频路由卡（对应套图耳机卡；连蓝牙耳机时系统优先走耳机） */}
+            <Pressable onPress={() => void toggleRoute()}>
+              <View style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+                <View style={[styles.hashIcon, { backgroundColor: theme.backgroundSelected }]}>
+                  <Ionicons
+                    name={speakerOn ? 'volume-high-outline' : 'headset-outline'}
+                    size={18}
+                    color={theme.brand}
+                  />
+                </View>
+                <View style={styles.cardBody}>
+                  <ThemedText type="smallBold" style={{ fontSize: 15 }}>
+                    音频输出：{speakerOn ? '扬声器' : '听筒 / 耳机'}
+                  </ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    连接蓝牙头盔时自动优先走头盔 · 点击切换
+                  </ThemedText>
+                </View>
+                <Ionicons name="swap-horizontal" size={18} color={theme.textSecondary} />
+              </View>
+            </Pressable>
+
+            {/* 成员列表 */}
+            <View style={styles.membersHeader}>
+              <ThemedText type="label" themeColor="textSecondary">
+                成员（{members.length + 1}）
+              </ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">
+                按住说话优先
+              </ThemedText>
+            </View>
+
+            <View style={[styles.memberRow, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+              <View style={[styles.memberAvatar, { backgroundColor: theme.backgroundSelected }]}>
+                <ThemedText type="smallBold">{(user?.nickname ?? myId).slice(0, 1).toUpperCase()}</ThemedText>
+              </View>
+              <View style={styles.memberBody}>
+                <ThemedText type="smallBold">{user?.nickname ?? myId}</ThemedText>
+              </View>
+              <Badge variant={talking ? 'danger' : 'neutral'} label={talking ? '发言中' : '我'} />
+              {isSpeaking(myId) && <Ionicons name="pulse" size={18} color={theme.brand} />}
+            </View>
+
             {members.map((m) => (
               <View
                 key={m}
@@ -160,17 +330,26 @@ export default function IntercomScreen() {
                 <View style={[styles.memberAvatar, { backgroundColor: theme.backgroundSelected }]}>
                   <ThemedText type="smallBold">{m.slice(-2)}</ThemedText>
                 </View>
-                <ThemedText type="smallBold" style={styles.memberName}>
-                  {m}
-                </ThemedText>
-                <Ionicons name="volume-high-outline" size={18} color={theme.success} />
+                <View style={styles.memberBody}>
+                  <ThemedText type="smallBold">{m}</ThemedText>
+                  {muted[m] && (
+                    <ThemedText type="small" themeColor="textSecondary">
+                      已对我静音
+                    </ThemedText>
+                  )}
+                </View>
+                {isSpeaking(m) && <Ionicons name="pulse" size={18} color={theme.brand} />}
+                <Pressable hitSlop={8} onPress={() => void toggleMuteMember(m)}>
+                  <Ionicons
+                    name={muted[m] ? 'volume-mute' : 'volume-high-outline'}
+                    size={20}
+                    color={muted[m] ? theme.danger : theme.textSecondary}
+                  />
+                </Pressable>
               </View>
             ))}
 
-            <View style={styles.footer}>
-              <PrimaryButton title="退出频道" onPress={leave} danger />
-            </View>
-          </>
+          </ScrollView>
         )}
       </ThemedView>
     </SafeAreaView>
@@ -179,12 +358,68 @@ export default function IntercomScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  container: { flex: 1, padding: 20, gap: 14 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  pageTitle: { fontSize: 32, lineHeight: 38 },
+  container: { flex: 1, paddingHorizontal: 20 },
+  pageTitle: { fontSize: 32, lineHeight: 38, marginTop: 8 },
   joinWrap: { flex: 1, justifyContent: 'center', gap: 16 },
   centerText: { textAlign: 'center' },
-  pttWrap: { alignItems: 'center', paddingVertical: 24 },
+  roomContent: { gap: 14, paddingTop: 8, paddingBottom: 16 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  menuItem: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
+  channelTitle: { fontSize: 28, lineHeight: 34 },
+  avatarRow: { gap: 16, paddingVertical: 4 },
+  avatarWrap: { alignItems: 'center', gap: 6, width: 72 },
+  avatarRing: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 2.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatar: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  speakBubble: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarName: { maxWidth: 72 },
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: Radius.card,
+    borderWidth: 1,
+    padding: 14,
+  },
+  hashIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardBody: { flex: 1, gap: 2 },
+  pttWrap: { alignItems: 'center', paddingVertical: 10 },
+  pttOuter: {
+    width: 236,
+    height: 236,
+    borderRadius: 118,
+    borderWidth: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   ptt: {
     width: 200,
     height: 200,
@@ -197,6 +432,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
     elevation: 12,
   },
+  membersHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   memberRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -212,6 +448,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  memberName: { flex: 1 },
-  footer: { marginTop: 'auto', paddingBottom: BottomTabInset },
+  memberBody: { flex: 1, gap: 2 },
 });
