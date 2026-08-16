@@ -13,10 +13,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import {
-  SafeAreaView,
-  useSafeAreaInsets,
-} from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LocationPoint, WsLocationData } from '@helmet/shared';
 
 import { devicesApi } from '@/api/devices';
@@ -286,14 +283,15 @@ export default function MapScreen() {
         }}
       />
 
-      <SafeAreaView
+      {/* 浮层：普通 View + 手动 insets（顶部安全区自算，底部按平台让位） */}
+      <View
         style={[
           styles.overlay,
+          { paddingTop: insets.top + 14 },
           // iOS 原生标签条是半透明玻璃且内容会垫入其下（Android 内容区不含标签条）：
           // 浮层底部让出「home 指示条 + 标签条」的高度，卡片不被玻璃盖住
           Platform.OS === 'ios' && { paddingBottom: insets.bottom + 62 },
         ]}
-        edges={['top']}
         pointerEvents="box-none">
         {/* 顶部：实时状态药丸 + 分享/导航 */}
         <View style={styles.topRow} pointerEvents="box-none">
@@ -448,7 +446,7 @@ export default function MapScreen() {
             </ThemedText>
           )}
         </View>
-      </SafeAreaView>
+      </View>
     </View>
   );
 }
@@ -490,7 +488,14 @@ function Stat({
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: '#0B0C0E' },
-  overlay: { flex: 1, justifyContent: 'space-between', padding: 14 },
+  // 绝对定位 + zIndex：浮层明确压在全屏地图之上（双端触摸/渲染层级一致，模拟器已验证）
+  overlay: {
+    position: 'absolute' as const,
+    top: 0, left: 0, right: 0, bottom: 0,
+    justifyContent: 'space-between',
+    padding: 14,
+    zIndex: 10,
+  },
   topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   livePill: {
     flexDirection: 'row',
