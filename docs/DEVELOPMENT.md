@@ -98,3 +98,31 @@ cd backend && npx prisma migrate dev   # 建表（要求 docker 里的 postgres 
 | 2026-08-16 | iOS + Android | 高德地图数据覆盖 | **高德底图只覆盖中国大陆**，境外（如悉尼）只有粗略轮廓——海外开发时定位到自己真实位置永远是"一片空白"，非 Bug | 海外开发/测试地图功能用两个办法：① Mock 头盔剧本（骑行/滑雪坐标都在国内）驱动主链路；② 模拟器假定位（Android Extended Controls→Location / iOS Features→Location）设到深圳。真实用户在国内不受影响 |
 | 2026-08-16 | iOS | react-native-amap3d 新架构 | `moveCamera` 等命令走旧架构 `viewRegistry![reactTag] as! MapView` 强转，RN 0.86（旧架构已移除）下必现闪退；Android 端借 interop 层可用 | 该库判死，地图定案 WebView + JS API（决策 #33）；后续任何"只维护"状态的旧原生库选型前先查新架构命令通道实现 |
 | 2026-08-16 | 双端（React Compiler） | useImperativeHandle | 本项目开启 `reactCompiler: true` 后，`useImperativeHandle`（forwardRef 与 React 19 ref-prop 两种写法都试过）**ref 永不挂载**——`ref.current` 恒为 null，命令式句柄整体失效（真机 logcat 实证） | 需要命令式接口的组件改用「controllerRef prop + useEffect 赋值」模式（见 `app/src/components/map/amap-view.tsx`）；prop 名必须以 `Ref` 结尾，否则 react-hooks/immutability 报错 |
+
+
+## 设计素材管线（产品图 → App 资产）
+
+> 2026-08-17 落账（设备卡头盔图实战沉淀）。以后新素材照此流程,不要重新摸索。
+
+**生图提示词硬性要求**（发给任何生图软件时必须带上,决定后续处理是"一行命令"还是"疑难杂症"）:
+
+> 纯色平坦背景(flat solid background)、无渐晕(no vignette)、无地面投影(no ground shadow)、无光晕(no glow);产品 3/4 左前视角、影棚打光、构图居中占画面约 70%、无文字无水印无人物
+
+背景色随意（会被抠掉）,关键是"平"——边缘色标准差 <2 即合格,脚本会自检并告警。
+
+**处理流程**:
+
+```bash
+# 原图放 design/,输出到 app/assets/images/,文件名带版本号(vN 递增,见坑 3)
+python3 design/cutout.py design/helmet-xxx.png app/assets/images/helmet-xxx-v1.webp
+# 输出末尾必须是「边缘45px最大alpha 0(合格)」
+```
+
+**三个已踩实的坑（勿再踩）**:
+
+1. **有损 WebP 会压漂 alpha**:quality 模式下 alpha=0 的区域会被压成几十,深色主题下呈半透明"鬼影方块"。资产一律 `lossless=True`（两张 720px 约 200KB,可接受）。
+2. **本机 conda(anaconda) 的编译扩展不可信**:PIL `ImageDraw.floodfill` 在大图上静默失效（填 0 像素不报错）、cv2/scipy 与 numpy ABI 失配直接抛错。图像处理的连通域/洪泛用 `design/cutout.py` 里的纯 numpy 实现。
+3. **expo-image 按 URI 磁盘缓存**:同名文件换内容,App 里看到的还是旧图（Reload 也没用）。资产更新必须改文件名（vN 递增）并同步改 require。
+4. 图上带烘焙背景直接进卡片 = 必穿帮:色号对得再准,按压高亮时容器变色图片不变,方形图块立现。**必须透明底**。
+
+**卡片显示规格**: 128pt(@3x=384px),源图 720px 留余量;深色头盔靠生图时的轮廓光与深色卡片分离。
