@@ -1,5 +1,10 @@
 // 设备接口（docs/API.md §4；backend/src/devices 已实现并核对）
-import type { BindDeviceRequest, DevicePublic, DeviceStatus } from '@helmet/shared';
+import type {
+  BindDeviceRequest,
+  DevicePublic,
+  DeviceStatus,
+  LatestLocationResponse,
+} from '@helmet/shared';
 import { api } from './client';
 
 export const devicesApi = {
@@ -18,4 +23,10 @@ export const devicesApi = {
     api<void>(`/devices/${encodeURIComponent(deviceId)}/binding`, {
       method: 'DELETE',
     }),
+
+  /** 最新位置（API.md §5；无位置数据时 location 为 null）——WS 断线时的 REST 兜底 */
+  latestLocation: (deviceId: string) =>
+    api<LatestLocationResponse>(
+      `/devices/${encodeURIComponent(deviceId)}/locations/latest`,
+    ),
 };

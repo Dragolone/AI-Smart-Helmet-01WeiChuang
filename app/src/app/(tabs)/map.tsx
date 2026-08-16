@@ -1,10 +1,10 @@
 // 地图（底部标签）：占位版——高德 SDK 待企业 Key 定案后接入（DECISIONS 待定项）。
 // 实时数据链路已就绪：WS location_update 直写缓存，本页先以数据卡形式呈现（对齐套图指标卡）。
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import type { WsLocationData } from '@helmet/shared';
+import type { LocationPoint, WsLocationData } from '@helmet/shared';
 
 import { devicesApi } from '@/api/devices';
 import { ThemedText } from '@/components/themed-text';
@@ -44,17 +44,18 @@ function Stat({
 
 export default function MapScreen() {
   const theme = useTheme();
-  const queryClient = useQueryClient();
   const devices = useQuery({ queryKey: ['devices'], queryFn: devicesApi.list });
   const firstDevice = devices.data?.[0]?.deviceId;
 
-  // WS 推送直写此缓存（use-realtime）；这里订阅它以驱动渲染（react-query 不允许 undefined，用 null 表示"暂无"）
-  const location = useQuery<WsLocationData | null>({
+  // WS 推送直写此缓存（use-realtime）驱动实时刷新；REST latest 作为进页/断线兜底（API.md §11 口径）
+  const location = useQuery<WsLocationData | LocationPoint | null>({
     queryKey: ['device-location', firstDevice],
-    queryFn: () =>
-      queryClient.getQueryData<WsLocationData>(['device-location', firstDevice]) ?? null,
+    queryFn: async () => {
+      const { location: latest } = await devicesApi.latestLocation(firstDevice!);
+      return latest;
+    },
     enabled: !!firstDevice,
-    refetchInterval: 3000,
+    refetchInterval: 30_000,
   });
 
   const loc = location.data;
@@ -79,7 +80,7 @@ export default function MapScreen() {
           <View
             style={[styles.statsCard, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
             <View style={styles.statsHeader}>
-              <ThemedText type="smallBold">{loc.deviceId}</ThemedText>
+              <ThemedText type="smallBold">{firstDevice}</ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
                 {new Date(loc.timestamp).toLocaleTimeString()}
               </ThemedText>
