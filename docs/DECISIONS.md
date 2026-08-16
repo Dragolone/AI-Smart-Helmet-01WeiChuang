@@ -38,6 +38,7 @@
 | 31 | 2026-08-16 | **蓝牙版范围与视频边界定稿（汤总确认 ①②，决策 #29 收尾）**：①视频不走 BLE——SD 卡存储 + 头盔连 Wi-Fi 直传云端；②MVP 时间不变，蓝牙版第一期中转 **7 种事件**（device_status/location_update/possible_fall/manual_sos/collision_risk/obstacle_risk/risk_cleared），其余 4 种（video_ready/sleep×2/bluetooth_lost）下一版本——原因是产品逻辑（视频随 Wi-Fi、休眠防丢移出 MVP、蓝牙版断连语义需重设计）而非工作量；**休眠展示与 BLE 防丢正式移出 MVP** | BLE 带宽物理上限传不动 90s 视频；中转管道类型无关，7 种与 4 种的成本差仅测试量；保命链路（摔倒→60s→通知）与危险留档在蓝牙版完整 | Contract 已更新（DEVICE_PROTOCOL §1/§1.1、API.md §12.1 app-relay 入口）；B 线下一任务=中转入口实现；A 线新增 App 蓝牙中转模块（前置：硬件 BLE 协议，联调清单第 1 条）；weekly-plan 同步重排 |
 | 32 | 2026-08-16 | **MVP 不做 App 内导航，维持「导航跳转」口径**：导航需求通过 URL Scheme 拉起高德地图 App 完成；App 内转弯级导航（需另接高德导航 SDK AMapNavi，无 RN 封装，需自写双端原生桥接）明确不做；「App 内路线预览」（路径规划 API 画线，约 2–3 天）列为 MVP 后第一迭代候选，不进 MVP | 负责人确认（2026-08-16）：用户场景不成立——骑行者本人导航用高德 App 更专业，监护人赶往事故地点跳高德 App 无体验损失；App 核心价值是监护与安全；导航 SDK 桥接数周级工作量与新架构风险不可接受，剩余排期已满 | MVP Goal #4 口径不变；地图页实现「位置分享 + 导航跳转」即可；若未来重提 App 内导航须重新评估工作量与 Key 配额 |
 | 33 | 2026-08-16 | **地图库定案：WebView + 高德 JS API 2.0（react-native-webview），放弃 react-native-amap3d**。坐标转换（wgs84→gcj02）在 App 端 Map 组件层做（纯函数实现，兼答"坐标转换位置"待定项）；地图封装为 App 内部 Map 组件层（`app/src/components/map/`），业务页只调组件接口不触 WebView 细节 | Spike 双端实测（2026-08-16）：路线 B 双端全关卡通过（加载/Marker/Polyline/定位/convertFrom 官方坐标转换）；路线 A（amap3d）Android 通过但 **iOS 点定位必现闪退**——其 iOS `moveCamera` 走旧架构 `viewRegistry![reactTag] as! MapView` 强转，新架构（RN 0.86 无旧架构）下注册表查不到视图直接崩，库"只维护不加新功能"且发布 .tsx 源码与 React 19 类型冲突（需 shim 才能过 typecheck），修复须 fork 原生代码不可接受；JS API 在暗色样式/自定义 Marker 动画等深度定制上自由度更高，契合设计系统 | Week 5–6 地图页基于 WebView 方案开发；react-native-amap3d 及类型 shim 移除；Web端(JS API) Key 为地图主 Key（Android/iOS 平台 Key 保留备查）；负责人 iPhone 真机复验通过后本条转正式（预授权推进 2026-08-16） |
+| 34 | 2026-08-16 | **云厂商统一腾讯云；域名复用 `01weichuang.com` 子域名，ICP 备案免重做**：服务器（轻量应用服务器/CVM，2C4G 起）、对象存储（COS）、短信（腾讯云短信）、实时音视频（TRTC）全部走同一腾讯云账号；后端域名用公司已备案主域名的子域名（`dev-api` / `dev-mqtt` / `dev-admin`，生产去掉 `dev-` 前缀）。短信服务商由「阿里云（暂定）」正式改为腾讯云 | 负责人确认（2026-08-16）：① 架构本身厂商无关（Docker Compose 起 NestJS+PG+EMQX，不买任何托管服务），Provider 薄接口换实现零业务改动；② TRTC 已定案腾讯（决策 #22），统一后只需一次公司实名、一个控制台、一份发票；③ **公司网站 `01weichuang.com` 已在腾讯云完成 ICP 备案**——已备案主域名的子域名在主体与接入商均相同时无需单独备案，直接解析即用，原计划 10–20 工作日的备案周期归零 | 第三方清单少一项（域名+备案消除）、短信从阿里云改腾讯云；`SmsProvider`/`StorageProvider` 实现类按腾讯云 SDK 写；部署不再被备案阻塞，服务器到位即可开始 development 环境；MQTT over TLS 的具体地址 `dev-mqtt.01weichuang.com:8883` 需同步给硬件团队确认证书预置方式（DEVICE_PROTOCOL §3 ⚠️）；清单与进度见 docs/THIRD_PARTY.md |
 
 ## 待定决策（占位，定案后移入上表）
 
@@ -48,7 +49,7 @@
 | iOS 后台能力限制口径（BLE 防丢、后台定位） | Week 2 Spike 后 | 实测记录进 DEVELOPMENT.md，口径与负责人确认 |
 | ~~坐标转换位置（wgs84→gcj02 在服务端还是 App 端）~~ | 已定案 2026-08-16 | App 端 Map 组件层纯函数转换（后端只存原始坐标+coordinateSystem），见决策 #33 |
 | DEVICE_PROTOCOL.md 中标 ⚠️ 的传输层细节 | 最晚 Week 10 联调前 | 待硬件团队逐项确认 |
-| 短信/推送服务商最终确认 | 资质下来后 | 当前暂定阿里云短信 + 极光 |
+| 推送服务商最终确认（极光 + 安卓厂商通道） | 资质下来后 | 当前暂定极光；APNs 依赖 Apple 公司账号。~~短信~~已随决策 #34 定为腾讯云短信 |
 | ~~RTC 服务商选型~~ | 已定案 2026-08-15 | 定为腾讯云 TRTC，见决策 #22 |
 | 硬件对讲电台（双模兜底）频段/功率/实测距离 | 硬件团队评估后 | 纯硬件功能；结论追加进决策 #20；软件仅承担频道设置下发 |
 | ~~蓝牙版 MVP 深度与视频边界~~ | 已定案 2026-08-16 | 汤总确认 ①②，见决策 #31 |
