@@ -1,0 +1,23 @@
+# 网关配置：域名与邮箱来自 compose 注入的环境变量（deploy/.env）
+# 证书由 Caddy 自动向 Let's Encrypt 申请并续期（决策 #34 讨论定案：MVP 用自动签发，
+# 若国内网络申请超时，可退回手动模式——tls /certs/cert.pem /certs/key.pem 挂腾讯云证书，见 DEPLOYMENT.md 排障）
+{
+	email {$ACME_EMAIL}
+}
+
+# App 的 REST + WebSocket 入口（wss 由 Caddy 透明代理，App 端 https→wss 自动推导）
+{$API_DOMAIN} {
+	reverse_proxy backend:3000
+}
+
+# 管理后台：/api 同源转发给后端（与本地 vite proxy 同职责），其余走 SPA 静态文件
+{$ADMIN_DOMAIN} {
+	handle /api/* {
+		reverse_proxy backend:3000
+	}
+	handle {
+		root * /srv/admin
+		try_files {path} /index.html
+		file_server
+	}
+}

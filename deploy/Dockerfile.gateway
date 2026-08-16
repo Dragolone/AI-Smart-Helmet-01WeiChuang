@@ -1,0 +1,23 @@
+# 网关镜像 = Caddy（TLS 终止 + 反向代理）+ Admin 静态产物（构建 context = 仓库根）
+# Admin 是纯同源 SPA（fetch /api/v1/*），无构建期环境变量——同一份产物任何环境通用
+FROM node:24-slim AS admin-build
+WORKDIR /repo
+
+COPY package.json package-lock.json .nvmrc ./
+COPY admin/package.json admin/
+COPY packages/shared/package.json packages/shared/
+COPY backend/package.json backend/
+COPY app/package.json app/
+COPY mock-device/package.json mock-device/
+
+RUN npm ci -w admin -w packages/shared --ignore-scripts
+
+COPY packages/shared/ packages/shared/
+COPY admin/ admin/
+
+RUN npm run build -w packages/shared \
+ && npm run build -w admin
+
+FROM caddy:2
+# Caddyfile 走 volume 挂载（改代理规则不用重建镜像）；只有 Admin 产物烧进镜像
+COPY --from=admin-build /repo/admin/dist /srv/admin
