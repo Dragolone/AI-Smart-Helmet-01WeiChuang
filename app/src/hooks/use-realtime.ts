@@ -48,6 +48,12 @@ export function useRealtimeUpdates(): void {
           );
           break;
         }
+        case 'risk_event':
+        case 'device_event': {
+          // 危险/设备事件推送 → 事件页缓存失效即时刷新(§6)
+          void queryClient.invalidateQueries({ queryKey: ['events'] });
+          break;
+        }
         case 'location_update': {
           // 地图页（等高德 Key 接 SDK）消费；先落缓存供实时数据卡使用
           const data = message.data as WsLocationData;

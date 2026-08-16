@@ -1,12 +1,15 @@
 // 设备接口（docs/API.md §4；backend/src/devices 已实现并核对）
 import type {
   BindDeviceRequest,
+  CommandPublic,
   DevicePublic,
-  UpdateDeviceRequest,
   DeviceStatus,
   LatestLocationResponse,
   LocationPoint,
   Paginated,
+  PutSettingsRequest,
+  SettingsResponse,
+  UpdateDeviceRequest,
 } from '@helmet/shared';
 import { api } from './client';
 
@@ -39,6 +42,17 @@ export const devicesApi = {
     api<LatestLocationResponse>(
       `/devices/${encodeURIComponent(deviceId)}/locations/latest`,
     ),
+
+  /** 设备设置（API.md §8）:当前生效值 + 最近一次下发命令 */
+  settings: (deviceId: string) =>
+    api<SettingsResponse>(`/devices/${encodeURIComponent(deviceId)}/settings`),
+
+  /** 下发设置（命令+回执状态机,决策 #27③④）:202 返回命令对象,回执后生效 */
+  putSettings: (deviceId: string, body: PutSettingsRequest) =>
+    api<CommandPublic>(`/devices/${encodeURIComponent(deviceId)}/settings`, {
+      method: 'PUT',
+      body,
+    }),
 
   /** 历史轨迹（API.md §5：from/to 必填、范围 ≤24h、timestamp 升序、pageSize ≤100） */
   locations: (

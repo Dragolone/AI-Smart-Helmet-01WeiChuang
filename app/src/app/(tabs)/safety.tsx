@@ -10,6 +10,7 @@ import type { AccidentListItem, EmergencyContact } from '@helmet/shared';
 import { contactsApi } from '@/api/contacts';
 import { devicesApi } from '@/api/devices';
 import { toUserMessage } from '@/api/error-messages';
+import { relayApi } from '@/api/relay';
 import { sosApi } from '@/api/sos';
 import { Badge } from '@/components/badge';
 import { PrimaryButton } from '@/components/form';
@@ -182,6 +183,33 @@ export default function SafetyScreen() {
             </ThemedText>
           )}
 
+          {/* 危险事件入口(§6 事件历史页) */}
+          <Pressable onPress={() => router.push('/events')} style={{ marginTop: 12 }}>
+            {({ pressed }) => (
+              <View
+                style={[
+                  styles.card,
+                  {
+                    backgroundColor: pressed ? theme.backgroundSelected : theme.backgroundElement,
+                    borderColor: theme.border,
+                  },
+                ]}>
+                <View style={[styles.avatar, { backgroundColor: theme.warningBg }]}>
+                  <Ionicons name="pulse-outline" size={20} color={theme.warning} />
+                </View>
+                <View style={styles.contactBody}>
+                  <ThemedText type="smallBold" style={{ fontSize: 15 }}>
+                    安全事件
+                  </ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    碰撞风险 / 障碍物 / 摔倒等事件历史
+                  </ThemedText>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={theme.textSecondary} />
+              </View>
+            )}
+          </Pressable>
+
           <View style={[styles.sectionHeader, { marginTop: 12 }]}>
             <ThemedText type="subtitle" style={styles.sectionTitle}>
               事故记录
@@ -194,6 +222,54 @@ export default function SafetyScreen() {
             <ThemedText type="small" themeColor="textSecondary">
               暂无记录——愿一直如此 🙏
             </ThemedText>
+          )}
+
+          {/* 开发测试:经 app-relay(§12.1 真实契约)替绑定设备注入事件,快速触发 SOS/危险事件
+              全链路(Ingest→状态机→WS→倒计时页)。仅开发构建可见。 */}
+          {__DEV__ && deviceIds[0] && (
+            <View style={[styles.devBox, { borderColor: theme.border }]}>
+              <ThemedText type="label" themeColor="textSecondary">
+                开发测试(仅 DEV 构建可见,走 app-relay 真实链路)
+              </ThemedText>
+              <View style={styles.devRow}>
+                <Pressable
+                  style={[styles.devBtn, { backgroundColor: theme.dangerBg }]}
+                  onPress={() =>
+                    relayApi
+                      .pushEvent(deviceIds[0], 'possible_fall', { confidence: 0.95 })
+                      .catch((e) => Alert.alert('注入失败', toUserMessage(e)))
+                  }>
+                  <ThemedText type="smallBold" style={{ color: theme.danger, fontSize: 13 }}>
+                    模拟摔倒
+                  </ThemedText>
+                </Pressable>
+                <Pressable
+                  style={[styles.devBtn, { backgroundColor: theme.dangerBg }]}
+                  onPress={() =>
+                    relayApi
+                      .pushEvent(deviceIds[0], 'manual_sos', {})
+                      .catch((e) => Alert.alert('注入失败', toUserMessage(e)))
+                  }>
+                  <ThemedText type="smallBold" style={{ color: theme.danger, fontSize: 13 }}>
+                    模拟手动求救
+                  </ThemedText>
+                </Pressable>
+                <Pressable
+                  style={[styles.devBtn, { backgroundColor: theme.warningBg }]}
+                  onPress={() =>
+                    relayApi
+                      .pushEvent(deviceIds[0], 'collision_risk', {
+                        riskLevel: 'high',
+                        direction: 'rear',
+                      })
+                      .catch((e) => Alert.alert('注入失败', toUserMessage(e)))
+                  }>
+                  <ThemedText type="smallBold" style={{ color: theme.warning, fontSize: 13 }}>
+                    模拟碰撞风险
+                  </ThemedText>
+                </Pressable>
+              </View>
+            </View>
           )}
         </ScrollView>
 
@@ -244,4 +320,18 @@ const styles = StyleSheet.create({
   contactBody: { flex: 1, gap: 4 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   bottomCta: { paddingTop: 4, paddingBottom: 10 },
+  devBox: {
+    marginTop: 16,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderRadius: Radius.card,
+    padding: 12,
+    gap: 10,
+  },
+  devRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  devBtn: {
+    borderRadius: Radius.pill,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
 });

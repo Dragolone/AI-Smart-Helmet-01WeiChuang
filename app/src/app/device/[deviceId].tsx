@@ -61,6 +61,40 @@ export default function DeviceDetailScreen() {
     queryFn: () => devicesApi.detail(deviceId),
   });
 
+  // 设备设置（§8 命令+回执状态机）:有未终态命令时 2s 快轮询直到回执/超时
+  const settings = useQuery({
+    queryKey: ['device-settings', deviceId],
+    queryFn: () => devicesApi.settings(deviceId),
+    refetchInterval: (q) => {
+      const st = q.state.data?.lastCommand?.status;
+      return st === 'pending' || st === 'delivered' ? 2_000 : 30_000;
+    },
+  });
+  const [sending, setSending] = useState(false);
+
+  const sendSetting = (key: string, value: string | number | boolean) => {
+    setSending(true);
+    devicesApi
+      .putSettings(deviceId, { settings: { [key]: value } })
+      .then(() => queryClient.invalidateQueries({ queryKey: ['device-settings', deviceId] }))
+      .catch((e) => Alert.alert('下发失败', toUserMessage(e)))
+      .finally(() => setSending(false));
+  };
+
+  const lastCmd = settings.data?.lastCommand ?? null;
+  const cmdStatusText =
+    lastCmd == null
+      ? null
+      : lastCmd.status === 'pending'
+        ? { text: '下发中…', color: theme.warning }
+        : lastCmd.status === 'delivered'
+          ? { text: '已送达设备,等待执行回执', color: theme.warning }
+          : lastCmd.status === 'success'
+            ? { text: `执行成功 · ${lastCmd.executedAt ? new Date(lastCmd.executedAt).toLocaleTimeString() : ''}`, color: theme.success }
+            : lastCmd.status === 'failed'
+              ? { text: `执行失败${lastCmd.errorCode ? `（${lastCmd.errorCode}）` : ''}`, color: theme.danger }
+              : { text: '设备离线未送达(绝不显示为已生效)', color: theme.textSecondary };
+
   const [renameOpen, setRenameOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
   const [renaming, setRenaming] = useState(false);
@@ -199,6 +233,84 @@ export default function DeviceDetailScreen() {
             label="绑定码"
             value={detail.data?.bindCode ?? '—'}
           />
+
+          {/* 设备设置下发（§8;参数为演示项,清单与值域待硬件定稿 ⚠️） */}
+          <View
+            style={[styles.settingsCard, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+            <View style={styles.settingsHeader}>
+              <ThemedText type="smallBold" style={{ fontSize: 15 }}>
+                设备设置
+              </ThemedText>
+              <ThemedText type="label" themeColor="textSecondary">
+                演示参数 · 待硬件定稿
+              </ThemedText>
+            </View>
+
+            <View style={styles.settingRow}>
+              <ThemedText type="small" themeColor="textSecondary">
+                蜂鸣音量
+              </ThemedText>
+              <View style={styles.chipGroup}>
+                {[50, 75, 100].map((v) => {
+                  const active = settings.data?.settings.volume === v;
+                  return (
+                    <Pressable key={v} disabled={sending} onPress={() => sendSetting('volume', v)}>
+                      <View
+                        style={[
+                          styles.settingChip,
+                          {
+                            backgroundColor: active ? theme.brand : theme.backgroundSelected,
+                          },
+                        ]}>
+                        <ThemedText
+                          type="smallBold"
+                          style={{ fontSize: 13, color: active ? theme.onBrand : theme.textSecondary }}>
+                          {v}
+                        </ThemedText>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={styles.settingRow}>
+              <ThemedText type="small" themeColor="textSecondary">
+                示廓灯
+              </ThemedText>
+              <View style={styles.chipGroup}>
+                {[
+                  { v: true, label: '开' },
+                  { v: false, label: '关' },
+                ].map(({ v, label }) => {
+                  const active = settings.data?.settings.light === v;
+                  return (
+                    <Pressable key={label} disabled={sending} onPress={() => sendSetting('light', v)}>
+                      <View
+                        style={[
+                          styles.settingChip,
+                          {
+                            backgroundColor: active ? theme.brand : theme.backgroundSelected,
+                          },
+                        ]}>
+                        <ThemedText
+                          type="smallBold"
+                          style={{ fontSize: 13, color: active ? theme.onBrand : theme.textSecondary }}>
+                          {label}
+                        </ThemedText>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            {cmdStatusText && (
+              <ThemedText type="small" style={{ color: cmdStatusText.color }}>
+                最近下发:{cmdStatusText.text}
+              </ThemedText>
+            )}
+          </View>
         </>
       )}
 
@@ -265,6 +377,28 @@ const styles = StyleSheet.create({
   },
   batteryTrack: { height: 6, borderRadius: 3, overflow: 'hidden' },
   batteryFill: { height: 6, borderRadius: 3 },
+  settingsCard: {
+    borderRadius: Radius.card,
+    borderWidth: 1,
+    padding: 16,
+    gap: 12,
+  },
+  settingsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+  },
+  settingRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  chipGroup: { flexDirection: 'row', gap: 8 },
+  settingChip: {
+    borderRadius: Radius.pill,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+  },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',

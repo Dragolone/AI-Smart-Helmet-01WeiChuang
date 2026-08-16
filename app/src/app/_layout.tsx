@@ -57,6 +57,10 @@ function RootNavigator() {
           name="accident/[accidentId]"
           options={{ headerShown: true, title: '事故详情' }}
         />
+        <Stack.Screen
+          name="events"
+          options={{ headerShown: true, title: '安全事件' }}
+        />
         {/* SOS 全屏页：手势返回禁用——处理中的求救不允许误滑关闭 */}
         <Stack.Screen
           name="sos-active"
