@@ -31,15 +31,17 @@
 | 24 | 2026-08-15 | **开发期双 Bundle ID 口径**：A 用 `com.zixim.helmet.spike`、B 用 `com.dravenzhong.helmet`；远程推送完整验证与签名统一等待公司 Apple Developer 账号 | iOS 免费个人团队无法签远程推送 entitlement，且同一 Bundle ID 无法注册到第二个个人团队（Week 2 实测，负责人确认） | 不阻塞开发；公司账号到位后统一换正式 Bundle ID（见 CLAUDE.md 待确认事项） |
 | 25 | 2026-08-15 | **WebSocket 实时通道选型：原生 ws（@nestjs/platform-ws），不用 Socket.IO** | RN 与浏览器用平台原生 WebSocket 直连、App 端零客户端依赖；MVP 无房间/轮询降级需求，不引 Socket.IO 私有协议开销。鉴权 `?token=` + 失败 4401；「按绑定设备自动推送、不做补发、REST 兜底」口径见 API.md §11 | App 端（Week 5–6 地图页）用原生 WebSocket 接入；若未来需要房间/广播语义再评估，不推翻现有消息格式 |
 | 26 | 2026-08-16 | **SOS 状态机落地口径（负责人确认四项）**：① 并发合并规则——设备已有 pending 时新 possible_fall 只留档不建单、新 manual_sos 立即触发通知（等价 SOS Now），终态后新事件建新单；② active 空响应 = `200 { sos: null }`；③ 事故位置快照优先触发事件内嵌位置（逐字段校验），回落最新轨迹点，都无则空快照照建单；④ 紧急联系人上限 5 个（活跃计数）。附加口径：仅绑定用户的设备建单（无绑定即无人可通知/取消）；deadline 一律服务器时间（clock_skew 不影响保命链路）；每设备至多一个 pending 由 partial unique index 兜底 | 倒计时中实体键求救是明确人为意图不该再等；摔倒算法连发大概率是同一事故重复判定；快照缺失不能阻塞建单 | EVENTS.md §4.4、API.md §3/§7 同步定稿；实现于 backend/src/sos（触发/调度/通知三服务 + 条件更新竞态防护） |
+| 27 | 2026-08-16 | **MVP 不做 App 内导航，维持「导航跳转」口径**：导航需求通过 URL Scheme 拉起高德地图 App 完成；App 内转弯级导航（需另接高德导航 SDK AMapNavi，无 RN 封装，需自写双端原生桥接）明确不做；「App 内路线预览」（路径规划 API 画线，约 2–3 天）列为 MVP 后第一迭代候选，不进 MVP | 负责人确认（2026-08-16）：用户场景不成立——骑行者本人导航用高德 App 更专业，监护人赶往事故地点跳高德 App 无体验损失；App 核心价值是监护与安全；导航 SDK 桥接数周级工作量与新架构风险不可接受，剩余排期已满 | MVP Goal #4 口径不变；地图页实现「位置分享 + 导航跳转」即可；若未来重提 App 内导航须重新评估工作量与 Key 配额 |
+| 28 | 2026-08-16 | **地图库定案：WebView + 高德 JS API 2.0（react-native-webview），放弃 react-native-amap3d**。坐标转换（wgs84→gcj02）在 App 端 Map 组件层做（纯函数实现，兼答"坐标转换位置"待定项）；地图封装为 App 内部 Map 组件层（`app/src/components/map/`），业务页只调组件接口不触 WebView 细节 | Spike 双端实测（2026-08-16）：路线 B 双端全关卡通过（加载/Marker/Polyline/定位/convertFrom 官方坐标转换）；路线 A（amap3d）Android 通过但 **iOS 点定位必现闪退**——其 iOS `moveCamera` 走旧架构 `viewRegistry![reactTag] as! MapView` 强转，新架构（RN 0.86 无旧架构）下注册表查不到视图直接崩，库"只维护不加新功能"且发布 .tsx 源码与 React 19 类型冲突（需 shim 才能过 typecheck），修复须 fork 原生代码不可接受；JS API 在暗色样式/自定义 Marker 动画等深度定制上自由度更高，契合设计系统 | Week 5–6 地图页基于 WebView 方案开发；react-native-amap3d 及类型 shim 移除；Web端(JS API) Key 为地图主 Key（Android/iOS 平台 Key 保留备查）；负责人 iPhone 真机复验通过后本条转正式（预授权推进 2026-08-16） |
 
 ## 待定决策（占位，定案后移入上表）
 
 | 待定项 | 计划定案时间 | 说明 |
 |--------|------------|------|
-| 地图库最终选择（高德 RN 库 vs WebView JS API） | Week 2 Spike 后 | 双端真机验证通过才定案 |
+| ~~地图库最终选择（高德 RN 库 vs WebView JS API）~~ | 已定案 2026-08-16 | 定为 WebView + JS API，见决策 #28 |
 | BLE 库最终确认（默认 react-native-ble-plx） | Week 2 Spike 后 | 含 iOS 后台行为实测记录 |
 | iOS 后台能力限制口径（BLE 防丢、后台定位） | Week 2 Spike 后 | 实测记录进 DEVELOPMENT.md，口径与负责人确认 |
-| 坐标转换位置（wgs84→gcj02 在服务端还是 App 端） | EVENTS.md 定稿时 | 取决于硬件 GPS 输出与地图库要求 |
+| ~~坐标转换位置（wgs84→gcj02 在服务端还是 App 端）~~ | 已定案 2026-08-16 | App 端 Map 组件层纯函数转换（后端只存原始坐标+coordinateSystem），见决策 #28 |
 | DEVICE_PROTOCOL.md 中标 ⚠️ 的传输层细节 | 最晚 Week 10 联调前 | 待硬件团队逐项确认 |
 | 短信/推送服务商最终确认 | 资质下来后 | 当前暂定阿里云短信 + 极光 |
 | ~~RTC 服务商选型~~ | 已定案 2026-08-15 | 定为腾讯云 TRTC，见决策 #22 |

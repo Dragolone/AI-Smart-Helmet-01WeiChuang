@@ -118,7 +118,7 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 - ✅ Push Spike 双端通过（本地通知：权限/通道/定时/后台弹出）；⚠️ APNs 远程推送个人团队无法签名，待公司账号
 - ✅ BLE Spike 双端通过（前台扫描/连接/断开检测，react-native-ble-plx 3.5.1 兼容 RN 新架构）；⚠️ 后台断连检测未测，Week 11 防丢开发前必补（iOS bluetooth-central + 华为杀后台）
 - ✅ RTC Spike 双端全关卡通过（腾讯 TRTC）：双机对讲互通（进房 243/251ms）、锁屏后台音频、蓝牙耳机路由——**选型证据齐备，待负责人确认后写入 DECISIONS.md 定案**
-- ⬜ 地图 Spike：等高德 Key（已明确注册路径与包名/SHA1）
+- ✅ 地图 Spike（2026-08-16，个人 Key 到位后补测）：路线 B（WebView + JS API）双端通过；路线 A（react-native-amap3d）Android 通过但 iOS 定位闪退（新架构不兼容，源码级确认）→ 定案路线 B，见决策 #28。附带发现：高德境外无底图（海外开发注意，见 DEVELOPMENT.md 平台限制清单）
 - 环境新发现已记入 docs/DEVELOPMENT.md：Android 构建需 JDK 17；Bundle ID 跨个人团队冲突（公司 Apple Developer 账号加急的实证）
 
 ## Week 3–4：用户系统 + 设备绑定
@@ -151,7 +151,7 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 
 | 谁 | 做什么 | 为了什么 | 状态 |
 |----|--------|----------|------|
-| A | 地图页：当前位置、实时移动（WebSocket）、历史轨迹回放、位置分享与导航跳转 | 用户最常看的页面 | 🔄 后端 API/WS/类型已就绪（PR #29/#30）；**被高德 Key 阻塞——当前 A 线关键路径**，Key 到位即先定案地图 SDK |
+| A | 地图页：当前位置、实时移动（WebSocket）、历史轨迹回放、位置分享与导航跳转 | 用户最常看的页面 | 🔄 地图库已定案（WebView + JS API，决策 #28）；地图页开发中（Map 组件层 + 实时/回放/分享导航，2026-08-16 起） |
 | B | location_update 入库（高频表索引）、位置/轨迹查询 API、WebSocket 通道 | 数据侧与实时侧支撑 | ✅ PR #30（location_points 表、latest/范围查询 24h 上限定稿、原生 ws 决策 #25、4401 鉴权、定向推送；负责人 2026-08-15 验收通过） |
 | B | Mock 骑行剧本：模拟一段真实骑行轨迹循环播放 | 随时可演示"头盔在动" | ✅ Week 2 已有骑行环路；PR #30 新增**滑雪剧本**（SCENARIO=ski，海拔 2110→1790 滑降+缆车循环，负责人滑雪场景需求） |
 

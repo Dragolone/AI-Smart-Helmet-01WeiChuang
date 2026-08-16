@@ -93,3 +93,6 @@ cd backend && npx prisma migrate dev   # 建表（要求 docker 里的 postgres 
 | 2026-08-15 | Android（华为无 GMS） | 定位 | 冷启动首次锁星需 1–2 分钟，一次性 `getCurrentPositionAsync` 长时间挂起无反馈；锁星后 watchPosition 每 2s 稳定更新、精度可到 5m | 定位功能一律用持续监听 + 中间状态展示，禁止一次性等待（负责人已确认口径 2026-08-15） |
 | 2026-08-15 | iOS + Android | RTC（TRTC） | 双机对讲互通、锁屏后台音频（iOS 已配 `UIBackgroundModes: audio`）、蓝牙耳机路由，双端真机全部通过 | 无限制发现；支撑 TRTC 选型定案（负责人已确认 2026-08-15） |
 | 2026-08-15 | iOS + Android | BLE 后台 | 前台扫描/连接/断连检测双端通过；**后台断连检测未测** | Week 11 防丢开发前必须实测：iOS `bluetooth-central` 后台模式 + 华为激进杀后台 |
+| 2026-08-16 | iOS + Android | 高德地图数据覆盖 | **高德底图只覆盖中国大陆**，境外（如悉尼）只有粗略轮廓——海外开发时定位到自己真实位置永远是"一片空白"，非 Bug | 海外开发/测试地图功能用两个办法：① Mock 头盔剧本（骑行/滑雪坐标都在国内）驱动主链路；② 模拟器假定位（Android Extended Controls→Location / iOS Features→Location）设到深圳。真实用户在国内不受影响 |
+| 2026-08-16 | iOS | react-native-amap3d 新架构 | `moveCamera` 等命令走旧架构 `viewRegistry![reactTag] as! MapView` 强转，RN 0.86（旧架构已移除）下必现闪退；Android 端借 interop 层可用 | 该库判死，地图定案 WebView + JS API（决策 #28）；后续任何"只维护"状态的旧原生库选型前先查新架构命令通道实现 |
+| 2026-08-16 | 双端（React Compiler） | useImperativeHandle | 本项目开启 `reactCompiler: true` 后，`useImperativeHandle`（forwardRef 与 React 19 ref-prop 两种写法都试过）**ref 永不挂载**——`ref.current` 恒为 null，命令式句柄整体失效（真机 logcat 实证） | 需要命令式接口的组件改用「controllerRef prop + useEffect 赋值」模式（见 `app/src/components/map/amap-view.tsx`）；prop 名必须以 `Ref` 结尾，否则 react-hooks/immutability 报错 |
