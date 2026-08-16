@@ -2,6 +2,7 @@
 // 2026-08-16 风格迭代：监控台风格——KPI 指标行 + 描边卡片 + 状态药丸 + 电量条
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
+import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import {
   FlatList,
@@ -40,6 +41,37 @@ function BatteryBar({ level }: { level: number | null }) {
   );
 }
 
+/** 信号强度文案（DeviceStatus.signalLevel：数值越大越强；口径待硬件定稿前按相对档显示） */
+function signalLabel(level: number | null): string {
+  if (level === null) return '—';
+  if (level >= 3) return '强';
+  if (level >= 2) return '中';
+  return '弱';
+}
+
+function StatCell({
+  icon,
+  label,
+  value,
+}: {
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  label: string;
+  value: string;
+}) {
+  const theme = useTheme();
+  return (
+    <View style={styles.statCell}>
+      <MaterialCommunityIcons name={icon} size={16} color={theme.textSecondary} />
+      <View>
+        <ThemedText type="label" themeColor="textSecondary">
+          {label}
+        </ThemedText>
+        <ThemedText type="smallBold">{value}</ThemedText>
+      </View>
+    </View>
+  );
+}
+
 function DeviceRow({ device }: { device: DevicePublic }) {
   const theme = useTheme();
   return (
@@ -53,48 +85,54 @@ function DeviceRow({ device }: { device: DevicePublic }) {
               borderColor: theme.border,
             },
           ]}>
-          <View style={styles.cardHeader}>
-            <ThemedText type="subtitle" style={styles.deviceId}>
-              {device.deviceId}
-            </ThemedText>
-            <View style={styles.cardHeaderRight}>
-              <Badge
-                variant={device.online ? 'success' : 'neutral'}
-                label={device.online ? '在线' : '离线'}
-              />
-              <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
+          <View style={styles.cardTop}>
+            {/* 头盔产品图（演示素材；正式型号图待硬件出型号字段后按型号映射） */}
+            <Image
+              source={require('@/assets/images/helmet-hero.webp')}
+              style={styles.helmetImage}
+              contentFit="cover"
+            />
+            <View style={styles.cardInfo}>
+              <View style={styles.cardTitleRow}>
+                <ThemedText type="subtitle" style={styles.deviceId} numberOfLines={1}>
+                  {device.deviceId}
+                </ThemedText>
+                <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
+              </View>
+              <View style={styles.badgeRow}>
+                <Badge
+                  variant={device.online ? 'success' : 'neutral'}
+                  label={device.online ? '在线' : '离线'}
+                />
+              </View>
+              <ThemedText type="small" themeColor="textSecondary">
+                固件 {device.firmwareVersion ?? '未知'}
+              </ThemedText>
+              <View style={styles.batteryBlock}>
+                <View style={styles.batteryValueRow}>
+                  <ThemedText type="display" style={styles.batteryValue}>
+                    {device.battery !== null ? device.battery : '—'}
+                  </ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    %{device.charging ? ' · 充电中 ⚡' : ''}
+                  </ThemedText>
+                </View>
+                <BatteryBar level={device.battery} />
+              </View>
             </View>
           </View>
-          <View style={styles.metaRow}>
-            <View style={styles.metaItem}>
-              <ThemedText type="label" themeColor="textSecondary">
-                电量
-              </ThemedText>
-              <ThemedText type="smallBold">
-                {device.battery !== null ? `${device.battery}%` : '—'}
-                {device.charging ? ' ⚡' : ''}
-              </ThemedText>
-            </View>
-            <View style={styles.metaItem}>
-              <ThemedText type="label" themeColor="textSecondary">
-                固件
-              </ThemedText>
-              <ThemedText type="smallBold">{device.firmwareVersion ?? '未知'}</ThemedText>
-            </View>
-            <View style={styles.metaItem}>
-              <ThemedText type="label" themeColor="textSecondary">
-                状态
-              </ThemedText>
-              <ThemedText type="smallBold">{device.sleeping ? '休眠' : '活动'}</ThemedText>
-            </View>
-            <View style={styles.metaItem}>
-              <ThemedText type="label" themeColor="textSecondary">
-                上次同步
-              </ThemedText>
-              <ThemedText type="smallBold">{relativeTime(device.lastSeenAt)}</ThemedText>
-            </View>
+
+          <View style={[styles.cardDivider, { backgroundColor: theme.border }]} />
+
+          <View style={styles.statsRow}>
+            <StatCell icon="signal" label="信号" value={signalLabel(device.signalLevel)} />
+            <StatCell
+              icon={device.sleeping ? 'sleep' : 'motion-sensor'}
+              label="状态"
+              value={device.sleeping ? '休眠' : '活动'}
+            />
+            <StatCell icon="sync" label="上次同步" value={relativeTime(device.lastSeenAt)} />
           </View>
-          <BatteryBar level={device.battery} />
         </View>
       )}
     </Pressable>
@@ -275,17 +313,30 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: Radius.card,
     borderWidth: 1,
-    padding: 16,
+    padding: 14,
     gap: 12,
   },
-  cardHeader: {
+  cardTop: { flexDirection: 'row', gap: 14 },
+  helmetImage: {
+    width: 108,
+    height: 108,
+    borderRadius: 14,
+    alignSelf: 'center',
+  },
+  cardInfo: { flex: 1, gap: 5 },
+  cardTitleRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  deviceId: { fontSize: 20, lineHeight: 26 },
-  metaRow: { flexDirection: 'row', gap: 20 },
-  metaItem: { gap: 2 },
+  badgeRow: { flexDirection: 'row' },
+  deviceId: { fontSize: 19, lineHeight: 25, flex: 1 },
+  batteryBlock: { gap: 5, marginTop: 2 },
+  batteryValueRow: { flexDirection: 'row', alignItems: 'baseline', gap: 3 },
+  batteryValue: { fontSize: 26, lineHeight: 30 },
+  cardDivider: { height: StyleSheet.hairlineWidth },
+  statsRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  statCell: { flexDirection: 'row', alignItems: 'center', gap: 7, flex: 1 },
   batteryTrack: {
     height: 4,
     borderRadius: 2,
