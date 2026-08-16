@@ -3,11 +3,14 @@ import type {
   DeviceStatusPayload,
   LocationPoint as WireLocationPoint,
   Sos,
+  WsDeviceEventData,
   WsDeviceStatusData,
   WsLocationData,
   WsMessage,
+  WsRiskEventData,
   WsSosData,
 } from '@helmet/shared';
+import { buildSummary } from '../events/event-wire';
 import type { ValidEnvelope } from '../ingest/envelope';
 import { RealtimeGateway } from './realtime.gateway';
 
@@ -24,6 +27,38 @@ export class RealtimePushService {
       sentAt: new Date().toISOString(),
     };
     this.gateway.pushToUser(userId, message);
+  }
+
+  /** collision_risk / obstacle_risk / risk_cleared → 事件详情；当前危险状态由 App 从事件流推导（决策 #27） */
+  pushRiskEvent(userId: string, e: ValidEnvelope): void {
+    const message: WsMessage<WsRiskEventData> = {
+      type: 'risk_event',
+      data: { ...this.toEventItem(e), payload: e.payload, media: [] },
+      sentAt: new Date().toISOString(),
+    };
+    this.gateway.pushToUser(userId, message);
+  }
+
+  /** sleep_* / bluetooth_lost / video_ready → 事件列表项 */
+  pushDeviceEvent(userId: string, e: ValidEnvelope): void {
+    const message: WsMessage<WsDeviceEventData> = {
+      type: 'device_event',
+      data: this.toEventItem(e),
+      sentAt: new Date().toISOString(),
+    };
+    this.gateway.pushToUser(userId, message);
+  }
+
+  private toEventItem(e: ValidEnvelope) {
+    return {
+      eventId: e.eventId,
+      deviceId: e.deviceId,
+      eventType: e.eventType,
+      timestamp: e.timestamp.toISOString(),
+      // WS 推送发生在入库后一瞬间，receivedAt 以当下时间为准（与落库值毫秒级差异，展示无感）
+      receivedAt: new Date().toISOString(),
+      summary: buildSummary(e.eventType, e.payload),
+    };
   }
 
   pushLocation(

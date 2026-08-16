@@ -4,13 +4,24 @@
 > 状态标记：✅ 软件侧已定 ｜ ⚠️ 默认建议，待硬件团队确认（最晚 Week 10 联调前逐项确认并去除标记）。
 > Mock Device 必须与本协议完全一致，对 Backend 不可区分。
 
-## 1. 总体链路（✅ 负责人已确认，2026-08-14）
+## 1. 总体链路（✅ 负责人已确认，2026-08-14；双产品形态 2026-08-16 补充，决策 #29/#31）
+
+产品分**两种形态**，共用同一套事件 Contract（EVENTS.md）与后端统一 Ingest 层：
 
 ```text
-头盔 ── 4G ── MQTT over TLS ── EMQX Broker ── NestJS 后端
-BLE 仅用于手机近场：配对、防丢、必要近场能力（不是数据上传主通道）
+【4G 版】 头盔 ── 4G/Wi-Fi ── MQTT over TLS ── EMQX Broker ── NestJS 后端
+          BLE 用于手机近场：配对、防丢、蓝牙耳机（对讲音频）
+【蓝牙版】头盔 ── BLE ── 手机 App 中转模块 ── HTTPS(/ingest/app-relay) ── 后端统一 Ingest
+          头盔不装 4G 模块；视频不走 BLE（SD 卡存储 + 头盔连 Wi-Fi 直传云端）
 云端算法服务（如有）── HTTPS Webhook ── 后端（不经 EMQX）
 ```
+
+### 1.1 蓝牙版数据范围（✅ 汤总确认，2026-08-16，决策 #31）
+
+- **MVP 第一期中转 7 种事件**：`device_status`、`location_update`、`possible_fall`、`manual_sos`、`collision_risk`、`obstacle_risk`、`risk_cleared`——保命链路与危险留档完整。
+- **下一版本再接 4 种**（产品原因，非工作量）：`video_ready`（视频走 Wi-Fi，通知随之）、`sleep_entered/exited`（休眠展示已移出 MVP）、`bluetooth_lost`（蓝牙版中"断连=断网"，语义需重新设计）。
+- App 中转模块**原样透传** MQTT 同款事件 envelope（EVENTS.md §1），不修改内容；eventId 幂等规则不变——断线补传、重复转发都由服务端去重消化。
+- **BLE 传输细节 ⚠️ 待硬件团队定义**（联调清单第 1 条，蓝牙版开发前置）：GATT 服务/特征值、分帧与重组、App→头盔确认机制、头盔侧断连缓存与补传策略。
 
 ## 2. MQTT Broker
 

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DeviceSnapshotService } from '../devices/device-snapshot.service';
 import { LocationRecorderService } from '../locations/location-recorder.service';
+import { MediaRecorderService } from '../media/media-recorder.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimePushService } from '../realtime/realtime-push.service';
 import { SosTriggerService } from '../sos/sos-trigger.service';
@@ -12,11 +13,37 @@ import {
 } from './envelope';
 
 export type IngestOutcome = 'stored' | 'duplicate' | 'stored_invalid';
-export type IngestSource = 'mqtt' | 'webhook';
+export type IngestSource = 'mqtt' | 'webhook' | 'app_relay';
+
+export interface IngestOptions {
+  /** 入口级事件类型白名单（如蓝牙版中转的 7 种）：合法 envelope 但类型超范围 → 按校验失败留档告警 */
+  allowedEventTypes?: ReadonlySet<string>;
+}
 
 /** 设备时钟偏移阈值（DEVICE_PROTOCOL §8，默认 5 分钟）。
  *  注：补传事件本应豁免此标记，但补传语义待设备离线缓存实装后才能识别（§6 ⚠️），当前一律按偏差判定。 */
 const CLOCK_SKEW_THRESHOLD_MS = 5 * 60_000;
+
+/** §11 WS 分流：risk_event（详情级）与 device_event（列表项级）各自的事件类型集合 */
+const RISK_EVENT_TYPES = new Set([
+  'collision_risk',
+  'obstacle_risk',
+  'risk_cleared',
+]);
+const DEVICE_EVENT_TYPES = new Set([
+  'sleep_entered',
+  'sleep_exited',
+  'bluetooth_lost',
+  'video_ready',
+]);
+
+/** EVENTS.md 4.5 objectType 已知集合（⚠️ 待算法确认；未知值原样留档并告警） */
+const KNOWN_OBJECT_TYPES = new Set([
+  'vehicle',
+  'pedestrian',
+  'obstacle',
+  'unknown',
+]);
 
 @Injectable()
 export class IngestService {
@@ -28,13 +55,15 @@ export class IngestService {
     private readonly locationRecorder: LocationRecorderService,
     private readonly push: RealtimePushService,
     private readonly sosTrigger: SosTriggerService,
+    private readonly mediaRecorder: MediaRecorderService,
   ) {}
 
-  /** 所有入口（MQTT / 未来的 Webhook / Mock）都汇聚到这里；返回值仅用于日志与测试。 */
+  /** 所有入口（MQTT / App 中转 / 未来的 Webhook / Mock）都汇聚到这里；返回值仅用于日志与测试。 */
   async ingestRaw(
     raw: string,
     topicDeviceId: string,
     source: IngestSource,
+    opts?: IngestOptions,
   ): Promise<IngestOutcome> {
     const result = validateEnvelope(raw, topicDeviceId);
 
@@ -44,6 +73,21 @@ export class IngestService {
       );
       await this.persist(
         buildInvalidRecord(topicDeviceId, raw, result.reason),
+        source,
+      );
+      return 'stored_invalid';
+    }
+
+    if (
+      opts?.allowedEventTypes &&
+      !opts.allowedEventTypes.has(result.envelope.eventType)
+    ) {
+      // 蓝牙版范围外的类型（DEVICE_PROTOCOL §1.1）：留档告警，不进业务流程
+      this.logger.warn(
+        `入口 ${source} 不允许的事件类型 ${result.envelope.eventType}，按校验失败留档：${result.envelope.eventId}`,
+      );
+      await this.persist(
+        buildInvalidRecord(topicDeviceId, raw, 'event_type_not_allowed'),
         source,
       );
       return 'stored_invalid';
@@ -80,11 +124,33 @@ export class IngestService {
       await this.sosTrigger.handleTrigger(e, device.bindUserId);
     }
 
+    // 媒体元数据（§9）：video_ready 入媒体表（内部吞错，raw 可回填）
+    if (e.eventType === 'video_ready') {
+      await this.mediaRecorder.record(e);
+    }
+
+    // 危险事件数据质量告警（EVENTS.md 4.5）：objectType 未知值原样留档但要出声，供与算法团队对口径
+    if (RISK_EVENT_TYPES.has(e.eventType)) {
+      const objectType = (e.payload as { objectType?: unknown }).objectType;
+      if (
+        typeof objectType === 'string' &&
+        !KNOWN_OBJECT_TYPES.has(objectType)
+      ) {
+        this.logger.warn(
+          `危险事件携带未知 objectType="${objectType}"（已原样留档）：${e.eventId}`,
+        );
+      }
+    }
+
     if (device.bindUserId) {
       if (e.eventType === 'device_status') {
         this.push.pushDeviceStatus(device.bindUserId, e);
       } else if (point) {
         this.push.pushLocation(device.bindUserId, e.deviceId, point);
+      } else if (RISK_EVENT_TYPES.has(e.eventType)) {
+        this.push.pushRiskEvent(device.bindUserId, e);
+      } else if (DEVICE_EVENT_TYPES.has(e.eventType)) {
+        this.push.pushDeviceEvent(device.bindUserId, e);
       }
     }
   }

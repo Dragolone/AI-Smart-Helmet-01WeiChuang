@@ -54,11 +54,14 @@ function sendStatus(): void {
 
 // —— location_update 剧本：沿内置路线逐点前进，循环播放 ——
 // SCENARIO=ski 滑雪剧本（带海拔）；SCENARIO=fall / sos：骑行途中触发一次
-// possible_fall / manual_sos（SOS 状态机端到端演示）；默认骑行环路
-type Scenario = 'riding' | 'ski' | 'fall' | 'sos';
+// possible_fall / manual_sos（SOS 状态机端到端演示）；SCENARIO=risk：周期性
+// 「后方来车预警 → 数点后解除」循环（危险事件链路演示）；默认骑行环路
+type Scenario = 'riding' | 'ski' | 'fall' | 'sos' | 'risk';
 const SCENARIO: Scenario = (() => {
   const s = process.env.SCENARIO;
-  return s === 'ski' || s === 'fall' || s === 'sos' ? s : 'riding';
+  return s === 'ski' || s === 'fall' || s === 'sos' || s === 'risk'
+    ? s
+    : 'riding';
 })();
 const ROUTE = SCENARIO === 'ski' ? buildSkiLoop() : expandRoute(RIDING_LOOP, 30);
 let routeIndex = 0;
@@ -94,6 +97,63 @@ function maybeSendEmergency(current: (typeof ROUTE)[number]): void {
     `🚨 已触发 ${SCENARIO === 'fall' ? 'possible_fall' : 'manual_sos'}（服务端将开始 SOS 倒计时）`,
   );
 }
+
+// —— SCENARIO=risk：后方来车预警循环（EVENTS.md 4.5/4.6）——
+// 每 RISK_CYCLE_POINTS 个位置点发一次 collision_risk（rear/high，距离逐次拉近），
+// 2 个点后发 risk_cleared 精确解除（带 clearedEventId），循环往复。
+const RISK_CYCLE_POINTS = 8;
+let activeRiskEventId: string | null = null;
+let riskClearCountdown = 0;
+function maybeSendRisk(current: (typeof ROUTE)[number]): void {
+  if (SCENARIO !== 'risk') return;
+  const location = {
+    latitude: current.latitude,
+    longitude: current.longitude,
+    coordinateSystem: 'wgs84' as const,
+    accuracy: 8,
+  };
+  if (activeRiskEventId) {
+    riskClearCountdown -= 1;
+    if (riskClearCountdown <= 0) {
+      publish('event', 'risk_cleared', {
+        clearedEventId: activeRiskEventId,
+      });
+      // 头盔录像就绪：关联刚才的危险事件（§9 媒体链路演示）
+      const videoId = `vid_${activeRiskEventId.slice(0, 8)}`;
+      publish('event', 'video_ready', {
+        videoId,
+        relatedEventId: activeRiskEventId,
+        duration: 12,
+        sizeBytes: 3_500_000,
+        storageKey: `mock/${DEVICE_ID}/${videoId}.mp4`,
+      });
+      log('✅ 已解除危险（risk_cleared）+ 录像就绪（video_ready）');
+      activeRiskEventId = null;
+    }
+    return;
+  }
+  if (pointsSent % RISK_CYCLE_POINTS !== 0) return;
+  const envelope = buildEnvelope(DEVICE_ID, FIRMWARE_VERSION, 'collision_risk', {
+    riskLevel: 'high',
+    objectType: 'vehicle',
+    direction: 'rear',
+    distance: 15 - (pointsSent % 3) * 3,
+    confidence: 0.92,
+    algorithmVersion: 'mock-risk-v1',
+    location,
+  });
+  activeRiskEventId = envelope.eventId;
+  riskClearCountdown = 2;
+  client.publish(
+    `helmet/${DEVICE_ID}/event`,
+    JSON.stringify(envelope),
+    { qos: 1 },
+    (err) => {
+      if (err) log(`发送失败 collision_risk: ${err.message}`);
+      else log('⚠️ 已触发后方来车预警（collision_risk rear/high）');
+    },
+  );
+}
 function sendLocation(): void {
   const current = ROUTE[routeIndex];
   const next = ROUTE[(routeIndex + 1) % ROUTE.length];
@@ -112,6 +172,7 @@ function sendLocation(): void {
   routeIndex = (routeIndex + 1) % ROUTE.length;
   pointsSent += 1;
   maybeSendEmergency(current);
+  maybeSendRisk(current);
 }
 
 let timers: NodeJS.Timeout[] = [];
@@ -135,7 +196,9 @@ client.on('connect', () => {
         ? '骑行+摔倒'
         : SCENARIO === 'sos'
           ? '骑行+手动SOS'
-          : '骑行';
+          : SCENARIO === 'risk'
+            ? '骑行+后方来车预警'
+            : '骑行';
   log(
     `已连接 ${MQTT_URL}，开始${scenarioName}剧本（位置每 ${LOCATION_INTERVAL_MS / 1000}s / 心跳每 ${STATUS_INTERVAL_MS / 1000}s）`,
   );
@@ -147,6 +210,48 @@ client.on('connect', () => {
     setInterval(sendStatus, STATUS_INTERVAL_MS),
     setInterval(sendLocation, LOCATION_INTERVAL_MS),
   ];
+});
+
+// —— 命令接收与回执（DEVICE_PROTOCOL §7）：真机行为的软件版 ——
+// MOCK_CMD_RESULT=success（默认）| failed | silent（不回执，演示 offline 超时判定）
+const CMD_RESULT = ((): 'success' | 'failed' | 'silent' => {
+  const r = process.env.MOCK_CMD_RESULT;
+  return r === 'failed' || r === 'silent' ? r : 'success';
+})();
+client.on('connect', () => {
+  client.subscribe(`helmet/${DEVICE_ID}/cmd`, { qos: 1 }, (err) => {
+    if (err) log(`订阅 cmd 失败: ${err.message}`);
+  });
+});
+client.on('message', (topic, payload) => {
+  if (!topic.endsWith('/cmd')) return;
+  try {
+    const cmd = JSON.parse(payload.toString('utf-8')) as {
+      commandId: string;
+      type: string;
+      params: Record<string, unknown>;
+    };
+    log(`收到命令 ${cmd.type}（${cmd.commandId.slice(0, 8)}…）params=${JSON.stringify(cmd.params)}`);
+    if (CMD_RESULT === 'silent') {
+      log('（MOCK_CMD_RESULT=silent：不回执，服务端将超时判 offline）');
+      return;
+    }
+    const ack = {
+      commandId: cmd.commandId,
+      result: CMD_RESULT,
+      ...(CMD_RESULT === 'failed' ? { errorCode: 'MOCK_REJECTED' } : {}),
+      executedAt: new Date().toISOString(),
+    };
+    // 模拟设备执行耗时后回执
+    setTimeout(() => {
+      client.publish(`helmet/${DEVICE_ID}/cmd_ack`, JSON.stringify(ack), { qos: 1 }, (err) => {
+        if (err) log(`回执发送失败: ${err.message}`);
+        else log(`已回执 ${CMD_RESULT}（${cmd.commandId.slice(0, 8)}…）`);
+      });
+    }, 500);
+  } catch {
+    log('收到无法解析的命令消息，忽略');
+  }
 });
 
 client.on('reconnect', () => log('重连中…'));

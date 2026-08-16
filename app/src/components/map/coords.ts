@@ -1,4 +1,4 @@
-// 坐标工具（决策 #28：wgs84→gcj02 转换在 App 端 Map 组件层做，纯函数、离线、确定性）。
+// 坐标工具（决策 #33：wgs84→gcj02 转换在 App 端 Map 组件层做，纯函数、离线、确定性）。
 // 后端只存原始坐标 + coordinateSystem，App 展示前按需转换。
 import type { LocationPoint } from '@helmet/shared';
 

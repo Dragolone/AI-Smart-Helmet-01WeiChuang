@@ -103,10 +103,15 @@ Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / 
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | /devices/{deviceId}/events?type=&from=&to=&page=&pageSize= | 事件历史；`type` 可多值逗号分隔（取值 = EVENTS.md §3 eventType） |
+| GET | /devices/{deviceId}/events?type=&from=&to=&page=&pageSize= | 事件历史（最新在前）；`type` 可多值逗号分隔（取值 = EVENTS.md §3 eventType，未知值 400）；from/to 均选填（事件量级低，不设 §5 的 24h 上限），同给时须 from < to |
 | GET | /events/{eventId} | 事件详情（含原始 payload、关联媒体） |
 
-`event` 列表项：`{ eventId, deviceId, eventType, timestamp, receivedAt, summary }`；详情追加 `payload`（原样）与 `media: [{ mediaId, status, duration? }]`。
+`event` 列表项（TS 类型见 `@helmet/shared` EventListItem）：`{ eventId, deviceId, eventType, timestamp, receivedAt, summary }`；详情（EventDetail）追加 `payload`（原样）与 `media: [{ mediaId, status, duration }]`。
+
+- `summary` 为服务端生成的一句话摘要，仅兜底展示；**客户端逻辑不得依赖其内容**（App 有本地化文案时可忽略）。
+- 归属口径：按设备**当前绑定**判定（与 §4/§5 一致）；校验失败的 `_invalid` 占位事件不出现在任何查询结果。
+- 「当前危险状态」由 App 从 WS `risk_event` 事件流推导，服务端不维护实时态（✅ 口径 2026-08-16 定稿，决策 #27）；历史随时可查本节接口。
+- ✅ 本节已实现（2026-08-16）：media 数组由 §9 媒体表反查填充（WS `risk_event` 推送时媒体通常尚未上传，实时消息中恒为空，App 用详情接口兜底）。
 
 ## 7. SOS / 事故记录
 
@@ -131,18 +136,26 @@ SOS 状态机为服务端权威（DECISIONS #8/#26）：`pending → notified | 
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| PUT | /devices/{deviceId}/settings | 下发设置（参数清单 ⚠️ 待硬件提供，见 EVENTS.md §6）→ 创建 command，返回 `{ commandId, status: "pending" }` |
-| GET | /devices/{deviceId}/settings | 当前生效设置 + 最近一次下发状态 |
-| GET | /devices/{deviceId}/commands?page= | 命令历史 |
-| GET | /commands/{commandId} | 命令状态：`pending → delivered → success | failed | offline`（语义见 DEVICE_PROTOCOL §7，**未回执绝不显示成功**） |
+| PUT | /devices/{deviceId}/settings | body：`{ settings: { <key>: <标量> } }`（扁平键值，≤20 键；**参数清单与取值范围 ⚠️ 待硬件提供**，当前只挡结构性脏数据）→ 创建 set_config 命令并经 MQTT 下发，`202 { commandId, status: "pending" }` |
+| GET | /devices/{deviceId}/settings | `{ settings, lastCommand }`——settings 为当前生效设置（**仅 success 回执后写入**），lastCommand 为最近一次下发（TS 类型 SettingsResponse） |
+| GET | /devices/{deviceId}/commands?page=&pageSize= | 命令历史（最新在前，TS 类型 CommandPublic） |
+| GET | /commands/{commandId} | 命令状态：`pending → delivered → success \| failed \| offline`（语义见 DEVICE_PROTOCOL §7，**未回执绝不显示成功**） |
+
+- **状态口径（✅ 定稿 2026-08-16，决策 #27④）**：`delivered` = MQTT PUBACK（送达 Broker，非送达设备）；**30s**（`COMMAND_ACK_TIMEOUT_SECONDS`）无 cmd_ack → `offline`（App 显示"未送达/等待执行"）；**迟到回执如实覆盖 offline**（设备实际执行了就记 success/failed）。
+- 设备离线：命令照发（Broker 持久会话补投，依赖 Clean Session 决策 ⚠️）；发布失败留 pending 超时判 offline。
+- 归属：非本人绑定设备一律 404。
+- ✅ 本节已实现（2026-08-16）：Mock 设备订阅 cmd 并自动回执（`MOCK_CMD_RESULT=success|failed|silent` 三态可演示）。
 
 ## 9. 媒体
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | /media/{mediaId}/url | 换取**有时效**预签名 URL：`{ url, expiresAt }`（时效建议 10min ⚠️ 待定）；归属校验：仅设备绑定用户可取 |
+| GET | /media/{mediaId}/url | 换取**有时效**预签名 URL：`{ url, expiresAt }`（**✅ 时效定稿 10 分钟**，env `MEDIA_URL_TTL_SECONDS` 可调）；归属校验：仅设备当前绑定用户可取，非本人一律 404 |
 
-媒体元数据随 `video_ready` 事件入库（EVENTS.md 4.9）；设备上传方式待硬件确认后补充本节。
+- 媒体元数据随 `video_ready` 事件入库（EVENTS.md 4.9），幂等：同 eventId 或同 (deviceId, videoId) 只登记一条。
+- `storageKey` 缺失（上传方式待硬件确认 ⚠️）时 status=`pending_upload`，换 URL 返回 409 `MEDIA_NOT_READY`（错误码只增）。
+- §6 事件详情的 `media` 数组：危险/摔倒事件按 `relatedEventId` 反查，video_ready 事件带自身条目。
+- ✅ 本节已实现（2026-08-16）：StorageProvider 薄接口 + Mock 实现（本地假 URL）；云厂商 OSS/COS 就绪后换实现零业务改动。
 
 ## 10. Admin API（/api/v1/admin/*，独立角色守卫）
 
@@ -158,16 +171,15 @@ MVP 实用为主，全部只读 + 少量运维操作。
 | GET | /admin/users?page=&pageSize=&keyword= | 用户列表/搜索（keyword 匹配 phone/nickname）。item：`{ id, phone, nickname, avatarUrl, createdAt, deviceCount }` |
 | GET | /admin/devices?page=&pageSize=&keyword=&online= | 设备列表（keyword 匹配 deviceId/绑定手机号；`online=true|false` 按 90s 心跳窗口筛选，口径与 §4 status 一致）。item：`{ deviceId, online, lastSeenAt, battery, charging, signalLevel, sleeping, firmwareVersion, boundAt, createdAt, bindUser: { id, phone, nickname } | null }` |
 | GET | /admin/accidents?status=&deviceId=&page=&pageSize= | 事故/SOS 记录（✅ 2026-08-16，Week 7–8）：`status=pending\|notified\|cancelled`、deviceId 精确筛；item = AccidentListItem + `user: { id, phone, nickname } \| null`（TS 类型 AdminAccidentRow），最新在前 |
+| GET | /admin/events?type=&deviceId=&from=&to=&invalid=&page=&pageSize= | 全量事件查询（✅ 2026-08-16）：默认排除校验失败留档，`invalid=true` 切换到 `_invalid` 视图（**不设独立端点，定稿**）；Admin 是排查工具，item 带业务接口不可见的 `source`/`clockSkew` 与原样 `payload`（TS 类型 AdminEventRow），按接收时间最新在前 |
+| GET | /admin/devices/{deviceId} | 设备详情 + 最近 10 条事件（含 `_invalid`，排查用）+ 当前生效设置（✅ 2026-08-16，TS 类型 AdminDeviceDetail）；不存在 404 |
+| GET | /admin/stats/overview | 概览（✅ **指标集定稿 2026-08-16**，TS 类型 AdminStatsOverview）：`{ deviceTotal, deviceOnline, userTotal, todayEvents, activeSos, generatedAt }`——「今日」按 **UTC+8 自然日**、事件数不含 `_invalid`；指标只增不改 |
 
 分页响应用 §1 统一结构 `{ items, total, page, pageSize }`。
 
-### 10.2 规划中（随对应业务功能落地）
+### 10.2 规划中
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | /admin/devices/{deviceId} | 设备详情 + 最近事件 |
-| GET | /admin/events?type=&deviceId=&from=&to=&page= | 全量事件查询（含未知类型/校验失败的原始事件 ⚠️ 是否单独端点待定稿） |
-| GET | /admin/stats/overview | 概览：设备总数/在线数、今日事件数、进行中 SOS 数（⚠️ 指标集待定） |
+（§10.2 原有条目已全部实现并移入 §10.1，2026-08-16。）
 
 ## 11. WebSocket（App 实时通道）
 
@@ -188,7 +200,7 @@ MVP 实用为主，全部只读 + 少量运维操作。
 | device_event | §6 event 列表项 | 其余事件（sleep_*、bluetooth_lost、video_ready） |
 
 - WebSocket 是加速通道不是可靠通道：App 重连后须用 REST 拉取兜底；SOS 兜底靠 Push（deadline 持久化在服务端）。
-- ✅ 实现状态（2026-08-15）：通道 + `device_status` / `location_update` 两类推送已实现；`sos_update` / `risk_event` / `device_event` 随对应功能（Week 7+）接入。
+- ✅ 实现状态（2026-08-16）：通道 + 全部五类推送均已实现（`device_status` / `location_update` / `sos_update` / `risk_event` / `device_event`）。
 
 ## 12. Ingest Webhook（云端算法服务 → 后端）
 
@@ -197,8 +209,42 @@ MVP 实用为主，全部只读 + 少量运维操作。
 - 响应：`202 { "eventId": "...", "duplicate": false }`；幂等重复返回 `duplicate: true` 同样 202。
 - 本入口与 MQTT 入口在统一 Ingest 层汇合，业务模块不感知来源。
 
-## 13. 待定稿清单汇总
+### 12.1 App 中转入口（蓝牙版，✅ Contract 定稿 2026-08-16，决策 #31；实现随蓝牙版排期）
+
+- `POST /api/v1/ingest/app-relay`——蓝牙版头盔的数据经手机 App 中转模块提交云端的唯一入口。
+- 鉴权：**用户 JWT**（App 已登录态）；服务端校验 `deviceId` 必须绑定于当前用户，非本人一律 404 `DEVICE_NOT_FOUND`（与 §4 同口径）。
+- 请求体（支持断线补传的批量提交）：
+
+```json
+{ "deviceId": "helmet_001", "envelopes": [ { EVENTS.md §1 envelope }, ... ] }
+```
+
+- 单批上限 **100 条**；每条 envelope 的 `deviceId` 必须与外层一致（不一致该条按校验失败留档）；事件类型限蓝牙版范围（DEVICE_PROTOCOL §1.1 的 7 种，超范围按未知类型留档告警）。
+- 响应：`202 { "accepted": n, "duplicate": n, "invalid": n }`——重复（eventId 已存在）与校验失败都不报错，App 补传无需关心哪些已传过。
+- 进**统一 Ingest 层**（同校验、同幂等、同业务分发）；`source=app_relay` 仅排查可见，业务模块不感知。
+- ✅ 本节已实现（2026-08-16）：中转的 possible_fall 照常触发 SOS 状态机、location_update 照常入轨迹表——蓝牙版与 4G 版在业务层完全等价。
+
+## 13. 网络对讲（App + RTC，决策 #20/#21/#22）
+
+语音走腾讯 TRTC（App 端 SDK 直连 RTC 云），后端只做**频道管理 + 房间凭证签发**，不自研语音、不经手音频流。频道模型（✅ 口径 2026-08-16 定稿，决策 #27⑤）：**6 位数字邀请码加入、TRTC 房间号 = 频道数字 roomId、成员上限 20**（`VOICE_CHANNEL_MEMBER_LIMIT` 可调）。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | /voice/channels | 建频道。body：`{ name }` → channel 对象（创建者自动入频道） |
+| GET | /voice/channels | 我加入的频道列表 |
+| POST | /voice/channels/join | body：`{ inviteCode }`；邀请码错误 404；满员 409 `CHANNEL_FULL`；重复加入幂等返回频道 |
+| DELETE | /voice/channels/{channelId}/membership | 退出频道（非成员 404；频道保留，MVP 不做解散/回收） |
+| GET | /voice/channels/{channelId}/members | 成员列表（仅成员可见）：`{ userId, nickname, phone }`（**手机号脱敏**） |
+| POST | /voice/channels/{channelId}/token | 进房凭证（仅成员）：`{ sdkAppId, userId, roomId, userSig, expiresAt }`；TRTC 未配置时 503 `TRTC_NOT_CONFIGURED` |
+
+`channel` 对象（TS 类型见 `@helmet/shared` VoiceChannel）：`{ channelId, name, roomId, inviteCode, ownerId, memberCount, createdAt }`。
+
+- **UserSig 由服务端签发**（官方 TLS-Sig-API-v2 HMAC-SHA256 算法自实现，不引 SDK 依赖，决策 #27⑥）；`TRTC_SDK_APP_ID` / `TRTC_SECRET_KEY` 走 env（当前个人测试应用，公司资质就绪后换正式 Key 零代码改动）；有效期 `TRTC_SIG_EXPIRE_SECONDS`（默认 24h）。
+- App 端：拿 token 用 TRTC SDK 进房（roomId）+ PTT 推流；蓝牙耳机路由等音频行为在 App 端处理（Week 2 Spike 已验证）。
+- ✅ 本节已实现（2026-08-16）。
+
+## 14. 待定稿清单汇总
 
 **负责人**：注册凭据形式与验证码要求、位置分享是否需要网页版、Admin 概览指标集。（~~紧急联系人上限~~ 已定稿 5 个，2026-08-16）
 **硬件团队**：设备绑定凭证形式（bindCode 来源）、设置参数清单、媒体上传方式。
-**软件侧内部**：token 有效期、轨迹单次查询范围上限、预签名 URL 时效、WebSocket 实现选型、原始事件 Admin 端点形式。（~~active SOS 空响应形式~~ 已定稿 200 + null，2026-08-16。）
+**软件侧内部**：token 有效期、轨迹单次查询范围上限、WebSocket 实现选型。（~~active SOS 空响应形式~~ 200 + null；~~预签名 URL 时效~~ 10 分钟；~~原始事件 Admin 端点形式~~ 合并单端点 + invalid 筛选——均已定稿 2026-08-16。）

@@ -36,7 +36,7 @@
 | 字段 | 生成方 | 说明 |
 |------|--------|------|
 | receivedAt | 服务端 | 服务器收到时间，落库；`timestamp` 与 `receivedAt` 偏差超阈值（默认 5 分钟）且非补传时标记 clock_skew，业务兜底用 receivedAt（规则见 DEVICE_PROTOCOL §8） |
-| source | 服务端 | `mqtt` / `webhook`（仅存原始事件表用于排查；**业务模块不可见、不可依赖**） |
+| source | 服务端 | `mqtt` / `webhook` / `app_relay`（蓝牙版 App 中转，API.md §12.1）——仅存原始事件表用于排查；**业务模块不可见、不可依赖** |
 
 ## 2. 通用规则（✅）
 

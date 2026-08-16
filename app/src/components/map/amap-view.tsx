@@ -1,4 +1,4 @@
-// App 内部 Map 组件层（决策 #11/#28）：WebView + 高德 JS API 2.0 的唯一封装点。
+// App 内部 Map 组件层（决策 #11/#33）：WebView + 高德 JS API 2.0 的唯一封装点。
 // 业务页只使用本组件的命令式接口（setHelmet/setTrack/…），不触碰 WebView/JS API 细节——换库只改这里。
 // 地图固定暗色样式（设计系统"深色监控台"口径，与 design/map.png 一致）。
 import {

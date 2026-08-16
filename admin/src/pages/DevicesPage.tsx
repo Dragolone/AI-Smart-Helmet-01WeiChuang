@@ -3,6 +3,7 @@ import { Card, Input, Select, Space, Table, Tag, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type { AdminDeviceRow, Paginated } from '@helmet/shared'
 
@@ -10,7 +11,11 @@ const formatTime = (v: string | null): string =>
   v ? dayjs(v).format('YYYY-MM-DD HH:mm:ss') : '—'
 
 const columns: ColumnsType<AdminDeviceRow> = [
-  { title: '设备 ID', dataIndex: 'deviceId' },
+  {
+    title: '设备 ID',
+    dataIndex: 'deviceId',
+    render: (id: string) => <Link to={`/devices/${id}`}>{id}</Link>,
+  },
   {
     title: '绑定用户',
     dataIndex: 'bindUser',

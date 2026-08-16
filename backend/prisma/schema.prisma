@@ -70,9 +70,34 @@ model Device {
   signalLevel      Int?      @map("signal_level")
   sleeping         Boolean   @default(false)
   firmwareVersion  String?   @map("firmware_version")
+  // 当前生效设置（API.md §8，口径 #27③）：只在命令 success 回执后写入——未回执绝不显示成功
+  settings         Json?
   createdAt        DateTime  @default(now()) @map("created_at")
 
   @@map("devices")
+}
+
+// 设备命令（API.md §8 / DEVICE_PROTOCOL §7）：pending → delivered → success | failed | offline
+// delivered = MQTT PUBACK（口径 #27④）；30s 无回执 → offline；迟到回执允许覆盖 offline（如实记录）
+model DeviceCommand {
+  id          String    @id @default(cuid())
+  deviceId    String    @map("device_id")
+  type        String // MVP: set_config（EVENTS.md §6，其他命令待硬件确认 ⚠️）
+  params      Json
+  status      String    @default("pending")
+  issuedAt    DateTime  @default(now()) @map("issued_at")
+  // 下发者（当时的绑定用户），审计留档
+  issuedBy    String?   @map("issued_by")
+  deliveredAt DateTime? @map("delivered_at")
+  // 回执（cmd_ack）字段：result=success|failed；errorCode 码表待硬件（⚠️）
+  ackResult   String?   @map("ack_result")
+  errorCode   String?   @map("error_code")
+  executedAt  DateTime? @map("executed_at")
+  ackedAt     DateTime? @map("acked_at")
+
+  @@index([deviceId, issuedAt])
+  @@index([status, issuedAt])
+  @@map("device_commands")
 }
 
 // 位置轨迹（API.md §5）：由 Ingest 从 location_update 事件写入，仅已注册设备；
@@ -151,6 +176,29 @@ model SosNotification {
   @@map("sos_notifications")
 }
 
+// 媒体元数据（API.md §9）：随 video_ready 事件入库；文件本体在对象存储（StorageProvider）。
+// 上传方式待硬件确认（EVENTS.md 4.9 ⚠️）：storageKey 缺失时 status=pending_upload，不可换 URL
+model Media {
+  id             String   @id @default(cuid())
+  // 与源 video_ready 事件 1:1（幂等兜底）；不建外键：与 raw_events 同原则
+  eventId        String   @unique @map("event_id")
+  deviceId       String   @map("device_id")
+  // 设备侧媒体唯一 ID：同设备内唯一（跨设备可能重复，故用复合唯一约束）
+  videoId        String   @map("video_id")
+  // 关联的危险/摔倒事件 eventId（§6 详情的 media 数组据此反查）
+  relatedEventId String?  @map("related_event_id")
+  // 秒（EVENTS.md 4.9）
+  duration       Int?
+  sizeBytes      Int?     @map("size_bytes")
+  storageKey     String?  @map("storage_key")
+  status         String   @default("ready") // ready | pending_upload
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([deviceId, videoId])
+  @@index([relatedEventId])
+  @@map("media")
+}
+
 // 管理员与 App 用户完全分离（API.md §10）：种子脚本创建，不做自助注册
 model AdminUser {
   id           String   @id @default(cuid())
@@ -159,6 +207,33 @@ model AdminUser {
   createdAt    DateTime @default(now()) @map("created_at")
 
   @@map("admin_users")
+}
+
+// 对讲频道（API.md §13，口径 #27⑤）：TRTC 房间号=数字 roomId（自增，TRTC 要求 uint32）；
+// 6 位邀请码加入；后端只管频道与凭证，音频流走 App ↔ TRTC 云，不经后端
+model VoiceChannel {
+  id         String               @id @default(cuid())
+  name       String
+  roomId     Int                  @unique @default(autoincrement()) @map("room_id")
+  inviteCode String               @unique @map("invite_code")
+  ownerId    String               @map("owner_id")
+  createdAt  DateTime             @default(now()) @map("created_at")
+  members    VoiceChannelMember[]
+
+  @@map("voice_channels")
+}
+
+model VoiceChannelMember {
+  id        String       @id @default(cuid())
+  channelId String       @map("channel_id")
+  channel   VoiceChannel @relation(fields: [channelId], references: [id])
+  userId    String       @map("user_id")
+  joinedAt  DateTime     @default(now()) @map("joined_at")
+
+  // 重复加入幂等的数据库级兜底
+  @@unique([channelId, userId])
+  @@index([userId])
+  @@map("voice_channel_members")
 }
 
 model RawEvent {

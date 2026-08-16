@@ -129,6 +129,73 @@ export interface LatestLocationResponse {
   location: LocationPoint | null;
 }
 
+// —— §6 事件查询（已实现） ——
+
+/** 事件详情里的关联媒体（§9 媒体模块落地前恒为空数组） */
+export interface MediaRef {
+  mediaId: string;
+  status: string;
+  duration: number | null;
+}
+
+/** 事件历史列表项（§6）：summary 为服务端生成的一句话摘要，App 可自行渲染忽略之 */
+export interface EventListItem {
+  eventId: string;
+  deviceId: string;
+  eventType: string;
+  timestamp: string;
+  receivedAt: string;
+  summary: string;
+}
+
+/** 事件详情：追加原样 payload 与关联媒体 */
+export interface EventDetail extends EventListItem {
+  payload: Record<string, unknown>;
+  media: MediaRef[];
+}
+
+// —— §8 设备设置下发（已实现） ——
+
+/** 命令状态机（DEVICE_PROTOCOL §7）：未回执绝不显示成功；offline=回执超时（设备离线或未执行） */
+export type CommandStatus =
+  | 'pending'
+  | 'delivered'
+  | 'success'
+  | 'failed'
+  | 'offline';
+
+export interface PutSettingsRequest {
+  /** 扁平键值（标量），参数清单与取值范围待硬件定稿（⚠️） */
+  settings: Record<string, string | number | boolean>;
+}
+
+export interface CommandPublic {
+  commandId: string;
+  deviceId: string;
+  type: string;
+  params: Record<string, unknown>;
+  status: CommandStatus;
+  issuedAt: string;
+  deliveredAt: string | null;
+  ackResult: 'success' | 'failed' | null;
+  errorCode: string | null;
+  executedAt: string | null;
+}
+
+/** GET /devices/{id}/settings：当前生效设置（仅 success 回执写入）+ 最近一次下发 */
+export interface SettingsResponse {
+  settings: Record<string, unknown>;
+  lastCommand: CommandPublic | null;
+}
+
+// —— §9 媒体（已实现） ——
+
+/** GET /media/{id}/url：有时效预签名 URL（10 分钟，✅ 定稿）；过期后重新换取 */
+export interface MediaUrlResponse {
+  url: string;
+  expiresAt: string;
+}
+
 // —— §7 SOS / 事故记录（已实现） ——
 
 export type SosTriggerType = 'possible_fall' | 'manual_sos';
@@ -215,6 +282,66 @@ export interface WsDeviceStatusData extends DeviceStatus {
 /** type=sos_update 的 data：§7 sos 对象（创建/取消/确认/超时通知四个时机都推） */
 export type WsSosData = Sos;
 
+/** type=risk_event 的 data：collision_risk / obstacle_risk / risk_cleared 的事件详情（当前危险状态由 App 从事件流推导，决策 #27） */
+export type WsRiskEventData = EventDetail;
+
+/** type=device_event 的 data：sleep_* / bluetooth_lost / video_ready 的事件列表项 */
+export type WsDeviceEventData = EventListItem;
+
+// —— §13 网络对讲（已实现） ——
+
+/** 频道对象（决策 #27⑤：6 位邀请码、TRTC 房间号=roomId、成员上限 20） */
+export interface VoiceChannel {
+  channelId: string;
+  name: string;
+  roomId: number;
+  inviteCode: string;
+  ownerId: string;
+  memberCount: number;
+  createdAt: string;
+}
+
+export interface CreateChannelRequest {
+  name: string;
+}
+
+export interface JoinChannelRequest {
+  inviteCode: string;
+}
+
+/** 成员列表项：phone 已脱敏 */
+export interface VoiceChannelMemberPublic {
+  userId: string;
+  nickname: string | null;
+  phone: string;
+  joinedAt: string;
+}
+
+/** 进房凭证：App 端用 TRTC SDK 携此进房（roomId）+ PTT */
+export interface VoiceTokenResponse {
+  sdkAppId: number;
+  userId: string;
+  roomId: number;
+  userSig: string;
+  expiresAt: string;
+}
+
+// —— §12.1 App 中转入口（蓝牙版，已实现） ——
+
+/** 蓝牙版：App 中转模块批量提交从 BLE 收到的事件（断线补传友好，单批 ≤100） */
+export interface AppRelayRequest {
+  deviceId: string;
+  /** EVENTS.md §1 envelope 原样透传，App 不修改内容 */
+  envelopes: unknown[];
+}
+
+/** 重复与校验失败不报错（补传无需关心哪些已传过），只给计数 */
+export interface AppRelayResponse {
+  accepted: number;
+  duplicate: number;
+  invalid: number;
+}
+
 // —— §10 Admin（已实现子集） ——
 
 export interface AdminLoginRequest {
@@ -249,4 +376,29 @@ export interface AdminDeviceRow extends DevicePublic {
 /** GET /admin/accidents 列表项：事故 + 归属用户（建单时固化，解绑不失联） */
 export interface AdminAccidentRow extends AccidentListItem {
   user: { id: string; phone: string; nickname: string | null } | null;
+}
+
+/** GET /admin/events 列表项：Admin 是排查工具，带业务接口不可见的 source/clockSkew */
+export interface AdminEventRow extends EventListItem {
+  payload: Record<string, unknown>;
+  source: string;
+  clockSkew: boolean;
+  schemaVersion: number;
+}
+
+/** GET /admin/devices/{id}：设备详情 + 最近事件（含 _invalid，排查用） */
+export interface AdminDeviceDetail extends AdminDeviceRow {
+  /** 当前生效设置（§8：仅 success 回执写入） */
+  settings: Record<string, unknown>;
+  recentEvents: AdminEventRow[];
+}
+
+/** GET /admin/stats/overview：指标集定稿（2026-08-16）；「今日」= UTC+8 自然日，事件数不含校验失败留档 */
+export interface AdminStatsOverview {
+  deviceTotal: number;
+  deviceOnline: number;
+  userTotal: number;
+  todayEvents: number;
+  activeSos: number;
+  generatedAt: string;
 }

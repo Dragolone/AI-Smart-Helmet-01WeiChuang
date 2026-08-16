@@ -1,4 +1,4 @@
-// 地图（底部标签）正式版（Week 5–6 A 线，决策 #28：WebView + JS API）。
+// 地图（底部标签）正式版（Week 5–6 A 线，决策 #33：WebView + JS API）。
 // 功能：实时位置（WS 直写缓存 + REST 兜底）、历史轨迹回放（1/6/24h）、位置分享、导航跳转。
 // UI 对齐 design/map.png：全屏暗色地图 + 荧光轨迹 + 顶部实时药丸 + 底部统计卡 + 回放播放器。
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
