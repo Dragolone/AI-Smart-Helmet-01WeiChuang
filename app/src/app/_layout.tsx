@@ -45,6 +45,23 @@ function RootNavigator() {
           name="device/[deviceId]"
           options={{ headerShown: true, title: '设备详情' }}
         />
+        <Stack.Screen
+          name="add-contact"
+          options={{
+            presentation: 'modal',
+            headerShown: true,
+            title: '添加紧急联系人',
+          }}
+        />
+        <Stack.Screen
+          name="accident/[accidentId]"
+          options={{ headerShown: true, title: '事故详情' }}
+        />
+        {/* SOS 全屏页：手势返回禁用——处理中的求救不允许误滑关闭 */}
+        <Stack.Screen
+          name="sos-active"
+          options={{ presentation: 'fullScreenModal', gestureEnabled: false }}
+        />
       </Stack.Protected>
       <Stack.Protected guard={!authed}>
         <Stack.Screen name="(auth)/login" />

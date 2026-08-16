@@ -1,0 +1,167 @@
+// SOS 倒计时全屏页（API.md §7；决策 #8：服务端权威——App 只按 deadline 渲染，
+// 取消/立即求救调 API，最终状态以服务端推送/响应为准，本地绝不判断超时）
+// 设计对齐定稿套图：警示图标 + 超大倒计时 + 灰色取消 / 红色立即求救双药丸
+import { Ionicons } from '@expo/vector-icons';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import type { Sos } from '@helmet/shared';
+
+import { toUserMessage } from '@/api/error-messages';
+import { sosApi } from '@/api/sos';
+import { ThemedText } from '@/components/themed-text';
+import { ThemedView } from '@/components/themed-view';
+import { Radius } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
+
+function secondsLeft(deadline: string): number {
+  return Math.max(0, Math.ceil((new Date(deadline).getTime() - Date.now()) / 1000));
+}
+
+export default function SosActiveScreen() {
+  const { sosId, deviceId } = useLocalSearchParams<{ sosId: string; deviceId: string }>();
+  const theme = useTheme();
+  const queryClient = useQueryClient();
+  const [busy, setBusy] = useState<'cancel' | 'confirm' | null>(null);
+  const [, forceTick] = useState(0);
+
+  // WS 推送直写 ['sos', sosId] 缓存；进页面时再以 REST 兜底拉一次权威状态
+  const sosQuery = useQuery({
+    queryKey: ['sos', sosId],
+    queryFn: async () => {
+      const { sos } = await sosApi.active(deviceId);
+      return sos && sos.sosId === sosId
+        ? sos
+        : ((queryClient.getQueryData(['sos', sosId]) as Sos | undefined) ?? null);
+    },
+    refetchInterval: 10_000, // WS 断线时的兜底；正常时由推送更新缓存
+  });
+  const sos = sosQuery.data ?? null;
+
+  // 每秒重渲染刷新倒计时数字（仅展示用途，超时判定在服务端）
+  useEffect(() => {
+    const t = setInterval(() => forceTick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const act = (kind: 'cancel' | 'confirm') => {
+    setBusy(kind);
+    (kind === 'cancel' ? sosApi.cancel(sosId) : sosApi.confirm(sosId))
+      .then((updated) => {
+        queryClient.setQueryData(['sos', sosId], updated);
+      })
+      .catch((e) => Alert.alert('操作失败', toUserMessage(e)))
+      .finally(() => setBusy(null));
+  };
+
+  const left = sos ? secondsLeft(sos.deadline) : null;
+  const finished = sos && sos.status !== 'pending';
+
+  return (
+    <SafeAreaView style={[styles.flex, { backgroundColor: theme.background }]}>
+      <ThemedView style={styles.container}>
+        <View style={styles.hero}>
+          <View style={[styles.warnIcon, { backgroundColor: theme.dangerBg }]}>
+            <Ionicons name="warning" size={40} color={theme.danger} />
+          </View>
+          <ThemedText type="title" style={styles.title}>
+            {sos?.triggerType === 'manual_sos' ? '手动求救' : '跌倒检测'}
+          </ThemedText>
+          <ThemedText type="small" themeColor="textSecondary" style={styles.subtitle}>
+            {finished
+              ? sos.status === 'cancelled'
+                ? '本次求救已取消，事故已留档。'
+                : '紧急联系人已收到通知，请保持手机畅通。'
+              : '倒计时结束后将自动通知您的紧急联系人，除非您取消此操作。'}
+          </ThemedText>
+        </View>
+
+        <View style={styles.countdownWrap}>
+          {!finished && left !== null ? (
+            <>
+              <ThemedText style={[styles.countdown, { color: theme.danger }]}>
+                {left}
+              </ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">
+                秒后自动发送 SOS
+              </ThemedText>
+              <View style={[styles.track, { backgroundColor: theme.backgroundSelected }]}>
+                <View
+                  style={[
+                    styles.fill,
+                    { width: `${Math.min(100, (left / 60) * 100)}%`, backgroundColor: theme.danger },
+                  ]}
+                />
+              </View>
+            </>
+          ) : (
+            <Ionicons
+              name={sos?.status === 'cancelled' ? 'checkmark-circle' : 'notifications'}
+              size={96}
+              color={sos?.status === 'cancelled' ? theme.success : theme.danger}
+            />
+          )}
+        </View>
+
+        <View style={styles.actions}>
+          {!finished ? (
+            <>
+              <Pressable
+                style={[styles.btn, { backgroundColor: theme.backgroundSelected }]}
+                disabled={busy !== null}
+                onPress={() => act('cancel')}>
+                <ThemedText type="smallBold" style={styles.btnText}>
+                  {busy === 'cancel' ? '取消中…' : '我没事，取消'}
+                </ThemedText>
+              </Pressable>
+              <Pressable
+                style={[styles.btn, { backgroundColor: theme.danger }]}
+                disabled={busy !== null}
+                onPress={() => act('confirm')}>
+                <View style={styles.btnRow}>
+                  <Ionicons name="call" size={18} color="#fff" />
+                  <ThemedText type="smallBold" style={[styles.btnText, { color: '#fff' }]}>
+                    {busy === 'confirm' ? '发送中…' : '立即求救 SOS'}
+                  </ThemedText>
+                </View>
+              </Pressable>
+            </>
+          ) : (
+            <Pressable
+              style={[styles.btn, { backgroundColor: theme.backgroundSelected }]}
+              onPress={() => router.back()}>
+              <ThemedText type="smallBold" style={styles.btnText}>
+                关闭
+              </ThemedText>
+            </Pressable>
+          )}
+        </View>
+      </ThemedView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  flex: { flex: 1 },
+  container: { flex: 1, padding: 24, justifyContent: 'space-between' },
+  hero: { alignItems: 'center', gap: 12, marginTop: 24 },
+  warnIcon: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  title: { fontSize: 30, lineHeight: 36 },
+  subtitle: { textAlign: 'center', paddingHorizontal: 16 },
+  countdownWrap: { alignItems: 'center', gap: 8 },
+  countdown: { fontSize: 128, lineHeight: 140, fontWeight: 800, fontVariant: ['tabular-nums'] },
+  track: { height: 6, borderRadius: 3, alignSelf: 'stretch', overflow: 'hidden', marginTop: 12 },
+  fill: { height: 6, borderRadius: 3 },
+  actions: { gap: 12, paddingBottom: 8 },
+  btn: { borderRadius: Radius.pill, paddingVertical: 18, alignItems: 'center' },
+  btnRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  btnText: { fontSize: 16 },
+});

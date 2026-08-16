@@ -1,3 +1,6 @@
+// 底部标签（最终 IA 定案 2026-08-16）：设备 / 地图 / 对讲 / 安全 / 我的（Android 上限 5）
+// spike-* 页面文件保留（统一清 legacy 时删除），不再占标签位。
+// TODO(设计资产)：正式标签图标待出，暂用模板 PNG 占位。
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 
 import { Colors } from '@/constants/theme';
@@ -13,16 +16,22 @@ export default function AppTabs() {
       indicatorColor={colors.backgroundElement}
       labelStyle={{ selected: { color: colors.text } }}>
       <NativeTabs.Trigger name="index">
-        <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>设备</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
           src={require('@/assets/images/tabIcons/home.png')}
           renderingMode="template"
         />
       </NativeTabs.Trigger>
 
-      {/* Week 2 Spike 临时标签，定案后随 spike 页面一起删除并恢复 explore；
-          Android 原生底部导航上限 5 个，故暂时用 RTC 顶替 Explore 的位置 */}
-      <NativeTabs.Trigger name="spike-rtc">
+      <NativeTabs.Trigger name="map">
+        <NativeTabs.Trigger.Label>地图</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon
+          src={require('@/assets/images/tabIcons/explore.png')}
+          renderingMode="template"
+        />
+      </NativeTabs.Trigger>
+
+      <NativeTabs.Trigger name="intercom">
         <NativeTabs.Trigger.Label>对讲</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
           src={require('@/assets/images/tabIcons/explore.png')}
@@ -30,24 +39,16 @@ export default function AppTabs() {
         />
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="spike-location">
-        <NativeTabs.Trigger.Label>定位</NativeTabs.Trigger.Label>
+      <NativeTabs.Trigger name="safety">
+        <NativeTabs.Trigger.Label>安全</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
           src={require('@/assets/images/tabIcons/explore.png')}
           renderingMode="template"
         />
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="spike-push">
-        <NativeTabs.Trigger.Label>Push</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
-          renderingMode="template"
-        />
-      </NativeTabs.Trigger>
-
-      <NativeTabs.Trigger name="spike-ble">
-        <NativeTabs.Trigger.Label>BLE</NativeTabs.Trigger.Label>
+      <NativeTabs.Trigger name="profile">
+        <NativeTabs.Trigger.Label>我的</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
           src={require('@/assets/images/tabIcons/explore.png')}
           renderingMode="template"
