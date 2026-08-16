@@ -103,10 +103,15 @@ Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / 
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | /devices/{deviceId}/events?type=&from=&to=&page=&pageSize= | 事件历史；`type` 可多值逗号分隔（取值 = EVENTS.md §3 eventType） |
+| GET | /devices/{deviceId}/events?type=&from=&to=&page=&pageSize= | 事件历史（最新在前）；`type` 可多值逗号分隔（取值 = EVENTS.md §3 eventType，未知值 400）；from/to 均选填（事件量级低，不设 §5 的 24h 上限），同给时须 from < to |
 | GET | /events/{eventId} | 事件详情（含原始 payload、关联媒体） |
 
-`event` 列表项：`{ eventId, deviceId, eventType, timestamp, receivedAt, summary }`；详情追加 `payload`（原样）与 `media: [{ mediaId, status, duration? }]`。
+`event` 列表项（TS 类型见 `@helmet/shared` EventListItem）：`{ eventId, deviceId, eventType, timestamp, receivedAt, summary }`；详情（EventDetail）追加 `payload`（原样）与 `media: [{ mediaId, status, duration }]`。
+
+- `summary` 为服务端生成的一句话摘要，仅兜底展示；**客户端逻辑不得依赖其内容**（App 有本地化文案时可忽略）。
+- 归属口径：按设备**当前绑定**判定（与 §4/§5 一致）；校验失败的 `_invalid` 占位事件不出现在任何查询结果。
+- 「当前危险状态」由 App 从 WS `risk_event` 事件流推导，服务端不维护实时态（✅ 口径 2026-08-16 定稿，决策 #27）；历史随时可查本节接口。
+- ✅ 本节已实现（2026-08-16）：media 数组在 §9 媒体模块落地前恒为空。
 
 ## 7. SOS / 事故记录
 
@@ -188,7 +193,7 @@ MVP 实用为主，全部只读 + 少量运维操作。
 | device_event | §6 event 列表项 | 其余事件（sleep_*、bluetooth_lost、video_ready） |
 
 - WebSocket 是加速通道不是可靠通道：App 重连后须用 REST 拉取兜底；SOS 兜底靠 Push（deadline 持久化在服务端）。
-- ✅ 实现状态（2026-08-15）：通道 + `device_status` / `location_update` 两类推送已实现；`sos_update` / `risk_event` / `device_event` 随对应功能（Week 7+）接入。
+- ✅ 实现状态（2026-08-16）：通道 + 全部五类推送均已实现（`device_status` / `location_update` / `sos_update` / `risk_event` / `device_event`）。
 
 ## 12. Ingest Webhook（云端算法服务 → 后端）
 

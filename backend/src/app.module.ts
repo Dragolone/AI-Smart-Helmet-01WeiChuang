@@ -6,6 +6,7 @@ import { AuthModule } from './auth/auth.module';
 import { ContactsModule } from './contacts/contacts.module';
 import { DevicesModule } from './devices/devices.module';
 import { EmqxModule } from './emqx/emqx.module';
+import { EventsModule } from './events/events.module';
 import { HealthController } from './health/health.controller';
 import { IngestModule } from './ingest/ingest.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -20,6 +21,7 @@ import { UsersController } from './users/users.controller';
     ContactsModule,
     DevicesModule,
     EmqxModule,
+    EventsModule,
     AdminModule,
     SosModule,
   ],
