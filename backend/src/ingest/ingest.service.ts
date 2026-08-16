@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DeviceSnapshotService } from '../devices/device-snapshot.service';
 import { LocationRecorderService } from '../locations/location-recorder.service';
+import { MediaRecorderService } from '../media/media-recorder.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimePushService } from '../realtime/realtime-push.service';
 import { SosTriggerService } from '../sos/sos-trigger.service';
@@ -49,6 +50,7 @@ export class IngestService {
     private readonly locationRecorder: LocationRecorderService,
     private readonly push: RealtimePushService,
     private readonly sosTrigger: SosTriggerService,
+    private readonly mediaRecorder: MediaRecorderService,
   ) {}
 
   /** 所有入口（MQTT / 未来的 Webhook / Mock）都汇聚到这里；返回值仅用于日志与测试。 */
@@ -99,6 +101,11 @@ export class IngestService {
     // SOS 状态机入口（Week 7-8）：内部吞错——与副表同哲学，失败大声留日志、raw 可回放
     if (e.eventType === 'possible_fall' || e.eventType === 'manual_sos') {
       await this.sosTrigger.handleTrigger(e, device.bindUserId);
+    }
+
+    // 媒体元数据（§9）：video_ready 入媒体表（内部吞错，raw 可回填）
+    if (e.eventType === 'video_ready') {
+      await this.mediaRecorder.record(e);
     }
 
     // 危险事件数据质量告警（EVENTS.md 4.5）：objectType 未知值原样留档但要出声，供与算法团队对口径
