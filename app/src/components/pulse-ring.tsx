@@ -1,6 +1,6 @@
 // 呼吸波纹动效：active 时从中心持续外扩渐隐的圆环（发言指示/PTT 反馈用）
 // 用 RN 内置 Animated + useNativeDriver，不引入动画库依赖
-import { useEffect, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
 
 function Ring({
@@ -61,9 +61,10 @@ export function PulseRing({
   duration?: number;
   maxScale?: number;
 }) {
-  const values = useRef(
+  // useState 惰性初始化：稳定引用且渲染期可安全访问（useRef.current 会触发 react-compiler 告警）
+  const [values] = useState(() =>
     Array.from({ length: count }, () => new Animated.Value(0)),
-  ).current;
+  );
 
   useEffect(() => {
     if (!active) {

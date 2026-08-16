@@ -125,7 +125,6 @@ export default function IntercomScreen() {
       cloud.unRegisterListener(listener);
       cloud.exitRoom();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myId]);
 
   const join = async () => {
