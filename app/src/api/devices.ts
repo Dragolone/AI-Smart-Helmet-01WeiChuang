@@ -4,6 +4,8 @@ import type {
   DevicePublic,
   DeviceStatus,
   LatestLocationResponse,
+  LocationPoint,
+  Paginated,
 } from '@helmet/shared';
 import { api } from './client';
 
@@ -28,5 +30,17 @@ export const devicesApi = {
   latestLocation: (deviceId: string) =>
     api<LatestLocationResponse>(
       `/devices/${encodeURIComponent(deviceId)}/locations/latest`,
+    ),
+
+  /** 历史轨迹（API.md §5：from/to 必填、范围 ≤24h、timestamp 升序、pageSize ≤100） */
+  locations: (
+    deviceId: string,
+    from: string,
+    to: string,
+    page: number,
+    pageSize: number,
+  ) =>
+    api<Paginated<LocationPoint>>(
+      `/devices/${encodeURIComponent(deviceId)}/locations?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&page=${page}&pageSize=${pageSize}`,
     ),
 };

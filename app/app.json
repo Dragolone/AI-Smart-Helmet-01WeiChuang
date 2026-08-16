@@ -53,7 +53,14 @@
         }
       ],
       "react-native-ble-plx",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-build-properties",
+        {
+          "ios": { "networkInspector": false },
+          "android": { "networkInspector": false }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
