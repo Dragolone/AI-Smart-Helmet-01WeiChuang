@@ -4,6 +4,7 @@ import { AdminAuthGuard } from './admin-auth.guard';
 import {
   AdminAccidentsQueryDto,
   AdminDevicesQueryDto,
+  AdminEventsQueryDto,
   AdminListQueryDto,
 } from './admin.dto';
 import { AdminService } from './admin.service';
@@ -38,5 +39,16 @@ export class AdminController {
       query.status,
       query.deviceId,
     );
+  }
+
+  @Get('events')
+  events(@Query() query: AdminEventsQueryDto) {
+    return this.admin.listEvents(query.page, query.pageSize, {
+      type: query.type,
+      deviceId: query.deviceId,
+      from: query.from,
+      to: query.to,
+      invalid: query.invalid === 'true',
+    });
   }
 }
