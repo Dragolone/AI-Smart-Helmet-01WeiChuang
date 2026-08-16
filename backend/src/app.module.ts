@@ -14,6 +14,7 @@ import { MediaModule } from './media/media.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { SosModule } from './sos/sos.module';
 import { UsersController } from './users/users.controller';
+import { VoiceModule } from './voice/voice.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { UsersController } from './users/users.controller';
     MediaModule,
     AdminModule,
     SosModule,
+    VoiceModule,
   ],
   controllers: [AppController, HealthController, UsersController],
   providers: [AppService],

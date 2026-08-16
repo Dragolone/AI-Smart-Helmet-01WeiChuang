@@ -210,7 +210,26 @@ MVP 实用为主，全部只读 + 少量运维操作。
 - 响应：`202 { "eventId": "...", "duplicate": false }`；幂等重复返回 `duplicate: true` 同样 202。
 - 本入口与 MQTT 入口在统一 Ingest 层汇合，业务模块不感知来源。
 
-## 13. 待定稿清单汇总
+## 13. 网络对讲（App + RTC，决策 #20/#21/#22）
+
+语音走腾讯 TRTC（App 端 SDK 直连 RTC 云），后端只做**频道管理 + 房间凭证签发**，不自研语音、不经手音频流。频道模型（✅ 口径 2026-08-16 定稿，决策 #27⑤）：**6 位数字邀请码加入、TRTC 房间号 = 频道数字 roomId、成员上限 20**（`VOICE_CHANNEL_MEMBER_LIMIT` 可调）。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | /voice/channels | 建频道。body：`{ name }` → channel 对象（创建者自动入频道） |
+| GET | /voice/channels | 我加入的频道列表 |
+| POST | /voice/channels/join | body：`{ inviteCode }`；邀请码错误 404；满员 409 `CHANNEL_FULL`；重复加入幂等返回频道 |
+| DELETE | /voice/channels/{channelId}/membership | 退出频道（非成员 404；频道保留，MVP 不做解散/回收） |
+| GET | /voice/channels/{channelId}/members | 成员列表（仅成员可见）：`{ userId, nickname, phone }`（**手机号脱敏**） |
+| POST | /voice/channels/{channelId}/token | 进房凭证（仅成员）：`{ sdkAppId, userId, roomId, userSig, expiresAt }`；TRTC 未配置时 503 `TRTC_NOT_CONFIGURED` |
+
+`channel` 对象（TS 类型见 `@helmet/shared` VoiceChannel）：`{ channelId, name, roomId, inviteCode, ownerId, memberCount, createdAt }`。
+
+- **UserSig 由服务端签发**（官方 TLS-Sig-API-v2 HMAC-SHA256 算法自实现，不引 SDK 依赖，决策 #27⑥）；`TRTC_SDK_APP_ID` / `TRTC_SECRET_KEY` 走 env（当前个人测试应用，公司资质就绪后换正式 Key 零代码改动）；有效期 `TRTC_SIG_EXPIRE_SECONDS`（默认 24h）。
+- App 端：拿 token 用 TRTC SDK 进房（roomId）+ PTT 推流；蓝牙耳机路由等音频行为在 App 端处理（Week 2 Spike 已验证）。
+- ✅ 本节已实现（2026-08-16）。
+
+## 14. 待定稿清单汇总
 
 **负责人**：注册凭据形式与验证码要求、位置分享是否需要网页版、Admin 概览指标集。（~~紧急联系人上限~~ 已定稿 5 个，2026-08-16）
 **硬件团队**：设备绑定凭证形式（bindCode 来源）、设置参数清单、媒体上传方式。
