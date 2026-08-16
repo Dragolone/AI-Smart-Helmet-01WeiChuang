@@ -237,7 +237,7 @@ MVP 实用为主，全部只读 + 少量运维操作。
 | GET | /voice/channels | 我加入的频道列表 |
 | POST | /voice/channels/join | body：`{ inviteCode }`；邀请码错误 404；满员 409 `CHANNEL_FULL`；重复加入幂等返回频道 |
 | DELETE | /voice/channels/{channelId}/membership | 退出频道（非成员 404；频道保留，MVP 不做解散/回收） |
-| GET | /voice/channels/{channelId}/members | 成员列表（仅成员可见）：`{ userId, nickname, phone }`（**手机号脱敏**） |
+| GET | /voice/channels/{channelId}/members | 成员列表（仅成员可见）：`{ userId, nickname, avatarUrl, phone }`（**手机号脱敏**；avatarUrl 同频道成员互相可见,2026-08-17） |
 | POST | /voice/channels/{channelId}/token | 进房凭证（仅成员）：`{ sdkAppId, userId, roomId, userSig, expiresAt }`；TRTC 未配置时 503 `TRTC_NOT_CONFIGURED` |
 
 `channel` 对象（TS 类型见 `@helmet/shared` VoiceChannel）：`{ channelId, name, roomId, inviteCode, ownerId, memberCount, createdAt }`。

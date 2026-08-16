@@ -137,7 +137,7 @@ export class VoiceService {
     });
     const users = await this.prisma.user.findMany({
       where: { id: { in: members.map((m) => m.userId) } },
-      select: { id: true, nickname: true, phone: true },
+      select: { id: true, nickname: true, avatarUrl: true, phone: true },
     });
     const byId = new Map(users.map((u) => [u.id, u]));
     return members.map((m) => {
@@ -145,6 +145,7 @@ export class VoiceService {
       return {
         userId: m.userId,
         nickname: u?.nickname ?? null,
+        avatarUrl: u?.avatarUrl ?? null,
         phone: u ? maskPhone(u.phone) : '',
         joinedAt: m.joinedAt.toISOString(),
       };

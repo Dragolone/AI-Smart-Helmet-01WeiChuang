@@ -317,10 +317,11 @@ export interface JoinChannelRequest {
   inviteCode: string;
 }
 
-/** 成员列表项：phone 已脱敏 */
+/** 成员列表项：phone 已脱敏；avatarUrl 同频道成员互相可见（2026-08-17） */
 export interface VoiceChannelMemberPublic {
   userId: string;
   nickname: string | null;
+  avatarUrl: string | null;
   phone: string;
   joinedAt: string;
 }
