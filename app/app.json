@@ -57,8 +57,18 @@
       [
         "expo-build-properties",
         {
-          "ios": { "networkInspector": false },
-          "android": { "networkInspector": false }
+          "ios": {
+            "networkInspector": false
+          },
+          "android": {
+            "networkInspector": false
+          }
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "用于选择照片设置您的头像。"
         }
       ]
     ],

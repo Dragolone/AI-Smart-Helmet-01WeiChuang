@@ -6,6 +6,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import { Image } from 'expo-image';
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
+import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -136,17 +138,49 @@ export default function ProfileScreen() {
 
   const [nickOpen, setNickOpen] = useState(false);
   const [nickDraft, setNickDraft] = useState('');
+  const [avatarDraft, setAvatarDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const openNick = () => {
     setNickDraft(user?.nickname ?? '');
+    setAvatarDraft(user?.avatarUrl ?? null);
     setNickOpen(true);
   };
 
-  const saveNick = async () => {
+  // 选图 → 方形裁剪 → 压到 256px JPEG → data-URI(≈20KB,MVP 存 avatarUrl;OSS 就绪后换真 URL,契约不变)
+  const pickAvatar = async () => {
+    try {
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.9,
+    });
+    const asset = res.assets?.[0];
+    if (!asset) return;
+    const ctx = ImageManipulator.manipulate(asset.uri);
+    ctx.resize({ width: 256 });
+    const rendered = await ctx.renderAsync();
+    const out = await rendered.saveAsync({
+      compress: 0.6,
+      format: SaveFormat.JPEG,
+      base64: true,
+    });
+    if (out.base64) setAvatarDraft(`data:image/jpeg;base64,${out.base64}`);
+    } catch (e) {
+      Alert.alert('选择头像失败', e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const saveProfile = async () => {
     setSaving(true);
     try {
-      const updated = await authApi.updateMe({ nickname: nickDraft.trim() });
+      const updated = await authApi.updateMe({
+        nickname: nickDraft.trim(),
+        ...(avatarDraft && avatarDraft !== user?.avatarUrl
+          ? { avatarUrl: avatarDraft }
+          : {}),
+      });
       await setUser(updated);
       setNickOpen(false);
     } catch (e) {
@@ -202,43 +236,33 @@ export default function ProfileScreen() {
             我的
           </ThemedText>
 
-          {/* 用户卡（点击改昵称） */}
-          <Pressable onPress={openNick}>
-            {({ pressed }) => (
-              <View
-                style={[
-                  styles.userCard,
-                  {
-                    backgroundColor: pressed ? theme.backgroundSelected : theme.backgroundElement,
-                    borderColor: theme.border,
-                  },
-                ]}>
-                <View style={[styles.avatar, { backgroundColor: theme.backgroundSelected }]}>
-                  <ThemedText type="display" style={{ fontSize: 24, lineHeight: 30 }}>
-                    {(user?.nickname ?? user?.phone ?? '?').slice(0, 1)}
-                  </ThemedText>
-                </View>
-                <View style={styles.userBody}>
-                  <ThemedText type="smallBold" style={{ fontSize: 17 }}>
-                    {user?.nickname ?? '未设置昵称'}
-                  </ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary">
-                    {user?.phone}
-                  </ThemedText>
-                </View>
-                <Ionicons name="pencil-outline" size={18} color={theme.textSecondary} />
-              </View>
-            )}
-          </Pressable>
-
           <Section title="账号">
-            <Row
-              icon="person-outline"
-              tint="purple"
-              title="个人资料"
-              subtitle="修改昵称等信息"
-              onPress={openNick}
-            />
+            {/* 个人资料:有头像时行图标即头像 */}
+            <Pressable
+              style={({ pressed }) => [
+                styles.row,
+                styles.rowDivider,
+                { borderBottomColor: theme.border },
+                pressed && { backgroundColor: theme.backgroundSelected },
+              ]}
+              onPress={openNick}>
+              {user?.avatarUrl ? (
+                <Image source={{ uri: user.avatarUrl }} style={styles.rowAvatar} />
+              ) : (
+                <View style={[styles.rowIcon, { backgroundColor: TINTS.purple.bg }]}>
+                  <Ionicons name="person-outline" size={19} color={TINTS.purple.fg} />
+                </View>
+              )}
+              <View style={styles.rowBody}>
+                <ThemedText type="smallBold" style={styles.rowTitle}>
+                  个人资料
+                </ThemedText>
+                <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+                  {user?.nickname ?? '设置昵称与头像'}
+                </ThemedText>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={theme.textSecondary} />
+            </Pressable>
             <Row
               icon="id-card-outline"
               tint="purple"
@@ -366,16 +390,32 @@ export default function ProfileScreen() {
                 { backgroundColor: theme.backgroundElement, borderColor: theme.border },
               ]}
               onPress={() => undefined}>
-              <ThemedText type="subtitle">修改昵称</ThemedText>
+              <ThemedText type="subtitle">个人资料</ThemedText>
+              <Pressable style={styles.avatarPick} onPress={() => void pickAvatar()}>
+                {avatarDraft ? (
+                  <Image source={{ uri: avatarDraft }} style={styles.avatarBig} />
+                ) : (
+                  <View style={[styles.avatarBig, styles.avatarEmpty, { backgroundColor: theme.backgroundSelected }]}>
+                    <ThemedText type="display" style={{ fontSize: 26, lineHeight: 32 }}>
+                      {(user?.nickname ?? user?.phone ?? '?').slice(0, 1)}
+                    </ThemedText>
+                  </View>
+                )}
+                <View style={[styles.avatarBadge, { backgroundColor: theme.brand }]}>
+                  <Ionicons name="camera" size={13} color={theme.onBrand} />
+                </View>
+                <ThemedText type="small" themeColor="textSecondary">
+                  点击更换头像
+                </ThemedText>
+              </Pressable>
               <FormInput
                 label="昵称"
                 value={nickDraft}
                 onChangeText={setNickDraft}
                 placeholder="1-20 字符"
                 maxLength={20}
-                autoFocus
               />
-              <PrimaryButton title="保存" onPress={() => void saveNick()} loading={saving} />
+              <PrimaryButton title="保存" onPress={() => void saveProfile()} loading={saving} />
             </Pressable>
           </Pressable>
         </Modal>
@@ -388,22 +428,21 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: { padding: 20, gap: 16, paddingBottom: 28 },
   pageTitle: { fontSize: 32, lineHeight: 38 },
-  userCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    borderRadius: Radius.card,
-    borderWidth: 1,
-    padding: 16,
-  },
-  avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+  rowAvatar: { width: 38, height: 38, borderRadius: 19 },
+  avatarPick: { alignItems: 'center', gap: 8 },
+  avatarBig: { width: 84, height: 84, borderRadius: 42 },
+  avatarEmpty: { alignItems: 'center', justifyContent: 'center' },
+  avatarBadge: {
+    position: 'absolute',
+    top: 60,
+    right: '50%',
+    marginRight: -44,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  userBody: { flex: 1, gap: 2 },
   section: { gap: 8 },
   sectionTitle: { marginLeft: 4 },
   sectionCard: {

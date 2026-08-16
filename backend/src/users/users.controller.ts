@@ -6,7 +6,7 @@ import {
   Patch,
   Req,
 } from '@nestjs/common';
-import { IsOptional, IsString, IsUrl, MaxLength } from 'class-validator';
+import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -16,9 +16,14 @@ class UpdateMeDto {
   @MaxLength(30)
   nickname?: string;
 
+  // http(s) URL(未来 OSS)或 data:image base64(MVP 本地闭环,App 侧压到 256px≈20KB;
+  // 上限 90KB 以留在 Nest 默认 100KB JSON body 限制之内)
   @IsOptional()
-  @IsUrl({ require_tld: false })
-  @MaxLength(500)
+  @IsString()
+  @MaxLength(90_000)
+  @Matches(/^(https?:\/\/\S{1,490}|data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+)$/, {
+    message: 'avatarUrl 格式不正确',
+  })
   avatarUrl?: string;
 }
 
