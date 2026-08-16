@@ -82,7 +82,19 @@ export class EventsService {
     if (!device || device.bindUserId !== userId) {
       throw new NotFoundException({ code: 'NOT_FOUND', message: '事件不存在' });
     }
-    return toWireEventDetail(event);
+    // 关联媒体（§6/§9）：危险/摔倒事件反查 relatedEventId；video_ready 事件带自己那条
+    const media = await this.prisma.media.findMany({
+      where: { OR: [{ relatedEventId: eventId }, { eventId }] },
+      orderBy: { createdAt: 'asc' },
+    });
+    return toWireEventDetail(
+      event,
+      media.map((m) => ({
+        mediaId: m.id,
+        status: m.status,
+        duration: m.duration,
+      })),
+    );
   }
 
   private parseTypes(raw?: string): string[] | null {

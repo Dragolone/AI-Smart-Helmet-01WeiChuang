@@ -9,6 +9,7 @@ import { EmqxModule } from './emqx/emqx.module';
 import { EventsModule } from './events/events.module';
 import { HealthController } from './health/health.controller';
 import { IngestModule } from './ingest/ingest.module';
+import { MediaModule } from './media/media.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { SosModule } from './sos/sos.module';
 import { UsersController } from './users/users.controller';
@@ -22,6 +23,7 @@ import { UsersController } from './users/users.controller';
     DevicesModule,
     EmqxModule,
     EventsModule,
+    MediaModule,
     AdminModule,
     SosModule,
   ],

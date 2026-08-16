@@ -118,7 +118,16 @@ function maybeSendRisk(current: (typeof ROUTE)[number]): void {
       publish('event', 'risk_cleared', {
         clearedEventId: activeRiskEventId,
       });
-      log('✅ 已解除危险（risk_cleared）');
+      // 头盔录像就绪：关联刚才的危险事件（§9 媒体链路演示）
+      const videoId = `vid_${activeRiskEventId.slice(0, 8)}`;
+      publish('event', 'video_ready', {
+        videoId,
+        relatedEventId: activeRiskEventId,
+        duration: 12,
+        sizeBytes: 3_500_000,
+        storageKey: `mock/${DEVICE_ID}/${videoId}.mp4`,
+      });
+      log('✅ 已解除危险（risk_cleared）+ 录像就绪（video_ready）');
       activeRiskEventId = null;
     }
     return;

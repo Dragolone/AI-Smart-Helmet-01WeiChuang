@@ -56,11 +56,13 @@ export function toWireEventItem(e: RawEvent): EventListItem {
   };
 }
 
-export function toWireEventDetail(e: RawEvent): EventDetail {
+export function toWireEventDetail(
+  e: RawEvent,
+  media: EventDetail['media'] = [],
+): EventDetail {
   return {
     ...toWireEventItem(e),
     payload: e.payload as Record<string, unknown>,
-    // 关联媒体随 §9 媒体模块落地（Week 9-10 PR-B）；Contract 字段先行，落地前恒为空
-    media: [],
+    media,
   };
 }

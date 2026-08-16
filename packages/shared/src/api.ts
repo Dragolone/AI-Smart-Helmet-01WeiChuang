@@ -154,6 +154,14 @@ export interface EventDetail extends EventListItem {
   media: MediaRef[];
 }
 
+// —— §9 媒体（已实现） ——
+
+/** GET /media/{id}/url：有时效预签名 URL（10 分钟，✅ 定稿）；过期后重新换取 */
+export interface MediaUrlResponse {
+  url: string;
+  expiresAt: string;
+}
+
 // —— §7 SOS / 事故记录（已实现） ——
 
 export type SosTriggerType = 'possible_fall' | 'manual_sos';

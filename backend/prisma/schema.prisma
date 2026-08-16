@@ -151,6 +151,29 @@ model SosNotification {
   @@map("sos_notifications")
 }
 
+// 媒体元数据（API.md §9）：随 video_ready 事件入库；文件本体在对象存储（StorageProvider）。
+// 上传方式待硬件确认（EVENTS.md 4.9 ⚠️）：storageKey 缺失时 status=pending_upload，不可换 URL
+model Media {
+  id             String   @id @default(cuid())
+  // 与源 video_ready 事件 1:1（幂等兜底）；不建外键：与 raw_events 同原则
+  eventId        String   @unique @map("event_id")
+  deviceId       String   @map("device_id")
+  // 设备侧媒体唯一 ID：同设备内唯一（跨设备可能重复，故用复合唯一约束）
+  videoId        String   @map("video_id")
+  // 关联的危险/摔倒事件 eventId（§6 详情的 media 数组据此反查）
+  relatedEventId String?  @map("related_event_id")
+  // 秒（EVENTS.md 4.9）
+  duration       Int?
+  sizeBytes      Int?     @map("size_bytes")
+  storageKey     String?  @map("storage_key")
+  status         String   @default("ready") // ready | pending_upload
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([deviceId, videoId])
+  @@index([relatedEventId])
+  @@map("media")
+}
+
 // 管理员与 App 用户完全分离（API.md §10）：种子脚本创建，不做自助注册
 model AdminUser {
   id           String   @id @default(cuid())

@@ -3,6 +3,7 @@ import { IngestService } from './ingest.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { DeviceSnapshotService } from '../devices/device-snapshot.service';
 import { LocationRecorderService } from '../locations/location-recorder.service';
+import { MediaRecorderService } from '../media/media-recorder.service';
 import { RealtimePushService } from '../realtime/realtime-push.service';
 import { SosTriggerService } from '../sos/sos-trigger.service';
 import { Prisma } from '../generated/prisma/client';
@@ -96,6 +97,7 @@ describe('IngestService', () => {
   const pushLocation = jest.fn();
   const pushDeviceStatus = jest.fn();
   const handleTrigger = jest.fn();
+  const recordMedia = jest.fn();
   let service: IngestService;
 
   beforeEach(async () => {
@@ -106,6 +108,7 @@ describe('IngestService', () => {
     pushLocation.mockReset();
     pushDeviceStatus.mockReset();
     handleTrigger.mockReset();
+    recordMedia.mockReset();
     const moduleRef = await Test.createTestingModule({
       providers: [
         IngestService,
@@ -120,6 +123,7 @@ describe('IngestService', () => {
           useValue: { pushLocation, pushDeviceStatus },
         },
         { provide: SosTriggerService, useValue: { handleTrigger } },
+        { provide: MediaRecorderService, useValue: { record: recordMedia } },
       ],
     }).compile();
     service = moduleRef.get(IngestService);
