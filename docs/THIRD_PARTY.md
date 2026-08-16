@@ -15,7 +15,7 @@
 | 5 | Apple Developer 公司账号 | 🔄 D-U-N-S 建档中（提交遇接口故障待重提） | iOS TestFlight 分发、APNs 远程推送、正式 Bundle ID | 负责人 |
 | 6 | 推送：极光 + 安卓厂商通道 | ⬜ 待申请 | App 被杀后收不到推送（现只有本地通知） | 负责人 |
 | 7 | 高德地图 Key | 🔄 个人 Key 已到位并支撑开发；**企业 Key 对公打款在途** | 不阻塞开发，仅影响正式配额 | 负责人 |
-| 8 | 腾讯云 TRTC 正式应用 | 🔄 个人测试应用可用；正式应用待公司资质 | 不阻塞开发 | 负责人 |
+| 8 | 腾讯云 TRTC 正式应用 | 🔄 个人测试应用**已配置并补验通过**；正式应用待公司资质 | 不阻塞开发 | 负责人 |
 | — | ~~域名 + ICP 备案~~ | ✅ **已消除**（决策 #34） | — | — |
 
 > 图例：⬜ 未开始 ｜ 🔄 进行中 ｜ ✅ 已完成/已消除
@@ -71,8 +71,9 @@
 ### 8. 腾讯云 TRTC
 
 - 选型已定案（决策 #22），后端 UserSig 自实现官方 HMAC-SHA256 算法，不引 SDK 依赖
-- **近期唯一动作**：向 Developer A 要 Week 2 Spike 用的个人测试应用 `SDKAppID` / `SecretKey`，填入 `backend/.env` 的 `TRTC_SDK_APP_ID` / `TRTC_SECRET_KEY`，即可补验 `POST /voice/channels/:channelId/token` 返回 userSig（未配置时该接口返回 503 `TRTC_NOT_CONFIGURED`）
-- 正式应用待公司资质就绪后在同一腾讯云账号下创建
+- ✅ **补验通过（2026-08-16）**：Developer A 提供个人测试应用凭证，填入 `backend/.env` 的 `TRTC_SDK_APP_ID` / `TRTC_SECRET_KEY` 后实测「注册 → 建频道 → 取进房凭证」全链路，`POST /voice/channels/:channelId/token` 正常返回 `sdkAppId` / `roomId` / `userSig`（216 字符）/ `expiresAt`（24h）。**Week 9–10 遗留项①清零**
+- 正式应用待公司资质就绪后在同一腾讯云账号下创建，**换 Key 零代码改动**（仅改 env）
+- ⚠️ 当前 App 端对讲仍用客户端本地生成 UserSig（`EXPO_PUBLIC_TRTC_SECRETKEY` 进了客户端）+ 固定演示房间，属 Spike 遗留。**SecretKey 不得随正式包分发**——A 线已接下「对讲页接后端频道管理」任务，切到 §13 接口后此风险消除
 
 ## 域名与 HTTPS（决策 #34）
 
