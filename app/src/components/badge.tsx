@@ -44,7 +44,6 @@ const styles = StyleSheet.create({
     borderRadius: Radius.pill,
     paddingHorizontal: 10,
     paddingVertical: 4,
-    alignSelf: 'flex-start',
   },
   dot: { width: 6, height: 6, borderRadius: 3 },
 });

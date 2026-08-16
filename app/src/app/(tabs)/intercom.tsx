@@ -498,11 +498,7 @@ export default function IntercomScreen() {
                       </ThemedText>
                     )}
                   </View>
-                  {self ? (
-                    <Badge variant={talking ? 'danger' : 'neutral'} label={talking ? '发言中' : '我'} />
-                  ) : (
-                    <Badge variant={online ? 'success' : 'neutral'} label={online ? '在线' : '离线'} />
-                  )}
+                  {/* 右侧固定次序:发言指示 → 静音按钮 → 徽章(最右),各行徽章右缘对齐 */}
                   {isSpeaking(m.userId) && <Ionicons name="pulse" size={18} color={theme.brand} />}
                   {!self && online && (
                     <Pressable hitSlop={8} onPress={() => void toggleMuteMember(m.userId)}>
@@ -512,6 +508,11 @@ export default function IntercomScreen() {
                         color={muted[m.userId] ? theme.danger : theme.textSecondary}
                       />
                     </Pressable>
+                  )}
+                  {self ? (
+                    <Badge variant={talking ? 'danger' : 'neutral'} label={talking ? '发言中' : '我'} />
+                  ) : (
+                    <Badge variant={online ? 'success' : 'neutral'} label={online ? '在线' : '离线'} />
                   )}
                 </View>
               );
