@@ -20,6 +20,7 @@ import TRTCCloud, {
 
 import { Badge } from '@/components/badge';
 import { PrimaryButton } from '@/components/form';
+import { PulseRing } from '@/components/pulse-ring';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Radius } from '@/constants/theme';
@@ -45,6 +46,8 @@ function MemberAvatar({
   const theme = useTheme();
   return (
     <View style={styles.avatarWrap}>
+      <View style={styles.avatarRingBox}>
+        <PulseRing active={speaking} size={64} color={theme.brand} />
       <View
         style={[
           styles.avatarRing,
@@ -60,6 +63,7 @@ function MemberAvatar({
             <Ionicons name="pulse" size={10} color={theme.onBrand} />
           </View>
         )}
+      </View>
       </View>
       <ThemedText type="small" themeColor="textSecondary" numberOfLines={1} style={styles.avatarName}>
         {self ? '我' : name}
@@ -260,6 +264,7 @@ export default function IntercomScreen() {
             {/* PTT 大圆钮 */}
             <View style={styles.pttWrap}>
               <View style={[styles.pttOuter, { borderColor: talking ? theme.dangerBg : 'rgba(217,242,74,0.15)' }]}>
+                <PulseRing active={talking} size={220} color={theme.danger} count={3} duration={1400} />
                 <Pressable
                   onPressIn={() => void pttDown()}
                   onPressOut={() => void pttUp()}
@@ -369,6 +374,7 @@ const styles = StyleSheet.create({
   channelTitle: { fontSize: 28, lineHeight: 34 },
   avatarRow: { gap: 16, paddingVertical: 4 },
   avatarWrap: { alignItems: 'center', gap: 6, width: 72 },
+  avatarRingBox: { width: 64, height: 64, alignItems: 'center', justifyContent: 'center' },
   avatarRing: {
     width: 64,
     height: 64,
