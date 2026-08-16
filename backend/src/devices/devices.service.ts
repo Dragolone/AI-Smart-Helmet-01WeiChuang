@@ -11,6 +11,8 @@ export const ONLINE_WINDOW_MS = 90_000;
 
 const DEVICE_PUBLIC_SELECT = {
   deviceId: true,
+  name: true,
+  bindCode: true,
   bindUserId: true,
   boundAt: true,
   lastSeenAt: true,
@@ -24,6 +26,8 @@ const DEVICE_PUBLIC_SELECT = {
 
 type DevicePublic = {
   deviceId: string;
+  name: string | null;
+  bindCode: string | null;
   lastSeenAt: Date | null;
   battery: number | null;
   charging: boolean | null;
@@ -89,6 +93,18 @@ export class DevicesService {
     return this.toPublic(device);
   }
 
+  /** 重命名(API.md §4):trim 后空串=清除自定义名,App 回退显示 deviceId */
+  async rename(userId: string, deviceId: string, name: string | null) {
+    await this.getOwned(userId, deviceId);
+    const trimmed = name?.trim() || null;
+    const updated = await this.prisma.device.update({
+      where: { deviceId },
+      data: { name: trimmed },
+      select: DEVICE_PUBLIC_SELECT,
+    });
+    return this.toPublic(updated);
+  }
+
   async unbind(userId: string, deviceId: string): Promise<void> {
     await this.getOwned(userId, deviceId);
     // 只解除绑定关系；设备记录与历史事件留档（API.md §4）
@@ -121,6 +137,9 @@ export class DevicesService {
   private toPublic(d: DevicePublic & { bindUserId?: string | null }) {
     return {
       deviceId: d.deviceId,
+      name: d.name,
+      // 绑定码只会经归属校验后的端点返回(list/detail/bind 均为本人),供 App 详情展示
+      bindCode: d.bindCode,
       online: this.isOnline(d.lastSeenAt),
       lastSeenAt: d.lastSeenAt,
       battery: d.battery,

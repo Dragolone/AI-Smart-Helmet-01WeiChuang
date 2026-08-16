@@ -5,10 +5,17 @@ import {
   Get,
   HttpCode,
   Param,
+  Patch,
   Post,
   Req,
 } from '@nestjs/common';
-import { IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
 import { DevicesService } from './devices.service';
 
@@ -21,6 +28,14 @@ class BindDeviceDto {
   @MinLength(4)
   @MaxLength(64)
   bindCode!: string;
+}
+
+class UpdateDeviceDto {
+  // 自定义设备名:1-20 字符(trim 后空串视为清除);仅此一个可改字段
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  name?: string;
 }
 
 @Controller('devices')
@@ -44,6 +59,15 @@ export class DevicesController {
     @Param('deviceId') deviceId: string,
   ) {
     return this.devices.getOwned(req.user.userId, deviceId);
+  }
+
+  @Patch(':deviceId')
+  rename(
+    @Req() req: AuthenticatedRequest,
+    @Param('deviceId') deviceId: string,
+    @Body() dto: UpdateDeviceDto,
+  ) {
+    return this.devices.rename(req.user.userId, deviceId, dto.name ?? null);
   }
 
   @Get(':deviceId/status')

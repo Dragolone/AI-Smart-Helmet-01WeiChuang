@@ -4,12 +4,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { Alert, Modal, Pressable, StyleSheet, View } from 'react-native';
 
 import { devicesApi } from '@/api/devices';
 import { toUserMessage } from '@/api/error-messages';
 import { Badge } from '@/components/badge';
-import { PrimaryButton } from '@/components/form';
+import { FormInput, PrimaryButton } from '@/components/form';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Radius } from '@/constants/theme';
@@ -55,6 +55,37 @@ export default function DeviceDetailScreen() {
     refetchInterval: 15_000,
   });
 
+  // 详情（name/bindCode 等静态信息，与状态分开缓存）
+  const detail = useQuery({
+    queryKey: ['device-detail', deviceId],
+    queryFn: () => devicesApi.detail(deviceId),
+  });
+
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const [renaming, setRenaming] = useState(false);
+
+  const openRename = () => {
+    setNameDraft(detail.data?.name ?? '');
+    setRenameOpen(true);
+  };
+
+  const submitRename = () => {
+    setRenaming(true);
+    devicesApi
+      .rename(deviceId, { name: nameDraft })
+      .then(async () => {
+        setRenameOpen(false);
+        // 列表/详情/地图药丸同步刷新
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ['device-detail', deviceId] }),
+          queryClient.invalidateQueries({ queryKey: ['devices'] }),
+        ]);
+      })
+      .catch((e) => Alert.alert('重命名失败', toUserMessage(e)))
+      .finally(() => setRenaming(false));
+  };
+
   const unbind = () => {
     Alert.alert('解除绑定', `确定解绑 ${deviceId} 吗？历史数据会保留。`, [
       { text: '取消', style: 'cancel' },
@@ -89,9 +120,12 @@ export default function DeviceDetailScreen() {
   return (
     <ThemedView style={styles.container}>
       <View style={styles.titleRow}>
-        <ThemedText type="title" style={styles.title}>
-          {deviceId}
-        </ThemedText>
+        <Pressable style={styles.titlePress} onPress={openRename} hitSlop={6}>
+          <ThemedText type="title" style={styles.title} numberOfLines={1}>
+            {detail.data?.name ?? deviceId}
+          </ThemedText>
+          <Ionicons name="pencil-outline" size={18} color={theme.textSecondary} />
+        </Pressable>
         {s && (
           <Badge
             variant={s.online ? 'success' : 'neutral'}
@@ -99,6 +133,11 @@ export default function DeviceDetailScreen() {
           />
         )}
       </View>
+      {detail.data?.name && (
+        <ThemedText type="small" themeColor="textSecondary" style={styles.subId}>
+          {deviceId}
+        </ThemedText>
+      )}
 
       {status.isError && (
         <ThemedText type="small">{toUserMessage(status.error)}</ThemedText>
@@ -155,8 +194,33 @@ export default function DeviceDetailScreen() {
             label="最后心跳"
             value={s.lastSeenAt ? new Date(s.lastSeenAt).toLocaleString() : '从未上报'}
           />
+          <InfoRow
+            icon="key-outline"
+            label="绑定码"
+            value={detail.data?.bindCode ?? '—'}
+          />
         </>
       )}
+
+      {/* 重命名弹层（跨平台；Alert.prompt 仅 iOS 可用故自建） */}
+      <Modal visible={renameOpen} transparent animationType="fade" onRequestClose={() => setRenameOpen(false)}>
+        <Pressable style={styles.modalMask} onPress={() => setRenameOpen(false)}>
+          <Pressable
+            style={[styles.modalCard, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}
+            onPress={() => undefined}>
+            <ThemedText type="subtitle">重命名设备</ThemedText>
+            <FormInput
+              label="设备名"
+              value={nameDraft}
+              onChangeText={setNameDraft}
+              placeholder="1-20 字符；留空恢复默认(设备号)"
+              maxLength={20}
+              autoFocus
+            />
+            <PrimaryButton title="保存" onPress={submitRename} loading={renaming} />
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <View style={styles.footer}>
         <PrimaryButton title="解除绑定" onPress={unbind} loading={unbinding} danger />
@@ -173,7 +237,21 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 4,
   },
-  title: { fontSize: 30, lineHeight: 36 },
+  title: { fontSize: 30, lineHeight: 36, flexShrink: 1 },
+  titlePress: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: 10 },
+  subId: { marginTop: -8 },
+  modalMask: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    padding: 28,
+  },
+  modalCard: {
+    borderRadius: Radius.card,
+    borderWidth: 1,
+    padding: 18,
+    gap: 14,
+  },
   batteryCard: {
     borderRadius: Radius.card,
     borderWidth: 1,

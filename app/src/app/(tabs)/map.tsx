@@ -307,10 +307,10 @@ export default function MapScreen() {
                 实时追踪
               </ThemedText>
               <ThemedText type="label" style={styles.dimText}>
-                {deviceId
+                {device
                   ? statPoint
-                    ? `${deviceId} · ${new Date(statPoint.timestamp).toLocaleTimeString()}`
-                    : `${deviceId} · 等待位置上报`
+                    ? `${device.name ?? device.deviceId} · ${new Date(statPoint.timestamp).toLocaleTimeString()}`
+                    : `${device.name ?? device.deviceId} · 等待位置上报`
                   : '未绑定设备'}
               </ThemedText>
             </View>

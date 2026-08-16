@@ -78,8 +78,11 @@ Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / 
 | POST | /devices/bind | 绑定。body：`{ deviceId, bindCode }`（⚠️ 绑定凭证形式——机身二维码/出厂绑定码——待硬件确认；Mock 设备用注册时生成的 bindCode 走同一流程） |
 | GET | /devices | 我的设备列表 |
 | GET | /devices/{deviceId} | 设备详情（含实时状态快照） |
+| PATCH | /devices/{deviceId} | 重命名（2026-08-17）。body：`{ name?: string }`（≤20 字符，trim 后空串=清除，App 回退显示 deviceId）；返回更新后的 device 对象 |
 | DELETE | /devices/{deviceId}/binding | 解绑（软删除绑定关系，设备数据留档） |
 | GET | /devices/{deviceId}/status | 设备状态：`{ online, lastSeenAt, battery, charging?, signalLevel?, sleeping, firmwareVersion }` |
+
+device 对象补充字段（2026-08-17，TS 类型见 `@helmet/shared` DevicePublic）：`name`（用户自定义名，null 时 App 显示 deviceId）、`bindCode`（仅经归属校验的端点返回——本人可见，供详情页展示）。
 
 - MVP 绑定关系：一台设备同时只能绑定一个用户；一个用户可绑多台。⚠️ 家庭共享/多人查看不在 MVP。
 - `online` 判定规则见 DEVICE_PROTOCOL §5，由服务端计算（lastSeenAt 距今 ≤ 90s），App 不自行判断。

@@ -2,6 +2,7 @@
 import type {
   BindDeviceRequest,
   DevicePublic,
+  UpdateDeviceRequest,
   DeviceStatus,
   LatestLocationResponse,
   LocationPoint,
@@ -20,6 +21,13 @@ export const devicesApi = {
 
   status: (deviceId: string) =>
     api<DeviceStatus>(`/devices/${encodeURIComponent(deviceId)}/status`),
+
+  /** 重命名（API.md §4 PATCH）；name 传空串或 null = 清除自定义名 */
+  rename: (deviceId: string, body: UpdateDeviceRequest) =>
+    api<DevicePublic>(`/devices/${encodeURIComponent(deviceId)}`, {
+      method: 'PATCH',
+      body,
+    }),
 
   unbind: (deviceId: string) =>
     api<void>(`/devices/${encodeURIComponent(deviceId)}/binding`, {

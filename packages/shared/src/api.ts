@@ -102,11 +102,19 @@ export interface DeviceStatus {
   firmwareVersion: string | null;
 }
 
-/** 设备列表/详情项（含状态快照） */
+/** 设备列表/详情项（含状态快照）。bindCode 仅经归属校验的端点返回（本人可见，供详情展示） */
 export interface DevicePublic extends DeviceStatus {
   deviceId: string;
+  /** 用户自定义设备名；null 时 App 显示 deviceId */
+  name: string | null;
+  bindCode: string | null;
   boundAt: string | null;
   createdAt: string;
+}
+
+/** PATCH /devices/{id}：目前仅支持重命名；name trim 后空串视为清除（回退显示 deviceId） */
+export interface UpdateDeviceRequest {
+  name?: string | null;
 }
 
 // —— §5 位置与轨迹（已实现） ——

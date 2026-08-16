@@ -99,16 +99,19 @@ function DeviceRow({ device }: { device: DevicePublic }) {
             },
           ]}>
           <View style={styles.cardTop}>
-            {/* 头盔产品图（演示素材，按设备稳定分配；正式型号图待硬件出型号字段后按型号映射） */}
-            <Image
-              source={helmetImageFor(device.deviceId)}
-              style={styles.helmetImage}
-              contentFit="cover"
-            />
+            {/* 头盔产品图（演示素材，按设备稳定分配；正式型号图待硬件出型号字段后按型号映射）。
+                wrapper 撑满本节高度,头盔在空白区域纵向精确居中 */}
+            <View style={styles.helmetBox}>
+              <Image
+                source={helmetImageFor(device.deviceId)}
+                style={styles.helmetImage}
+                contentFit="cover"
+              />
+            </View>
             <View style={styles.cardInfo}>
               <View style={styles.cardTitleRow}>
                 <ThemedText type="subtitle" style={styles.deviceId} numberOfLines={1}>
-                  {device.deviceId}
+                  {device.name ?? device.deviceId}
                 </ThemedText>
                 <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
               </View>
@@ -330,12 +333,14 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   cardTop: { flexDirection: 'row', gap: 14 },
-  helmetImage: {
-    width: 128,
-    height: 128,
-    borderRadius: 14,
-    alignSelf: 'center',
+  helmetBox: {
+    alignSelf: 'stretch',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 136,
+    marginLeft: -4,
   },
+  helmetImage: { width: 136, height: 136 },
   cardInfo: { flex: 1, gap: 5 },
   cardTitleRow: {
     flexDirection: 'row',

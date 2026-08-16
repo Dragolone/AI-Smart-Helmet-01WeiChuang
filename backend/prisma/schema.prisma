@@ -60,6 +60,8 @@ model Device {
   deviceSecretHash String    @map("device_secret_hash")
   // 绑定码：出厂随附（真机形式待硬件确认，Mock/开通脚本生成同机制）
   bindCode         String?   @unique @map("bind_code")
+  // 用户自定义设备名（绑定者可改；未设置时 App 显示 deviceId）
+  name             String?
   bindUserId       String?   @map("bind_user_id")
   bindUser         User?     @relation(fields: [bindUserId], references: [id])
   boundAt          DateTime? @map("bound_at")
