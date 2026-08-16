@@ -41,6 +41,19 @@ function BatteryBar({ level }: { level: number | null }) {
   );
 }
 
+/** 头盔演示图池：设备暂无型号字段（待硬件定稿），按 deviceId 稳定散列分配——
+ *  同一设备永远同一张图，不同设备尽量错开。正式型号图到位后改为按型号映射。 */
+const HELMET_IMAGES = [
+  require('@/assets/images/helmet-hero.webp'),
+  require('@/assets/images/helmet-ski.webp'),
+] as const;
+
+function helmetImageFor(deviceId: string) {
+  let x = 0;
+  for (const c of deviceId) x = (x * 31 + c.charCodeAt(0)) >>> 0;
+  return HELMET_IMAGES[x % HELMET_IMAGES.length];
+}
+
 /** 信号强度文案（DeviceStatus.signalLevel：数值越大越强；口径待硬件定稿前按相对档显示） */
 function signalLabel(level: number | null): string {
   if (level === null) return '—';
@@ -86,9 +99,9 @@ function DeviceRow({ device }: { device: DevicePublic }) {
             },
           ]}>
           <View style={styles.cardTop}>
-            {/* 头盔产品图（演示素材；正式型号图待硬件出型号字段后按型号映射） */}
+            {/* 头盔产品图（演示素材，按设备稳定分配；正式型号图待硬件出型号字段后按型号映射） */}
             <Image
-              source={require('@/assets/images/helmet-hero.webp')}
+              source={helmetImageFor(device.deviceId)}
               style={styles.helmetImage}
               contentFit="cover"
             />
