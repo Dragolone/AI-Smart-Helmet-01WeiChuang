@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Modal, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { devicesApi } from '@/api/devices';
 import { toUserMessage } from '@/api/error-messages';
@@ -152,7 +152,11 @@ export default function DeviceDetailScreen() {
           : theme.success;
 
   return (
-    <ThemedView style={styles.container}>
+    <ThemedView style={styles.flex}>
+      {/* 内容随设置区增长会超出一屏,必须可滚动(Android 实证:小屏下半截不可见且无法下滑) */}
+      <ScrollView
+        contentContainerStyle={styles.container}
+        showsVerticalScrollIndicator={false}>
       <View style={styles.titleRow}>
         <Pressable style={styles.titlePress} onPress={openRename} hitSlop={6}>
           <ThemedText type="title" style={styles.title} numberOfLines={1}>
@@ -314,6 +318,12 @@ export default function DeviceDetailScreen() {
         </>
       )}
 
+
+        <View style={styles.footer}>
+          <PrimaryButton title="解除绑定" onPress={unbind} loading={unbinding} danger />
+        </View>
+      </ScrollView>
+
       {/* 重命名弹层（跨平台；Alert.prompt 仅 iOS 可用故自建） */}
       <Modal visible={renameOpen} transparent animationType="fade" onRequestClose={() => setRenameOpen(false)}>
         <Pressable style={styles.modalMask} onPress={() => setRenameOpen(false)}>
@@ -333,16 +343,13 @@ export default function DeviceDetailScreen() {
           </Pressable>
         </Pressable>
       </Modal>
-
-      <View style={styles.footer}>
-        <PrimaryButton title="解除绑定" onPress={unbind} loading={unbinding} danger />
-      </View>
     </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, gap: 12 },
+  flex: { flex: 1 },
+  container: { padding: 20, gap: 12, paddingBottom: 28 },
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -409,5 +416,5 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   rowLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  footer: { marginTop: 'auto' },
+  footer: { marginTop: 8 },
 });
