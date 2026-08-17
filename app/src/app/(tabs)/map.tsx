@@ -315,15 +315,8 @@ export default function MapScreen() {
               </ThemedText>
             </View>
           </View>
+          {/* 竖排:分享 → 导航跳转(罗盘) → 回中(指针,地图通用"我的位置"语义) */}
           <View style={styles.topActions}>
-            <Pressable
-              style={[styles.roundBtn, { backgroundColor: cardBg, borderColor: theme.border }]}
-              onPress={() => {
-                if (sharePos) mapRef.current?.setCenter(sharePos, 15);
-              }}
-              disabled={!sharePos}>
-              <MaterialCommunityIcons name="compass-outline" size={22} color={sharePos ? '#F4F5F7' : theme.textSecondary} />
-            </Pressable>
             <Pressable
               style={[styles.roundBtn, { backgroundColor: cardBg, borderColor: theme.border }]}
               onPress={shareLocation}
@@ -334,7 +327,23 @@ export default function MapScreen() {
               style={[styles.roundBtn, { backgroundColor: cardBg, borderColor: theme.border }]}
               onPress={navigateTo}
               disabled={!sharePos}>
-              <Ionicons name="navigate-outline" size={20} color={sharePos ? theme.brand : theme.textSecondary} />
+              <MaterialCommunityIcons
+                name="compass-outline"
+                size={22}
+                color={sharePos ? theme.brand : theme.textSecondary}
+              />
+            </Pressable>
+            <Pressable
+              style={[styles.roundBtn, { backgroundColor: cardBg, borderColor: theme.border }]}
+              onPress={() => {
+                if (sharePos) mapRef.current?.setCenter(sharePos, 15);
+              }}
+              disabled={!sharePos}>
+              <Ionicons
+                name="navigate-outline"
+                size={20}
+                color={sharePos ? '#F4F5F7' : theme.textSecondary}
+              />
             </Pressable>
           </View>
         </View>

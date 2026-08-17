@@ -16,8 +16,8 @@ import { ThemedView } from '@/components/themed-view';
 import { Radius } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
-function secondsLeft(deadline: string): number {
-  return Math.max(0, Math.ceil((new Date(deadline).getTime() - Date.now()) / 1000));
+function secondsLeft(deadline: string, now: number): number {
+  return Math.max(0, Math.ceil((new Date(deadline).getTime() - now) / 1000));
 }
 
 export default function SosActiveScreen() {
@@ -25,7 +25,10 @@ export default function SosActiveScreen() {
   const theme = useTheme();
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState<'cancel' | 'confirm' | null>(null);
-  const [, forceTick] = useState(0);
+  /** 当前时刻作为被读取的 state：剩余秒数在渲染期由它算出。
+   *  不能用"空转 tick（值不读）强制重渲染"——React Compiler 判定无依赖变化会 memo 掉
+   *  整个渲染，倒计时数字永远停在首帧（2026-08-17 真机实证）。 */
+  const [now, setNow] = useState(() => Date.now());
 
   // WS 推送直写 ['sos', sosId] 缓存；进页面时再以 REST 兜底拉一次权威状态
   const sosQuery = useQuery({
@@ -40,9 +43,9 @@ export default function SosActiveScreen() {
   });
   const sos = sosQuery.data ?? null;
 
-  // 每秒重渲染刷新倒计时数字（仅展示用途，超时判定在服务端）
+  // 每秒推进"当前时刻"，渲染期据此重算剩余秒数（仅展示用途，超时判定在服务端）
   useEffect(() => {
-    const t = setInterval(() => forceTick((n) => n + 1), 1000);
+    const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
 
@@ -56,7 +59,7 @@ export default function SosActiveScreen() {
       .finally(() => setBusy(null));
   };
 
-  const left = sos ? secondsLeft(sos.deadline) : null;
+  const left = sos ? secondsLeft(sos.deadline, now) : null;
   const finished = sos && sos.status !== 'pending';
 
   return (
