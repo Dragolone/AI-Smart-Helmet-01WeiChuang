@@ -342,7 +342,7 @@ export default function MapScreen() {
               <Ionicons
                 name="navigate-outline"
                 size={20}
-                color={sharePos ? '#F4F5F7' : theme.textSecondary}
+                color={sharePos ? theme.brand : theme.textSecondary}
               />
             </Pressable>
           </View>
