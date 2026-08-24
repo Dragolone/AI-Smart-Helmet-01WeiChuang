@@ -1,8 +1,12 @@
-// Mock Device Simulator v1：假扮真头盔连 EMQX，按 docs/EVENTS.md 持续发
-// device_status 心跳 + location_update 骑行剧本。对 Backend 完全不可区分。
-import { connect } from 'mqtt';
-import type { EventPayloadMap, EventType } from '@helmet/shared';
+// Mock Device Simulator：假扮真头盔按 docs/EVENTS.md 发事件，对 Backend 完全不可区分。
+// 剧本（发什么）在本文件；传输（怎么送）见 transport.ts —— TRANSPORT 环境变量二选一：
+//   mqtt（默认）  4G 链路：直连 EMQX
+//   app-relay     MVP 唯一真机链路：模拟手机 App 中转（决策 #35），批量提交 + 断线补传
+import type { EventEnvelope, EventPayloadMap, EventType } from '@helmet/shared';
 import { buildEnvelope } from './envelope.ts';
+import { createMqttTransport, type CmdResult } from './mqtt-transport.ts';
+import { createRelayTransport } from './relay-transport.ts';
+import type { EventKind, Transport } from './transport.ts';
 import {
   RIDING_LOOP,
   buildSkiLoop,
@@ -28,21 +32,46 @@ const STATUS_INTERVAL_MS = parseIntervalMs(process.env.STATUS_INTERVAL_MS, 60_00
 const log = (msg: string): void =>
   console.log(`[${new Date().toISOString()}] [${DEVICE_ID}] ${msg}`);
 
-const client = connect(MQTT_URL, {
-  clientId: DEVICE_ID,
-  username: DEVICE_ID,
-  password: DEVICE_SECRET,
-});
+// —— 传输选择：默认 mqtt，行为与既有版本完全一致 ——
+const TRANSPORT = process.env.TRANSPORT === 'app-relay' ? 'app-relay' : 'mqtt';
+const CMD_RESULT = ((): CmdResult => {
+  const r = process.env.MOCK_CMD_RESULT;
+  return r === 'failed' || r === 'silent' ? r : 'success';
+})();
+const transport: Transport =
+  TRANSPORT === 'app-relay'
+    ? createRelayTransport({
+        apiBaseUrl: process.env.API_BASE_URL ?? 'http://localhost:3000',
+        deviceId: DEVICE_ID,
+        phone: process.env.RELAY_PHONE ?? '',
+        password: process.env.RELAY_PASSWORD ?? '',
+        flushIntervalMs: parseIntervalMs(process.env.RELAY_FLUSH_INTERVAL_MS, 5000),
+        // Contract 硬上限 100（API.md §12.1），配大了也钳回去
+        maxBatch: Math.min(
+          Math.max(Number(process.env.RELAY_MAX_BATCH) || 20, 1),
+          100,
+        ),
+        offlineCycle: Math.max(Number(process.env.RELAY_OFFLINE_CYCLE) || 0, 0),
+        sendOutOfScope: process.env.RELAY_SEND_OUT_OF_SCOPE === '1',
+        log,
+      })
+    : createMqttTransport({
+        url: MQTT_URL,
+        deviceId: DEVICE_ID,
+        deviceSecret: DEVICE_SECRET,
+        cmdResult: CMD_RESULT,
+        log,
+      });
 
-function publish<T extends EventType>(kind: 'status' | 'location' | 'event', eventType: T, payload: EventPayloadMap[T]): void {
+/** 构造 envelope 并交给传输层；返回 envelope 供需要 eventId 的剧本（如 risk 解除）引用 */
+function publish<T extends EventType>(
+  kind: EventKind,
+  eventType: T,
+  payload: EventPayloadMap[T],
+): EventEnvelope<T> {
   const envelope = buildEnvelope(DEVICE_ID, FIRMWARE_VERSION, eventType, payload);
-  client.publish(`helmet/${DEVICE_ID}/${kind}`, JSON.stringify(envelope), { qos: 1 }, (err) => {
-    if (err) {
-      log(`发送失败 ${eventType}: ${err.message}`);
-    } else {
-      log(`已发送 ${eventType} (eventId=${envelope.eventId.slice(0, 8)}…)`);
-    }
-  });
+  transport.send(kind, envelope as EventEnvelope<EventType>);
+  return envelope;
 }
 
 // —— device_status 心跳：电量缓慢下降，见底后模拟换电复位 ——
@@ -133,7 +162,7 @@ function maybeSendRisk(current: (typeof ROUTE)[number]): void {
     return;
   }
   if (pointsSent % RISK_CYCLE_POINTS !== 0) return;
-  const envelope = buildEnvelope(DEVICE_ID, FIRMWARE_VERSION, 'collision_risk', {
+  const envelope = publish('event', 'collision_risk', {
     riskLevel: 'high',
     objectType: 'vehicle',
     direction: 'rear',
@@ -144,16 +173,9 @@ function maybeSendRisk(current: (typeof ROUTE)[number]): void {
   });
   activeRiskEventId = envelope.eventId;
   riskClearCountdown = 2;
-  client.publish(
-    `helmet/${DEVICE_ID}/event`,
-    JSON.stringify(envelope),
-    { qos: 1 },
-    (err) => {
-      if (err) log(`发送失败 collision_risk: ${err.message}`);
-      else log('⚠️ 已触发后方来车预警（collision_risk rear/high）');
-    },
-  );
+  log('⚠️ 已触发后方来车预警（collision_risk rear/high）');
 }
+
 function sendLocation(): void {
   const current = ROUTE[routeIndex];
   const next = ROUTE[(routeIndex + 1) % ROUTE.length];
@@ -176,19 +198,8 @@ function sendLocation(): void {
 }
 
 let timers: NodeJS.Timeout[] = [];
-let lastConnectAt = 0;
-let rapidReconnects = 0;
 
-client.on('connect', () => {
-  // MQTT 同 clientId 互踢是真机语义：若被反复踢线，多半是又启动了一个同 deviceId 的实例
-  const now = Date.now();
-  rapidReconnects = now - lastConnectAt < 5000 ? rapidReconnects + 1 : 0;
-  lastConnectAt = now;
-  if (rapidReconnects === 3) {
-    log(
-      `⚠️ 连接被反复顶替——可能有另一个 ${DEVICE_ID} 实例在运行（MQTT 同 clientId 互踢）。请只保留一个实例，或用 DEVICE_ID 环境变量区分。`,
-    );
-  }
+transport.start(() => {
   const scenarioName =
     SCENARIO === 'ski'
       ? '滑雪'
@@ -200,9 +211,9 @@ client.on('connect', () => {
             ? '骑行+后方来车预警'
             : '骑行';
   log(
-    `已连接 ${MQTT_URL}，开始${scenarioName}剧本（位置每 ${LOCATION_INTERVAL_MS / 1000}s / 心跳每 ${STATUS_INTERVAL_MS / 1000}s）`,
+    `开始${scenarioName}剧本（位置每 ${LOCATION_INTERVAL_MS / 1000}s / 心跳每 ${STATUS_INTERVAL_MS / 1000}s）`,
   );
-  // 重连会再次触发 connect：先清旧定时器，避免越跑越快
+  // MQTT 重连会再次触发 onReady：先清旧定时器，避免越跑越快
   timers.forEach(clearInterval);
   sendStatus();
   sendLocation();
@@ -212,51 +223,6 @@ client.on('connect', () => {
   ];
 });
 
-// —— 命令接收与回执（DEVICE_PROTOCOL §7）：真机行为的软件版 ——
-// MOCK_CMD_RESULT=success（默认）| failed | silent（不回执，演示 offline 超时判定）
-const CMD_RESULT = ((): 'success' | 'failed' | 'silent' => {
-  const r = process.env.MOCK_CMD_RESULT;
-  return r === 'failed' || r === 'silent' ? r : 'success';
-})();
-client.on('connect', () => {
-  client.subscribe(`helmet/${DEVICE_ID}/cmd`, { qos: 1 }, (err) => {
-    if (err) log(`订阅 cmd 失败: ${err.message}`);
-  });
-});
-client.on('message', (topic, payload) => {
-  if (!topic.endsWith('/cmd')) return;
-  try {
-    const cmd = JSON.parse(payload.toString('utf-8')) as {
-      commandId: string;
-      type: string;
-      params: Record<string, unknown>;
-    };
-    log(`收到命令 ${cmd.type}（${cmd.commandId.slice(0, 8)}…）params=${JSON.stringify(cmd.params)}`);
-    if (CMD_RESULT === 'silent') {
-      log('（MOCK_CMD_RESULT=silent：不回执，服务端将超时判 offline）');
-      return;
-    }
-    const ack = {
-      commandId: cmd.commandId,
-      result: CMD_RESULT,
-      ...(CMD_RESULT === 'failed' ? { errorCode: 'MOCK_REJECTED' } : {}),
-      executedAt: new Date().toISOString(),
-    };
-    // 模拟设备执行耗时后回执
-    setTimeout(() => {
-      client.publish(`helmet/${DEVICE_ID}/cmd_ack`, JSON.stringify(ack), { qos: 1 }, (err) => {
-        if (err) log(`回执发送失败: ${err.message}`);
-        else log(`已回执 ${CMD_RESULT}（${cmd.commandId.slice(0, 8)}…）`);
-      });
-    }, 500);
-  } catch {
-    log('收到无法解析的命令消息，忽略');
-  }
-});
-
-client.on('reconnect', () => log('重连中…'));
-client.on('error', (err) => log(`MQTT 错误: ${err.message}`));
-
 let shuttingDown = false;
 process.on('SIGINT', () => {
   // npm 与终端会各转发一次 SIGINT，防重入
@@ -264,5 +230,5 @@ process.on('SIGINT', () => {
   shuttingDown = true;
   log('收到退出信号，断开连接');
   timers.forEach(clearInterval);
-  client.end(false, {}, () => process.exit(0));
+  transport.stop(() => process.exit(0));
 });
