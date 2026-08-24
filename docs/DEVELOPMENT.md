@@ -61,6 +61,8 @@ cd backend && npx prisma migrate dev   # 建表（要求 docker 里的 postgres 
 
 **连带坑：改 `PORT` 绕开端口冲突会让设备认证静默全拒**（2026-08-16 实测）——`emqx/emqx.conf` 的认证/授权回调 URL **写死 `host.docker.internal:3000`**，所以用 `PORT=3100 npm run start:dev` 换端口后，后端自身起得来、REST 也正常，但 EMQX 仍回调 3000（此时多半是别的项目的容器），设备与后端消费者一律 `Connection refused: Not authorized`，日志表现为无限「MQTT 重连中…」。两条路二选一：① 优先 `docker stop c3322-node` 腾出 3000 用默认端口；② 确需换端口则 `emqx/emqx.conf` 里两处 URL 同步改端口并 `docker restart helmet-emqx`，**用完记得 `git checkout emqx/emqx.conf` 还原**，勿把本地端口带进提交。
 
+**已知坑：本地 `typecheck` 报一堆 App 路由类型错，CI 却是绿的**（2026-08-25 定位）——`app/.expo/types/router.d.ts` 是 Expo Router 的**本地生成物**（`.gitignore` 排除，不进仓库）。它由 `expo start` 刷新；若上次生成还停留在只有 spike 页面的时期，后来新增的 `/login`、`/register`、`/device/[deviceId]` 等路由就不在联合类型里，`router.push('/login')` 全部报 TS2345/TS2322。CI 跑 `npm ci` 后**没有这个文件**，Href 类型退化为宽松形式，因此不报错——所以这类报错是本地陈旧缓存的假阳性，不是 main 坏了。处理：跑一次 `npm run start -w app` 让它重新生成，或直接删掉 `app/.expo/types/router.d.ts`。判断依据：错误信息里的可选路由列表若只剩 `/explore`、`/spike-ble` 这些老页面，就是它。
+
 **已知现象（非坑）：后端启动头几秒 MQTT 报「Not authorized」后自愈**——后端 MQTT 消费者在 HTTP 服务就绪前就开始连 EMQX，而 EMQX 认证回调恰恰要调后端 HTTP（自举鸡生蛋），头几次连接必然被拒；重连机制会在 HTTP 起来后自动连上并出现「已订阅」。看到最终「已订阅：helmet/+/status, …」即健康，无需处理。
 
 ## 常用命令（都在仓库根目录执行）
@@ -69,6 +71,7 @@ cd backend && npx prisma migrate dev   # 建表（要求 docker 里的 postgres 
 |------|------|
 | 启动 App 开发服务器（日常 JS 开发） | `npm run start -w app` 后**在模拟器里手动点开已安装的 app**。⚠️ 不要按 `i`/`a`、不要扫码——当前 app 未装 expo-dev-client，那样会进被禁止的 Expo Go。首次或原生依赖变更后先用下面的 run 命令装一次 |
 | 启动 Mock 头盔模拟器 | 先用下行命令开通拿到凭证，再 `DEVICE_ID=<id> DEVICE_SECRET=<密钥> npm run start -w mock-device`。**EMQX 已开启认证**：无凭证/错密钥会被 Broker 拒绝（Connection refused: Not authorized） |
+| 启动 Mock 头盔（**中转模式**，模拟蓝牙版=MVP 唯一真机链路） | `TRANSPORT=app-relay API_BASE_URL=http://localhost:3000 RELAY_PHONE=<账号> RELAY_PASSWORD=<密码> DEVICE_ID=<id> npm run start -w mock-device`。不连 MQTT，改用 HTTP 批量提交 `/ingest/app-relay`（决策 #35）。**设备必须已绑定到该账号**，否则返回 404。可选：`RELAY_FLUSH_INTERVAL_MS`（批量间隔，默认 5000）、`RELAY_MAX_BATCH`（默认 20，Contract 上限 100）、`RELAY_OFFLINE_CYCLE=3`（每 3 次提交模拟断网一次，验证缓存与按原 eventId 补传）、`RELAY_SEND_OUT_OF_SCOPE=1`（把范围外事件也发出去，验证服务端留档告警） |
 | 开通一台设备（生成 deviceId/密钥/绑定码） | `npm run provision:device -w backend`（可选参数指定 deviceId：`-- helmet_mock_002`；deviceSecret 只显示一次） |
 | 创建管理后台账号 | `npm run create:admin -w backend`（可选用户名参数：`-- ops`；重置密码：`-- admin --reset`；密码只显示一次。需 backend/.env 配好 `ADMIN_JWT_SECRET`） |
 | App 装到 iOS 真机/模拟器（含原生构建） | `npx expo run:ios`（在 `app/` 目录） |

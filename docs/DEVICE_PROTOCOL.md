@@ -4,24 +4,32 @@
 > 状态标记：✅ 软件侧已定 ｜ ⚠️ 默认建议，待硬件团队确认（最晚 Week 10 联调前逐项确认并去除标记）。
 > Mock Device 必须与本协议完全一致，对 Backend 不可区分。
 
-## 1. 总体链路（✅ 负责人已确认，2026-08-14；双产品形态 2026-08-16 补充，决策 #29/#31）
+## 1. 总体链路（✅ 硬件 2026-08-24 确认链路形态，决策 #35；沿革：#6 → #29/#31 → #35）
 
-产品分**两种形态**，共用同一套事件 Contract（EVENTS.md）与后端统一 Ingest 层：
+**MVP 阶段头盔不装 4G 模块**（硬件口径「后面我们再扩展成 4G」）。数据链路只有一条：BLE → App 中转 → 后端统一 Ingest。Wi-Fi 2.4G 是**近场功能通道，不承载事件数据**。
 
 ```text
-【4G 版】 头盔 ── 4G/Wi-Fi ── MQTT over TLS ── EMQX Broker ── NestJS 后端
-          BLE 用于手机近场：配对、防丢、蓝牙耳机（对讲音频）
-【蓝牙版】头盔 ── BLE ── 手机 App 中转模块 ── HTTPS(/ingest/app-relay) ── 后端统一 Ingest
-          头盔不装 4G 模块；视频不走 BLE（SD 卡存储 + 头盔连 Wi-Fi 直传云端）
+【MVP 形态（唯一真机链路）】
+  头盔 ── BLE ── 手机 App 中转模块 ── HTTPS(/ingest/app-relay) ── 后端统一 Ingest
+       └─ Wi-Fi 2.4G 近场（头盔作 SoftAP，手机连头盔热点）：
+            实时视频预览 / TF 卡视频文件读取 / 对讲机配置
+            ——按需前台使用，不传事件数据 ⚠️ 传输细节待硬件提供（§10）
+       └─ BLE 同时用于：配对、蓝牙耳机（对讲音频，决策 #20/#22）
+
+【4G 链路（代码已就绪，等硬件后续扩展；MVP 期间由 Mock Device 驱动）】
+  头盔 ── 4G ── MQTT over TLS ── EMQX Broker ── NestJS 后端
+
 云端算法服务（如有）── HTTPS Webhook ── 后端（不经 EMQX）
 ```
 
-### 1.1 蓝牙版数据范围（✅ 汤总确认，2026-08-16，决策 #31）
+> 🔴 **无 4G 的产品前提**：头盔离开手机即无法上云。「摔倒自动通知」依赖**手机在身边且 App 在运行**——对外口径（决策 #28）必须补上此前提。
+
+### 1.1 BLE 链路数据范围（✅ 汤总确认，2026-08-16，决策 #31；决策 #35 后为 MVP 唯一真机数据链路，范围不变）
 
 - **MVP 第一期中转 7 种事件**：`device_status`、`location_update`、`possible_fall`、`manual_sos`、`collision_risk`、`obstacle_risk`、`risk_cleared`——保命链路与危险留档完整。
 - **下一版本再接 4 种**（产品原因，非工作量）：`video_ready`（视频走 Wi-Fi，通知随之）、`sleep_entered/exited`（休眠展示已移出 MVP）、`bluetooth_lost`（蓝牙版中"断连=断网"，语义需重新设计）。
 - App 中转模块**原样透传** MQTT 同款事件 envelope（EVENTS.md §1），不修改内容；eventId 幂等规则不变——断线补传、重复转发都由服务端去重消化。
-- **BLE 传输细节 ⚠️ 待硬件团队定义**（联调清单第 1 条，蓝牙版开发前置）：GATT 服务/特征值、分帧与重组、App→头盔确认机制、头盔侧断连缓存与补传策略。
+- **BLE 传输细节 ⚠️ 待硬件团队定义**（联调清单第 1 条，**当前最卡工期的前置项**——决策 #35 后 BLE 是唯一真机数据链路）：GATT 服务/特征值、分帧与重组、App→头盔确认机制、头盔侧断连缓存与补传策略。
 
 ## 2. MQTT Broker
 
@@ -37,7 +45,20 @@
 |----|------|------|
 | 方式 | MQTT username = `deviceId`，password = `deviceSecret` | ✅ |
 | deviceSecret 分发 | 出厂/注册时由后端生成并写入设备；Mock 设备用同一机制注册获取 | ⚠️ 写入方式待硬件确认 |
-| 校验 | EMQX 认证对接后端（HTTP auth 或数据库认证），后端为唯一凭证权威 | ✅ |
+| 校验 | EMQX 认证对接后端（HTTP auth），后端为唯一凭证权威 | ✅ |
+
+### 3.1 EMQX → 后端 内部回调（✅ 已实现，部署时 EMQX 按此配置）
+
+EMQX 不自己存凭证，每次连接/发布都回调后端裁决。两个端点都要求内部共享令牌（非用户 JWT），以 `?token=<EMQX_INTERNAL_TOKEN>` 或 `X-Internal-Token` 请求头携带（EMQX 配置用 query 形式）；令牌不匹配或未配置一律 401。端点**只在容器网络内可达，不经网关对公网暴露**。
+
+| 方法 | 路径 | 请求体 | 响应 |
+|------|------|--------|------|
+| POST | /api/v1/internal/emqx/authenticate | `{ clientid, username, password }` | `200 { result: "allow" \| "deny" }`——username=deviceId、password=deviceSecret，与库中哈希比对 |
+| POST | /api/v1/internal/emqx/authorize | `{ clientid, username, topic, action }` | `200 { result: "allow" \| "deny" }`——按 §4 ACL 规则判定设备是否越权 |
+
+- 令牌配置在 `deploy/.env` 的 `EMQX_INTERNAL_TOKEN`，渲染进 EMQX 配置（`deploy/render-config.sh`）；改动后须重跑渲染并重启 EMQX。
+- EMQX 侧超时：`connect_timeout` / `request_timeout` 均 5s，`enable_pipelining = 1`（避免连接池复用与后端 keep-alive 空闲关闭的竞态）。
+- 授权无匹配规则时 `no_match = deny`（默认拒绝）。⚠️ **后端不可达时 EMQX 的放行行为未实测**，联调前需验证（预期应为拒绝，若实测为放行须调整配置）。
 
 ## 4. Topic 与 ACL
 
@@ -76,6 +97,9 @@ ACL 规则：设备 `helmet_001` 只允许 publish `helmet/helmet_001/{status,lo
 
 ## 7. 命令下发与 ACK（cmd / cmd_ack）
 
+> 本节的 MQTT cmd/cmd_ack 通道属 **4G 链路**。**BLE 链路（MVP 唯一真机链路）的下行命令走决策 #36**：后端经 WS 推给 App → App 经 BLE 写头盔 → 回执经 app-relay 方向反向提交；命令状态机与回执语义不变，Contract 细案随实现 PR 定稿。
+
+
 命令消息（云 → 设备，格式细节在 EVENTS.md 定稿）：
 
 ```json
@@ -99,7 +123,7 @@ ACL 规则：设备 `helmet_001` 只允许 publish `helmet/helmet_001/{status,lo
 | timestamp | 设备事件发生时间（UTC ISO 8601），设备生成 | ✅ |
 | receivedAt | 服务器收到时间，服务端生成落库 | ✅ |
 | 时钟偏移处理 | `timestamp` 与 `receivedAt` 偏差超过阈值（默认 5 分钟）且非补传场景时，标记 clock_skew 并以 receivedAt 为业务兜底时间 | ✅ 软件侧默认，阈值可调 |
-| 设备对时方式 | NTP / 4G 网络授时 | ⚠️ 固件实现 |
+| 设备对时方式 | NTP（经 Wi-Fi）/ BLE 由 App 下发对时 / 未来 4G 网络授时 | ⚠️ 固件实现，**决策 #35 后无 4G，对时方式需硬件明确** |
 
 ## 9. 固件兼容
 
@@ -109,16 +133,29 @@ ACL 规则：设备 `helmet_001` 只允许 publish `helmet/helmet_001/{status,lo
 | schemaVersion | 事件结构版本号；服务端按版本兼容解析，未知版本进原始事件表并告警 | ✅ |
 | 兼容原则 | Contract 字段只增不改不删（新增为选填）；破坏性变更必须升 schemaVersion 并双方确认 | ✅ |
 
-## 10. 待硬件团队确认清单（汇总）
+## 10. 待硬件团队确认清单（汇总，2026-08-24 按决策 #35 重排）
 
-1. 4G 模组是否支持 MQTT over TLS，证书如何预置；
-2. MQTT 3.1.1 / 5.0 支持情况；
-3. deviceSecret 写入与出厂流程；
-4. 各 Topic 的 QoS 与上报频率（location 频率直接影响功耗与流量）；
-5. Keep Alive 值与 Clean Session / 离线消息需求；
-6. 断网离线缓存能力（容量、保留时长、补传策略）；
-7. 允许远程设置的参数清单、取值范围、执行回执错误码；
-8. 设备对时方式；
-9. 固件版本号规范。
+**当前开工前置（最卡工期，优先级从高到低）：**
 
-以上确认前，Mock Device 按本文件默认值实现；确认后更新本文件并同步 Mock。
+1. 🔴 **BLE 数据协议**：GATT 服务/特征值、分帧与重组、App→头盔确认机制、头盔侧断连缓存与补传策略——A 线中转模块开工的硬前置；
+2. 🔴 **Wi-Fi 近场细节**：
+   - ① 实时视频推流协议 —— ✅ **硬件 2026-08-25 已答**：主控 **全志 V821 SoC**，官方参考方案 `sample_smartIPC_demo` 走 **RTSP**，编码 **H.264**，媒体由 **RTP** 承载（RTP/UDP 还是 RTP over TCP 取决于 SDK 配置 `rtsp_net_type`），主/子码流以不同 `rtsp id` 区分（默认 `main_rtsp_id = 0`）。文档：<https://docs.aw-ol.com/docs/soc/v821/solution/ipc-camera/>
+     **仍需硬件补充**：⚠️ 子码流的 rtsp id 与分辨率（App 预览应用子码流，主码流解码与带宽压力过大）；⚠️ `rtsp_net_type` 实配值（局域网直连建议 RTP/UDP，延迟更低）；⚠️ 完整拉流 URL 格式与是否需要鉴权。
+     **App 侧影响（结论未定，待 Spike）**：iOS AVPlayer **不支持 RTSP**（系统级限制），WebView 亦不支持 `rtsp://` —— 地图那套「WebView 绕过原生库」在此不适用；行业解法为内嵌 libVLC 系播放器（体积 +数十 MB，且 RN 0.86 / Expo SDK 57 新架构兼容性存疑，同决策 #33 amap3d 风险类型），**必须双端真机 Spike 后才能定案**；降级预案 = App 内以 `rtsp://` 链接唤起系统 VLC。若硬件愿改用 **WebRTC**（V821 文档称可自行移植），App 端成本显著降低（`react-native-webrtc` 成熟，且已有 TRTC 原生依赖经验）。
+   - ② TF 卡视频文件的列表与下载接口（HTTP 文件服务？私有协议？）；
+   - ③ 对讲机配置接口与参数清单（频道/频率/功率及取值范围）；
+   - ④ 热点参数：SSID 与密码规则、头盔侧 IP 是否固定；
+3. 🔴 **无 4G 期间的设备对时方式**（原 §8 依赖 4G 网络授时）。
+
+**Wi-Fi/BLE 形态下仍需确认：**
+
+4. 各类事件的上报频率（location 频率直接影响功耗与 BLE 带宽）；
+5. 断连离线缓存能力（容量、保留时长、补传策略）；
+6. 允许远程设置的参数清单、取值范围、执行回执错误码；
+7. deviceSecret 写入与出厂流程。
+
+**⏸️ 后延至硬件扩展 4G 时再确认（决策 #35）：**
+
+8. 4G 模组是否支持 MQTT over TLS，证书如何预置（地址 `dev-mqtt.01weichuang.com:8883`）；
+9. MQTT 3.1.1 / 5.0 支持情况；
+10. 各 Topic 的 QoS、Keep Alive 值、Clean Session / 离线消息需求。

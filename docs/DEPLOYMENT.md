@@ -137,7 +137,7 @@ docker compose -f docker-compose.prod.yml exec postgres pg_dump -U helmet helmet
 
 ## 8. 待硬件确认后:MQTT over TLS(8883)
 
-张森淼确认 4G 模组支持 TLS 及证书预置方式后:
+⏸️ 决策 #35 后延——待硬件扩展 4G 时,张森淼确认 4G 模组支持 TLS 及证书预置方式后:
 
 1. 取证书:复用 §7 手动证书路径,或从 Caddy 数据卷导出 `dev-mqtt` 证书;
 2. `deploy/emqx.prod.conf.template` 追加 `listeners.ssl.default`(bind 8883,certfile/keyfile 指向挂载路径),重跑 render + 重启 emqx;
