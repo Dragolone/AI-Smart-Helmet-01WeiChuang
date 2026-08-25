@@ -213,7 +213,8 @@ MVP 实用为主，全部只读 + 少量运维操作。
 
 - `POST /api/v1/ingest/webhook`；请求体 = EVENTS.md §1 envelope。
 - 鉴权：`X-Api-Key: <key>`（服务端环境变量配置 ⚠️ 若算法服务方有既定签名方案则从其约定）。
-- 响应：`202 { "eventId": "...", "duplicate": false }`；幂等重复返回 `duplicate: true` 同样 202。
+- 响应：`202 { "eventId": "...", "duplicate": false, "invalid": false }`；幂等重复返回 `duplicate: true` 同样 202；校验失败按 Ingest 层规则**留档不报错**，返回 `invalid: true`（eventId 尽力回传，无法解析时为 null）——算法服务侧无需实现重试/错误分支。
+- ✅ 本节已实现（2026-08-25）：`X-Api-Key` 对 `INGEST_WEBHOOK_API_KEY` 环境变量比对，未配置时入口拒绝所有请求（fail-closed）。
 - 本入口与 MQTT 入口在统一 Ingest 层汇合，业务模块不感知来源。
 
 ### 12.1 App 中转入口（蓝牙版，✅ Contract 定稿 2026-08-16，决策 #31；实现随蓝牙版排期）

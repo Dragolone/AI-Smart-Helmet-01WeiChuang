@@ -57,6 +57,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:?deploy/.env 未配置 JWT_SECRET}
       ADMIN_JWT_SECRET: ${ADMIN_JWT_SECRET:?deploy/.env 未配置 ADMIN_JWT_SECRET}
       EMQX_INTERNAL_TOKEN: ${EMQX_INTERNAL_TOKEN:?deploy/.env 未配置 EMQX_INTERNAL_TOKEN}
+      INGEST_WEBHOOK_API_KEY: ${INGEST_WEBHOOK_API_KEY:-}
       TRTC_SDK_APP_ID: ${TRTC_SDK_APP_ID:-}
       TRTC_SECRET_KEY: ${TRTC_SECRET_KEY:-}
       # 可调业务参数：留空即用代码内默认值（见 deploy/.env.example 末段）。
