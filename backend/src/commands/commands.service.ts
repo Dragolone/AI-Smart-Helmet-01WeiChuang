@@ -7,13 +7,20 @@ import {
 } from '@nestjs/common';
 import type {
   CommandPublic,
+  CommandStatus,
   DeviceCommand as WireCommand,
   Paginated,
+  RelayAckRequest,
+  RelayAckResponse,
   SettingsResponse,
+  WsDeviceCommandData,
+  WsMessage,
 } from '@helmet/shared';
 import { Prisma } from '../generated/prisma/client';
+import type { DeviceCommand as DbCommand } from '../generated/prisma/client';
 import { MqttConsumerService } from '../ingest/mqtt-consumer.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
 import {
   COMMAND_STATUS,
   SETTINGS_KEY_MAX_LENGTH,
@@ -102,6 +109,7 @@ export class CommandsService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mqtt: MqttConsumerService,
+    private readonly gateway: RealtimeGateway,
   ) {}
 
   onModuleInit(): void {
@@ -109,6 +117,43 @@ export class CommandsService implements OnModuleInit {
     this.mqtt.setCmdAckHandler((deviceId, raw) =>
       this.handleAck(deviceId, raw),
     );
+    // 连接补推（决策 #36 / API.md §11）：App 连上 WS 时把绑定设备的 pending/delivered 命令推一遍。
+    // 含 delivered 的原因：delivered=PUBACK 只证明送达 Broker（#27④），蓝牙版设备不在 MQTT 上
+    // PUBACK 照样成功——只推 pending 会让蓝牙版 App 永远收不到已 PUBACK 的命令。
+    // offline 不补推（用户可能已重发），REST 兜底可查。
+    this.gateway.setUserConnectedHandler(async (userId, client) => {
+      // DeviceCommand 无到 Device 的外键关系（留档原则），两步查询
+      const devices = await this.prisma.device.findMany({
+        where: { bindUserId: userId },
+        select: { deviceId: true },
+      });
+      if (devices.length === 0) return;
+      const commands = await this.prisma.deviceCommand.findMany({
+        where: {
+          deviceId: { in: devices.map((d) => d.deviceId) },
+          status: { in: [COMMAND_STATUS.pending, COMMAND_STATUS.delivered] },
+        },
+        orderBy: { issuedAt: 'asc' },
+      });
+      for (const c of commands) {
+        this.gateway.sendToClient(client, this.toWsMessage(c));
+      }
+    });
+  }
+
+  /** WS device_command 消息组装（新命令实时推与连接补推共用同一格式） */
+  private toWsMessage(c: DbCommand): WsMessage<WsDeviceCommandData> {
+    return {
+      type: 'device_command',
+      data: {
+        deviceId: c.deviceId,
+        commandId: c.id,
+        type: c.type as WireCommand['type'],
+        params: c.params as Record<string, unknown>,
+        issuedAt: c.issuedAt.toISOString(),
+      },
+      sentAt: new Date().toISOString(),
+    };
   }
 
   /**
@@ -139,6 +184,9 @@ export class CommandsService implements OnModuleInit {
       params,
       issuedAt: command.issuedAt.toISOString(),
     };
+    // 双路下发（决策 #36）：MQTT（4G 链路）+ WS 推绑定用户（BLE 链路）。
+    // 业务不感知设备形态；WS 先发——pushToUser 是同步扇出，避免等 PUBACK 徒增 BLE 路径时延
+    this.gateway.pushToUser(userId, this.toWsMessage(command));
     try {
       await this.mqtt.publishCommand(deviceId, JSON.stringify(wire));
       // PUBACK = 送达 Broker（口径 #27④）；条件更新防迟到——回执可能已先到并终态化
@@ -152,6 +200,50 @@ export class CommandsService implements OnModuleInit {
       );
     }
     return { commandId: command.id, status: 'pending' };
+  }
+
+  /**
+   * BLE 下行链回执（决策 #36 / API.md §8 relay-ack）：App 替头盔提交。
+   * delivered = App 已写入头盔（蓝牙版的"送达"）；executed = 头盔执行结果。
+   * 幂等不报错：已终态再收都返回当前状态——App 补传无需关心先后。
+   */
+  async relayAck(
+    userId: string,
+    deviceId: string,
+    commandId: string,
+    ack: RelayAckRequest,
+  ): Promise<RelayAckResponse> {
+    await this.ensureDeviceOwned(userId, deviceId);
+    const command = await this.prisma.deviceCommand.findUnique({
+      where: { id: commandId },
+    });
+    if (!command || command.deviceId !== deviceId) {
+      throw new NotFoundException({ code: 'NOT_FOUND', message: '命令不存在' });
+    }
+
+    if (ack.stage === 'delivered') {
+      // 与 PUBACK 同语义同防护：只从 pending 前进；已 delivered/终态则幂等返回现状
+      await this.prisma.deviceCommand.updateMany({
+        where: { id: commandId, status: COMMAND_STATUS.pending },
+        data: { status: COMMAND_STATUS.delivered, deliveredAt: new Date() },
+      });
+    } else {
+      const executedAt =
+        ack.executedAt !== undefined ? new Date(ack.executedAt) : new Date();
+      await this.applyAck(command, {
+        result: ack.result,
+        errorCode: ack.errorCode ?? null,
+        // App 转发的头盔时间戳同样不可信：非法值以服务器时间兜底
+        executedAt: Number.isNaN(executedAt.getTime())
+          ? new Date()
+          : executedAt,
+      });
+    }
+    const updated = await this.prisma.deviceCommand.findUniqueOrThrow({
+      where: { id: commandId },
+      select: { status: true },
+    });
+    return { commandId, status: updated.status as CommandStatus };
   }
 
   /** 回执处理（MQTT cmd_ack）：终态化 + success 时才把参数合入设备当前生效设置（口径 #27③） */
@@ -171,17 +263,32 @@ export class CommandsService implements OnModuleInit {
       );
       return;
     }
+    await this.applyAck(command, ack);
+  }
+
+  /**
+   * 回执终态化核心（MQTT cmd_ack 与 relay-ack 两条路径共用，决策 #36）：
+   * 条件更新防竞态；迟到回执如实覆盖 offline；只有 success 才写入生效设置。
+   */
+  private async applyAck(
+    command: DbCommand,
+    ack: {
+      result: 'success' | 'failed';
+      errorCode: string | null;
+      executedAt: Date;
+    },
+  ): Promise<void> {
     if (
       command.status === COMMAND_STATUS.success ||
       command.status === COMMAND_STATUS.failed
     ) {
-      this.logger.debug(`重复 cmd_ack 已跳过：${ack.commandId}`);
+      this.logger.debug(`重复回执已跳过：${command.id}`);
       return;
     }
     if (command.status === COMMAND_STATUS.offline) {
       // 迟到回执：设备实际执行了，如实覆盖 offline（DEVICE_PROTOCOL §7 语义）
       this.logger.warn(
-        `迟到 cmd_ack（已判 offline）如实覆盖：${ack.commandId} → ${ack.result}`,
+        `迟到回执（已判 offline）如实覆盖：${command.id} → ${ack.result}`,
       );
     }
 
@@ -216,7 +323,7 @@ export class CommandsService implements OnModuleInit {
         command.type === 'set_config'
       ) {
         const device = await tx.device.findUnique({
-          where: { deviceId },
+          where: { deviceId: command.deviceId },
           select: { settings: true },
         });
         const merged = {
@@ -224,13 +331,13 @@ export class CommandsService implements OnModuleInit {
           ...(command.params as Record<string, unknown>),
         };
         await tx.device.update({
-          where: { deviceId },
+          where: { deviceId: command.deviceId },
           data: { settings: merged as Prisma.InputJsonValue },
         });
       }
     });
     this.logger.log(
-      `命令回执已处理：${ack.commandId} → ${nextStatus}${ack.errorCode ? `（${ack.errorCode}）` : ''}`,
+      `命令回执已处理：${command.id} → ${nextStatus}${ack.errorCode ? `（${ack.errorCode}）` : ''}`,
     );
   }
 

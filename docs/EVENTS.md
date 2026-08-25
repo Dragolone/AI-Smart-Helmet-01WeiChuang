@@ -70,7 +70,7 @@
 |------|------|------|------|-------------|
 | battery | integer | 必填 | % | 0–100 |
 | charging | boolean | 选填 | — | 是否充电中 |
-| signalLevel | integer | 选填 | 级 | 4G 信号强度 0–4（⚠️ 分级口径待硬件确认） |
+| signalLevel | integer | 选填 | 级 | 蜂窝/无线信号强度 0–4（⚠️ 分级口径待硬件确认；**决策 #35 后 MVP 头盔无 4G，BLE 链路下本字段通常缺省，扩展 4G 后启用**） |
 | sleeping | boolean | 选填 | — | 当前是否处于休眠（与 sleep_entered/exited 冗余自校验用） |
 
 上报频率 ⚠️ 待硬件确认（建议 60s 心跳一次，与 MQTT Keep Alive 对齐）。

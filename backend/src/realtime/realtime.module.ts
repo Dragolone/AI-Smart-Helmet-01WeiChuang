@@ -4,6 +4,6 @@ import { RealtimePushService } from './realtime-push.service';
 
 @Module({
   providers: [RealtimeGateway, RealtimePushService],
-  exports: [RealtimePushService],
+  exports: [RealtimePushService, RealtimeGateway],
 })
 export class RealtimeModule {}
