@@ -5,7 +5,14 @@
 // 与真机 App 的一致性：envelope 内容、eventId 幂等规则、7 种事件范围完全按 Contract，
 // 服务端无法区分这是 Mock 还是真 App（CLAUDE.md Mock Data Strategy）。
 import { BLE_RELAY_EVENT_TYPES } from '@helmet/shared';
-import type { AppRelayResponse, EventEnvelope, EventType } from '@helmet/shared';
+import type {
+  AppRelayResponse,
+  EventEnvelope,
+  EventType,
+  RelayAckResponse,
+  WsDeviceCommandData,
+  WsMessage,
+} from '@helmet/shared';
 import type { EventKind, Log, Transport } from './transport.ts';
 
 const RELAY_SCOPE = new Set<string>(BLE_RELAY_EVENT_TYPES);
@@ -23,6 +30,8 @@ export interface RelayConfig {
   offlineCycle: number;
   /** 是否把范围外事件也发出去（用于验证服务端的超范围留档行为）；默认 false = 像真 App 一样过滤 */
   sendOutOfScope: boolean;
+  /** 命令回执行为（与 MQTT 模式的 MOCK_CMD_RESULT 同三态）：success | failed | silent（不回 executed，演示 offline） */
+  cmdResult: 'success' | 'failed' | 'silent';
   log: Log;
 }
 
@@ -128,14 +137,88 @@ export function createRelayTransport(cfg: RelayConfig): Transport {
     }
   };
 
+  // —— 下行命令（决策 #36）：WS 收 device_command → 模拟 BLE 写入（relay-ack delivered）
+  //    → 模拟头盔执行后回执（relay-ack executed）。commandId 去重：连接补推会重复送达。 ——
+  const seenCommands = new Set<string>();
+  let ws: WebSocket | null = null;
+  let wsClosed = false;
+
+  const relayAckPath = (commandId: string): string =>
+    `/api/v1/devices/${deviceId}/commands/${commandId}/relay-ack`;
+
+  const postAck = async (commandId: string, body: unknown): Promise<void> => {
+    let { status, json } = await post(relayAckPath(commandId), body, true);
+    if (status === 401) {
+      await reauth();
+      ({ status, json } = await post(relayAckPath(commandId), body, true));
+    }
+    if (status !== 200) {
+      log(`relay-ack 失败 ${status}：${JSON.stringify(json)}`);
+      return;
+    }
+    const r = json as RelayAckResponse;
+    log(`已回执 ${JSON.stringify(body)} → 服务端状态 ${r.status}（${commandId.slice(0, 8)}…）`);
+  };
+
+  const handleCommand = (msg: WsMessage<WsDeviceCommandData>): void => {
+    const cmd = msg.data;
+    if (cmd.deviceId !== deviceId) return; // 同账号其他设备的命令，本"头盔"不认
+    if (seenCommands.has(cmd.commandId)) {
+      log(`重复命令已跳过（连接补推的幂等语义）：${cmd.commandId.slice(0, 8)}…`);
+      return;
+    }
+    seenCommands.add(cmd.commandId);
+    log(`收到命令 ${cmd.type}（${cmd.commandId.slice(0, 8)}…）params=${JSON.stringify(cmd.params)}`);
+    // 模拟 App 经 BLE 写入头盔成功 → delivered
+    void postAck(cmd.commandId, { stage: 'delivered' });
+    if (cfg.cmdResult === 'silent') {
+      log('（MOCK_CMD_RESULT=silent：头盔不回执行结果，服务端将超时判 offline）');
+      return;
+    }
+    // 模拟头盔执行耗时后回执（与 MQTT 模式同 500ms）
+    setTimeout(() => {
+      void postAck(cmd.commandId, {
+        stage: 'executed',
+        result: cfg.cmdResult,
+        ...(cfg.cmdResult === 'failed' ? { errorCode: 'MOCK_REJECTED' } : {}),
+        executedAt: new Date().toISOString(),
+      });
+    }, 500);
+  };
+
+  const connectWs = (): void => {
+    if (wsClosed) return;
+    const wsUrl = `${base.replace(/^http/, 'ws')}/ws?token=${encodeURIComponent(accessToken)}`;
+    ws = new WebSocket(wsUrl); // Node 24 原生 WebSocket，零依赖
+    ws.onopen = () => log('WS 已连接（监听下行命令 device_command）');
+    ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(String(ev.data)) as WsMessage<WsDeviceCommandData>;
+        if (msg.type === 'device_command') handleCommand(msg);
+      } catch {
+        /* 非 JSON 消息忽略 */
+      }
+    };
+    ws.onclose = (ev) => {
+      if (wsClosed) return;
+      // 4401 = token 失效：刷新后重连；其他断开固定退避重连
+      const fix = ev.code === 4401 ? reauth() : Promise.resolve();
+      void fix.finally(() => setTimeout(connectWs, 5000));
+      log(`WS 断开（code=${ev.code}），5s 后重连`);
+    };
+    ws.onerror = () => {
+      /* 错误后必触发 onclose，重连逻辑在那里 */
+    };
+  };
+
   return {
     start(onReady) {
       log(`中转模式：事件经 HTTP 提交 ${base}/api/v1/ingest/app-relay（模拟手机 App 中转）`);
-      log('⚠️ 下行命令（设置下发）在本链路上没有通道——4G 链路走 MQTT cmd，BLE 链路的下行 Contract 尚未定义');
       login()
         .then(() => {
           log(`已登录 ${phone}，设备 ${deviceId} 必须已绑定到该账号，否则中转返回 404`);
           flushTimer = setInterval(() => void flush(), cfg.flushIntervalMs);
+          connectWs();
           onReady();
         })
         .catch((err: Error) => {
@@ -166,6 +249,8 @@ export function createRelayTransport(cfg: RelayConfig): Transport {
     },
 
     stop(done) {
+      wsClosed = true;
+      ws?.close();
       if (flushTimer) clearInterval(flushTimer);
       // 退出前尽力把缓存交出去，模拟 App 退到后台前的最后一次提交
       void flush().finally(() => {

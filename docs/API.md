@@ -143,7 +143,9 @@ SOS 状态机为服务端权威（DECISIONS #8/#26）：`pending → notified | 
 | GET | /devices/{deviceId}/settings | `{ settings, lastCommand }`——settings 为当前生效设置（**仅 success 回执后写入**），lastCommand 为最近一次下发（TS 类型 SettingsResponse） |
 | GET | /devices/{deviceId}/commands?page=&pageSize= | 命令历史（最新在前，TS 类型 CommandPublic） |
 | GET | /commands/{commandId} | 命令状态：`pending → delivered → success \| failed \| offline`（语义见 DEVICE_PROTOCOL §7，**未回执绝不显示成功**） |
+| POST | /devices/{deviceId}/commands/{commandId}/relay-ack | **BLE 下行链的回执入口（决策 #36）**：App 替头盔提交命令回执。body：`{ "stage": "delivered" }`（App 已收到命令并写入头盔——蓝牙版的 delivered 语义，对应 4G 版的 PUBACK）或 `{ "stage": "executed", "result": "success" \| "failed", "errorCode"?, "executedAt"? }`（头盔执行结果；executedAt 缺省取服务器时间）→ `200 { commandId, status }`（更新后状态）。**幂等不报错**：已终态命令再收 delivered/重复 executed 都返回当前状态；已判 offline 后迟到 executed 如实覆盖（同 MQTT cmd_ack 语义）。鉴权：用户 JWT + 设备归属（非本人 404 DEVICE_NOT_FOUND）+ 命令须属于该设备（否则 404 NOT_FOUND）。信任级与 §12.1 app-relay 一致（App 本就是蓝牙版设备的代理） |
 
+- **下发通道（决策 #36）**：命令创建后**双路并行**——MQTT QoS1 发布（4G 链路）+ WS `device_command` 推送给绑定用户（BLE 链路）。业务与状态机不感知设备形态；先到的 delivered 生效（条件更新幂等）。
 - **状态口径（✅ 定稿 2026-08-16，决策 #27④）**：`delivered` = MQTT PUBACK（送达 Broker，非送达设备）；**30s**（`COMMAND_ACK_TIMEOUT_SECONDS`）无 cmd_ack → `offline`（App 显示"未送达/等待执行"）；**迟到回执如实覆盖 offline**（设备实际执行了就记 success/failed）。
 - 设备离线：命令照发（Broker 持久会话补投，依赖 Clean Session 决策 ⚠️）；发布失败留 pending 超时判 offline。
 - 归属：非本人绑定设备一律 404。
@@ -201,9 +203,11 @@ MVP 实用为主，全部只读 + 少量运维操作。
 | sos_update | §7 sos 对象 | SOS 创建/取消/确认/超时通知 |
 | risk_event | §6 event 详情对象 | collision_risk / obstacle_risk / risk_cleared |
 | device_event | §6 event 列表项 | 其余事件（sleep_*、bluetooth_lost、video_ready） |
+| device_command | `{ deviceId, commandId, type, params, issuedAt }` | ① 新命令创建（§8 下发）时实时推送；② **连接建立时补推**该用户绑定设备所有 `status ∈ {pending, delivered}` 的命令（BLE 下行通道，决策 #36） |
 
 - WebSocket 是加速通道不是可靠通道：App 重连后须用 REST 拉取兜底；SOS 兜底靠 Push（deadline 持久化在服务端）。
-- ✅ 实现状态（2026-08-16）：通道 + 全部五类推送均已实现（`device_status` / `location_update` / `sos_update` / `risk_event` / `device_event`）。
+- **device_command 的连接补推不违反「不补发」口径**：这是持久化命令的状态同步（commandId 幂等，App/头盔重复收到不重复执行），不是历史事件重放。补推含 `delivered` 是因为 delivered=PUBACK 只证明送达 Broker（口径 #27④）——蓝牙版设备不在 MQTT 上，PUBACK 照样成功，若只补推 pending 则蓝牙版 App 上线永远收不到已 PUBACK 的命令。`offline` 的命令不补推（用户可能已重发），REST 兜底可查。
+- ✅ 实现状态（2026-08-16）：通道 + 全部五类推送均已实现（`device_status` / `location_update` / `sos_update` / `risk_event` / `device_event`）；`device_command` + relay-ack（决策 #36）已实现（2026-08-25，e2e 12 场景 + Mock 中转实测四场景通过）。
 
 ## 12. Ingest Webhook（云端算法服务 → 后端）
 

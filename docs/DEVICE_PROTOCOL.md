@@ -97,7 +97,10 @@ ACL 规则：设备 `helmet_001` 只允许 publish `helmet/helmet_001/{status,lo
 
 ## 7. 命令下发与 ACK（cmd / cmd_ack）
 
-> 本节的 MQTT cmd/cmd_ack 通道属 **4G 链路**。**BLE 链路（MVP 唯一真机链路）的下行命令走决策 #36**：后端经 WS 推给 App → App 经 BLE 写头盔 → 回执经 app-relay 方向反向提交；命令状态机与回执语义不变，Contract 细案随实现 PR 定稿。
+> 本节的 MQTT cmd/cmd_ack 通道属 **4G 链路**。**BLE 链路（MVP 唯一真机链路）的下行命令走决策 #36（Contract 已定稿，见 API.md §8/§11）**：
+> 后端把命令经 WS `device_command` 消息推给绑定用户的 App（连接建立时补推 pending/delivered 存量）→ App 经 BLE 写给头盔 → App 提交 `POST /devices/{id}/commands/{cid}/relay-ack`（`stage=delivered` 表示已写入头盔；`stage=executed` 转发头盔执行结果）。
+> **delivered 语义对齐**：4G 版 = PUBACK（送达 Broker）；蓝牙版 = App 确认写入（送达中转节点）——App 即蓝牙版的 Broker。状态机 `pending → delivered → success/failed/offline` 与 30s 超时口径（#27④）两链路完全一致。
+> ⚠️ App→头盔的 BLE 写入格式（命令的 GATT 表达）随硬件 BLE 协议定义（§10 第 1 条）。
 
 
 命令消息（云 → 设备，格式细节在 EVENTS.md 定稿）：

@@ -53,6 +53,7 @@ const transport: Transport =
         ),
         offlineCycle: Math.max(Number(process.env.RELAY_OFFLINE_CYCLE) || 0, 0),
         sendOutOfScope: process.env.RELAY_SEND_OUT_OF_SCOPE === '1',
+        cmdResult: CMD_RESULT,
         log,
       })
     : createMqttTransport({

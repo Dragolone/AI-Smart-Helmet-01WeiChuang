@@ -51,8 +51,37 @@ export class RealtimeGateway
       }
       conns.add(client);
       this.clientUser.set(client, userId);
+      // 连接建立钩子（决策 #36）：补推 pending/delivered 命令等"连接时状态同步"挂在这里；
+      // 钩子失败不影响连接本身（加速通道哲学：推不到还有 REST 兜底）
+      if (this.onUserConnected) {
+        this.onUserConnected(userId, client).catch((err: Error) =>
+          this.logger.warn(`连接建立钩子失败（不影响连接）：${err.message}`),
+        );
+      }
     } catch {
       client.close(CLOSE_UNAUTHORIZED, '访问令牌无效或已过期');
+    }
+  }
+
+  /** 回调注入（与 MqttConsumer.setCmdAckHandler 同模式）：Realtime 不反向依赖业务模块 */
+  private onUserConnected?: (
+    userId: string,
+    client: WebSocket,
+  ) => Promise<void>;
+
+  setUserConnectedHandler(
+    handler: (userId: string, client: WebSocket) => Promise<void>,
+  ): void {
+    this.onUserConnected = handler;
+  }
+
+  /** 定向发给单个连接（连接补推用；广播仍走 pushToUser） */
+  sendToClient(client: WebSocket, message: WsMessage): void {
+    if (client.readyState === WebSocket.OPEN) {
+      const raw = JSON.stringify(message);
+      client.send(raw, (err) => {
+        if (err) this.logger.warn(`WS 定向推送失败：${err.message}`);
+      });
     }
   }
 

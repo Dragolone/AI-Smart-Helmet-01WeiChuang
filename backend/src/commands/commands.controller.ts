@@ -1,15 +1,26 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
   HttpCode,
   Param,
+  Post,
   Put,
   Query,
   Req,
 } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { IsInt, IsObject, IsOptional, Max, Min } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsObject,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
+import type { RelayAckRequest } from '@helmet/shared';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
 import { CommandsService } from './commands.service';
 
@@ -17,6 +28,24 @@ class PutSettingsDto {
   // 扁平键值结构与标量约束在服务层校验（validateSettingsParams）
   @IsObject()
   settings!: Record<string, unknown>;
+}
+
+/** relay-ack 请求体（决策 #36）：stage 联合的字段依赖（executed 必带 result）在 controller 收口 */
+class RelayAckDto {
+  @IsIn(['delivered', 'executed'])
+  stage!: 'delivered' | 'executed';
+
+  @IsOptional()
+  @IsIn(['success', 'failed'])
+  result?: 'success' | 'failed';
+
+  @IsOptional()
+  @IsString()
+  errorCode?: string;
+
+  @IsOptional()
+  @IsString()
+  executedAt?: string;
 }
 
 class PageQueryDto {
@@ -55,6 +84,28 @@ export class CommandsController {
     @Param('deviceId') deviceId: string,
   ) {
     return this.commands.getSettings(req.user.userId, deviceId);
+  }
+
+  @Post('devices/:deviceId/commands/:commandId/relay-ack')
+  @HttpCode(200)
+  relayAck(
+    @Req() req: AuthenticatedRequest,
+    @Param('deviceId') deviceId: string,
+    @Param('commandId') commandId: string,
+    @Body() dto: RelayAckDto,
+  ) {
+    if (dto.stage === 'executed' && dto.result === undefined) {
+      throw new BadRequestException({
+        code: 'VALIDATION_FAILED',
+        message: 'stage=executed 时 result 必填',
+      });
+    }
+    return this.commands.relayAck(
+      req.user.userId,
+      deviceId,
+      commandId,
+      dto as RelayAckRequest,
+    );
   }
 
   @Get('devices/:deviceId/commands')
