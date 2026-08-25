@@ -58,7 +58,7 @@ EMQX 不自己存凭证，每次连接/发布都回调后端裁决。两个端�
 
 - 令牌配置在 `deploy/.env` 的 `EMQX_INTERNAL_TOKEN`，渲染进 EMQX 配置（`deploy/render-config.sh`）；改动后须重跑渲染并重启 EMQX。
 - EMQX 侧超时：`connect_timeout` / `request_timeout` 均 5s，`enable_pipelining = 1`（避免连接池复用与后端 keep-alive 空闲关闭的竞态）。
-- 授权无匹配规则时 `no_match = deny`（默认拒绝）。⚠️ **后端不可达时 EMQX 的放行行为未实测**，联调前需验证（预期应为拒绝，若实测为放行须调整配置）。
+- 授权无匹配规则时 `no_match = deny`（默认拒绝）。✅ **后端不可达时 fail-closed 已实测**（2026-08-25，两场景：回调返回非预期响应 / 端口无监听，均 `Connection refused: Not authorized`，不存在默认放行）。
 
 ## 4. Topic 与 ACL
 
