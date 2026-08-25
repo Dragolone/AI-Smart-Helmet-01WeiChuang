@@ -21,9 +21,12 @@ class UpdateMeDto {
   @IsOptional()
   @IsString()
   @MaxLength(90_000)
-  @Matches(/^(https?:\/\/\S{1,490}|data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+)$/, {
-    message: 'avatarUrl 格式不正确',
-  })
+  @Matches(
+    /^(https?:\/\/\S{1,490}|data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+)$/,
+    {
+      message: 'avatarUrl 格式不正确',
+    },
+  )
   avatarUrl?: string;
 }
 
