@@ -96,7 +96,7 @@
 
 域名定下来后，需同步给硬件团队（张森淼）确认，属联调清单：
 
-1. **MQTT 接入地址**：`dev-mqtt.01weichuang.com:8883`（MQTT over TLS）——4G 模组是否支持 TLS、CA 证书如何预置（DEVICE_PROTOCOL §3 标 ⚠️，最晚 Week 10 联调前确认）
+1. ⏸️ **MQTT 接入地址**：`dev-mqtt.01weichuang.com:8883`（MQTT over TLS）——4G 模组是否支持 TLS、CA 证书如何预置。**决策 #35 后延至硬件扩展 4G 时确认**；MVP 走 BLE 中转（HTTPS），联调只需 `dev-api` 域名
 2. **头盔 BLE 数据协议**（GATT 服务/特征值、分帧重组、确认机制、断连缓存补传）——蓝牙版 A 线中转模块的前置依赖（决策 #29/#31）
 3. DEVICE_PROTOCOL.md 中其余标 ⚠️ 的传输层细节逐项确认
 

@@ -1,6 +1,10 @@
 // REST API Contract（docs/API.md 已实现部分落型）。全部为线上格式：
 // 时间字段一律 ISO 8601 UTC 字符串（后端内部用 Date，由序列化层转换）。
-import type { CoordinateSystem } from './events';
+import type {
+  CommandResult,
+  CoordinateSystem,
+  DeviceCommand,
+} from './events';
 
 // —— §1 通用约定 ——
 
@@ -268,7 +272,8 @@ export type WsMessageType =
   | 'location_update'
   | 'sos_update'
   | 'risk_event'
-  | 'device_event';
+  | 'device_event'
+  | 'device_command';
 
 /** WS 是加速通道不是可靠通道：重连后须用 REST 拉取兜底（API.md §11） */
 export interface WsMessage<T = unknown> {
@@ -295,6 +300,30 @@ export type WsRiskEventData = EventDetail;
 
 /** type=device_event 的 data：sleep_* / bluetooth_lost / video_ready 的事件列表项 */
 export type WsDeviceEventData = EventListItem;
+
+/** type=device_command 的 data（决策 #36，BLE 下行链）：新命令实时推 + 连接建立时补推 pending/delivered 存量；
+ *  commandId 幂等——App/头盔重复收到不重复执行 */
+export interface WsDeviceCommandData extends DeviceCommand {
+  deviceId: string;
+}
+
+/** POST /devices/{id}/commands/{cid}/relay-ack 请求体（决策 #36）：
+ *  delivered = App 已把命令写入头盔（蓝牙版的"送达"，对应 4G 版 PUBACK）；
+ *  executed = 转发头盔执行结果（executedAt 缺省由服务端取当前时间） */
+export type RelayAckRequest =
+  | { stage: 'delivered' }
+  | {
+      stage: 'executed';
+      result: CommandResult;
+      errorCode?: string;
+      executedAt?: string;
+    };
+
+/** relay-ack 响应：更新后的命令状态（幂等重复提交返回当前状态，不报错） */
+export interface RelayAckResponse {
+  commandId: string;
+  status: CommandStatus;
+}
 
 // —— §13 网络对讲（已实现） ——
 
