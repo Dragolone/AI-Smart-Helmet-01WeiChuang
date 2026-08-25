@@ -8,6 +8,7 @@ import type {
   ActiveSosResponse,
   DevicePublic,
   DeviceStatus,
+  WsDeviceCommandData,
   WsDeviceStatusData,
   WsLocationData,
   WsSosData,
@@ -15,6 +16,8 @@ import type {
 
 import { authApi } from '@/api/auth';
 import { realtimeClient } from '@/api/realtime';
+import { handleDeviceCommand } from '@/services/ble-relay';
+import { startRelayUplink, stopRelayUplink } from '@/services/ble-relay-uplink';
 import { useAuthStore } from '@/stores/auth-store';
 
 export function useRealtimeUpdates(): void {
@@ -30,6 +33,8 @@ export function useRealtimeUpdates(): void {
       getAccessToken: () => useAuthStore.getState().tokens?.accessToken ?? null,
       triggerTokenRefresh: () => authApi.me(),
     });
+    // BLE 上行中转队列与登录态同生命周期(决策 #35:BLE 是唯一真机数据链路)
+    startRelayUplink();
 
     const unsubscribe = realtimeClient.subscribe((message) => {
       switch (message.type) {
@@ -74,8 +79,19 @@ export function useRealtimeUpdates(): void {
           }
           break;
         }
+        case 'device_command': {
+          // BLE 下行通道(决策 #36):写头盔+回执由 ble-relay 处理,完成后刷新设置页状态
+          const cmd = message.data as WsDeviceCommandData;
+          void handleDeviceCommand(cmd).then((acked) => {
+            if (acked) {
+              void queryClient.invalidateQueries({
+                queryKey: ['device-settings', cmd.deviceId],
+              });
+            }
+          });
+          break;
+        }
         default:
-          // risk_event / device_event：对应功能页（Week 9–10）接入时再消费
           break;
       }
     });
@@ -91,6 +107,7 @@ export function useRealtimeUpdates(): void {
       unsubscribe();
       appState.remove();
       realtimeClient.stop();
+      stopRelayUplink();
     };
   }, [authed, queryClient]);
 }
