@@ -6,7 +6,6 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   type LayoutChangeEvent,
-  Linking,
   Platform,
   Pressable,
   Share,
@@ -19,6 +18,7 @@ import type { LocationPoint, WsLocationData } from '@helmet/shared';
 import { devicesApi } from '@/api/devices';
 import { AmapView, type AmapViewHandle } from '@/components/map/amap-view';
 import { cumulativeMeters, toGcj02, type LngLat } from '@/components/map/coords';
+import { openAmapNavigation } from '@/components/map/nav-links';
 import { ThemedText } from '@/components/themed-text';
 import { Radius } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -127,9 +127,14 @@ export default function MapScreen() {
   // null = 实时模式；数字 = 回放中的当前轨迹点下标
   const [replayIdx, setReplayIdx] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
+  // 跟随模式:用户手势拖图即退出,浮出"回到跟随"按钮
+  const [following, setFollowing] = useState(true);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const devices = useQuery({ queryKey: ['devices'], queryFn: devicesApi.list });
-  const device = devices.data?.[0];
+  const deviceList = devices.data ?? [];
+  const device = deviceList.find((d) => d.deviceId === selectedId) ?? deviceList[0];
   const deviceId = device?.deviceId;
 
   // WS 推送直写此缓存（use-realtime）；REST 30s 轮询兜底（API.md §11 口径）
@@ -180,8 +185,8 @@ export default function MapScreen() {
   const liveLoc = live.data ?? null;
   useEffect(() => {
     if (replayIdx !== null || !liveLoc) return;
-    mapRef.current?.setHelmet(toGcj02(liveLoc), { follow: true });
-  }, [liveLoc, replayIdx]);
+    mapRef.current?.setHelmet(toGcj02(liveLoc), { follow: following });
+  }, [liveLoc, replayIdx, following]);
 
   // 回放模式：头盔沿轨迹移动
   useEffect(() => {
@@ -250,19 +255,7 @@ export default function MapScreen() {
 
   const navigateTo = async () => {
     if (!sharePos) return;
-    const { longitude, latitude } = sharePos;
-    // 优先拉起高德 App（dev=0 表示坐标已是 GCJ-02）；未安装则回落网页版
-    const scheme =
-      Platform.OS === 'ios'
-        ? `iosamap://navi?sourceApplication=helmet&lat=${latitude}&lon=${longitude}&dev=0`
-        : `androidamap://navi?sourceApplication=helmet&lat=${latitude}&lon=${longitude}&dev=0`;
-    try {
-      await Linking.openURL(scheme);
-    } catch {
-      await Linking.openURL(
-        `https://uri.amap.com/navigation?to=${longitude},${latitude},${encodeURIComponent(deviceId ?? '头盔位置')}&mode=car`,
-      );
-    }
+    await openAmapNavigation(sharePos, device?.name ?? deviceId ?? '头盔位置');
   };
 
   const online = device?.online ?? false;
@@ -274,6 +267,7 @@ export default function MapScreen() {
       <AmapView
         style={StyleSheet.absoluteFill}
         controllerRef={mapRef}
+        onUserPan={() => setFollowing(false)}
         onError={(msg) => setMapError(msg)}
         // 地图（重）就绪时重推当前状态：WebView 重挂载/进程重启后 effect 依赖未变不会重发
         onReady={() => {
@@ -295,7 +289,9 @@ export default function MapScreen() {
         pointerEvents="box-none">
         {/* 顶部：实时状态药丸 + 分享/导航 */}
         <View style={styles.topRow} pointerEvents="box-none">
-          <View style={[styles.livePill, { backgroundColor: cardBg, borderColor: theme.border }]}>
+          <Pressable
+            onPress={() => deviceList.length > 1 && setPickerOpen((v) => !v)}
+            style={[styles.livePill, { backgroundColor: cardBg, borderColor: theme.border }]}>
             <View
               style={[
                 styles.liveDot,
@@ -314,7 +310,14 @@ export default function MapScreen() {
                   : '未绑定设备'}
               </ThemedText>
             </View>
-          </View>
+            {deviceList.length > 1 && (
+              <Ionicons
+                name={pickerOpen ? 'chevron-up' : 'chevron-down'}
+                size={14}
+                color={theme.textSecondary}
+              />
+            )}
+          </Pressable>
           {/* 竖排:分享 → 导航跳转(罗盘) → 回中(指针,地图通用"我的位置"语义) */}
           <View style={styles.topActions}>
             <Pressable
@@ -356,8 +359,55 @@ export default function MapScreen() {
           </View>
         )}
 
-        {/* 底部：统计卡 + 回放播放器 */}
-        <View style={[styles.bottomCard, { backgroundColor: cardBg, borderColor: theme.border }]}>
+        {/* 设备切换下拉(多设备时点药丸展开) */}
+        {pickerOpen && (
+          <View
+            style={[styles.devicePicker, { backgroundColor: cardBg, borderColor: theme.border }]}>
+            {deviceList.map((d) => (
+              <Pressable
+                key={d.deviceId}
+                style={styles.pickerRow}
+                onPress={() => {
+                  setSelectedId(d.deviceId);
+                  setPickerOpen(false);
+                  setFollowing(true);
+                }}>
+                <View
+                  style={[
+                    styles.liveDot,
+                    { backgroundColor: d.online ? theme.success : theme.textSecondary },
+                  ]}
+                />
+                <ThemedText
+                  type="smallBold"
+                  style={d.deviceId === deviceId ? { color: theme.brand } : styles.lightText}
+                  numberOfLines={1}>
+                  {d.name ?? d.deviceId}
+                </ThemedText>
+              </Pressable>
+            ))}
+          </View>
+        )}
+
+        {/* 底部组:跟随按钮悬在统计卡上方(流式布局,不与卡片抢层级) */}
+        <View pointerEvents="box-none">
+          {/* 退出跟随后浮出:一键回到实时跟随 */}
+          {!following && replayIdx === null && (
+            <Pressable
+              style={[styles.followBtn, { backgroundColor: theme.brand }]}
+              onPress={() => {
+                setFollowing(true);
+                if (liveLoc) mapRef.current?.setHelmet(toGcj02(liveLoc), { follow: true });
+              }}>
+              <Ionicons name="locate" size={16} color={theme.onBrand} />
+              <ThemedText type="smallBold" style={{ color: theme.onBrand, fontSize: 13 }}>
+                回到跟随
+              </ThemedText>
+            </Pressable>
+          )}
+
+          {/* 底部：统计卡 + 回放播放器 */}
+          <View style={[styles.bottomCard, { backgroundColor: cardBg, borderColor: theme.border }]}>
           <View style={styles.statsRow}>
             <Stat icon="speedometer" label="速度" value={statPoint ? (statPoint.speed * 3.6).toFixed(0) : '—'} unit="km/h" caption="当前" />
             <View style={[styles.vDivider, { backgroundColor: theme.border }]} />
@@ -454,6 +504,7 @@ export default function MapScreen() {
               {track.data.total} 点）
             </ThemedText>
           )}
+          </View>
         </View>
       </View>
     </View>
@@ -526,6 +577,35 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   errorBanner: { borderRadius: Radius.control, padding: 10 },
+  devicePicker: {
+    position: 'absolute',
+    top: 86,
+    left: 14,
+    minWidth: 220,
+    borderRadius: Radius.card,
+    borderWidth: 1,
+    paddingVertical: 4,
+    zIndex: 30,
+    elevation: 12,
+  },
+  pickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  followBtn: {
+    alignSelf: 'flex-end',
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: Radius.pill,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    elevation: 8,
+  },
   bottomCard: {
     borderRadius: 22,
     borderWidth: 1,

@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { devicesApi } from '@/api/devices';
+import { showToast } from '@/components/toast';
 import { toUserMessage } from '@/api/error-messages';
 import { Badge } from '@/components/badge';
 import { FormInput, PrimaryButton } from '@/components/form';
@@ -110,6 +111,7 @@ export default function DeviceDetailScreen() {
       .rename(deviceId, { name: nameDraft })
       .then(async () => {
         setRenameOpen(false);
+        showToast('已重命名');
         // 列表/详情/地图药丸同步刷新
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: ['device-detail', deviceId] }),

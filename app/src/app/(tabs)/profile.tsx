@@ -23,6 +23,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { authApi } from '@/api/auth';
+import { showToast } from '@/components/toast';
 import { toUserMessage } from '@/api/error-messages';
 import { FormInput, PrimaryButton } from '@/components/form';
 import { ThemedText } from '@/components/themed-text';
@@ -183,6 +184,7 @@ export default function ProfileScreen() {
       });
       await setUser(updated);
       setNickOpen(false);
+      showToast('已保存');
     } catch (e) {
       Alert.alert('保存失败', toUserMessage(e));
     } finally {
@@ -199,7 +201,7 @@ export default function ProfileScreen() {
           queryClient.clear();
           void Image.clearDiskCache();
           void Image.clearMemoryCache();
-          Alert.alert('已清除');
+          showToast('缓存已清除');
         },
       },
     ]);

@@ -26,6 +26,8 @@ interface Props {
   style?: StyleProp<ViewStyle>;
   onReady?: () => void;
   onError?: (message: string) => void;
+  /** 用户手势拖动地图(程序移动镜头不触发)——调用方用于退出跟随模式 */
+  onUserPan?: () => void;
   /** 命令句柄注入位：父组件传 useRef(null)，本组件挂载后填充。
    *  不用 useImperativeHandle——实测其在本项目 React Compiler 下 ref 永不挂载（2026-08-16）。 */
   controllerRef: RefObject<AmapViewHandle | null>;
@@ -156,6 +158,8 @@ try {
     map.setMapStyle('amap://styles/dark');
     post({ type: 'ready' });
   });
+  // 用户手势拖图(程序 panTo/setCenter 不触发 dragstart)→ 上报供"退出跟随"用
+  map.on('dragstart', function () { post({ type: 'userpan' }); });
   setTimeout(function () { map.setMapStyle('amap://styles/dark'); }, 2500);
 
   window.__cmd = function (cmd) {
@@ -190,7 +194,7 @@ try {
 </body>
 </html>`;
 
-export function AmapView({ style, onReady, onError, controllerRef }: Props) {
+export function AmapView({ style, onReady, onError, onUserPan, controllerRef }: Props) {
   const webRef = useRef<WebView>(null);
   // 就绪标志与队列全用 ref：send 的行为不依赖渲染期状态，杜绝闭包捕获旧值
   //（曾因 onReady 回调里的命令带着 ready=false 旧闭包入队、错过唯一一次冲刷而丢失）
@@ -255,6 +259,8 @@ export function AmapView({ style, onReady, onError, controllerRef }: Props) {
         announcedRef.current = true;
         onReady?.();
       }
+    } else if (msg.type === 'userpan') {
+      onUserPan?.();
     } else if (msg.type === 'error') {
       onError?.(msg.message ?? '地图未知错误');
     }

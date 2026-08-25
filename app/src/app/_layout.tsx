@@ -10,6 +10,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { LogBox } from 'react-native';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
+import { ToastHost } from '@/components/toast';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useAuthStore } from '@/stores/auth-store';
 
@@ -90,6 +91,7 @@ export default function RootLayout() {
         <AnimatedSplashOverlay />
         {/* SecureStore 恢复完成前不挂路由，避免登录态闪变；空白由 SplashOverlay 兜住 */}
         {hydrated && <RootNavigator />}
+        <ToastHost />
       </ThemeProvider>
     </QueryClientProvider>
   );

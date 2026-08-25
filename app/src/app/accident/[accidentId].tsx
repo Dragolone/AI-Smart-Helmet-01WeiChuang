@@ -2,11 +2,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams } from 'expo-router';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { toUserMessage } from '@/api/error-messages';
 import { sosApi } from '@/api/sos';
 import { Badge } from '@/components/badge';
+import { AmapView, type AmapViewHandle } from '@/components/map/amap-view';
+import { toGcj02 } from '@/components/map/coords';
+import { openAmapNavigation } from '@/components/map/nav-links';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Radius } from '@/constants/theme';
@@ -36,6 +40,15 @@ export default function AccidentDetailScreen() {
   });
 
   const d = detail.data;
+  const mapRef = useRef<AmapViewHandle>(null);
+  const gcjPos = d?.location ? toGcj02(d.location) : null;
+
+  // 位置就绪后落点(小地图 ready 前命令会排队,双保险:数据到达时也推一次)
+  useEffect(() => {
+    if (gcjPos) mapRef.current?.setHelmet(gcjPos, { follow: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gcjPos?.longitude, gcjPos?.latitude]);
+
   return (
     <ThemedView style={styles.flex}>
       <ScrollView contentContainerStyle={styles.container}>
@@ -71,6 +84,26 @@ export default function AccidentDetailScreen() {
                   : '无位置信息'
               }
             />
+
+            {/* 事故地点小地图 + 一键导航(监护场景核心:赶到现场) */}
+            {d.location && gcjPos && (
+              <View
+                style={[styles.mapCard, { borderColor: theme.border }]}>
+                <AmapView
+                  style={styles.map}
+                  controllerRef={mapRef}
+                  onReady={() => mapRef.current?.setHelmet(gcjPos, { follow: true })}
+                />
+                <Pressable
+                  style={[styles.navBtn, { backgroundColor: theme.danger }]}
+                  onPress={() => void openAmapNavigation(gcjPos, '事故地点')}>
+                  <Ionicons name="navigate" size={16} color="#fff" />
+                  <ThemedText type="smallBold" style={styles.navBtnText}>
+                    导航到事故地点
+                  </ThemedText>
+                </Pressable>
+              </View>
+            )}
 
             <ThemedText type="subtitle" style={styles.sectionTitle}>
               通知记录
@@ -115,6 +148,26 @@ export default function AccidentDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  mapCard: {
+    height: 240,
+    borderRadius: Radius.card,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  map: { flex: 1 },
+  navBtn: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    bottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: Radius.pill,
+    paddingVertical: 12,
+  },
+  navBtnText: { color: '#fff', fontSize: 14 },
   flex: { flex: 1 },
   container: { padding: 20, gap: 10 },
   titleRow: {
