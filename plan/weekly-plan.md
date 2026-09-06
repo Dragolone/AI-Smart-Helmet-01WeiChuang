@@ -213,6 +213,26 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 - **BLE 中转链路（决策 #29/#31/#35）**：B——`/ingest/app-relay` 中转入口 **✅ 已实现并验收（#49，2026-08-16，负责人 curl 实测中转 fall 触发 SOS）**；A——App BLE 中转模块（收 7 种事件、断线缓存、批量补传、后台保活；**前置=硬件 BLE 协议定义，联调清单第 1 条已发张森淼**）。数据范围与视频边界见 DEVICE_PROTOCOL §1.1。另：Admin §10.2 规划端点已清零（#50 设备详情 + 概览统计，验收通过）。
 - **验收标准**：核心链路（注册→绑定→轨迹→SOS→危险事件）双端回归清单全绿；**蓝牙版保命链路可演示**（BLE 收 possible_fall → App 中转上云 → 60s 倒计时 → 通知，硬件未就绪则以「App 注入模拟 BLE 数据」验软件侧）。
 
+### A 线当前进度与待办（2026-09-06，B 线整理；A 线直接按此推进，有疑问群里问）
+
+**已完成（2f89744，2026-08-25 A 线自主推进）**：决策 #36 对接——App 接 WS `device_command` + relay-ack 回执（commandId 去重、幂等重试；BLE 写入为 `__DEV__` 占位，模拟器实测下发→delivered→executed→设置页 success 全链路通过）；上行中转队列骨架（7 种事件过滤、批量 ≤100、断线按原 eventId 补传，`app/src/services/ble-relay*.ts`）；地图跟随开关 + 设备切换 + 事故详情小地图导航 + 全局 Toast。交接文档已消化删除。
+
+**云端 development 环境已上线（2026-09-06，B 线部署并验收，手册 docs/DEPLOYMENT.md）**——A 线从现在起联调不再依赖 B 的 Mac：
+
+| 项 | 值 |
+|---|---|
+| App API 地址 | `app/.env` → `EXPO_PUBLIC_API_URL=https://dev-api.01weichuang.com/api/v1`（WS 自动走 wss） |
+| 管理后台 | <https://dev-admin.01weichuang.com>（管理员账号问 B） |
+| 云端常驻 Mock 头盔 | `helmet_94173f`，**绑定码 `94041564`**；App 注册→绑定后地图页可看到它在动（B 本机跑 Mock 时在线；需要常驻时告诉 B 挂到服务器） |
+| 本地开发 | 照旧 `http://<mac-lan-ip>:3000/api/v1`，两套环境随时切 |
+
+**剩余任务（按优先级；① 可立即做，②③ 等硬件）**：
+
+1. **云端真机联调（可立即做，也是 DEPLOYMENT.md 验收清单第 6 条）**：双端真机把 API 指到云端，走一遍注册→绑定 `helmet_94173f`→地图看 Mock 移动→SOS 开发快捷触发→倒计时→取消；顺带把设置下发在云端跑一遍（Mock 在 MQTT 模式会自动回执三态）。通过后在本节记一笔「双端云端联调通过 + 日期」。
+2. **BLE 中转模块收尾（前置=硬件 BLE GATT 协议，联调清单第 1 条已催张森淼）**：队列文件持久化（App 被杀后补传）+ 引入 `react-native-ble-plx` + 后台保活双端实测（iOS 后台 BLE 限制记入 DEVELOPMENT.md 平台限制清单）——BLE 库与队列持久化可在下次原生重建批次先做，不必等协议。
+3. **实时视频预览（决策 #37；前置=硬件补四项：子码流 id/分辨率、`rtsp_net_type`、拉流 URL 与鉴权、AP 的 SSID/密码/IP）**：先做 RTSP 播放器双端真机 Spike（候选 libVLC 系；备选推动硬件 WebRTC；降级 `rtsp://` 唤起系统 VLC），定案写 DECISIONS.md 后再做预览页。**Spike 结论未出前不承诺方案。**
+4. **等外部件（与 B 线同）**：APNs 远程推送等 Apple 公司账号；高德企业 Key 创建后换入 `app/.env`（企业认证已完成 2026-09-06）。
+
 ## Week 12：收官
 
 **为了实现什么**：交付一个可部署、可演示、有文档的 MVP。**本周禁止开发新功能。**
