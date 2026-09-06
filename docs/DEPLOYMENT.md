@@ -48,15 +48,23 @@ HTTPS 证书由 Caddy 自动申请、自动续期(Let's Encrypt),不需要手动
 | 1883 | TCP | **限硬件团队与开发者出口 IP** | MQTT 明文,联调期临时口径 |
 | 18083 | — | **不开**(容器只绑 127.0.0.1) | EMQX Dashboard 走 SSH 隧道 |
 
-## 3. 首次部署(约 20 分钟)
+## 3. 首次部署(约 20 分钟;**development 已于 2026-09-06 按本节部署完成**:helmet-dev 111.230.157.151,广州,2C4G/90GB/6Mbps,到期 2027-09-06)
 
 ```bash
 # ① 装 Docker(镜像自带则跳过;验证:docker compose version 有输出)
 curl -fsSL https://get.docker.com | sh
 
-# ② 拉代码
-git clone https://github.com/Dragolone/AI-Smart-Helmet-01WeiChuang.git
+# ② 拉代码(仓库私有:先在服务器 ssh-keygen 生成密钥,把公钥加为仓库只读 Deploy Key;
+#    国内到 GitHub 只有几十 KB/s,用 --depth 1 浅克隆,否则大概率中途断开)
+ssh-keygen -t ed25519 -C "helmet-dev-server" -f ~/.ssh/id_ed25519 -N "" && cat ~/.ssh/id_ed25519.pub
+ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+git clone --depth 1 git@github.com:Dragolone/AI-Smart-Helmet-01WeiChuang.git
 cd AI-Smart-Helmet-01WeiChuang/deploy
+
+# ②' 切国内源(2026-09-06 实测必做:apt 走 debian 官方源 25 分钟没装完,切腾讯云内网源后整轮构建 < 2 分钟)
+#    只改服务器本地副本、不提交;之后 git pull 前 git stash、拉完 git stash pop
+sed -i '/^RUN apt-get update/i RUN sed -i "s#deb.debian.org#mirrors.tencentyun.com#g" /etc/apt/sources.list.d/debian.sources' ../backend/Dockerfile
+sed -i '/^RUN npm ci/i RUN npm config set registry https://registry.npmmirror.com' ../backend/Dockerfile Dockerfile.gateway
 
 # ③ 配置环境变量
 cp .env.example .env
@@ -130,7 +138,8 @@ docker compose -f docker-compose.prod.yml exec postgres pg_dump -U helmet helmet
 | 症状 | 原因与处理 |
 |------|-----------|
 | Caddy 日志反复 `obtaining certificate` 失败 | 先查 DNS 是否已解析到本机(`dig dev-api.01weichuang.com`)、80 端口是否放通。若确认是 Let's Encrypt 网络不通(国内偶发):腾讯云 SSL 控制台按子域名申请免费 DV 证书,下载 nginx 格式的 crt/key 放服务器 `/opt/certs/`,compose 给 gateway 加挂载 `- /opt/certs:/certs:ro`,Caddyfile 对应站点块内加一行 `tls /certs/<域名>.crt /certs/<域名>.key`,restart gateway。两分钟的事,不影响其他一切 |
-| `npm ci` 在构建时极慢/超时 | 国内服务器访问 npmjs 不稳。backend/Dockerfile 与 Dockerfile.gateway 的 `RUN npm ci` 前临时加一行 `RUN npm config set registry https://registry.npmmirror.com`(本地开发不需要,别提交) |
+| `npm ci` / `apt-get` 在构建时极慢/超时 | 国内服务器访问 npmjs 与 deb.debian.org 不稳。按 §3 ②' 切腾讯云内网源 + npmmirror(本地开发不需要,别提交) |
+| ubuntu 用户 `docker` 报 `permission denied ... docker.sock` | 首次登录用户不在 docker 组:`sudo usermod -aG docker $USER && newgrp docker` |
 | Mock/设备连 MQTT 被拒 `Not authorized` | 依次查:① deviceId/deviceSecret 是否 §3 开通的那套;② `generated/emqx.conf` 是否渲染过、token 与 `.env` 一致;③ backend 是否健康(EMQX 回调 fail-closed,后端挂了=全拒,这是设计行为) |
 | backend 起不来:`P1001 Can't reach database` | postgres 容器健康检查未过就被连了,`docker compose ... ps` 看 postgres 状态;一般 restart backend 即愈(depends_on 已配 healthy,极少出现) |
 | Admin 页面白屏 | 强刷(Cmd+Shift+R);仍白屏看 gateway 日志 `docker compose ... logs gateway`,确认 /srv/admin 有产物(镜像构建时烧入,重建 gateway 镜像) |

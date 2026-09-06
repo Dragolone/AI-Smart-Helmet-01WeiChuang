@@ -143,9 +143,9 @@ ACL 规则：设备 `helmet_001` 只允许 publish `helmet/helmet_001/{status,lo
 1. 🔴 **BLE 数据协议**：GATT 服务/特征值、分帧与重组、App→头盔确认机制、头盔侧断连缓存与补传策略——A 线中转模块开工的硬前置；
 2. 🔴 **Wi-Fi 近场细节**：
    - ① 实时视频推流协议 —— ✅ **硬件 2026-08-25 已答**：主控 **全志 V821 SoC**，官方参考方案 `sample_smartIPC_demo` 走 **RTSP**，编码 **H.264**，媒体由 **RTP** 承载（RTP/UDP 还是 RTP over TCP 取决于 SDK 配置 `rtsp_net_type`），主/子码流以不同 `rtsp id` 区分（默认 `main_rtsp_id = 0`）。文档：<https://docs.aw-ol.com/docs/soc/v821/solution/ipc-camera/>
-     **仍需硬件补充**：⚠️ 子码流的 rtsp id 与分辨率（App 预览应用子码流，主码流解码与带宽压力过大）；⚠️ `rtsp_net_type` 实配值（局域网直连建议 RTP/UDP，延迟更低）；⚠️ 完整拉流 URL 格式与是否需要鉴权。
+     **仍需硬件补充（🔴 2026-09-01 实时预览已拍板进 MVP——决策 #37，以下缺项连同 ④ 热点参数升级为 A 线 Spike 开工硬前置）**：⚠️ 子码流的 rtsp id 与分辨率（App 预览应用子码流，主码流解码与带宽压力过大）；⚠️ `rtsp_net_type` 实配值（局域网直连建议 RTP/UDP，延迟更低）；⚠️ 完整拉流 URL 格式与是否需要鉴权。
      **App 侧影响（结论未定，待 Spike）**：iOS AVPlayer **不支持 RTSP**（系统级限制），WebView 亦不支持 `rtsp://` —— 地图那套「WebView 绕过原生库」在此不适用；行业解法为内嵌 libVLC 系播放器（体积 +数十 MB，且 RN 0.86 / Expo SDK 57 新架构兼容性存疑，同决策 #33 amap3d 风险类型），**必须双端真机 Spike 后才能定案**；降级预案 = App 内以 `rtsp://` 链接唤起系统 VLC。若硬件愿改用 **WebRTC**（V821 文档称可自行移植），App 端成本显著降低（`react-native-webrtc` 成熟，且已有 TRTC 原生依赖经验）。
-   - ② TF 卡视频文件的列表与下载接口（HTTP 文件服务？私有协议？）；
+   - ② TF 卡视频文件的列表与下载接口（HTTP 文件服务？私有协议？）——**决策 #37 后 TF 卡读取排 MVP 后第一迭代，本项降为非紧急**；
    - ③ 对讲机配置接口与参数清单（频道/频率/功率及取值范围）；
    - ④ 热点参数：SSID 与密码规则、头盔侧 IP 是否固定；
 3. 🔴 **无 4G 期间的设备对时方式**（原 §8 依赖 4G 网络授时）。
