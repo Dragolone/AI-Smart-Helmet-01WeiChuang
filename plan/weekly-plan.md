@@ -223,7 +223,7 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 |---|---|
 | App API 地址 | `app/.env` → `EXPO_PUBLIC_API_URL=https://dev-api.01weichuang.com/api/v1`（WS 自动走 wss） |
 | 管理后台 | <https://dev-admin.01weichuang.com>（管理员账号问 B） |
-| 云端常驻 Mock 头盔 | `helmet_94173f`，**绑定码 `94041564`**；App 注册→绑定后地图页可看到它在动（B 本机跑 Mock 时在线；需要常驻时告诉 B 挂到服务器） |
+| 云端常驻 Mock 头盔 | `helmet_94173f`，**绑定码 `94041564`**；App 注册→绑定后地图页可看到它在动（**已作为 compose 服务 `mock` 常驻服务器**，随后端自动起停，DEPLOYMENT.md §3 ⑦） |
 | 本地开发 | 照旧 `http://<mac-lan-ip>:3000/api/v1`，两套环境随时切 |
 
 **剩余任务（按优先级；① 可立即做，②③ 等硬件）**：
