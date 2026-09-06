@@ -30,7 +30,8 @@
 |------|------|------|
 | `dev-api.01weichuang.com` | gateway→backend | App 的 REST + WebSocket(wss 自动) |
 | `dev-admin.01weichuang.com` | gateway | 管理后台 SPA + 同源 /api 转发 |
-| `dev-mqtt.01weichuang.com` | 服务器 IP:1883 | 设备/Mock 的 MQTT 接入 |
+| `dev-mqtt.01weichuang.com` | 服务器 IP:1883 | 外部设备/Mock 的 MQTT 接入 |
+| (容器内) `mock` | emqx:1883 | **演示常驻 Mock 头盔**(profile demo,§3 ⑦),与外部设备同认证同 Topic,只是不出公网 |
 
 HTTPS 证书由 Caddy 自动申请、自动续期(Let's Encrypt),不需要手动管理;失败预案见 §7。
 
@@ -64,7 +65,7 @@ cd AI-Smart-Helmet-01WeiChuang/deploy
 # ②' 切国内源(2026-09-06 实测必做:apt 走 debian 官方源 25 分钟没装完,切腾讯云内网源后整轮构建 < 2 分钟)
 #    只改服务器本地副本、不提交;之后 git pull 前 git stash、拉完 git stash pop
 sed -i '/^RUN apt-get update/i RUN sed -i "s#deb.debian.org#mirrors.tencentyun.com#g" /etc/apt/sources.list.d/debian.sources' ../backend/Dockerfile
-sed -i '/^RUN npm ci/i RUN npm config set registry https://registry.npmmirror.com' ../backend/Dockerfile Dockerfile.gateway
+sed -i '/^RUN npm ci/i RUN npm config set registry https://registry.npmmirror.com' ../backend/Dockerfile ../mock-device/Dockerfile Dockerfile.gateway
 
 # ③ 配置环境变量
 cp .env.example .env
@@ -90,6 +91,19 @@ docker compose -f docker-compose.prod.yml exec backend npm run create:admin     
 docker compose -f docker-compose.prod.yml exec backend npm run provision:device   # deviceSecret 只显示一次
 ```
 
+**⑦ 常驻演示 Mock 头盔**(CLAUDE.md「演示环境常驻 Mock 设备跑剧本,保证随时可 Demo」;compose 服务 `mock`,与外部真机/Mock 同认证同 Contract):
+
+```bash
+# 把 ⑥ 开通的凭证填进 deploy/.env,并打开 profile
+sed -i "s|^MOCK_DEVICE_ID=.*|MOCK_DEVICE_ID=<deviceId>|; s|^MOCK_DEVICE_SECRET=.*|MOCK_DEVICE_SECRET=<deviceSecret>|; s|^#COMPOSE_PROFILES=demo|COMPOSE_PROFILES=demo|" .env
+docker compose -f docker-compose.prod.yml up -d --build      # 多起一个 mock 容器,随机重启、自动重连
+docker compose -f docker-compose.prod.yml logs -f mock       # 应持续「已发送 location_update」
+```
+
+- 剧本 / 上报间隔 / 命令回执三态用 `MOCK_SCENARIO` / `MOCK_LOCATION_INTERVAL_MS` / `MOCK_CMD_RESULT`(见 `.env.example`),改后 `up -d` 重建 mock 即生效。
+- 常驻 Mock 每 10s 一个位置点 ≈ 8.6k 点/天,MVP 期间 PG 无压力;需要清理时走服务层(CLAUDE.md Database Rules),不裸删表。
+- 不想常驻:`.env` 里注释回 `#COMPOSE_PROFILES=demo`,再 `docker compose -f docker-compose.prod.yml rm -sf mock`。
+
 ## 4. 验收清单(逐条过,全绿才算部署完成)
 
 | # | 操作 | 预期看到 |
@@ -97,7 +111,7 @@ docker compose -f docker-compose.prod.yml exec backend npm run provision:device 
 | 1 | 浏览器开 `https://dev-api.01weichuang.com/api/v1/health` | 挂锁图标(证书有效)+ `{"status":"ok","database":"connected"}` |
 | 2 | 浏览器开 `https://dev-admin.01weichuang.com` | Admin 登录页正常渲染 |
 | 3 | 用 §3 创建的管理员登录 Admin | 进入概览页,统计数字为 0 或初始值 |
-| 4 | 本地 Mac 跑 Mock 指到云端:`MQTT_URL=mqtt://dev-mqtt.01weichuang.com:1883 DEVICE_ID=<id> DEVICE_SECRET=<密钥> npm run start -w mock-device` | Mock 日志「已连接」并持续「已发送 location_update」;错密钥则被拒(Not authorized),证明认证生效 |
+| 4 | 本地 Mac 跑 Mock 指到云端(已开常驻 mock 的话,这步只需再验「错密钥被拒」):`MQTT_URL=mqtt://dev-mqtt.01weichuang.com:1883 DEVICE_ID=<id> DEVICE_SECRET=<密钥> npm run start -w mock-device` | Mock 日志「已连接」并持续「已发送 location_update」;错密钥则被拒(Not authorized),证明认证生效 |
 | 5 | Admin 设备列表刷新 | 该设备在线,电量在变 |
 | 6 | App 端 `EXPO_PUBLIC_API_URL=https://dev-api.01weichuang.com/api/v1` 重启 Metro,注册→绑定→地图页 | 全流程可用,地图上看到 Mock 头盔移动(WS 走 wss 自动) |
 | 7 | `docker compose -f docker-compose.prod.yml restart backend` 后重复 #1 | 服务自动恢复,health 正常(重启接管:含 SOS pending 恢复逻辑) |
@@ -122,6 +136,7 @@ docker compose -f docker-compose.prod.yml exec postgres pg_dump -U helmet helmet
 ```
 
 - 改了 `deploy/.env` 里的 `EMQX_INTERNAL_TOKEN`:重跑 `sh render-config.sh` 再 `up -d`(backend 与 emqx 都要重启)。
+- `.env` 里 `COMPOSE_PROFILES=demo` 打开后,§5 所有命令自动包含 mock 服务;`git pull` 后 `up -d --build` 会连 mock 一起重建。
 - 改了 `Caddyfile`:`docker compose -f docker-compose.prod.yml restart gateway`(volume 挂载,无需重建)。
 - **production 环境**:按 CLAUDE.md 规划 Week 11–12 从本套复制——新服务器 + 新 `.env`(全部密钥重新生成)+ 域名去掉 `dev-` 前缀,步骤完全相同。
 

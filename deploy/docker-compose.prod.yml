@@ -71,6 +71,29 @@ services:
       TRTC_SIG_EXPIRE_SECONDS: ${TRTC_SIG_EXPIRE_SECONDS:-}
       VOICE_CHANNEL_MEMBER_LIMIT: ${VOICE_CHANNEL_MEMBER_LIMIT:-}
 
+  # 演示常驻 Mock 头盔（CLAUDE.md「演示环境常驻 Mock 设备跑剧本，保证随时可 Demo」）
+  # 与外部真机/Mock 走完全相同的 MQTT + 设备认证 + Topic ACL，仅网络路径为容器内网 emqx:1883。
+  # 归属 profile demo：deploy/.env 里 COMPOSE_PROFILES=demo 打开即随日常命令一起起停；
+  # 凭证来自 provision:device（§3），未开通前不要打开 profile。
+  mock:
+    build:
+      context: ..
+      dockerfile: mock-device/Dockerfile
+    restart: unless-stopped
+    profiles: ["demo"]
+    depends_on:
+      backend:
+        condition: service_started
+    environment:
+      MQTT_URL: mqtt://emqx:1883
+      DEVICE_ID: ${MOCK_DEVICE_ID:-}
+      DEVICE_SECRET: ${MOCK_DEVICE_SECRET:-}
+      # 剧本：留空=正常骑行；ski / fall / sos / risk 见 docs/DEVELOPMENT.md
+      SCENARIO: ${MOCK_SCENARIO:-}
+      # 位置上报间隔（ms）：常驻演示建议 10000，减缓 location_points 增长（本地默认 5000）
+      LOCATION_INTERVAL_MS: ${MOCK_LOCATION_INTERVAL_MS:-10000}
+      MOCK_CMD_RESULT: ${MOCK_CMD_RESULT:-success}
+
   gateway:
     build:
       context: ..

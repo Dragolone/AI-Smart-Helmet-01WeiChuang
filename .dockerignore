@@ -1,5 +1,6 @@
 # Docker 构建上下文瘦身（backend 与 gateway 两个镜像都以仓库根为 context）
 # app 是最大目录且不参与服务端构建；但 npm workspaces 解析需要它的 package.json
+# mock-device 很小且演示常驻 Mock 镜像需要其源码（mock-device/Dockerfile），不排除
 .git
 **/node_modules
 **/dist
@@ -8,8 +9,6 @@
 !**/.env.example
 app/*
 !app/package.json
-mock-device/*
-!mock-device/package.json
 design
 docs
 plan
