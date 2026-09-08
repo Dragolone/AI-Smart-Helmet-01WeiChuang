@@ -220,7 +220,7 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 > 1. **注册现在必须短信验证码**（负责人拍板）。后端已上线三个接口：`POST /auth/sms-code`、`POST /auth/register`（新增必填 `code`）、`POST /auth/reset-password`；Contract 见 API.md §2，类型在 shared（`SmsCodeRequest` / `RegisterRequest.code` / `ResetPasswordRequest`），`authApi` 已加 `sendSmsCode` / `resetPassword` 两个调用。
 > 2. **注册页我已顺手加了验证码输入框 + 60s 倒计时按钮**（为了 CI 不红，最小改动），`app/src/app/(auth)/register.tsx`——请你按现有风格过一遍 UI，觉得不顺眼随便改。**找回密码页没做，归你**：登录页加「忘记密码」入口 → 手机号 + 验证码（`purpose: 'reset_password'`）+ 新密码 → 成功回登录页。约半天，细节见下方待办 ④。
 > 3. **本地怎么拿验证码**：短信现在是 Console Mock，码打在后端终端日志 `[MOCK SMS] → 138****0000 [verify_code] 您的验证码为123456…`；连云端时 `docker compose -f docker-compose.prod.yml logs backend | grep verify_code`（让 B 帮你看也行）。真短信要等签名/模板过审 + 运营商报备，约两周。
-> 4. **旧账号不受影响**，登录不需要验证码。你本地库里的测试账号照常能登。
+> 4. **旧账号不受影响**，登录不需要验证码。你本地库里的测试账号照常能登。云端已验收通过并留了一个测试账号：手机 `19900001234` / 密码 `test_password_1`（昵称「云端测试」），直接登录联调即可。
 > 5. 这次改动在 PR #56，**麻烦你 Review**（团队规则：动 Contract 和新依赖要对方看一眼；新依赖是腾讯云短信官方 SDK）。看完没问题 B 合并并更新云端。
 
 
