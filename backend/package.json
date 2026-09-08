@@ -41,6 +41,7 @@
     "prisma": "^7.9.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+    "tencentcloud-sdk-nodejs-sms": "^4.1.306",
     "ws": "^8.21.3"
   },
   "devDependencies": {

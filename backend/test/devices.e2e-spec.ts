@@ -9,6 +9,7 @@ import { AppModule } from '../src/app.module';
 import { UnifiedExceptionFilter } from '../src/common/http-exception.filter';
 import { requestIdMiddleware } from '../src/common/request-id.middleware';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { registerUser } from './helpers/register';
 
 const randomPhone = (): string =>
   `19${Math.floor(Math.random() * 1e9)
@@ -54,10 +55,10 @@ describe('设备绑定全链路 (e2e)', () => {
     });
 
     const register = async (): Promise<string> => {
-      const res = await request(http)
-        .post('/api/v1/auth/register')
-        .send({ phone: randomPhone(), password: 'e2e_password_1' })
-        .expect(201);
+      const res = await registerUser(app, http, {
+        phone: randomPhone(),
+        password: 'e2e_password_1',
+      });
       return res.body.accessToken as string;
     };
     tokenA = await register();

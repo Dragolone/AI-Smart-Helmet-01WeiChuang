@@ -70,6 +70,7 @@ cd backend && npx prisma migrate dev   # 建表（要求 docker 里的 postgres 
 | 目的 | 命令 |
 |------|------|
 | 启动 App 开发服务器（日常 JS 开发） | `npm run start -w app` 后**在模拟器里手动点开已安装的 app**。⚠️ 不要按 `i`/`a`、不要扫码——当前 app 未装 expo-dev-client，那样会进被禁止的 Expo Go。首次或原生依赖变更后先用下面的 run 命令装一次 |
+| 注册/找回密码时拿短信验证码（短信为 Console Mock 时） | 本地：看后端终端日志 `[MOCK SMS] → 138****0000 [verify_code] 您的验证码为123456…`；云端：`docker compose -f docker-compose.prod.yml logs backend \| grep verify_code`。配齐 `TENCENT_SMS_*` 后自动切真短信 |
 | App 指到云端 development 环境（不依赖本机后端） | `app/.env` 设 `EXPO_PUBLIC_API_URL=https://dev-api.01weichuang.com/api/v1` 后重启 Metro；Mock 指云端：`MQTT_URL=mqtt://dev-mqtt.01weichuang.com:1883 DEVICE_ID=<id> DEVICE_SECRET=<密钥> npm run start -w mock-device`（凭证由云端 `provision:device` 开通，见 DEPLOYMENT.md §3） |
 | 启动 Mock 头盔模拟器 | 先用下行命令开通拿到凭证，再 `DEVICE_ID=<id> DEVICE_SECRET=<密钥> npm run start -w mock-device`。**EMQX 已开启认证**：无凭证/错密钥会被 Broker 拒绝（Connection refused: Not authorized） |
 | 启动 Mock 头盔（**中转模式**，模拟蓝牙版=MVP 唯一真机链路） | `TRANSPORT=app-relay API_BASE_URL=http://localhost:3000 RELAY_PHONE=<账号> RELAY_PASSWORD=<密码> DEVICE_ID=<id> npm run start -w mock-device`。不连 MQTT，改用 HTTP 批量提交 `/ingest/app-relay`（决策 #35）。**设备必须已绑定到该账号**，否则返回 404。可选：`RELAY_FLUSH_INTERVAL_MS`（批量间隔，默认 5000）、`RELAY_MAX_BATCH`（默认 20，Contract 上限 100）、`RELAY_OFFLINE_CYCLE=3`（每 3 次提交模拟断网一次，验证缓存与按原 eventId 补传）、`RELAY_SEND_OUT_OF_SCOPE=1`（把范围外事件也发出去，验证服务端留档告警）。**下行命令**（决策 #36）：自动经 WS 收 `device_command` 并按 `MOCK_CMD_RESULT=success\|failed\|silent` 回执 relay-ack（silent 演示超时 offline），与 MQTT 模式三态一致 |

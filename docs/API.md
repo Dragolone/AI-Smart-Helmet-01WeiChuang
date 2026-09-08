@@ -45,7 +45,9 @@
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | /auth/register | 注册。body：`{ phone, password, nickname? }`（⚠️ 注册凭据用手机号还是邮箱、是否需要短信验证码，待负责人定；MVP 默认手机号 + 密码，验证码接入 SmsProvider 后补） |
+| POST | /auth/sms-code | 下发短信验证码（✅ 2026-09-09 负责人拍板：注册必须验证码）。body：`{ phone, purpose: "register" \| "reset_password" }` → 204。规则：6 位数字、**5 分钟有效、一次性、连续错 5 次作废**；同号同用途 **60s 内重发 → 429 `SMS_CODE_TOO_FREQUENT`**，**每号每日 10 条 → 429 `SMS_CODE_DAILY_LIMIT`**；`register` 用途下手机号已注册 → 409 `PHONE_ALREADY_REGISTERED`；`reset_password` 用途下未注册 → 404 `PHONE_NOT_REGISTERED`；短信通道失败 → 503 `SMS_SEND_FAILED`（不计入限频）。库中只存验证码哈希 |
+| POST | /auth/register | 注册。body：`{ phone, code, password, nickname? }`——`code` 为上一步 `register` 用途的验证码；错误/过期/已用/超次统一 400 `SMS_CODE_INVALID`（不区分原因）。校验顺序：手机号已注册 409 → 验证码 400 → 建号并返回 `{ accessToken, refreshToken, user }` |
+| POST | /auth/reset-password | 找回密码。body：`{ phone, code, newPassword }`（`reset_password` 用途验证码）→ 204；成功后**该用户全部 refresh token 作废**，所有设备需重新登录。未注册 404 `PHONE_NOT_REGISTERED` |
 | POST | /auth/login | 登录。body：`{ phone, password }` → `{ accessToken, refreshToken, user }` |
 | POST | /auth/refresh | body：`{ refreshToken }` → 新 `{ accessToken, refreshToken }`（refresh 轮换，旧 refreshToken 作废） |
 | POST | /auth/logout | 作废当前 refreshToken |
@@ -54,7 +56,7 @@
 
 `user` 对象：`{ id, phone, nickname, avatarUrl?, createdAt }`。密码 bcrypt/argon2 存储，任何接口不回传。
 
-Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / refresh 30 天**；refresh 轮换制——每次刷新旧 token 作废，已作废 token 被复用视为盗用信号、撤销该用户全部会话。本节 register/login/refresh/logout 与 /users/me 均已实现（短信验证码待 SmsProvider 接入后补）。
+Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / refresh 30 天**；refresh 轮换制——每次刷新旧 token 作废，已作废 token 被复用视为盗用信号、撤销该用户全部会话。本节 register/login/refresh/logout 与 /users/me 均已实现；**短信验证码（sms-code / register.code / reset-password）2026-09-09 实现**。本地与演示环境短信走 Console Mock，验证码打印在后端日志（`[MOCK SMS] … verify_code`），云端查看：`docker compose -f docker-compose.prod.yml logs backend | grep verify_code`；腾讯云通道配齐 `TENCENT_SMS_*` 六项环境变量即切换为真发（THIRD_PARTY.md §4）。
 
 ## 3. 紧急联系人
 

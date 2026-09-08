@@ -15,8 +15,9 @@ import { requestIdMiddleware } from '../src/common/request-id.middleware';
 import { IngestService } from '../src/ingest/ingest.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PUSH_PROVIDER } from '../src/providers/push.provider';
-import { SMS_PROVIDER } from '../src/providers/sms.provider';
+import { SMS_PROVIDER, type SmsMessage } from '../src/providers/sms.provider';
 import { SosSchedulerService } from '../src/sos/sos-scheduler.service';
+import { registerUser } from './helpers/register';
 
 jest.setTimeout(30000);
 
@@ -176,10 +177,10 @@ describe('SOS 状态机 (e2e)', () => {
     }
 
     const register = async (): Promise<{ token: string; id: string }> => {
-      const res = await request(http)
-        .post('/api/v1/auth/register')
-        .send({ phone: randomPhone(), password: 'e2e_password_1' })
-        .expect(201);
+      const res = await registerUser(app, http, {
+        phone: randomPhone(),
+        password: 'e2e_password_1',
+      });
       userIds.push(res.body.user.id as string);
       return {
         token: res.body.accessToken as string,
@@ -423,9 +424,11 @@ describe('SOS 状态机 (e2e)', () => {
     );
     expect(smsMock.send).toHaveBeenCalledTimes(2);
     // 短信内容含触发方式与坐标（给紧急联系人的最小必要信息）
-    const [phone, content] = smsMock.send.mock.calls[0] as [string, string];
+    const [phone, message] = smsMock.send.mock.calls[0] as [string, SmsMessage];
     expect(['13800001111', '13800002222']).toContain(phone);
-    expect(content).toContain('40.94901');
+    expect(message.template).toBe('sos_alert');
+    if (message.template !== 'sos_alert') throw new Error('unreachable');
+    expect(message.params.locationText).toContain('40.94901');
 
     await waitWs(
       (m) =>

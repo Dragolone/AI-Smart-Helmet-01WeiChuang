@@ -10,6 +10,7 @@ import { UnifiedExceptionFilter } from '../src/common/http-exception.filter';
 import { requestIdMiddleware } from '../src/common/request-id.middleware';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { verifyUserSig } from '../src/voice/trtc-sig';
+import { registerUser } from './helpers/register';
 
 jest.setTimeout(30000);
 
@@ -60,10 +61,10 @@ describe('网络对讲后端 (e2e)', () => {
     prisma = app.get(PrismaService);
 
     const register = async (): Promise<{ token: string; id: string }> => {
-      const res = await request(http)
-        .post('/api/v1/auth/register')
-        .send({ phone: randomPhone(), password: 'e2e_password_1' })
-        .expect(201);
+      const res = await registerUser(app, http, {
+        phone: randomPhone(),
+        password: 'e2e_password_1',
+      });
       userIds.push(res.body.user.id as string);
       return {
         token: res.body.accessToken as string,
@@ -144,10 +145,10 @@ describe('网络对讲后端 (e2e)', () => {
       .send({ inviteCode })
       .expect(200); // 第 3 人
 
-    const fourth = await request(http)
-      .post('/api/v1/auth/register')
-      .send({ phone: randomPhone(), password: 'e2e_password_1' })
-      .expect(201);
+    const fourth = await registerUser(app, http, {
+      phone: randomPhone(),
+      password: 'e2e_password_1',
+    });
     userIds.push(fourth.body.user.id as string);
     const res = await request(http)
       .post(`${BASE}/join`)

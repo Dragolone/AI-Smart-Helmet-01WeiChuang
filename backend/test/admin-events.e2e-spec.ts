@@ -12,6 +12,7 @@ import { UnifiedExceptionFilter } from '../src/common/http-exception.filter';
 import { requestIdMiddleware } from '../src/common/request-id.middleware';
 import { IngestService } from '../src/ingest/ingest.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { registerUser } from './helpers/register';
 
 jest.setTimeout(30000);
 
@@ -132,15 +133,12 @@ describe('Admin 全量事件查询 (e2e)', () => {
 
   it('token 隔离：无 token / 用户 token 一律 401', async () => {
     await request(http).get('/api/v1/admin/events').expect(401);
-    const reg = await request(http)
-      .post('/api/v1/auth/register')
-      .send({
-        phone: `19${Math.floor(Math.random() * 1e9)
-          .toString()
-          .padStart(9, '0')}`,
-        password: 'e2e_password_1',
-      })
-      .expect(201);
+    const reg = await registerUser(app, http, {
+      phone: `19${Math.floor(Math.random() * 1e9)
+        .toString()
+        .padStart(9, '0')}`,
+      password: 'e2e_password_1',
+    });
     await request(http)
       .get('/api/v1/admin/events')
       .set('Authorization', `Bearer ${reg.body.accessToken as string}`)

@@ -14,6 +14,7 @@ import { MqttConsumerService } from '../src/ingest/mqtt-consumer.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { CommandsService } from '../src/commands/commands.service';
 import { CommandsSchedulerService } from '../src/commands/commands-scheduler.service';
+import { registerUser } from './helpers/register';
 
 jest.setTimeout(30000);
 
@@ -106,10 +107,10 @@ describe('命令下发与回执状态机 (e2e)', () => {
       },
     });
     const register = async (): Promise<{ token: string; id: string }> => {
-      const res = await request(http)
-        .post('/api/v1/auth/register')
-        .send({ phone: randomPhone(), password: 'e2e_password_1' })
-        .expect(201);
+      const res = await registerUser(app, http, {
+        phone: randomPhone(),
+        password: 'e2e_password_1',
+      });
       return {
         token: res.body.accessToken as string,
         id: res.body.user.id as string,

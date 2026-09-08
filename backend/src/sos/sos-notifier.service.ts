@@ -4,6 +4,7 @@ import { PUSH_PROVIDER, type PushProvider } from '../providers/push.provider';
 import {
   SMS_PROVIDER,
   maskPhone,
+  type SmsMessage,
   type SmsProvider,
 } from '../providers/sms.provider';
 import { RealtimePushService } from '../realtime/realtime-push.service';
@@ -134,7 +135,7 @@ export class SosNotifierService {
 
   private async send(row: SosNotification, sosCase: SosCase): Promise<void> {
     if (row.channel === 'sms') {
-      await this.sms.send(row.target, this.smsContent(row, sosCase));
+      await this.sms.send(row.target, await this.smsMessage(sosCase));
       return;
     }
     // push target 形如 user:<id>
@@ -146,16 +147,35 @@ export class SosNotifierService {
     );
   }
 
-  /** 短信正文：给紧急联系人的最小必要信息（触发方式 + 位置）。真实 Provider 接入后原样照发。 */
-  private smsContent(row: SosNotification, c: SosCase): string {
-    const trigger =
-      c.triggerType === 'manual_sos' ? '手动触发求救' : '疑似摔倒';
-    const location =
+  /**
+   * 短信模板变量（sos_alert：{1} 佩戴者昵称 {2} 触发时间 {3} 位置）——运营商模板只收变量不收自由文本。
+   * 昵称截到 10 字、时间用短格式：腾讯云模板变量默认限长（THIRD_PARTY.md §4），超长整条拒发。
+   */
+  private async smsMessage(c: SosCase): Promise<SmsMessage> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: c.userId },
+      select: { nickname: true },
+    });
+    const nickname = (user?.nickname?.trim() || c.deviceId).slice(0, 10);
+    const at = c.finalizedAt ?? new Date();
+    const triggeredAt = new Intl.DateTimeFormat('zh-CN', {
+      timeZone: 'Asia/Shanghai',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+      .format(at)
+      .replace(/\//g, '-');
+    const locationText =
       c.latitude !== null && c.longitude !== null
-        ? `位置(${c.coordinateSystem ?? 'wgs84'})：${c.latitude.toFixed(5)},${c.longitude.toFixed(5)}`
-        : '位置暂不可用';
-    const name = row.contactName ? `${row.contactName}您好：` : '';
-    return `【AI头盔】${name}您的联系人佩戴的头盔(${c.deviceId})${trigger}，倒计时结束未取消。${location}。请尽快联系确认安全。`;
+        ? `${c.latitude.toFixed(5)},${c.longitude.toFixed(5)}`
+        : '暂不可用';
+    return {
+      template: 'sos_alert',
+      params: { nickname, triggeredAt, locationText },
+    };
   }
 
   /** 日志脱敏（Security Rules）：手机号打码；push target 本身不含敏感信息 */

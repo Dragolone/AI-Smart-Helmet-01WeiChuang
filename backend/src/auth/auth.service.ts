@@ -2,12 +2,14 @@ import {
   ConflictException,
   Injectable,
   Logger,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { createHash, randomBytes } from 'node:crypto';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
+import { SmsCodeService, type SmsCodePurpose } from './sms-code.service';
 
 /** API.md §2 定稿：access 15 分钟 / refresh 30 天（轮换制） */
 const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -36,10 +38,36 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
+    private readonly smsCodes: SmsCodeService,
   ) {}
+
+  /**
+   * 下发验证码前按用途校验手机号状态：注册用途拒绝已注册号（不给已注册号发码，也让前端提前提示去登录）；
+   * 找回密码用途要求已注册。两者都会暴露"该号是否注册"，与 register 的 409 口径一致，MVP 接受。
+   */
+  async sendSmsCode(phone: string, purpose: SmsCodePurpose): Promise<void> {
+    const existing = await this.prisma.user.findUnique({
+      where: { phone },
+      select: { id: true },
+    });
+    if (purpose === 'register' && existing) {
+      throw new ConflictException({
+        code: 'PHONE_ALREADY_REGISTERED',
+        message: '该手机号已注册',
+      });
+    }
+    if (purpose === 'reset_password' && !existing) {
+      throw new NotFoundException({
+        code: 'PHONE_NOT_REGISTERED',
+        message: '该手机号未注册',
+      });
+    }
+    await this.smsCodes.issue(phone, purpose);
+  }
 
   async register(
     phone: string,
+    code: string,
     password: string,
     nickname?: string,
   ): Promise<{ user: SafeUser } & TokenPair> {
@@ -50,6 +78,8 @@ export class AuthService {
         message: '该手机号已注册',
       });
     }
+    // 先校验并消费验证码，再建用户：验证码错误不留下半成品账号
+    await this.smsCodes.verifyAndConsume(phone, 'register', code);
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
     const user = await this.prisma.user.create({
       data: { phone, passwordHash, nickname: nickname ?? null },
@@ -72,6 +102,37 @@ export class AuthService {
     }
     const tokens = await this.issueTokens(user.id);
     return { user: this.toSafeUser(user), ...tokens };
+  }
+
+  /** 找回密码：验证码通过后改密，并撤销该用户全部会话（旧设备需重新登录）。 */
+  async resetPassword(
+    phone: string,
+    code: string,
+    newPassword: string,
+  ): Promise<void> {
+    const user = await this.prisma.user.findUnique({
+      where: { phone },
+      select: { id: true },
+    });
+    if (!user) {
+      throw new NotFoundException({
+        code: 'PHONE_NOT_REGISTERED',
+        message: '该手机号未注册',
+      });
+    }
+    await this.smsCodes.verifyAndConsume(phone, 'reset_password', code);
+    const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash },
+      }),
+      this.prisma.refreshToken.updateMany({
+        where: { userId: user.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      }),
+    ]);
+    this.logger.log(`用户 ${user.id} 已通过验证码重置密码，全部会话已撤销`);
   }
 
   /** refresh 轮换：旧 token 立即作废；检测到已作废 token 被复用 → 撤销该用户全部会话。 */

@@ -215,6 +215,15 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 
 ### A 线当前进度与待办（2026-09-06，B 线整理；A 线直接按此推进，有疑问群里问）
 
+> **📣 给 A 线的通知（2026-09-09，B 线）——注册流程变了，请先看这段再动手**
+>
+> 1. **注册现在必须短信验证码**（负责人拍板）。后端已上线三个接口：`POST /auth/sms-code`、`POST /auth/register`（新增必填 `code`）、`POST /auth/reset-password`；Contract 见 API.md §2，类型在 shared（`SmsCodeRequest` / `RegisterRequest.code` / `ResetPasswordRequest`），`authApi` 已加 `sendSmsCode` / `resetPassword` 两个调用。
+> 2. **注册页我已顺手加了验证码输入框 + 60s 倒计时按钮**（为了 CI 不红，最小改动），`app/src/app/(auth)/register.tsx`——请你按现有风格过一遍 UI，觉得不顺眼随便改。**找回密码页没做，归你**：登录页加「忘记密码」入口 → 手机号 + 验证码（`purpose: 'reset_password'`）+ 新密码 → 成功回登录页。约半天，细节见下方待办 ④。
+> 3. **本地怎么拿验证码**：短信现在是 Console Mock，码打在后端终端日志 `[MOCK SMS] → 138****0000 [verify_code] 您的验证码为123456…`；连云端时 `docker compose -f docker-compose.prod.yml logs backend | grep verify_code`（让 B 帮你看也行）。真短信要等签名/模板过审 + 运营商报备，约两周。
+> 4. **旧账号不受影响**，登录不需要验证码。你本地库里的测试账号照常能登。
+> 5. 这次改动在 PR #56，**麻烦你 Review**（团队规则：动 Contract 和新依赖要对方看一眼；新依赖是腾讯云短信官方 SDK）。看完没问题 B 合并并更新云端。
+
+
 **已完成（2f89744，2026-08-25 A 线自主推进）**：决策 #36 对接——App 接 WS `device_command` + relay-ack 回执（commandId 去重、幂等重试；BLE 写入为 `__DEV__` 占位，模拟器实测下发→delivered→executed→设置页 success 全链路通过）；上行中转队列骨架（7 种事件过滤、批量 ≤100、断线按原 eventId 补传，`app/src/services/ble-relay*.ts`）；地图跟随开关 + 设备切换 + 事故详情小地图导航 + 全局 Toast。交接文档已消化删除。
 
 **云端 development 环境已上线（2026-09-06，B 线部署并验收，手册 docs/DEPLOYMENT.md）**——A 线从现在起联调不再依赖 B 的 Mac：
@@ -231,7 +240,8 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 1. **云端真机联调（可立即做，也是 DEPLOYMENT.md 验收清单第 6 条）**：双端真机把 API 指到云端，走一遍注册→绑定 `helmet_94173f`→地图看 Mock 移动→SOS 开发快捷触发→倒计时→取消；顺带把设置下发在云端跑一遍（Mock 在 MQTT 模式会自动回执三态）。通过后在本节记一笔「双端云端联调通过 + 日期」。
 2. **BLE 中转模块收尾（前置=硬件 BLE GATT 协议，联调清单第 1 条已催张森淼）**：队列文件持久化（App 被杀后补传）+ 引入 `react-native-ble-plx` + 后台保活双端实测（iOS 后台 BLE 限制记入 DEVELOPMENT.md 平台限制清单）——BLE 库与队列持久化可在下次原生重建批次先做，不必等协议。
 3. **实时视频预览（决策 #37；前置=硬件补四项：子码流 id/分辨率、`rtsp_net_type`、拉流 URL 与鉴权、AP 的 SSID/密码/IP）**：先做 RTSP 播放器双端真机 Spike（候选 libVLC 系；备选推动硬件 WebRTC；降级 `rtsp://` 唤起系统 VLC），定案写 DECISIONS.md 后再做预览页。**Spike 结论未出前不承诺方案。**
-4. **等外部件（与 B 线同）**：APNs 远程推送等 Apple 公司账号；高德企业 Key 创建后换入 `app/.env`（企业认证已完成 2026-09-06）。
+4. **注册短信验证码 + 找回密码（🆕 2026-09-09 负责人拍板，后端已实现，API.md §2 / shared `SmsCodeRequest` / `RegisterRequest.code` / `ResetPasswordRequest`）**：① 注册页加「验证码」输入框 + 「获取验证码」按钮（点击 → `POST /auth/sms-code {phone, purpose:'register'}` → 60s 倒计时；429 `SMS_CODE_TOO_FREQUENT` 显示剩余秒数；409 提示去登录）；注册请求带 `code`，400 `SMS_CODE_INVALID` 提示重输；② 登录页加「忘记密码」→ 找回页（手机号 + 验证码 `purpose:'reset_password'` + 新密码 → `POST /auth/reset-password`，成功回登录页）。**本地/云端拿验证码**：Mock 通道把码打在后端日志，`grep verify_code`（DEVELOPMENT.md 常用命令表）。约半天。
+5. **等外部件（与 B 线同）**：APNs 远程推送等 Apple 公司账号；高德企业 Key 创建后换入 `app/.env`（企业认证已完成 2026-09-06）。
 
 ## Week 12：收官
 

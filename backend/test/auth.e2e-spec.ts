@@ -8,6 +8,7 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { UnifiedExceptionFilter } from '../src/common/http-exception.filter';
 import { requestIdMiddleware } from '../src/common/request-id.middleware';
+import { lastCodeFor, spyOnSms } from './helpers/register';
 
 // 随机手机号：反复跑不冲突，也不污染真实号段语义
 const randomPhone = (): string =>
@@ -46,10 +47,53 @@ describe('Auth 全链路 (e2e)', () => {
   let accessToken: string;
   let refreshToken: string;
 
+  it('sms-code：purpose 非法 → 400', async () => {
+    await request(http)
+      .post('/api/v1/auth/sms-code')
+      .send({ phone, purpose: 'login' })
+      .expect(400);
+  });
+
+  it('sms-code：下发验证码 → 204，短信通道收到 6 位码', async () => {
+    const sms = spyOnSms(app);
+    await request(http)
+      .post('/api/v1/auth/sms-code')
+      .send({ phone, purpose: 'register' })
+      .expect(204);
+    expect(lastCodeFor(app, phone)).toMatch(/^\d{6}$/);
+    expect(sms).toHaveBeenCalled();
+  });
+
+  it('sms-code：60s 内重发 → 429 SMS_CODE_TOO_FREQUENT', async () => {
+    const res = await request(http)
+      .post('/api/v1/auth/sms-code')
+      .send({ phone, purpose: 'register' })
+      .expect(429);
+    expect(res.body.code).toBe('SMS_CODE_TOO_FREQUENT');
+  });
+
+  it('注册：缺 code → 400；code 错误 → 400 SMS_CODE_INVALID', async () => {
+    await request(http)
+      .post('/api/v1/auth/register')
+      .send({ phone, password })
+      .expect(400);
+    const wrong = lastCodeFor(app, phone) === '000000' ? '111111' : '000000';
+    const res = await request(http)
+      .post('/api/v1/auth/register')
+      .send({ phone, password, code: wrong })
+      .expect(400);
+    expect(res.body.code).toBe('SMS_CODE_INVALID');
+  });
+
   it('注册成功并返回 token 对', async () => {
     const res = await request(http)
       .post('/api/v1/auth/register')
-      .send({ phone, password, nickname: '测试骑手' })
+      .send({
+        phone,
+        password,
+        nickname: '测试骑手',
+        code: lastCodeFor(app, phone),
+      })
       .expect(201);
     expect(res.body.user.phone).toBe(phone);
     expect(res.body.user).not.toHaveProperty('passwordHash');
@@ -57,13 +101,34 @@ describe('Auth 全链路 (e2e)', () => {
     expect(res.body.refreshToken).toBeTruthy();
   });
 
+  it('同一验证码二次使用 → 400 SMS_CODE_INVALID（一次性）', async () => {
+    const res = await request(http)
+      .post('/api/v1/auth/register')
+      .send({ phone: randomPhone(), password, code: lastCodeFor(app, phone) })
+      .expect(400);
+    expect(res.body.code).toBe('SMS_CODE_INVALID');
+  });
+
   it('重复注册同一手机号 → 409 PHONE_ALREADY_REGISTERED', async () => {
     const res = await request(http)
       .post('/api/v1/auth/register')
-      .send({ phone, password })
+      .send({ phone, password, code: '123456' })
       .expect(409);
     expect(res.body.code).toBe('PHONE_ALREADY_REGISTERED');
     expect(res.body.requestId).toMatch(/^req_/);
+  });
+
+  it('sms-code：register 用途下已注册号 → 409；reset_password 用途下未注册号 → 404', async () => {
+    const a = await request(http)
+      .post('/api/v1/auth/sms-code')
+      .send({ phone, purpose: 'register' })
+      .expect(409);
+    expect(a.body.code).toBe('PHONE_ALREADY_REGISTERED');
+    const b = await request(http)
+      .post('/api/v1/auth/sms-code')
+      .send({ phone: randomPhone(), purpose: 'reset_password' })
+      .expect(404);
+    expect(b.body.code).toBe('PHONE_NOT_REGISTERED');
   });
 
   it('登录成功', async () => {
@@ -131,5 +196,25 @@ describe('Auth 全链路 (e2e)', () => {
       .post('/api/v1/auth/logout')
       .send({ refreshToken: 'nonexistent-token' })
       .expect(204);
+  });
+  it('reset-password：验证码通过 → 204，旧密码失效、新密码可登录、旧 refresh 作废', async () => {
+    const newPassword = 'new_password_456';
+    await request(http)
+      .post('/api/v1/auth/sms-code')
+      .send({ phone, purpose: 'reset_password' })
+      .expect(204);
+    await request(http)
+      .post('/api/v1/auth/reset-password')
+      .send({ phone, code: lastCodeFor(app, phone), newPassword })
+      .expect(204);
+    await request(http)
+      .post('/api/v1/auth/login')
+      .send({ phone, password })
+      .expect(401);
+    const res = await request(http)
+      .post('/api/v1/auth/login')
+      .send({ phone, password: newPassword })
+      .expect(200);
+    expect(res.body.accessToken).toBeTruthy();
   });
 });
