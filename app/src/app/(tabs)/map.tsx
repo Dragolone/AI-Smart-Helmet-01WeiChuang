@@ -127,6 +127,7 @@ export default function MapScreen() {
   // null = 实时模式；数字 = 回放中的当前轨迹点下标
   const [replayIdx, setReplayIdx] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState<1 | 2 | 4>(1);
   // 跟随模式:用户手势拖图即退出,浮出"回到跟随"按钮
   const [following, setFollowing] = useState(true);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -206,9 +207,9 @@ export default function MapScreen() {
         }
         return next;
       });
-    }, REPLAY_TICK_MS);
+    }, REPLAY_TICK_MS / speed);
     return () => clearInterval(timer);
-  }, [playing, gcjPath.length]);
+  }, [playing, gcjPath.length, speed]);
 
   // 统计卡数据源：回放中取轨迹点，否则取实时点
   const statPoint: LocationPoint | null =
@@ -469,6 +470,16 @@ export default function MapScreen() {
                 color={gcjPath.length < 2 ? theme.textSecondary : theme.brand}
               />
             </Pressable>
+            <Pressable
+              style={[styles.speedBtn, { backgroundColor: chipBg }]}
+              disabled={gcjPath.length < 2}
+              onPress={() => setSpeed((v) => (v === 1 ? 2 : v === 2 ? 4 : 1))}>
+              <ThemedText
+                type="label"
+                style={speed > 1 ? { color: theme.brand } : styles.dimText}>
+                ×{speed}
+              </ThemedText>
+            </Pressable>
             <View style={styles.seekColumn}>
               <SeekBar
                 ratio={replayRatio}
@@ -628,6 +639,13 @@ const styles = StyleSheet.create({
   replayRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   seekColumn: { flex: 1, gap: 2 },
   seekLabels: { flexDirection: 'row', justifyContent: 'space-between' },
+  speedBtn: {
+    borderRadius: Radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    minWidth: 34,
+    alignItems: 'center',
+  },
   playBtn: {
     width: 34,
     height: 34,
