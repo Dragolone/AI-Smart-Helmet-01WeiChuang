@@ -1,5 +1,5 @@
 // 地图（底部标签）正式版（Week 5–6 A 线，决策 #33：WebView + JS API）。
-// 功能：实时位置（WS 直写缓存 + REST 兜底）、历史轨迹回放（1/6/24h）、位置分享、导航跳转。
+// 功能：实时位置（WS 直写缓存 + REST 兜底）、历史轨迹回放（1/6/24h + 近 7 天按日）、位置分享、导航跳转。
 // UI 对齐 design/map.png：全屏暗色地图 + 荧光轨迹 + 顶部实时药丸 + 底部统计卡 + 回放播放器。
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
@@ -38,9 +38,32 @@ interface TrackResult {
   truncated: boolean;
 }
 
-async function fetchTrack(deviceId: string, hours: RangeHours): Promise<TrackResult> {
-  const to = new Date();
-  const from = new Date(to.getTime() - hours * 3_600_000);
+/** dayOffset=0:此刻往前 hours;>0:N 天前整个自然日(24h 上限内,API.md §5) */
+function trackWindow(hours: RangeHours, dayOffset: number): { from: Date; to: Date } {
+  if (dayOffset === 0) {
+    const to = new Date();
+    return { from: new Date(to.getTime() - hours * 3_600_000), to };
+  }
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  const from = new Date(midnight.getTime() - dayOffset * 86_400_000);
+  return { from, to: new Date(from.getTime() + 86_400_000 - 1) };
+}
+
+function dayLabel(offset: number): string {
+  if (offset === 0) return '今天';
+  if (offset === 1) return '昨天';
+  if (offset === 2) return '前天';
+  const d = new Date(Date.now() - offset * 86_400_000);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+async function fetchTrack(
+  deviceId: string,
+  hours: RangeHours,
+  dayOffset: number,
+): Promise<TrackResult> {
+  const { from, to } = trackWindow(hours, dayOffset);
   const points: LocationPoint[] = [];
   let total = 0;
   for (let page = 1; page <= MAX_TRACK_PAGES; page++) {
@@ -124,6 +147,8 @@ export default function MapScreen() {
   const mapRef = useRef<AmapViewHandle>(null);
   const [mapError, setMapError] = useState<string | null>(null);
   const [range, setRange] = useState<RangeHours>(1);
+  const [dayOffset, setDayOffset] = useState(0);
+  const [dateOpen, setDateOpen] = useState(false);
   // null = 实时模式；数字 = 回放中的当前轨迹点下标
   const [replayIdx, setReplayIdx] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -150,8 +175,8 @@ export default function MapScreen() {
   });
 
   const track = useQuery({
-    queryKey: ['device-track', deviceId, range],
-    queryFn: () => fetchTrack(deviceId!, range),
+    queryKey: ['device-track', deviceId, range, dayOffset],
+    queryFn: () => fetchTrack(deviceId!, range, dayOffset),
     enabled: !!deviceId,
   });
 
@@ -426,21 +451,38 @@ export default function MapScreen() {
               轨迹回放
             </ThemedText>
             <View style={styles.chipRow}>
-              {RANGE_OPTIONS.map((h) => (
-                <Pressable
-                  key={h}
-                  style={[
-                    styles.chip,
-                    { backgroundColor: range === h ? theme.brand : chipBg },
-                  ]}
-                  onPress={() => setRange(h)}>
-                  <ThemedText
-                    type="label"
-                    style={range === h ? { color: theme.onBrand } : styles.dimText}>
-                    {h}h
-                  </ThemedText>
-                </Pressable>
-              ))}
+              <Pressable
+                style={[
+                  styles.chip,
+                  { backgroundColor: dayOffset > 0 ? theme.brand : chipBg },
+                ]}
+                onPress={() => setDateOpen((v) => !v)}>
+                <ThemedText
+                  type="label"
+                  style={dayOffset > 0 ? { color: theme.onBrand } : styles.dimText}>
+                  {dayLabel(dayOffset)} ▾
+                </ThemedText>
+              </Pressable>
+              {RANGE_OPTIONS.map((h) => {
+                const active = dayOffset === 0 && range === h;
+                return (
+                  <Pressable
+                    key={h}
+                    disabled={dayOffset > 0}
+                    style={[
+                      styles.chip,
+                      { backgroundColor: active ? theme.brand : chipBg },
+                      dayOffset > 0 && styles.chipDisabled,
+                    ]}
+                    onPress={() => setRange(h)}>
+                    <ThemedText
+                      type="label"
+                      style={active ? { color: theme.onBrand } : styles.dimText}>
+                      {h}h
+                    </ThemedText>
+                  </Pressable>
+                );
+              })}
             </View>
             <ThemedText type="label" style={styles.dimText}>
               {gcjPath.length > 1 ? (
@@ -458,6 +500,29 @@ export default function MapScreen() {
               )}
             </ThemedText>
           </View>
+
+          {dateOpen && (
+            <View style={styles.chipRow}>
+              {[0, 1, 2, 3, 4, 5, 6].map((d) => (
+                <Pressable
+                  key={d}
+                  style={[
+                    styles.chip,
+                    { backgroundColor: dayOffset === d ? theme.brand : chipBg },
+                  ]}
+                  onPress={() => {
+                    setDayOffset(d);
+                    setDateOpen(false);
+                  }}>
+                  <ThemedText
+                    type="label"
+                    style={dayOffset === d ? { color: theme.onBrand } : styles.dimText}>
+                    {dayLabel(d)}
+                  </ThemedText>
+                </Pressable>
+              ))}
+            </View>
+          )}
 
           <View style={styles.replayRow}>
             <Pressable
@@ -646,6 +711,7 @@ const styles = StyleSheet.create({
     minWidth: 34,
     alignItems: 'center',
   },
+  chipDisabled: { opacity: 0.35 },
   playBtn: {
     width: 34,
     height: 34,

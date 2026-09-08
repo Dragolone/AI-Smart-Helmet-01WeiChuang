@@ -172,16 +172,13 @@ try {
       } else if (cmd.type === 'track') {
         if (!cmd.path.length) return;
         ensurePolylines();
-        glowHalo.setPath(cmd.path);
-        glowOuter.setPath(cmd.path);
-        glowInner.setPath(cmd.path);
+        glowHalo.setPath(cmd.path); glowHalo.show();
+        glowOuter.setPath(cmd.path); glowOuter.show();
+        glowInner.setPath(cmd.path); glowInner.show();
         if (cmd.path.length > 1) map.setFitView([glowInner], true, [70, 70, 70, 70]);
       } else if (cmd.type === 'clearTrack') {
-        if (glowInner) {
-          glowHalo.setPath([]);
-          glowOuter.setPath([]);
-          glowInner.setPath([]);
-        }
+        // setPath([]) 在 AMap 2.0 上不可靠(线留在图上,2026-09-08 实测)——hide 才是干净的清空
+        if (glowInner) { glowHalo.hide(); glowOuter.hide(); glowInner.hide(); }
       } else if (cmd.type === 'center') {
         map.setZoomAndCenter(cmd.zoom || map.getZoom(), [cmd.lng, cmd.lat]);
       }
