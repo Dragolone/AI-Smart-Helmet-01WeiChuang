@@ -3,6 +3,7 @@
 // UI 对齐 design/map.png：全屏暗色地图 + 荧光轨迹 + 顶部实时药丸 + 底部统计卡 + 回放播放器。
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
+import { useKeepAwake } from 'expo-keep-awake';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   type LayoutChangeEvent,
@@ -150,6 +151,8 @@ export default function MapScreen() {
   const [dayOffset, setDayOffset] = useState(0);
   const [dateOpen, setDateOpen] = useState(false);
   // null = 实时模式；数字 = 回放中的当前轨迹点下标
+  // 地图页常亮:骑行中把手机当仪表盘看,不该黑屏
+  useKeepAwake();
   const [replayIdx, setReplayIdx] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState<1 | 2 | 4>(1);

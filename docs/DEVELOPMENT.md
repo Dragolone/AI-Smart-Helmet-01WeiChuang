@@ -104,6 +104,8 @@ cd backend && npx prisma migrate dev   # 建表（要求 docker 里的 postgres 
 | 2026-08-16 | iOS + Android | 高德地图数据覆盖 | **高德底图只覆盖中国大陆**，境外（如悉尼）只有粗略轮廓——海外开发时定位到自己真实位置永远是"一片空白"，非 Bug | 海外开发/测试地图功能用两个办法：① Mock 头盔剧本（骑行/滑雪坐标都在国内）驱动主链路；② 模拟器假定位（Android Extended Controls→Location / iOS Features→Location）设到深圳。真实用户在国内不受影响 |
 | 2026-08-16 | iOS | react-native-amap3d 新架构 | `moveCamera` 等命令走旧架构 `viewRegistry![reactTag] as! MapView` 强转，RN 0.86（旧架构已移除）下必现闪退；Android 端借 interop 层可用 | 该库判死，地图定案 WebView + JS API（决策 #33）；后续任何"只维护"状态的旧原生库选型前先查新架构命令通道实现 |
 | 2026-08-17 | 双端（React Compiler） | 空转 state 强制重渲染 | `const [, tick] = useState(0)` + `setInterval(() => tick(n=>n+1))` 这种"值不读只为触发重渲染"的写法**不生效**——Compiler 判定无依赖变化，直接 memo 掉整个渲染（SOS 倒计时停在首帧，真机实证） | 定时刷新的展示值必须让 state **真正参与渲染计算**：存时间戳 `now` 并在渲染期算派生值；且 effect 内不要同步 setState（`react-hooks` 规则会报错） |
+| 2026-09-08 | 双端（React Compiler） | hook 返回对象属性不可赋值 | `player.loop = true`（expo-audio useAudioPlayer 返回值）被 lint 判 `This value cannot be modified` | 改用方法调用或重放策略（sos-active 每秒 `seekTo(0)+play` 实现循环警报） |
+| 2026-09-08 | 双端（CNG/prebuild） | expo install 自动追加 config plugin | `npx expo install` 会把带插件的库自动加进 app.json plugins；再手工加带参数的同名项即重复，先出现的无参项吃掉配置（ble-plx 的 `isBackgroundEnabled`/中文权限文案失效，prebuild 后 Info.plist 无 `bluetooth-central`，实测） | 加插件参数前先查 plugins 是否已被自动追加，只保留唯一带参数项后重新 prebuild 并核对 Info.plist/AndroidManifest |
 | 2026-08-16 | 双端（React Compiler） | useImperativeHandle | 本项目开启 `reactCompiler: true` 后，`useImperativeHandle`（forwardRef 与 React 19 ref-prop 两种写法都试过）**ref 永不挂载**——`ref.current` 恒为 null，命令式句柄整体失效（真机 logcat 实证） | 需要命令式接口的组件改用「controllerRef prop + useEffect 赋值」模式（见 `app/src/components/map/amap-view.tsx`）；prop 名必须以 `Ref` 结尾，否则 react-hooks/immutability 报错 |
 
 
