@@ -25,10 +25,29 @@ export interface Paginated<T> {
 
 // —— §2 认证与用户（已实现） ——
 
+/** 验证码用途：注册 / 找回密码（API.md §2） */
+export type SmsCodePurpose = 'register' | 'reset_password';
+
+/** POST /auth/sms-code → 204；60s 内重发 429 SMS_CODE_TOO_FREQUENT，日上限 429 SMS_CODE_DAILY_LIMIT */
+export interface SmsCodeRequest {
+  phone: string;
+  purpose: SmsCodePurpose;
+}
+
 export interface RegisterRequest {
   phone: string;
+  /** 6 位短信验证码（purpose=register）；错误/过期/已用 → 400 SMS_CODE_INVALID */
+  code: string;
   password: string;
   nickname?: string;
+}
+
+/** POST /auth/reset-password → 204，成功后该用户全部会话失效 */
+export interface ResetPasswordRequest {
+  phone: string;
+  /** purpose=reset_password 的验证码 */
+  code: string;
+  newPassword: string;
 }
 
 export interface LoginRequest {

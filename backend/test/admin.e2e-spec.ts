@@ -10,6 +10,7 @@ import { AppModule } from '../src/app.module';
 import { UnifiedExceptionFilter } from '../src/common/http-exception.filter';
 import { requestIdMiddleware } from '../src/common/request-id.middleware';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { registerUser } from './helpers/register';
 
 const randomPhone = (): string =>
   `19${Math.floor(Math.random() * 1e9)
@@ -65,10 +66,10 @@ describe('Admin 基础 (e2e)', () => {
         { deviceId: offlineDeviceId, deviceSecretHash: secretHash },
       ],
     });
-    const reg = await request(http)
-      .post('/api/v1/auth/register')
-      .send({ phone: userPhone, password: 'e2e_password_1' })
-      .expect(201);
+    const reg = await registerUser(app, http, {
+      phone: userPhone,
+      password: 'e2e_password_1',
+    });
     userToken = reg.body.accessToken as string;
   });
 

@@ -13,6 +13,7 @@ import { UnifiedExceptionFilter } from '../src/common/http-exception.filter';
 import { requestIdMiddleware } from '../src/common/request-id.middleware';
 import { IngestService } from '../src/ingest/ingest.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { registerUser } from './helpers/register';
 
 jest.setTimeout(30000);
 
@@ -107,10 +108,10 @@ describe('事件查询 + WS 事件推送 (e2e)', () => {
       },
     });
     const register = async (): Promise<string> => {
-      const res = await request(http)
-        .post('/api/v1/auth/register')
-        .send({ phone: randomPhone(), password: 'e2e_password_1' })
-        .expect(201);
+      const res = await registerUser(app, http, {
+        phone: randomPhone(),
+        password: 'e2e_password_1',
+      });
       userIds.push(res.body.user.id as string);
       return res.body.accessToken as string;
     };

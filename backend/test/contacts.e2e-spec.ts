@@ -8,6 +8,7 @@ import { AppModule } from '../src/app.module';
 import { UnifiedExceptionFilter } from '../src/common/http-exception.filter';
 import { requestIdMiddleware } from '../src/common/request-id.middleware';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { registerUser } from './helpers/register';
 
 const randomPhone = (): string =>
   `19${Math.floor(Math.random() * 1e9)
@@ -41,10 +42,10 @@ describe('紧急联系人 (e2e)', () => {
     prisma = app.get(PrismaService);
 
     const register = async (): Promise<string> => {
-      const res = await request(http)
-        .post('/api/v1/auth/register')
-        .send({ phone: randomPhone(), password: 'e2e_password_1' })
-        .expect(201);
+      const res = await registerUser(app, http, {
+        phone: randomPhone(),
+        password: 'e2e_password_1',
+      });
       userIds.push(res.body.user.id as string);
       return res.body.accessToken as string;
     };

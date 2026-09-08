@@ -11,6 +11,7 @@ import { UnifiedExceptionFilter } from '../src/common/http-exception.filter';
 import { requestIdMiddleware } from '../src/common/request-id.middleware';
 import { IngestService } from '../src/ingest/ingest.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { registerUser } from './helpers/register';
 
 jest.setTimeout(30000);
 
@@ -73,10 +74,10 @@ describe('媒体元数据与预签名 URL (e2e)', () => {
       },
     });
     const register = async (): Promise<string> => {
-      const res = await request(http)
-        .post('/api/v1/auth/register')
-        .send({ phone: randomPhone(), password: 'e2e_password_1' })
-        .expect(201);
+      const res = await registerUser(app, http, {
+        phone: randomPhone(),
+        password: 'e2e_password_1',
+      });
       return res.body.accessToken as string;
     };
     ownerToken = await register();

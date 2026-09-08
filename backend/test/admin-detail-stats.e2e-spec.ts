@@ -11,6 +11,7 @@ import { UnifiedExceptionFilter } from '../src/common/http-exception.filter';
 import { requestIdMiddleware } from '../src/common/request-id.middleware';
 import { IngestService } from '../src/ingest/ingest.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { registerUser } from './helpers/register';
 
 jest.setTimeout(30000);
 
@@ -84,10 +85,10 @@ describe('Admin 设备详情与概览统计 (e2e)', () => {
       .expect(200);
     adminToken = login.body.accessToken as string;
 
-    const reg = await request(http)
-      .post('/api/v1/auth/register')
-      .send({ phone: randomPhone(), password: 'e2e_password_1' })
-      .expect(201);
+    const reg = await registerUser(app, http, {
+      phone: randomPhone(),
+      password: 'e2e_password_1',
+    });
     ownerToken = reg.body.accessToken as string;
     userIds.push(reg.body.user.id as string);
     await request(http)

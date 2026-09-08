@@ -54,6 +54,22 @@ model RefreshToken {
   @@map("refresh_tokens")
 }
 
+/// 短信验证码（注册 / 找回密码）。只存哈希；attempts 防在线穷举；同号同用途按 createdAt 取最新一条校验
+model SmsCode {
+  id         String    @id @default(cuid())
+  phone      String
+  purpose    String // register | reset_password
+  codeHash   String    @map("code_hash")
+  salt       String
+  expiresAt  DateTime  @map("expires_at")
+  attempts   Int       @default(0)
+  consumedAt DateTime? @map("consumed_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([phone, purpose, createdAt])
+  @@map("sms_codes")
+}
+
 model Device {
   // 主键直接用硬件团队分配的 deviceId（如 helmet_001），不另造代理键
   deviceId         String    @id @map("device_id")

@@ -16,6 +16,7 @@ import { requestIdMiddleware } from '../src/common/request-id.middleware';
 import { MqttConsumerService } from '../src/ingest/mqtt-consumer.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { CommandsSchedulerService } from '../src/commands/commands-scheduler.service';
+import { registerUser } from './helpers/register';
 
 jest.setTimeout(30000);
 
@@ -153,10 +154,10 @@ describe('BLE 下行命令链：WS device_command + relay-ack (e2e)', () => {
       });
     }
     const register = async (): Promise<string> => {
-      const res = await request(http)
-        .post('/api/v1/auth/register')
-        .send({ phone: randomPhone(), password: 'e2e_password_1' })
-        .expect(201);
+      const res = await registerUser(app, http, {
+        phone: randomPhone(),
+        password: 'e2e_password_1',
+      });
       return res.body.accessToken as string;
     };
     ownerToken = await register();
