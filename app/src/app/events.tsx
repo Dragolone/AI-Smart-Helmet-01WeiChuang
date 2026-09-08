@@ -8,6 +8,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { devicesApi } from '@/api/devices';
 import { eventsApi } from '@/api/events';
 import { toUserMessage } from '@/api/error-messages';
+import { Skeleton } from '@/components/skeleton';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Radius } from '@/constants/theme';
@@ -150,6 +151,19 @@ export default function EventsScreen() {
             </Pressable>
           );
         })}
+        {loading && items.length === 0 && (
+          <View style={styles.skeletonWrap}>
+            {[0, 1, 2].map((i) => (
+              <View key={i} style={styles.skeletonRow}>
+                <Skeleton width={40} height={40} radius={20} />
+                <View style={styles.skeletonLines}>
+                  <Skeleton width="45%" height={15} />
+                  <Skeleton width="65%" height={12} />
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
         {!loading && items.length === 0 && (
           <View style={styles.empty}>
             <Ionicons name="shield-checkmark-outline" size={44} color={theme.textSecondary} />
@@ -207,6 +221,9 @@ export default function EventsScreen() {
 }
 
 const styles = StyleSheet.create({
+  skeletonWrap: { gap: 12, paddingTop: 8 },
+  skeletonRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 6 },
+  skeletonLines: { flex: 1, gap: 8 },
   flex: { flex: 1 },
   chipRow: {
     flexDirection: 'row',

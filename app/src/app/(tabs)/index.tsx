@@ -17,6 +17,7 @@ import type { DevicePublic } from '@helmet/shared';
 import { devicesApi } from '@/api/devices';
 import { toUserMessage } from '@/api/error-messages';
 import { Badge } from '@/components/badge';
+import { Skeleton } from '@/components/skeleton';
 import { PrimaryButton } from '@/components/form';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -276,7 +277,20 @@ export default function MyDevicesScreen() {
             />
           }
           ListEmptyComponent={
-            devices.isLoading ? null : (
+            devices.isLoading ? (
+              <View style={styles.skeletonWrap}>
+                {[0, 1].map((i) => (
+                  <View key={i} style={styles.skeletonCard}>
+                    <Skeleton width={96} height={96} radius={16} />
+                    <View style={styles.skeletonLines}>
+                      <Skeleton width="55%" height={18} />
+                      <Skeleton width="35%" height={13} />
+                      <Skeleton width="75%" height={13} />
+                    </View>
+                  </View>
+                ))}
+              </View>
+            ) : (
               <View style={styles.empty}>
                 <ThemedText type="subtitle">还没有绑定头盔</ThemedText>
                 <ThemedText type="small" themeColor="textSecondary">
@@ -300,6 +314,15 @@ export default function MyDevicesScreen() {
 }
 
 const styles = StyleSheet.create({
+  skeletonWrap: { gap: 14, paddingTop: 4 },
+  skeletonCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    borderRadius: 22,
+    padding: 18,
+  },
+  skeletonLines: { flex: 1, gap: 10 },
   flex: { flex: 1 },
   container: { flex: 1, padding: 20, gap: 16 },
   header: {
