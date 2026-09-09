@@ -1,0 +1,1307 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI智能头盔通信协议手册 - 蓝牙BLE版本 (v0.6)</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
+            line-height: 1.6;
+            color: #222;
+            background-color: #f5f6f8;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+            background: #ffffff;
+            padding: 40px 50px;
+            border-radius: 4px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+        }
+        h1 {
+            text-align: center;
+            font-size: 25px;
+            margin-bottom: 8px;
+            color: #111;
+            font-weight: 700;
+        }
+        .meta-info {
+            text-align: center;
+            font-size: 13.5px;
+            color: #555;
+            border-bottom: 1px solid #e2e8f0;
+            padding-bottom: 14px;
+            margin-bottom: 26px;
+        }
+        .meta-info span {
+            margin: 0 10px;
+        }
+        h2 {
+            font-size: 18px;
+            border-bottom: 2px solid #2d3748;
+            padding-bottom: 6px;
+            margin-top: 32px;
+            margin-bottom: 14px;
+            color: #1a202c;
+        }
+        h3 {
+            font-size: 15px;
+            margin-top: 22px;
+            margin-bottom: 10px;
+            color: #2b6cb0;
+        }
+        p {
+            margin: 7px 0;
+            font-size: 13.5px;
+        }
+        .prop-item {
+            margin: 4px 0;
+            font-size: 13.5px;
+        }
+        .prop-label {
+            display: inline-block;
+            width: 70px;
+            font-weight: bold;
+            color: #333;
+        }
+        .hex-frame {
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 13.5px;
+            margin: 8px 0 6px 0;
+            font-weight: 600;
+        }
+        .hex-text-red {
+            color: #c53030;
+        }
+        table.protocol-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 8px 0 16px 0;
+            font-size: 13px;
+            background-color: #fff;
+        }
+        table.protocol-table th {
+            background-color: #d1d5db;
+            color: #111827;
+            font-weight: bold;
+            border: 1px solid #4b5563;
+            padding: 7px 6px;
+            text-align: center;
+            vertical-align: middle;
+        }
+        table.protocol-table td {
+            border: 1px solid #4b5563;
+            padding: 7px 6px;
+            text-align: center;
+            vertical-align: middle;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+            font-size: 13px;
+        }
+        table.protocol-table td.val-red {
+            color: #c53030;
+            font-weight: 700;
+        }
+        table.data-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 12px 0 20px 0;
+            font-size: 13px;
+        }
+        table.data-table th {
+            background-color: #e2e8f0;
+            color: #2d3748;
+            font-weight: bold;
+            border: 1px solid #cbd5e0;
+            padding: 8px 7px;
+            text-align: center;
+        }
+        table.data-table td {
+            border: 1px solid #cbd5e0;
+            padding: 6px 7px;
+            font-size: 12.5px;
+        }
+        table.data-table tr:nth-child(even) {
+            background-color: #f8fafc;
+        }
+        .toc {
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            padding: 14px 20px;
+            margin-bottom: 24px;
+            border-radius: 4px;
+            font-size: 13.5px;
+        }
+        .toc ul {
+            list-style: none;
+            padding-left: 0;
+            margin: 0;
+        }
+        .toc li {
+            margin: 5px 0;
+        }
+        .toc a {
+            color: #2b6cb0;
+            text-decoration: none;
+        }
+        .toc a:hover {
+            text-decoration: underline;
+        }
+        .toc .sub-li {
+            padding-left: 18px;
+        }
+        .note-text {
+            color: #4a5568;
+            font-size: 12.5px;
+            margin: 3px 0;
+        }
+        .code-inline {
+            background-color: #edf2f7;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 12.5px;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <script>document.addEventListener("DOMContentLoaded", function() { if (window.mermaid) { mermaid.initialize({ startOnLoad: true, theme: 'neutral' }); } });</script>
+</head>
+<body>
+
+<div class="container">
+    <h1>《AI智能头盔通信协议手册》- 蓝牙BLE版本</h1>
+    <div class="meta-info">
+        <span><strong>规范版本</strong>：v0.6 (正式基准版)</span>
+        <span><strong>编制</strong>：Seamus Zhang</span>
+        <span><strong>生效日期</strong>：2026-09-08</span>
+        <span><strong>协议对象</strong>：AI智能头盔 (GATT Server) ⟷ 手机 App (GATT Client)</span>
+    </div>
+
+    <div class="toc">
+        <strong>目录</strong>
+        <ul>
+            <li><a href="#s1">1.0 通信协议概要与链路规范</a></li>
+            <li class="sub-li"><a href="#s1-1">1.1 下行指令包格式 (App → 头盔)</a></li>
+            <li class="sub-li"><a href="#s1-2">1.2 上回应答包格式 (头盔 → App)</a></li>
+            <li class="sub-li"><a href="#s1-3">1.3 主动事件上报与确认格式 (EVENT & ACK)</a></li>
+            <li class="sub-li"><a href="#s1-4">1.4 业务指令集汇总</a></li>
+            <li class="sub-li"><a href="#s1-4-1">1.4.1 查询状态指令 PING</a></li>
+            <li class="sub-li"><a href="#s1-4-2">1.4.2 读指令 READ DATA</a></li>
+            <li class="sub-li"><a href="#s1-4-3">1.4.3 写指令 WRITE DATA</a></li>
+            <li class="sub-li"><a href="#s1-4-4">1.4.4 对时指令 TIME SYNC</a></li>
+            <li class="sub-li"><a href="#s1-4-5">1.4.5 事件主动上报指令 EVENT REPORT</a></li>
+            <li class="sub-li"><a href="#s1-4-6">1.4.6 事件确认指令 EVENT ACK</a></li>
+            <li class="sub-li"><a href="#s1-4-7">1.4.7 离线数据补传查询指令 RESEND QUERY</a></li>
+            <li class="sub-li"><a href="#s1-4-8">1.4.8 离线数据补传读取指令 RESEND DATA</a></li>
+            <li class="sub-li"><a href="#s1-4-9">1.4.9 参数恢复指令 RECOVERY</a></li>
+            <li class="sub-li"><a href="#s1-4-10">1.4.10 状态重置指令 RESET</a></li>
+            <li><a href="#s2">2.0 头盔内存控制表 (Memory Control Table)</a></li>
+            <li><a href="#s3">3.0 工作状态与错误代码对照表 (ERROR)</a></li>
+            <li><a href="#s4">4.0 系统运行周期与通信时序规范全表</a></li>
+            <li class="sub-li"><a href="#s4-1">4.1 开机连接与握手初始化时序</a></li>
+            <li class="sub-li"><a href="#s4-2">4.2 正常骑行监控周期上报时序</a></li>
+            <li class="sub-li"><a href="#s4-3">4.3 突发高危安全告警与确认闭环时序</a></li>
+            <li class="sub-li"><a href="#s4-4">4.4 离线断连、本地暂存与重连补传时序</a></li>
+            <li class="sub-li"><a href="#s4-5">4.5 手机 App 远程参数配置时序</a></li>
+        </ul>
+    </div>
+
+    <!-- 1.0 概要 -->
+    <h2 id="s1">1.0 通信协议概要与链路规范</h2>
+    <p>AI 智能头盔主控采用全志 V821 高集成机器视觉 SoC 单芯片方案（原生板载 SiP 集成 2.4GHz Wi-Fi 4 与 BLE 5.0 复合射频基带，运行 Tina Linux 嵌入式系统），外围搭载毫米波雷达、6 轴 IMU 姿态传感器、GPS/北斗双模定位模组以及蜂鸣器、照明大灯、SOS 物理按键等硬件。</p>
+    <p>头盔与手机 App 之间通过低功耗蓝牙（BLE）进行原生点对点 GATT 通信：</p>
+    <ul>
+        <li><strong>GATT 角色</strong>：头盔为 GATT Server（从机 / 外设），手机 App 为 GATT Client（主机 / 中心设备）。</li>
+        <li><strong>广播规则</strong>：广播名称为 <code class="code-inline">Helmet-&lt;deviceId后6位&gt;</code>（例如 <code class="code-inline">Helmet-94173f</code>），广播间隔 100 ms。</li>
+        <li><strong>配对安全</strong>：采用 <strong>Just Works</strong> 模式快速配对，无需 PIN 码交互。</li>
+        <li><strong>服务与特征值 UUID</strong>：
+            <ul>
+                <li><strong>通信服务 UUID</strong>：<code class="code-inline">0000FEE0-0000-1000-8000-00805F9B34FB</code></li>
+                <li><strong>特征值 A（事件上行与应答）</strong>：<code class="code-inline">0000FEE1-0000-1000-8000-00805F9B34FB</code>，属性为 <strong>Notify</strong>。头盔向 App 推送状态回执、实时事件包与离线补传包。</li>
+                <li><strong>特征值 B（指令下行与确认）</strong>：<code class="code-inline">0000FEE2-0000-1000-8000-00805F9B34FB</code>，属性为 <strong>Write / Write Without Response</strong>。App 向头盔下发控制、配置及事件 ACK。</li>
+            </ul>
+        </li>
+        <li><strong>MTU 与分帧机制</strong>：连接建立后由 App 协商 MTU 至 247 字节（有效单包载荷上限 244 字节）。本协议所有指令及事件单包均在 4～25 字节之间，完全落入单包传输窗口，无封包与粘包开销。</li>
+        <li><strong>字节序</strong>：除特别说明外，所有多字节数值（int16, uint16, int32, uint32）统一采用<strong>低字节在前、高字节在后</strong>的小端序（Little-Endian）。</li>
+    </ul>
+
+    <!-- 1.1 下行指令包 -->
+    <h2 id="s1-1">1.1 下行指令包格式 (App → 头盔 特征值 B Write)</h2>
+    <p>手机 App 向头盔下发控制指令、配置写入或查询时，报文结构如下：</p>
+    <table class="protocol-table">
+        <thead>
+            <tr>
+                <th style="width: 25%;">指令码 (Instruction)</th>
+                <th style="width: 25%;">流水号 (Seq)</th>
+                <th style="width: 50%;">操作参数 (Parameters)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="val-red">Instruction (1B)</td>
+                <td class="val-red">Seq (1B)</td>
+                <td class="val-red">Parameter 1 ... Parameter N</td>
+            </tr>
+        </tbody>
+    </table>
+    <p><strong>指令码</strong>：1 字节，定义当前请求类型（如 0x02 读寄存器、0x03 写寄存器、0x04 对时等）。</p>
+    <p><strong>流水号</strong>：1 字节（0x00～0xFF），由 App 发起自增；头盔应答时原样返回该序号，用于 App 端异步回调匹配。</p>
+    <p><strong>操作参数</strong>：N 字节，根据具体指令类型确定内容。</p>
+
+    <!-- 1.2 上回应答包 -->
+    <h2 id="s1-2">1.2 上回应答包格式 (头盔 → App 特征值 A Notify)</h2>
+    <p>头盔对下行指令处理完毕后返回的应答报文结构如下：</p>
+    <table class="protocol-table">
+        <thead>
+            <tr>
+                <th style="width: 25%;">应答指令码 (Resp_Ins)</th>
+                <th style="width: 25%;">对应流水号 (Seq)</th>
+                <th style="width: 25%;">执行状态 (ERROR)</th>
+                <th style="width: 25%;">返回数据 (Data)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="val-red">Resp_Ins (1B)</td>
+                <td class="val-red">Seq (1B)</td>
+                <td class="val-red">ERROR (1B)</td>
+                <td class="val-red">Data 1 ... Data N (可选)</td>
+            </tr>
+        </tbody>
+    </table>
+    <p><strong>应答指令码</strong>：等于触发该应答的原下行指令码。</p>
+    <p><strong>对应流水号</strong>：原样返回 App 下发时的 Seq。</p>
+    <p><strong>执行状态</strong>：1 字节 <code>ERROR</code>，为 <code>0X00</code> 表示成功无错；非零表示具体错误码（详见 3.0 节）。</p>
+    <p><strong>返回数据</strong>：读指令返回实际数据，其他指令可为空。</p>
+
+    <!-- 1.3 主动事件与ACK -->
+    <h2 id="s1-3">1.3 主动事件上报与确认格式 (EVENT & ACK)</h2>
+    <p>头盔发生安全事件、周期位置更新或状态心跳时，主动推送事件报文；App 接收并校验后对高危事件回复确认报文：</p>
+    <p><strong>1. 头盔主动推送事件帧结构 (头盔 → 特征值 A Notify)：</strong></p>
+    <table class="protocol-table">
+        <thead>
+            <tr>
+                <th style="width: 15%;">指令码</th>
+                <th style="width: 15%;">事件代码 (Event_Code)</th>
+                <th style="width: 20%;">事件流水号 (Event_Seq)</th>
+                <th style="width: 20%;">UTC 时间戳 (Timestamp)</th>
+                <th style="width: 30%;">事件具体载荷 (Payload)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="val-red">0X05</td>
+                <td class="val-red">Event_Code (1B)</td>
+                <td class="val-red">Event_Seq (4B, uint32)</td>
+                <td class="val-red">Timestamp (4B, uint32)</td>
+                <td class="val-red">Payload 1 ... Payload N</td>
+            </tr>
+        </tbody>
+    </table>
+    <ul>
+        <li><strong>指令码</strong>：固定为 <code>0X05</code>。</li>
+        <li><strong>事件代码</strong>：1 字节，定义当前事件类别（0x01:跌倒, 0x02:SOS, 0x03:碰撞, 0x04:障碍, 0x05:解除, 0x06:定位, 0x07:心跳）。</li>
+        <li><strong>事件流水号 (Event_Seq)</strong>：4 字节 <code>uint32</code> 小端，单调递增，掉电保持连续性（采用步长预分配机制，开机从 Flash 读基值后预加 1000 写回，运行期 RAM 原子自增，兼顾防回绕去重与 Flash 寿命保护）。App 据此配合 <code>deviceId</code> 构造云端全局唯一 <code>eventId</code>。</li>
+        <li><strong>UTC 时间戳 (Timestamp)</strong>：4 字节 <code>uint32</code> 小端，标准 Unix 秒级时间戳。若系统未校时则填充 <code>0X00000000</code>，由云端根据接收时间兜底补正。</li>
+    </ul>
+
+    <p><strong>2. App 确认回执结构 (App → 特征值 B Write)：</strong></p>
+    <table class="protocol-table">
+        <thead>
+            <tr>
+                <th style="width: 25%;">确认指令码 (ACK)</th>
+                <th style="width: 25%;">对应事件代码</th>
+                <th style="width: 25%;">对应事件流水号 (Event_Seq)</th>
+                <th style="width: 25%;">处理状态 (Status)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="val-red">0X06</td>
+                <td class="val-red">Event_Code (1B)</td>
+                <td class="val-red">Event_Seq (4B, uint32)</td>
+                <td class="val-red">0X00 (1B)</td>
+            </tr>
+        </tbody>
+    </table>
+    <p class="note-text">头盔发出高危事件后启动 1500 ms 计时器，若超时未收到 ACK 则自动重发，连续重试 3 次未果判定为离线，转入本地 Flash 保护队列。</p>
+
+    <!-- 1.4 指令集汇总 -->
+    <h2 id="s1-4">1.4 业务指令集汇总</h2>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th style="width: 24%;">指令名称</th>
+                <th style="width: 42%;">功能说明</th>
+                <th style="width: 12%;">指令码</th>
+                <th style="width: 22%;">参数构成</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>PING</strong></td>
+                <td>查询头盔运行工作状态与自检健康度</td>
+                <td style="text-align:center;">0x01</td>
+                <td style="text-align:center;">无</td>
+            </tr>
+            <tr>
+                <td><strong>READ DATA</strong></td>
+                <td>从头盔内存控制表读取参数</td>
+                <td style="text-align:center;">0x02</td>
+                <td style="text-align:center;">首地址(1B) + 长度(1B)</td>
+            </tr>
+            <tr>
+                <td><strong>WRITE DATA</strong></td>
+                <td>向头盔内存控制表写入配置数据</td>
+                <td style="text-align:center;">0x03</td>
+                <td style="text-align:center;">首地址(1B) + 数据(NB)</td>
+            </tr>
+            <tr>
+                <td><strong>TIME SYNC</strong></td>
+                <td>手机 App 向头盔同步标准 UTC 时间</td>
+                <td style="text-align:center;">0x04</td>
+                <td style="text-align:center;">UTC 时间戳(4B, uint32)</td>
+            </tr>
+            <tr>
+                <td><strong>EVENT REPORT</strong></td>
+                <td>头盔主动向 App 推送安全告警与周期数据</td>
+                <td style="text-align:center;">0x05</td>
+                <td style="text-align:center;">类别(1B) + 序号(4B) + 时间(4B) + 载荷</td>
+            </tr>
+            <tr>
+                <td><strong>EVENT ACK</strong></td>
+                <td>App 确认收到对应事件</td>
+                <td style="text-align:center;">0x06</td>
+                <td style="text-align:center;">类别(1B) + 序号(4B) + 状态(1B)</td>
+            </tr>
+            <tr>
+                <td><strong>RESEND QUERY</strong></td>
+                <td>查询离线未上传的高危事件总数</td>
+                <td style="text-align:center;">0x07</td>
+                <td style="text-align:center;">无</td>
+            </tr>
+            <tr>
+                <td><strong>RESEND DATA</strong></td>
+                <td>批量读取离线 Flash 存储的记录</td>
+                <td style="text-align:center;">0x08</td>
+                <td style="text-align:center;">起始偏移(2B) + 请求条数(1B)</td>
+            </tr>
+            <tr>
+                <td><strong>RECOVERY</strong></td>
+                <td>恢复控制表出厂默认配置</td>
+                <td style="text-align:center;">0x09</td>
+                <td style="text-align:center;">无</td>
+            </tr>
+            <tr>
+                <td><strong>RESET</strong></td>
+                <td>控制头盔软重启或安全关机</td>
+                <td style="text-align:center;">0x0A</td>
+                <td style="text-align:center;">动作码(1B)</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <!-- 1.4.1 PING -->
+    <h3 id="s1-4-1">1.4.1 查询状态指令 PING</h3>
+    <div class="prop-item"><span class="prop-label">功能</span>读取头盔的工作状态与健康度</div>
+    <div class="prop-item"><span class="prop-label">指令</span>0X01</div>
+    <div class="prop-item"><span class="prop-label">参数</span>无</div>
+    <p><strong>例 1 App 查询头盔工作状态 (流水号 0X01)</strong></p>
+    <div class="hex-frame">指令帧：<span class="hex-text-red">01 01</span> (十六进制)</div>
+    <table class="protocol-table">
+        <thead>
+            <tr><th style="width: 50%;">指令码</th><th style="width: 50%;">流水号</th></tr>
+        </thead>
+        <tbody>
+            <tr><td class="val-red">0X01</td><td class="val-red">0X01</td></tr>
+        </tbody>
+    </table>
+    <div class="hex-frame">返回的数据帧：<span class="hex-text-red">01 01 00</span> （十六进制）</div>
+    <table class="protocol-table">
+        <thead>
+            <tr><th style="width: 33%;">应答指令码</th><th style="width: 33%;">流水号</th><th style="width: 34%;">执行状态</th></tr>
+        </thead>
+        <tbody>
+            <tr><td class="val-red">0X01</td><td class="val-red">0X01</td><td class="val-red">0X00</td></tr>
+        </tbody>
+    </table>
+
+    <!-- 1.4.2 READ DATA -->
+    <h3 id="s1-4-2">1.4.2 读指令 READ DATA</h3>
+    <div class="prop-item"><span class="prop-label">功能</span>从头盔内存控制表读取数据</div>
+    <div class="prop-item"><span class="prop-label">指令</span>0X02</div>
+    <div class="prop-item"><span class="prop-label">参数 1</span>首地址 (1 字节)</div>
+    <div class="prop-item"><span class="prop-label">参数 2</span>读取长度 (1 字节)</div>
+    <p><strong>例 2 读取当前电量与 GPS 经纬度数据 (首地址 0X10，读 10 字节，流水号 0X02)</strong></p>
+    <div class="hex-frame">指令帧：<span class="hex-text-red">02 02 10 0A</span></div>
+    <table class="protocol-table">
+        <thead>
+            <tr><th>指令码</th><th>流水号</th><th>首地址</th><th>读取长度</th></tr>
+        </thead>
+        <tbody>
+            <tr><td class="val-red">0X02</td><td class="val-red">0X02</td><td class="val-red">0X10</td><td class="val-red">0X0A</td></tr>
+        </tbody>
+    </table>
+    <div class="hex-frame">返回的数据帧：<span class="hex-text-red">02 02 00 55 00 ED 4E CD 01 17 7C 29 07</span></div>
+    <table class="protocol-table">
+        <thead>
+            <tr><th>应答码</th><th>流水号</th><th>状态</th><th>电量/充电(2B)</th><th>纬度(4B)</th><th>经度(4B)</th></tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="val-red">0X02</td><td class="val-red">0X02</td><td class="val-red">0X00</td>
+                <td class="val-red">0X55 0X00</td><td class="val-red">0XED 0X4E 0XCD 0X01</td><td class="val-red">0X17 0X7C 0X29 0X07</td>
+            </tr>
+        </tbody>
+    </table>
+    <p class="note-text">解析：电量 85%；未充电；纬度 30.256877° N；经度 120.158231° E。</p>
+
+    <!-- 1.4.3 WRITE DATA -->
+    <h3 id="s1-4-3">1.4.3 写指令 WRITE DATA</h3>
+    <div class="prop-item"><span class="prop-label">功能</span>写入数据到内存控制表</div>
+    <div class="prop-item"><span class="prop-label">指令</span>0X03</div>
+    <div class="prop-item"><span class="prop-label">参数 1</span>首地址 (1 字节)</div>
+    <div class="prop-item"><span class="prop-label">参数 2..N</span>写入的具体数据</div>
+    <p><strong>例 3 修改运动状态 GPS 上报周期为 3 秒 (首地址 0X21，流水号 0X03)</strong></p>
+    <div class="hex-frame">指令帧：<span class="hex-text-red">03 03 21 03</span></div>
+    <table class="protocol-table">
+        <thead>
+            <tr><th>指令码</th><th>流水号</th><th>首地址</th><th>写入数据</th></tr>
+        </thead>
+        <tbody>
+            <tr><td class="val-red">0X03</td><td class="val-red">0X03</td><td class="val-red">0X21</td><td class="val-red">0X03</td></tr>
+        </tbody>
+    </table>
+    <div class="hex-frame">返回的数据帧：<span class="hex-text-red">03 03 00</span></div>
+    <table class="protocol-table">
+        <thead>
+            <tr><th>应答码</th><th>流水号</th><th>执行状态</th></tr>
+        </thead>
+        <tbody>
+            <tr><td class="val-red">0X03</td><td class="val-red">0X03</td><td class="val-red">0X00</td></tr>
+        </tbody>
+    </table>
+
+    <p><strong>例 4 开启前照明大灯高亮模式 (0X02)，并设置蜂鸣器音量为 90% (0X5A) (首地址 0X26，流水号 0X04)</strong></p>
+    <div class="hex-frame">指令帧：<span class="hex-text-red">03 04 26 02 5A</span></div>
+    <table class="protocol-table">
+        <thead>
+            <tr><th>指令码</th><th>流水号</th><th>首地址</th><th>数据 1 (大灯)</th><th>数据 2 (音量)</th></tr>
+        </thead>
+        <tbody>
+            <tr><td class="val-red">0X03</td><td class="val-red">0X04</td><td class="val-red">0X26</td><td class="val-red">0X02</td><td class="val-red">0X5A</td></tr>
+        </tbody>
+    </table>
+    <div class="hex-frame">返回的数据帧：<span class="hex-text-red">03 04 00</span></div>
+    <table class="protocol-table">
+        <thead>
+            <tr><th>应答码</th><th>流水号</th><th>执行状态</th></tr>
+        </thead>
+        <tbody>
+            <tr><td class="val-red">0X03</td><td class="val-red">0X04</td><td class="val-red">0X00</td></tr>
+        </tbody>
+    </table>
+
+    <!-- 1.4.4 TIME SYNC -->
+    <h3 id="s1-4-4">1.4.4 对时指令 TIME SYNC</h3>
+    <div class="prop-item"><span class="prop-label">功能</span>App 下发 UTC 时间戳校准头盔硬件 RTC</div>
+    <div class="prop-item"><span class="prop-label">指令</span>0X04</div>
+    <div class="prop-item"><span class="prop-label">参数</span>UTC 时间戳 (4 字节 uint32 小端)</div>
+    <p><strong>例 5 App 将头盔时间校准为 UTC 1788856200 秒 (0X6AA27988，流水号 0X05)</strong></p>
+    <div class="hex-frame">指令帧：<span class="hex-text-red">04 05 88 79 A2 6A</span></div>
+    <table class="protocol-table">
+        <thead>
+            <tr><th>指令码</th><th>流水号</th><th>UTC 秒时间戳 (低位在前 4B)</th></tr>
+        </thead>
+        <tbody>
+            <tr><td class="val-red">0X04</td><td class="val-red">0X05</td><td class="val-red">0X88 0X79 0XA2 0X6A</td></tr>
+        </tbody>
+    </table>
+    <div class="hex-frame">返回的数据帧：<span class="hex-text-red">04 05 00</span></div>
+    <table class="protocol-table">
+        <thead>
+            <tr><th>应答码</th><th>流水号</th><th>执行状态</th></tr>
+        </thead>
+        <tbody>
+            <tr><td class="val-red">0X04</td><td class="val-red">0X05</td><td class="val-red">0X00</td></tr>
+        </tbody>
+    </table>
+
+    <!-- 1.4.5 EVENT REPORT -->
+    <h3 id="s1-4-5">1.4.5 事件主动上报指令 EVENT REPORT</h3>
+    <p>每条事件均统一遵循如下报文封装头：</p>
+    <div class="hex-frame">[0x05][Event_Code 1B][Event_Seq 4B][Timestamp 4B][业务载荷 NB]</div>
+
+    <p><strong>各事件业务载荷详细规范表：</strong></p>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th style="width: 10%;">事件代码</th>
+                <th style="width: 20%;">事件类型标识</th>
+                <th style="width: 10%;">载荷字节</th>
+                <th style="width: 48%;">载荷字段内部布局定义</th>
+                <th style="width: 12%;">触发属性</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td style="text-align:center;"><strong>0X01</strong></td>
+                <td><code>possible_fall</code> (跌倒报警)</td>
+                <td style="text-align:center;">11 字节</td>
+                <td>置信度(1B, 0~100%) + 冲击力(1B, 0.1g) + 倾角(1B, 度) + 纬度快照(4B, int32) + 经度快照(4B, int32)</td>
+                <td style="text-align:center;">高危 (必ACK)</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;"><strong>0X02</strong></td>
+                <td><code>manual_sos</code> (手动求救)</td>
+                <td style="text-align:center;">11 字节</td>
+                <td>触发方式(1B: 1长按/2双击) + 按键时长(2B, uint16 ms) + 纬度快照(4B, int32) + 经度快照(4B, int32)</td>
+                <td style="text-align:center;">高危 (必ACK)</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;"><strong>0X03</strong></td>
+                <td><code>collision_risk</code> (碰撞风险)</td>
+                <td style="text-align:center;">15 字节</td>
+                <td rowspan="2">风险等级(1B: 1低/2中/3高) + 目标类型(1B: 0未知/1车/2人/3障碍) + 方向(1B: 1前/2后/3左/4右) + 目标距离(2B, uint16, 0.1m, 最大6553.5m) + 预测TTC(1B, uint8, 0.1s) + 逼近速度(1B, uint8, km/h) + 纬度快照(4B) + 经度快照(4B)</td>
+                <td style="text-align:center;">高危 (必ACK)</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;"><strong>0X04</strong></td>
+                <td><code>obstacle_risk</code> (前方障碍)</td>
+                <td style="text-align:center;">15 字节</td>
+                <td style="text-align:center;">高危 (必ACK)</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;"><strong>0X05</strong></td>
+                <td><code>risk_cleared</code> (风险解除)</td>
+                <td style="text-align:center;">4 字节</td>
+                <td>被解除的那条风险事件的 Event_Seq (4B, uint32)；全 0 表示清除全部风险</td>
+                <td style="text-align:center;">通知</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;"><strong>0X06</strong></td>
+                <td><code>location_update</code> (位置更新)</td>
+                <td style="text-align:center;">15 字节</td>
+                <td>纬度(4B, int32, WGS-84) + 经度(4B, int32, WGS-84) + 地速(2B, uint16, 0.1m/s) + 航向(2B, uint16, 0.1°, 无效0xFFFF) + 水平精度(1B, uint8, m, 无定位0xFF) + 海拔(2B, int16, 1m, 覆盖全球, 无效0x7FFF)</td>
+                <td style="text-align:center;">周期 (5s/30s)</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;"><strong>0X07</strong></td>
+                <td><code>device_status</code> (状态心跳)</td>
+                <td style="text-align:center;">2 字节</td>
+                <td>电池电量(1B, 0~100%) + 充电状态(1B: 0未充/1充电中)</td>
+                <td style="text-align:center;">周期 (60s)</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <p><strong>例 6 跌倒报警推送 (流水号 101 即 0X00000065，UTC 1788856200 即 0X6AA27988，置信度95%，冲击4.5g，倾角85°，附带经纬度快照)</strong></p>
+    <div class="hex-frame">事件帧：<span class="hex-text-red">05 01 65 00 00 00 88 79 A2 6A 5F 2D 55 ED 4E CD 01 17 7C 29 07</span></div>
+    <table class="protocol-table">
+        <thead>
+            <tr><th>指令</th><th>代码</th><th>Event_Seq (4B)</th><th>Timestamp (4B)</th><th>置信度/冲击/倾角(3B)</th><th>纬度快照(4B)</th><th>经度快照(4B)</th></tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="val-red">0X05</td><td class="val-red">0X01</td>
+                <td class="val-red">0X65 0X00 0X00 0X00</td><td class="val-red">0X88 0X79 0XA2 0X6A</td>
+                <td class="val-red">0X5F 0X2D 0X55</td><td class="val-red">0XED 0X4E 0XCD 0X01</td><td class="val-red">0X17 0X7C 0X29 0X07</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <p><strong>例 7 后方来车碰撞风险 (高风险=3，目标=车=1，后方=2，距离12.5m即125=0x007D，TTC 1.8s即18，车速55km/h，附带经纬度)</strong></p>
+    <div class="hex-frame">事件帧：<span class="hex-text-red">05 03 66 00 00 00 88 79 A2 6A 03 01 02 7D 00 12 37 ED 4E CD 01 17 7C 29 07</span></div>
+    <table class="protocol-table">
+        <thead>
+            <tr><th>指令</th><th>代码</th><th>Event_Seq (4B)</th><th>Timestamp (4B)</th><th>等级/类型/方向(3B)</th><th>距离(2B)</th><th>TTC/速度(2B)</th><th>经纬度快照(8B)</th></tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="val-red">0X05</td><td class="val-red">0X03</td>
+                <td class="val-red">0X66 0X00 0X00 0X00</td><td class="val-red">0X88 0X79 0XA2 0X6A</td>
+                <td class="val-red">0X03 0X01 0X02</td><td class="val-red">0X7D 0X00</td><td class="val-red">0X12 0X37</td><td class="val-red">ED 4E CD 01 17 7C 29 07</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <!-- 1.4.6 EVENT ACK -->
+    <h3 id="s1-4-6">1.4.6 事件确认指令 EVENT ACK</h3>
+    <div class="prop-item"><span class="prop-label">功能</span>App 确认已完整收到头盔推送的高危告警事件</div>
+    <div class="prop-item"><span class="prop-label">指令</span>0X06</div>
+    <div class="prop-item"><span class="prop-label">参数 1</span>被确认的事件代码 (如 0X01 跌倒)</div>
+    <div class="prop-item"><span class="prop-label">参数 2</span>被确认的事件流水号 Event_Seq (4 字节 uint32 小端)</div>
+    <div class="prop-item"><span class="prop-label">参数 3</span>处理状态 (0X00: 接收成功)</div>
+    <p><strong>例 8 App 确认收到例 6 中的跌倒报警 (Event_Seq = 101)</strong></p>
+    <div class="hex-frame">指令帧：<span class="hex-text-red">06 01 65 00 00 00 00</span></div>
+    <table class="protocol-table">
+        <thead>
+            <tr><th>确认指令码</th><th>对应事件代码</th><th>对应 Event_Seq (4B)</th><th>状态</th></tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="val-red">0X06</td><td class="val-red">0X01</td>
+                <td class="val-red">0X65 0X00 0X00 0X00</td><td class="val-red">0X00</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <!-- 1.4.7 RESEND QUERY -->
+    <h3 id="s1-4-7">1.4.7 离线数据补传查询指令 RESEND QUERY</h3>
+    <div class="prop-item"><span class="prop-label">功能</span>查询头盔离线未上报的高危事件总条数</div>
+    <div class="prop-item"><span class="prop-label">指令</span>0X07</div>
+    <div class="prop-item"><span class="prop-label">参数</span>无</div>
+    <p><strong>例 9 App 查询离线待补传事件总条数 (流水号 0X06)</strong></p>
+    <div class="hex-frame">指令帧：<span class="hex-text-red">07 06</span></div>
+    <table class="protocol-table">
+        <thead>
+            <tr><th>指令码</th><th>流水号</th></tr>
+        </thead>
+        <tbody>
+            <tr><td class="val-red">0X07</td><td class="val-red">0X06</td></tr>
+        </tbody>
+    </table>
+    <div class="hex-frame">返回的数据帧：<span class="hex-text-red">07 06 00 03 00</span></div>
+    <table class="protocol-table">
+        <thead>
+            <tr><th>应答码</th><th>流水号</th><th>状态</th><th>未上报条数 (2B, uint16)</th></tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="val-red">0X07</td><td class="val-red">0X06</td>
+                <td class="val-red">0X00</td><td class="val-red">0X03 0X00</td>
+            </tr>
+        </tbody>
+    </table>
+    <p class="note-text">返回 0X0003 表示当前本地有 3 条未确认的高危告警事件等待补传。</p>
+
+    <!-- 1.4.8 RESEND DATA -->
+    <h3 id="s1-4-8">1.4.8 离线数据补传读取指令 RESEND DATA</h3>
+    <div class="prop-item"><span class="prop-label">功能</span>按偏移请求读取离线事件记录</div>
+    <div class="prop-item"><span class="prop-label">指令</span>0X08</div>
+    <div class="prop-item"><span class="prop-label">参数 1</span>起始偏移序号 (2 字节 uint16)</div>
+    <div class="prop-item"><span class="prop-label">参数 2</span>请求读取条数 (1 字节 uint8)</div>
+    <p><strong>补传交互与清除时序机制：</strong></p>
+    <ol style="font-size: 13px; padding-left: 20px;">
+        <li>App 发送读取请求，如请求读取 3 条：<code class="code-inline">08 07 00 00 03</code>；</li>
+        <li>头盔依次将该 3 条事件以<strong>独立 Notify 事件包（指令码 0x05）</strong>推送至特征值 A，报文结构与实时事件完全相同；</li>
+        <li>推送完毕后，头盔发送一条 0x08 结束应答包：<code class="code-inline">08 07 00 03</code>（携带实际推送条数 3）；</li>
+        <li>App 收到每条事件包后，照常向特征值 B 发送 <code class="code-inline">EVENT ACK (0x06)</code>；头盔收到对应 Event_Seq 的 ACK 后，即刻从本地存储中标记擦除，避免重复拉取。</li>
+    </ol>
+
+    <!-- 1.4.9 RECOVERY -->
+    <h3 id="s1-4-9">1.4.9 参数恢复指令 RECOVERY</h3>
+    <div class="prop-item"><span class="prop-label">功能</span>把内存控制表里所有参数恢复出厂默认值</div>
+    <div class="prop-item"><span class="prop-label">指令</span>0X09</div>
+    <div class="prop-item"><span class="prop-label">参数</span>无</div>
+    <div class="hex-frame">指令帧：<span class="hex-text-red">09 08</span>，返回帧：<span class="hex-text-red">09 08 00</span></div>
+
+    <!-- 1.4.10 RESET -->
+    <h3 id="s1-4-10">1.4.10 状态重置指令 RESET</h3>
+    <div class="prop-item"><span class="prop-label">功能</span>控制头盔主控系统软重启或安全关机</div>
+    <div class="prop-item"><span class="prop-label">指令</span>0X0A</div>
+    <div class="prop-item"><span class="prop-label">参数 1</span>动作码 (0X01: 软重启系统; 0X02: 安全关机)</div>
+    <div class="hex-frame">指令帧：<span class="hex-text-red">0A 09 01</span>，返回帧：<span class="hex-text-red">0A 09 00</span></div>
+
+    <!-- 2.0 内存控制表 -->
+    <h2 id="s2">2.0 头盔内存控制表 (Memory Control Table)</h2>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th style="width: 10%;">首地址</th>
+                <th style="width: 22%;">字段名称</th>
+                <th style="width: 8%;">字节数</th>
+                <th style="width: 8%;">读写</th>
+                <th style="width: 10%;">掉电保存</th>
+                <th style="width: 12%;">默认值</th>
+                <th style="width: 30%;">取值范围与物理定义说明</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td style="text-align:center;">0X00</td>
+                <td>固件主版本号 (Major)</td>
+                <td style="text-align:center;">1</td>
+                <td style="text-align:center;">R</td>
+                <td style="text-align:center;">是</td>
+                <td style="text-align:center;">0X01</td>
+                <td>固件主版本 (如 1)</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X01</td>
+                <td>固件次版本号 (Minor)</td>
+                <td style="text-align:center;">1</td>
+                <td style="text-align:center;">R</td>
+                <td style="text-align:center;">是</td>
+                <td style="text-align:center;">0X00</td>
+                <td>固件次版本 (如 0)</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X02</td>
+                <td>固件修订号 (Patch)</td>
+                <td style="text-align:center;">1</td>
+                <td style="text-align:center;">R</td>
+                <td style="text-align:center;">是</td>
+                <td style="text-align:center;">0X03</td>
+                <td>修订号 (如 3，合成 "1.0.3")</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X03</td>
+                <td>硬件 PCB 版本号</td>
+                <td style="text-align:center;">1</td>
+                <td style="text-align:center;">R</td>
+                <td style="text-align:center;">是</td>
+                <td style="text-align:center;">0X12</td>
+                <td>对应硬件 V1.2</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X04</td>
+                <td>头盔设备内部编号</td>
+                <td style="text-align:center;">2</td>
+                <td style="text-align:center;">R/W</td>
+                <td style="text-align:center;">是</td>
+                <td style="text-align:center;">0X0001</td>
+                <td>内部调试编号 (1～253)</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X08</td>
+                <td><strong>EPROM 保护锁开关</strong></td>
+                <td style="text-align:center;">1</td>
+                <td style="text-align:center;">R/W</td>
+                <td style="text-align:center;">否</td>
+                <td style="text-align:center;">0X01</td>
+                <td><strong>0: 解锁可写; 1: 加锁保护只读</strong></td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X0A</td>
+                <td>电池剩余电量百分比</td>
+                <td style="text-align:center;">1</td>
+                <td style="text-align:center;">R</td>
+                <td style="text-align:center;">否</td>
+                <td style="text-align:center;">动态</td>
+                <td>范围 0～100 (%)</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X0B</td>
+                <td>充电状态标志</td>
+                <td style="text-align:center;">1</td>
+                <td style="text-align:center;">R</td>
+                <td style="text-align:center;">否</td>
+                <td style="text-align:center;">动态</td>
+                <td>0: 未充电; 1: 充电中</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X10</td>
+                <td>GPS 纬度 (Latitude)</td>
+                <td style="text-align:center;">4</td>
+                <td style="text-align:center;">R</td>
+                <td style="text-align:center;">否</td>
+                <td style="text-align:center;">动态</td>
+                <td>放大 10^6 倍的 32位整型 (WGS-84)</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X14</td>
+                <td>GPS 经度 (Longitude)</td>
+                <td style="text-align:center;">4</td>
+                <td style="text-align:center;">R</td>
+                <td style="text-align:center;">否</td>
+                <td style="text-align:center;">动态</td>
+                <td>放大 10^6 倍的 32位整型 (WGS-84)</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X18</td>
+                <td>骑行地速 (Speed)</td>
+                <td style="text-align:center;">2</td>
+                <td style="text-align:center;">R</td>
+                <td style="text-align:center;">否</td>
+                <td style="text-align:center;">动态</td>
+                <td>单位 0.1 m/s (如 68 代表 6.8 m/s)</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X1A</td>
+                <td>运动航向角 (Heading)</td>
+                <td style="text-align:center;">2</td>
+                <td style="text-align:center;">R</td>
+                <td style="text-align:center;">否</td>
+                <td style="text-align:center;">动态</td>
+                <td>单位 0.1 度 (0～3599，无效 0xFFFF)</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X20</td>
+                <td>心跳状态上报周期</td>
+                <td style="text-align:center;">1</td>
+                <td style="text-align:center;">R/W</td>
+                <td style="text-align:center;">是</td>
+                <td style="text-align:center;">0X3C</td>
+                <td>单位秒 (s)，默认 60s (0X3C)</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X21</td>
+                <td>运动状态定位周期</td>
+                <td style="text-align:center;">1</td>
+                <td style="text-align:center;">R/W</td>
+                <td style="text-align:center;">是</td>
+                <td style="text-align:center;">0X05</td>
+                <td>单位秒 (s)，默认 5s (0X05)</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X22</td>
+                <td>静止状态定位周期</td>
+                <td style="text-align:center;">1</td>
+                <td style="text-align:center;">R/W</td>
+                <td style="text-align:center;">是</td>
+                <td style="text-align:center;">0X1E</td>
+                <td>单位秒 (s)，默认 30s (0X1E)</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X23</td>
+                <td>蜂鸣器声音提醒开关</td>
+                <td style="text-align:center;">1</td>
+                <td style="text-align:center;">R/W</td>
+                <td style="text-align:center;">是</td>
+                <td style="text-align:center;">0X01</td>
+                <td>0: 关闭; 1: 开启</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X24</td>
+                <td>蜂鸣器音量</td>
+                <td style="text-align:center;">1</td>
+                <td style="text-align:center;">R/W</td>
+                <td style="text-align:center;">是</td>
+                <td style="text-align:center;">0X50</td>
+                <td>范围 1～100 (%)，默认 80%</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X25</td>
+                <td>振动马达提醒开关与挡位</td>
+                <td style="text-align:center;">1</td>
+                <td style="text-align:center;">R/W</td>
+                <td style="text-align:center;">是</td>
+                <td style="text-align:center;">0X02</td>
+                <td>0: 关; 1: 弱; 2: 中; 3: 强</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X26</td>
+                <td>前照明 LED 大灯挡位</td>
+                <td style="text-align:center;">1</td>
+                <td style="text-align:center;">R/W</td>
+                <td style="text-align:center;">否</td>
+                <td style="text-align:center;">0X00</td>
+                <td>0: 关; 1: 低亮; 2: 高亮; 3: 爆闪</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X27</td>
+                <td>跌倒检测算法使能</td>
+                <td style="text-align:center;">1</td>
+                <td style="text-align:center;">R/W</td>
+                <td style="text-align:center;">是</td>
+                <td style="text-align:center;">0X01</td>
+                <td>0: 关闭; 1: 开启</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X28</td>
+                <td>跌倒检测灵敏度等级</td>
+                <td style="text-align:center;">1</td>
+                <td style="text-align:center;">R/W</td>
+                <td style="text-align:center;">是</td>
+                <td style="text-align:center;">0X02</td>
+                <td>1: 低(难触发); 2: 标准; 3: 灵敏</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X29</td>
+                <td>后置毫米波雷达防碰撞使能</td>
+                <td style="text-align:center;">1</td>
+                <td style="text-align:center;">R/W</td>
+                <td style="text-align:center;">是</td>
+                <td style="text-align:center;">0X01</td>
+                <td>0: 关闭; 1: 开启</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X2A</td>
+                <td>后方碰撞预警距离门限</td>
+                <td style="text-align:center;">1</td>
+                <td style="text-align:center;">R/W</td>
+                <td style="text-align:center;">是</td>
+                <td style="text-align:center;">0X0F</td>
+                <td>范围 5～30 米，默认 15 米</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X2B</td>
+                <td>前方障碍物预警使能</td>
+                <td style="text-align:center;">1</td>
+                <td style="text-align:center;">R/W</td>
+                <td style="text-align:center;">是</td>
+                <td style="text-align:center;">0X01</td>
+                <td>0: 关闭; 1: 开启</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X2C</td>
+                <td>SOS 物理按键使能</td>
+                <td style="text-align:center;">1</td>
+                <td style="text-align:center;">R/W</td>
+                <td style="text-align:center;">是</td>
+                <td style="text-align:center;">0X01</td>
+                <td>0: 禁用(防误触); 1: 启用</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X2D</td>
+                <td>BLE 断连本地蜂鸣提醒</td>
+                <td style="text-align:center;">1</td>
+                <td style="text-align:center;">R/W</td>
+                <td style="text-align:center;">是</td>
+                <td style="text-align:center;">0X00</td>
+                <td>0: 保持静音(默认); 1: 短鸣提醒</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X34</td>
+                <td><strong>事件累计流水基数 (Event_Seq Base)</strong></td>
+                <td style="text-align:center;">4</td>
+                <td style="text-align:center;">R</td>
+                <td style="text-align:center;">是</td>
+                <td style="text-align:center;">0X00000000</td>
+                <td>4字节 uint32 小端。开机从 Flash 读出后预分配加 1000 写回，运行期间 RAM 单调累加，永不回绕</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X40</td>
+                <td><strong>设备 ID 字符串 (deviceId)</strong></td>
+                <td style="text-align:center;">16</td>
+                <td style="text-align:center;">R/W</td>
+                <td style="text-align:center;">是</td>
+                <td style="text-align:center;">ASCII</td>
+                <td>例如 <code class="code-inline">helmet_94173f</code>，产线单次烧写并加锁保护，不足补 0x00</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;">0X50</td>
+                <td><strong>设备通信密钥 (deviceSecret)</strong></td>
+                <td style="text-align:center;">32</td>
+                <td style="text-align:center;">W (只写不可读)</td>
+                <td style="text-align:center;">是</td>
+                <td style="text-align:center;">ASCII</td>
+                <td>产线写入，仅供系统内部存储，预留 4G 扩展鉴权，BLE 读操作被拒绝</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <!-- 3.0 错误代码表 -->
+    <h2 id="s3">3.0 工作状态与错误代码对照表 (ERROR)</h2>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th style="width: 14%;">错误码 (Hex)</th>
+                <th style="width: 26%;">错误标识符号</th>
+                <th style="width: 36%;">原因说明</th>
+                <th style="width: 24%;">处理建议</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td style="text-align:center;"><strong>0X00</strong></td>
+                <td><code>STATUS_OK</code></td>
+                <td>执行成功，无任何错误</td>
+                <td>正常解析后续数据</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;"><strong>0X01</strong></td>
+                <td><code>ERR_LENGTH</code></td>
+                <td>数据包长度与指令定义不符</td>
+                <td>核查待发送的字节总长</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;"><strong>0X02</strong></td>
+                <td><code>ERR_INSTRUCTION</code></td>
+                <td>未定义的非法功能指令码</td>
+                <td>核对 1.4 节指令列表</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;"><strong>0X03</strong></td>
+                <td><code>ERR_ADDR_RANGE</code></td>
+                <td>访问的内存控制表首地址超界</td>
+                <td>核对 2.0 节寄存器地址</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;"><strong>0X04</strong></td>
+                <td><code>ERR_EPROM_LOCKED</code></td>
+                <td>内存表处于只读锁保护态 (0X08=1)，禁止写入</td>
+                <td>先向 0X08 写入 0 解锁</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;"><strong>0X05</strong></td>
+                <td><code>ERR_PARAM_VALUE</code></td>
+                <td>参数写入数值超出物理有效范围</td>
+                <td>校验参数合法取值范围</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;"><strong>0X06</strong></td>
+                <td><code>ERR_BATTERY_LOW</code></td>
+                <td>当前电量过低 (&lt;15%)，高功耗操作被拒绝</td>
+                <td>提醒用户连接充电线</td>
+            </tr>
+            <tr>
+                <td style="text-align:center;"><strong>0X07</strong></td>
+                <td><code>ERR_HARDWARE_FAULT</code></td>
+                <td>对应硬件外设（雷达/IMU/GPS）通信失联</td>
+                <td>提示传感器硬件自检异常</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <!-- 4.0 运行周期与通信时序规范全表 -->
+    <h2 id="s4">4.0 系统运行周期与通信时序规范全表</h2>
+    <p>为保障嵌入式芯片低功耗运行、避免无线信道拥塞，并确保高危安全事件微秒级送达，整机通信时序与各业务周期规范如下表：</p>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th style="width: 18%;">时序 / 周期参数项</th>
+                <th style="width: 14%;">设定值 / 周期</th>
+                <th style="width: 22%;">触发源 / 判定条件</th>
+                <th style="width: 46%;">适用场景与详细工程说明</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>运动状态定位周期</strong></td>
+                <td><strong>5 秒 (5s)</strong></td>
+                <td>定时器 / 骑行运动态</td>
+                <td>IMU 检测到运动（速度 &gt; 1 m/s 或持续震动），每 5s 通过特征值 A 上报一次位置（0x06）</td>
+            </tr>
+            <tr>
+                <td><strong>静止节能定位周期</strong></td>
+                <td><strong>30 秒 (30s)</strong></td>
+                <td>定时器 / 停车静止态</td>
+                <td>停车等待或熄火，连续静止超过 <strong>3 分钟 (180s)</strong> 自动降频至 30s 节能；检测到运动瞬间恢复 5s 周期</td>
+            </tr>
+            <tr>
+                <td><strong>心跳状态上报周期</strong></td>
+                <td><strong>60 秒 (60s)</strong></td>
+                <td>定时器周期触发</td>
+                <td>每 60s 上报一次电池电量、充电状态及健康度（0x07）</td>
+            </tr>
+            <tr>
+                <td><strong>蓝牙广播间隔 (Adv)</strong></td>
+                <td><strong>100 毫秒 (100ms)</strong></td>
+                <td>射频底层周期</td>
+                <td>开机或物理断开后广播 <code class="code-inline">Helmet-xxxxxx</code>，兼顾秒级快连与待机省电</td>
+            </tr>
+            <tr>
+                <td><strong>连接间隔 (Conn Int)</strong></td>
+                <td><strong>20ms ～ 40ms</strong></td>
+                <td>App 协商参数</td>
+                <td>确保高危告警从算法触发到送达手机端时延 &lt; 50ms</td>
+            </tr>
+            <tr>
+                <td><strong>监控超时 (Timeout)</strong></td>
+                <td><strong>5000 毫秒 (5s)</strong></td>
+                <td>底层链路监控</td>
+                <td>连续 5 秒未收到底层 PDU 交互，双方判定物理链路断开，头盔恢复广播，App 后台重连</td>
+            </tr>
+            <tr>
+                <td><strong>高危事件 ACK 等待超时</strong></td>
+                <td><strong>1500 毫秒 (1.5s)</strong></td>
+                <td>软件重传定时器</td>
+                <td>跌倒、SOS、碰撞、障碍事件发出后等待 App 的 0x06 ACK 响应</td>
+            </tr>
+            <tr>
+                <td><strong>高危事件最大重传次数</strong></td>
+                <td><strong>3 次</strong></td>
+                <td>累计重传计数</td>
+                <td>连续 3 次（共 4.5s）超时未收到 ACK 或此时蓝牙已断，事件立即压入 Flash 保护队列</td>
+            </tr>
+            <tr>
+                <td><strong>毫米波雷达防碰撞去抖</strong></td>
+                <td><strong>2.0 秒 (2s)</strong></td>
+                <td>算法多目标追踪</td>
+                <td>同一逼近目标连续追踪期间不重复发告警，仅危险等级升级时更新；脱离危险区持续 2s 稳定后发一条风险解除（0x05）</td>
+            </tr>
+            <tr>
+                <td><strong>物理 SOS 长按判定阈值</strong></td>
+                <td><strong>2.0 秒 (2000ms)</strong></td>
+                <td>物理按键硬件中断</td>
+                <td>持续按压 $\ge 2000\text{ ms}$ 判定为有效手动求救，过滤短按防误触</td>
+            </tr>
+            <tr>
+                <td><strong>离线补发流控间隔</strong></td>
+                <td><strong>30ms ～ 50ms</strong></td>
+                <td>补传流控延时</td>
+                <td>避免突发打满 BLE 协议栈缓冲区；头盔推一条、App 回一条 ACK，收到 ACK 物理擦除</td>
+            </tr>
+            <tr>
+                <td><strong>Flash 离线缓存容量</strong></td>
+                <td><strong>&ge; 1000 条 (最长 48h)</strong></td>
+                <td>SPI NOR Flash 环形区</td>
+                <td>两级存储区：高危事件保护区永久保留（严禁覆盖）；常规心跳与位置 FIFO 覆盖</td>
+            </tr>
+            <tr>
+                <td><strong>硬件 RTC 晶振漂移指标</strong></td>
+                <td><strong>&lt; 1.5 秒 / 天</strong></td>
+                <td>32.768kHz 工业晶振</td>
+                <td>离线无网络时保证全天事件时间戳物理误差在 2 秒以内</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <!-- 4.1 开机连接与握手初始化时序 -->
+    <h3 id="s4-1">4.1 开机连接与握手初始化时序</h3>
+    <p>用户佩戴头盔开机，打开手机 App 自动连上，完成参数与时钟对齐，准备就绪：</p>
+    <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor User as 骑手/用户
+    participant App as 手机 App (GATT Client)
+    participant Helmet as 头盔主控 V821 (GATT Server)
+    participant Cloud as 云端后端
+
+    User->>Helmet: 开机，启动 BLE 广播 (Helmet-94173f)
+    User->>App: 打开手机 App
+    App->>Helmet: 1. 扫描到广播，发起连接请求 (Connect)
+    Helmet-->>App: 2. 物理链路建立成功 (Connected)
+    
+    rect rgb(240, 248, 255)
+        note over App, Helmet: 握手五步法 (必须严格按此顺序)
+        App->>Helmet: Step 1: requestMtu(247)
+        Helmet-->>App: MTU 协商成功 (247 字节)
+        
+        App->>Helmet: Step 2: 写 CCCD (0x2902=0x0001)，开启特征值 A 的 Notify
+        Helmet-->>App: Notify 开启就绪
+        
+        App->>Helmet: Step 3: 读设备 ID 与版本 [0x02][Seq][0x40 0x10]
+        Helmet-->>App: 返回设备 ID "helmet_94173f" 与固件 "1.0.3"
+        App->>Cloud: 上报当前在线与硬件版本
+        
+        App->>Helmet: Step 4: 手机对时 [0x04][Seq][UTC秒时间戳 4B]
+        Helmet->>Helmet: 校准内部高精度硬件 RTC
+        Helmet-->>App: 应答对时成功 [0x04][Seq][0x00]
+        
+        App->>Helmet: Step 5: 查离线事件 [0x07][Seq]
+        Helmet-->>App: 应答未上传条数 = 0 [0x07][Seq][0x00][0x00 0x00]
+    end
+    </pre>
+
+    <!-- 4.2 正常骑行监控周期上报时序 -->
+    <h3 id="s4-2">4.2 正常骑行监控周期上报时序</h3>
+    <p>骑行中定时上报位置轨迹与电量；静止时自动降频节能。周期数据单向推送，不走 ACK 闭环以最大化省电：</p>
+    <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant Helmet as 头盔主控 V821
+    participant App as 手机 App
+    participant Cloud as 云端后端
+
+    loop 每 5 秒周期 (运动中)
+        Helmet->>Helmet: GPS 模块提取 WGS-84 经纬度/速度/航向
+        Helmet->>App: Notify 0x06 定位更新包 [0x05][0x06][Seq 4B][UTC 4B][经纬度/速度 15B]
+        App->>Cloud: HTTPS 透传位置数据 (手机不做判断，原样搬运)
+    end
+
+    loop 每 60 秒周期
+        Helmet->>App: Notify 0x07 心跳包 [0x05][0x07][Seq 4B][UTC 4B][电量 85% / 充电 0]
+        App->>Cloud: HTTPS 同步电量与设备状态
+    end
+
+    rect rgb(255, 250, 240)
+        note over Helmet: 骑手在路口停车等待 (静止 > 3 分钟)
+        Helmet->>Helmet: IMU 检测到持续静止，触发降频策略
+        Helmet->>Helmet: GPS 定位周期从 5s 自动切换为 30s (节省系统功耗)
+    end
+    </pre>
+
+    <!-- 4.3 突发高危安全告警与确认闭环时序 -->
+    <h3 id="s4-3">4.3 突发高危安全告警与确认闭环时序</h3>
+    <p>发生摔倒、手动 SOS 或碰撞危险时，头盔本地立刻声光警报，并通过 BLE 上报，<strong>双向必须通过 ACK 闭环</strong>：</p>
+    <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor Car as 后方来车
+    participant Helmet as 头盔主控 V821
+    participant App as 手机 App
+    participant Cloud as 云端后端
+    actor Family as 紧急联系人
+
+    Car->>Helmet: 毫米波雷达检测到汽车高速逼近 (TTC < 1.8s)
+    Helmet->>Helmet: 触发本地蜂鸣器急促报警 + 振动马达提示骑手
+    
+    Helmet->>App: Notify 碰撞预警包 [0x05][0x03][Seq=101][UTC 4B][高风险/车/12.5m/附带经纬度]
+    activate Helmet
+    Helmet->>Helmet: 启动 1500ms 本地 ACK 等待定时器
+
+    App->>Helmet: Write 确认回执 [0x06][0x03][Seq=101 4B][Status=0x00]
+    deactivate Helmet
+    Helmet->>Helmet: 收到对应 Seq=101 的 ACK，取消定时器，确认妥投
+    
+    par App 中转报警
+        App->>Cloud: 立即上报碰撞风险 (附带真实发生时间与出事地点)
+    and App 界面交互
+        App->>App: 手机全屏爆红闪烁预警 + 语音播报“后方有车！”
+    end
+
+    opt 若 1500ms 超时未收到 ACK
+        Helmet->>App: 自动重发第 1 次 [0x05][0x03][Seq=101]...
+        note over Helmet: 连续重试 3 次均超时，立即将事件压入 Flash 离线保护队列
+    end
+    </pre>
+
+    <!-- 4.4 离线断连、本地暂存与重连补传时序 -->
+    <h3 id="s4-4">4.4 离线断连、本地暂存与重连补传时序</h3>
+    <p>无信号或手机离体断连时，头盔本地 Flash 安全队列暂存事故记录；蓝牙重连后逐条补传并逐条物理擦除：</p>
+    <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant Helmet as 头盔主控 V821
+    participant Flash as 板载 Flash 环形区
+    participant App as 手机 App
+    participant Cloud as 云端后端
+
+    note over Helmet, App: 距离过远或 App 异常杀死，蓝牙物理链路断开 (Disconnected)
+    
+    rect rgb(255, 235, 235)
+        note over Helmet: 骑手在断连期间发生摔倒！
+        Helmet->>Helmet: 算法判定跌倒，生成事件 Seq=102，记录当前 UTC 时间 T1
+        Helmet->>Flash: 写入高危保护队列 (掉电不丢失，永不覆盖)
+    end
+
+    note over Helmet, App: 骑手拿出手机打开 App，BLE 重新握手成功 (Connected)
+
+    App->>Helmet: 发送查询离线数据指令 [0x07][Seq=01]
+    Helmet-->>App: 返回未上报离线条数 = 1 [0x07][Seq=01][Status=0][0x01 0x00]
+
+    App->>Helmet: 发送拉取数据指令 [0x08][Seq=02][偏移 0x0000][读取条数 0x01]
+    
+    rect rgb(240, 255, 240)
+        note over Helmet, App: 逐条补传与逐条 ACK 闭环
+        Helmet->>App: Notify 补发摔倒记录 [0x05][0x01][Seq=102][时间=T1][置信度/冲击力/经纬度]
+        Helmet->>App: Notify 发送拉取结束标记帧 [0x08][Seq=02][Status=0][实际完成 0x01]
+        
+        App->>Helmet: Write 回执 ACK [0x06][0x01][Seq=102 4B][0x00]
+        Helmet->>Flash: 收到 Seq=102 ACK，物理标记擦除该条记录 (防止重复拉取)
+    end
+
+    App->>Cloud: 将历史补传摔倒事件发往云端 (明确标明发生时间为 T1)
+    Cloud->>Cloud: 云端按原始发生时间 T1 还原现场，不会被当成新事故重复误报
+    </pre>
+
+    <!-- 4.5 手机 App 远程参数配置时序 -->
+    <h3 id="s4-5">4.5 手机 App 远程参数配置时序</h3>
+    <p>用户在手机 App 修改大灯模式、蜂鸣器音量或雷达参数时的下行交互：</p>
+    <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor User as 用户
+    participant App as 手机 App
+    participant Helmet as 头盔主控 V821
+    participant Hardware as 外部硬件 (LED/蜂鸣器)
+
+    User->>App: 在设置页打开大灯高亮模式，音量设为 90%
+    App->>Helmet: Write 下发配置 [0x03][Seq=08][首地址 0x26][数据 0x02 0x5A]
+    
+    Helmet->>Helmet: 校验地址与数值范围合法
+    Helmet->>Helmet: 更新内部内存控制表 0x26=0x02, 0x27=0x5A
+    Helmet->>Hardware: GPIO/PWM 输出驱动前 LED 大灯高亮，调节蜂鸣器 PWM
+    
+    Helmet-->>App: Notify 执行成功应答 [0x03][Seq=08][Status=0x00]
+    App->>User: 界面提示“设置已生效”
+    </pre>
+</div>
+
+</body>
+</html>

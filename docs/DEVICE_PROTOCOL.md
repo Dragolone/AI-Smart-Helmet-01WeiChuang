@@ -31,6 +31,27 @@
 - App 中转模块**原样透传** MQTT 同款事件 envelope（EVENTS.md §1），不修改内容；eventId 幂等规则不变——断线补传、重复转发都由服务端去重消化。
 - **BLE 传输细节 ⚠️ 待硬件团队定义**（联调清单第 1 条，**当前最卡工期的前置项**——决策 #35 后 BLE 是唯一真机数据链路）：GATT 服务/特征值、分帧与重组、App→头盔确认机制、头盔侧断连缓存与补传策略。
 
+### 1.2 BLE 协议摘要（Contract 以 `docs/hardware/BLE通信协议手册-v0.6.html` 为准；本节为软件侧速查，2026-09-09）
+
+| 项 | 定稿值 |
+|---|---|
+| GATT 角色 | 头盔 = Server（从机），App = Client（主机）；Just Works 配对，无 PIN |
+| 广播名 / 间隔 | `Helmet-<deviceId 后 6 位>`；100 ms |
+| 服务 / 特征值 | 服务 `FEE0`；A `FEE1` Notify（上行：应答、事件、补传）；B `FEE2` Write / Write Without Response（下行：指令、ACK） |
+| MTU / 字节序 | App 协商 247；单帧 4–25 B 无分帧；多字节小端 |
+| 下行帧 | `[指令码 1B][Seq 1B][参数…]`；应答 `[指令码][Seq][ERROR 1B][数据…]` |
+| 事件帧 | `[0x05][Event_Code 1B][Event_Seq 4B uint32][Timestamp 4B UTC 秒，未校时 0][载荷]`；Event_Seq 掉电保持、永不回绕（开机预分配 +1000） |
+| 事件代码 | 0x01 possible_fall(11B) · 0x02 manual_sos(11B) · 0x03 collision_risk(15B) · 0x04 obstacle_risk(15B) · 0x05 risk_cleared(4B) · 0x06 location_update(15B) · 0x07 device_status(2B)——载荷布局见手册 1.4.5 |
+| ACK | 高危四类必 ACK：`[0x06][Event_Code][Event_Seq 4B][0x00]`；1.5 s 无 ACK 重发，3 次后入 Flash 保护队列；位置/心跳周期事件不 ACK |
+| 补传 | `0x07` 查条数 → `0x08 [偏移 2B][条数 1B]` → 逐条以实时事件帧 Notify → 结束帧 `[0x08][Seq][ERROR][实际条数]` → App 逐条 ACK 即擦除；缓存 ≥ 1000 条 / 48 h，高危永不覆盖 |
+| 指令集 | 0x01 PING · 0x02 READ · 0x03 WRITE · 0x04 TIME SYNC（UTC 秒 4B）· 0x05 EVENT · 0x06 ACK · 0x07/0x08 RESEND · 0x09 RECOVERY · 0x0A RESET |
+| 内存表关键地址 | 0x00–0x02 固件版本 · 0x20–0x2D 可远程设置项（App 设置下发映射到 WRITE）· 0x34 Event_Seq 基数 · **0x40 deviceId 16B ASCII（产线烧录）** · 0x50 deviceSecret 32B 只写 |
+| 连接后固定流程 | MTU 247 → 订阅 A（CCCD）→ READ 0x40 deviceId + READ 0x00–0x02 固件 → TIME SYNC → RESEND QUERY/DATA 逐条 ACK → 正常收发 |
+| 周期 | 位置 5 s（运动）/ 30 s（静止 >3 min）；心跳 60 s；连接间隔 20–40 ms；监控超时 5 s |
+| 坐标系 | GPS 输出 **WGS-84**（int32 ×10⁶）；App 组 envelope 时 `coordinateSystem: 'wgs84'` |
+
+**App 中转模块的翻译规则**（二进制帧 → EVENTS.md envelope，云端零改动）：`eventId` = 由 `deviceId + Event_Seq` 确定性生成的 UUID v5；`timestamp` = Timestamp≠0 ? ISO(UTC 秒) : 收到时刻；`firmwareVersion` = 0x00–0x02 拼 `x.y.z`；payload 按 EVENTS.md §4 字段映射（距离 0.1 m→m、速度 0.1 m/s→m/s、置信度 %→0–1、风险等级 1/2/3→low/medium/high、方向/目标类型枚举映射）；原始字节字段（冲击力、倾角、TTC、按键时长、触发方式）原样附在 payload 里落库。
+
 ## 2. MQTT Broker
 
 | 项 | 约定 | 状态 |
@@ -140,7 +161,7 @@ ACL 规则：设备 `helmet_001` 只允许 publish `helmet/helmet_001/{status,lo
 
 **当前开工前置（最卡工期，优先级从高到低）：**
 
-1. 🔴 **BLE 数据协议**：GATT 服务/特征值、分帧与重组、App→头盔确认机制、头盔侧断连缓存与补传策略——A 线中转模块开工的硬前置。**进展（2026-09-08）**：已向张森淼发出带「软件建议默认值」的对接问卷（BLE / 视频四项 / 对时 / 不急项四节），硬件回复「先做 BLE，我给一个协议表出来，后面大家按协议表发」。**同日硬件交付《BLE 通信协议手册 v0.5》**（二进制帧协议：主服务 FEE0，特征值 A=FEE1 Notify 上行、B=FEE2 Write 下行，MTU 247，广播名 `Helmet-<deviceId 后 6 位>`，指令集 0x01–0x0A，内存控制表 + 错误码表）——**软件侧审阅意见已回**（架构通过；7 项必改：Event_Seq 扩 4B 掉电保存以支撑 eventId 幂等、事件帧带 4B UTC 时间戳、定义位置/心跳载荷、风险事件加 riskLevel、解除事件载荷、deviceId 改 16B 字符串出厂写入、补传响应格式与 ACK 即删；5 项建议）。**等 v0.6 定稿后**：本节 BLE 条目移入正文成为 Contract，A 线中转模块按 v0.6 做二进制→envelope 适配，先用 Mac bless / nRF Connect GATT server 仿真头盔自测，真机到位直接替换；
+1. ✅ **BLE 数据协议已定稿（v0.6，硬件 Seamus Zhang 2026-09-08；决策 #38）**：原文 `docs/hardware/BLE通信协议手册-v0.6.html`，软件侧摘要见 §1.2。软件侧审阅 v0.5 提出的 7 项必改 + 5 项建议全部落实。**v0.6 遗留 3 处文档级修正（已回硬件，不阻塞开工）**：① 例 4 / 4.5 节「0x26 连写 02 5A」把音量写到了 0x27（跌倒检测使能），音量在 0x24，应拆两条写；② 握手第 3 步读 0x40×16B 只得 deviceId，固件版本需另读 0x00–0x02；③ RESEND 补传覆盖的事件类型（仅高危 vs 含位置/心跳 FIFO）需写明。A 线中转模块据此开工，先用 Mac bless / nRF Connect GATT Server 仿真头盔自测；
 2. 🔴 **Wi-Fi 近场细节**：
    - ① 实时视频推流协议 —— ✅ **硬件 2026-08-25 已答**：主控 **全志 V821 SoC**，官方参考方案 `sample_smartIPC_demo` 走 **RTSP**，编码 **H.264**，媒体由 **RTP** 承载（RTP/UDP 还是 RTP over TCP 取决于 SDK 配置 `rtsp_net_type`），主/子码流以不同 `rtsp id` 区分（默认 `main_rtsp_id = 0`）。文档：<https://docs.aw-ol.com/docs/soc/v821/solution/ipc-camera/>
      **仍需硬件补充（🔴 2026-09-01 实时预览已拍板进 MVP——决策 #37，以下缺项连同 ④ 热点参数升级为 A 线 Spike 开工硬前置）**：⚠️ 子码流的 rtsp id 与分辨率（App 预览应用子码流，主码流解码与带宽压力过大）；⚠️ `rtsp_net_type` 实配值（局域网直连建议 RTP/UDP，延迟更低）；⚠️ 完整拉流 URL 格式与是否需要鉴权。
