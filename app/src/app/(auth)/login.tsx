@@ -1,7 +1,7 @@
 // 登录页（API.md §2 POST /auth/login）
 import { Link } from 'expo-router';
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, StyleSheet } from 'react-native';
+import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { authApi } from '@/api/auth';
@@ -65,9 +65,16 @@ export default function LoginScreen() {
           <FormError message={error} />
           <PrimaryButton title="登录" onPress={submit} loading={busy} />
 
-          <Link href="/register" style={styles.link}>
-            <ThemedText type="link">没有账号？注册</ThemedText>
-          </Link>
+          <View style={styles.linkRow}>
+            <Link href="/register">
+              <ThemedText type="link">没有账号？注册</ThemedText>
+            </Link>
+            <Link href="/reset-password">
+              <ThemedText type="link" themeColor="textSecondary">
+                忘记密码
+              </ThemedText>
+            </Link>
+          </View>
         </ThemedView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -77,5 +84,10 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: { flex: 1, justifyContent: 'center', padding: 24, gap: 14 },
-  link: { alignSelf: 'center', marginTop: 8 },
+  linkRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    paddingHorizontal: 4,
+  },
 });

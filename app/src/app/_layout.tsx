@@ -71,6 +71,7 @@ function RootNavigator() {
       <Stack.Protected guard={!authed}>
         <Stack.Screen name="(auth)/login" />
         <Stack.Screen name="(auth)/register" />
+        <Stack.Screen name="(auth)/reset-password" />
       </Stack.Protected>
     </Stack>
   );
