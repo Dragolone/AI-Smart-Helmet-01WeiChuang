@@ -188,51 +188,6 @@ export default function SafetyScreen() {
             })()}
           </View>
 
-          {pendingSos && (
-            <Pressable
-              onPress={() =>
-                router.push(`/sos-active?sosId=${pendingSos.sosId}&deviceId=${pendingSos.deviceId}`)
-              }>
-              <View style={[styles.sosBanner, { backgroundColor: theme.dangerBg, borderColor: theme.danger }]}>
-                <Ionicons name="warning" size={22} color={theme.danger} />
-                <ThemedText type="smallBold" style={{ color: theme.danger, flex: 1 }}>
-                  有一条进行中的 SOS，点击处理
-                </ThemedText>
-                <Ionicons name="chevron-forward" size={18} color={theme.danger} />
-              </View>
-            </Pressable>
-          )}
-
-          {/* 紧急求助:长按 2 秒发出 manual_sos(与头盔按钮同链路,倒计时内可取消) */}
-          {sosTarget && !pendingSos && (
-            <Pressable
-              delayLongPress={2000}
-              onPressIn={() => {
-                sosP.set(withTiming(1, { duration: 2000, easing: Easing.linear }));
-              }}
-              onPressOut={() => {
-                sosP.set(withTiming(0, { duration: 180 }));
-              }}
-              onLongPress={fireSos}>
-              <View style={[styles.sosBtn, { borderColor: theme.danger, backgroundColor: theme.dangerBg }]}>
-                <Animated.View
-                  style={[styles.sosFill, { backgroundColor: theme.danger }, sosFillStyle]}
-                />
-                <Animated.View style={[styles.sosBtnRow, sosTextStyle]}>
-                  <Ionicons name="alert-circle" size={22} color={theme.danger} />
-                  <View>
-                    <ThemedText type="smallBold" style={{ color: theme.danger, fontSize: 16 }}>
-                      紧急求助
-                    </ThemedText>
-                    <ThemedText type="label" themeColor="textSecondary">
-                      长按 2 秒,60 秒倒计时后通知紧急联系人
-                    </ThemedText>
-                  </View>
-                </Animated.View>
-              </View>
-            </Pressable>
-          )}
-
           <View style={styles.sectionHeader}>
             <ThemedText type="subtitle" style={styles.sectionTitle}>
               紧急联系人
@@ -337,6 +292,59 @@ export default function SafetyScreen() {
           )}
         </ScrollView>
 
+        {/* 拇指区固定位:紧急场景单手可达(负责人口径:availability 优先)。
+            平时=长按求救;有进行中 SOS 时=处理入口,同一位置不挪窝 */}
+        <View style={styles.bottomSos}>
+          {pendingSos ? (
+            <Pressable
+              onPress={() =>
+                router.push(`/sos-active?sosId=${pendingSos.sosId}&deviceId=${pendingSos.deviceId}`)
+              }>
+              <View style={[styles.sosBtn, { borderColor: theme.danger, backgroundColor: theme.danger }]}>
+                <View style={styles.sosBtnRow}>
+                  <Ionicons name="warning" size={22} color="#fff" />
+                  <View style={styles.sosBtnTextCol}>
+                    <ThemedText type="smallBold" style={{ color: '#fff', fontSize: 16 }}>
+                      有一条进行中的 SOS
+                    </ThemedText>
+                    <ThemedText type="label" style={{ color: 'rgba(255,255,255,0.8)' }}>
+                      点击查看倒计时,可取消或立即求救
+                    </ThemedText>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color="#fff" />
+                </View>
+              </View>
+            </Pressable>
+          ) : sosTarget ? (
+            <Pressable
+              delayLongPress={2000}
+              onPressIn={() => {
+                sosP.set(withTiming(1, { duration: 2000, easing: Easing.linear }));
+              }}
+              onPressOut={() => {
+                sosP.set(withTiming(0, { duration: 180 }));
+              }}
+              onLongPress={fireSos}>
+              <View style={[styles.sosBtn, { borderColor: theme.danger, backgroundColor: theme.dangerBg }]}>
+                <Animated.View
+                  style={[styles.sosFill, { backgroundColor: theme.danger }, sosFillStyle]}
+                />
+                <Animated.View style={[styles.sosBtnRow, sosTextStyle]}>
+                  <Ionicons name="alert-circle" size={24} color={theme.danger} />
+                  <View style={styles.sosBtnTextCol}>
+                    <ThemedText type="smallBold" style={{ color: theme.danger, fontSize: 17 }}>
+                      紧急求助
+                    </ThemedText>
+                    <ThemedText type="label" themeColor="textSecondary">
+                      长按 2 秒,60 秒倒计时后通知紧急联系人
+                    </ThemedText>
+                  </View>
+                </Animated.View>
+              </View>
+            </Pressable>
+          ) : null}
+        </View>
+
       </ThemedView>
     </SafeAreaView>
   );
@@ -379,9 +387,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 13,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
   },
+  sosBtnTextCol: { flex: 1, gap: 2 },
+  bottomSos: { paddingTop: 8 },
   eventsLink: {
     flexDirection: 'row',
     alignItems: 'center',
