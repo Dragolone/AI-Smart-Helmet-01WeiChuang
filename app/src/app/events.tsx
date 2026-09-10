@@ -150,9 +150,7 @@ export default function EventsScreen() {
                     <ThemedText type="smallBold" style={{ fontSize: 15 }}>
                       {meta.title}
                     </ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-                      {e.summary}
-                    </ThemedText>
+                    
                     <ThemedText type="label" themeColor="textSecondary">
                       {e.deviceId} · {new Date(e.timestamp).toLocaleString()}
                     </ThemedText>

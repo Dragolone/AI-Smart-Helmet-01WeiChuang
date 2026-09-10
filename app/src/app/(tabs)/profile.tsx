@@ -25,6 +25,7 @@ import { Radius } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { LOCALES, LOCALE_NAMES, translate, useLocaleStore, useT } from '@/i18n';
 import { useAuthStore } from '@/stores/auth-store';
+import { THEME_MODES, useThemeStore, type ThemeMode } from '@/stores/theme-store';
 
 export default function ProfileScreen() {
   const theme = useTheme();
@@ -35,6 +36,11 @@ export default function ProfileScreen() {
   const signOut = useAuthStore((s) => s.signOut);
   const locale = useLocaleStore((s) => s.locale);
   const setLocale = useLocaleStore((s) => s.setLocale);
+  const themeMode = useThemeStore((s) => s.mode);
+  const setThemeMode = useThemeStore((s) => s.setMode);
+  const [themeOpen, setThemeOpen] = useState(false);
+  const themeLabel = (m: ThemeMode) =>
+    m === 'system' ? t('profile.appearance.system') : m === 'dark' ? t('profile.appearance.dark') : t('profile.appearance.light');
 
   const devices = useQuery({ queryKey: ['devices'], queryFn: devicesApi.list });
   const contacts = useQuery({ queryKey: ['contacts'], queryFn: contactsApi.list });
@@ -120,7 +126,7 @@ export default function ProfileScreen() {
 
   return (
     <ThemedView style={styles.flex}>
-      <SafeAreaView style={styles.flex} edges={['top']}>
+      <SafeAreaView style={styles.flex}>
         <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
           <ThemedText type="title" style={styles.pageTitle}>
             {t('profile.title')}
@@ -182,7 +188,7 @@ export default function ProfileScreen() {
               value={LOCALE_NAMES[locale]}
               onPress={() => setLangOpen(true)}
             />
-            <ListRow compact icon="moon-outline" title={t('profile.appearance')} value={t('profile.appearanceValue')} />
+            <ListRow compact icon="moon-outline" title={t('profile.appearance')} value={themeLabel(themeMode)} onPress={() => setThemeOpen(true)} />
             <ListRow compact icon="trash-outline" title={t('profile.clearCache')} onPress={clearCache} />
             <ListRow compact icon="information-circle-outline" title={t('profile.about')} value={appVersion} onPress={about} last />
           </Card>
@@ -223,6 +229,34 @@ export default function ProfileScreen() {
                 maxLength={20}
               />
               <PrimaryButton title={t('common.save')} onPress={() => void saveProfile()} loading={saving} />
+            </Tappable>
+          </Tappable>
+        </Modal>
+
+        {/* 外观选择 */}
+        <Modal visible={themeOpen} transparent animationType="fade" onRequestClose={() => setThemeOpen(false)}>
+          <Tappable feedback={[]} style={styles.modalMask} onPress={() => setThemeOpen(false)}>
+            <Tappable feedback={[]} style={[styles.modalCard, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]} onPress={() => undefined}>
+              <ThemedText type="smallBold" style={{ fontSize: 20 }}>
+                {t('profile.chooseAppearance')}
+              </ThemedText>
+              <View>
+                {THEME_MODES.map((m, i) => (
+                  <Tappable
+                    key={m}
+                    feedback="fill"
+                    onPress={() => {
+                      void setThemeMode(m);
+                      setThemeOpen(false);
+                    }}
+                    style={[styles.langRow, i < THEME_MODES.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border }]}>
+                    <ThemedText type="default" style={{ flex: 1 }}>
+                      {themeLabel(m)}
+                    </ThemedText>
+                    {m === themeMode && <Ionicons name="checkmark" size={20} color={theme.brand} />}
+                  </Tappable>
+                ))}
+              </View>
             </Tappable>
           </Tappable>
         </Modal>

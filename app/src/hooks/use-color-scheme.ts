@@ -1,5 +1,12 @@
-// 风格迭代（2026-08-16）：v1 以深色为品牌主题（参考稿为深色监控台风格），
-// 暂不跟随系统。恢复系统跟随：改回 `export { useColorScheme } from 'react-native'`。
-export function useColorScheme(): 'dark' {
-  return 'dark';
+// 外观：用户在「我的 → 外观」选跟随系统 / 深色 / 浅色（stores/theme-store）。
+// 默认深色（品牌主题）；选「跟随系统」时读系统配色。
+import { useColorScheme as useSystemColorScheme } from 'react-native';
+
+import { useThemeStore } from '@/stores/theme-store';
+
+export function useColorScheme(): 'dark' | 'light' {
+  const mode = useThemeStore((s) => s.mode);
+  const system = useSystemColorScheme();
+  if (mode === 'system') return system === 'light' ? 'light' : 'dark';
+  return mode;
 }

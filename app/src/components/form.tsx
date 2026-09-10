@@ -124,7 +124,7 @@ export function SecondaryButton({
         compact && styles.buttonCompact,
         styles.secondary,
         {
-          borderColor: 'rgba(255,255,255,0.24)',
+          borderColor: theme.borderStrong,
           backgroundColor: pressed ? theme.backgroundSelected : 'transparent',
           opacity: inactive ? 0.55 : 1,
         },

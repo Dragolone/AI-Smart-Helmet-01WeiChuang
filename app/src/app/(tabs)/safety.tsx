@@ -102,7 +102,6 @@ function EventRow({ event, last }: { event: EventListItem; last: boolean }) {
           {meta ? t(meta.key) : event.eventType}
         </ThemedText>
         <ThemedText type="small" themeColor="textSecondary" style={{ fontSize: 13 }} numberOfLines={1}>
-          {event.summary ? `${event.summary} · ` : ''}
           {shortDate(event.timestamp, locale)} {shortTime(event.timestamp, locale)}
         </ThemedText>
       </View>
@@ -184,7 +183,7 @@ export default function SafetyScreen() {
 
   return (
     <ThemedView style={styles.flex}>
-      <SafeAreaView style={styles.flex} edges={['top']}>
+      <SafeAreaView style={styles.flex}>
         <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
           <ThemedText type="title" style={styles.pageTitle}>
             {t('safety.title')}
@@ -305,7 +304,11 @@ export default function SafetyScreen() {
             </ThemedText>
             <AnimatedPressable
               delayLongPress={2000}
-              onPressIn={() => sosP.set(withTiming(1, { duration: 2000, easing: Easing.linear }))}
+              onPressIn={() => {
+                // 按下瞬间就要有触觉确认（骑行戴手套看不清屏幕），2 秒后触发时再一次警示振动
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
+                sosP.set(withTiming(1, { duration: 2000, easing: Easing.linear }));
+              }}
               onPressOut={() => sosP.set(withTiming(0, { duration: 180 }))}
               onLongPress={fireSos}
               style={[styles.sosBtn, { backgroundColor: theme.sos, shadowColor: theme.sos }, sosScaleStyle]}>

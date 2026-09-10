@@ -14,6 +14,7 @@ import { ToastHost } from '@/components/toast';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useLocaleStore, useT } from '@/i18n';
 import { useAuthStore } from '@/stores/auth-store';
+import { useThemeStore } from '@/stores/theme-store';
 
 // 已知无害：开发期 iOS 摘除了推送 entitlement（个人团队签不了 aps-environment），
 // expo-notifications 启动自检读不到钥匙串会报此错。公司账号恢复正式签名后删除本行。
@@ -86,11 +87,13 @@ export default function RootLayout() {
   const hydrated = useAuthStore((s) => s.hydrated);
   const hydrate = useAuthStore((s) => s.hydrate);
   const hydrateLocale = useLocaleStore((s) => s.hydrate);
+  const hydrateTheme = useThemeStore((s) => s.hydrate);
 
   useEffect(() => {
     void hydrate();
     void hydrateLocale();
-  }, [hydrate, hydrateLocale]);
+    void hydrateTheme();
+  }, [hydrate, hydrateLocale, hydrateTheme]);
 
   return (
     <QueryClientProvider client={queryClient}>
