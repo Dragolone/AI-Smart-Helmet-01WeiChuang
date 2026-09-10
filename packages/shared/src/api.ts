@@ -25,8 +25,8 @@ export interface Paginated<T> {
 
 // —— §2 认证与用户（已实现） ——
 
-/** 验证码用途：注册 / 找回密码（API.md §2） */
-export type SmsCodePurpose = 'register' | 'reset_password';
+/** 验证码用途：注册 / 找回密码 / 换绑手机号（API.md §2；change_phone 的 phone 为新号，2026-09-11） */
+export type SmsCodePurpose = 'register' | 'reset_password' | 'change_phone';
 
 /** POST /auth/sms-code → 204；60s 内重发 429 SMS_CODE_TOO_FREQUENT，日上限 429 SMS_CODE_DAILY_LIMIT */
 export interface SmsCodeRequest {
@@ -82,6 +82,27 @@ export interface AuthResponse extends AuthTokens {
 export interface UpdateMeRequest {
   nickname?: string;
   avatarUrl?: string;
+}
+
+/** POST /auth/change-password → 204（需登录）；旧密码错误 → 400 PASSWORD_INCORRECT。
+ *  成功后撤销该用户其他全部会话；带上当前设备的 refreshToken 可让本设备保持登录 */
+export interface ChangePasswordRequest {
+  oldPassword: string;
+  newPassword: string;
+  refreshToken?: string;
+}
+
+/** POST /auth/change-phone → 200 返回更新后的 user（需登录）；code 为 purpose=change_phone、发往 newPhone 的验证码。
+ *  newPhone 已注册 → 409 PHONE_ALREADY_REGISTERED；验证码错误 → 400 SMS_CODE_INVALID */
+export interface ChangePhoneRequest {
+  newPhone: string;
+  code: string;
+}
+
+/** DELETE /users/me → 204（需登录）：注销账号（软删除）；密码错误 → 400 PASSWORD_INCORRECT。
+ *  成功后全部会话作废、设备全部解绑、紧急联系人全部删除，原手机号可重新注册（原号不保留） */
+export interface DeleteAccountRequest {
+  password: string;
 }
 
 // —— §3 紧急联系人（已实现） ——
