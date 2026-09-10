@@ -342,7 +342,7 @@ const styles = StyleSheet.create({
   eventRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, paddingVertical: 12 },
   eventBody: { flex: 1, gap: 2, minWidth: 0 },
   emptyRow: { paddingHorizontal: 16, paddingVertical: 18, alignItems: 'center' },
-  bottomSos: { paddingHorizontal: 20, paddingTop: 6, paddingBottom: 12, gap: 10 },
+  bottomSos: { paddingHorizontal: 20, paddingTop: 6, paddingBottom: 22, gap: 10 },
   sosHint: { textAlign: 'center', fontSize: 13 },
   sosBtn: {
     height: 72,

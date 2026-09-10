@@ -682,7 +682,7 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { fontSize: 20, lineHeight: 26, fontWeight: 600 },
   emptyBody: { textAlign: 'center' },
-  bottomActions: { paddingTop: 8, paddingBottom: 12, gap: 10 },
+  bottomActions: { paddingTop: 8, paddingBottom: 22, gap: 10 },
 
   // 频道卡
   channelHead: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },

@@ -1,6 +1,6 @@
 // App 内部 Map 组件层（决策 #11/#33）：WebView + 高德 JS API 2.0 的唯一封装点。
 // 业务页只使用本组件的命令式接口（setHelmet/setTrack/…），不触碰 WebView/JS API 细节——换库只改这里。
-// 地图固定暗色样式（设计系统"深色监控台"口径，与 design/map.png 一致）。
+// 底图样式跟随 App 外观（2026-09-10）：深色=高德 dark 样式 + 压暗滤镜；浅色=高德 normal 样式、不加滤镜。
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
@@ -10,8 +10,9 @@ import type { LngLat } from './coords';
 
 const JS_KEY = process.env.EXPO_PUBLIC_AMAP_JS_KEY ?? '';
 const SECURITY_CODE = process.env.EXPO_PUBLIC_AMAP_JS_SECURITY_CODE ?? '';
-/** 荧光柠檬品牌色：轨迹辉光与头盔 Marker 用（地图始终暗色，取 dark 值） */
+/** 荧光柠檬品牌色：轨迹辉光与头盔 Marker 用 */
 const ACCENT = Colors.dark.brand;
+const ACCENT_LIGHT = Colors.light.brand;
 
 export interface AmapViewHandle {
   /** 移动头盔 Marker（实时位置或回放位置共用）；follow 时镜头平滑跟随 */
@@ -31,6 +32,8 @@ interface Props {
   /** 命令句柄注入位：父组件传 useRef(null)，本组件挂载后填充。
    *  不用 useImperativeHandle——实测其在本项目 React Compiler 下 ref 永不挂载（2026-08-16）。 */
   controllerRef: RefObject<AmapViewHandle | null>;
+  /** 浅色外观：切换时父组件用 key 重挂载本组件（底图样式在初始化时决定） */
+  light?: boolean;
 }
 
 type Cmd =
@@ -94,18 +97,24 @@ const HTML = `<!doctype html>
 <script>
 try {
   if (typeof AMap === 'undefined') throw new Error('AMap 未定义（脚本未加载成功）');
-  if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
-    document.body.classList.add('ios-dark');
-  } else {
-    document.body.classList.add('with-canvas-filter');
+  var LIGHT = !!window.__LIGHT;
+  var MAP_STYLE = LIGHT ? 'amap://styles/normal' : 'amap://styles/dark';
+  document.documentElement.style.background = LIGHT ? '#F4F5F7' : '#0B0C0E';
+  document.body.style.background = LIGHT ? '#F4F5F7' : '#0B0C0E';
+  if (!LIGHT) {
+    if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
+      document.body.classList.add('ios-dark');
+    } else {
+      document.body.classList.add('with-canvas-filter');
+    }
   }
   var IOS_DARK = document.body.classList.contains('ios-dark');
   // 预反色调色板：iOS 端颜色经容器 invert+hue-rotate 后近似回到品牌荧光/深徽章
-  document.body.style.setProperty('--neon', IOS_DARK ? '#A5B50D' : '${ACCENT}');
+  document.body.style.setProperty('--neon', IOS_DARK ? '#A5B50D' : (LIGHT ? '${ACCENT_LIGHT}' : '${ACCENT}'));
   document.body.style.setProperty('--badge', IOS_DARK ? '#F2F3F6' : '#17181B');
   var ICON_FILL = IOS_DARK ? '#0B0C0E' : '#F4F5F7';
   var map = new AMap.Map('map', {
-    mapStyle: 'amap://styles/dark',
+    mapStyle: MAP_STYLE,
     // 纯监控底图（对齐 design/map.png）：不渲染 POI 点标注层
     features: ['bg', 'road', 'building'],
     center: [114.0579, 22.5431],
@@ -155,12 +164,12 @@ try {
   }, 700);
   // iOS WKWebView 偶发初始化期样式配置未生效（Android 正常）：complete 后与延时各补设一次
   map.on('complete', function () {
-    map.setMapStyle('amap://styles/dark');
+    map.setMapStyle(MAP_STYLE);
     post({ type: 'ready' });
   });
   // 用户手势拖图(程序 panTo/setCenter 不触发 dragstart)→ 上报供"退出跟随"用
   map.on('dragstart', function () { post({ type: 'userpan' }); });
-  setTimeout(function () { map.setMapStyle('amap://styles/dark'); }, 2500);
+  setTimeout(function () { map.setMapStyle(MAP_STYLE); }, 2500);
 
   window.__cmd = function (cmd) {
     try {
@@ -191,7 +200,7 @@ try {
 </body>
 </html>`;
 
-export function AmapView({ style, onReady, onError, onUserPan, controllerRef }: Props) {
+export function AmapView({ style, onReady, onError, onUserPan, controllerRef, light = false }: Props) {
   const webRef = useRef<WebView>(null);
   // 就绪标志与队列全用 ref：send 的行为不依赖渲染期状态，杜绝闭包捕获旧值
   //（曾因 onReady 回调里的命令带着 ready=false 旧闭包入队、错过唯一一次冲刷而丢失）
@@ -268,6 +277,7 @@ export function AmapView({ style, onReady, onError, onUserPan, controllerRef }: 
   return (
     <View style={style}>
       <WebView
+        injectedJavaScriptBeforeContentLoaded={`window.__LIGHT=${light ? 'true' : 'false'};true;`}
         ref={webRef}
         style={styles.fill}
         containerStyle={styles.fill}

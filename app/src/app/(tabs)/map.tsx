@@ -28,6 +28,7 @@ import { openAmapNavigation } from '@/components/map/nav-links';
 import { Tappable } from '@/components/tappable';
 import { ThemedText } from '@/components/themed-text';
 import { Radius } from '@/constants/theme';
+import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useTheme } from '@/hooks/use-theme';
 import { translate, useLocale, useT } from '@/i18n';
 import { relativeTime } from '@/i18n/format';
@@ -461,6 +462,9 @@ export default function MapScreen() {
   return (
     <View style={[styles.flex, { backgroundColor: theme.background }]}>
       <AmapView
+        // 外观切换时重挂载：底图样式在 WebView 初始化时决定；onReady 会重推当前状态
+        key={scheme}
+        light={scheme === 'light'}
         style={StyleSheet.absoluteFill}
         controllerRef={mapRef}
         onUserPan={() => setFollowing(false)}
