@@ -11,7 +11,7 @@ const KEY = 'helmet.theme';
 /** iOS 原生标签条（液态玻璃）与系统弹窗只认 App 级 UIUserInterfaceStyle，JS 主题必须同步过去 */
 const applyNative = (mode: ThemeMode) => {
   try {
-    Appearance.setColorScheme(mode === 'system' ? null : mode);
+    Appearance.setColorScheme(mode === 'system' ? undefined : mode);
   } catch {
     /* 旧版 RN 无此 API 时忽略 */
   }

@@ -245,6 +245,7 @@ function Stat({
 
 export default function MapScreen() {
   const theme = useTheme();
+  const scheme = useColorScheme();
   const t = useT();
   const locale = useLocale();
   const insets = useSafeAreaInsets();
