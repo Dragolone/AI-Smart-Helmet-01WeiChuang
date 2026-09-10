@@ -127,6 +127,53 @@ export class DevicesService {
     };
   }
 
+  /**
+   * 电量历史（API.md §4）：从 raw_events 的 device_status 心跳里取 battery/charging，
+   * 按 10 分钟桶取每桶最后一条（60s 心跳 → 24h 最多 144 点，App 画图够用又不拖流量）。
+   * 只读原始事件表、不建新表：MVP 阶段 raw_events 即事实来源（EVENTS.md §2 原始留档）。
+   */
+  async batteryHistory(userId: string, deviceId: string, hours: number) {
+    await this.getOwned(userId, deviceId);
+    const to = new Date();
+    const from = new Date(to.getTime() - hours * 3_600_000);
+    const rows = await this.prisma.rawEvent.findMany({
+      where: {
+        deviceId,
+        eventType: 'device_status',
+        timestamp: { gte: from, lte: to },
+      },
+      orderBy: { timestamp: 'asc' },
+      select: { timestamp: true, payload: true },
+      take: 5000,
+    });
+    const BUCKET_MS = 10 * 60_000;
+    const buckets = new Map<
+      number,
+      { timestamp: string; battery: number; charging: boolean | null }
+    >();
+    for (const r of rows) {
+      const payload = r.payload as {
+        battery?: unknown;
+        charging?: unknown;
+      } | null;
+      const battery =
+        typeof payload?.battery === 'number' ? payload.battery : null;
+      if (battery === null) continue;
+      const key = Math.floor(r.timestamp.getTime() / BUCKET_MS);
+      buckets.set(key, {
+        timestamp: r.timestamp.toISOString(),
+        battery: Math.max(0, Math.min(100, Math.round(battery))),
+        charging:
+          typeof payload?.charging === 'boolean' ? payload.charging : null,
+      });
+    }
+    return {
+      from: from.toISOString(),
+      to: to.toISOString(),
+      points: [...buckets.values()],
+    };
+  }
+
   private isOnline(lastSeenAt: Date | null): boolean {
     return (
       lastSeenAt !== null &&

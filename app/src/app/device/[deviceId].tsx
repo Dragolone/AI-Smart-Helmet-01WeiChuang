@@ -10,6 +10,7 @@ import { devicesApi } from '@/api/devices';
 import { showToast } from '@/components/toast';
 import { toUserMessage } from '@/api/error-messages';
 import { Badge } from '@/components/badge';
+import { BatteryChart } from '@/components/battery-chart';
 import { FormInput, PrimaryButton } from '@/components/form';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -54,6 +55,13 @@ export default function DeviceDetailScreen() {
     queryFn: () => devicesApi.status(deviceId),
     // 心跳 60s + 在线窗口 90s：15s 轮询兜底（WS 推送为主）
     refetchInterval: 15_000,
+  });
+
+  // 24h 电量历史（10 分钟桶；60s 心跳 → 每分钟刷新即可）
+  const battery = useQuery({
+    queryKey: ['device-battery-history', deviceId],
+    queryFn: () => devicesApi.batteryHistory(deviceId, 24),
+    refetchInterval: 60_000,
   });
 
   // 详情（name/bindCode 等静态信息，与状态分开缓存）
@@ -144,14 +152,6 @@ export default function DeviceDetailScreen() {
   };
 
   const s = status.data;
-  const batteryColor =
-    s?.battery == null
-      ? theme.textSecondary
-      : s.battery <= 20
-        ? theme.danger
-        : s.battery <= 40
-          ? theme.warning
-          : theme.success;
 
   return (
     <ThemedView style={styles.flex}>
@@ -190,28 +190,13 @@ export default function DeviceDetailScreen() {
               styles.batteryCard,
               { backgroundColor: theme.backgroundElement, borderColor: theme.border },
             ]}>
-            <ThemedText type="label" themeColor="textSecondary">
-              电量
-            </ThemedText>
-            <View style={styles.batteryValueRow}>
-              <ThemedText type="display" style={{ color: batteryColor }}>
-                {s.battery !== null ? `${s.battery}%` : '—'}
-              </ThemedText>
-              {s.charging ? (
-                <Badge variant="warning" label="充电中" />
-              ) : null}
-            </View>
-            <View style={[styles.batteryTrack, { backgroundColor: theme.backgroundSelected }]}>
-              <View
-                style={[
-                  styles.batteryFill,
-                  {
-                    width: `${Math.max(2, Math.min(100, s.battery ?? 0))}%`,
-                    backgroundColor: batteryColor,
-                  },
-                ]}
-              />
-            </View>
+            <BatteryChart
+              points={battery.data?.points ?? []}
+              to={battery.data?.to}
+              current={s.battery}
+              charging={s.charging}
+              labels={{ title: '电量', window: '过去 24 小时', charging: '充电中', empty: '暂无电量记录' }}
+            />
           </View>
 
           <InfoRow
@@ -379,13 +364,6 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 10,
   },
-  batteryValueRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  batteryTrack: { height: 6, borderRadius: 3, overflow: 'hidden' },
-  batteryFill: { height: 6, borderRadius: 3 },
   settingsCard: {
     borderRadius: Radius.card,
     borderWidth: 1,

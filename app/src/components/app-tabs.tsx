@@ -18,7 +18,10 @@ export default function AppTabs() {
       backgroundColor={colors.background}
       indicatorColor={colors.backgroundSelected}
       tintColor={colors.brand}
-      labelStyle={{ selected: { color: colors.text } }}>
+      labelStyle={{
+        default: { color: colors.textSecondary, fontSize: 11 },
+        selected: { color: colors.text, fontSize: 11 },
+      }}>
       <NativeTabs.Trigger name="index">
         <NativeTabs.Trigger.Label>{t('tab.devices')}</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon

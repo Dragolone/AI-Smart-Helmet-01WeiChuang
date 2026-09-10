@@ -7,15 +7,20 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
 } from '@nestjs/common';
 import {
+  IsInt,
   IsOptional,
   IsString,
   Matches,
+  Max,
   MaxLength,
+  Min,
   MinLength,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
 import { DevicesService } from './devices.service';
 
@@ -36,6 +41,16 @@ class UpdateDeviceDto {
   @IsString()
   @MaxLength(20)
   name?: string;
+}
+
+class BatteryHistoryQueryDto {
+  // 回看小时数：默认 24，最长 7 天（API.md §4）
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(168)
+  hours: number = 24;
 }
 
 @Controller('devices')
@@ -76,6 +91,15 @@ export class DevicesController {
     @Param('deviceId') deviceId: string,
   ) {
     return this.devices.status(req.user.userId, deviceId);
+  }
+
+  @Get(':deviceId/battery-history')
+  batteryHistory(
+    @Req() req: AuthenticatedRequest,
+    @Param('deviceId') deviceId: string,
+    @Query() q: BatteryHistoryQueryDto,
+  ) {
+    return this.devices.batteryHistory(req.user.userId, deviceId, q.hours);
   }
 
   @Delete(':deviceId/binding')

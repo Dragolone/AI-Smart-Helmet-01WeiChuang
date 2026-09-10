@@ -88,6 +88,9 @@ export default function RootLayout() {
   const hydrate = useAuthStore((s) => s.hydrate);
   const hydrateLocale = useLocaleStore((s) => s.hydrate);
   const hydrateTheme = useThemeStore((s) => s.hydrate);
+  // 语言/外观设置恢复完再挂路由：原生标签条挂载后再改标签文字会错位（2026-09-10 真机实证）
+  const localeHydrated = useLocaleStore((s) => s.hydrated);
+  const themeHydrated = useThemeStore((s) => s.hydrated);
 
   useEffect(() => {
     void hydrate();
@@ -100,7 +103,7 @@ export default function RootLayout() {
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <AnimatedSplashOverlay />
         {/* SecureStore 恢复完成前不挂路由，避免登录态闪变；空白由 SplashOverlay 兜住 */}
-        {hydrated && <RootNavigator />}
+        {hydrated && localeHydrated && themeHydrated && <RootNavigator />}
         <ToastHost />
       </ThemeProvider>
     </QueryClientProvider>

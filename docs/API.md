@@ -83,6 +83,7 @@ Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / 
 | PATCH | /devices/{deviceId} | 重命名（2026-08-17）。body：`{ name?: string }`（≤20 字符，trim 后空串=清除，App 回退显示 deviceId）；返回更新后的 device 对象 |
 | DELETE | /devices/{deviceId}/binding | 解绑（软删除绑定关系，设备数据留档） |
 | GET | /devices/{deviceId}/status | 设备状态：`{ online, lastSeenAt, battery, charging?, signalLevel?, sleeping, firmwareVersion }` |
+| GET | /devices/{deviceId}/battery-history?hours=24 | 电量历史（✅ 2026-09-10）：`{ from, to, points: [{ timestamp, battery, charging }] }`。数据源=raw_events 的 `device_status` 心跳，按 **10 分钟桶取桶内最后一条**（24h ≤ 144 点）；`hours` 1–168 默认 24；仅本人设备（否则 404）。App 设备详情页据此画 24h 电量曲线（替代原大电量条） |
 
 device 对象补充字段（2026-08-17，TS 类型见 `@helmet/shared` DevicePublic）：`name`（用户自定义名，null 时 App 显示 deviceId）、`bindCode`（仅经归属校验的端点返回——本人可见，供详情页展示）。
 

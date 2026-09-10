@@ -143,6 +143,40 @@ describe('设备绑定全链路 (e2e)', () => {
     );
   });
 
+  it('电量历史：device_status 心跳按 10 分钟桶聚合，仅本人可查', async () => {
+    const now = Date.now();
+    await prisma.rawEvent.createMany({
+      data: [1, 2, 3, 25].map((minAgo, i) => ({
+        eventId: `e2e-bat-${now}-${i}`,
+        deviceId,
+        eventType: 'device_status',
+        timestamp: new Date(now - minAgo * 60_000),
+        schemaVersion: 1,
+        payload: { battery: 90 - i, charging: i === 3 },
+        source: 'mqtt',
+      })),
+    });
+    const res = await request(http)
+      .get(`/api/v1/devices/${deviceId}/battery-history?hours=1`)
+      .set('Authorization', `Bearer ${tokenA}`)
+      .expect(200);
+    // 前三条落在同一个 10 分钟桶（取最后一条 = 1 分钟前那条，battery 90），25 分钟前的单独一桶
+    expect(res.body.points).toHaveLength(2);
+    expect(res.body.points[0].battery).toBe(87);
+    expect(res.body.points[0].charging).toBe(true);
+    expect(res.body.points[1].battery).toBe(90);
+    expect(new Date(res.body.from).getTime()).toBeLessThan(
+      new Date(res.body.to).getTime(),
+    );
+    await request(http)
+      .get(`/api/v1/devices/${deviceId}/battery-history?hours=0`)
+      .set('Authorization', `Bearer ${tokenA}`)
+      .expect(400);
+    await prisma.rawEvent.deleteMany({
+      where: { eventId: { startsWith: `e2e-bat-${now}` } },
+    });
+  });
+
   it('解绑 → 204，列表清空，设备记录留档', async () => {
     await request(http)
       .delete(`/api/v1/devices/${deviceId}/binding`)
