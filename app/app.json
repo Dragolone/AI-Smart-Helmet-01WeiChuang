@@ -52,7 +52,6 @@
           "imageWidth": 76
         }
       ],
-      "react-native-ble-plx",
       "expo-secure-store",
       [
         "expo-build-properties",
@@ -69,6 +68,17 @@
         "expo-image-picker",
         {
           "photosPermission": "用于选择照片设置您的头像。"
+        }
+      ],
+      "expo-audio",
+      [
+        "react-native-ble-plx",
+        {
+          "isBackgroundEnabled": true,
+          "modes": [
+            "central"
+          ],
+          "bluetoothAlwaysPermission": "用于连接您的智能头盔,接收摔倒检测与危险预警等安全事件(即使 App 在后台)。"
         }
       ]
     ],

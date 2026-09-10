@@ -3,6 +3,9 @@
 // 设计对齐定稿套图：警示图标 + 超大倒计时 + 灰色取消 / 红色立即求救双药丸
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAudioPlayer } from 'expo-audio';
+import * as Haptics from 'expo-haptics';
+import { useKeepAwake } from 'expo-keep-awake';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
@@ -48,6 +51,28 @@ export default function SosActiveScreen() {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  // 倒计时期间保持亮屏——摔倒场景手机可能放在口袋/车把,锁屏会错过取消窗口
+  useKeepAwake();
+
+  // 警报音 + 振动:倒计时进行中每秒触发,取消/通知后停止
+  const alarm = useAudioPlayer(require('@/assets/sos-alarm.wav'));
+  const counting = sos != null && sos.status === 'pending';
+  useEffect(() => {
+    if (!counting) return;
+    alarm.play();
+    // 每秒重播警报段(0.9s 素材)+ 振动;不用 player.loop——
+    // React Compiler 禁止修改 hook 返回对象的属性
+    const t = setInterval(() => {
+      alarm.seekTo(0).catch(() => {});
+      alarm.play();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+    }, 1000);
+    return () => {
+      clearInterval(t);
+      alarm.pause();
+    };
+  }, [counting, alarm]);
 
   const act = (kind: 'cancel' | 'confirm') => {
     setBusy(kind);

@@ -1,11 +1,11 @@
 // BLE 上行中转队列骨架（决策 #29/#31/#35,API.md §12.1;参考 mock-device/relay-transport.ts）。
 // 职责:BLE 事件 → 过滤(7 种)→ 入队 → 批量提交 /ingest/app-relay(单批 ≤100)→
 // 失败原样保留、按原 eventId 补传(服务端幂等,重复返回 duplicate 计数不报错)。
-// 现状:BLE GATT 协议未定(硬件前置),生产者只有未来的 BLE 模块;队列持久化需
-// 文件存储原生依赖(expo-file-system),按约定与 BLE 库攒到下次强制重建一并加——
-// 先以内存实现 + 可插拔 Store 接口占位,App 被杀补传在换文件 Store 后自动获得。
+// 现状:BLE GATT 协议未定(硬件前置),生产者只有未来的 BLE 模块与 __DEV__ 注入;
+// 队列经 expo-file-system 持久化到 documentDirectory,App 被杀后启动恢复补传。
 import { BLE_RELAY_EVENT_TYPES } from '@helmet/shared';
 import type { EventEnvelope, EventType } from '@helmet/shared';
+import { File, Paths } from 'expo-file-system';
 
 import { relayApi } from '@/api/relay';
 
@@ -21,11 +21,29 @@ interface RelayQueueStore {
   load(): Promise<EventEnvelope<EventType>[]>;
   save(queue: EventEnvelope<EventType>[]): Promise<void>;
 }
-const memoryStore: RelayQueueStore = {
-  load: () => Promise.resolve([]),
-  save: () => Promise.resolve(),
+/** 文件持久化:documentDirectory 下 JSON 快照,App 被杀后启动时恢复补传。
+ *  所有 IO 包 try/catch:持久化失败绝不阻塞保命链路(内存队列照常工作)。 */
+const fileStore: RelayQueueStore = {
+  async load() {
+    try {
+      const f = new File(Paths.document, 'ble-relay-queue.json');
+      if (!f.exists) return [];
+      return JSON.parse(f.textSync()) as EventEnvelope<EventType>[];
+    } catch (e) {
+      console.warn('[BLE-RELAY] 队列恢复失败(忽略,从空队列开始)', e);
+      return [];
+    }
+  },
+  async save(q) {
+    try {
+      const f = new File(Paths.document, 'ble-relay-queue.json');
+      f.write(JSON.stringify(q));
+    } catch (e) {
+      console.warn('[BLE-RELAY] 队列持久化失败(忽略,仅内存)', e);
+    }
+  },
 };
-const store: RelayQueueStore = memoryStore;
+const store: RelayQueueStore = fileStore;
 
 let queue: EventEnvelope<EventType>[] = [];
 let flushTimer: ReturnType<typeof setInterval> | null = null;
