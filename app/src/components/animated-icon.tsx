@@ -78,25 +78,6 @@ function Star({ x, y, size }: { x: number; y: number; size: number }) {
   );
 }
 
-/** 环形光束:柔光点自正上方顺时针转一圈后隐去(点亮星点的"光源") */
-function OrbitBeam() {
-  const prog = useSharedValue(0);
-  useEffect(() => {
-    prog.set(
-      withDelay(REV_DELAY, withTiming(1, { duration: REV_MS, easing: Easing.inOut(Easing.quad) })),
-    );
-  }, [prog]);
-  const st = useAnimatedStyle(() => ({
-    opacity: interpolate(prog.get(), [0, 0.05, 0.88, 1], [0, 0.5, 0.45, 0]),
-    transform: [{ rotateZ: `${prog.get() * 360}deg` }],
-  }));
-  return (
-    <Animated.View style={[styles.beamOrbit, st]}>
-      <View style={styles.beamGlow} />
-    </Animated.View>
-  );
-}
-
 const STARS = [
   { x: -160, y: -138, size: 6 },
   { x: -120, y: 128, size: 7 },
@@ -165,7 +146,6 @@ export function AnimatedSplashOverlay() {
 
   return (
     <Animated.View style={[styles.overlay, overlayStyle]}>
-      <OrbitBeam />
       {STARS.map((st, i) => (
         <Star key={i} {...st} />
       ))}
@@ -217,24 +197,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 4,
     opacity: 0.85,
-  },
-  beamOrbit: {
-    position: 'absolute',
-    width: 300,
-    height: 300,
-    alignItems: 'center',
-  },
-  beamGlow: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    marginTop: -7,
-    backgroundColor: '#CFE6FF',
-    shadowColor: '#5CF0FF',
-    shadowOpacity: 1,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 10,
   },
   star: {
     position: 'absolute',
