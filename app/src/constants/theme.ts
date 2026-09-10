@@ -21,8 +21,9 @@ export const Colors = {
     textSecondary: '#60646C',
     border: 'rgba(17, 24, 39, 0.08)',
     borderStrong: 'rgba(17, 24, 39, 0.16)',
-    // 浅色下用略深于深色主题的荧光柠檬：白底上 #C7E62E 偏暗沉（2026-09-10 真机反馈）
-    brand: '#D6F536',
+    // 浅色荧光柠檬三次真机迭代：#C7E62E 偏暗沉、#D6F536 白底上太淡看不清（2026-09-11 反馈）
+    // → 去掉白混、拉满饱和度、亮度压一档：白底上更醒目，仍是荧光感，深色字 onBrand 对比充足
+    brand: '#B9E600',
     onBrand: '#151804',
     success: '#1F9D55',
     successBg: 'rgba(31, 157, 85, 0.12)',
