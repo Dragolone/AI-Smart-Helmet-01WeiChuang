@@ -2,8 +2,8 @@
 // 2026-08-16 风格迭代：大标识标题 + 状态药丸 + 电量仪表卡 + 数据行卡片
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { router, useLocalSearchParams } from "expo-router";
-import { useState } from "react";
+import { router, useLocalSearchParams, useNavigation } from "expo-router";
+import { useRef, useState } from "react";
 import {
   Alert,
   Modal,
@@ -28,6 +28,8 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
+import { useLocale, useT } from "@/i18n";
+import { shortDate, shortTime } from "@/i18n/format";
 
 function InfoRow({
   icon,
@@ -71,6 +73,8 @@ function InfoRow({
 export default function DeviceDetailScreen() {
   const { deviceId } = useLocalSearchParams<{ deviceId: string }>();
   const theme = useTheme();
+  const t = useT();
+  const locale = useLocale();
   const queryClient = useQueryClient();
   const [unbinding, setUnbinding] = useState(false);
 
@@ -114,20 +118,55 @@ export default function DeviceDetailScreen() {
           queryKey: ["device-settings", deviceId],
         }),
       )
-      .catch((e) => Alert.alert("下发失败", toUserMessage(e)))
+      .catch((e) => Alert.alert(t("device.sendFailed"), toUserMessage(e)))
       .finally(() => setSending(false));
   };
 
   /** 蜂鸣音量（BLE 协议 v0.6 内存表 0x24：1–100%，默认 80）；超过高音量线先确认，防止贴耳伤听力 */
+  // 拖动中：像调耳机音量一样即时生效——每跨一档就下发，但同一 200ms 内只发最后一条，
+  // 且拖动阶段封顶在高音量线；超过线的最终值等松手确认后再发
+  const navigation = useNavigation();
+  const liveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const livePending = useRef<number | null>(null);
+  const liveSent = useRef<number | null>(null);
+  const flushLive = () => {
+    liveTimer.current = null;
+    const v = livePending.current;
+    livePending.current = null;
+    if (v === null || v === liveSent.current) return;
+    liveSent.current = v;
+    devicesApi.putSettings(deviceId, { settings: { volume: v } }).catch(() => {
+      /* 拖动中的中间值失败不打扰，松手那条会报错 */
+    });
+  };
+  const onVolumeStep = (v: number) => {
+    livePending.current = Math.min(v, VOLUME_LOUD_THRESHOLD);
+    if (!liveTimer.current) liveTimer.current = setTimeout(flushLive, 200);
+  };
+  const onVolumeDragging = (dragging: boolean) => {
+    // 拖动时关掉 iOS 返回手势，免得向右滑把页面滑走
+    navigation.setOptions({ gestureEnabled: !dragging });
+    if (dragging) liveSent.current = null;
+  };
   const sendVolume = (v: number) => {
+    if (liveTimer.current) {
+      clearTimeout(liveTimer.current);
+      liveTimer.current = null;
+      livePending.current = null;
+    }
     if (v > VOLUME_LOUD_THRESHOLD) {
       Alert.alert(
-        "高音量提示",
-        `${v}% 音量在头盔内贴耳播放可能刺耳甚至损伤听力，建议 80% 以下。仍要设置吗？`,
+        t("device.volumeLoudTitle"),
+        t("device.volumeLoudBody", { n: v }),
         [
-          { text: "取消", style: "cancel" },
           {
-            text: "仍要设置",
+            text: t("common.cancel"),
+            style: "cancel",
+            // 取消：回落到高音量线，让滑杆与头盔一致
+            onPress: () => sendSetting("volume", VOLUME_LOUD_THRESHOLD),
+          },
+          {
+            text: t("device.volumeLoudConfirm"),
             style: "destructive",
             onPress: () => sendSetting("volume", v),
           },
@@ -149,21 +188,28 @@ export default function DeviceDetailScreen() {
     lastCmd == null
       ? null
       : lastCmd.status === "pending"
-        ? { text: "下发中…", color: theme.warning }
+        ? { text: t("device.cmd.pending"), color: theme.warning }
         : lastCmd.status === "delivered"
-          ? { text: "已送达设备,等待执行回执", color: theme.warning }
+          ? { text: t("device.cmd.delivered"), color: theme.warning }
           : lastCmd.status === "success"
             ? {
-                text: `执行成功 · ${lastCmd.executedAt ? new Date(lastCmd.executedAt).toLocaleTimeString() : ""}`,
+                text: lastCmd.executedAt
+                  ? t("device.cmd.successAt", {
+                      time: shortTime(lastCmd.executedAt, locale),
+                    })
+                  : t("device.cmd.success"),
                 color: theme.success,
               }
             : lastCmd.status === "failed"
               ? {
-                  text: `执行失败${lastCmd.errorCode ? `（${lastCmd.errorCode}）` : ""}`,
+                  text: lastCmd.errorCode
+                    ? t("device.cmd.failedCode", { code: lastCmd.errorCode })
+                    : t("device.cmd.failed"),
                   color: theme.danger,
                 }
               : {
-                  text: "设备离线未送达(绝不显示为已生效)",
+                  // 离线未送达：绝不显示为已生效
+                  text: t("device.cmd.offline"),
                   color: theme.textSecondary,
                 };
 
@@ -182,7 +228,7 @@ export default function DeviceDetailScreen() {
       .rename(deviceId, { name: nameDraft })
       .then(async () => {
         setRenameOpen(false);
-        showToast("已重命名");
+        showToast(t("device.renamed"));
         // 列表/详情/地图药丸同步刷新
         await Promise.all([
           queryClient.invalidateQueries({
@@ -191,15 +237,15 @@ export default function DeviceDetailScreen() {
           queryClient.invalidateQueries({ queryKey: ["devices"] }),
         ]);
       })
-      .catch((e) => Alert.alert("重命名失败", toUserMessage(e)))
+      .catch((e) => Alert.alert(t("device.renameFailed"), toUserMessage(e)))
       .finally(() => setRenaming(false));
   };
 
   const unbind = () => {
-    Alert.alert("解除绑定", `确定解绑 ${deviceId} 吗？历史数据会保留。`, [
-      { text: "取消", style: "cancel" },
+    Alert.alert(t("device.unbind"), t("device.unbindBody", { id: deviceId }), [
+      { text: t("common.cancel"), style: "cancel" },
       {
-        text: "解绑",
+        text: t("device.unbindAction"),
         style: "destructive",
         onPress: () => {
           setUnbinding(true);
@@ -209,7 +255,9 @@ export default function DeviceDetailScreen() {
               await queryClient.invalidateQueries({ queryKey: ["devices"] });
               router.back();
             })
-            .catch((e) => Alert.alert("解绑失败", toUserMessage(e)))
+            .catch((e) =>
+              Alert.alert(t("device.unbindFailed"), toUserMessage(e)),
+            )
             .finally(() => setUnbinding(false));
         },
       },
@@ -239,7 +287,7 @@ export default function DeviceDetailScreen() {
           {s && (
             <Badge
               variant={s.online ? "success" : "neutral"}
-              label={s.online ? "在线" : "离线"}
+              label={s.online ? t("common.online") : t("common.offline")}
             />
           )}
         </View>
@@ -274,45 +322,49 @@ export default function DeviceDetailScreen() {
                 current={s.battery}
                 charging={s.charging}
                 labels={{
-                  title: "电量",
-                  window: "过去 24 小时",
-                  charging: "充电中",
-                  empty: "暂无电量记录",
+                  title: t("devices.battery"),
+                  window: t("device.batteryWindow"),
+                  charging: t("devices.charging"),
+                  empty: t("device.batteryEmpty"),
                 }}
               />
             </View>
 
             <InfoRow
               icon="cellular-outline"
-              label="信号"
-              value={s.signalLevel !== null ? String(s.signalLevel) : "未上报"}
+              label={t("device.signal")}
+              value={
+                s.signalLevel !== null
+                  ? String(s.signalLevel)
+                  : t("device.notReported")
+              }
             />
             <InfoRow
               icon={s.sleeping ? "moon-outline" : "flash-outline"}
-              label="工作状态"
-              value={s.sleeping ? "休眠中" : "活动中"}
+              label={t("device.workState")}
+              value={s.sleeping ? t("device.sleeping") : t("device.active")}
             />
             <InfoRow
               icon="hardware-chip-outline"
-              label="固件版本"
-              value={s.firmwareVersion ?? "未知"}
+              label={t("devices.firmware")}
+              value={s.firmwareVersion ?? t("common.unknown")}
             />
             <InfoRow
               icon="time-outline"
-              label="最后心跳"
+              label={t("device.lastHeartbeat")}
               value={
                 s.lastSeenAt
-                  ? new Date(s.lastSeenAt).toLocaleString()
-                  : "从未上报"
+                  ? `${shortDate(s.lastSeenAt, locale)} ${shortTime(s.lastSeenAt, locale)}`
+                  : t("device.neverReported")
               }
             />
             <InfoRow
               icon={bindCodeShown ? "eye-outline" : "eye-off-outline"}
-              label="绑定码"
+              label={t("device.bindCode")}
               value={
                 bindCodeShown
                   ? (detail.data?.bindCode ?? "—")
-                  : "•••••••• 点击查看"
+                  : t("device.bindCodeHidden")
               }
               valueColor={bindCodeShown ? undefined : theme.textSecondary}
               onPress={
@@ -332,10 +384,10 @@ export default function DeviceDetailScreen() {
             >
               <View style={styles.settingsHeader}>
                 <ThemedText type="smallBold" style={{ fontSize: 15 }}>
-                  设备设置
+                  {t("device.settings")}
                 </ThemedText>
                 <ThemedText type="label" themeColor="textSecondary">
-                  演示参数 · 待硬件定稿
+                  {t("device.settingsDemo")}
                 </ThemedText>
               </View>
 
@@ -345,18 +397,19 @@ export default function DeviceDetailScreen() {
                     ? settings.data.settings.volume
                     : 80
                 }
-                disabled={sending}
-                onChangeEnd={sendVolume}
+                onStep={onVolumeStep}
+                onRelease={sendVolume}
+                onDraggingChange={onVolumeDragging}
               />
 
               <View style={styles.settingRow}>
                 <ThemedText type="small" themeColor="textSecondary">
-                  示廓灯
+                  {t("device.light")}
                 </ThemedText>
                 <View style={styles.chipGroup}>
                   {[
-                    { v: true, label: "开" },
-                    { v: false, label: "关" },
+                    { v: true, label: t("device.on") },
+                    { v: false, label: t("device.off") },
                   ].map(({ v, label }) => {
                     const active = settings.data?.settings.light === v;
                     return (
@@ -395,7 +448,7 @@ export default function DeviceDetailScreen() {
 
               {cmdStatusText && (
                 <ThemedText type="small" style={{ color: cmdStatusText.color }}>
-                  最近下发:{cmdStatusText.text}
+                  {t("device.lastCommand", { status: cmdStatusText.text })}
                 </ThemedText>
               )}
             </View>
@@ -404,7 +457,7 @@ export default function DeviceDetailScreen() {
 
         <View style={styles.footer}>
           <PrimaryButton
-            title="解除绑定"
+            title={t("device.unbind")}
             onPress={unbind}
             loading={unbinding}
             danger
@@ -433,17 +486,17 @@ export default function DeviceDetailScreen() {
             ]}
             onPress={() => undefined}
           >
-            <ThemedText type="subtitle">重命名设备</ThemedText>
+            <ThemedText type="subtitle">{t("device.renameTitle")}</ThemedText>
             <FormInput
-              label="设备名"
+              label={t("device.nameLabel")}
               value={nameDraft}
               onChangeText={setNameDraft}
-              placeholder="1-20 字符；留空恢复默认(设备号)"
+              placeholder={t("device.namePlaceholder")}
               maxLength={20}
               autoFocus
             />
             <PrimaryButton
-              title="保存"
+              title={t("common.save")}
               onPress={submitRename}
               loading={renaming}
             />

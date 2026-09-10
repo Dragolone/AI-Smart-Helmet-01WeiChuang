@@ -8,6 +8,11 @@ import { devices } from './messages/devices';
 import { intercom } from './messages/intercom';
 import { map } from './messages/map';
 import { profile } from './messages/profile';
+import { device } from './messages/device';
+import { events } from './messages/events';
+import { auth } from './messages/auth';
+import { errors } from './messages/errors';
+import { accident } from './messages/accident';
 import { safety } from './messages/safety';
 import { useLocaleStore, type Locale } from './locale-store';
 
@@ -20,6 +25,11 @@ const zhCN = {
   ...safety['zh-CN'],
   ...intercom['zh-CN'],
   ...profile['zh-CN'],
+  ...device['zh-CN'],
+  ...events['zh-CN'],
+  ...auth['zh-CN'],
+  ...errors['zh-CN'],
+  ...accident['zh-CN'],
 };
 export type MessageKey = keyof typeof zhCN;
 
@@ -32,6 +42,11 @@ const dictionaries: Record<Locale, Partial<Record<MessageKey, string>>> = {
     ...safety['zh-TW'],
     ...intercom['zh-TW'],
     ...profile['zh-TW'],
+  ...device['zh-TW'],
+  ...events['zh-TW'],
+  ...auth['zh-TW'],
+  ...errors['zh-TW'],
+  ...accident['zh-TW'],
   },
   en: {
     ...common.en,
@@ -40,6 +55,11 @@ const dictionaries: Record<Locale, Partial<Record<MessageKey, string>>> = {
     ...safety.en,
     ...intercom.en,
     ...profile.en,
+  ...device.en,
+  ...events.en,
+  ...auth.en,
+  ...errors.en,
+  ...accident.en,
   },
 };
 

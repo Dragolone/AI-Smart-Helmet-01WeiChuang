@@ -39,6 +39,15 @@ export const common = {
     "contacts.full": "已达上限 {max} 人",
     "contacts.deleteTitle": "删除联系人",
     "contacts.deleteBody": "SOS 时将不再通知 {name}，确定删除？",
+    "contacts.addLead":
+      "SOS 触发且未取消时，系统将短信通知该联系人并附上事故位置",
+    "contacts.name": "姓名",
+    "contacts.namePlaceholder": "如：张三",
+    "contacts.phone": "手机号",
+    "contacts.phonePlaceholder": "11 位大陆手机号",
+    "contacts.relation": "关系（可选）",
+    "contacts.relationPlaceholder": "如：家人 / 朋友 / 教练",
+    "contacts.required": "姓名和手机号必填",
     "common.failed": "操作失败",
   },
   "zh-TW": {
@@ -80,6 +89,15 @@ export const common = {
     "contacts.full": "已達上限 {max} 人",
     "contacts.deleteTitle": "刪除聯絡人",
     "contacts.deleteBody": "SOS 時將不再通知 {name}，確定刪除？",
+    "contacts.addLead":
+      "SOS 觸發且未取消時，系統將以簡訊通知該聯絡人並附上事故位置",
+    "contacts.name": "姓名",
+    "contacts.namePlaceholder": "如：王小明",
+    "contacts.phone": "手機號碼",
+    "contacts.phonePlaceholder": "11 位大陸手機號碼",
+    "contacts.relation": "關係（選填）",
+    "contacts.relationPlaceholder": "如：家人 / 朋友 / 教練",
+    "contacts.required": "姓名和手機號碼為必填",
     "common.failed": "操作失敗",
   },
   en: {
@@ -121,6 +139,15 @@ export const common = {
     "contacts.full": "Limit of {max} reached",
     "contacts.deleteTitle": "Delete contact",
     "contacts.deleteBody": "{name} will no longer be notified on SOS. Delete?",
+    "contacts.addLead":
+      "If an SOS is not cancelled, this contact gets an SMS with the incident location.",
+    "contacts.name": "Name",
+    "contacts.namePlaceholder": "e.g. Alex",
+    "contacts.phone": "Phone",
+    "contacts.phonePlaceholder": "11-digit mainland China number",
+    "contacts.relation": "Relationship (optional)",
+    "contacts.relationPlaceholder": "e.g. Family / Friend / Coach",
+    "contacts.required": "Name and phone are required",
     "common.failed": "Something went wrong",
   },
 } as const;

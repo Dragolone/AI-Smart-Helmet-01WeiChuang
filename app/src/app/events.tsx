@@ -24,81 +24,109 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
+import { useLocale, useT, type MessageKey } from "@/i18n";
+import { shortDate, shortTime } from "@/i18n/format";
 
-/** 事件类型元数据(标题/图标/配色);riskLevel 具体值在详情 payload 中 */
+type Translate = ReturnType<typeof useT>;
+
+/** 事件类型元数据(标题 key/图标/配色);标题在渲染时经 t() 解析,模块级不绑定语言。riskLevel 具体值在详情 payload 中 */
 const EVENT_META: Record<
   string,
   {
-    title: string;
+    title: MessageKey;
     icon: keyof typeof Ionicons.glyphMap;
     tone: "danger" | "warning" | "success" | "neutral";
   }
 > = {
   collision_risk: {
-    title: "碰撞风险",
+    title: "events.type.collision_risk",
     icon: "car-sport-outline",
     tone: "danger",
   },
-  obstacle_risk: { title: "障碍物", icon: "cube-outline", tone: "warning" },
-  possible_fall: { title: "疑似摔倒", icon: "body-outline", tone: "danger" },
+  obstacle_risk: {
+    title: "events.type.obstacle_risk",
+    icon: "cube-outline",
+    tone: "warning",
+  },
+  possible_fall: {
+    title: "safety.risk.fall",
+    icon: "body-outline",
+    tone: "danger",
+  },
   risk_cleared: {
-    title: "风险解除",
+    title: "events.type.risk_cleared",
     icon: "checkmark-circle-outline",
     tone: "success",
   },
-  manual_sos: { title: "手动求救", icon: "hand-left-outline", tone: "danger" },
+  manual_sos: {
+    title: "safety.manualSos",
+    icon: "hand-left-outline",
+    tone: "danger",
+  },
   bluetooth_lost: {
-    title: "蓝牙断连",
+    title: "events.type.bluetooth_lost",
     icon: "bluetooth-outline",
     tone: "neutral",
   },
-  video_ready: { title: "视频就绪", icon: "videocam-outline", tone: "neutral" },
+  video_ready: {
+    title: "events.type.video_ready",
+    icon: "videocam-outline",
+    tone: "neutral",
+  },
 };
 
-const FILTERS = [
-  { key: "", label: "全部" },
-  { key: "collision_risk", label: "碰撞风险" },
-  { key: "obstacle_risk", label: "障碍物" },
-  { key: "possible_fall,manual_sos", label: "摔倒/求救" },
-] as const;
+const FILTERS: readonly { key: string; label: MessageKey }[] = [
+  { key: "", label: "common.all" },
+  { key: "collision_risk", label: "events.type.collision_risk" },
+  { key: "obstacle_risk", label: "events.type.obstacle_risk" },
+  { key: "possible_fall,manual_sos", label: "events.filter.fallSos" },
+];
 
 /** 默认视图聚合的危险相关类型(全部 ≠ 原始事件流,device_status/location 噪音不进本页) */
 const DEFAULT_TYPES =
   "collision_risk,obstacle_risk,possible_fall,manual_sos,risk_cleared";
 
-const DIRECTION_LABEL: Record<string, string> = {
-  front: "前方",
-  rear: "后方",
-  left: "左侧",
-  right: "右侧",
+const DIRECTION_LABEL: Record<string, MessageKey> = {
+  front: "events.dir.front",
+  rear: "events.dir.rear",
+  left: "events.dir.left",
+  right: "events.dir.right",
 };
-const OBJECT_LABEL: Record<string, string> = {
-  vehicle: "车辆",
-  pedestrian: "行人",
-  obstacle: "障碍物",
-  unknown: "未知目标",
+const OBJECT_LABEL: Record<string, MessageKey> = {
+  vehicle: "events.obj.vehicle",
+  pedestrian: "events.obj.pedestrian",
+  obstacle: "events.obj.obstacle",
+  unknown: "events.obj.unknown",
 };
 
-/** 把 payload 里用户看得懂的字段挑出来（原始 JSON 不给用户看） */
+/** 把 payload 里用户看得懂的字段挑出来（原始 JSON 不给用户看）；未知枚举值原样显示 */
 function readableFields(
   payload: Record<string, unknown>,
+  t: Translate,
 ): { label: string; value: string }[] {
   const out: { label: string; value: string }[] = [];
-  if (typeof payload.direction === "string")
+  if (typeof payload.direction === "string") {
+    const key = DIRECTION_LABEL[payload.direction];
     out.push({
-      label: "方向",
-      value: DIRECTION_LABEL[payload.direction] ?? payload.direction,
+      label: t("events.field.direction"),
+      value: key ? t(key) : payload.direction,
     });
-  if (typeof payload.objectType === "string")
+  }
+  if (typeof payload.objectType === "string") {
+    const key = OBJECT_LABEL[payload.objectType];
     out.push({
-      label: "目标",
-      value: OBJECT_LABEL[payload.objectType] ?? payload.objectType,
+      label: t("events.field.object"),
+      value: key ? t(key) : payload.objectType,
     });
+  }
   if (typeof payload.distance === "number")
-    out.push({ label: "距离", value: `${payload.distance.toFixed(1)} m` });
+    out.push({
+      label: t("events.field.distance"),
+      value: `${payload.distance.toFixed(1)} m`,
+    });
   if (typeof payload.confidence === "number")
     out.push({
-      label: "置信度",
+      label: t("events.field.confidence"),
       value: `${Math.round(payload.confidence * 100)}%`,
     });
   return out;
@@ -106,15 +134,17 @@ function readableFields(
 
 const RISK_LABEL: Record<
   string,
-  { label: string; tone: "danger" | "warning" | "neutral" }
+  { label: MessageKey; tone: "danger" | "warning" | "neutral" }
 > = {
-  high: { label: "高风险", tone: "danger" },
-  medium: { label: "中风险", tone: "warning" },
-  low: { label: "低风险", tone: "neutral" },
+  high: { label: "safety.level.high", tone: "danger" },
+  medium: { label: "safety.level.medium", tone: "warning" },
+  low: { label: "safety.level.low", tone: "neutral" },
 };
 
 export default function EventsScreen() {
   const theme = useTheme();
+  const t = useT();
+  const locale = useLocale();
   const [filter, setFilter] = useState<string>("");
   const [detailId, setDetailId] = useState<string | null>(null);
 
@@ -156,6 +186,7 @@ export default function EventsScreen() {
     d && typeof d.payload.riskLevel === "string"
       ? RISK_LABEL[d.payload.riskLevel]
       : null;
+  const dFields = d ? readableFields(d.payload, t) : [];
 
   return (
     <ThemedView style={styles.flex}>
@@ -180,7 +211,7 @@ export default function EventsScreen() {
                   fontSize: 13,
                 }}
               >
-                {f.label}
+                {t(f.label)}
               </ThemedText>
             </View>
           </Tappable>
@@ -201,12 +232,9 @@ export default function EventsScreen() {
           <ThemedText type="small">{toUserMessage(firstError)}</ThemedText>
         )}
         {items.map((e, i) => {
-          const meta = EVENT_META[e.eventType] ?? {
-            title: e.eventType,
-            icon: "alert-circle-outline" as const,
-            tone: "neutral" as const,
-          };
-          const c = toneColor(meta.tone);
+          const meta = EVENT_META[e.eventType];
+          const icon = meta?.icon ?? "alert-circle-outline";
+          const c = toneColor(meta?.tone ?? "neutral");
           return (
             <Animated.View
               key={e.eventId}
@@ -224,15 +252,16 @@ export default function EventsScreen() {
                     ]}
                   >
                     <View style={[styles.iconTile, { backgroundColor: c.bg }]}>
-                      <Ionicons name={meta.icon} size={22} color={c.fg} />
+                      <Ionicons name={icon} size={22} color={c.fg} />
                     </View>
                     <View style={styles.cardBody}>
                       <ThemedText type="smallBold" style={{ fontSize: 15 }}>
-                        {meta.title}
+                        {meta ? t(meta.title) : e.eventType}
                       </ThemedText>
 
                       <ThemedText type="label" themeColor="textSecondary">
-                        {e.deviceId} · {new Date(e.timestamp).toLocaleString()}
+                        {e.deviceId} · {shortDate(e.timestamp, locale)}{" "}
+                        {shortTime(e.timestamp, locale)}
                       </ThemedText>
                     </View>
                     <Ionicons
@@ -267,7 +296,7 @@ export default function EventsScreen() {
               color={theme.textSecondary}
             />
             <ThemedText type="small" themeColor="textSecondary">
-              暂无危险事件——安全骑行中
+              {t("events.empty")}
             </ThemedText>
           </View>
         )}
@@ -295,7 +324,9 @@ export default function EventsScreen() {
               <>
                 <View style={styles.detailHeader}>
                   <ThemedText type="subtitle">
-                    {EVENT_META[d.eventType]?.title ?? d.eventType}
+                    {EVENT_META[d.eventType]
+                      ? t(EVENT_META[d.eventType].title)
+                      : d.eventType}
                   </ThemedText>
                   {dRisk && (
                     <View
@@ -311,22 +342,23 @@ export default function EventsScreen() {
                           fontSize: 12,
                         }}
                       >
-                        {dRisk.label}
+                        {t(dRisk.label)}
                       </ThemedText>
                     </View>
                   )}
                 </View>
                 <ThemedText type="small" themeColor="textSecondary">
-                  {d.deviceId} · {new Date(d.timestamp).toLocaleString()}
+                  {d.deviceId} · {shortDate(d.timestamp, locale)}{" "}
+                  {shortTime(d.timestamp, locale)}
                 </ThemedText>
-                {readableFields(d.payload).length > 0 && (
+                {dFields.length > 0 && (
                   <View
                     style={[
                       styles.fieldBox,
                       { backgroundColor: theme.backgroundSelected },
                     ]}
                   >
-                    {readableFields(d.payload).map((f) => (
+                    {dFields.map((f) => (
                       <View key={f.label} style={styles.fieldRow}>
                         <ThemedText type="small" themeColor="textSecondary">
                           {f.label}
@@ -339,12 +371,12 @@ export default function EventsScreen() {
                 {/* 视频片段：头盔侧留档后在此列出（守护模式类体验，MVP 后第一迭代） */}
                 <ThemedText type="small" themeColor="textSecondary">
                   {d.media.length > 0
-                    ? `关联视频 ${d.media.length} 段（播放功能开发中）`
-                    : "该时刻暂无视频片段"}
+                    ? t("events.mediaCount", { n: d.media.length })
+                    : t("events.mediaNone")}
                 </ThemedText>
                 <PrimaryButton
                   compact
-                  title="在地图上查看该时刻"
+                  title={t("events.viewOnMap")}
                   icon="map-outline"
                   onPress={() => {
                     const at = d.timestamp;
@@ -359,7 +391,7 @@ export default function EventsScreen() {
               </>
             ) : (
               <ThemedText type="small" themeColor="textSecondary">
-                加载中…
+                {t("events.loading")}
               </ThemedText>
             )}
           </Pressable>
