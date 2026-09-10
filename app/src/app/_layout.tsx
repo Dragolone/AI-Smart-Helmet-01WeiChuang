@@ -69,6 +69,27 @@ function RootNavigator() {
           name="accidents"
           options={{ headerShown: true, title: t("nav.accidents") }}
         />
+        <Stack.Screen
+          name="account/change-password"
+          options={{ headerShown: true, title: t("nav.changePassword") }}
+        />
+        <Stack.Screen
+          name="account/change-phone"
+          options={{ headerShown: true, title: t("nav.changePhone") }}
+        />
+        <Stack.Screen
+          name="account/delete"
+          options={{ headerShown: true, title: t("nav.deleteAccount") }}
+        />
+        <Stack.Screen
+          name="help"
+          options={{ headerShown: true, title: t("nav.help") }}
+        />
+        {/* 隐私政策 / 用户协议共用一页，具体标题由页面按 doc 参数自行 setOptions */}
+        <Stack.Screen
+          name="legal/[doc]"
+          options={{ headerShown: true, title: t("nav.privacy") }}
+        />
         {/* SOS 全屏页：手势返回禁用——处理中的求救不允许误滑关闭 */}
         <Stack.Screen
           name="sos-active"

@@ -1,12 +1,12 @@
 // 会话 store（Zustand）：内存态 + SecureStore 持久化（token 属敏感凭据，不进 AsyncStorage）
-import * as SecureStore from 'expo-secure-store';
-import { create } from 'zustand';
-import type { AuthResponse, AuthTokens, UserProfile } from '@helmet/shared';
-import { attachSession } from '@/api/client';
-import { authApi } from '@/api/auth';
+import * as SecureStore from "expo-secure-store";
+import { create } from "zustand";
+import type { AuthResponse, AuthTokens, UserProfile } from "@helmet/shared";
+import { attachSession } from "@/api/client";
+import { authApi } from "@/api/auth";
 
-const TOKEN_KEY = 'helmet.session.tokens';
-const USER_KEY = 'helmet.session.user';
+const TOKEN_KEY = "helmet.session.tokens";
+const USER_KEY = "helmet.session.user";
 
 /** SecureStore 只存最小档案:iOS 钥匙串单值上限 2KB,data-URI 头像(≈20KB)绝不能入;
  *  完整档案(含头像)启动后由 /users/me 拉取进内存。 */
@@ -23,6 +23,8 @@ type AuthState = {
   hydrate: () => Promise<void>;
   signIn: (auth: AuthResponse) => Promise<void>;
   signOut: () => Promise<void>;
+  /** 只清本地会话，不通知服务端——账号已注销 / 服务端已作废会话时用 */
+  dropSession: () => Promise<void>;
   setUser: (user: UserProfile) => Promise<void>;
 };
 
@@ -58,7 +60,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   signIn: async (auth) => {
     set({
-      tokens: { accessToken: auth.accessToken, refreshToken: auth.refreshToken },
+      tokens: {
+        accessToken: auth.accessToken,
+        refreshToken: auth.refreshToken,
+      },
       user: auth.user,
     });
     await Promise.all([
@@ -69,7 +74,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           refreshToken: auth.refreshToken,
         }),
       ),
-      SecureStore.setItemAsync(USER_KEY, JSON.stringify(toPersistable(auth.user))),
+      SecureStore.setItemAsync(
+        USER_KEY,
+        JSON.stringify(toPersistable(auth.user)),
+      ),
     ]);
   },
 
@@ -83,6 +91,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         /* 离线登出允许 */
       }
     }
+    await get().dropSession();
+  },
+
+  dropSession: async () => {
     set({ tokens: null, user: null });
     await Promise.all([
       SecureStore.deleteItemAsync(TOKEN_KEY),
@@ -92,7 +104,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   setUser: async (user) => {
     set({ user });
-    await SecureStore.setItemAsync(USER_KEY, JSON.stringify(toPersistable(user)));
+    await SecureStore.setItemAsync(
+      USER_KEY,
+      JSON.stringify(toPersistable(user)),
+    );
   },
 }));
 

@@ -16,6 +16,7 @@ const MESSAGE_KEYS: Record<string, MessageKey> = {
   DEVICE_NOT_FOUND: "error.deviceNotFound",
   BIND_CODE_INVALID: "error.bindCodeInvalid",
   DEVICE_ALREADY_BOUND: "error.deviceAlreadyBound",
+  PASSWORD_INCORRECT: "error.passwordIncorrect",
   RATE_LIMITED: "error.rateLimited",
   INTERNAL_ERROR: "error.internal",
 };
