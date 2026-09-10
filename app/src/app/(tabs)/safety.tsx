@@ -2,10 +2,19 @@
 // 对齐定稿套图的联系人卡片/事件时间线布局；数据全部来自已实现后端（API.md §3/§7）
 import { Ionicons } from '@expo/vector-icons';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import * as Haptics from 'expo-haptics';
+import { useState } from 'react';
 import { router } from 'expo-router';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Animated, { FadeInDown } from 'react-native-reanimated';
+import Animated, {
+  Easing,
+  FadeInDown,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import type { AccidentListItem, EmergencyContact } from '@helmet/shared';
 
 import { contactsApi } from '@/api/contacts';
@@ -136,6 +145,24 @@ export default function SafetyScreen() {
   };
 
   const contactList = contacts.data ?? [];
+  const [devOpen, setDevOpen] = useState(false);
+
+  /** 紧急求助:长按 2 秒触发(防误触),经 app-relay 注入 manual_sos——
+   *  与头盔按钮走完全相同的服务端状态机,倒计时页由 WS 推送自动弹出 */
+  const sosP = useSharedValue(0);
+  const sosFillStyle = useAnimatedStyle(() => ({
+    width: `${sosP.get() * 100}%`,
+  }));
+  const sosTextStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: interpolate(sosP.get(), [0, 1], [1, 1.04]) }],
+  }));
+  const sosTarget = (devices.data ?? []).find((d) => d.online)?.deviceId ?? deviceIds[0];
+  const fireSos = () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+    relayApi
+      .pushEvent(sosTarget, 'manual_sos', {})
+      .catch((e) => Alert.alert('求救发送失败', toUserMessage(e)));
+  };
 
   return (
     <SafeAreaView style={styles.flex}>
@@ -146,6 +173,21 @@ export default function SafetyScreen() {
           <ThemedText type="title" style={styles.pageTitle}>
             安全中心
           </ThemedText>
+
+          {pendingSos && (
+            <Pressable
+              onPress={() =>
+                router.push(`/sos-active?sosId=${pendingSos.sosId}&deviceId=${pendingSos.deviceId}`)
+              }>
+              <View style={[styles.sosBanner, { backgroundColor: theme.dangerBg, borderColor: theme.danger }]}>
+                <Ionicons name="warning" size={22} color={theme.danger} />
+                <ThemedText type="smallBold" style={{ color: theme.danger, flex: 1 }}>
+                  有一条进行中的 SOS，点击处理
+                </ThemedText>
+                <Ionicons name="chevron-forward" size={18} color={theme.danger} />
+              </View>
+            </Pressable>
+          )}
 
           {/* 防护状态 hero:盾环脉冲 + 关键数字;无联系人时转为琥珀提醒 */}
           <Animated.View entering={FadeInDown.duration(360)}>
@@ -186,17 +228,32 @@ export default function SafetyScreen() {
             </View>
           </Animated.View>
 
-          {pendingSos && (
+          {/* 紧急求助:长按 2 秒发出 manual_sos(与头盔按钮同链路,倒计时内可取消) */}
+          {sosTarget && !pendingSos && (
             <Pressable
-              onPress={() =>
-                router.push(`/sos-active?sosId=${pendingSos.sosId}&deviceId=${pendingSos.deviceId}`)
-              }>
-              <View style={[styles.sosBanner, { backgroundColor: theme.dangerBg, borderColor: theme.danger }]}>
-                <Ionicons name="warning" size={22} color={theme.danger} />
-                <ThemedText type="smallBold" style={{ color: theme.danger, flex: 1 }}>
-                  有一条进行中的 SOS，点击处理
-                </ThemedText>
-                <Ionicons name="chevron-forward" size={18} color={theme.danger} />
+              delayLongPress={2000}
+              onPressIn={() => {
+                sosP.set(withTiming(1, { duration: 2000, easing: Easing.linear }));
+              }}
+              onPressOut={() => {
+                sosP.set(withTiming(0, { duration: 180 }));
+              }}
+              onLongPress={fireSos}>
+              <View style={[styles.sosBtn, { borderColor: theme.danger, backgroundColor: theme.dangerBg }]}>
+                <Animated.View
+                  style={[styles.sosFill, { backgroundColor: theme.danger }, sosFillStyle]}
+                />
+                <Animated.View style={[styles.sosBtnRow, sosTextStyle]}>
+                  <Ionicons name="alert-circle" size={22} color={theme.danger} />
+                  <View>
+                    <ThemedText type="smallBold" style={{ color: theme.danger, fontSize: 16 }}>
+                      紧急求助
+                    </ThemedText>
+                    <ThemedText type="label" themeColor="textSecondary">
+                      长按 2 秒,60 秒倒计时后通知紧急联系人
+                    </ThemedText>
+                  </View>
+                </Animated.View>
               </View>
             </Pressable>
           )}
@@ -205,13 +262,20 @@ export default function SafetyScreen() {
             <ThemedText type="subtitle" style={styles.sectionTitle}>
               紧急联系人
             </ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              {contactList.length}/{MAX_CONTACTS}
-            </ThemedText>
+            <View style={styles.sectionHeaderRight}>
+              <ThemedText type="small" themeColor="textSecondary">
+                {contactList.length}/{MAX_CONTACTS}
+              </ThemedText>
+              {contactList.length < MAX_CONTACTS && (
+                <Pressable
+                  hitSlop={8}
+                  onPress={() => router.push('/add-contact')}
+                  style={[styles.addBtn, { backgroundColor: theme.backgroundSelected }]}>
+                  <Ionicons name="add" size={18} color={theme.brand} />
+                </Pressable>
+              )}
+            </View>
           </View>
-          <ThemedText type="small" themeColor="textSecondary">
-            SOS 触发且未取消时，将短信通知以下联系人
-          </ThemedText>
           {contacts.isError && (
             <ThemedText type="small">{toUserMessage(contacts.error)}</ThemedText>
           )}
@@ -220,40 +284,13 @@ export default function SafetyScreen() {
           ))}
           {contactList.length === 0 && !contacts.isLoading && (
             <ThemedText type="small" themeColor="textSecondary">
-              还没有紧急联系人——强烈建议至少添加一位
+              点右上「+」添加,SOS 时将短信通知他们
             </ThemedText>
           )}
 
-          {/* 危险事件入口(§6 事件历史页) */}
-          <Pressable onPress={() => router.push('/events')} style={{ marginTop: 12 }}>
-            {({ pressed }) => (
-              <View
-                style={[
-                  styles.card,
-                  {
-                    backgroundColor: pressed ? theme.backgroundSelected : theme.backgroundElement,
-                    borderColor: theme.border,
-                  },
-                ]}>
-                <View style={[styles.avatar, { backgroundColor: theme.warningBg }]}>
-                  <Ionicons name="pulse-outline" size={20} color={theme.warning} />
-                </View>
-                <View style={styles.contactBody}>
-                  <ThemedText type="smallBold" style={{ fontSize: 15 }}>
-                    安全事件
-                  </ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary">
-                    碰撞风险 / 障碍物 / 摔倒等事件历史
-                  </ThemedText>
-                </View>
-                <Ionicons name="chevron-forward" size={16} color={theme.textSecondary} />
-              </View>
-            )}
-          </Pressable>
-
           <View style={[styles.sectionHeader, { marginTop: 12 }]}>
             <ThemedText type="subtitle" style={styles.sectionTitle}>
-              事故记录
+              安全记录
             </ThemedText>
           </View>
           {accidentItems.map((item) => (
@@ -261,17 +298,38 @@ export default function SafetyScreen() {
           ))}
           {accidentItems.length === 0 && (
             <ThemedText type="small" themeColor="textSecondary">
-              暂无记录——愿一直如此 🙏
+              暂无事故记录——愿一直如此 🙏
             </ThemedText>
           )}
+
+          {/* 次级入口:普通危险事件历史(§6),权重低于事故 */}
+          <Pressable onPress={() => router.push('/events')}>
+            {({ pressed }) => (
+              <View style={[styles.eventsLink, { opacity: pressed ? 0.6 : 1 }]}>
+                <Ionicons name="pulse-outline" size={16} color={theme.textSecondary} />
+                <ThemedText type="small" themeColor="textSecondary" style={{ flex: 1 }}>
+                  危险事件历史(碰撞 / 障碍物 / 摔倒)
+                </ThemedText>
+                <Ionicons name="chevron-forward" size={14} color={theme.textSecondary} />
+              </View>
+            )}
+          </Pressable>
 
           {/* 开发测试:经 app-relay(§12.1 真实契约)替绑定设备注入事件,快速触发 SOS/危险事件
               全链路(Ingest→状态机→WS→倒计时页)。仅开发构建可见。 */}
           {__DEV__ && deviceIds[0] && (
             <View style={[styles.devBox, { borderColor: theme.border }]}>
-              <ThemedText type="label" themeColor="textSecondary">
-                开发测试(仅 DEV 构建可见,走 app-relay 真实链路)
-              </ThemedText>
+              <Pressable onPress={() => setDevOpen((v) => !v)} style={styles.devHeader}>
+                <ThemedText type="label" themeColor="textSecondary">
+                  开发测试(仅 DEV 构建可见,走 app-relay 真实链路)
+                </ThemedText>
+                <Ionicons
+                  name={devOpen ? 'chevron-up' : 'chevron-down'}
+                  size={14}
+                  color={theme.textSecondary}
+                />
+              </Pressable>
+              {devOpen && (
               <View style={styles.devRow}>
                 <Pressable
                   style={[styles.devBtn, { backgroundColor: theme.dangerBg }]}
@@ -282,17 +340,6 @@ export default function SafetyScreen() {
                   }>
                   <ThemedText type="smallBold" style={{ color: theme.danger, fontSize: 13 }}>
                     模拟摔倒
-                  </ThemedText>
-                </Pressable>
-                <Pressable
-                  style={[styles.devBtn, { backgroundColor: theme.dangerBg }]}
-                  onPress={() =>
-                    relayApi
-                      .pushEvent(deviceIds[0], 'manual_sos', {})
-                      .catch((e) => Alert.alert('注入失败', toUserMessage(e)))
-                  }>
-                  <ThemedText type="smallBold" style={{ color: theme.danger, fontSize: 13 }}>
-                    模拟手动求救
                   </ThemedText>
                 </Pressable>
                 <Pressable
@@ -310,22 +357,53 @@ export default function SafetyScreen() {
                   </ThemedText>
                 </Pressable>
               </View>
+              )}
             </View>
           )}
         </ScrollView>
 
-        {/* 主 CTA 固定在底部标签栏正上方（对齐定稿套图） */}
-        {contactList.length < MAX_CONTACTS && (
-          <View style={styles.bottomCta}>
-            <PrimaryButton title="＋ 添加联系人" onPress={() => router.push('/add-contact')} />
-          </View>
-        )}
       </ThemedView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  sectionHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  addBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sosBtn: {
+    borderRadius: 18,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  sosFill: {
+    ...StyleSheet.absoluteFill,
+    opacity: 0.28,
+  },
+  sosBtnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+  },
+  eventsLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  devHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   hero: {
     flexDirection: 'row',
     alignItems: 'center',
