@@ -43,15 +43,16 @@ export async function buildApp(
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.useGlobalFilters(new UnifiedExceptionFilter());
   app.useWebSocketAdapter(new WsAdapter(app));
-  await app.init();
+  // 先真正监听再交给 supertest：对未监听的 server 并发发起多个请求时，supertest 会各自触发 listen，
+  // 在 CI（Linux）上偶发 ECONNRESET；已监听则全部复用同一端口
+  await app.listen(0);
   return { app, http: app.getHttpServer(), prisma: app.get(PrismaService) };
 }
 
-/** 监听随机端口（WS 用例需要真实 TCP 端口），返回 ws://host:port */
+/** 返回已监听端口的 ws://host:port（WS 用例用） */
 export async function listenRandomPort(app: INestApplication): Promise<string> {
-  await app.listen(0);
   const { port } = app.getHttpServer().address() as AddressInfo;
-  return `ws://127.0.0.1:${port}`;
+  return Promise.resolve(`ws://127.0.0.1:${port}`);
 }
 
 export async function createUser(

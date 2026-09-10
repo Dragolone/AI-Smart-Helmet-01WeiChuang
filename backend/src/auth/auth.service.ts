@@ -13,6 +13,8 @@ import { SmsCodeService, type SmsCodePurpose } from './sms-code.service';
 
 /** API.md §2 定稿：access 15 分钟 / refresh 30 天（轮换制） */
 const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+/** 刚轮换掉的 token 在此窗口内再次出现 = App 并发刷新的良性竞态（只拒绝本次），超过窗口才按盗用撤销全部会话 */
+const REFRESH_REUSE_GRACE_MS = 10_000;
 const BCRYPT_ROUNDS = 10;
 
 export interface TokenPair {
@@ -148,7 +150,14 @@ export class AuthService {
       });
     }
     if (record.revokedAt) {
-      // 已轮换掉的 token 再次出现 = 疑似被盗用，终止该用户所有会话
+      if (Date.now() - record.revokedAt.getTime() < REFRESH_REUSE_GRACE_MS) {
+        // 并发刷新的输家：另一方刚刚轮换成功，本次拒绝即可，不能把赢家的新会话也撤销
+        throw new UnauthorizedException({
+          code: 'UNAUTHORIZED',
+          message: 'refresh token 已被使用，请用最新的 token',
+        });
+      }
+      // 已轮换掉的 token 过了并发窗口再次出现 = 疑似被盗用，终止该用户所有会话
       this.logger.warn(
         `refresh token 复用检测：撤销用户 ${record.userId} 全部会话`,
       );

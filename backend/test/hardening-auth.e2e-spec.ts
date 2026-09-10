@@ -232,7 +232,7 @@ describe('加固：认证与令牌 (e2e)', () => {
         .expect(200);
     });
 
-    it('复用已轮换的 token：撤销全部会话（新 token 也失效）', async () => {
+    it('复用已轮换的 token：并发窗口内只拒绝本次；窗口外视为盗用，撤销全部会话（新 token 也失效）', async () => {
       const u = await createUser(app, http);
       users.push(u);
       const r1 = await request(http)
@@ -240,13 +240,27 @@ describe('加固：认证与令牌 (e2e)', () => {
         .send({ refreshToken: u.refreshToken })
         .expect(200);
       const newRefresh = r1.body.refreshToken as string;
+      // 刚轮换完立刻复用：良性竞态，本次 401，赢家的新 token 仍有效
+      await request(http)
+        .post('/api/v1/auth/refresh')
+        .send({ refreshToken: u.refreshToken })
+        .expect(401);
+      const r2 = await request(http)
+        .post('/api/v1/auth/refresh')
+        .send({ refreshToken: newRefresh })
+        .expect(200);
+      // 把旧 token 的撤销时间拨到 1 分钟前再复用：盗用信号，全部会话作废
+      await prisma.refreshToken.updateMany({
+        where: { userId: u.id, revokedAt: { not: null } },
+        data: { revokedAt: new Date(Date.now() - 60_000) },
+      });
       await request(http)
         .post('/api/v1/auth/refresh')
         .send({ refreshToken: u.refreshToken })
         .expect(401);
       await request(http)
         .post('/api/v1/auth/refresh')
-        .send({ refreshToken: newRefresh })
+        .send({ refreshToken: r2.body.refreshToken as string })
         .expect(401);
     });
 

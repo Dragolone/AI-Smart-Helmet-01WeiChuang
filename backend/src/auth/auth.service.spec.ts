@@ -143,10 +143,10 @@ describe('AuthService（单测，mock 数据层）', () => {
     });
   });
 
-  it('refresh：已撤销 token 复用 → 撤销该用户全部会话', async () => {
+  it('refresh：已撤销 token 过了并发窗口再复用 → 撤销该用户全部会话', async () => {
     prismaMock.refreshToken.findUnique.mockResolvedValue({
       userId: 'u1',
-      revokedAt: new Date(),
+      revokedAt: new Date(Date.now() - 60_000),
       expiresAt: new Date(Date.now() + 1000),
     });
     prismaMock.refreshToken.updateMany.mockResolvedValue({ count: 2 });
