@@ -2,12 +2,12 @@
 // 功能：实时位置（WS 直写缓存 + REST 兜底）、历史轨迹回放（1/6/24h + 近 7 天按日）、位置分享、导航跳转。
 // 2026-09-10 重设计：全屏地图 + 左上设备药丸 + 右侧三枚圆钮（回中/跟随/分享）+ 底部统计卡，
 // 回放面板收进卡内按需展开；唯一品牌填充控件是「导航到头盔」主按钮。
-import { Ionicons } from '@expo/vector-icons';
-import { useQuery } from '@tanstack/react-query';
-import { useKeepAwake } from 'expo-keep-awake';
-import { Image } from 'expo-image';
-import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Ionicons } from "@expo/vector-icons";
+import { useQuery } from "@tanstack/react-query";
+import { useKeepAwake } from "expo-keep-awake";
+import { Image } from "expo-image";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   type LayoutChangeEvent,
@@ -15,23 +15,27 @@ import {
   Share,
   StyleSheet,
   View,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { LocationPoint, WsLocationData } from '@helmet/shared';
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import type { LocationPoint, WsLocationData } from "@helmet/shared";
 
-import { devicesApi } from '@/api/devices';
-import { realtimeClient } from '@/api/realtime';
-import { PrimaryButton, SecondaryButton } from '@/components/form';
-import { AmapView, type AmapViewHandle } from '@/components/map/amap-view';
-import { cumulativeMeters, toGcj02, type LngLat } from '@/components/map/coords';
-import { openAmapNavigation } from '@/components/map/nav-links';
-import { Tappable } from '@/components/tappable';
-import { ThemedText } from '@/components/themed-text';
-import { Radius } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
-import { useTheme } from '@/hooks/use-theme';
-import { translate, useLocale, useT } from '@/i18n';
-import { relativeTime } from '@/i18n/format';
+import { devicesApi } from "@/api/devices";
+import { realtimeClient } from "@/api/realtime";
+import { PrimaryButton, SecondaryButton } from "@/components/form";
+import { AmapView, type AmapViewHandle } from "@/components/map/amap-view";
+import {
+  cumulativeMeters,
+  toGcj02,
+  type LngLat,
+} from "@/components/map/coords";
+import { openAmapNavigation } from "@/components/map/nav-links";
+import { Tappable } from "@/components/tappable";
+import { ThemedText } from "@/components/themed-text";
+import { Radius } from "@/constants/theme";
+import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useTheme } from "@/hooks/use-theme";
+import { translate, useLocale, useT } from "@/i18n";
+import { relativeTime } from "@/i18n/format";
 
 const RANGE_OPTIONS = [1, 6, 24] as const;
 type RangeHours = (typeof RANGE_OPTIONS)[number];
@@ -52,7 +56,10 @@ interface TrackResult {
 }
 
 /** dayOffset=0:此刻往前 hours;>0:N 天前整个自然日(24h 上限内,API.md §5) */
-function trackWindow(hours: RangeHours, dayOffset: number): { from: Date; to: Date } {
+function trackWindow(
+  hours: RangeHours,
+  dayOffset: number,
+): { from: Date; to: Date } {
   if (dayOffset === 0) {
     const to = new Date();
     return { from: new Date(to.getTime() - hours * 3_600_000), to };
@@ -64,9 +71,9 @@ function trackWindow(hours: RangeHours, dayOffset: number): { from: Date; to: Da
 }
 
 function dayLabel(offset: number, t: Translate): string {
-  if (offset === 0) return t('common.today');
-  if (offset === 1) return t('common.yesterday');
-  if (offset === 2) return t('map.dayBefore');
+  if (offset === 0) return t("common.today");
+  if (offset === 1) return t("common.yesterday");
+  if (offset === 2) return t("map.dayBefore");
   const d = new Date(Date.now() - offset * 86_400_000);
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
@@ -101,8 +108,8 @@ function formatClock(ms: number): string {
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   const sec = s % 60;
-  const mm = String(m).padStart(2, '0');
-  const ss = String(sec).padStart(2, '0');
+  const mm = String(m).padStart(2, "0");
+  const ss = String(sec).padStart(2, "0");
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
@@ -125,7 +132,10 @@ function SeekBar({
   const width = useRef(1);
   const handle = (x: number) =>
     onSeek(
-      Math.min(1, Math.max(0, (x - THUMB_R) / Math.max(1, width.current - THUMB_R * 2))),
+      Math.min(
+        1,
+        Math.max(0, (x - THUMB_R) / Math.max(1, width.current - THUMB_R * 2)),
+      ),
     );
   return (
     <View
@@ -136,11 +146,15 @@ function SeekBar({
       onStartShouldSetResponder={() => true}
       onMoveShouldSetResponder={() => true}
       onResponderGrant={(e) => handle(e.nativeEvent.locationX)}
-      onResponderMove={(e) => handle(e.nativeEvent.locationX)}>
+      onResponderMove={(e) => handle(e.nativeEvent.locationX)}
+    >
       <View pointerEvents="none" style={styles.seekRail}>
         <View style={[styles.seekTrack, { backgroundColor: trackColor }]}>
           <View
-            style={[styles.seekFill, { backgroundColor: accent, width: `${ratio * 100}%` }]}
+            style={[
+              styles.seekFill,
+              { backgroundColor: accent, width: `${ratio * 100}%` },
+            ]}
           />
         </View>
         <View
@@ -179,7 +193,8 @@ function RoundButton({
       style={[
         styles.roundBtn,
         { backgroundColor: theme.backgroundElement, borderColor: theme.border },
-      ]}>
+      ]}
+    >
       <Ionicons name={icon} size={22} color={tint ?? theme.text} />
     </Tappable>
   );
@@ -201,10 +216,18 @@ function Chip({
     <Tappable
       disabled={disabled}
       onPress={onPress}
-      style={[styles.chip, { backgroundColor: active ? theme.brand : theme.backgroundSelected }]}>
+      style={[
+        styles.chip,
+        { backgroundColor: active ? theme.brand : theme.backgroundSelected },
+      ]}
+    >
       <ThemedText
         type="smallBold"
-        style={[styles.chipText, { color: active ? theme.onBrand : theme.textSecondary }]}>
+        style={[
+          styles.chipText,
+          { color: active ? theme.onBrand : theme.textSecondary },
+        ]}
+      >
         {label}
       </ThemedText>
     </Tappable>
@@ -225,17 +248,26 @@ function Stat({
   const theme = useTheme();
   return (
     <View style={styles.stat}>
-      <ThemedText type="small" themeColor="textSecondary" style={styles.statLabel}>
+      <ThemedText
+        type="small"
+        themeColor="textSecondary"
+        style={styles.statLabel}
+      >
         {label}
       </ThemedText>
       <View style={styles.statValueRow}>
         <ThemedText
           type="display"
           style={[styles.statValue, { color: valueColor ?? theme.text }]}
-          numberOfLines={1}>
+          numberOfLines={1}
+        >
           {value}
         </ThemedText>
-        <ThemedText type="small" themeColor="textSecondary" style={styles.statUnit}>
+        <ThemedText
+          type="small"
+          themeColor="textSecondary"
+          style={styles.statUnit}
+        >
           {unit}
         </ThemedText>
       </View>
@@ -256,6 +288,11 @@ export default function MapScreen() {
   const [dateOpen, setDateOpen] = useState(false);
   // 回放面板默认收起，点「历史轨迹」展开
   const [historyOpen, setHistoryOpen] = useState(false);
+  // 骑行面板收纳：收起只留状态行，地图占满（骑行中当仪表盘看时用）
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
+  // 从安全事件「在地图上查看该时刻」跳入：?deviceId=&at=ISO → 定位到当天轨迹并把回放停在该时刻
+  const params = useLocalSearchParams<{ deviceId?: string; at?: string }>();
+  const [jumpAt, setJumpAt] = useState<number | null>(null);
   // null = 实时模式；数字 = 回放中的当前轨迹点下标
   // 地图页常亮:骑行中把手机当仪表盘看,不该黑屏
   useKeepAwake();
@@ -267,7 +304,7 @@ export default function MapScreen() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const devices = useQuery({ queryKey: ['devices'], queryFn: devicesApi.list });
+  const devices = useQuery({ queryKey: ["devices"], queryFn: devicesApi.list });
   /** 底部卡进场动画:每次进入地图页(且有设备)从下方弹入;Animated.Value 惰性
    *  useState 持有(React Compiler 禁止渲染期读 ref,平台限制清单口径) */
   const [cardIn] = useState(() => new Animated.Value(0));
@@ -275,7 +312,8 @@ export default function MapScreen() {
   const [wsUp, setWsUp] = useState(true);
   useEffect(() => realtimeClient.subscribeState(setWsUp), []);
   const deviceList = devices.data ?? [];
-  const device = deviceList.find((d) => d.deviceId === selectedId) ?? deviceList[0];
+  const device =
+    deviceList.find((d) => d.deviceId === selectedId) ?? deviceList[0];
   const hasDevice = device != null;
   const canPick = deviceList.length > 1;
 
@@ -296,9 +334,35 @@ export default function MapScreen() {
   );
   const deviceId = device?.deviceId;
 
+  // 路由参数是一次性外部输入，不是可推导状态：放到下一 tick 应用，避免 effect 内同步 setState 级联重渲染
+  useEffect(() => {
+    if (!params.at) return;
+    const at = new Date(params.at).getTime();
+    if (Number.isNaN(at)) return;
+    const targetDevice = params.deviceId;
+    const id = setTimeout(() => {
+      if (targetDevice) setSelectedId(targetDevice);
+      const midnight = new Date();
+      midnight.setHours(0, 0, 0, 0);
+      if (at >= midnight.getTime()) {
+        const hoursAgo = (Date.now() - at) / 3_600_000;
+        setDayOffset(0);
+        setRange(hoursAgo <= 1 ? 1 : hoursAgo <= 6 ? 6 : 24);
+      } else {
+        setDayOffset(Math.floor((midnight.getTime() - at) / 86_400_000) + 1);
+      }
+      setHistoryOpen(true);
+      setPanelCollapsed(false);
+      setJumpAt(at);
+      // 用完即清，避免下次进页面重复跳
+      router.setParams({ at: undefined, deviceId: undefined });
+    }, 0);
+    return () => clearTimeout(id);
+  }, [params.at, params.deviceId]);
+
   // WS 推送直写此缓存（use-realtime）；REST 30s 轮询兜底（API.md §11 口径）
   const live = useQuery<WsLocationData | LocationPoint | null>({
-    queryKey: ['device-location', deviceId],
+    queryKey: ["device-location", deviceId],
     queryFn: async () => {
       const { location } = await devicesApi.latestLocation(deviceId!);
       return location;
@@ -308,13 +372,16 @@ export default function MapScreen() {
   });
 
   const track = useQuery({
-    queryKey: ['device-track', deviceId, range, dayOffset],
+    queryKey: ["device-track", deviceId, range, dayOffset],
     queryFn: () => fetchTrack(deviceId!, range, dayOffset),
     enabled: !!deviceId,
   });
 
   const trackPoints = useMemo(() => track.data?.points ?? [], [track.data]);
-  const gcjPath = useMemo<LngLat[]>(() => trackPoints.map(toGcj02), [trackPoints]);
+  const gcjPath = useMemo<LngLat[]>(
+    () => trackPoints.map(toGcj02),
+    [trackPoints],
+  );
   const cumulative = useMemo(() => cumulativeMeters(gcjPath), [gcjPath]);
   const trackStartMs = trackPoints.length
     ? new Date(trackPoints[0].timestamp).getTime()
@@ -397,6 +464,25 @@ export default function MapScreen() {
     setPlaying(true);
   };
 
+  useEffect(() => {
+    if (jumpAt === null || trackPoints.length === 0) return;
+    let best = 0;
+    let bestDiff = Number.POSITIVE_INFINITY;
+    trackPoints.forEach((p, i) => {
+      const diff = Math.abs(new Date(p.timestamp).getTime() - jumpAt);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        best = i;
+      }
+    });
+    const id = setTimeout(() => {
+      setPlaying(false);
+      setReplayIdx(best);
+      setJumpAt(null);
+    }, 0);
+    return () => clearTimeout(id);
+  }, [jumpAt, trackPoints]);
+
   const exitReplay = () => {
     setPlaying(false);
     setReplayIdx(null);
@@ -412,7 +498,8 @@ export default function MapScreen() {
   const toggleFollow = () => {
     const next = !following;
     setFollowing(next);
-    if (next && liveLoc) mapRef.current?.setHelmet(toGcj02(liveLoc), { follow: true });
+    if (next && liveLoc)
+      mapRef.current?.setHelmet(toGcj02(liveLoc), { follow: true });
   };
 
   const sharePos = statPoint ? toGcj02(statPoint) : null;
@@ -426,7 +513,9 @@ export default function MapScreen() {
     // 高德分享链接吃 GCJ-02；App 端生成（API.md §5：不做服务端短链）
     const name = device.name ?? device.deviceId;
     const url = `https://uri.amap.com/marker?position=${sharePos.longitude.toFixed(6)},${sharePos.latitude.toFixed(6)}&name=${encodeURIComponent(name)}`;
-    await Share.share({ message: translate('map.shareMessage', { name, url }) });
+    await Share.share({
+      message: translate("map.shareMessage", { name, url }),
+    });
   };
 
   const navigateTo = async () => {
@@ -435,10 +524,14 @@ export default function MapScreen() {
   };
 
   const online = device?.online ?? false;
-  const dotColor = !wsUp ? theme.warning : online ? theme.success : theme.textSecondary;
+  const dotColor = !wsUp
+    ? theme.warning
+    : online
+      ? theme.success
+      : theme.textSecondary;
   const caption = statPoint
-    ? t('map.updatedAgo', { ago: relativeTime(statPoint.timestamp, locale) })
-    : t('map.waiting');
+    ? t("map.updatedAgo", { ago: relativeTime(statPoint.timestamp, locale) })
+    : t("map.waiting");
 
   const devicePillBody = (
     <>
@@ -448,7 +541,7 @@ export default function MapScreen() {
       </ThemedText>
       {canPick && (
         <Ionicons
-          name={pickerOpen ? 'chevron-up' : 'chevron-down'}
+          name={pickerOpen ? "chevron-up" : "chevron-down"}
           size={16}
           color={theme.textSecondary}
         />
@@ -465,7 +558,7 @@ export default function MapScreen() {
       <AmapView
         // 外观切换时重挂载：底图样式在 WebView 初始化时决定；onReady 会重推当前状态
         key={scheme}
-        light={scheme === 'light'}
+        light={scheme === "light"}
         style={StyleSheet.absoluteFill}
         controllerRef={mapRef}
         onUserPan={() => setFollowing(false)}
@@ -473,7 +566,10 @@ export default function MapScreen() {
         // 地图（重）就绪时重推当前状态：WebView 重挂载/进程重启后 effect 依赖未变不会重发
         onReady={() => {
           if (gcjPath.length > 1) mapRef.current?.setTrack(gcjPath);
-          const pos = replayIdx !== null ? gcjPath[replayIdx] : liveLoc && toGcj02(liveLoc);
+          const pos =
+            replayIdx !== null
+              ? gcjPath[replayIdx]
+              : liveLoc && toGcj02(liveLoc);
           if (pos) mapRef.current?.setHelmet(pos, { follow: true });
         }}
       />
@@ -485,9 +581,10 @@ export default function MapScreen() {
           { paddingTop: insets.top + 8 },
           // iOS 原生标签条是半透明玻璃且内容会垫入其下（Android 内容区不含标签条）：
           // 浮层底部让出「home 指示条 + 标签条」的高度，卡片不被玻璃盖住
-          Platform.OS === 'ios' && { paddingBottom: insets.bottom + 62 },
+          Platform.OS === "ios" && { paddingBottom: insets.bottom + 62 },
         ]}
-        pointerEvents="box-none">
+        pointerEvents="box-none"
+      >
         {/* 顶部：仅设备药丸（多设备可点开切换）+ 断线/地图异常横幅 */}
         <View style={styles.topArea} pointerEvents="box-none">
           {hasDevice &&
@@ -495,7 +592,8 @@ export default function MapScreen() {
               <Tappable
                 accessibilityRole="button"
                 onPress={() => setPickerOpen((v) => !v)}
-                style={devicePillStyle}>
+                style={devicePillStyle}
+              >
                 {devicePillBody}
               </Tappable>
             ) : (
@@ -504,18 +602,32 @@ export default function MapScreen() {
 
           {hasDevice && !wsUp && (
             <View style={[styles.banner, { backgroundColor: theme.warningBg }]}>
-              <Ionicons name="cloud-offline-outline" size={16} color={theme.warning} />
-              <ThemedText type="small" style={[styles.bannerText, { color: theme.warning }]}>
-                {t('map.reconnecting')}
+              <Ionicons
+                name="cloud-offline-outline"
+                size={16}
+                color={theme.warning}
+              />
+              <ThemedText
+                type="small"
+                style={[styles.bannerText, { color: theme.warning }]}
+              >
+                {t("map.reconnecting")}
               </ThemedText>
             </View>
           )}
 
           {mapError && (
             <View style={[styles.banner, { backgroundColor: theme.dangerBg }]}>
-              <Ionicons name="alert-circle-outline" size={16} color={theme.danger} />
-              <ThemedText type="small" style={[styles.bannerText, { color: theme.danger }]}>
-                {t('map.error', { msg: mapError })}
+              <Ionicons
+                name="alert-circle-outline"
+                size={16}
+                color={theme.danger}
+              />
+              <ThemedText
+                type="small"
+                style={[styles.bannerText, { color: theme.danger }]}
+              >
+                {t("map.error", { msg: mapError })}
               </ThemedText>
             </View>
           )}
@@ -531,7 +643,8 @@ export default function MapScreen() {
                 backgroundColor: theme.backgroundElement,
                 borderColor: theme.border,
               },
-            ]}>
+            ]}
+          >
             {deviceList.map((d) => (
               <Tappable
                 key={d.deviceId}
@@ -541,17 +654,23 @@ export default function MapScreen() {
                   setSelectedId(d.deviceId);
                   setPickerOpen(false);
                   setFollowing(true);
-                }}>
+                }}
+              >
                 <View
                   style={[
                     styles.liveDot,
-                    { backgroundColor: d.online ? theme.success : theme.textSecondary },
+                    {
+                      backgroundColor: d.online
+                        ? theme.success
+                        : theme.textSecondary,
+                    },
                   ]}
                 />
                 <ThemedText
                   type="smallBold"
-                  themeColor={d.deviceId === deviceId ? 'brand' : 'text'}
-                  numberOfLines={1}>
+                  themeColor={d.deviceId === deviceId ? "brand" : "text"}
+                  numberOfLines={1}
+                >
                   {d.name ?? d.deviceId}
                 </ThemedText>
               </Tappable>
@@ -565,21 +684,29 @@ export default function MapScreen() {
             <View
               style={[
                 styles.emptyCard,
-                { backgroundColor: theme.backgroundElement, borderColor: theme.border },
-              ]}>
+                {
+                  backgroundColor: theme.backgroundElement,
+                  borderColor: theme.border,
+                },
+              ]}
+            >
               <Image
-                source={require('@/assets/images/helmet-urban-v5.webp')}
+                source={require("@/assets/images/helmet-urban-v5.webp")}
                 style={styles.emptyImg}
                 contentFit="contain"
               />
-              <ThemedText type="subtitle">{t('map.emptyTitle')}</ThemedText>
-              <ThemedText type="small" themeColor="textSecondary" style={styles.emptyText}>
-                {t('map.emptyBody')}
+              <ThemedText type="subtitle">{t("map.emptyTitle")}</ThemedText>
+              <ThemedText
+                type="small"
+                themeColor="textSecondary"
+                style={styles.emptyText}
+              >
+                {t("map.emptyBody")}
               </ThemedText>
               <PrimaryButton
-                title={t('map.bindNew')}
+                title={t("map.bindNew")}
                 icon="add"
-                onPress={() => router.push('/bind-device')}
+                onPress={() => router.push("/bind-device")}
                 style={styles.emptyBtn}
               />
             </View>
@@ -600,23 +727,24 @@ export default function MapScreen() {
                   }),
                 },
               ],
-            }}>
+            }}
+          >
             <View style={styles.sideStack} pointerEvents="box-none">
               <RoundButton
                 icon="locate"
-                label={t('map.recenter')}
+                label={t("map.recenter")}
                 onPress={recenter}
                 disabled={!sharePos}
               />
               <RoundButton
-                icon={following ? 'navigate' : 'navigate-outline'}
-                label={t('map.follow')}
+                icon={following ? "navigate" : "navigate-outline"}
+                label={t("map.follow")}
                 onPress={toggleFollow}
                 tint={following ? theme.brand : undefined}
               />
               <RoundButton
                 icon="share-outline"
-                label={t('map.share')}
+                label={t("map.share")}
                 onPress={shareLocation}
                 disabled={!sharePos}
               />
@@ -626,102 +754,152 @@ export default function MapScreen() {
             <View
               style={[
                 styles.bottomCard,
-                { backgroundColor: theme.backgroundElement, borderColor: theme.border },
-              ]}>
-              <View style={styles.cardHeader}>
+                {
+                  backgroundColor: theme.backgroundElement,
+                  borderColor: theme.border,
+                },
+              ]}
+            >
+              <Tappable
+                feedback="opacity"
+                onPress={() => setPanelCollapsed((v) => !v)}
+                style={styles.cardHeader}
+              >
                 <View style={styles.headerLeft}>
                   <View
                     style={[
                       styles.statusChip,
-                      { backgroundColor: online ? theme.brand : theme.backgroundSelected },
-                    ]}>
+                      {
+                        backgroundColor: online
+                          ? theme.brand
+                          : theme.backgroundSelected,
+                      },
+                    ]}
+                  >
                     <ThemedText
                       type="smallBold"
                       style={[
                         styles.statusChipText,
                         { color: online ? theme.onBrand : theme.textSecondary },
-                      ]}>
-                      {online ? t('map.riding') : t('map.offline')}
+                      ]}
+                    >
+                      {online ? t("map.riding") : t("map.offline")}
                     </ThemedText>
                   </View>
                   <ThemedText
                     type="small"
                     themeColor="textSecondary"
                     numberOfLines={1}
-                    style={styles.caption}>
+                    style={styles.caption}
+                  >
                     {caption}
                   </ThemedText>
                 </View>
                 {!online && (
-                  <ThemedText type="small" themeColor="textSecondary" style={styles.captionRight}>
-                    {t('map.lastSeen', { ago: relativeTime(device.lastSeenAt ?? null, locale) })}
+                  <ThemedText
+                    type="small"
+                    themeColor="textSecondary"
+                    style={styles.captionRight}
+                  >
+                    {t("map.lastSeen", {
+                      ago: relativeTime(device.lastSeenAt ?? null, locale),
+                    })}
                   </ThemedText>
                 )}
-              </View>
+                <Ionicons
+                  name={panelCollapsed ? "chevron-up" : "chevron-down"}
+                  size={18}
+                  color={theme.textSecondary}
+                />
+              </Tappable>
 
-              <View style={styles.statsRow}>
-                <Stat
-                  label={t('map.speed')}
-                  value={statPoint ? (statPoint.speed * 3.6).toFixed(0) : '—'}
-                  unit="km/h"
-                />
-                <Stat
-                  label={t('map.distance')}
-                  value={(distanceMeters / 1000).toFixed(1)}
-                  unit="km"
-                />
-                <Stat
-                  label={t('map.altitude')}
-                  value={statPoint?.altitude != null ? statPoint.altitude.toFixed(0) : '—'}
-                  unit="m"
-                />
-                <Stat
-                  label={t('map.battery')}
-                  value={device.battery != null ? String(device.battery) : '—'}
-                  unit="%"
-                  valueColor={theme.brand}
-                />
-              </View>
+              {!panelCollapsed && (
+                <View style={styles.statsRow}>
+                  <Stat
+                    label={t("map.speed")}
+                    value={statPoint ? (statPoint.speed * 3.6).toFixed(0) : "—"}
+                    unit="km/h"
+                  />
+                  <Stat
+                    label={t("map.distance")}
+                    value={(distanceMeters / 1000).toFixed(1)}
+                    unit="km"
+                  />
+                  <Stat
+                    label={t("map.altitude")}
+                    value={
+                      statPoint?.altitude != null
+                        ? statPoint.altitude.toFixed(0)
+                        : "—"
+                    }
+                    unit="m"
+                  />
+                  <Stat
+                    label={t("map.battery")}
+                    value={
+                      device.battery != null ? String(device.battery) : "—"
+                    }
+                    unit="%"
+                    valueColor={theme.brand}
+                  />
+                </View>
+              )}
 
-              <View style={styles.actionRow}>
-                <SecondaryButton
-                  compact
-                  title={t('map.history')}
-                  icon="time-outline"
-                  onPress={toggleHistory}
-                  style={styles.flex1}
-                />
-                <PrimaryButton
-                  compact
-                  title={t('map.navigate')}
-                  icon="navigate"
-                  onPress={navigateTo}
-                  disabled={!sharePos}
-                  style={styles.flex1}
-                />
-              </View>
+              {!panelCollapsed && (
+                <View style={styles.actionRow}>
+                  <SecondaryButton
+                    compact
+                    title={t("map.history")}
+                    icon="time-outline"
+                    onPress={toggleHistory}
+                    style={styles.flex1}
+                  />
+                  <PrimaryButton
+                    compact
+                    title={t("map.navigate")}
+                    icon="navigate"
+                    onPress={navigateTo}
+                    disabled={!sharePos}
+                    style={styles.flex1}
+                  />
+                </View>
+              )}
 
-              {historyOpen && (
+              {historyOpen && !panelCollapsed && (
                 <>
-                  <View style={[styles.divider, { backgroundColor: theme.border }]} />
+                  <View
+                    style={[styles.divider, { backgroundColor: theme.border }]}
+                  />
 
                   <View style={styles.replayHeader}>
-                    <ThemedText type="smallBold" themeColor="textSecondary" style={styles.panelTitle}>
-                      {t('map.replay')}
+                    <ThemedText
+                      type="smallBold"
+                      themeColor="textSecondary"
+                      style={styles.panelTitle}
+                    >
+                      {t("map.replay")}
                     </ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary" style={styles.panelMeta}>
+                    <ThemedText
+                      type="small"
+                      themeColor="textSecondary"
+                      style={styles.panelMeta}
+                    >
                       {canReplay ? (
                         <>
-                          <ThemedText type="small" themeColor="brand" style={styles.panelMeta}>
+                          <ThemedText
+                            type="small"
+                            themeColor="brand"
+                            style={styles.panelMeta}
+                          >
                             {formatClock(replayElapsedMs)}
                           </ThemedText>
-                          {' / '}
+                          {" / "}
                           {formatClock(trackEndMs - trackStartMs)}
                         </>
                       ) : track.isLoading ? (
-                        t('map.loadingTrack')
+                        t("map.loadingTrack")
                       ) : (
-                        t('map.noTrack')
+                        t("map.noTrack")
                       )}
                     </ThemedText>
                   </View>
@@ -762,26 +940,40 @@ export default function MapScreen() {
                   <View style={styles.replayRow}>
                     <Tappable
                       accessibilityRole="button"
-                      style={[styles.playBtn, { borderColor: canReplay ? theme.brand : theme.border }]}
+                      style={[
+                        styles.playBtn,
+                        { borderColor: canReplay ? theme.brand : theme.border },
+                      ]}
                       onPress={togglePlay}
-                      disabled={!canReplay}>
+                      disabled={!canReplay}
+                    >
                       <Ionicons
-                        name={playing ? 'pause' : 'play'}
+                        name={playing ? "pause" : "play"}
                         size={16}
                         color={canReplay ? theme.brand : theme.textSecondary}
                       />
                     </Tappable>
                     <Tappable
                       accessibilityRole="button"
-                      style={[styles.speedBtn, { backgroundColor: theme.backgroundSelected }]}
+                      style={[
+                        styles.speedBtn,
+                        { backgroundColor: theme.backgroundSelected },
+                      ]}
                       disabled={!canReplay}
-                      onPress={() => setSpeed((v) => (v === 1 ? 2 : v === 2 ? 4 : 1))}>
+                      onPress={() =>
+                        setSpeed((v) => (v === 1 ? 2 : v === 2 ? 4 : 1))
+                      }
+                    >
                       <ThemedText
                         type="smallBold"
                         style={[
                           styles.chipText,
-                          { color: speed > 1 ? theme.brand : theme.textSecondary },
-                        ]}>
+                          {
+                            color:
+                              speed > 1 ? theme.brand : theme.textSecondary,
+                          },
+                        ]}
+                      >
                         ×{speed}
                       </ThemedText>
                     </Tappable>
@@ -797,26 +989,48 @@ export default function MapScreen() {
                         }}
                       />
                       <View style={styles.seekLabels}>
-                        <ThemedText type="small" themeColor="textSecondary" style={styles.seekLabel}>
+                        <ThemedText
+                          type="small"
+                          themeColor="textSecondary"
+                          style={styles.seekLabel}
+                        >
                           00:00
                         </ThemedText>
-                        <ThemedText type="small" themeColor="textSecondary" style={styles.seekLabel}>
-                          {canReplay ? formatClock(trackEndMs - trackStartMs) : '--:--'}
+                        <ThemedText
+                          type="small"
+                          themeColor="textSecondary"
+                          style={styles.seekLabel}
+                        >
+                          {canReplay
+                            ? formatClock(trackEndMs - trackStartMs)
+                            : "--:--"}
                         </ThemedText>
                       </View>
                     </View>
                     {replayIdx !== null && (
-                      <Tappable hitSlop={8} style={styles.exitBtn} onPress={exitReplay}>
-                        <ThemedText type="smallBold" themeColor="brand" style={styles.chipText}>
-                          {t('map.backToLive')}
+                      <Tappable
+                        hitSlop={8}
+                        style={styles.exitBtn}
+                        onPress={exitReplay}
+                      >
+                        <ThemedText
+                          type="smallBold"
+                          themeColor="brand"
+                          style={styles.chipText}
+                        >
+                          {t("map.backToLive")}
                         </ThemedText>
                       </Tappable>
                     )}
                   </View>
 
                   {track.data?.truncated && (
-                    <ThemedText type="small" themeColor="textSecondary" style={styles.note}>
-                      {t('map.truncated', {
+                    <ThemedText
+                      type="small"
+                      themeColor="textSecondary"
+                      style={styles.note}
+                    >
+                      {t("map.truncated", {
                         shown: MAX_TRACK_PAGES * TRACK_PAGE_SIZE,
                         total: track.data.total,
                       })}
@@ -837,83 +1051,89 @@ const styles = StyleSheet.create({
   flex1: { flex: 1 },
   // 绝对定位 + zIndex：浮层明确压在全屏地图之上（双端触摸/渲染层级一致，模拟器已验证）
   overlay: {
-    position: 'absolute' as const,
-    top: 0, left: 0, right: 0, bottom: 0,
-    justifyContent: 'space-between',
+    position: "absolute" as const,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "space-between",
     padding: 14,
     zIndex: 10,
   },
-  topArea: { alignItems: 'flex-start', gap: 8 },
+  topArea: { alignItems: "flex-start", gap: 8 },
   devicePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
     borderRadius: Radius.pill,
     borderWidth: 1,
     paddingVertical: 9,
     paddingLeft: 12,
     paddingRight: 14,
-    maxWidth: '70%',
+    maxWidth: "70%",
   },
   pillName: { fontSize: 15, flexShrink: 1 },
   liveDot: { width: 10, height: 10, borderRadius: 5 },
   banner: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
     borderRadius: Radius.control,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    maxWidth: '100%',
+    maxWidth: "100%",
   },
   bannerText: { fontSize: 13, lineHeight: 18, flexShrink: 1 },
   devicePicker: {
-    position: 'absolute',
+    position: "absolute",
     left: 14,
     minWidth: 220,
     borderRadius: Radius.card,
     borderWidth: 1,
     paddingVertical: 4,
-    overflow: 'hidden',
+    overflow: "hidden",
     zIndex: 30,
     elevation: 12,
   },
   pickerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
     minHeight: 44,
   },
   emptyWrap: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
     // 空态压暗底图:无定位时地图停默认视野,瓦片加载的斑驳不该抢戏
-    backgroundColor: 'rgba(8, 9, 11, 0.86)',
+    backgroundColor: "rgba(8, 9, 11, 0.86)",
   },
   emptyCard: {
-    alignItems: 'center',
+    alignItems: "center",
     gap: 8,
     borderRadius: Radius.card,
     borderWidth: 1,
     paddingHorizontal: 30,
     paddingVertical: 26,
-    width: '84%',
+    width: "84%",
   },
   emptyImg: { width: 168, height: 130, marginBottom: 2 },
-  emptyText: { textAlign: 'center', lineHeight: 19 },
-  emptyBtn: { alignSelf: 'stretch', marginTop: 10 },
-  sideStack: { alignSelf: 'flex-end', gap: 10, marginBottom: 12 },
+  emptyText: { textAlign: "center", lineHeight: 19 },
+  emptyBtn: { alignSelf: "stretch", marginTop: 10 },
+  sideStack: { alignSelf: "flex-end", gap: 10, marginBottom: 12 },
   roundBtn: {
     width: 44,
     height: 44,
     borderRadius: 22,
     borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   bottomCard: {
     borderRadius: Radius.card,
@@ -921,67 +1141,86 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 14,
   },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 },
-  statusChip: { borderRadius: Radius.pill, paddingHorizontal: 10, paddingVertical: 3 },
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  headerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flex: 1,
+    minWidth: 0,
+  },
+  statusChip: {
+    borderRadius: Radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+  },
   statusChipText: { fontSize: 12, lineHeight: 16 },
   caption: { fontSize: 12, lineHeight: 16, flexShrink: 1 },
   captionRight: { fontSize: 12, lineHeight: 16 },
-  statsRow: { flexDirection: 'row', gap: 8 },
+  statsRow: { flexDirection: "row", gap: 8 },
   stat: { flex: 1, gap: 4, minWidth: 0 },
   statLabel: { fontSize: 12, lineHeight: 16 },
-  statValueRow: { flexDirection: 'row', alignItems: 'baseline', gap: 3 },
+  statValueRow: { flexDirection: "row", alignItems: "baseline", gap: 3 },
   statValue: { fontSize: 24, lineHeight: 28, fontWeight: 600, flexShrink: 1 },
   statUnit: { fontSize: 12, lineHeight: 16 },
-  actionRow: { flexDirection: 'row', gap: 10 },
-  divider: { height: StyleSheet.hairlineWidth, alignSelf: 'stretch' },
-  replayHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  actionRow: { flexDirection: "row", gap: 10 },
+  divider: { height: StyleSheet.hairlineWidth, alignSelf: "stretch" },
+  replayHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
   panelTitle: { fontSize: 13 },
-  panelMeta: { fontSize: 12, lineHeight: 16, fontVariant: ['tabular-nums'] },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  panelMeta: { fontSize: 12, lineHeight: 16, fontVariant: ["tabular-nums"] },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   // 触控最小 32px 高：7px 上下内边距 + 18px 行高
   chip: {
     borderRadius: Radius.pill,
     paddingVertical: 7,
     paddingHorizontal: 12,
     minHeight: 32,
-    justifyContent: 'center',
+    justifyContent: "center",
   },
   chipText: { fontSize: 13, lineHeight: 18 },
-  replayRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  replayRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   playBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,
     borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   speedBtn: {
     borderRadius: Radius.pill,
     paddingHorizontal: 10,
     minWidth: 40,
     minHeight: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   seekColumn: { flex: 1, gap: 2 },
-  seekLabels: { flexDirection: 'row', justifyContent: 'space-between' },
+  seekLabels: { flexDirection: "row", justifyContent: "space-between" },
   seekLabel: { fontSize: 11, lineHeight: 14 },
-  exitBtn: { paddingHorizontal: 4, minHeight: 32, justifyContent: 'center' },
+  exitBtn: { paddingHorizontal: 4, minHeight: 32, justifyContent: "center" },
   note: { fontSize: 12, lineHeight: 16 },
-  seekTouch: { flex: 1, height: 28, justifyContent: 'center' },
+  seekTouch: { flex: 1, height: 28, justifyContent: "center" },
   // 轨道两端内缩点半径：点的可动范围 = 轨道范围，0%/100% 不出界
-  seekRail: { marginHorizontal: THUMB_R, justifyContent: 'center' },
-  seekTrack: { height: 4, borderRadius: 2, overflow: 'hidden' },
+  seekRail: { marginHorizontal: THUMB_R, justifyContent: "center" },
+  seekTrack: { height: 4, borderRadius: 2, overflow: "hidden" },
   seekFill: { height: 4, borderRadius: 2 },
   seekThumb: {
-    position: 'absolute',
+    position: "absolute",
     width: THUMB_R * 2,
     height: THUMB_R * 2,
     borderRadius: THUMB_R,
     marginLeft: -THUMB_R,
-    top: '50%',
+    top: "50%",
     marginTop: -THUMB_R,
   },
 });
