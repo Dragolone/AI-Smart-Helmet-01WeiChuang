@@ -19,6 +19,10 @@ import { toUserMessage } from "@/api/error-messages";
 import { Badge } from "@/components/badge";
 import { Tappable } from "@/components/tappable";
 import { BatteryChart } from "@/components/battery-chart";
+import {
+  VolumeSlider,
+  VOLUME_LOUD_THRESHOLD,
+} from "@/components/volume-slider";
 import { FormInput, PrimaryButton } from "@/components/form";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
@@ -114,13 +118,12 @@ export default function DeviceDetailScreen() {
       .finally(() => setSending(false));
   };
 
-  /** 蜂鸣音量档位（BLE 协议 v0.6 内存表 0x24：1–100%，默认 80）；100% 先确认，防止贴耳伤听力 */
-  const VOLUME_OPTIONS = [40, 60, 80, 100] as const;
+  /** 蜂鸣音量（BLE 协议 v0.6 内存表 0x24：1–100%，默认 80）；超过高音量线先确认，防止贴耳伤听力 */
   const sendVolume = (v: number) => {
-    if (v >= 100) {
+    if (v > VOLUME_LOUD_THRESHOLD) {
       Alert.alert(
         "高音量提示",
-        "100% 音量在头盔内贴耳播放可能刺耳甚至损伤听力，建议 80% 以下。仍要设置吗？",
+        `${v}% 音量在头盔内贴耳播放可能刺耳甚至损伤听力，建议 80% 以下。仍要设置吗？`,
         [
           { text: "取消", style: "cancel" },
           {
@@ -336,46 +339,15 @@ export default function DeviceDetailScreen() {
                 </ThemedText>
               </View>
 
-              <View style={styles.settingRow}>
-                <ThemedText type="small" themeColor="textSecondary">
-                  蜂鸣音量
-                </ThemedText>
-                <View style={styles.chipGroup}>
-                  {VOLUME_OPTIONS.map((v) => {
-                    const active = settings.data?.settings.volume === v;
-                    return (
-                      <Tappable
-                        key={v}
-                        disabled={sending}
-                        onPress={() => sendVolume(v)}
-                      >
-                        <View
-                          style={[
-                            styles.settingChip,
-                            {
-                              backgroundColor: active
-                                ? theme.brand
-                                : theme.backgroundSelected,
-                            },
-                          ]}
-                        >
-                          <ThemedText
-                            type="smallBold"
-                            style={{
-                              fontSize: 13,
-                              color: active
-                                ? theme.onBrand
-                                : theme.textSecondary,
-                            }}
-                          >
-                            {v}%
-                          </ThemedText>
-                        </View>
-                      </Tappable>
-                    );
-                  })}
-                </View>
-              </View>
+              <VolumeSlider
+                value={
+                  typeof settings.data?.settings.volume === "number"
+                    ? settings.data.settings.volume
+                    : 80
+                }
+                disabled={sending}
+                onChangeEnd={sendVolume}
+              />
 
               <View style={styles.settingRow}>
                 <ThemedText type="small" themeColor="textSecondary">
