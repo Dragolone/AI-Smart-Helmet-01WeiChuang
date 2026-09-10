@@ -31,7 +31,7 @@ export const Colors = {
     danger: '#D9534F',
     dangerBg: 'rgba(217, 83, 79, 0.12)',
     /** 大面积红底 + 白字的唯一场景（SOS 按钮）：比 danger 深一档保证 ≥ 4.5:1 对比 */
-    sos: '#C0392B',
+    sos: '#E0332A',
   },
   dark: {
     text: '#FFFFFF',
@@ -49,7 +49,7 @@ export const Colors = {
     warningBg: 'rgba(245, 184, 74, 0.14)',
     danger: '#F26D5F',
     dangerBg: 'rgba(242, 109, 95, 0.16)',
-    sos: '#C7392B',
+    sos: '#E8433B',
   },
 } as const;
 
