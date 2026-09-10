@@ -4,9 +4,11 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { useKeepAwake } from 'expo-keep-awake';
-import { router } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Image } from 'expo-image';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Animated,
   type LayoutChangeEvent,
   Platform,
   Pressable,
@@ -172,8 +174,28 @@ export default function MapScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const devices = useQuery({ queryKey: ['devices'], queryFn: devicesApi.list });
+  /** 底部卡进场动画:每次进入地图页(且有设备)从下方弹入;Animated.Value 惰性
+   *  useState 持有(React Compiler 禁止渲染期读 ref,平台限制清单口径) */
+  const [cardIn] = useState(() => new Animated.Value(0));
   const deviceList = devices.data ?? [];
   const device = deviceList.find((d) => d.deviceId === selectedId) ?? deviceList[0];
+  const hasDevice = device != null;
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!hasDevice) {
+        cardIn.setValue(0);
+        return;
+      }
+      cardIn.setValue(0);
+      Animated.spring(cardIn, {
+        toValue: 1,
+        useNativeDriver: true,
+        friction: 9,
+        tension: 70,
+      }).start();
+    }, [hasDevice, cardIn]),
+  );
   const deviceId = device?.deviceId;
 
   // WS 推送直写此缓存（use-realtime）；REST 30s 轮询兜底（API.md §11 口径）
@@ -326,7 +348,8 @@ export default function MapScreen() {
           Platform.OS === 'ios' && { paddingBottom: insets.bottom + 62 },
         ]}
         pointerEvents="box-none">
-        {/* 顶部：实时状态药丸 + 分享/导航 */}
+        {/* 顶部：实时状态药丸 + 分享/导航(无设备时整行隐藏,空态卡承担引导) */}
+        {hasDevice && (
         <View style={styles.topRow} pointerEvents="box-none">
           <Pressable
             onPress={() => deviceList.length > 1 && setPickerOpen((v) => !v)}
@@ -391,6 +414,7 @@ export default function MapScreen() {
             </Pressable>
           </View>
         </View>
+        )}
 
         {mapError && (
           <View style={[styles.errorBanner, { backgroundColor: theme.dangerBg }]}>
@@ -430,28 +454,46 @@ export default function MapScreen() {
           </View>
         )}
 
-        {/* 空状态:成功拉取且无绑定设备——新用户引导去绑定 */}
+        {/* 空状态:成功拉取且无绑定设备——新用户引导去绑定(设备页同款头盔素材) */}
         {devices.isSuccess && deviceList.length === 0 && (
-          <View style={styles.emptyWrap} pointerEvents="box-none">
+          <View style={styles.emptyWrap}>
             <View style={[styles.emptyCard, { backgroundColor: cardBg, borderColor: theme.border }]}>
-              <Ionicons name="bicycle" size={40} color={theme.brand} />
-              <ThemedText type="subtitle">还没有绑定头盔</ThemedText>
+              <Image
+                source={require('@/assets/images/helmet-urban-v5.webp')}
+                style={styles.emptyImg}
+                contentFit="contain"
+              />
+              <ThemedText type="subtitle">把你的头盔连进来</ThemedText>
               <ThemedText type="small" themeColor="textSecondary" style={styles.emptyText}>
-                绑定后就能在这里实时查看位置、回放轨迹
+                绑定后地图将实时跟随头盔位置{'\n'}支持轨迹回放、位置分享与一键导航
               </ThemedText>
               <Pressable
                 style={[styles.emptyBtn, { backgroundColor: theme.brand }]}
                 onPress={() => router.push('/bind-device')}>
-                <ThemedText type="smallBold" style={{ color: theme.onBrand }}>
-                  去绑定设备
+                <Ionicons name="add" size={17} color={theme.onBrand} />
+                <ThemedText type="smallBold" style={{ color: theme.onBrand, fontSize: 15 }}>
+                  绑定新设备
                 </ThemedText>
               </Pressable>
             </View>
           </View>
         )}
 
-        {/* 底部组:跟随按钮悬在统计卡上方(流式布局,不与卡片抢层级) */}
-        <View pointerEvents="box-none">
+        {/* 底部组:跟随按钮悬在统计卡上方;无设备不渲染,进入页面时从下方弹入 */}
+        {hasDevice && (
+        <Animated.View
+          pointerEvents="box-none"
+          style={{
+            opacity: cardIn,
+            transform: [
+              {
+                translateY: cardIn.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [72, 0],
+                }),
+              },
+            ],
+          }}>
           {/* 退出跟随后浮出:一键回到实时跟随 */}
           {!following && replayIdx === null && (
             <Pressable
@@ -616,7 +658,8 @@ export default function MapScreen() {
             </ThemedText>
           )}
           </View>
-        </View>
+        </Animated.View>
+        )}
       </View>
     </View>
   );
@@ -663,22 +706,28 @@ const styles = StyleSheet.create({
     top: 0, left: 0, right: 0, bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
+    // 空态压暗底图:无定位时地图停默认视野,瓦片加载的斑驳不该抢戏
+    backgroundColor: 'rgba(8, 9, 11, 0.86)',
   },
   emptyCard: {
     alignItems: 'center',
-    gap: 10,
-    borderRadius: 22,
+    gap: 8,
+    borderRadius: 26,
     borderWidth: 1,
-    paddingHorizontal: 28,
-    paddingVertical: 24,
-    maxWidth: '82%',
+    paddingHorizontal: 30,
+    paddingVertical: 26,
+    maxWidth: '84%',
   },
-  emptyText: { textAlign: 'center' },
+  emptyImg: { width: 168, height: 130, marginBottom: 2 },
+  emptyText: { textAlign: 'center', lineHeight: 19 },
   emptyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     borderRadius: Radius.pill,
-    paddingHorizontal: 22,
-    paddingVertical: 11,
-    marginTop: 4,
+    paddingHorizontal: 26,
+    paddingVertical: 13,
+    marginTop: 10,
   },
   flex: { flex: 1, backgroundColor: '#0B0C0E' },
   // 绝对定位 + zIndex：浮层明确压在全屏地图之上（双端触摸/渲染层级一致，模拟器已验证）
