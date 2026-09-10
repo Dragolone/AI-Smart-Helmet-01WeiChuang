@@ -1,89 +1,163 @@
-// 开屏动画(品牌版):与原生启动图(暗底+荧光环+头盔)无缝衔接——
-// 静帧一致 → 荧光弧环旋转 + 头盔呼吸 + 波纹扩散 → 整体淡出。
-// 参考 uiverse 环形加载动效的节奏,视觉全部按本项目暗色/荧光语言重绘。
+// 开屏动画:柔光弧环绕圈 + 「AI智能头盔」逐字波浪浮现 + 漂浮星点。
+// 节奏参照 uiverse popular-puma 加载动效(逐字 stagger 波浪 + 旋转辉光),
+// 实现与视觉全部按本项目暗色/荧光语言用 reanimated 重写,未引用其源码。
 import * as SplashScreen from 'expo-splash-screen';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import Animated, { Easing, Keyframe } from 'react-native-reanimated';
+import Animated, {
+  Easing,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 
 const BG = '#0E0F12';
 const BRAND = '#D4FF00';
-const TOTAL = 1400;
+const CYCLE = 2000;        // 一轮波浪/一圈辉光
+const HOLD = 2400;         // 播完约一轮后开始淡出
+const FADE = 420;
 
-/** 整层:停留后淡出并轻微放大(镜头推进感) */
-const overlayKeyframe = new Keyframe({
-  0: { opacity: 1, transform: [{ scale: 1 }] },
-  72: { opacity: 1, transform: [{ scale: 1 }] },
-  100: { opacity: 0, transform: [{ scale: 1.06 }], easing: Easing.out(Easing.quad) },
-});
+const LETTERS = ['A', 'I', '智', '能', '头', '盔'];
 
-/** 荧光弧:三圈快转(borderTop 留色即成弧) */
-const arcKeyframe = new Keyframe({
-  0: { transform: [{ rotateZ: '0deg' }] },
-  100: { transform: [{ rotateZ: '1080deg' }], easing: Easing.out(Easing.cubic) },
-});
-
-/** 字标:弹性落位 + 微呼吸 */
-const markKeyframe = new Keyframe({
-  0: { transform: [{ scale: 1.12 }], opacity: 0.6 },
-  45: { transform: [{ scale: 0.98 }], opacity: 1, easing: Easing.out(Easing.quad) },
-  70: { transform: [{ scale: 1.02 }], easing: Easing.inOut(Easing.quad) },
-  100: { transform: [{ scale: 1 }], easing: Easing.inOut(Easing.quad) },
-});
-
-/** 波纹:一圈荧光环向外扩散消失 */
-const rippleKeyframe = new Keyframe({
-  0: { transform: [{ scale: 1 }], opacity: 0 },
-  35: { transform: [{ scale: 1 }], opacity: 0.55 },
-  100: { transform: [{ scale: 1.7 }], opacity: 0, easing: Easing.out(Easing.quad) },
-});
-
-export function AnimatedSplashOverlay() {
-  const [animate, setAnimate] = useState(false);
-  const [visible, setVisible] = useState(true);
-
-  if (!visible) return null;
-
-  const mark = (
-    <View style={styles.markRow}>
-      <Text style={styles.markText}>AI</Text>
-      <View style={styles.markDot} />
-    </View>
-  );
-
-  return animate ? (
-    <Animated.View
-      entering={overlayKeyframe.duration(TOTAL).withCallback((finished) => {
-        'worklet';
-        if (finished) scheduleOnRN(setVisible, false);
-      })}
-      style={styles.overlay}>
-      <Animated.View entering={rippleKeyframe.duration(TOTAL * 0.8)} style={styles.ripple} />
-      <Animated.View entering={arcKeyframe.duration(TOTAL)} style={styles.arc} />
-      <View style={styles.ring} />
-      <Animated.View entering={markKeyframe.duration(TOTAL * 0.8)}>
-        <View style={styles.markRow}>
-          <Text style={styles.markText}>AI</Text>
-          <View style={styles.markDot} />
-        </View>
-      </Animated.View>
-    </Animated.View>
-  ) : (
-    // 首帧静态复刻原生启动图,onLayout 后隐藏原生层再起动画——避免闪变
-    <View
-      onLayout={() => {
-        SplashScreen.hideAsync().finally(() => setAnimate(true));
-      }}
-      style={styles.overlay}>
-      <View style={styles.ring} />
-      {mark}
-    </View>
+/** 逐字:静默(暗、微糊感) → 提亮放大上浮 → 回落,按序错峰 */
+function WaveLetter({ ch, delay }: { ch: string; delay: number }) {
+  const p = useSharedValue(0);
+  useEffect(() => {
+    p.set(
+      withDelay(
+        delay,
+        withRepeat(withTiming(1, { duration: CYCLE, easing: Easing.linear }), -1, false),
+      ),
+    );
+  }, [p, delay]);
+  const st = useAnimatedStyle(() => {
+    const t = p.get();
+    return {
+      opacity: interpolate(t, [0, 0.18, 0.4, 1], [0.3, 1, 0.42, 0.3]),
+      transform: [
+        { scale: interpolate(t, [0, 0.18, 0.4, 1], [1, 1.22, 1, 1]) },
+        { translateY: interpolate(t, [0, 0.18, 0.4, 1], [0, -4, 0, 0]) },
+      ],
+      textShadowRadius: interpolate(t, [0, 0.18, 0.4, 1], [0, 12, 2, 0]),
+    };
+  });
+  return (
+    <Animated.Text style={[styles.letter, { textShadowColor: BRAND }, st]}>{ch}</Animated.Text>
   );
 }
 
-const RING = 232;
-const ARC = 260;
+/** 环上柔光头尾双点,随容器整体旋转成"彗星扫圈" */
+function OrbitGlow() {
+  const rot = useSharedValue(0);
+  useEffect(() => {
+    rot.set(withRepeat(withTiming(360, { duration: CYCLE, easing: Easing.linear }), -1, false));
+  }, [rot]);
+  const st = useAnimatedStyle(() => ({
+    transform: [{ rotateZ: `${rot.get()}deg` }],
+  }));
+  return (
+    <Animated.View style={[styles.orbit, st]}>
+      <View style={[styles.comet, { opacity: 0.95 }]} />
+      <View style={[styles.comet, styles.cometTail1]} />
+      <View style={[styles.comet, styles.cometTail2]} />
+    </Animated.View>
+  );
+}
+
+/** 漂浮星点:各自错峰呼吸 */
+function Star({ x, y, size, delay }: { x: number; y: number; size: number; delay: number }) {
+  const p = useSharedValue(0);
+  useEffect(() => {
+    p.set(
+      withDelay(
+        delay,
+        withRepeat(withTiming(1, { duration: CYCLE, easing: Easing.linear }), -1, false),
+      ),
+    );
+  }, [p, delay]);
+  const st = useAnimatedStyle(() => ({
+    opacity: interpolate(p.get(), [0, 0.5, 1], [0.12, 0.6, 0.12]),
+    transform: [{ scale: interpolate(p.get(), [0, 0.5, 1], [0.9, 1.15, 0.9]) }],
+  }));
+  return (
+    <Animated.View
+      style={[
+        styles.star,
+        { width: size, height: size, borderRadius: size / 2, transform: [{ translateX: x }, { translateY: y }] },
+        st,
+      ]}
+    />
+  );
+}
+
+export function AnimatedSplashOverlay() {
+  const [phase, setPhase] = useState<'boot' | 'anim'>('boot');
+  const [visible, setVisible] = useState(true);
+  const fade = useSharedValue(1);
+
+  useEffect(() => {
+    if (phase !== 'anim') return;
+    fade.set(
+      withDelay(
+        HOLD,
+        withTiming(0, { duration: FADE, easing: Easing.out(Easing.quad) }, (finished) => {
+          'worklet';
+          if (finished) scheduleOnRN(setVisible, false);
+        }),
+      ),
+    );
+  }, [phase, fade]);
+
+  const overlayStyle = useAnimatedStyle(() => ({
+    opacity: fade.get(),
+    transform: [{ scale: interpolate(fade.get(), [0, 1], [1.05, 1]) }],
+  }));
+
+  if (!visible) return null;
+
+  if (phase === 'boot') {
+    // 首帧静态字标,与原生启动图(纯 AI 字标)视觉衔接,隐藏原生层后进入动画
+    return (
+      <View
+        onLayout={() => {
+          SplashScreen.hideAsync().finally(() => setPhase('anim'));
+        }}
+        style={styles.overlay}>
+        <View style={styles.letterRow}>
+          {LETTERS.map((ch, i) => (
+            <Text key={i} style={[styles.letter, { opacity: 0.3 }]}>
+              {ch}
+            </Text>
+          ))}
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <Animated.View style={[styles.overlay, overlayStyle]}>
+      <Star x={-96} y={-120} size={7} delay={300} />
+      <Star x={110} y={-72} size={5} delay={800} />
+      <Star x={-128} y={40} size={6} delay={100} />
+      <Star x={88} y={96} size={8} delay={550} />
+      <Star x={-40} y={148} size={5} delay={950} />
+      <View style={styles.stage}>
+        <OrbitGlow />
+        <View style={styles.letterRow}>
+          {LETTERS.map((ch, i) => (
+            <WaveLetter key={i} ch={ch} delay={i * 120} />
+          ))}
+        </View>
+      </View>
+    </Animated.View>
+  );
+}
+
+const RING = 316;
 
 const styles = StyleSheet.create({
   overlay: {
@@ -93,47 +167,42 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     zIndex: 1000,
   },
-  ring: {
-    position: 'absolute',
+  stage: {
     width: RING,
     height: RING,
-    borderRadius: RING / 2,
-    borderWidth: 3,
-    borderColor: BRAND,
-    opacity: 0.9,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  arc: {
+  orbit: { ...StyleSheet.absoluteFill },
+  comet: {
     position: 'absolute',
-    width: ARC,
-    height: ARC,
-    borderRadius: ARC / 2,
-    borderWidth: 3,
-    borderColor: 'transparent',
-    borderTopColor: BRAND,
-    opacity: 0.8,
-  },
-  ripple: {
-    position: 'absolute',
-    width: RING,
-    height: RING,
-    borderRadius: RING / 2,
-    borderWidth: 2,
-    borderColor: BRAND,
-  },
-  markRow: { flexDirection: 'row', alignItems: 'flex-start' },
-  markText: {
-    color: '#F5F6F8',
-    fontSize: 76,
-    fontWeight: '800',
-    letterSpacing: 2,
-    lineHeight: 84,
-  },
-  markDot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
+    top: -4,
+    left: RING / 2 - 5,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
     backgroundColor: BRAND,
-    marginTop: 10,
-    marginLeft: 8,
+    shadowColor: BRAND,
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 12,
   },
+  cometTail1: {
+    opacity: 0.4,
+    transform: [{ translateX: -20 }, { translateY: 3 }, { scale: 0.7 }],
+  },
+  cometTail2: {
+    opacity: 0.18,
+    transform: [{ translateX: -38 }, { translateY: 9 }, { scale: 0.5 }],
+  },
+  letterRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  letter: {
+    color: '#F5F6F8',
+    fontSize: 30,
+    fontWeight: '800',
+    letterSpacing: 1,
+    textShadowOffset: { width: 0, height: 0 },
+  },
+  star: { position: 'absolute', backgroundColor: BRAND },
 });
