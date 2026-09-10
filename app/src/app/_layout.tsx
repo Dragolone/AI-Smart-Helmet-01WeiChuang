@@ -12,6 +12,7 @@ import { LogBox } from 'react-native';
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { ToastHost } from '@/components/toast';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useLocaleStore, useT } from '@/i18n';
 import { useAuthStore } from '@/stores/auth-store';
 
 // 已知无害：开发期 iOS 摘除了推送 entitlement（个人团队签不了 aps-environment），
@@ -30,6 +31,7 @@ const queryClient = new QueryClient({
 /** 登录门控：导航器保持挂载，Stack.Protected 按会话状态切换可用路由组（guard 翻转自动重定向） */
 function RootNavigator() {
   const authed = useAuthStore((s) => s.tokens !== null);
+  const t = useT();
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Protected guard={authed}>
@@ -39,29 +41,31 @@ function RootNavigator() {
           options={{
             presentation: 'modal',
             headerShown: true,
-            title: '绑定设备',
+            title: t('nav.bindDevice'),
           }}
         />
         <Stack.Screen
           name="device/[deviceId]"
-          options={{ headerShown: true, title: '设备详情' }}
+          options={{ headerShown: true, title: t('nav.deviceDetail') }}
         />
         <Stack.Screen
           name="add-contact"
           options={{
             presentation: 'modal',
             headerShown: true,
-            title: '添加紧急联系人',
+            title: t('nav.addContact'),
           }}
         />
         <Stack.Screen
           name="accident/[accidentId]"
-          options={{ headerShown: true, title: '事故详情' }}
+          options={{ headerShown: true, title: t('nav.accidentDetail') }}
         />
         <Stack.Screen
           name="events"
-          options={{ headerShown: true, title: '安全事件' }}
+          options={{ headerShown: true, title: t('nav.events') }}
         />
+        <Stack.Screen name="contacts" options={{ headerShown: true, title: t('nav.contacts') }} />
+        <Stack.Screen name="accidents" options={{ headerShown: true, title: t('nav.accidents') }} />
         {/* SOS 全屏页：手势返回禁用——处理中的求救不允许误滑关闭 */}
         <Stack.Screen
           name="sos-active"
@@ -81,10 +85,12 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
   const hydrated = useAuthStore((s) => s.hydrated);
   const hydrate = useAuthStore((s) => s.hydrate);
+  const hydrateLocale = useLocaleStore((s) => s.hydrate);
 
   useEffect(() => {
     void hydrate();
-  }, [hydrate]);
+    void hydrateLocale();
+  }, [hydrate, hydrateLocale]);
 
   return (
     <QueryClientProvider client={queryClient}>

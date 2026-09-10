@@ -1,49 +1,28 @@
-// 我的设备（Home 标签）：设备列表 + 绑定入口 + 退出登录（API.md §4 GET /devices）
-// 2026-08-16 风格迭代：监控台风格——KPI 指标行 + 描边卡片 + 状态药丸 + 电量条
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+// 设备（首页标签，2026-09-10 重设计）：
+// 顶部「当前设备」大卡（头盔图 + 骑行状态 + 电量/速度/同步）→ 「全部设备」逐行列表 → 底部描边「绑定新设备」。
+// 数据：GET /devices（30s 轮询兜底，WS 直写缓存）+ 当前设备最新位置（与地图页同一 query key，缓存共享）。
+import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import {
-  FlatList,
-  Pressable,
-  RefreshControl,
-  StyleSheet,
-  View,
-} from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import type { DevicePublic } from '@helmet/shared';
+import type { DevicePublic, LocationPoint, WsLocationData } from '@helmet/shared';
 
 import { devicesApi } from '@/api/devices';
 import { toUserMessage } from '@/api/error-messages';
-import { Badge } from '@/components/badge';
+import { PrimaryButton, SecondaryButton } from '@/components/form';
+import { Card, SectionLabel } from '@/components/list';
 import { Skeleton } from '@/components/skeleton';
-import { PrimaryButton } from '@/components/form';
+import { Tappable } from '@/components/tappable';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Radius } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { useAuthStore } from '@/stores/auth-store';
+import { useLocale, useT } from '@/i18n';
+import { relativeTime } from '@/i18n/format';
 
-function BatteryBar({ level }: { level: number | null }) {
-  const theme = useTheme();
-  if (level === null) return null;
-  const color =
-    level <= 20 ? theme.danger : level <= 40 ? theme.warning : theme.success;
-  return (
-    <View style={[styles.batteryTrack, { backgroundColor: theme.backgroundSelected }]}>
-      <View
-        style={[
-          styles.batteryFill,
-          { width: `${Math.max(2, Math.min(100, level))}%`, backgroundColor: color },
-        ]}
-      />
-    </View>
-  );
-}
-
-/** 头盔演示图池：设备暂无型号字段（待硬件定稿），按 deviceId 稳定散列分配——
- *  同一设备永远同一张图，不同设备尽量错开。正式型号图到位后改为按型号映射。 */
+/** 头盔演示图池：设备暂无型号字段（待硬件定稿），按 deviceId 稳定散列分配 */
 const HELMET_IMAGES = [
   require('@/assets/images/helmet-urban-v5.webp'),
   require('@/assets/images/helmet-ski-v5.webp'),
@@ -55,258 +34,257 @@ function helmetImageFor(deviceId: string) {
   return HELMET_IMAGES[x % HELMET_IMAGES.length];
 }
 
-/** 信号强度文案（DeviceStatus.signalLevel：数值越大越强；口径待硬件定稿前按相对档显示） */
-function signalLabel(level: number | null): string {
-  if (level === null) return '—';
-  if (level >= 3) return '强';
-  if (level >= 2) return '中';
-  return '弱';
-}
+/** 骑行判定阈值：> 1 m/s 视为骑行中（与头盔固件运动态口径一致，BLE 协议 v0.6 §4.0） */
+const RIDING_MPS = 1;
 
-function StatCell({
-  icon,
-  label,
-  value,
-}: {
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
-  label: string;
-  value: string;
-}) {
-  const theme = useTheme();
-  return (
-    <View style={styles.statCell}>
-      <MaterialCommunityIcons name={icon} size={16} color={theme.textSecondary} />
-      <View>
-        <ThemedText type="label" themeColor="textSecondary">
-          {label}
-        </ThemedText>
-        <ThemedText type="smallBold">{value}</ThemedText>
-      </View>
-    </View>
-  );
-}
-
-function DeviceRow({ device }: { device: DevicePublic }) {
-  const theme = useTheme();
-  return (
-    <Pressable onPress={() => router.push(`/device/${device.deviceId}`)}>
-      {({ pressed }) => (
-        <View
-          style={[
-            styles.card,
-            {
-              backgroundColor: pressed ? theme.backgroundSelected : theme.backgroundElement,
-              borderColor: theme.border,
-            },
-          ]}>
-          <View style={styles.cardTop}>
-            {/* 头盔产品图（演示素材，按设备稳定分配；正式型号图待硬件出型号字段后按型号映射）。
-                wrapper 撑满本节高度,头盔在空白区域纵向精确居中 */}
-            <View style={styles.helmetBox}>
-              <Image
-                source={helmetImageFor(device.deviceId)}
-                style={styles.helmetImage}
-                contentFit="cover"
-              />
-            </View>
-            <View style={styles.cardInfo}>
-              <View style={styles.cardTitleRow}>
-                <ThemedText type="subtitle" style={styles.deviceId} numberOfLines={1}>
-                  {device.name ?? device.deviceId}
-                </ThemedText>
-                <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
-              </View>
-              <View style={styles.badgeRow}>
-                <Badge
-                  variant={device.online ? 'success' : 'neutral'}
-                  label={device.online ? '在线' : '离线'}
-                />
-              </View>
-              <ThemedText type="small" themeColor="textSecondary">
-                固件 {device.firmwareVersion ?? '未知'}
-              </ThemedText>
-              <View style={styles.batteryBlock}>
-                <View style={styles.batteryValueRow}>
-                  <ThemedText type="display" style={styles.batteryValue}>
-                    {device.battery !== null ? device.battery : '—'}
-                  </ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary">
-                    %{device.charging ? ' · 充电中 ⚡' : ''}
-                  </ThemedText>
-                </View>
-                <BatteryBar level={device.battery} />
-              </View>
-            </View>
-          </View>
-
-          <View style={[styles.cardDivider, { backgroundColor: theme.border }]} />
-
-          <View style={styles.statsRow}>
-            <StatCell icon="signal" label="信号" value={signalLabel(device.signalLevel)} />
-            <StatCell
-              icon={device.sleeping ? 'sleep' : 'motion-sensor'}
-              label="状态"
-              value={device.sleeping ? '休眠' : '活动'}
-            />
-            <StatCell icon="sync" label="上次同步" value={relativeTime(device.lastSeenAt)} />
-          </View>
-        </View>
-      )}
-    </Pressable>
-  );
-}
-
-function KpiChip({
-  label,
-  value,
-  caption,
-  captionHighlight = false,
-  icon,
-}: {
-  label: string;
-  value: string;
-  caption: string;
-  captionHighlight?: boolean;
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
-}) {
+function Pill({ label, tone }: { label: string; tone: 'brand' | 'neutral' }) {
   const theme = useTheme();
   return (
     <View
       style={[
-        styles.kpi,
-        { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+        styles.pill,
+        { backgroundColor: tone === 'brand' ? theme.brand : theme.backgroundSelected },
       ]}>
-      <View style={styles.kpiHeader}>
-        <View style={[styles.kpiIcon, { backgroundColor: theme.backgroundSelected }]}>
-          <MaterialCommunityIcons name={icon} size={18} color={theme.textSecondary} />
-        </View>
-        <ThemedText type="label" themeColor="textSecondary">
-          {label}
-        </ThemedText>
-      </View>
-      <ThemedText type="display" style={styles.kpiValue}>
-        {value}
-      </ThemedText>
       <ThemedText
-        type="small"
-        style={{ color: captionHighlight ? theme.brand : theme.textSecondary, fontSize: 12 }}>
-        {caption}
+        type="smallBold"
+        style={{ fontSize: 12, lineHeight: 16, color: tone === 'brand' ? theme.onBrand : theme.textSecondary }}>
+        {label}
       </ThemedText>
     </View>
   );
 }
 
-/** 相对时间（参考稿的 "1m ago" 语感，中文口径） */
-function relativeTime(iso: string | null): string {
-  if (!iso) return '从未';
-  const diffSec = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
-  if (diffSec < 60) return `${diffSec} 秒前`;
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)} 分钟前`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} 小时前`;
-  return `${Math.floor(diffSec / 86400)} 天前`;
+function Dot({ online }: { online: boolean }) {
+  const theme = useTheme();
+  return (
+    <View
+      style={[styles.dot, { backgroundColor: online ? theme.success : theme.textSecondary }]}
+    />
+  );
 }
 
-export default function MyDevicesScreen() {
-  const user = useAuthStore((s) => s.user);
-  const signOut = useAuthStore((s) => s.signOut);
+function batteryColor(level: number | null, theme: ReturnType<typeof useTheme>) {
+  if (level === null) return theme.textSecondary;
+  return level <= 20 ? theme.danger : theme.brand;
+}
+
+function HeroCard({ device }: { device: DevicePublic }) {
+  const theme = useTheme();
+  const t = useT();
+  const locale = useLocale();
+  // 与地图页共用缓存 key：WS 位置推送直写，这里免费拿到实时速度
+  const live = useQuery<WsLocationData | LocationPoint | null>({
+    queryKey: ['device-location', device.deviceId],
+    queryFn: async () => (await devicesApi.latestLocation(device.deviceId)).location,
+    refetchInterval: 30_000,
+  });
+  const speedKmh = live.data ? live.data.speed * 3.6 : null;
+  const riding = device.online && speedKmh !== null && live.data!.speed > RIDING_MPS;
+
+  return (
+    <Tappable feedback="scale" onPress={() => router.push(`/device/${device.deviceId}`)}>
+      <Card>
+        <View style={styles.heroTop}>
+          <Image source={helmetImageFor(device.deviceId)} style={styles.heroImage} contentFit="contain" />
+          <View style={styles.heroInfo}>
+            <View style={styles.heroStatusRow}>
+              <Pill
+                label={device.online ? (riding ? t('devices.riding') : t('devices.parked')) : t('common.offline')}
+                tone={device.online ? 'brand' : 'neutral'}
+              />
+              <Dot online={device.online} />
+              <ThemedText type="small" themeColor="textSecondary" style={{ fontSize: 13 }}>
+                {device.online ? t('common.online') : t('common.offline')}
+              </ThemedText>
+            </View>
+            <ThemedText type="smallBold" numberOfLines={1} style={styles.heroName}>
+              {device.name ?? device.deviceId}
+            </ThemedText>
+            <ThemedText type="code" themeColor="textSecondary" numberOfLines={1}>
+              {device.deviceId} · v{device.firmwareVersion ?? '—'}
+            </ThemedText>
+          </View>
+        </View>
+        <View style={[styles.heroStats, { borderTopColor: theme.border }]}>
+          <View style={styles.stat}>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.statLabel}>
+              {t('devices.battery')}
+            </ThemedText>
+            <View style={styles.statValueRow}>
+              <ThemedText type="display" style={[styles.statValue, { color: batteryColor(device.battery, theme) }]}>
+                {device.battery ?? '—'}
+              </ThemedText>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.statUnit}>
+                %{device.charging ? ` · ${t('devices.charging')}` : ''}
+              </ThemedText>
+            </View>
+          </View>
+          <View style={[styles.statDivider, { backgroundColor: theme.border }]} />
+          <View style={styles.stat}>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.statLabel}>
+              {t('devices.speed')}
+            </ThemedText>
+            <View style={styles.statValueRow}>
+              <ThemedText type="display" style={styles.statValue}>
+                {speedKmh !== null && device.online ? speedKmh.toFixed(0) : '—'}
+              </ThemedText>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.statUnit}>
+                km/h
+              </ThemedText>
+            </View>
+          </View>
+          <View style={[styles.statDivider, { backgroundColor: theme.border }]} />
+          <View style={styles.stat}>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.statLabel}>
+              {t('devices.lastSync')}
+            </ThemedText>
+            <ThemedText type="display" style={styles.statValue} numberOfLines={1}>
+              {relativeTime(device.lastSeenAt, locale)}
+            </ThemedText>
+          </View>
+        </View>
+      </Card>
+    </Tappable>
+  );
+}
+
+function DeviceRow({
+  device,
+  current,
+  last,
+}: {
+  device: DevicePublic;
+  current: boolean;
+  last: boolean;
+}) {
+  const theme = useTheme();
+  const t = useT();
+  const locale = useLocale();
+  const battery = device.battery;
+  const bColor = batteryColor(battery, theme);
+  return (
+    <Tappable
+      feedback="fill"
+      onPress={() => router.push(`/device/${device.deviceId}`)}
+      style={[styles.row, !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border }]}>
+      <View style={[styles.rowIcon, { backgroundColor: theme.backgroundSelected }]}>
+        <Ionicons name="shield-half-outline" size={22} color={theme.text} />
+      </View>
+      <View style={styles.rowBody}>
+        <View style={styles.rowTitleLine}>
+          <ThemedText type="smallBold" numberOfLines={1} style={styles.rowName}>
+            {device.name ?? device.deviceId}
+          </ThemedText>
+          {current && <Pill label={t('devices.current')} tone="brand" />}
+        </View>
+        <View style={styles.rowMetaLine}>
+          <Dot online={device.online} />
+          <ThemedText type="small" themeColor="textSecondary" numberOfLines={1} style={styles.rowMeta}>
+            {device.online
+              ? t('common.online')
+              : `${t('common.offline')} · ${relativeTime(device.lastSeenAt, locale)}`}
+            {'  '}
+            <ThemedText type="code" themeColor="textSecondary">
+              {device.deviceId}
+            </ThemedText>
+          </ThemedText>
+        </View>
+      </View>
+      <View style={styles.rowBattery}>
+        <ThemedText type="smallBold" style={{ color: bColor }}>
+          {battery !== null ? `${battery}%` : '—'}
+        </ThemedText>
+        <View style={[styles.batteryTrack, { backgroundColor: theme.backgroundSelected }]}>
+          <View
+            style={[
+              styles.batteryFill,
+              { width: `${Math.max(2, Math.min(100, battery ?? 0))}%`, backgroundColor: bColor },
+            ]}
+          />
+        </View>
+      </View>
+      <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
+    </Tappable>
+  );
+}
+
+export default function DevicesScreen() {
+  const t = useT();
   const devices = useQuery({
     queryKey: ['devices'],
     queryFn: devicesApi.list,
-    // 轮询作可靠性兜底（实时通道合入后 WS 推送为主）
     refetchInterval: 30_000,
   });
-
   const list = devices.data ?? [];
   const onlineCount = list.filter((d) => d.online).length;
+  // 当前设备 = 第一台在线的，都离线则第一台
+  const hero = list.find((d) => d.online) ?? list[0];
 
   return (
     <SafeAreaView style={styles.flex}>
-      <ThemedView style={styles.container}>
-        <View style={styles.header}>
-          <View>
-            <ThemedText type="title" style={styles.pageTitle}>
-              我的设备
-            </ThemedText>
-            {user && (
-              <ThemedText type="small" themeColor="textSecondary">
-                {user.nickname ?? user.phone}
-              </ThemedText>
-            )}
-          </View>
-          <Pressable onPress={() => void signOut()} hitSlop={8}>
-            <ThemedText type="small" themeColor="textSecondary">
-              退出登录
-            </ThemedText>
-          </Pressable>
-        </View>
-
-        <View style={styles.kpiRow}>
-          <KpiChip
-            label="设备总数"
-            value={String(list.length)}
-            caption="全部头盔"
-            icon="racing-helmet"
-          />
-          <KpiChip
-            label="在线"
-            value={String(onlineCount)}
-            icon="access-point"
-            caption={
-              list.length > 0
-                ? `在线率 ${Math.round((onlineCount / list.length) * 100)}%`
-                : '暂无设备'
-            }
-            captionHighlight={list.length > 0 && onlineCount === list.length}
-          />
-        </View>
-
-        {devices.isError && (
-          <ThemedText type="small">{toUserMessage(devices.error)}</ThemedText>
-        )}
-
-        <FlatList
-          style={styles.flex}
-          contentContainerStyle={{ paddingBottom: 16, gap: 12 }}
-          data={list}
-          keyExtractor={(d) => d.deviceId}
-          renderItem={({ item }) => <DeviceRow device={item} />}
+      <ThemedView style={styles.flex}>
+        <ScrollView
+          contentContainerStyle={styles.container}
+          showsVerticalScrollIndicator={false}
           refreshControl={
-            <RefreshControl
-              refreshing={devices.isRefetching}
-              onRefresh={() => void devices.refetch()}
-            />
-          }
-          ListEmptyComponent={
-            devices.isLoading ? (
-              <View style={styles.skeletonWrap}>
-                {[0, 1].map((i) => (
-                  <View key={i} style={styles.skeletonCard}>
-                    <Skeleton width={96} height={96} radius={16} />
-                    <View style={styles.skeletonLines}>
-                      <Skeleton width="55%" height={18} />
-                      <Skeleton width="35%" height={13} />
-                      <Skeleton width="75%" height={13} />
-                    </View>
-                  </View>
-                ))}
-              </View>
-            ) : (
-              <View style={styles.empty}>
-                <ThemedText type="subtitle">还没有绑定头盔</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  绑定后可以查看在线状态、电量和骑行安全信息
-                </ThemedText>
-              </View>
-            )
-          }
-        />
+            <RefreshControl refreshing={devices.isRefetching} onRefresh={() => void devices.refetch()} />
+          }>
+          <ThemedText type="title" style={styles.pageTitle}>
+            {t('devices.title')}
+          </ThemedText>
 
-        {/* 主 CTA 固定在底部标签栏正上方（对齐定稿套图） */}
+          {devices.isError && (
+            <ThemedText type="small" themeColor="danger">
+              {toUserMessage(devices.error)}
+            </ThemedText>
+          )}
+
+          {devices.isLoading ? (
+            <Card style={styles.skeletonCard}>
+              <Skeleton width={104} height={104} radius={16} />
+              <View style={styles.skeletonLines}>
+                <Skeleton width="40%" height={14} />
+                <Skeleton width="65%" height={22} />
+                <Skeleton width="55%" height={12} />
+              </View>
+            </Card>
+          ) : hero ? (
+            <>
+              <HeroCard device={hero} />
+              <SectionLabel
+                title={t('devices.allDevices')}
+                caption={t('devices.countCaption', { total: list.length, online: onlineCount })}
+              />
+              <Card>
+                {list.map((d, i) => (
+                  <DeviceRow
+                    key={d.deviceId}
+                    device={d}
+                    current={d.deviceId === hero.deviceId}
+                    last={i === list.length - 1}
+                  />
+                ))}
+              </Card>
+            </>
+          ) : (
+            <View style={styles.empty}>
+              <ThemedText type="smallBold" style={{ fontSize: 20 }}>
+                {t('devices.emptyTitle')}
+              </ThemedText>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.emptyBody}>
+                {t('devices.emptyBody')}
+              </ThemedText>
+            </View>
+          )}
+        </ScrollView>
+
+        {/* 底部固定：有设备时绑定是次操作（描边），空态时是主操作（品牌黄） */}
         <View style={styles.bottomCta}>
-          <PrimaryButton
-            title="＋ 绑定新设备"
-            onPress={() => router.push('/bind-device')}
-          />
+          {list.length > 0 ? (
+            <SecondaryButton title={t('devices.bindNew')} icon="add" onPress={() => router.push('/bind-device')} />
+          ) : (
+            <PrimaryButton title={t('devices.bindNew')} icon="add" onPress={() => router.push('/bind-device')} />
+          )}
         </View>
       </ThemedView>
     </SafeAreaView>
@@ -314,76 +292,36 @@ export default function MyDevicesScreen() {
 }
 
 const styles = StyleSheet.create({
-  skeletonWrap: { gap: 14, paddingTop: 4 },
-  skeletonCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-    borderRadius: 22,
-    padding: 18,
-  },
-  skeletonLines: { flex: 1, gap: 10 },
   flex: { flex: 1 },
-  container: { flex: 1, padding: 20, gap: 16 },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-  },
-  pageTitle: { fontSize: 32, lineHeight: 38 },
-  kpiRow: { flexDirection: 'row', gap: 12 },
-  kpi: {
-    flex: 1,
-    borderRadius: Radius.card,
-    borderWidth: 1,
-    padding: 14,
-    gap: 4,
-  },
-  kpiHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  kpiIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cardHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  kpiValue: { fontSize: 28, lineHeight: 32 },
-  card: {
-    borderRadius: Radius.card,
-    borderWidth: 1,
-    padding: 14,
-    gap: 12,
-  },
-  cardTop: { flexDirection: 'row', gap: 14 },
-  helmetBox: {
-    alignSelf: 'stretch',
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: 136,
-    marginLeft: -4,
-  },
-  helmetImage: { width: 136, height: 136 },
-  cardInfo: { flex: 1, gap: 5 },
-  cardTitleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  badgeRow: { flexDirection: 'row' },
-  deviceId: { fontSize: 19, lineHeight: 25, flex: 1 },
-  batteryBlock: { gap: 5, marginTop: 2 },
-  batteryValueRow: { flexDirection: 'row', alignItems: 'baseline', gap: 3 },
-  batteryValue: { fontSize: 26, lineHeight: 30 },
-  cardDivider: { height: StyleSheet.hairlineWidth },
-  statsRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  statCell: { flexDirection: 'row', alignItems: 'center', gap: 7, flex: 1 },
-  batteryTrack: {
-    height: 4,
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  batteryFill: { height: 4, borderRadius: 2 },
-  empty: { alignItems: 'center', gap: 6, paddingVertical: 48 },
-  bottomCta: { paddingTop: 4, paddingBottom: 10 },
+  container: { paddingHorizontal: 20, paddingBottom: 12, gap: 16 },
+  pageTitle: { fontSize: 32, lineHeight: 40, marginBottom: -4 },
+  pill: { borderRadius: Radius.pill, paddingHorizontal: 10, paddingVertical: 4 },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  heroTop: { flexDirection: 'row', alignItems: 'center', gap: 16, padding: 18, paddingBottom: 14 },
+  heroImage: { width: 104, height: 104 },
+  heroInfo: { flex: 1, minWidth: 0, gap: 8 },
+  heroStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  heroName: { fontSize: 22, lineHeight: 28 },
+  heroStats: { flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth },
+  stat: { flex: 1, paddingHorizontal: 16, paddingVertical: 12, gap: 4, minWidth: 0 },
+  statDivider: { width: StyleSheet.hairlineWidth },
+  statLabel: { fontSize: 12, lineHeight: 16 },
+  statValueRow: { flexDirection: 'row', alignItems: 'baseline', gap: 3 },
+  statValue: { fontSize: 22, lineHeight: 26, fontWeight: 600 },
+  statUnit: { fontSize: 12 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, paddingVertical: 12 },
+  rowIcon: { width: 44, height: 44, borderRadius: Radius.control, alignItems: 'center', justifyContent: 'center' },
+  rowBody: { flex: 1, minWidth: 0, gap: 3 },
+  rowTitleLine: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  rowName: { fontSize: 16, flexShrink: 1 },
+  rowMetaLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  rowMeta: { fontSize: 13, flexShrink: 1 },
+  rowBattery: { alignItems: 'flex-end', gap: 5 },
+  batteryTrack: { width: 44, height: 5, borderRadius: 3, overflow: 'hidden' },
+  batteryFill: { height: 5, borderRadius: 3 },
+  skeletonCard: { flexDirection: 'row', alignItems: 'center', gap: 16, padding: 18 },
+  skeletonLines: { flex: 1, gap: 10 },
+  empty: { alignItems: 'center', gap: 8, paddingVertical: 64, paddingHorizontal: 24 },
+  emptyBody: { textAlign: 'center', lineHeight: 20 },
+  bottomCta: { paddingHorizontal: 20, paddingTop: 4, paddingBottom: 12 },
 });

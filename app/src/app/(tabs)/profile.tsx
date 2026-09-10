@@ -1,184 +1,74 @@
-// 我的（底部标签）：分组设置列表（账号 / 设备 / 通用），参考定稿套图的分区卡片风格。
-// 未落地能力（消息通知/多语言/外观切换）以「即将推出」占位；剪贴板类需求用系统分享面板
-// 实现（面板自带"拷贝"，避免为 expo-clipboard 新增原生依赖迫使双端重建 dev client）。
+// 我的（底部标签，2026-09-10 重设计）：账号卡 → 「安全」「通用」两组紧凑设置行 → 底部文字「退出登录」。
+// 图标统一单色描边（此前多彩方块与其他页不一致）；语言切换（简/繁/英）在这里落地。
 import { Ionicons } from '@expo/vector-icons';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Constants from 'expo-constants';
-import * as Device from 'expo-device';
 import { Image } from 'expo-image';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import {
-  Alert,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  Share,
-  StyleSheet,
-  View,
-} from 'react-native';
+import { Alert, Modal, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Animated, { FadeInDown } from 'react-native-reanimated';
 
 import { authApi } from '@/api/auth';
-import { showToast } from '@/components/toast';
+import { contactsApi } from '@/api/contacts';
+import { devicesApi } from '@/api/devices';
 import { toUserMessage } from '@/api/error-messages';
 import { FormInput, PrimaryButton } from '@/components/form';
+import { Card, GroupTitle, ListRow } from '@/components/list';
+import { Tappable } from '@/components/tappable';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { showToast } from '@/components/toast';
 import { Radius } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { LOCALES, LOCALE_NAMES, translate, useLocaleStore, useT } from '@/i18n';
 import { useAuthStore } from '@/stores/auth-store';
-
-/** 图标圆片的色板（参考图的多彩浅底图标；深色主题用低饱和半透明底） */
-const TINTS = {
-  purple: { bg: 'rgba(142, 122, 255, 0.16)', fg: '#A99BFF' },
-  green: { bg: 'rgba(74, 222, 128, 0.14)', fg: '#4ADE80' },
-  orange: { bg: 'rgba(245, 184, 74, 0.15)', fg: '#F5B84A' },
-  blue: { bg: 'rgba(96, 165, 250, 0.15)', fg: '#60A5FA' },
-  red: { bg: 'rgba(242, 109, 95, 0.15)', fg: '#F26D5F' },
-  neutral: { bg: 'rgba(255, 255, 255, 0.08)', fg: '#9BA1AA' },
-} as const;
-
-function Row({
-  icon,
-  tint,
-  title,
-  subtitle,
-  right,
-  onPress,
-  last = false,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  tint: keyof typeof TINTS;
-  title: string;
-  subtitle?: string;
-  right?: React.ReactNode;
-  onPress?: () => void;
-  last?: boolean;
-}) {
-  const theme = useTheme();
-  const t = TINTS[tint];
-  const body = (
-    <>
-      <View style={[styles.rowIcon, { backgroundColor: t.bg }]}>
-        <Ionicons name={icon} size={19} color={t.fg} />
-      </View>
-      <View style={styles.rowBody}>
-        <ThemedText type="smallBold" style={styles.rowTitle}>
-          {title}
-        </ThemedText>
-        {subtitle && (
-          <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-            {subtitle}
-          </ThemedText>
-        )}
-      </View>
-      {right ?? (
-        onPress ? (
-          <Ionicons name="chevron-forward" size={16} color={theme.textSecondary} />
-        ) : null
-      )}
-    </>
-  );
-  return onPress ? (
-    <Pressable
-      style={({ pressed }) => [
-        styles.row,
-        !last && [styles.rowDivider, { borderBottomColor: theme.border }],
-        pressed && { backgroundColor: theme.backgroundSelected },
-      ]}
-      onPress={onPress}>
-      {body}
-    </Pressable>
-  ) : (
-    <View
-      style={[styles.row, !last && [styles.rowDivider, { borderBottomColor: theme.border }]]}>
-      {body}
-    </View>
-  );
-}
-
-function Section({
-  title,
-  children,
-  delay = 0,
-}: {
-  title: string;
-  children: React.ReactNode;
-  delay?: number;
-}) {
-  const theme = useTheme();
-  return (
-    <Animated.View entering={FadeInDown.duration(360).delay(delay)} style={styles.section}>
-      <ThemedText type="label" themeColor="textSecondary" style={styles.sectionTitle}>
-        {title}
-      </ThemedText>
-      <View
-        style={[
-          styles.sectionCard,
-          { backgroundColor: theme.backgroundElement, borderColor: theme.border },
-        ]}>
-        {children}
-      </View>
-    </Animated.View>
-  );
-}
-
-function SoonBadge() {
-  const theme = useTheme();
-  return (
-    <View style={[styles.soon, { backgroundColor: theme.backgroundSelected }]}>
-      <ThemedText type="label" themeColor="textSecondary">
-        即将推出
-      </ThemedText>
-    </View>
-  );
-}
 
 export default function ProfileScreen() {
   const theme = useTheme();
+  const t = useT();
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
   const signOut = useAuthStore((s) => s.signOut);
+  const locale = useLocaleStore((s) => s.locale);
+  const setLocale = useLocaleStore((s) => s.setLocale);
 
-  const [nickOpen, setNickOpen] = useState(false);
+  const devices = useQuery({ queryKey: ['devices'], queryFn: devicesApi.list });
+  const contacts = useQuery({ queryKey: ['contacts'], queryFn: contactsApi.list });
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [langOpen, setLangOpen] = useState(false);
   const [nickDraft, setNickDraft] = useState('');
   const [avatarDraft, setAvatarDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const openNick = () => {
+  const openEdit = () => {
     setNickDraft(user?.nickname ?? '');
     setAvatarDraft(user?.avatarUrl ?? null);
-    setNickOpen(true);
+    setEditOpen(true);
   };
 
-  // 选图 → 方形裁剪 → 压到 256px JPEG → data-URI(≈20KB,MVP 存 avatarUrl;OSS 就绪后换真 URL,契约不变)
+  // 选图 → 方形裁剪 → 压到 256px JPEG → data-URI（OSS 就绪后换真 URL，契约不变）
   const pickAvatar = async () => {
     try {
-    const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.9,
-    });
-    const asset = res.assets?.[0];
-    if (!asset) return;
-    const ctx = ImageManipulator.manipulate(asset.uri);
-    ctx.resize({ width: 256 });
-    const rendered = await ctx.renderAsync();
-    const out = await rendered.saveAsync({
-      compress: 0.6,
-      format: SaveFormat.JPEG,
-      base64: true,
-    });
-    if (out.base64) setAvatarDraft(`data:image/jpeg;base64,${out.base64}`);
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.9,
+      });
+      const asset = res.assets?.[0];
+      if (!asset) return;
+      const ctx = ImageManipulator.manipulate(asset.uri);
+      ctx.resize({ width: 256 });
+      const rendered = await ctx.renderAsync();
+      const out = await rendered.saveAsync({ compress: 0.6, format: SaveFormat.JPEG, base64: true });
+      if (out.base64) setAvatarDraft(`data:image/jpeg;base64,${out.base64}`);
     } catch (e) {
-      Alert.alert('选择头像失败', e instanceof Error ? e.message : String(e));
+      Alert.alert(translate('profile.pickFailed'), e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -187,248 +77,182 @@ export default function ProfileScreen() {
     try {
       const updated = await authApi.updateMe({
         nickname: nickDraft.trim(),
-        ...(avatarDraft && avatarDraft !== user?.avatarUrl
-          ? { avatarUrl: avatarDraft }
-          : {}),
+        ...(avatarDraft && avatarDraft !== user?.avatarUrl ? { avatarUrl: avatarDraft } : {}),
       });
       await setUser(updated);
-      setNickOpen(false);
-      showToast('已保存');
+      setEditOpen(false);
+      showToast(translate('common.saved'));
     } catch (e) {
-      Alert.alert('保存失败', toUserMessage(e));
+      Alert.alert(translate('profile.saveFailed'), toUserMessage(e));
     } finally {
       setSaving(false);
     }
   };
 
   const clearCache = () => {
-    Alert.alert('清除本地缓存', '清理本地数据与图片缓存，不影响云端数据。', [
-      { text: '取消', style: 'cancel' },
+    Alert.alert(translate('profile.clearCache'), translate('profile.clearCacheBody'), [
+      { text: translate('common.cancel'), style: 'cancel' },
       {
-        text: '清除',
+        text: translate('common.confirm'),
         onPress: () => {
           queryClient.clear();
           void Image.clearDiskCache();
           void Image.clearMemoryCache();
-          showToast('缓存已清除');
+          showToast(translate('profile.clearCacheDone'));
         },
       },
     ]);
   };
 
   const appVersion = Constants.expoConfig?.version ?? '—';
-
-  const about = () => {
-    Alert.alert(
-      'AI 智能头盔',
-      `版本 ${appVersion}\n\nAI 赋能，智能守护每一次骑行安全。\n深圳零一唯创科技有限公司`,
-    );
-  };
-
-  const deviceInfoText = `${Platform.OS} / ${Device.osName ?? Platform.OS} ${Device.osVersion ?? ''} / ${Device.modelName ?? '未知机型'} / App v${appVersion}`;
-
-  const shareDeviceInfo = () => {
-    // 系统分享面板自带"拷贝"动作,兼顾复制与转发两种用途
-    void Share.share({ message: deviceInfoText });
-  };
+  const about = () =>
+    Alert.alert(translate('profile.about'), `${translate('profile.version', { v: appVersion })}\n\n${translate('profile.aboutBody')}`);
 
   const confirmSignOut = () => {
-    Alert.alert('退出登录', '清理登录态并返回登录页。', [
-      { text: '取消', style: 'cancel' },
-      { text: '退出', style: 'destructive', onPress: () => void signOut() },
+    Alert.alert(translate('profile.signOut'), translate('profile.signOutBody'), [
+      { text: translate('common.cancel'), style: 'cancel' },
+      { text: translate('profile.signOutConfirm'), style: 'destructive', onPress: () => void signOut() },
     ]);
   };
+
+  const initial = (user?.nickname ?? user?.phone ?? '?').slice(0, 1).toUpperCase();
+  const deviceCount = devices.data?.length ?? 0;
 
   return (
     <SafeAreaView style={styles.flex}>
       <ThemedView style={styles.flex}>
         <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
           <ThemedText type="title" style={styles.pageTitle}>
-            我的
+            {t('profile.title')}
           </ThemedText>
 
-          <Section title="账号" delay={0}>
-            {/* 个人资料:有头像时行图标即头像 */}
-            <Pressable
-              style={({ pressed }) => [
-                styles.row,
-                styles.rowDivider,
-                { borderBottomColor: theme.border },
-                pressed && { backgroundColor: theme.backgroundSelected },
-              ]}
-              onPress={openNick}>
-              {user?.avatarUrl ? (
-                <Image source={{ uri: user.avatarUrl }} style={styles.rowAvatar} />
-              ) : (
-                <View style={[styles.rowIcon, { backgroundColor: TINTS.purple.bg }]}>
-                  <Ionicons name="person-outline" size={19} color={TINTS.purple.fg} />
-                </View>
-              )}
-              <View style={styles.rowBody}>
-                <ThemedText type="smallBold" style={styles.rowTitle}>
-                  个人资料
-                </ThemedText>
-                <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-                  {user?.nickname ?? '设置昵称与头像'}
-                </ThemedText>
-              </View>
-              <Ionicons name="chevron-forward" size={16} color={theme.textSecondary} />
-            </Pressable>
-            <Row
-              icon="id-card-outline"
-              tint="purple"
-              title="账号信息"
-              subtitle="当前登录账号"
-              right={
-                <ThemedText type="small" themeColor="textSecondary">
-                  {user?.phone ?? '—'}
-                </ThemedText>
-              }
-              last
-            />
-          </Section>
-
-          <Section title="设备" delay={80}>
-            <Row
-              icon="albums-outline"
-              tint="blue"
-              title="我的头盔"
-              subtitle="查看头盔列表与设备状态"
-              onPress={() => router.push('/')}
-            />
-            <Row
-              icon="add-circle-outline"
-              tint="green"
-              title="绑定新头盔"
-              subtitle="输入设备编号与绑定码"
-              onPress={() => router.push('/bind-device')}
-            />
-            <Row
-              icon="call-outline"
-              tint="orange"
-              title="紧急联系人"
-              subtitle="SOS 通知对象管理"
-              onPress={() => router.push('/safety')}
-              last
-            />
-          </Section>
-
-          <Section title="通用" delay={160}>
-            <Row
-              icon="notifications-outline"
-              tint="orange"
-              title="消息通知"
-              subtitle="提醒偏好与通知管理"
-              right={<SoonBadge />}
-            />
-            <Row
-              icon="language-outline"
-              tint="blue"
-              title="语言 / Language"
-              subtitle="中文 · English"
-              right={<SoonBadge />}
-            />
-            <Row
-              icon="moon-outline"
-              tint="purple"
-              title="外观模式"
-              subtitle="深色 · 浅色"
-              right={<SoonBadge />}
-            />
-            <Row
-              icon="trash-outline"
-              tint="neutral"
-              title="清除本地缓存"
-              subtitle="清理本地存储，不影响云端数据"
-              onPress={clearCache}
-            />
-            <Row
-              icon="information-circle-outline"
-              tint="blue"
-              title="关于我们"
-              subtitle={`产品信息与版本说明 · v${appVersion}`}
-              onPress={about}
-            />
-            <Row
-              icon="phone-portrait-outline"
-              tint="neutral"
-              title="设备信息"
-              subtitle={deviceInfoText}
-              right={
-                <ThemedText type="smallBold" themeColor="brand">
-                  分享
-                </ThemedText>
-              }
-              onPress={shareDeviceInfo}
-              last
-            />
-          </Section>
-
-          {/* 退出登录（独立红色卡） */}
-          <Pressable onPress={confirmSignOut}>
-            {({ pressed }) => (
-              <View
-                style={[
-                  styles.sectionCard,
-                  styles.signOutCard,
-                  {
-                    backgroundColor: pressed ? theme.backgroundSelected : theme.backgroundElement,
-                    borderColor: theme.border,
-                  },
-                ]}>
-                <View style={[styles.rowIcon, { backgroundColor: TINTS.red.bg }]}>
-                  <Ionicons name="log-out-outline" size={19} color={theme.danger} />
-                </View>
-                <View style={styles.rowBody}>
-                  <ThemedText type="smallBold" style={{ color: theme.danger, fontSize: 15 }}>
-                    退出登录
-                  </ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary">
-                    清理登录态并返回登录页
-                  </ThemedText>
-                </View>
-              </View>
-            )}
-          </Pressable>
-        </ScrollView>
-
-        {/* 昵称修改弹层 */}
-        <Modal visible={nickOpen} transparent animationType="fade" onRequestClose={() => setNickOpen(false)}>
-          <Pressable style={styles.modalMask} onPress={() => setNickOpen(false)}>
-            <Pressable
-              style={[
-                styles.modalCard,
-                { backgroundColor: theme.backgroundElement, borderColor: theme.border },
-              ]}
-              onPress={() => undefined}>
-              <ThemedText type="subtitle">个人资料</ThemedText>
-              <Pressable style={styles.avatarPick} onPress={() => void pickAvatar()}>
-                {avatarDraft ? (
-                  <Image source={{ uri: avatarDraft }} style={styles.avatarBig} />
+          {/* 账号卡：整卡可点进编辑；相机角标只是提示 */}
+          <Tappable feedback="scale" onPress={openEdit}>
+            <Card style={styles.accountCard}>
+              <View style={styles.avatarWrap}>
+                {user?.avatarUrl ? (
+                  <Image source={{ uri: user.avatarUrl }} style={styles.avatar} />
                 ) : (
-                  <View style={[styles.avatarBig, styles.avatarEmpty, { backgroundColor: theme.backgroundSelected }]}>
-                    <ThemedText type="display" style={{ fontSize: 26, lineHeight: 32 }}>
-                      {(user?.nickname ?? user?.phone ?? '?').slice(0, 1)}
+                  <View style={[styles.avatar, { backgroundColor: theme.backgroundSelected }]}>
+                    <ThemedText type="display" style={{ fontSize: 24, lineHeight: 30 }}>
+                      {initial}
                     </ThemedText>
                   </View>
                 )}
-                <View style={[styles.avatarBadge, { backgroundColor: theme.brand }]}>
-                  <Ionicons name="camera" size={13} color={theme.onBrand} />
+                <View style={[styles.avatarBadge, { backgroundColor: theme.brand, borderColor: theme.backgroundElement }]}>
+                  <Ionicons name="camera" size={12} color={theme.onBrand} />
                 </View>
-                <ThemedText type="small" themeColor="textSecondary">
-                  点击更换头像
+              </View>
+              <View style={styles.accountBody}>
+                <ThemedText type="smallBold" style={{ fontSize: 18, lineHeight: 24 }} numberOfLines={1}>
+                  {user?.nickname ?? t('profile.setNickname')}
                 </ThemedText>
-              </Pressable>
+                <ThemedText type="small" themeColor="textSecondary" style={{ fontSize: 13 }}>
+                  {user?.phone ?? '—'} · {t('profile.devicesCount', { n: deviceCount })}
+                </ThemedText>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
+            </Card>
+          </Tappable>
+
+          <GroupTitle title={t('profile.groupSafety')} />
+          <Card>
+            <ListRow
+              compact
+              icon="call-outline"
+              title={t('profile.contacts')}
+              value={t('profile.contactsValue', { n: contacts.data?.length ?? 0 })}
+              onPress={() => router.push('/contacts')}
+            />
+            <ListRow
+              compact
+              icon="notifications-outline"
+              title={t('profile.notifications')}
+              value={t('profile.notificationsValue')}
+              last
+            />
+          </Card>
+
+          <GroupTitle title={t('profile.groupGeneral')} />
+          <Card>
+            <ListRow
+              compact
+              icon="globe-outline"
+              title={t('profile.language')}
+              value={LOCALE_NAMES[locale]}
+              onPress={() => setLangOpen(true)}
+            />
+            <ListRow compact icon="moon-outline" title={t('profile.appearance')} value={t('profile.appearanceValue')} />
+            <ListRow compact icon="trash-outline" title={t('profile.clearCache')} onPress={clearCache} />
+            <ListRow compact icon="information-circle-outline" title={t('profile.about')} value={appVersion} onPress={about} last />
+          </Card>
+
+          <Tappable onPress={confirmSignOut} style={styles.signOut}>
+            <ThemedText type="small" themeColor="textSecondary" style={{ fontSize: 15 }}>
+              {t('profile.signOut')}
+            </ThemedText>
+          </Tappable>
+        </ScrollView>
+
+        {/* 个人资料编辑 */}
+        <Modal visible={editOpen} transparent animationType="fade" onRequestClose={() => setEditOpen(false)}>
+          <Tappable feedback={[]} style={styles.modalMask} onPress={() => setEditOpen(false)}>
+            <Tappable feedback={[]} style={[styles.modalCard, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]} onPress={() => undefined}>
+              <ThemedText type="smallBold" style={{ fontSize: 20 }}>
+                {t('profile.edit')}
+              </ThemedText>
+              <Tappable style={styles.avatarPick} onPress={() => void pickAvatar()}>
+                {avatarDraft ? (
+                  <Image source={{ uri: avatarDraft }} style={styles.avatarBig} />
+                ) : (
+                  <View style={[styles.avatarBig, styles.center, { backgroundColor: theme.backgroundSelected }]}>
+                    <ThemedText type="display" style={{ fontSize: 26, lineHeight: 32 }}>
+                      {initial}
+                    </ThemedText>
+                  </View>
+                )}
+                <ThemedText type="small" themeColor="textSecondary">
+                  {t('profile.changeAvatar')}
+                </ThemedText>
+              </Tappable>
               <FormInput
-                label="昵称"
+                label={t('profile.nickname')}
                 value={nickDraft}
                 onChangeText={setNickDraft}
-                placeholder="1-20 字符"
+                placeholder={t('profile.nicknamePlaceholder')}
                 maxLength={20}
               />
-              <PrimaryButton title="保存" onPress={() => void saveProfile()} loading={saving} />
-            </Pressable>
-          </Pressable>
+              <PrimaryButton title={t('common.save')} onPress={() => void saveProfile()} loading={saving} />
+            </Tappable>
+          </Tappable>
+        </Modal>
+
+        {/* 语言选择 */}
+        <Modal visible={langOpen} transparent animationType="fade" onRequestClose={() => setLangOpen(false)}>
+          <Tappable feedback={[]} style={styles.modalMask} onPress={() => setLangOpen(false)}>
+            <Tappable feedback={[]} style={[styles.modalCard, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]} onPress={() => undefined}>
+              <ThemedText type="smallBold" style={{ fontSize: 20 }}>
+                {t('profile.chooseLanguage')}
+              </ThemedText>
+              <View>
+                {LOCALES.map((loc, i) => (
+                  <Tappable
+                    key={loc}
+                    feedback="fill"
+                    onPress={() => {
+                      void setLocale(loc);
+                      setLangOpen(false);
+                    }}
+                    style={[styles.langRow, i < LOCALES.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border }]}>
+                    <ThemedText type="default" style={{ flex: 1 }}>
+                      {LOCALE_NAMES[loc]}
+                    </ThemedText>
+                    {loc === locale && <Ionicons name="checkmark" size={20} color={theme.brand} />}
+                  </Tappable>
+                ))}
+              </View>
+            </Tappable>
+          </Tappable>
         </Modal>
       </ThemedView>
     </SafeAreaView>
@@ -437,68 +261,28 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  container: { padding: 20, gap: 16, paddingBottom: 28 },
-  pageTitle: { fontSize: 32, lineHeight: 38 },
-  rowAvatar: { width: 38, height: 38, borderRadius: 19 },
-  avatarPick: { alignItems: 'center', gap: 8 },
-  avatarBig: { width: 84, height: 84, borderRadius: 42 },
-  avatarEmpty: { alignItems: 'center', justifyContent: 'center' },
+  container: { paddingHorizontal: 20, paddingBottom: 28, gap: 14 },
+  pageTitle: { fontSize: 32, lineHeight: 40, marginBottom: -2 },
+  accountCard: { flexDirection: 'row', alignItems: 'center', gap: 16, padding: 16 },
+  avatarWrap: { width: 56, height: 56 },
+  avatar: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center' },
   avatarBadge: {
     position: 'absolute',
-    top: 60,
-    right: '50%',
-    marginRight: -44,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    right: -2,
+    bottom: -2,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  section: { gap: 8 },
-  sectionTitle: { marginLeft: 4 },
-  sectionCard: {
-    borderRadius: Radius.card,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-  },
-  rowDivider: { borderBottomWidth: StyleSheet.hairlineWidth },
-  rowIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  rowBody: { flex: 1, gap: 2, marginRight: 8 },
-  rowTitle: { fontSize: 15 },
-  soon: {
-    borderRadius: Radius.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  signOutCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    padding: 14,
-  },
-  modalMask: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    justifyContent: 'center',
-    padding: 28,
-  },
-  modalCard: {
-    borderRadius: Radius.card,
-    borderWidth: 1,
-    padding: 18,
-    gap: 14,
-  },
+  accountBody: { flex: 1, minWidth: 0, gap: 3 },
+  signOut: { alignSelf: 'center', minHeight: 44, justifyContent: 'center', paddingHorizontal: 16, marginTop: 4 },
+  modalMask: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: 28 },
+  modalCard: { borderRadius: Radius.card, borderWidth: 1, padding: 18, gap: 14 },
+  avatarPick: { alignItems: 'center', gap: 8 },
+  avatarBig: { width: 84, height: 84, borderRadius: 42 },
+  center: { alignItems: 'center', justifyContent: 'center' },
+  langRow: { flexDirection: 'row', alignItems: 'center', height: 52, paddingHorizontal: 4 },
 });

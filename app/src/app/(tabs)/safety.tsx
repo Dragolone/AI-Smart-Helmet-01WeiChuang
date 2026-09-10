@@ -1,104 +1,125 @@
-// 安全中心（底部标签「安全」）：进行中 SOS + 紧急联系人（上限 5）+ 事故记录
-// 对齐定稿套图的联系人卡片/事件时间线布局；数据全部来自已实现后端（API.md §3/§7）
+// 安全（底部标签，2026-09-10 重设计）：
+// 第一眼 = 状态卡（周围安全 / 进行中 SOS / 未连接 / 无联系人）→ 最近风险事件 → 紧急联系人 & 事故记录入口
+// → 底部固定的红色「SOS · 按住呼救」（全页唯一红色，长按 2 秒经 app-relay 注入 manual_sos，
+//   与头盔实体键走同一服务端状态机，倒计时页由 WS 推送弹出）。
 import { Ionicons } from '@expo/vector-icons';
-import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
-import { useState } from 'react';
 import { router } from 'expo-router';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useState } from 'react';
+import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, {
   Easing,
-  FadeInDown,
   interpolate,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
-import type { AccidentListItem, EmergencyContact } from '@helmet/shared';
+import type { EventListItem } from '@helmet/shared';
 
 import { contactsApi } from '@/api/contacts';
 import { devicesApi } from '@/api/devices';
 import { toUserMessage } from '@/api/error-messages';
+import { eventsApi } from '@/api/events';
 import { relayApi } from '@/api/relay';
 import { sosApi } from '@/api/sos';
-import { Badge } from '@/components/badge';
-import { PrimaryButton } from '@/components/form';
+import { Card, IconCircle, ListRow, SectionLabel } from '@/components/list';
+import { Tappable } from '@/components/tappable';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Radius } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { translate, useLocale, useT, type MessageKey } from '@/i18n';
+import { shortDate, shortTime } from '@/i18n/format';
+import { AnimatedPressable } from '@/components/animated-pressable';
 
 const MAX_CONTACTS = 5; // API.md §3 定稿
+const RISK_TYPES = 'collision_risk,obstacle_risk,possible_fall,risk_cleared';
 
-function ContactRow({ contact, onDelete }: { contact: EmergencyContact; onDelete: () => void }) {
+const RISK_META: Record<string, { key: MessageKey; icon: keyof typeof Ionicons.glyphMap; cleared?: boolean }> = {
+  collision_risk: { key: 'safety.risk.collision', icon: 'car-outline' },
+  obstacle_risk: { key: 'safety.risk.obstacle', icon: 'warning-outline' },
+  possible_fall: { key: 'safety.risk.fall', icon: 'body-outline' },
+  risk_cleared: { key: 'safety.risk.cleared', icon: 'checkmark-circle-outline', cleared: true },
+};
+
+function StatusCard({
+  tone,
+  icon,
+  title,
+  body,
+  onPress,
+}: {
+  tone: 'success' | 'warning' | 'danger';
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  body: string;
+  onPress?: () => void;
+}) {
   const theme = useTheme();
-  return (
-    <View
-      style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-      <View style={[styles.avatar, { backgroundColor: theme.backgroundSelected }]}>
-        <ThemedText type="smallBold" style={{ fontSize: 18 }}>
-          {contact.name.slice(0, 1)}
+  const color = theme[tone];
+  const bg = tone === 'success' ? theme.successBg : tone === 'warning' ? theme.warningBg : theme.dangerBg;
+  const inner = (
+    <View style={styles.statusRow}>
+      <IconCircle icon={icon} size={44} iconSize={22} color={color} bg={bg} />
+      <View style={styles.statusBody}>
+        <ThemedText type="smallBold" style={{ fontSize: 17 }}>
+          {title}
+        </ThemedText>
+        <ThemedText type="small" themeColor="textSecondary" style={{ fontSize: 13 }}>
+          {body}
         </ThemedText>
       </View>
-      <View style={styles.contactBody}>
-        <ThemedText type="smallBold" style={{ fontSize: 16 }}>
-          {contact.name}
-        </ThemedText>
-        <ThemedText type="small" themeColor="textSecondary">
-          {contact.phone}
-        </ThemedText>
-        {contact.relation && <Badge variant="neutral" label={contact.relation} />}
-      </View>
-      <Pressable hitSlop={8} onPress={onDelete}>
-        <Ionicons name="trash-outline" size={20} color={theme.textSecondary} />
-      </Pressable>
+      {onPress && <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />}
     </View>
+  );
+  return onPress ? (
+    <Tappable feedback="scale" haptic onPress={onPress}>
+      <Card style={tone === 'danger' ? { borderColor: theme.danger } : undefined}>{inner}</Card>
+    </Tappable>
+  ) : (
+    <Card>{inner}</Card>
   );
 }
 
-function AccidentRow({ item }: { item: AccidentListItem & { _device: string } }) {
+function EventRow({ event, last }: { event: EventListItem; last: boolean }) {
   const theme = useTheme();
-  const statusBadge =
-    item.status === 'pending'
-      ? { variant: 'danger' as const, label: '进行中' }
-      : item.status === 'notified'
-        ? { variant: 'warning' as const, label: '已通知' }
-        : { variant: 'neutral' as const, label: '已取消' };
+  const t = useT();
+  const locale = useLocale();
+  const meta = RISK_META[event.eventType];
+  const cleared = meta?.cleared ?? false;
+  const color = cleared ? theme.success : theme.warning;
+  const bg = cleared ? theme.successBg : theme.warningBg;
   return (
-    <Pressable onPress={() => router.push(`/accident/${item.sosId}`)}>
-      <View
-        style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-        <View style={[styles.avatar, { backgroundColor: theme.dangerBg }]}>
-          <Ionicons
-            name={item.triggerType === 'manual_sos' ? 'hand-left-outline' : 'body-outline'}
-            size={20}
-            color={theme.danger}
-          />
-        </View>
-        <View style={styles.contactBody}>
-          <View style={styles.rowBetween}>
-            <ThemedText type="smallBold" style={{ fontSize: 15 }}>
-              {item.triggerType === 'manual_sos' ? '手动求救' : '跌倒检测'}
-            </ThemedText>
-            <Badge variant={statusBadge.variant} label={statusBadge.label} />
-          </View>
-          <ThemedText type="small" themeColor="textSecondary">
-            {item._device} · {new Date(item.createdAt).toLocaleString()}
-          </ThemedText>
-        </View>
-        <Ionicons name="chevron-forward" size={16} color={theme.textSecondary} />
+    <Tappable
+      feedback="fill"
+      onPress={() => router.push('/events')}
+      style={[styles.eventRow, !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border }]}>
+      <IconCircle icon={meta?.icon ?? 'alert-circle-outline'} color={color} bg={bg} />
+      <View style={styles.eventBody}>
+        <ThemedText type="small" style={{ fontSize: 15 }} numberOfLines={1}>
+          {meta ? t(meta.key) : event.eventType}
+        </ThemedText>
+        <ThemedText type="small" themeColor="textSecondary" style={{ fontSize: 13 }} numberOfLines={1}>
+          {event.summary ? `${event.summary} · ` : ''}
+          {shortDate(event.timestamp, locale)} {shortTime(event.timestamp, locale)}
+        </ThemedText>
       </View>
-    </Pressable>
+      <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
+    </Tappable>
   );
 }
 
 export default function SafetyScreen() {
   const theme = useTheme();
-  const queryClient = useQueryClient();
+  const t = useT();
+  const locale = useLocale();
 
   const devices = useQuery({ queryKey: ['devices'], queryFn: devicesApi.list });
-  const deviceIds = (devices.data ?? []).map((d) => d.deviceId);
+  const deviceList = devices.data ?? [];
+  const deviceIds = deviceList.map((d) => d.deviceId);
+  const onlineDevice = deviceList.find((d) => d.online);
 
   // 每台设备的进行中 SOS（WS 推送也会直写同 key 缓存）
   const activeSos = useQueries({
@@ -108,11 +129,10 @@ export default function SafetyScreen() {
       refetchInterval: 30_000,
     })),
   });
-  const pendingSos = activeSos
-    .map((q) => q.data?.sos)
-    .find((s) => s && s.status === 'pending');
+  const pendingSos = activeSos.map((q) => q.data?.sos).find((s) => s && s.status === 'pending');
 
   const contacts = useQuery({ queryKey: ['contacts'], queryFn: contactsApi.list });
+  const contactList = contacts.data ?? [];
 
   const accidents = useQueries({
     queries: deviceIds.map((id) => ({
@@ -121,353 +141,227 @@ export default function SafetyScreen() {
     })),
   });
   const accidentItems = accidents
-    .flatMap((q, i) =>
-      (q.data?.items ?? []).map((item) => ({ ...item, _device: deviceIds[i] })),
-    )
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .slice(0, 20);
+    .flatMap((q) => q.data?.items ?? [])
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
-  const removeContact = (contact: EmergencyContact) => {
-    Alert.alert('删除联系人', `SOS 时将不再通知 ${contact.name}，确定删除？`, [
-      { text: '取消', style: 'cancel' },
-      {
-        text: '删除',
-        style: 'destructive',
-        onPress: () => {
-          contactsApi
-            .remove(contact.id)
-            .then(() => queryClient.invalidateQueries({ queryKey: ['contacts'] }))
-            .catch((e) => Alert.alert('删除失败', toUserMessage(e)));
-        },
-      },
-    ]);
-  };
+  const events = useQueries({
+    queries: deviceIds.map((id) => ({
+      queryKey: ['events', id, RISK_TYPES],
+      queryFn: () => eventsApi.list(id, { type: RISK_TYPES, pageSize: 5 }),
+      refetchInterval: 30_000,
+    })),
+  });
+  const recentEvents = events
+    .flatMap((q) => q.data?.items ?? [])
+    .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+    .slice(0, 3);
 
-  const contactList = contacts.data ?? [];
-  const [devOpen, setDevOpen] = useState(false);
-
-  /** 紧急求助:长按 2 秒触发(防误触),经 app-relay 注入 manual_sos——
-   *  与头盔按钮走完全相同的服务端状态机,倒计时页由 WS 推送自动弹出 */
+  /** 长按 2 秒触发（防误触）：进度从左到右填满按钮 */
   const sosP = useSharedValue(0);
-  const sosFillStyle = useAnimatedStyle(() => ({
-    width: `${sosP.get() * 100}%`,
+  const sosFillStyle = useAnimatedStyle(() => ({ width: `${sosP.get() * 100}%` }));
+  const sosScaleStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: interpolate(sosP.get(), [0, 1], [1, 0.97]) }],
   }));
-  const sosTextStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: interpolate(sosP.get(), [0, 1], [1, 1.04]) }],
-  }));
-  const sosTarget = (devices.data ?? []).find((d) => d.online)?.deviceId ?? deviceIds[0];
+  const sosTarget = onlineDevice?.deviceId ?? deviceIds[0];
   const fireSos = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
     relayApi
       .pushEvent(sosTarget, 'manual_sos', {})
-      .catch((e) => Alert.alert('求救发送失败', toUserMessage(e)));
+      .catch((e) => Alert.alert(translate('safety.sosSendFailed'), toUserMessage(e)));
   };
+
+  const [devOpen, setDevOpen] = useState(false);
+  const inject = (type: 'possible_fall' | 'collision_risk') =>
+    relayApi
+      .pushEvent(
+        deviceIds[0],
+        type,
+        type === 'possible_fall' ? { confidence: 0.95 } : { riskLevel: 'high', direction: 'rear' },
+      )
+      .catch((e) => Alert.alert(translate('safety.dev.failed'), toUserMessage(e)));
+
+  const latestAccident = accidentItems[0];
 
   return (
     <SafeAreaView style={styles.flex}>
-      <ThemedView style={styles.container}>
-        <ScrollView
-          contentContainerStyle={{ gap: 12, paddingBottom: 16 }}
-          showsVerticalScrollIndicator={false}>
-          <View style={styles.titleRow}>
-            <ThemedText type="title" style={styles.pageTitle}>
-              安全中心
-            </ThemedText>
-            {(() => {
-              const online = (devices.data ?? []).filter((d) => d.online).length;
-              const ok = contactList.length > 0 && online > 0;
-              const color = ok ? theme.success : theme.danger;
-              return (
-                <View style={[styles.statusPill, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-                  <View style={[styles.statusDot, { backgroundColor: color }]} />
-                  <ThemedText type="label" style={{ color }}>
-                    {ok ? '防护中' : '防护未完成'}
-                  </ThemedText>
-                </View>
-              );
-            })()}
-          </View>
+      <ThemedView style={styles.flex}>
+        <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+          <ThemedText type="title" style={styles.pageTitle}>
+            {t('safety.title')}
+          </ThemedText>
 
-          <View style={styles.sectionHeader}>
-            <ThemedText type="subtitle" style={styles.sectionTitle}>
-              紧急联系人
-            </ThemedText>
-            <View style={styles.sectionHeaderRight}>
-              <ThemedText type="small" themeColor="textSecondary">
-                {contactList.length}/{MAX_CONTACTS}
-              </ThemedText>
-              {contactList.length < MAX_CONTACTS && (
-                <Pressable
-                  hitSlop={8}
-                  onPress={() => router.push('/add-contact')}
-                  style={[styles.addBtn, { backgroundColor: theme.backgroundSelected }]}>
-                  <Ionicons name="add" size={18} color={theme.brand} />
-                </Pressable>
-              )}
-            </View>
-          </View>
-          {contacts.isError && (
-            <ThemedText type="small">{toUserMessage(contacts.error)}</ThemedText>
-          )}
-          {contactList.map((c) => (
-            <ContactRow key={c.id} contact={c} onDelete={() => removeContact(c)} />
-          ))}
-          {contactList.length === 0 && !contacts.isLoading && (
-            <ThemedText type="small" themeColor="textSecondary">
-              点右上「+」添加,SOS 时将短信通知他们
-            </ThemedText>
+          {pendingSos ? (
+            <StatusCard
+              tone="danger"
+              icon="warning-outline"
+              title={t('safety.statusSos')}
+              body={t('safety.statusSosBody')}
+              onPress={() =>
+                router.push(`/sos-active?sosId=${pendingSos.sosId}&deviceId=${pendingSos.deviceId}`)
+              }
+            />
+          ) : !onlineDevice ? (
+            <StatusCard
+              tone="warning"
+              icon="bluetooth-outline"
+              title={t('safety.statusNoDevice')}
+              body={t('safety.statusNoDeviceBody')}
+              onPress={deviceList.length === 0 ? () => router.push('/bind-device') : undefined}
+            />
+          ) : contactList.length === 0 && !contacts.isLoading ? (
+            <StatusCard
+              tone="warning"
+              icon="call-outline"
+              title={t('safety.statusNoContacts')}
+              body={t('safety.statusNoContactsBody')}
+              onPress={() => router.push('/add-contact')}
+            />
+          ) : (
+            <StatusCard
+              tone="success"
+              icon="shield-checkmark-outline"
+              title={t('safety.statusSafe')}
+              body={t('safety.statusSafeBody', { device: onlineDevice.name ?? onlineDevice.deviceId })}
+            />
           )}
 
-          <View style={[styles.sectionHeader, { marginTop: 12 }]}>
-            <ThemedText type="subtitle" style={styles.sectionTitle}>
-              安全记录
-            </ThemedText>
-          </View>
-          {accidentItems.map((item) => (
-            <AccidentRow key={item.sosId} item={item} />
-          ))}
-          {accidentItems.length === 0 && (
-            <ThemedText type="small" themeColor="textSecondary">
-              暂无事故记录——愿一直如此 🙏
-            </ThemedText>
-          )}
-
-          {/* 次级入口:普通危险事件历史(§6),权重低于事故 */}
-          <Pressable onPress={() => router.push('/events')}>
-            {({ pressed }) => (
-              <View style={[styles.eventsLink, { opacity: pressed ? 0.6 : 1 }]}>
-                <Ionicons name="pulse-outline" size={16} color={theme.textSecondary} />
-                <ThemedText type="small" themeColor="textSecondary" style={{ flex: 1 }}>
-                  危险事件历史(碰撞 / 障碍物 / 摔倒)
+          <SectionLabel title={t('safety.events')} action={t('common.all')} onAction={() => router.push('/events')} />
+          <Card>
+            {recentEvents.length === 0 ? (
+              <View style={styles.emptyRow}>
+                <ThemedText type="small" themeColor="textSecondary">
+                  {t('safety.eventsEmpty')}
                 </ThemedText>
-                <Ionicons name="chevron-forward" size={14} color={theme.textSecondary} />
               </View>
+            ) : (
+              recentEvents.map((e, i) => (
+                <EventRow key={e.eventId} event={e} last={i === recentEvents.length - 1} />
+              ))
             )}
-          </Pressable>
+          </Card>
 
-          {/* 开发测试:经 app-relay(§12.1 真实契约)替绑定设备注入事件,快速触发 SOS/危险事件
-              全链路(Ingest→状态机→WS→倒计时页)。仅开发构建可见。 */}
+          <Card>
+            <ListRow
+              icon="call-outline"
+              title={t('safety.contacts')}
+              subtitle={
+                contactList.length > 0
+                  ? t('safety.contactsCaption', { n: contactList.length, max: MAX_CONTACTS })
+                  : t('safety.contactsNone')
+              }
+              onPress={() => router.push('/contacts')}
+            />
+            <ListRow
+              icon="time-outline"
+              title={t('safety.accidents')}
+              subtitle={
+                latestAccident
+                  ? t('safety.accidentsCaption', {
+                      n: accidentItems.length,
+                      date: shortDate(latestAccident.createdAt, locale),
+                    })
+                  : t('safety.accidentsNone')
+              }
+              onPress={() => router.push('/accidents')}
+              last
+            />
+          </Card>
+
+          {/* 开发测试：经 app-relay 真实链路注入事件（仅 DEV 构建可见） */}
           {__DEV__ && deviceIds[0] && (
             <View style={[styles.devBox, { borderColor: theme.border }]}>
-              <Pressable onPress={() => setDevOpen((v) => !v)} style={styles.devHeader}>
+              <Tappable onPress={() => setDevOpen((v) => !v)} style={styles.devHeader}>
                 <ThemedText type="label" themeColor="textSecondary">
-                  开发测试(仅 DEV 构建可见,走 app-relay 真实链路)
+                  {t('safety.dev.title')}
                 </ThemedText>
-                <Ionicons
-                  name={devOpen ? 'chevron-up' : 'chevron-down'}
-                  size={14}
-                  color={theme.textSecondary}
-                />
-              </Pressable>
+                <Ionicons name={devOpen ? 'chevron-up' : 'chevron-down'} size={14} color={theme.textSecondary} />
+              </Tappable>
               {devOpen && (
-              <View style={styles.devRow}>
-                <Pressable
-                  style={[styles.devBtn, { backgroundColor: theme.dangerBg }]}
-                  onPress={() =>
-                    relayApi
-                      .pushEvent(deviceIds[0], 'possible_fall', { confidence: 0.95 })
-                      .catch((e) => Alert.alert('注入失败', toUserMessage(e)))
-                  }>
-                  <ThemedText type="smallBold" style={{ color: theme.danger, fontSize: 13 }}>
-                    模拟摔倒
-                  </ThemedText>
-                </Pressable>
-                <Pressable
-                  style={[styles.devBtn, { backgroundColor: theme.warningBg }]}
-                  onPress={() =>
-                    relayApi
-                      .pushEvent(deviceIds[0], 'collision_risk', {
-                        riskLevel: 'high',
-                        direction: 'rear',
-                      })
-                      .catch((e) => Alert.alert('注入失败', toUserMessage(e)))
-                  }>
-                  <ThemedText type="smallBold" style={{ color: theme.warning, fontSize: 13 }}>
-                    模拟碰撞风险
-                  </ThemedText>
-                </Pressable>
-              </View>
+                <View style={styles.devRow}>
+                  <Tappable style={[styles.devBtn, { backgroundColor: theme.dangerBg }]} onPress={() => void inject('possible_fall')}>
+                    <ThemedText type="smallBold" style={{ color: theme.danger, fontSize: 13 }}>
+                      {t('safety.dev.fall')}
+                    </ThemedText>
+                  </Tappable>
+                  <Tappable style={[styles.devBtn, { backgroundColor: theme.warningBg }]} onPress={() => void inject('collision_risk')}>
+                    <ThemedText type="smallBold" style={{ color: theme.warning, fontSize: 13 }}>
+                      {t('safety.dev.collision')}
+                    </ThemedText>
+                  </Tappable>
+                </View>
               )}
             </View>
           )}
         </ScrollView>
 
-        {/* 拇指区固定位:紧急场景单手可达(负责人口径:availability 优先)。
-            平时=长按求救;有进行中 SOS 时=处理入口,同一位置不挪窝 */}
-        <View style={styles.bottomSos}>
-          {pendingSos ? (
-            <Pressable
-              onPress={() =>
-                router.push(`/sos-active?sosId=${pendingSos.sosId}&deviceId=${pendingSos.deviceId}`)
-              }>
-              <View style={[styles.sosBtn, { borderColor: theme.danger, backgroundColor: theme.danger }]}>
-                <View style={styles.sosBtnRow}>
-                  <Ionicons name="warning" size={22} color="#fff" />
-                  <View style={styles.sosBtnTextCol}>
-                    <ThemedText type="smallBold" style={{ color: '#fff', fontSize: 16 }}>
-                      有一条进行中的 SOS
-                    </ThemedText>
-                    <ThemedText type="label" style={{ color: 'rgba(255,255,255,0.8)' }}>
-                      点击查看倒计时,可取消或立即求救
-                    </ThemedText>
-                  </View>
-                  <Ionicons name="chevron-forward" size={18} color="#fff" />
-                </View>
-              </View>
-            </Pressable>
-          ) : sosTarget ? (
-            <Pressable
+        {/* 拇指区固定：有进行中 SOS 时同一位置变成处理入口，不挪窝 */}
+        {sosTarget && !pendingSos && (
+          <View style={styles.bottomSos}>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.sosHint}>
+              {t('safety.sosHint')}{' '}
+              <ThemedText type="smallBold" style={{ fontSize: 13 }}>
+                {t('safety.sosHintStrong')}
+              </ThemedText>
+            </ThemedText>
+            <AnimatedPressable
               delayLongPress={2000}
-              onPressIn={() => {
-                sosP.set(withTiming(1, { duration: 2000, easing: Easing.linear }));
-              }}
-              onPressOut={() => {
-                sosP.set(withTiming(0, { duration: 180 }));
-              }}
-              onLongPress={fireSos}>
-              <View style={[styles.sosBtn, { borderColor: theme.danger, backgroundColor: theme.dangerBg }]}>
-                <Animated.View
-                  style={[styles.sosFill, { backgroundColor: theme.danger }, sosFillStyle]}
-                />
-                <Animated.View style={[styles.sosBtnRow, sosTextStyle]}>
-                  <Ionicons name="alert-circle" size={24} color={theme.danger} />
-                  <View style={styles.sosBtnTextCol}>
-                    <ThemedText type="smallBold" style={{ color: theme.danger, fontSize: 17 }}>
-                      紧急求助
-                    </ThemedText>
-                    <ThemedText type="label" themeColor="textSecondary">
-                      长按 2 秒,60 秒倒计时后通知紧急联系人
-                    </ThemedText>
-                  </View>
-                </Animated.View>
+              onPressIn={() => sosP.set(withTiming(1, { duration: 2000, easing: Easing.linear }))}
+              onPressOut={() => sosP.set(withTiming(0, { duration: 180 }))}
+              onLongPress={fireSos}
+              style={[styles.sosBtn, { backgroundColor: theme.sos, shadowColor: theme.sos }, sosScaleStyle]}>
+              <Animated.View style={[styles.sosFill, sosFillStyle]} />
+              <ThemedText type="display" style={styles.sosWord}>
+                SOS
+              </ThemedText>
+              <View style={styles.sosDivider} />
+              <View style={styles.sosTextCol}>
+                <ThemedText type="smallBold" style={styles.sosTitle}>
+                  {t('safety.sosHold')}
+                </ThemedText>
+                <ThemedText type="small" style={styles.sosSub}>
+                  {t('safety.sosCancelable')}
+                </ThemedText>
               </View>
-            </Pressable>
-          ) : null}
-        </View>
-
+            </AnimatedPressable>
+          </View>
+        )}
       </ThemedView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  statusPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  statusDot: { width: 8, height: 8, borderRadius: 4 },
-  sectionHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  addBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sosBtn: {
-    borderRadius: 18,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
-  sosFill: {
-    ...StyleSheet.absoluteFill,
-    opacity: 0.28,
-  },
-  sosBtnRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 18,
-    paddingVertical: 16,
-  },
-  sosBtnTextCol: { flex: 1, gap: 2 },
-  bottomSos: { paddingTop: 8 },
-  eventsLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-  },
-  devHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  hero: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 18,
-    borderRadius: 22,
-    borderWidth: 1,
-    padding: 18,
-  },
-  heroShieldWrap: { alignItems: 'center', justifyContent: 'center' },
-  heroShield: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  heroBody: { flex: 1, gap: 4 },
   flex: { flex: 1 },
-  container: { flex: 1, paddingHorizontal: 20 },
-  pageTitle: { fontSize: 32, lineHeight: 38, marginTop: 8 },
-  sosBanner: {
+  container: { paddingHorizontal: 20, paddingBottom: 12, gap: 14 },
+  pageTitle: { fontSize: 32, lineHeight: 40, marginBottom: -2 },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16 },
+  statusBody: { flex: 1, gap: 3, minWidth: 0 },
+  eventRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, paddingVertical: 12 },
+  eventBody: { flex: 1, gap: 2, minWidth: 0 },
+  emptyRow: { paddingHorizontal: 16, paddingVertical: 18, alignItems: 'center' },
+  bottomSos: { paddingHorizontal: 20, paddingTop: 6, paddingBottom: 12, gap: 10 },
+  sosHint: { textAlign: 'center', fontSize: 13 },
+  sosBtn: {
+    height: 72,
+    borderRadius: Radius.pill,
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    borderRadius: Radius.card,
-    borderWidth: 1,
-    padding: 16,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
-  },
-  sectionTitle: { fontSize: 20, lineHeight: 26 },
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    borderRadius: Radius.card,
-    borderWidth: 1,
-    padding: 14,
-  },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 14,
+    overflow: 'hidden',
+    shadowOpacity: 0.45,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 8,
   },
-  contactBody: { flex: 1, gap: 4 },
-  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  bottomCta: { paddingTop: 4, paddingBottom: 10 },
-  devBox: {
-    marginTop: 16,
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderRadius: Radius.card,
-    padding: 12,
-    gap: 10,
-  },
+  sosFill: { position: 'absolute', top: 0, left: 0, bottom: 0, backgroundColor: 'rgba(255,255,255,0.22)' },
+  sosWord: { color: '#FFFFFF', fontSize: 26, lineHeight: 30, letterSpacing: 2 },
+  sosDivider: { width: 1, height: 28, backgroundColor: 'rgba(255,255,255,0.35)' },
+  sosTextCol: { gap: 2 },
+  sosTitle: { color: '#FFFFFF', fontSize: 16, lineHeight: 20 },
+  sosSub: { color: 'rgba(255,255,255,0.85)', fontSize: 12, lineHeight: 14 },
+  devBox: { borderWidth: 1, borderStyle: 'dashed', borderRadius: Radius.card, padding: 12, gap: 10 },
+  devHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 32 },
   devRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
-  devBtn: {
-    borderRadius: Radius.pill,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-  },
+  devBtn: { borderRadius: Radius.pill, paddingHorizontal: 14, paddingVertical: 8 },
 });
