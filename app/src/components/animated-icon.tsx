@@ -18,7 +18,7 @@ import Animated, {
 import { scheduleOnRN } from 'react-native-worklets';
 
 const BG = '#070A18';
-const CYAN = '#5CF0FF';
+const BRAND = '#5CF0FF';
 const SWEEP_STEP = 55;      // 每字流光间隔
 const SWEEP_DUR = 650;      // 单字提亮-回落
 const WORD = 'ZERO-ONE INNOVATION'.split('');
@@ -44,7 +44,7 @@ function ShineLetter({ ch, delay }: { ch: string; delay: number }) {
     };
   });
   return (
-    <Animated.Text style={[styles.en, { textShadowColor: CYAN }, st]}>{ch}</Animated.Text>
+    <Animated.Text style={[styles.en, { textShadowColor: BRAND }, st]}>{ch}</Animated.Text>
   );
 }
 
@@ -195,7 +195,7 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 0 },
   },
   zh: {
-    color: '#9DB8FF',
+    color: '#AEB4C0',
     fontSize: 12,
     fontWeight: '600',
     letterSpacing: 4,
@@ -203,8 +203,8 @@ const styles = StyleSheet.create({
   },
   star: {
     position: 'absolute',
-    backgroundColor: '#DDEBFF',
-    shadowColor: '#FFFFFF',
+    backgroundColor: '#D9F24A',
+    shadowColor: '#D9F24A',
     shadowOpacity: 0.9,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 0 },
