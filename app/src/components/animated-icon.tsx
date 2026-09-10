@@ -78,15 +78,18 @@ function Star({ x, y, size }: { x: number; y: number; size: number }) {
   );
 }
 
+// 不规则散布在构图四周(半径/角度/大小都打乱,视觉上像随机落点);
+// 避让区:商标(|x|<100 且 |y|<100)与文字带(|y|<34 且 |x|<130)
 const STARS = [
-  { x: -160, y: -138, size: 6 },
-  { x: -120, y: 128, size: 7 },
-  { x: -62, y: -150, size: 5 },
-  { x: -20, y: 136, size: 6 },
-  { x: 34, y: -132, size: 7 },
-  { x: 92, y: 148, size: 5 },
-  { x: 136, y: -124, size: 6 },
-  { x: 168, y: 122, size: 6 },
+  { x: -148, y: -96, size: 5 },
+  { x: -58, y: -152, size: 6 },
+  { x: 52, y: -118, size: 7 },
+  { x: 152, y: -58, size: 5 },
+  { x: 170, y: 66, size: 6 },
+  { x: 96, y: 158, size: 7 },
+  { x: 10, y: 122, size: 5 },
+  { x: -104, y: 108, size: 6 },
+  { x: -172, y: 20, size: 5 },
 ];
 
 export function AnimatedSplashOverlay() {
