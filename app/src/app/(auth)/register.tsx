@@ -34,13 +34,18 @@ export default function RegisterScreen() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [sending, setSending] = useState(false);
-  const [cooldown, setCooldown] = useState(0);
+  /** 重发限频用截止时间戳 + 墙钟计算剩余——递减 state 在 App 退后台时定时器
+   *  被 iOS 暂停,回前台倒计时冻在原地(2026-09-10 真机实证);按墙钟算则
+   *  回前台首个 tick 即校准。同 sos-active 倒计时的口径。 */
+  const [cooldownUntil, setCooldownUntil] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
+  const cooldown = Math.max(0, Math.ceil((cooldownUntil - now) / 1000));
 
   useEffect(() => {
-    if (cooldown <= 0) return;
-    const timer = setTimeout(() => setCooldown((s) => s - 1), 1000);
-    return () => clearTimeout(timer);
-  }, [cooldown]);
+    if (cooldownUntil <= now) return;
+    const timer = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(timer);
+  }, [cooldownUntil, now]);
 
   const sendCode = async () => {
     setError(null);
@@ -51,7 +56,9 @@ export default function RegisterScreen() {
     setSending(true);
     try {
       await authApi.sendSmsCode({ phone: phone.trim(), purpose: 'register' });
-      setCooldown(RESEND_SECONDS);
+      const t = Date.now();
+      setNow(t);
+      setCooldownUntil(t + RESEND_SECONDS * 1000);
     } catch (e) {
       setError(toUserMessage(e));
     } finally {
