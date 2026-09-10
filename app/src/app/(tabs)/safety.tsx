@@ -23,7 +23,6 @@ import { toUserMessage } from '@/api/error-messages';
 import { relayApi } from '@/api/relay';
 import { sosApi } from '@/api/sos';
 import { Badge } from '@/components/badge';
-import { PulseRing } from '@/components/pulse-ring';
 import { PrimaryButton } from '@/components/form';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -170,9 +169,24 @@ export default function SafetyScreen() {
         <ScrollView
           contentContainerStyle={{ gap: 12, paddingBottom: 16 }}
           showsVerticalScrollIndicator={false}>
-          <ThemedText type="title" style={styles.pageTitle}>
-            安全中心
-          </ThemedText>
+          <View style={styles.titleRow}>
+            <ThemedText type="title" style={styles.pageTitle}>
+              安全中心
+            </ThemedText>
+            {(() => {
+              const online = (devices.data ?? []).filter((d) => d.online).length;
+              const ok = contactList.length > 0 && online > 0;
+              const color = ok ? theme.success : theme.danger;
+              return (
+                <View style={[styles.statusPill, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+                  <View style={[styles.statusDot, { backgroundColor: color }]} />
+                  <ThemedText type="label" style={{ color }}>
+                    {ok ? '防护中' : '防护未完成'}
+                  </ThemedText>
+                </View>
+              );
+            })()}
+          </View>
 
           {pendingSos && (
             <Pressable
@@ -188,45 +202,6 @@ export default function SafetyScreen() {
               </View>
             </Pressable>
           )}
-
-          {/* 防护状态 hero:盾环脉冲 + 关键数字;无联系人时转为琥珀提醒 */}
-          <Animated.View entering={FadeInDown.duration(360)}>
-            <View style={[styles.hero, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-              <View style={styles.heroShieldWrap}>
-                <PulseRing
-                  active
-                  size={92}
-                  color={contactList.length === 0 ? theme.warning : theme.success}
-                  count={2}
-                  duration={2600}
-                />
-                <View
-                  style={[
-                    styles.heroShield,
-                    { backgroundColor: contactList.length === 0 ? theme.warningBg : 'rgba(52,199,89,0.14)' },
-                  ]}>
-                  <Ionicons
-                    name={contactList.length === 0 ? 'shield-half' : 'shield-checkmark'}
-                    size={38}
-                    color={contactList.length === 0 ? theme.warning : theme.success}
-                  />
-                </View>
-              </View>
-              <View style={styles.heroBody}>
-                <ThemedText type="subtitle">
-                  {contactList.length === 0 ? '防护未完成' : '防护中'}
-                </ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  {`${(devices.data ?? []).filter((d) => d.online).length}/${(devices.data ?? []).length} 台头盔在线 · 紧急联系人 ${contactList.length}/${MAX_CONTACTS}`}
-                </ThemedText>
-                {contactList.length === 0 && (
-                  <ThemedText type="label" style={{ color: theme.warning }}>
-                    添加联系人后,SOS 才能通知到人
-                  </ThemedText>
-                )}
-              </View>
-            </View>
-          </Animated.View>
 
           {/* 紧急求助:长按 2 秒发出 manual_sos(与头盔按钮同链路,倒计时内可取消) */}
           {sosTarget && !pendingSos && (
@@ -368,6 +343,21 @@ export default function SafetyScreen() {
 }
 
 const styles = StyleSheet.create({
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
   sectionHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   addBtn: {
     width: 30,
