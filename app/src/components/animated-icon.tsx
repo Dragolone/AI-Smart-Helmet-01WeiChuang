@@ -59,11 +59,11 @@ function Star({ x, y, size, delay, dur }: { x: number; y: number; size: number; 
   // 位移必须写进动画样式:style 数组里后者的 transform 会整体覆盖前者,
   // 否则所有星点塌缩到中心叠成一个点(2026-09-10 实测)
   const st = useAnimatedStyle(() => ({
-    opacity: interpolate(p.get(), [0, 1], [0.12, 0.85]),
+    opacity: interpolate(p.get(), [0, 1], [0.15, 0.35]),
     transform: [
       { translateX: x },
       { translateY: y },
-      { scale: interpolate(p.get(), [0, 1], [0.75, 1.35]) },
+      { scale: interpolate(p.get(), [0, 1], [0.95, 1.15]) },
     ],
   }));
   return (
@@ -73,17 +73,15 @@ function Star({ x, y, size, delay, dur }: { x: number; y: number; size: number; 
   );
 }
 
+// 参考页同款分布:光点聚在构图周围一小圈,不铺满屏(±110pt 内)
 const STARS = [
-  { x: -140, y: -300, size: 9, delay: 0, dur: 1700 },
-  { x: 150, y: -240, size: 7, delay: 500, dur: 2100 },
-  { x: -165, y: -120, size: 8, delay: 900, dur: 1800 },
-  { x: 170, y: -60, size: 6, delay: 250, dur: 2300 },
-  { x: -155, y: 150, size: 8, delay: 700, dur: 1900 },
-  { x: 160, y: 230, size: 10, delay: 1100, dur: 1700 },
-  { x: 60, y: -330, size: 7, delay: 350, dur: 2000 },
-  { x: -70, y: 300, size: 8, delay: 1300, dur: 2200 },
-  { x: 120, y: 330, size: 6, delay: 150, dur: 2400 },
-  { x: -60, y: -370, size: 6, delay: 1000, dur: 1600 },
+  { x: 24, y: 100, size: 6, delay: 0, dur: 2000 },
+  { x: 62, y: 52, size: 6, delay: 200, dur: 2000 },
+  { x: -30, y: 62, size: 8, delay: 400, dur: 2000 },
+  { x: -56, y: -78, size: 5, delay: 700, dur: 2000 },
+  { x: 36, y: -74, size: 7, delay: 350, dur: 2000 },
+  { x: 92, y: -40, size: 6, delay: 900, dur: 2000 },
+  { x: -104, y: 30, size: 6, delay: 950, dur: 2000 },
 ];
 
 export function AnimatedSplashOverlay() {
@@ -175,25 +173,32 @@ const styles = StyleSheet.create({
   },
   watermark: {
     position: 'absolute',
-    width: 232,
-    height: 232,
+    width: 188,
+    height: 188,
     opacity: 0.14,
   },
   textBlock: { alignItems: 'center', gap: 10 },
   row: { flexDirection: 'row', alignItems: 'center' },
   en: {
     color: '#F0F6FF',
-    fontSize: 19,
+    fontSize: 17,
     fontWeight: '800',
-    letterSpacing: 1.5,
+    letterSpacing: 1.2,
     textShadowOffset: { width: 0, height: 0 },
   },
   zh: {
     color: '#9DB8FF',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
-    letterSpacing: 5,
+    letterSpacing: 4,
     opacity: 0.85,
   },
-  star: { position: 'absolute', backgroundColor: CYAN },
+  star: {
+    position: 'absolute',
+    backgroundColor: '#DDEBFF',
+    shadowColor: '#FFFFFF',
+    shadowOpacity: 0.9,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 0 },
+  },
 });
