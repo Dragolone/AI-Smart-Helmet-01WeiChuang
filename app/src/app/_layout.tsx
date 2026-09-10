@@ -1,20 +1,15 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useEffect } from 'react';
-import {
-  DarkTheme,
-  DefaultTheme,
-  Stack,
-  ThemeProvider,
-} from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { LogBox } from 'react-native';
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
+import * as SplashScreen from "expo-splash-screen";
+import { LogBox } from "react-native";
 
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import { ToastHost } from '@/components/toast';
-import { useColorScheme } from '@/hooks/use-color-scheme';
-import { useLocaleStore, useT } from '@/i18n';
-import { useAuthStore } from '@/stores/auth-store';
-import { useThemeStore } from '@/stores/theme-store';
+import { AnimatedSplashOverlay } from "@/components/animated-icon";
+import { ToastHost } from "@/components/toast";
+import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useLocaleStore, useT } from "@/i18n";
+import { useAuthStore } from "@/stores/auth-store";
+import { useThemeStore } from "@/stores/theme-store";
 
 // 已知无害：开发期 iOS 摘除了推送 entitlement（个人团队签不了 aps-environment），
 // expo-notifications 启动自检读不到钥匙串会报此错。公司账号恢复正式签名后删除本行。
@@ -36,41 +31,48 @@ function RootNavigator() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Protected guard={authed}>
-        <Stack.Screen name="(tabs)" />
+        {/* 标签页自身不显示 header，但它的 title 会成为下级页面返回键的文字（默认会露出路由组名 "(tabs)"） */}
+        <Stack.Screen name="(tabs)" options={{ title: t("nav.back") }} />
         <Stack.Screen
           name="bind-device"
           options={{
-            presentation: 'modal',
+            presentation: "modal",
             headerShown: true,
-            title: t('nav.bindDevice'),
+            title: t("nav.bindDevice"),
           }}
         />
         <Stack.Screen
           name="device/[deviceId]"
-          options={{ headerShown: true, title: t('nav.deviceDetail') }}
+          options={{ headerShown: true, title: t("nav.deviceDetail") }}
         />
         <Stack.Screen
           name="add-contact"
           options={{
-            presentation: 'modal',
+            presentation: "modal",
             headerShown: true,
-            title: t('nav.addContact'),
+            title: t("nav.addContact"),
           }}
         />
         <Stack.Screen
           name="accident/[accidentId]"
-          options={{ headerShown: true, title: t('nav.accidentDetail') }}
+          options={{ headerShown: true, title: t("nav.accidentDetail") }}
         />
         <Stack.Screen
           name="events"
-          options={{ headerShown: true, title: t('nav.events') }}
+          options={{ headerShown: true, title: t("nav.events") }}
         />
-        <Stack.Screen name="contacts" options={{ headerShown: true, title: t('nav.contacts') }} />
-        <Stack.Screen name="accidents" options={{ headerShown: true, title: t('nav.accidents') }} />
+        <Stack.Screen
+          name="contacts"
+          options={{ headerShown: true, title: t("nav.contacts") }}
+        />
+        <Stack.Screen
+          name="accidents"
+          options={{ headerShown: true, title: t("nav.accidents") }}
+        />
         {/* SOS 全屏页：手势返回禁用——处理中的求救不允许误滑关闭 */}
         <Stack.Screen
           name="sos-active"
-          options={{ presentation: 'fullScreenModal', gestureEnabled: false }}
+          options={{ presentation: "fullScreenModal", gestureEnabled: false }}
         />
       </Stack.Protected>
       <Stack.Protected guard={!authed}>
@@ -100,7 +102,7 @@ export default function RootLayout() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+      <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
         <AnimatedSplashOverlay />
         {/* SecureStore 恢复完成前不挂路由，避免登录态闪变；空白由 SplashOverlay 兜住 */}
         {hydrated && localeHydrated && themeHydrated && <RootNavigator />}
