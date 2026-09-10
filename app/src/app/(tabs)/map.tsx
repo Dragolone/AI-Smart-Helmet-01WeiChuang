@@ -20,6 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LocationPoint, WsLocationData } from '@helmet/shared';
 
 import { devicesApi } from '@/api/devices';
+import { realtimeClient } from '@/api/realtime';
 import { AmapView, type AmapViewHandle } from '@/components/map/amap-view';
 import { cumulativeMeters, toGcj02, type LngLat } from '@/components/map/coords';
 import { openAmapNavigation } from '@/components/map/nav-links';
@@ -177,6 +178,9 @@ export default function MapScreen() {
   /** 底部卡进场动画:每次进入地图页(且有设备)从下方弹入;Animated.Value 惰性
    *  useState 持有(React Compiler 禁止渲染期读 ref,平台限制清单口径) */
   const [cardIn] = useState(() => new Animated.Value(0));
+  /** WS 加速通道健康度:断线时药丸提示「重连中」,野外测试知道数据是否还新鲜 */
+  const [wsUp, setWsUp] = useState(true);
+  useEffect(() => realtimeClient.subscribeState(setWsUp), []);
   const deviceList = devices.data ?? [];
   const device = deviceList.find((d) => d.deviceId === selectedId) ?? deviceList[0];
   const hasDevice = device != null;
@@ -357,21 +361,29 @@ export default function MapScreen() {
             <View
               style={[
                 styles.liveDot,
-                { backgroundColor: online ? theme.success : theme.textSecondary },
+                {
+                  backgroundColor: !wsUp
+                    ? theme.warning
+                    : online
+                      ? theme.success
+                      : theme.textSecondary,
+                },
               ]}
             />
             <View>
               <ThemedText type="smallBold" style={styles.lightText}>
-                {online || !device ? '实时追踪' : '设备离线'}
+                {!wsUp ? '连接中断' : online || !device ? '实时追踪' : '设备离线'}
               </ThemedText>
               <ThemedText type="label" style={styles.dimText}>
-                {device
-                  ? online
-                    ? statPoint
-                      ? `${device.name ?? device.deviceId} · ${new Date(statPoint.timestamp).toLocaleTimeString()}`
-                      : `${device.name ?? device.deviceId} · 等待位置上报`
-                    : `${device.name ?? device.deviceId} · 最后在线 ${device.lastSeenAt ? timeAgo(device.lastSeenAt) : '未知'}`
-                  : '未绑定设备'}
+                {!wsUp
+                  ? '实时通道重连中,数据可能有延迟…'
+                  : device
+                    ? online
+                      ? statPoint
+                        ? `${device.name ?? device.deviceId} · ${new Date(statPoint.timestamp).toLocaleTimeString()}`
+                        : `${device.name ?? device.deviceId} · 等待位置上报`
+                      : `${device.name ?? device.deviceId} · 最后在线 ${device.lastSeenAt ? timeAgo(device.lastSeenAt) : '未知'}`
+                    : '未绑定设备'}
               </ThemedText>
             </View>
             {deviceList.length > 1 && (

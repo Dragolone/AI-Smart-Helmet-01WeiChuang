@@ -7,6 +7,7 @@ import { StyleSheet } from 'react-native';
 import { devicesApi } from '@/api/devices';
 import { toUserMessage } from '@/api/error-messages';
 import { FormError, FormInput, PrimaryButton } from '@/components/form';
+import { showToast } from '@/components/toast';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 
@@ -26,7 +27,10 @@ export default function BindDeviceScreen() {
         bindCode: bindCode.trim(),
       });
       await queryClient.invalidateQueries({ queryKey: ['devices'] });
+      showToast('绑定成功');
+      // 关掉本 modal 后直接落地图页:立刻看到新设备在动(底部卡弹入)
       router.back();
+      router.push('/map');
     } catch (e) {
       setError(toUserMessage(e));
     } finally {

@@ -13,6 +13,7 @@ const BACKOFF_BASE_MS = 1000;
 const BACKOFF_MAX_MS = 30_000;
 
 type Listener = (message: WsMessage) => void;
+type StateListener = (connected: boolean) => void;
 
 type Deps = {
   getAccessToken: () => string | null;
@@ -24,6 +25,8 @@ class RealtimeClient {
   private deps: Deps | null = null;
   private ws: WebSocket | null = null;
   private listeners = new Set<Listener>();
+  private stateListeners = new Set<StateListener>();
+  private connected = false;
   private attempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private running = false;
@@ -38,6 +41,7 @@ class RealtimeClient {
 
   stop(): void {
     this.running = false;
+    this.setConnected(false);
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
     this.ws?.close();
@@ -47,6 +51,19 @@ class RealtimeClient {
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /** 连接状态订阅(加速通道健康度,UI 提示用);订阅时立即回放当前值 */
+  subscribeState(listener: StateListener): () => void {
+    listener(this.connected);
+    this.stateListeners.add(listener);
+    return () => this.stateListeners.delete(listener);
+  }
+
+  private setConnected(v: boolean): void {
+    if (this.connected === v) return;
+    this.connected = v;
+    for (const l of this.stateListeners) l(v);
   }
 
   private connect(): void {
@@ -62,6 +79,7 @@ class RealtimeClient {
 
     ws.onopen = () => {
       this.attempts = 0;
+      this.setConnected(true);
       if (__DEV__) console.log('[realtime] 已连接');
     };
 
@@ -77,6 +95,7 @@ class RealtimeClient {
     ws.onclose = (event) => {
       if (this.ws !== ws) return; // stop() 或新连接已接管
       this.ws = null;
+      this.setConnected(false);
       if (!this.running) return;
       if (event.code === CLOSE_UNAUTHORIZED) {
         // token 过期：借 api 层完成刷新后立刻重连（失败则走常规退避）

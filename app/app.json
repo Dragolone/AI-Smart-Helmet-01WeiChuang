@@ -4,7 +4,7 @@
     "slug": "app",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/icon-brand.png",
     "scheme": "app",
     "userInterfaceStyle": "automatic",
     "ios": {
@@ -25,8 +25,8 @@
         "android.permission.BLUETOOTH_CONNECT"
       ],
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundColor": "#0E0F12",
+        "foregroundImage": "./assets/images/splash-brand.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
@@ -48,9 +48,9 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "backgroundColor": "#0E0F12",
+          "image": "./assets/images/splash-brand.png",
+          "imageWidth": 220
         }
       ],
       "expo-secure-store",

@@ -1,6 +1,7 @@
 // 登录页（API.md §2 POST /auth/login）
 import { Link } from 'expo-router';
-import { useState } from 'react';
+import * as SecureStore from 'expo-secure-store';
+import { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -18,11 +19,21 @@ export default function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // 记住上次登录的手机号(只存号码不存密码);读取失败静默忽略
+  useEffect(() => {
+    SecureStore.getItemAsync('last_login_phone')
+      .then((v) => {
+        if (v) setPhone((cur) => cur || v);
+      })
+      .catch(() => {});
+  }, []);
+
   const submit = async () => {
     setError(null);
     setBusy(true);
     try {
       const auth = await authApi.login({ phone: phone.trim(), password });
+      SecureStore.setItemAsync('last_login_phone', phone.trim()).catch(() => {});
       await signIn(auth); // AuthGate 检测到会话后自动跳转主页
     } catch (e) {
       setError(toUserMessage(e));

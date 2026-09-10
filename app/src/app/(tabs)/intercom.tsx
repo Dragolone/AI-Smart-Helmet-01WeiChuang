@@ -321,9 +321,12 @@ export default function IntercomScreen() {
               对讲
             </ThemedText>
             <View style={styles.joinWrap}>
-              <Ionicons name="mic-outline" size={56} color={theme.textSecondary} />
+              <View style={[styles.emptyIconWrap, { backgroundColor: theme.backgroundSelected }]}>
+                <Ionicons name="mic" size={40} color={theme.brand} />
+              </View>
+              <ThemedText type="subtitle">和队友保持通话</ThemedText>
               <ThemedText type="small" themeColor="textSecondary" style={styles.centerText}>
-                创建频道或用邀请码加入队友的频道{'\n'}进入后按住按钮说话,蓝牙头盔自动走耳机
+                创建频道或用邀请码加入队友的频道{'\n'}进入后按住说话,蓝牙头盔自动走耳机
               </ThemedText>
               <PrimaryButton title="创建频道" onPress={() => setCreateOpen(true)} />
               <Pressable onPress={() => setJoinOpen(true)}>
@@ -613,6 +616,14 @@ export default function IntercomScreen() {
 }
 
 const styles = StyleSheet.create({
+  emptyIconWrap: {
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
   flex: { flex: 1 },
   container: { flex: 1, paddingHorizontal: 20 },
   pageTitle: { fontSize: 32, lineHeight: 38, marginTop: 8 },
