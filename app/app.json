@@ -15,7 +15,8 @@
         "UIBackgroundModes": [
           "audio"
         ]
-      }
+      },
+      "appleTeamId": "LZ3H94F5LC"
     },
     "android": {
       "permissions": [
