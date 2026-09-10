@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import type {
-  DeviceStatusPayload,
   LocationPoint as WireLocationPoint,
   Sos,
   WsDeviceEventData,
@@ -10,6 +9,7 @@ import type {
   WsRiskEventData,
   WsSosData,
 } from '@helmet/shared';
+import { normalizeDeviceStatus } from '../devices/device-snapshot.service';
 import { buildSummary } from '../events/event-wire';
 import type { ValidEnvelope } from '../ingest/envelope';
 import { RealtimeGateway } from './realtime.gateway';
@@ -75,16 +75,16 @@ export class RealtimePushService {
   }
 
   pushDeviceStatus(userId: string, e: ValidEnvelope): void {
-    // 设备输入不可信：逐字段收敛为 §4 status 对象；刚收到事件即在线
-    const p = e.payload as Partial<DeviceStatusPayload>;
+    // 设备输入不可信：与快照同一套收敛规则（值域外字段按缺失）；刚收到事件即在线
+    const p = normalizeDeviceStatus(e.payload);
     const data: WsDeviceStatusData = {
       deviceId: e.deviceId,
       online: true,
       lastSeenAt: new Date().toISOString(),
-      battery: typeof p.battery === 'number' ? p.battery : null,
-      charging: typeof p.charging === 'boolean' ? p.charging : null,
-      signalLevel: typeof p.signalLevel === 'number' ? p.signalLevel : null,
-      sleeping: typeof p.sleeping === 'boolean' ? p.sleeping : false,
+      battery: p.battery ?? null,
+      charging: p.charging ?? null,
+      signalLevel: p.signalLevel ?? null,
+      sleeping: p.sleeping ?? false,
       firmwareVersion: e.firmwareVersion,
     };
     const message: WsMessage<WsDeviceStatusData> = {

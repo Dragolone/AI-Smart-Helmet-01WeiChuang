@@ -1,5 +1,6 @@
 import { Body, Controller, HttpCode, Post } from '@nestjs/common';
 import { Public } from '../common/public.decorator';
+import { RateLimit } from '../common/rate-limit.guard';
 import {
   LoginDto,
   RefreshDto,
@@ -13,7 +14,12 @@ import { AuthService } from './auth.service';
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
+  // 发码：同 IP 每分钟 5 条、每天 50 条（跨号码轰炸面）；同号 60s/日限在 SmsCodeService 内
   @Public()
+  @RateLimit(
+    { name: 'sms_min', limit: 5, windowMs: 60_000 },
+    { name: 'sms_day', limit: 50, windowMs: 24 * 60 * 60_000 },
+  )
   @HttpCode(204)
   @Post('sms-code')
   async smsCode(@Body() dto: SmsCodeDto): Promise<void> {
@@ -21,12 +27,18 @@ export class AuthController {
   }
 
   @Public()
+  @RateLimit({ name: 'register', limit: 20, windowMs: 60_000 })
   @Post('register')
   register(@Body() dto: RegisterDto) {
     return this.auth.register(dto.phone, dto.code, dto.password, dto.nickname);
   }
 
+  // 登录：同 IP+手机号每分钟 10 次（撞库），同 IP 每分钟 100 次（横向扫号）
   @Public()
+  @RateLimit(
+    { name: 'login_phone', limit: 10, windowMs: 60_000, keyBy: 'ip+phone' },
+    { name: 'login_ip', limit: 100, windowMs: 60_000 },
+  )
   @HttpCode(200)
   @Post('login')
   login(@Body() dto: LoginDto) {
@@ -34,6 +46,7 @@ export class AuthController {
   }
 
   @Public()
+  @RateLimit({ name: 'reset', limit: 10, windowMs: 60_000, keyBy: 'ip+phone' })
   @HttpCode(204)
   @Post('reset-password')
   async resetPassword(@Body() dto: ResetPasswordDto): Promise<void> {
@@ -41,6 +54,7 @@ export class AuthController {
   }
 
   @Public()
+  @RateLimit({ name: 'refresh', limit: 60, windowMs: 60_000 })
   @HttpCode(200)
   @Post('refresh')
   refresh(@Body() dto: RefreshDto) {

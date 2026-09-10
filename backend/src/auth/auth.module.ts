@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
+import { RateLimitGuard } from '../common/rate-limit.guard';
 import { ProvidersModule } from '../providers/providers.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
@@ -29,6 +30,8 @@ import { SmsCodeService } from './sms-code.service';
     AuthService,
     SmsCodeService,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // 公开认证接口的限频（登录撞库 / 短信轰炸面），规则见各路由 @RateLimit
+    { provide: APP_GUARD, useClass: RateLimitGuard },
   ],
   exports: [AuthService],
 })

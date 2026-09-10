@@ -154,9 +154,12 @@ export class SosNotifierService {
   private async smsMessage(c: SosCase): Promise<SmsMessage> {
     const user = await this.prisma.user.findUnique({
       where: { id: c.userId },
-      select: { nickname: true },
+      select: { nickname: true, phone: true },
     });
-    const nickname = (user?.nickname?.trim() || c.deviceId).slice(0, 10);
+    // 没昵称时回落为脱敏手机号（11 字符，在腾讯云变量默认 12 字符限内；家属认得出号码，认不出 deviceId）
+    const nickname =
+      user?.nickname?.trim().slice(0, 10) ||
+      (user ? maskPhone(user.phone) : c.deviceId.slice(0, 10));
     const at = c.finalizedAt ?? new Date();
     const triggeredAt = new Intl.DateTimeFormat('zh-CN', {
       timeZone: 'Asia/Shanghai',

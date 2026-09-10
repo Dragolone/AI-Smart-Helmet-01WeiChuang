@@ -25,6 +25,8 @@ export class RealtimeGateway
   private readonly logger = new Logger(RealtimeGateway.name);
   private readonly byUser = new Map<string, Set<WebSocket>>();
   private readonly clientUser = new Map<WebSocket, string>();
+  /** access token 到期即断开（App 用新 token 重连）：连接不能比凭证活得久 */
+  private readonly expiryTimers = new Map<WebSocket, NodeJS.Timeout>();
 
   constructor(private readonly jwt: JwtService) {}
 
@@ -42,8 +44,19 @@ export class RealtimeGateway
     }
     try {
       // 默认密钥 = 用户 JWT；admin token（独立密钥）天然验签失败
-      const payload = await this.jwt.verifyAsync<{ sub: string }>(token);
+      const payload = await this.jwt.verifyAsync<{ sub: string; exp?: number }>(
+        token,
+      );
       const userId = payload.sub;
+      if (typeof payload.exp === 'number') {
+        const ttl = Math.max(payload.exp * 1000 - Date.now(), 0);
+        const timer = setTimeout(
+          () => client.close(CLOSE_UNAUTHORIZED, '访问令牌已过期'),
+          ttl,
+        );
+        timer.unref();
+        this.expiryTimers.set(client, timer);
+      }
       let conns = this.byUser.get(userId);
       if (!conns) {
         conns = new Set();
@@ -86,6 +99,11 @@ export class RealtimeGateway
   }
 
   handleDisconnect(client: WebSocket): void {
+    const timer = this.expiryTimers.get(client);
+    if (timer) {
+      clearTimeout(timer);
+      this.expiryTimers.delete(client);
+    }
     const userId = this.clientUser.get(client);
     if (!userId) return;
     this.clientUser.delete(client);

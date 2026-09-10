@@ -167,10 +167,17 @@ export class AuthService {
         message: 'refresh token 已过期，请重新登录',
       });
     }
-    await this.prisma.refreshToken.update({
-      where: { tokenHash },
+    // 条件轮换：同一 token 并发刷新只有一方成功，输家拿 401 但不触发全局撤销（那是良性竞态，不是盗用）
+    const rotated = await this.prisma.refreshToken.updateMany({
+      where: { tokenHash, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+    if (rotated.count === 0) {
+      throw new UnauthorizedException({
+        code: 'UNAUTHORIZED',
+        message: 'refresh token 已被使用，请用最新的 token',
+      });
+    }
     return this.issueTokens(record.userId);
   }
 

@@ -67,9 +67,19 @@ export class DevicesService {
         message: '设备已被其他用户绑定',
       });
     }
-    const updated = await this.prisma.device.update({
-      where: { deviceId },
+    // 条件更新：并发绑定只有一方能把 null 改成自己，另一方如实拿到 409
+    const won = await this.prisma.device.updateMany({
+      where: { deviceId, bindUserId: null },
       data: { bindUserId: userId, boundAt: new Date() },
+    });
+    if (won.count === 0) {
+      throw new ConflictException({
+        code: 'DEVICE_ALREADY_BOUND',
+        message: '设备已被其他用户绑定',
+      });
+    }
+    const updated = await this.prisma.device.findUniqueOrThrow({
+      where: { deviceId },
     });
     return this.toPublic(updated);
   }

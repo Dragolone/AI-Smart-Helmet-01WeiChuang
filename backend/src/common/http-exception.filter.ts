@@ -15,10 +15,24 @@ const STATUS_CODE_MAP: Record<number, string> = {
   403: 'FORBIDDEN',
   404: 'NOT_FOUND',
   409: 'CONFLICT',
+  413: 'PAYLOAD_TOO_LARGE',
   429: 'RATE_LIMITED',
   500: 'INTERNAL_ERROR',
   503: 'SERVICE_UNAVAILABLE',
 };
+
+interface ClientHttpError extends Error {
+  status: number;
+  expose?: boolean;
+  type?: string;
+}
+
+/** Express 中间件层（body-parser 等）抛出的 4xx HttpError */
+function isClientHttpError(err: unknown): err is ClientHttpError {
+  if (!(err instanceof Error)) return false;
+  const status = (err as { status?: unknown }).status;
+  return typeof status === 'number' && status >= 400 && status < 500;
+}
 
 /** 统一错误格式（API.md §1）：{ code, message, requestId }；客户端只依赖 code。 */
 @Catch()
@@ -50,6 +64,15 @@ export class UnifiedExceptionFilter implements ExceptionFilter {
       if (code === 'INTERNAL_ERROR') {
         code = STATUS_CODE_MAP[status] ?? `HTTP_${status}`;
       }
+    } else if (isClientHttpError(exception)) {
+      // Express/body-parser 抛的 HttpError（413 entity.too.large、400 entity.parse.failed 等）：
+      // 是客户端问题，按 4xx 统一格式返回；不打堆栈，避免被用来刷 ERROR 日志
+      status = exception.status;
+      code = STATUS_CODE_MAP[status] ?? `HTTP_${status}`;
+      message = exception.expose ? exception.message : '请求无法处理';
+      this.logger.warn(
+        `客户端请求错误 [${requestId}] ${status} ${exception.type ?? ''}`,
+      );
     } else {
       // 未预期异常：完整堆栈进日志，响应体不泄露内部细节
       this.logger.error(

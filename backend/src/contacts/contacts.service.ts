@@ -32,17 +32,19 @@ export class ContactsService {
     userId: string,
     data: { name: string; phone: string; relation?: string },
   ): Promise<WireContact> {
-    const active = await this.prisma.emergencyContact.count({
-      where: { userId, deletedAt: null },
-    });
-    if (active >= CONTACT_LIMIT) {
-      throw new ConflictException({
-        code: 'EMERGENCY_CONTACT_LIMIT_REACHED',
-        message: `紧急联系人最多 ${CONTACT_LIMIT} 个`,
+    // 事务级咨询锁按用户串行化「计数 → 创建」：并发创建不会突破名额（先查后写的经典竞态）
+    const created = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`contacts:${userId}`}))`;
+      const active = await tx.emergencyContact.count({
+        where: { userId, deletedAt: null },
       });
-    }
-    const created = await this.prisma.emergencyContact.create({
-      data: { userId, ...data },
+      if (active >= CONTACT_LIMIT) {
+        throw new ConflictException({
+          code: 'EMERGENCY_CONTACT_LIMIT_REACHED',
+          message: `紧急联系人最多 ${CONTACT_LIMIT} 个`,
+        });
+      }
+      return tx.emergencyContact.create({ data: { userId, ...data } });
     });
     return toWire(created);
   }

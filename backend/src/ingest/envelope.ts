@@ -41,7 +41,18 @@ export const MAX_RAW_BYTES = 65_536;
 /** EVENTS.md §1：timestamp 必须为 ISO 8601 且带显式时区（Z 或 ±hh:mm）。
  *  缺时区的字符串 JS 会按服务器本地时区解释，导致静默偏移数小时落库。 */
 const ISO8601_WITH_TZ =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/;
+  /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/;
+
+/** raw_events.schema_version 是 int4：超出范围的值入库必炸，在校验层挡住 */
+const INT32_MAX = 2_147_483_647;
+/** 设备时钟最早只可能回到 epoch（1970）；年份 0000 之类 PostgreSQL 直接拒绝 */
+const MIN_YEAR = 1970;
+
+const daysInMonth = (year: number, month: number): number =>
+  new Date(Date.UTC(year, month, 0)).getUTCDate();
+
+/** JSON 文本里的 NUL（转义形式 \\u0000）：PostgreSQL text/jsonb 都不接受，入库必炸 */
+const hasNul = (raw: string): boolean => /\\u0000/i.test(raw);
 
 export function validateEnvelope(
   raw: string,
@@ -49,6 +60,9 @@ export function validateEnvelope(
 ): EnvelopeResult {
   if (Buffer.byteLength(raw, 'utf-8') > MAX_RAW_BYTES) {
     return { ok: false, reason: 'payload_too_large' };
+  }
+  if (hasNul(raw)) {
+    return { ok: false, reason: 'contains_nul_character' };
   }
   let parsed: unknown;
   try {
@@ -67,6 +81,9 @@ export function validateEnvelope(
   ) {
     return { ok: false, reason: 'schema_version_missing_or_not_integer' };
   }
+  if (o.schemaVersion < 0 || o.schemaVersion > INT32_MAX) {
+    return { ok: false, reason: 'schema_version_out_of_range' };
+  }
   if (typeof o.eventId !== 'string' || o.eventId.length === 0) {
     return { ok: false, reason: 'event_id_missing' };
   }
@@ -83,8 +100,20 @@ export function validateEnvelope(
   if (typeof o.timestamp !== 'string') {
     return { ok: false, reason: 'timestamp_missing' };
   }
-  if (!ISO8601_WITH_TZ.test(o.timestamp)) {
+  const tsMatch = ISO8601_WITH_TZ.exec(o.timestamp);
+  if (!tsMatch) {
     return { ok: false, reason: 'timestamp_not_iso8601_with_timezone' };
+  }
+  const [year, month, day] = [tsMatch[1], tsMatch[2], tsMatch[3]].map(Number);
+  // JS Date 会把 02-30 静默回滚成 03-02，设备侧日期 bug 会被掩盖；这里按日历严格校验
+  if (
+    year < MIN_YEAR ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > daysInMonth(year, month)
+  ) {
+    return { ok: false, reason: 'timestamp_out_of_range' };
   }
   const ts = new Date(o.timestamp);
   if (Number.isNaN(ts.getTime())) {
