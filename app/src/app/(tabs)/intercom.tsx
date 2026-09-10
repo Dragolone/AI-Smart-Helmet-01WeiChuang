@@ -18,6 +18,12 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, {
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 import TRTCCloud, {
   TRTCCloudDef,
   TRTCCloudListener,
@@ -89,6 +95,15 @@ export default function IntercomScreen() {
   const trtc = useRef(TRTCCloud.sharedInstance());
   const [inRoom, setInRoom] = useState(false);
   const [talking, setTalking] = useState(false);
+  /** PTT 按压动效:下陷缩放 + 辉光增强(白色猎豹式分层按钮的本地化) */
+  const pttScale = useSharedValue(1);
+  const pttPressStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pttScale.get() }],
+  }));
+  const pttGlowStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(pttScale.get(), [0.92, 1], [0.95, 0.35]),
+    transform: [{ scale: interpolate(pttScale.get(), [0.92, 1], [1.12, 1]) }],
+  }));
   const [onlineIds, setOnlineIds] = useState<string[]>([]);
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
@@ -278,11 +293,13 @@ export default function IntercomScreen() {
 
   // 按下/松开都给触觉确认:骑行戴手套看不清屏幕,靠震动知道开没开麦
   const pttDown = async () => {
+    pttScale.set(withSpring(0.92, { damping: 14, stiffness: 260 }));
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     await trtc.current.muteLocalAudio(false);
     setTalking(true);
   };
   const pttUp = async () => {
+    pttScale.set(withSpring(1, { damping: 12, stiffness: 200 }));
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     await trtc.current.muteLocalAudio(true);
     setTalking(false);
@@ -417,7 +434,19 @@ export default function IntercomScreen() {
             <View style={styles.pttWrap}>
               <View style={styles.pttClip}>
                 <PulseRing active={talking} size={220} color={theme.danger} count={3} duration={1400} />
-              <View style={[styles.pttOuter, { borderColor: talking ? theme.dangerBg : 'rgba(217,242,74,0.15)' }]}>
+              <Animated.View
+                style={[
+                  styles.pttGlow,
+                  { backgroundColor: talking ? theme.danger : theme.brand },
+                  pttGlowStyle,
+                ]}
+              />
+              <Animated.View
+                style={[
+                  styles.pttOuter,
+                  { borderColor: talking ? theme.dangerBg : 'rgba(217,242,74,0.15)' },
+                  pttPressStyle,
+                ]}>
                 <Pressable
                   onPressIn={() => void pttDown()}
                   onPressOut={() => void pttUp()}
@@ -435,7 +464,7 @@ export default function IntercomScreen() {
                     {talking ? '正在说话…' : '按住说话'}
                   </ThemedText>
                 </Pressable>
-              </View>
+              </Animated.View>
               </View>
             </View>
 
@@ -710,6 +739,13 @@ const styles = StyleSheet.create({
   },
   cardBody: { flex: 1, gap: 2 },
   pttWrap: { alignItems: 'center', paddingVertical: 4 },
+  pttGlow: {
+    position: 'absolute',
+    width: 196,
+    height: 196,
+    borderRadius: 98,
+    opacity: 0.35,
+  },
   pttClip: { alignSelf: 'stretch', height: 252, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
   pttOuter: {
     width: 236,

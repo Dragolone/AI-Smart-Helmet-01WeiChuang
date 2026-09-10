@@ -5,6 +5,7 @@ import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import type { AccidentListItem, EmergencyContact } from '@helmet/shared';
 
 import { contactsApi } from '@/api/contacts';
@@ -13,6 +14,7 @@ import { toUserMessage } from '@/api/error-messages';
 import { relayApi } from '@/api/relay';
 import { sosApi } from '@/api/sos';
 import { Badge } from '@/components/badge';
+import { PulseRing } from '@/components/pulse-ring';
 import { PrimaryButton } from '@/components/form';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -144,6 +146,45 @@ export default function SafetyScreen() {
           <ThemedText type="title" style={styles.pageTitle}>
             安全中心
           </ThemedText>
+
+          {/* 防护状态 hero:盾环脉冲 + 关键数字;无联系人时转为琥珀提醒 */}
+          <Animated.View entering={FadeInDown.duration(360)}>
+            <View style={[styles.hero, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+              <View style={styles.heroShieldWrap}>
+                <PulseRing
+                  active
+                  size={92}
+                  color={contactList.length === 0 ? theme.warning : theme.success}
+                  count={2}
+                  duration={2600}
+                />
+                <View
+                  style={[
+                    styles.heroShield,
+                    { backgroundColor: contactList.length === 0 ? theme.warningBg : 'rgba(52,199,89,0.14)' },
+                  ]}>
+                  <Ionicons
+                    name={contactList.length === 0 ? 'shield-half' : 'shield-checkmark'}
+                    size={38}
+                    color={contactList.length === 0 ? theme.warning : theme.success}
+                  />
+                </View>
+              </View>
+              <View style={styles.heroBody}>
+                <ThemedText type="subtitle">
+                  {contactList.length === 0 ? '防护未完成' : '防护中'}
+                </ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  {`${(devices.data ?? []).filter((d) => d.online).length}/${(devices.data ?? []).length} 台头盔在线 · 紧急联系人 ${contactList.length}/${MAX_CONTACTS}`}
+                </ThemedText>
+                {contactList.length === 0 && (
+                  <ThemedText type="label" style={{ color: theme.warning }}>
+                    添加联系人后,SOS 才能通知到人
+                  </ThemedText>
+                )}
+              </View>
+            </View>
+          </Animated.View>
 
           {pendingSos && (
             <Pressable
@@ -285,6 +326,23 @@ export default function SafetyScreen() {
 }
 
 const styles = StyleSheet.create({
+  hero: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 18,
+    borderRadius: 22,
+    borderWidth: 1,
+    padding: 18,
+  },
+  heroShieldWrap: { alignItems: 'center', justifyContent: 'center' },
+  heroShield: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroBody: { flex: 1, gap: 4 },
   flex: { flex: 1 },
   container: { flex: 1, paddingHorizontal: 20 },
   pageTitle: { fontSize: 32, lineHeight: 38, marginTop: 8 },

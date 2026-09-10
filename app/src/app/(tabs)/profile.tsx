@@ -21,6 +21,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 
 import { authApi } from '@/api/auth';
 import { showToast } from '@/components/toast';
@@ -101,10 +102,18 @@ function Row({
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  children,
+  delay = 0,
+}: {
+  title: string;
+  children: React.ReactNode;
+  delay?: number;
+}) {
   const theme = useTheme();
   return (
-    <View style={styles.section}>
+    <Animated.View entering={FadeInDown.duration(360).delay(delay)} style={styles.section}>
       <ThemedText type="label" themeColor="textSecondary" style={styles.sectionTitle}>
         {title}
       </ThemedText>
@@ -115,7 +124,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
         ]}>
         {children}
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -238,7 +247,7 @@ export default function ProfileScreen() {
             我的
           </ThemedText>
 
-          <Section title="账号">
+          <Section title="账号" delay={0}>
             {/* 个人资料:有头像时行图标即头像 */}
             <Pressable
               style={({ pressed }) => [
@@ -279,7 +288,7 @@ export default function ProfileScreen() {
             />
           </Section>
 
-          <Section title="设备">
+          <Section title="设备" delay={80}>
             <Row
               icon="albums-outline"
               tint="blue"
@@ -304,7 +313,7 @@ export default function ProfileScreen() {
             />
           </Section>
 
-          <Section title="通用">
+          <Section title="通用" delay={160}>
             <Row
               icon="notifications-outline"
               tint="orange"

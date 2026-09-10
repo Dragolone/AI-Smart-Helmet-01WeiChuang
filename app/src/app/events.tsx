@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 
 import { devicesApi } from '@/api/devices';
 import { eventsApi } from '@/api/events';
@@ -121,7 +122,7 @@ export default function EventsScreen() {
         {firstError != null && (
           <ThemedText type="small">{toUserMessage(firstError)}</ThemedText>
         )}
-        {items.map((e) => {
+        {items.map((e, i) => {
           const meta = EVENT_META[e.eventType] ?? {
             title: e.eventType,
             icon: 'alert-circle-outline' as const,
@@ -129,7 +130,10 @@ export default function EventsScreen() {
           };
           const c = toneColor(meta.tone);
           return (
-            <Pressable key={e.eventId} onPress={() => setDetailId(e.eventId)}>
+            <Animated.View
+              key={e.eventId}
+              entering={FadeInDown.duration(300).delay(Math.min(i * 45, 400))}>
+            <Pressable onPress={() => setDetailId(e.eventId)}>
               {({ pressed }) => (
                 <View
                   style={[
@@ -157,6 +161,7 @@ export default function EventsScreen() {
                 </View>
               )}
             </Pressable>
+            </Animated.View>
           );
         })}
         {loading && items.length === 0 && (
