@@ -25,7 +25,7 @@
         "android.permission.BLUETOOTH_CONNECT"
       ],
       "adaptiveIcon": {
-        "backgroundColor": "#0E0F12",
+        "backgroundColor": "#070A18",
         "foregroundImage": "./assets/images/splash-brand.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -48,7 +48,7 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#0E0F12",
+          "backgroundColor": "#070A18",
           "image": "./assets/images/splash-brand.png",
           "imageWidth": 220
         }
