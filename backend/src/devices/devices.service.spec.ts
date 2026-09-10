@@ -3,7 +3,18 @@ import { DevicesService } from './devices.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 describe('DevicesService（单测，mock 数据层）', () => {
-  const prismaMock = {
+  // $transaction：回调式直接用同一个 mock 当 tx，数组式 Promise.all
+  const prismaMock: {
+    $transaction: jest.Mock;
+    deviceBinding: { create: jest.Mock; updateMany: jest.Mock };
+    device: Record<string, jest.Mock>;
+  } = {
+    $transaction: jest.fn((arg: unknown) =>
+      typeof arg === 'function'
+        ? (arg as (tx: unknown) => unknown)(prismaMock)
+        : Promise.all(arg as Promise<unknown>[]),
+    ),
+    deviceBinding: { create: jest.fn(), updateMany: jest.fn() },
     device: {
       findUnique: jest.fn(),
       findUniqueOrThrow: jest.fn(),
@@ -30,6 +41,12 @@ describe('DevicesService（单测，mock 数据层）', () => {
 
   beforeEach(async () => {
     jest.resetAllMocks();
+    // resetAllMocks 会清掉 $transaction 的实现，这里重挂
+    prismaMock.$transaction.mockImplementation((arg: unknown) =>
+      typeof arg === 'function'
+        ? (arg as (tx: unknown) => unknown)(prismaMock)
+        : Promise.all(arg as Promise<unknown>[]),
+    );
     const moduleRef = await Test.createTestingModule({
       providers: [
         DevicesService,

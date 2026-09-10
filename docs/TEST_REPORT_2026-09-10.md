@@ -4,7 +4,7 @@
 > 方法：静态检查 → 既有单测/集成测 → 新增 6 个加固/压力套件（`backend/test/hardening-*.e2e-spec.ts`、`stress.e2e-spec.ts`）→ 真实进程端到端（dist 后端 + Mock Device 走 app-relay 跑摔倒剧本）。
 > 结论：**核心保命链路（SOS 状态机）在全部并发/竞态用例下正确；测出的 11 个缺陷（3 个 Ingest 5xx/丢数据、2 个滥用面、4 个并发名额/顺序、若干记录项）已于同日全部修复并回归：单测 80/80、e2e 24 套件 209/209 全绿，真实进程端到端复跑通过。**
 >
-> **修复状态（2026-09-10 同日）**：下表 #1–#14、#16 已修（详见 §6）；#15 由负责人拍板为「按绑定区间归属」（决策 #39），在后续 PR `feat/device-binding-history` 中实现；#17（relay 批量吞吐）为容量项，MVP 不动。
+> **修复状态（2026-09-10 同日）**：下表 #1–#16 全部已修（详见 §6；#15 由负责人拍板为「按绑定区间归属」，决策 #39）；#17（relay 批量吞吐）为容量项，MVP 不动。
 
 ## 1. 总览
 
@@ -101,6 +101,7 @@ backend/test/stress.e2e-spec.ts            压力（8 用例，全过，约 30s�
 | 13 | WS 连接按 token `exp` 定时以 4401 关闭 | `realtime/realtime.gateway.ts` |
 | 14 | 见 #1（日历严格校验） | — |
 | 16 | SOS 短信昵称缺省回落为脱敏手机号（11 字符，在腾讯云变量 12 字符限内） | `sos/sos-notifier.service.ts` |
+| 15 | **决策 #39**：新表 `device_bindings` 记录每段绑定（migration `20260910031837_device_bindings`，回填现有绑定）；bind/unbind 同事务开关区间；事件列表/详情、轨迹 latest/范围、媒体取 URL 只返回本人绑定区间内（receivedAt）的数据。换绑新主看不到前主数据；同一人解绑再绑回来两段历史都可见。**注意：与 #3 的 migration 分属两个 PR（仓库规则一 PR 一 migration）** | `devices/binding-scope.service.ts`（新）、`devices/devices.service.ts`、`events/events.service.ts`、`locations/*`、`media/media.service.ts`、`docs/API.md §4/§5/§6`、`docs/DATABASE.md`、`docs/DECISIONS.md #39` |
 | 文档 | API.md §1.1 新增 `PAYLOAD_TOO_LARGE`、§2 限频规则与密码字节上限、§8 迟到回执不回写新键、§11 WS 到期断开；EVENTS.md §1 值域与 §2 字符集规则 | `docs/API.md`、`docs/EVENTS.md` |
 
 ## 5. 环境层面的发现（非产品缺陷）

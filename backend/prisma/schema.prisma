@@ -97,6 +97,20 @@ model Device {
   @@map("devices")
 }
 
+// 绑定历史（决策 #39）：每段绑定关系一行；事件/轨迹/媒体的用户可见范围 = 该用户在该设备上的全部绑定区间
+// （按服务端 receivedAt 判定）。换绑后新主看不到前主期间的数据；同一人解绑再绑回来，两段历史都可见。
+// 不建外键：与 raw_events 同原则（用户/设备删除留档不受影响）
+model DeviceBinding {
+  id        String    @id @default(cuid())
+  deviceId  String    @map("device_id")
+  userId    String    @map("user_id")
+  boundAt   DateTime  @default(now()) @map("bound_at")
+  unboundAt DateTime? @map("unbound_at")
+
+  @@index([deviceId, userId, boundAt])
+  @@map("device_bindings")
+}
+
 // 设备命令（API.md §8 / DEVICE_PROTOCOL §7）：pending → delivered → success | failed | offline
 // delivered = MQTT PUBACK（口径 #27④）；30s 无回执 → offline；迟到回执允许覆盖 offline（如实记录）
 model DeviceCommand {

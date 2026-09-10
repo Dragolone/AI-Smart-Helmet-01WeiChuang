@@ -156,6 +156,7 @@ export async function cleanupDevices(
   await prisma.media.deleteMany({ where }).catch(swallow);
   await prisma.locationPoint.deleteMany({ where }).catch(swallow);
   await prisma.rawEvent.deleteMany({ where }).catch(swallow);
+  await prisma.deviceBinding.deleteMany({ where }).catch(swallow);
   await prisma.device.deleteMany({ where }).catch(swallow);
 }
 
@@ -187,6 +188,9 @@ export async function cleanupUsers(
       where: { bindUserId: { in: ids } },
       data: { bindUserId: null, boundAt: null },
     })
+    .catch(swallow);
+  await prisma.deviceBinding
+    .deleteMany({ where: { userId: { in: ids } } })
     .catch(swallow);
   await prisma.user.deleteMany({ where: { id: { in: ids } } }).catch(swallow);
 }

@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { MediaUrlResponse } from '@helmet/shared';
+import { BindingScopeService } from '../devices/binding-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   STORAGE_PROVIDER,
@@ -21,6 +22,7 @@ const urlTtlSeconds = (): number => {
 export class MediaService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly scope: BindingScopeService,
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
   ) {}
 
@@ -34,7 +36,15 @@ export class MediaService {
         where: { deviceId: media.deviceId },
         select: { bindUserId: true },
       });
-      if (device?.bindUserId === userId) {
+      // 归属 = 当前绑定 + 媒体登记时间落在本人绑定区间内（决策 #39）
+      const intervals =
+        device?.bindUserId === userId
+          ? await this.scope.intervals(media.deviceId, userId)
+          : [];
+      if (
+        device?.bindUserId === userId &&
+        this.scope.inScope(media.createdAt, intervals)
+      ) {
         if (!media.storageKey) {
           throw new ConflictException({
             code: 'MEDIA_NOT_READY',
