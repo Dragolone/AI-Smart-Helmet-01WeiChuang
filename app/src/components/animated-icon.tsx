@@ -23,6 +23,9 @@ const SWEEP_STEP = 55;      // 每字流光间隔
 const SWEEP_DUR = 650;      // 单字提亮-回落
 const WORD = 'ZERO-ONE INNOVATION'.split('');
 const SWEEP_TOTAL = SWEEP_STEP * WORD.length + SWEEP_DUR;
+/** 环形扫光:一圈时长与起始延迟(从正上方顺时针一周) */
+const REV_MS = 1600;
+const REV_DELAY = 250;
 const HOLD = SWEEP_TOTAL + 900;   // 流光完+中文亮相后停留
 const FADE = 460;
 
@@ -45,25 +48,27 @@ function ShineLetter({ ch, delay }: { ch: string; delay: number }) {
   );
 }
 
-/** 背景光点:错峰呼吸(明暗+缩放),不旋转 */
-function Star({ x, y, size, delay, dur }: { x: number; y: number; size: number; delay: number; dur: number }) {
+/** 背景光点:被 360° 环形扫光依次点亮——延迟按方位角对齐光束经过时刻,
+ *  亮起后渐暗为余晖,一次性(不循环) */
+function Star({ x, y, size }: { x: number; y: number; size: number }) {
   const p = useSharedValue(0);
   useEffect(() => {
+    // 屏幕坐标 atan2(y,x):270°=正上;光束自正上方顺时针一周
+    const theta = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+    const frac = ((theta - 270 + 360) % 360) / 360;
     p.set(
       withDelay(
-        delay,
-        withRepeat(withTiming(1, { duration: dur, easing: Easing.inOut(Easing.quad) }), -1, true),
+        REV_DELAY + frac * REV_MS,
+        withTiming(1, { duration: 950, easing: Easing.out(Easing.quad) }),
       ),
     );
-  }, [p, delay, dur]);
-  // 位移必须写进动画样式:style 数组里后者的 transform 会整体覆盖前者,
-  // 否则所有星点塌缩到中心叠成一个点(2026-09-10 实测)
+  }, [p, x, y]);
   const st = useAnimatedStyle(() => ({
-    opacity: interpolate(p.get(), [0, 1], [0.15, 0.35]),
+    opacity: interpolate(p.get(), [0, 0.3, 1], [0, 0.65, 0.12]),
     transform: [
       { translateX: x },
       { translateY: y },
-      { scale: interpolate(p.get(), [0, 1], [0.95, 1.15]) },
+      { scale: interpolate(p.get(), [0, 0.3, 1], [0.7, 1.2, 0.95]) },
     ],
   }));
   return (
@@ -73,15 +78,34 @@ function Star({ x, y, size, delay, dur }: { x: number; y: number; size: number; 
   );
 }
 
-// 参考页同款分布:光点聚在构图周围一小圈,不铺满屏(±110pt 内)
+/** 环形光束:柔光点自正上方顺时针转一圈后隐去(点亮星点的"光源") */
+function OrbitBeam() {
+  const prog = useSharedValue(0);
+  useEffect(() => {
+    prog.set(
+      withDelay(REV_DELAY, withTiming(1, { duration: REV_MS, easing: Easing.inOut(Easing.quad) })),
+    );
+  }, [prog]);
+  const st = useAnimatedStyle(() => ({
+    opacity: interpolate(prog.get(), [0, 0.05, 0.88, 1], [0, 0.5, 0.45, 0]),
+    transform: [{ rotateZ: `${prog.get() * 360}deg` }],
+  }));
+  return (
+    <Animated.View style={[styles.beamOrbit, st]}>
+      <View style={styles.beamGlow} />
+    </Animated.View>
+  );
+}
+
 const STARS = [
-  { x: 24, y: 100, size: 6, delay: 0, dur: 2000 },
-  { x: 62, y: 52, size: 6, delay: 200, dur: 2000 },
-  { x: -30, y: 62, size: 8, delay: 400, dur: 2000 },
-  { x: -56, y: -78, size: 5, delay: 700, dur: 2000 },
-  { x: 36, y: -74, size: 7, delay: 350, dur: 2000 },
-  { x: 92, y: -40, size: 6, delay: 900, dur: 2000 },
-  { x: -104, y: 30, size: 6, delay: 950, dur: 2000 },
+  { x: -160, y: -138, size: 6 },
+  { x: -120, y: 128, size: 7 },
+  { x: -62, y: -150, size: 5 },
+  { x: -20, y: 136, size: 6 },
+  { x: 34, y: -132, size: 7 },
+  { x: 92, y: 148, size: 5 },
+  { x: 136, y: -124, size: 6 },
+  { x: 168, y: 122, size: 6 },
 ];
 
 export function AnimatedSplashOverlay() {
@@ -141,8 +165,9 @@ export function AnimatedSplashOverlay() {
 
   return (
     <Animated.View style={[styles.overlay, overlayStyle]}>
-      {STARS.map((s, i) => (
-        <Star key={i} {...s} />
+      <OrbitBeam />
+      {STARS.map((st, i) => (
+        <Star key={i} {...st} />
       ))}
       {watermark}
       <View style={styles.textBlock}>
@@ -192,6 +217,24 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 4,
     opacity: 0.85,
+  },
+  beamOrbit: {
+    position: 'absolute',
+    width: 300,
+    height: 300,
+    alignItems: 'center',
+  },
+  beamGlow: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    marginTop: -7,
+    backgroundColor: '#CFE6FF',
+    shadowColor: '#5CF0FF',
+    shadowOpacity: 1,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 10,
   },
   star: {
     position: 'absolute',
