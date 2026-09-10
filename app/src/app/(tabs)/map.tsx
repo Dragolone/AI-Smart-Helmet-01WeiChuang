@@ -4,6 +4,7 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { useKeepAwake } from 'expo-keep-awake';
+import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   type LayoutChangeEvent,
@@ -49,6 +50,15 @@ function trackWindow(hours: RangeHours, dayOffset: number): { from: Date; to: Da
   midnight.setHours(0, 0, 0, 0);
   const from = new Date(midnight.getTime() - dayOffset * 86_400_000);
   return { from, to: new Date(from.getTime() + 86_400_000 - 1) };
+}
+
+/** 离线设备药丸用:最后在线的相对时间 */
+function timeAgo(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 60_000) return '刚刚';
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)} 分钟前`;
+  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)} 小时前`;
+  return `${Math.floor(ms / 86_400_000)} 天前`;
 }
 
 function dayLabel(offset: number): string {
@@ -329,13 +339,15 @@ export default function MapScreen() {
             />
             <View>
               <ThemedText type="smallBold" style={styles.lightText}>
-                实时追踪
+                {online || !device ? '实时追踪' : '设备离线'}
               </ThemedText>
               <ThemedText type="label" style={styles.dimText}>
                 {device
-                  ? statPoint
-                    ? `${device.name ?? device.deviceId} · ${new Date(statPoint.timestamp).toLocaleTimeString()}`
-                    : `${device.name ?? device.deviceId} · 等待位置上报`
+                  ? online
+                    ? statPoint
+                      ? `${device.name ?? device.deviceId} · ${new Date(statPoint.timestamp).toLocaleTimeString()}`
+                      : `${device.name ?? device.deviceId} · 等待位置上报`
+                    : `${device.name ?? device.deviceId} · 最后在线 ${device.lastSeenAt ? timeAgo(device.lastSeenAt) : '未知'}`
                   : '未绑定设备'}
               </ThemedText>
             </View>
@@ -415,6 +427,26 @@ export default function MapScreen() {
                 </ThemedText>
               </Pressable>
             ))}
+          </View>
+        )}
+
+        {/* 空状态:成功拉取且无绑定设备——新用户引导去绑定 */}
+        {devices.isSuccess && deviceList.length === 0 && (
+          <View style={styles.emptyWrap} pointerEvents="box-none">
+            <View style={[styles.emptyCard, { backgroundColor: cardBg, borderColor: theme.border }]}>
+              <Ionicons name="bicycle" size={40} color={theme.brand} />
+              <ThemedText type="subtitle">还没有绑定头盔</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.emptyText}>
+                绑定后就能在这里实时查看位置、回放轨迹
+              </ThemedText>
+              <Pressable
+                style={[styles.emptyBtn, { backgroundColor: theme.brand }]}
+                onPress={() => router.push('/bind-device')}>
+                <ThemedText type="smallBold" style={{ color: theme.onBrand }}>
+                  去绑定设备
+                </ThemedText>
+              </Pressable>
+            </View>
           </View>
         )}
 
@@ -626,6 +658,28 @@ function Stat({
 }
 
 const styles = StyleSheet.create({
+  emptyWrap: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyCard: {
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 22,
+    borderWidth: 1,
+    paddingHorizontal: 28,
+    paddingVertical: 24,
+    maxWidth: '82%',
+  },
+  emptyText: { textAlign: 'center' },
+  emptyBtn: {
+    borderRadius: Radius.pill,
+    paddingHorizontal: 22,
+    paddingVertical: 11,
+    marginTop: 4,
+  },
   flex: { flex: 1, backgroundColor: '#0B0C0E' },
   // 绝对定位 + zIndex：浮层明确压在全屏地图之上（双端触摸/渲染层级一致，模拟器已验证）
   overlay: {

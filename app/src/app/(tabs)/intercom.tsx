@@ -16,6 +16,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TRTCCloud, {
   TRTCCloudDef,
@@ -275,11 +276,14 @@ export default function IntercomScreen() {
       .finally(() => setSubmitting(false));
   };
 
+  // 按下/松开都给触觉确认:骑行戴手套看不清屏幕,靠震动知道开没开麦
   const pttDown = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     await trtc.current.muteLocalAudio(false);
     setTalking(true);
   };
   const pttUp = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     await trtc.current.muteLocalAudio(true);
     setTalking(false);
   };

@@ -3,7 +3,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
 import { devicesApi } from '@/api/devices';
 import { eventsApi } from '@/api/events';
@@ -109,7 +109,15 @@ export default function EventsScreen() {
         ))}
       </View>
 
-      <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.list}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={perDevice.some((q) => q.isRefetching)}
+            onRefresh={() => perDevice.forEach((q) => void q.refetch())}
+          />
+        }>
         {firstError != null && (
           <ThemedText type="small">{toUserMessage(firstError)}</ThemedText>
         )}
