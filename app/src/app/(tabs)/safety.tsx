@@ -29,6 +29,7 @@ import { Tappable } from '@/components/tappable';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Radius } from '@/constants/theme';
+import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useTheme } from '@/hooks/use-theme';
 import { translate, useLocale, useT, type MessageKey } from '@/i18n';
 import { shortDate, shortTime } from '@/i18n/format';
@@ -112,6 +113,7 @@ function EventRow({ event, last }: { event: EventListItem; last: boolean }) {
 
 export default function SafetyScreen() {
   const theme = useTheme();
+  const scheme = useColorScheme();
   const t = useT();
   const locale = useLocale();
 
@@ -311,7 +313,7 @@ export default function SafetyScreen() {
               }}
               onPressOut={() => sosP.set(withTiming(0, { duration: 180 }))}
               onLongPress={fireSos}
-              style={[styles.sosBtn, { backgroundColor: theme.sos, shadowColor: theme.sos }, sosScaleStyle]}>
+              style={[styles.sosBtn, { backgroundColor: theme.sos, shadowColor: theme.sos, shadowOpacity: scheme === 'light' ? 0.18 : 0.45 }, sosScaleStyle]}>
               <Animated.View style={[styles.sosFill, sosFillStyle]} />
               <ThemedText type="display" style={styles.sosWord}>
                 SOS
@@ -352,7 +354,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 14,
     overflow: 'hidden',
-    shadowOpacity: 0.45,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 0 },
     elevation: 8,
