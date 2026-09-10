@@ -119,8 +119,8 @@ export default function ProfileScreen() {
   const deviceCount = devices.data?.length ?? 0;
 
   return (
-    <SafeAreaView style={styles.flex}>
-      <ThemedView style={styles.flex}>
+    <ThemedView style={styles.flex}>
+      <SafeAreaView style={styles.flex} edges={['top']}>
         <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
           <ThemedText type="title" style={styles.pageTitle}>
             {t('profile.title')}
@@ -254,8 +254,8 @@ export default function ProfileScreen() {
             </Tappable>
           </Tappable>
         </Modal>
-      </ThemedView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </ThemedView>
   );
 }
 

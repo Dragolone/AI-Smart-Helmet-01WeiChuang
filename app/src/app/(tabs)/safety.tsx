@@ -183,8 +183,8 @@ export default function SafetyScreen() {
   const latestAccident = accidentItems[0];
 
   return (
-    <SafeAreaView style={styles.flex}>
-      <ThemedView style={styles.flex}>
+    <ThemedView style={styles.flex}>
+      <SafeAreaView style={styles.flex} edges={['top']}>
         <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
           <ThemedText type="title" style={styles.pageTitle}>
             {t('safety.title')}
@@ -325,8 +325,8 @@ export default function SafetyScreen() {
             </AnimatedPressable>
           </View>
         )}
-      </ThemedView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </ThemedView>
   );
 }
 

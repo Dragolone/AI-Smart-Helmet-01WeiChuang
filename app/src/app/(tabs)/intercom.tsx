@@ -434,8 +434,8 @@ export default function IntercomScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.flex}>
-      <ThemedView style={styles.container}>
+    <ThemedView style={styles.container}>
+      <SafeAreaView style={styles.flex} edges={['top']}>
         <ThemedText type="title" style={styles.pageTitle}>
           {t('intercom.title')}
         </ThemedText>
@@ -657,8 +657,8 @@ export default function IntercomScreen() {
             </Pressable>
           </Pressable>
         </Modal>
-      </ThemedView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </ThemedView>
   );
 }
 

@@ -221,8 +221,8 @@ export default function DevicesScreen() {
   const hero = list.find((d) => d.online) ?? list[0];
 
   return (
-    <SafeAreaView style={styles.flex}>
-      <ThemedView style={styles.flex}>
+    <ThemedView style={styles.flex}>
+      <SafeAreaView style={styles.flex} edges={['top']}>
         <ScrollView
           contentContainerStyle={styles.container}
           showsVerticalScrollIndicator={false}
@@ -286,8 +286,8 @@ export default function DevicesScreen() {
             <PrimaryButton title={t('devices.bindNew')} icon="add" onPress={() => router.push('/bind-device')} />
           )}
         </View>
-      </ThemedView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </ThemedView>
   );
 }
 
