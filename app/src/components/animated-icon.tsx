@@ -17,7 +17,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 
-const BG = '#070A18';
+const BG = '#0E0F12';   // App 暗色底,与页面无缝
 const BRAND = '#5CF0FF';
 const SWEEP_STEP = 55;      // 每字流光间隔
 const SWEEP_DUR = 650;      // 单字提亮-回落
@@ -177,7 +177,7 @@ const styles = StyleSheet.create({
     zIndex: 1000,
     backgroundColor: BG,
     experimental_backgroundImage:
-      'radial-gradient(120% 100% at 70% 0%, #142A73 0%, #0A1024 55%, #070A18 100%)',
+      'radial-gradient(120% 100% at 70% 0%, #232A0E 0%, #15170C 55%, #0E0F12 100%)',
   },
   watermark: {
     position: 'absolute',
