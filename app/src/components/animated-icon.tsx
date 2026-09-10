@@ -195,10 +195,7 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 0 },
   },
   zh: {
-    color: '#D3E284',
-    textShadowColor: '#D9F24A',
-    textShadowRadius: 7,
-    textShadowOffset: { width: 0, height: 0 },
+    color: '#AEB4C0',
     fontSize: 12,
     fontWeight: '600',
     letterSpacing: 4,
