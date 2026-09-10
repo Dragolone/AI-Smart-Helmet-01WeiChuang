@@ -386,9 +386,6 @@ export default function DeviceDetailScreen() {
                 <ThemedText type="smallBold" style={{ fontSize: 15 }}>
                   {t("device.settings")}
                 </ThemedText>
-                <ThemedText type="label" themeColor="textSecondary">
-                  {t("device.settingsDemo")}
-                </ThemedText>
               </View>
 
               <VolumeSlider
