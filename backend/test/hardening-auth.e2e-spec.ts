@@ -63,13 +63,16 @@ describe('加固：认证与令牌 (e2e)', () => {
       const v = await createUser(app, http);
       users.push(u, v);
       await withRateLimit(async () => {
-        const results = await Promise.all(
-          Array.from({ length: 40 }, (_, i) =>
-            request(http)
+        // 顺序发（不依赖真并发）：限频计数是服务端状态，顺序更能稳定断言 10×401 + 30×429；
+        // supertest 对同一临时 server 打 40 个并发在 CI（Linux）上偶发 ECONNRESET
+        const results: request.Response[] = [];
+        for (let i = 0; i < 40; i += 1) {
+          results.push(
+            await request(http)
               .post('/api/v1/auth/login')
               .send({ phone: u.phone, password: `wrong_${i}` }),
-          ),
-        );
+          );
+        }
         const h = histogram(results.map((r) => r.status));
         console.log('[login brute-force 40x]', h);
         expect(h['500'] ?? 0).toBe(0);
