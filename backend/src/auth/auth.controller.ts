@@ -1,6 +1,8 @@
-import { Body, Controller, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, Post, Req } from '@nestjs/common';
 import { Public } from '../common/public.decorator';
 import {
+  ChangePasswordDto,
+  ChangePhoneDto,
   LoginDto,
   RefreshDto,
   RegisterDto,
@@ -8,6 +10,7 @@ import {
   SmsCodeDto,
 } from './auth.dto';
 import { AuthService } from './auth.service';
+import type { AuthenticatedRequest } from './jwt-auth.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -38,6 +41,27 @@ export class AuthController {
   @Post('reset-password')
   async resetPassword(@Body() dto: ResetPasswordDto): Promise<void> {
     await this.auth.resetPassword(dto.phone, dto.code, dto.newPassword);
+  }
+
+  /** 需登录（非 @Public）：改密后其他会话全部撤销，本设备凭 refreshToken 保留 */
+  @HttpCode(204)
+  @Post('change-password')
+  async changePassword(
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: ChangePasswordDto,
+  ): Promise<void> {
+    await this.auth.changePassword(
+      req.user.userId,
+      dto.oldPassword,
+      dto.newPassword,
+      dto.refreshToken,
+    );
+  }
+
+  @HttpCode(200)
+  @Post('change-phone')
+  changePhone(@Req() req: AuthenticatedRequest, @Body() dto: ChangePhoneDto) {
+    return this.auth.changePhone(req.user.userId, dto.newPhone, dto.code);
   }
 
   @Public()

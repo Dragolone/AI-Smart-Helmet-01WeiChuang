@@ -66,3 +66,29 @@ export class RefreshDto {
   @MinLength(1)
   refreshToken!: string;
 }
+
+export class ChangePasswordDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(72)
+  oldPassword!: string;
+
+  @IsString()
+  @MinLength(8)
+  @MaxLength(72)
+  newPassword!: string;
+
+  // 当前设备的 refresh token：带上则改密后本设备免重新登录，其余会话一律撤销
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  refreshToken?: string;
+}
+
+export class ChangePhoneDto {
+  @Matches(PHONE_PATTERN, { message: 'newPhone 必须是有效的大陆手机号' })
+  newPhone!: string;
+
+  @Matches(CODE_PATTERN, { message: 'code 必须是 6 位数字验证码' })
+  code!: string;
+}

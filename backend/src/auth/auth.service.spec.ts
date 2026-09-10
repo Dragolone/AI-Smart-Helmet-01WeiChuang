@@ -1,8 +1,13 @@
 import { Test } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
+import { createHash } from 'node:crypto';
+import * as bcrypt from 'bcrypt';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SmsCodeService } from './sms-code.service';
+
+const hashToken = (token: string): string =>
+  createHash('sha256').update(token).digest('hex');
 
 describe('AuthService（单测，mock 数据层）', () => {
   const prismaMock = {
@@ -148,6 +153,7 @@ describe('AuthService（单测，mock 数据层）', () => {
       userId: 'u1',
       revokedAt: new Date(),
       expiresAt: new Date(Date.now() + 1000),
+      user: { deletedAt: null },
     });
     prismaMock.refreshToken.updateMany.mockResolvedValue({ count: 2 });
     await expect(service.refresh('stolen')).rejects.toMatchObject({
@@ -165,10 +171,101 @@ describe('AuthService（单测，mock 数据层）', () => {
       userId: 'u1',
       revokedAt: null,
       expiresAt: new Date(Date.now() - 1000),
+      user: { deletedAt: null },
     });
     await expect(service.refresh('expired')).rejects.toMatchObject({
       response: { code: 'UNAUTHORIZED' },
     });
     expect(prismaMock.refreshToken.update).not.toHaveBeenCalled();
+  });
+
+  it('refresh：已注销用户的 token → UNAUTHORIZED 且不轮换', async () => {
+    prismaMock.refreshToken.findUnique.mockResolvedValue({
+      userId: 'u1',
+      revokedAt: null,
+      expiresAt: new Date(Date.now() + 1000),
+      user: { deletedAt: new Date() },
+    });
+    await expect(service.refresh('deleted')).rejects.toMatchObject({
+      response: { code: 'UNAUTHORIZED' },
+    });
+    expect(prismaMock.refreshToken.update).not.toHaveBeenCalled();
+  });
+
+  it('sendSmsCode：change_phone 用途下新号已注册 → PHONE_ALREADY_REGISTERED', async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ id: 'u2' });
+    await expect(
+      service.sendSmsCode('13800138000', 'change_phone'),
+    ).rejects.toMatchObject({
+      response: { code: 'PHONE_ALREADY_REGISTERED' },
+    });
+    expect(smsCodesMock.issue).not.toHaveBeenCalled();
+  });
+
+  it('changePassword：旧密码错误 → PASSWORD_INCORRECT，不改密不撤销', async () => {
+    prismaMock.user.findUnique.mockResolvedValue({
+      passwordHash: await bcrypt.hash('correct_pw_1', 4),
+      deletedAt: null,
+    });
+    await expect(
+      service.changePassword('u1', 'wrong_pw_1', 'new_password_1'),
+    ).rejects.toMatchObject({ response: { code: 'PASSWORD_INCORRECT' } });
+    expect(prismaMock.user.update).not.toHaveBeenCalled();
+    expect(prismaMock.refreshToken.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('changePassword：改密并撤销其他会话，保留传入的 refreshToken', async () => {
+    prismaMock.user.findUnique.mockResolvedValue({
+      passwordHash: await bcrypt.hash('correct_pw_1', 4),
+      deletedAt: null,
+    });
+    prismaMock.user.update.mockResolvedValue({});
+    prismaMock.refreshToken.updateMany.mockResolvedValue({ count: 1 });
+    await service.changePassword(
+      'u1',
+      'correct_pw_1',
+      'new_password_1',
+      'keep',
+    );
+    expect(prismaMock.refreshToken.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          userId: 'u1',
+          revokedAt: null,
+          tokenHash: { not: hashToken('keep') },
+        },
+      }),
+    );
+  });
+
+  it('changePhone：新号已注册 → PHONE_ALREADY_REGISTERED，不消费验证码', async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ id: 'u2' });
+    await expect(
+      service.changePhone('u1', '13900139000', '123456'),
+    ).rejects.toMatchObject({
+      response: { code: 'PHONE_ALREADY_REGISTERED' },
+    });
+    expect(smsCodesMock.verifyAndConsume).not.toHaveBeenCalled();
+  });
+
+  it('changePhone：验证码通过 → 改号并返回安全用户对象', async () => {
+    prismaMock.user.findUnique.mockResolvedValue(null);
+    smsCodesMock.verifyAndConsume.mockResolvedValue(undefined);
+    prismaMock.user.update.mockResolvedValue({
+      id: 'u1',
+      phone: '13900139000',
+      passwordHash: 'x',
+      nickname: null,
+      avatarUrl: null,
+      createdAt: new Date(),
+    });
+    const res = await service.changePhone('u1', '13900139000', '123456');
+    expect(smsCodesMock.verifyAndConsume).toHaveBeenCalledWith(
+      '13900139000',
+      'change_phone',
+      '123456',
+    );
+    expect(res).toEqual(expect.objectContaining({ phone: '13900139000' }));
+    expect(res).not.toHaveProperty('passwordHash');
   });
 });

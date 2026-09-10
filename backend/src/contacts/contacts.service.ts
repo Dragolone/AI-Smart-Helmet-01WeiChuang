@@ -4,8 +4,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { EmergencyContact as WireContact } from '@helmet/shared';
-import type { EmergencyContact } from '../generated/prisma/client';
+import type { EmergencyContact, Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+
+type DbClient = PrismaService | Prisma.TransactionClient;
 
 /** 每用户活跃联系人上限（API.md §3 定稿）；软删除的不占名额 */
 export const CONTACT_LIMIT = 5;
@@ -68,6 +70,14 @@ export class ContactsService {
     await this.getOwnedActive(userId, contactId);
     await this.prisma.emergencyContact.update({
       where: { id: contactId },
+      data: { deletedAt: new Date() },
+    });
+  }
+
+  /** 软删除该用户全部活跃联系人（注销账号用）；历史 SOS 通知记录留档不受影响 */
+  async removeAll(userId: string, db: DbClient = this.prisma): Promise<void> {
+    await db.emergencyContact.updateMany({
+      where: { userId, deletedAt: null },
       data: { deletedAt: new Date() },
     });
   }

@@ -15,10 +15,12 @@ import {
   type SmsProvider,
 } from '../providers/sms.provider';
 
-export type SmsCodePurpose = 'register' | 'reset_password';
+// change_phone：phone 为待换绑的新号（API.md §2，2026-09-11）
+export type SmsCodePurpose = 'register' | 'reset_password' | 'change_phone';
 export const SMS_CODE_PURPOSES: readonly SmsCodePurpose[] = [
   'register',
   'reset_password',
+  'change_phone',
 ];
 
 const envInt = (name: string, fallback: number): number => {

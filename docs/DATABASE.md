@@ -7,7 +7,7 @@
 
 | 表 | 关键决策 | 原因 |
 |----|----------|------|
-| users | 业务主键 cuid；phone 唯一 | MVP 以手机号为注册凭据（待定稿，见 API.md §2） |
+| users | 业务主键 cuid；phone 唯一；`deleted_at` 软删除（2026-09-11） | MVP 以手机号为注册凭据（见 API.md §2）；注销时 phone 改写为 `deleted:<id>` 释放号码（原号不保留），留档不物理删除 |
 | devices | 主键直接用硬件 deviceId，不造代理键 | 设备全链路（MQTT Topic、事件、绑定）都以硬件 ID 为准，翻译层只会添乱 |
 | raw_events | event_id 全局唯一约束 = 幂等去重的兜底；**不建**到 devices 的外键 | 幂等必须由数据库保证（并发/重发场景应用层拦不住）；未注册设备/未知来源的事件也必须能原样落库（Ingest 规则） |
 | raw_events | `(device_id, timestamp)` 复合索引 | 高频表按设备+时间查询是唯一主路径（CLAUDE.md Database Rules） |

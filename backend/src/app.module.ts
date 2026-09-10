@@ -13,7 +13,7 @@ import { IngestModule } from './ingest/ingest.module';
 import { MediaModule } from './media/media.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { SosModule } from './sos/sos.module';
-import { UsersController } from './users/users.controller';
+import { UsersModule } from './users/users.module';
 import { VoiceModule } from './voice/voice.module';
 
 @Module({
@@ -29,9 +29,10 @@ import { VoiceModule } from './voice/voice.module';
     MediaModule,
     AdminModule,
     SosModule,
+    UsersModule,
     VoiceModule,
   ],
-  controllers: [AppController, HealthController, UsersController],
+  controllers: [AppController, HealthController],
   providers: [AppService],
 })
 export class AppModule {}

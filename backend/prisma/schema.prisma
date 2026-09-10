@@ -16,6 +16,8 @@ model User {
   nickname          String?
   avatarUrl         String?            @map("avatar_url")
   createdAt         DateTime           @default(now()) @map("created_at")
+  // 注销（App Store 要求应用内可注销）：软删除留档，phone 改写为 deleted:<id> 释放号码供再注册（原号不保留）
+  deletedAt         DateTime?          @map("deleted_at")
   devices           Device[]
   refreshTokens     RefreshToken[]
   emergencyContacts EmergencyContact[]

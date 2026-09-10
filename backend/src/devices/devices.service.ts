@@ -4,7 +4,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import type { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+
+/** 允许在调用方的事务里执行（注销账号时与其他清理原子提交） */
+type DbClient = PrismaService | Prisma.TransactionClient;
 
 /** 在线判定：lastSeenAt 距今 ≤ 90s（1.5 × 60s 心跳，DEVICE_PROTOCOL §5）。服务端权威，App 不自行判断。 */
 export const ONLINE_WINDOW_MS = 90_000;
@@ -83,8 +87,8 @@ export class DevicesService {
     return devices.map((d) => this.toPublic(d));
   }
 
-  async getOwned(userId: string, deviceId: string) {
-    const device = await this.prisma.device.findUnique({
+  async getOwned(userId: string, deviceId: string, db: DbClient = this.prisma) {
+    const device = await db.device.findUnique({
       where: { deviceId },
       select: DEVICE_PUBLIC_SELECT,
     });
@@ -105,13 +109,28 @@ export class DevicesService {
     return this.toPublic(updated);
   }
 
-  async unbind(userId: string, deviceId: string): Promise<void> {
-    await this.getOwned(userId, deviceId);
+  async unbind(
+    userId: string,
+    deviceId: string,
+    db: DbClient = this.prisma,
+  ): Promise<void> {
+    await this.getOwned(userId, deviceId, db);
     // 只解除绑定关系；设备记录与历史事件留档（API.md §4）
-    await this.prisma.device.update({
+    await db.device.update({
       where: { deviceId },
       data: { bindUserId: null, boundAt: null },
     });
+  }
+
+  /** 解绑该用户名下全部设备（注销账号用）：逐台走 unbind，口径与 DELETE /devices/{id}/binding 完全一致 */
+  async unbindAll(userId: string, db: DbClient = this.prisma): Promise<void> {
+    const bound = await db.device.findMany({
+      where: { bindUserId: userId },
+      select: { deviceId: true },
+    });
+    for (const { deviceId } of bound) {
+      await this.unbind(userId, deviceId, db);
+    }
   }
 
   async status(userId: string, deviceId: string) {
