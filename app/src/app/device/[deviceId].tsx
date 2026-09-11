@@ -185,8 +185,8 @@ export default function DeviceDetailScreen() {
           {
             text: t("common.cancel"),
             style: "cancel",
-            // 取消：回落到高音量线，让滑杆与头盔一致
-            onPress: () => sendSetting("volume", VOLUME_LOUD_THRESHOLD),
+            // 取消 = 什么都不下发:滑杆已随 value 回到原值,头盔保持原音量
+            // (此前误把音量设到阈值,负责人 2026-09-11 指正)
           },
           {
             text: t("device.volumeLoudConfirm"),

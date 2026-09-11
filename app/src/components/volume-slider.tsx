@@ -18,10 +18,11 @@ import { useT } from "@/i18n";
 const MIN = 10;
 const MAX = 100;
 const STEP = 5;
-/** 超过这条线视为高音量（滑杆变红 + 松手要确认） */
-export const VOLUME_LOUD_THRESHOLD = 90;
 /** 推荐上限刻度（硬件给分贝上限后再调） */
 export const VOLUME_RECOMMENDED = 80;
+/** 超过推荐线即视为高音量（滑杆变红 + 松手要确认)——与刻度提示一致,
+ *  此前 90 与推荐线 80 两套阈值不一致(85 不提醒),负责人 2026-09-11 指正 */
+export const VOLUME_LOUD_THRESHOLD = VOLUME_RECOMMENDED;
 const THUMB = 28;
 
 export function clampVolume(v: number) {
