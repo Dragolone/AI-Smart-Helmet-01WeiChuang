@@ -3,6 +3,7 @@ export const device = {
   "zh-CN": {
     "device.sendFailed": "下发失败",
     "device.volume": "蜂鸣音量",
+    "device.applying": "响应中…",
     "device.volumeLoud": "高音量",
     "device.volumeRecommended": "建议 ≤ {n}%",
     "device.volumeLoudTitle": "高音量提示",
@@ -36,7 +37,6 @@ export const device = {
     "device.lastHeartbeat": "最后心跳",
     "device.neverReported": "从未上报",
     "device.bindCode": "绑定码",
-    "device.bindCodeHidden": "•••••••• 点击查看",
     "device.settings": "设备设置",
     "device.light": "示廓灯",
     "device.on": "开",
@@ -52,6 +52,7 @@ export const device = {
   "zh-TW": {
     "device.sendFailed": "下發失敗",
     "device.volume": "蜂鳴音量",
+    "device.applying": "響應中…",
     "device.volumeLoud": "高音量",
     "device.volumeRecommended": "建議 ≤ {n}%",
     "device.volumeLoudTitle": "高音量提醒",
@@ -85,7 +86,6 @@ export const device = {
     "device.lastHeartbeat": "最後心跳",
     "device.neverReported": "從未回報",
     "device.bindCode": "綁定碼",
-    "device.bindCodeHidden": "•••••••• 點擊查看",
     "device.settings": "裝置設定",
     "device.light": "示廓燈",
     "device.on": "開",
@@ -101,6 +101,7 @@ export const device = {
   en: {
     "device.sendFailed": "Couldn't send setting",
     "device.volume": "Buzzer volume",
+    "device.applying": "Applying…",
     "device.volumeLoud": "Loud",
     "device.volumeRecommended": "Recommended ≤ {n}%",
     "device.volumeLoudTitle": "High volume",
@@ -135,7 +136,6 @@ export const device = {
     "device.lastHeartbeat": "Last heartbeat",
     "device.neverReported": "Never",
     "device.bindCode": "Pair code",
-    "device.bindCodeHidden": "•••••••• Tap to reveal",
     "device.settings": "Device settings",
     "device.light": "Marker light",
     "device.on": "On",

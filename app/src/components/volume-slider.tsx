@@ -32,12 +32,15 @@ export function clampVolume(v: number) {
 
 export function VolumeSlider({
   value,
+  pending = false,
   onStep,
   onRelease,
   onDraggingChange,
 }: {
-  /** 云端已生效的值；拖动中忽略，松手后回到该值 */
+  /** 展示值(调用方可传乐观值:滑到哪停在哪);拖动中忽略 */
   value: number;
+  /** 响应中:灰显 + 禁操作,回执生效后由调用方清除(负责人口径) */
+  pending?: boolean;
   /** 拖动中每跨过一档触发（调用方负责节流下发） */
   onStep?: (v: number) => void;
   /** 松手时的最终值 */
@@ -105,6 +108,7 @@ export function VolumeSlider({
 
   // 横向 4px 即激活、纵向 10px 即失败：不抢 ScrollView 的上下滚动
   const pan = Gesture.Pan()
+    .enabled(!pending)
     .activeOffsetX([-4, 4])
     .failOffsetY([-10, 10])
     .onBegin((e) => {
@@ -122,7 +126,9 @@ export function VolumeSlider({
       progress.set(lastStep.get() / MAX);
       scheduleOnRN(end, lastStep.get());
     });
-  const tap = Gesture.Tap().onEnd((e) => {
+  const tap = Gesture.Tap()
+    .enabled(!pending)
+    .onEnd((e) => {
     scheduleOnRN(begin);
     applyX(e.x);
     progress.set(lastStep.get() / MAX);
@@ -142,7 +148,11 @@ export function VolumeSlider({
 
   const shown = dragging ? dragShown : clampVolume(value);
   const loud = shown > VOLUME_LOUD_THRESHOLD;
-  const fillColor = loud ? theme.sos : theme.brand;
+  const fillColor = pending
+    ? theme.textSecondary
+    : loud
+      ? theme.sos
+      : theme.brand;
 
   return (
     <View style={styles.wrap}>
@@ -152,9 +162,16 @@ export function VolumeSlider({
         </ThemedText>
         <ThemedText
           type="smallBold"
-          style={{ color: loud ? theme.sos : theme.text }}
+          style={{
+            color: pending ? theme.textSecondary : loud ? theme.sos : theme.text,
+          }}
         >
-          {shown}%{loud ? ` · ${t("device.volumeLoud")}` : ""}
+          {shown}%
+          {pending
+            ? ` · ${t("device.applying")}`
+            : loud
+              ? ` · ${t("device.volumeLoud")}`
+              : ""}
         </ThemedText>
       </View>
       <GestureDetector gesture={gesture}>

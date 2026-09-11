@@ -110,7 +110,29 @@ export default function DeviceDetailScreen() {
   });
   const [sending, setSending] = useState(false);
 
+  /** 音量乐观值(负责人口径:滑到哪停在哪,响应中灰显,生效后点亮;
+   *  失败/离线回落服务端值——绝不把未生效显示为已生效) */
+  const [optimisticVolume, setOptimisticVolume] = useState<number | null>(null);
+
+  const serverVolume =
+    typeof settings.data?.settings.volume === "number"
+      ? settings.data.settings.volume
+      : 80;
+  const lastCmdStatus = settings.data?.lastCommand?.status;
+  // 渲染期调整(React 官方 adjusting-state 模式,effect 内 setState 会被
+  // react-hooks 规则拒):生效→点亮;失败/离线→回落服务端真实值
+  if (
+    optimisticVolume !== null &&
+    (serverVolume === optimisticVolume ||
+      lastCmdStatus === "failed" ||
+      lastCmdStatus === "offline")
+  ) {
+    setOptimisticVolume(null);
+  }
+  const volumePending = optimisticVolume !== null && optimisticVolume !== serverVolume;
+
   const sendSetting = (key: string, value: string | number | boolean) => {
+    if (key === "volume" && typeof value === "number") setOptimisticVolume(value);
     setSending(true);
     devicesApi
       .putSettings(deviceId, { settings: { [key]: value } })
@@ -176,12 +198,6 @@ export default function DeviceDetailScreen() {
       return;
     }
     sendSetting("volume", v);
-  };
-  // 绑定码默认打码，点一下显示 10 秒（防旁人看到后绑走）
-  const [bindCodeShown, setBindCodeShown] = useState(false);
-  const revealBindCode = () => {
-    setBindCodeShown(true);
-    setTimeout(() => setBindCodeShown(false), 10_000);
   };
 
   const lastCmd = settings.data?.lastCommand ?? null;
@@ -360,17 +376,9 @@ export default function DeviceDetailScreen() {
               }
             />
             <InfoRow
-              icon={bindCodeShown ? "eye-outline" : "eye-off-outline"}
+              icon="key-outline"
               label={t("device.bindCode")}
-              value={
-                bindCodeShown
-                  ? (detail.data?.bindCode ?? "—")
-                  : t("device.bindCodeHidden")
-              }
-              valueColor={bindCodeShown ? undefined : theme.textSecondary}
-              onPress={
-                bindCodeShown ? () => setBindCodeShown(false) : revealBindCode
-              }
+              value={detail.data?.bindCode ?? "—"}
             />
 
             {/* 设备设置下发（§8;参数为演示项,清单与值域待硬件定稿 ⚠️） */}
@@ -390,11 +398,8 @@ export default function DeviceDetailScreen() {
               </View>
 
               <VolumeSlider
-                value={
-                  typeof settings.data?.settings.volume === "number"
-                    ? settings.data.settings.volume
-                    : 80
-                }
+                value={optimisticVolume ?? serverVolume}
+                pending={volumePending}
                 onStep={onVolumeStep}
                 onRelease={sendVolume}
                 onDraggingChange={onVolumeDragging}
