@@ -114,6 +114,14 @@ export default function DeviceDetailScreen() {
    *  失败/离线回落服务端值——绝不把未生效显示为已生效) */
   const [optimisticVolume, setOptimisticVolume] = useState<number | null>(null);
 
+  // 绑定码默认打码,点击显示 10 秒(防旁人看到后绑走);
+  // 睁/闭眼图标即可点提示,不再附加"点击查看"文字(负责人口径)
+  const [bindCodeShown, setBindCodeShown] = useState(false);
+  const revealBindCode = () => {
+    setBindCodeShown(true);
+    setTimeout(() => setBindCodeShown(false), 10_000);
+  };
+
   const serverVolume =
     typeof settings.data?.settings.volume === "number"
       ? settings.data.settings.volume
@@ -376,9 +384,13 @@ export default function DeviceDetailScreen() {
               }
             />
             <InfoRow
-              icon="key-outline"
+              icon={bindCodeShown ? "eye-outline" : "eye-off-outline"}
               label={t("device.bindCode")}
-              value={detail.data?.bindCode ?? "—"}
+              value={bindCodeShown ? (detail.data?.bindCode ?? "—") : "••••••••"}
+              valueColor={bindCodeShown ? undefined : theme.textSecondary}
+              onPress={
+                bindCodeShown ? () => setBindCodeShown(false) : revealBindCode
+              }
             />
 
             {/* 设备设置下发（§8;参数为演示项,清单与值域待硬件定稿 ⚠️） */}
