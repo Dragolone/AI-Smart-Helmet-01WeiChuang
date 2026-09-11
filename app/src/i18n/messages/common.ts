@@ -135,7 +135,7 @@ export const common = {
     "common.offline": "Offline",
     "common.unknown": "Unknown",
     "common.never": "Never",
-    "common.justNow": "Just now",
+    "common.justNow": "Now",
     "common.minutesAgo": "{n} min ago",
     "common.hoursAgo": "{n} h ago",
     "common.daysAgo": "{n} d ago",

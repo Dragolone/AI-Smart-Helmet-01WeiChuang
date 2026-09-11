@@ -9,6 +9,7 @@ import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { useState } from "react";
 import { Alert, Modal, ScrollView, StyleSheet, View } from "react-native";
+import ReAnimated, { FadeInDown } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { authApi, maskPhone } from "@/api/auth";
@@ -367,6 +368,7 @@ export default function ProfileScreen() {
             style={styles.modalMask}
             onPress={() => setEditOpen(false)}
           >
+            <ReAnimated.View entering={FadeInDown.duration(200)}>
             <Tappable
               feedback={[]}
               style={[
@@ -423,6 +425,7 @@ export default function ProfileScreen() {
                 loading={saving}
               />
             </Tappable>
+          </ReAnimated.View>
           </Tappable>
         </Modal>
 
@@ -438,6 +441,7 @@ export default function ProfileScreen() {
             style={styles.modalMask}
             onPress={() => setThemeOpen(false)}
           >
+            <ReAnimated.View entering={FadeInDown.duration(200)}>
             <Tappable
               feedback={[]}
               style={[
@@ -483,6 +487,7 @@ export default function ProfileScreen() {
                 ))}
               </View>
             </Tappable>
+          </ReAnimated.View>
           </Tappable>
         </Modal>
 
@@ -498,6 +503,7 @@ export default function ProfileScreen() {
             style={styles.modalMask}
             onPress={() => setLangOpen(false)}
           >
+            <ReAnimated.View entering={FadeInDown.duration(200)}>
             <Tappable
               feedback={[]}
               style={[
@@ -543,6 +549,7 @@ export default function ProfileScreen() {
                 ))}
               </View>
             </Tappable>
+          </ReAnimated.View>
           </Tappable>
         </Modal>
       </SafeAreaView>

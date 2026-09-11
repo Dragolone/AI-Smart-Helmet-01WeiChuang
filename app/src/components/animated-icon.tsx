@@ -158,11 +158,9 @@ export function AnimatedSplashOverlay() {
             <ShineLetter key={i} ch={ch} delay={i * SWEEP_STEP} />
           ))}
         </View>
-        <Animated.Text
-          entering={FadeIn.duration(600).delay(SWEEP_TOTAL - 200)}
-          style={styles.zh}>
-          零一唯创
-        </Animated.Text>
+        <Animated.View entering={FadeIn.duration(600).delay(SWEEP_TOTAL - 200)}>
+          <Text style={styles.zh}>零一唯创</Text>
+        </Animated.View>
       </View>
     </Animated.View>
   );

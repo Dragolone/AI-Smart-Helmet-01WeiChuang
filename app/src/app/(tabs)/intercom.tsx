@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Animated, {
+import Animated, { FadeInDown,
   interpolate,
   useAnimatedStyle,
   useSharedValue,
@@ -620,6 +620,7 @@ export default function IntercomScreen() {
         {/* 创建频道弹层 */}
         <Modal visible={createOpen} transparent animationType="fade" onRequestClose={() => setCreateOpen(false)}>
           <Pressable style={styles.modalMask} onPress={() => setCreateOpen(false)}>
+            <Animated.View entering={FadeInDown.duration(200)}>
             <Pressable
               style={[styles.modalCard, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}
               onPress={() => undefined}>
@@ -634,12 +635,14 @@ export default function IntercomScreen() {
               />
               <PrimaryButton title={t('intercom.createAction')} onPress={submitCreate} loading={submitting} />
             </Pressable>
+          </Animated.View>
           </Pressable>
         </Modal>
 
         {/* 邀请码加入弹层 */}
         <Modal visible={joinOpen} transparent animationType="fade" onRequestClose={() => setJoinOpen(false)}>
           <Pressable style={styles.modalMask} onPress={() => setJoinOpen(false)}>
+            <Animated.View entering={FadeInDown.duration(200)}>
             <Pressable
               style={[styles.modalCard, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}
               onPress={() => undefined}>
@@ -655,6 +658,7 @@ export default function IntercomScreen() {
               />
               <PrimaryButton title={t('intercom.join')} onPress={submitJoin} loading={submitting} />
             </Pressable>
+          </Animated.View>
           </Pressable>
         </Modal>
       </SafeAreaView>

@@ -310,6 +310,7 @@ export default function EventsScreen() {
         onRequestClose={() => setDetailId(null)}
       >
         <Pressable style={styles.modalMask} onPress={() => setDetailId(null)}>
+          <Animated.View entering={FadeInDown.duration(200)}>
           <Pressable
             style={[
               styles.modalCard,
@@ -395,6 +396,7 @@ export default function EventsScreen() {
               </ThemedText>
             )}
           </Pressable>
+        </Animated.View>
         </Pressable>
       </Modal>
     </ThemedView>

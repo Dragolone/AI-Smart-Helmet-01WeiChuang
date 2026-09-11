@@ -12,6 +12,7 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import ReAnimated, { FadeInDown } from "react-native-reanimated";
 
 import { devicesApi } from "@/api/devices";
 import { showToast } from "@/components/toast";
@@ -473,6 +474,7 @@ export default function DeviceDetailScreen() {
           style={styles.modalMask}
           onPress={() => setRenameOpen(false)}
         >
+          <ReAnimated.View entering={FadeInDown.duration(200)}>
           <Pressable
             style={[
               styles.modalCard,
@@ -498,6 +500,7 @@ export default function DeviceDetailScreen() {
               loading={renaming}
             />
           </Pressable>
+        </ReAnimated.View>
         </Pressable>
       </Modal>
     </ThemedView>

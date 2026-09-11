@@ -219,6 +219,8 @@ function HeroCard({ device }: { device: DevicePublic }) {
               type="display"
               style={styles.statValue}
               numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.6}
             >
               {relativeTime(device.lastSeenAt, locale)}
             </ThemedText>

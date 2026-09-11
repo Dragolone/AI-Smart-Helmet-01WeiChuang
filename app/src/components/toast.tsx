@@ -51,6 +51,14 @@ export function ToastHost() {
         styles.toast,
         {
           opacity,
+          transform: [
+            {
+              translateY: opacity.interpolate({
+                inputRange: [0, 1],
+                outputRange: [14, 0],
+              }),
+            },
+          ],
           bottom: insets.bottom + 96,
           backgroundColor: theme.backgroundSelected,
           borderColor: theme.border,
