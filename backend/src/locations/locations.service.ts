@@ -4,6 +4,7 @@ import type {
   LocationPoint as WireLocationPoint,
   Paginated,
 } from '@helmet/shared';
+import { BindingScopeService } from '../devices/binding-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { toWireLocation } from './location-wire';
 
@@ -16,17 +17,29 @@ const badRange = (message: string) =>
 /** 轨迹查询一律走本服务层，不裸查表——为未来 Retention/降采样留余地（CLAUDE.md Database Rules） */
 @Injectable()
 export class LocationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly scope: BindingScopeService,
+  ) {}
 
-  async latest(deviceId: string): Promise<LatestLocationResponse> {
+  /** 只看该用户绑定区间内的点（决策 #39）：换绑后前主的最后位置对新主不可见 */
+  async latest(
+    userId: string,
+    deviceId: string,
+  ): Promise<LatestLocationResponse> {
+    const intervals = await this.scope.intervals(deviceId, userId);
     const point = await this.prisma.locationPoint.findFirst({
-      where: { deviceId },
+      where: {
+        deviceId,
+        AND: [this.scope.scopeWhere('receivedAt', intervals)],
+      },
       orderBy: { timestamp: 'desc' },
     });
     return { location: point ? toWireLocation(point) : null };
   }
 
   async listRange(
+    userId: string,
     deviceId: string,
     fromIso: string,
     toIso: string,
@@ -41,7 +54,12 @@ export class LocationsService {
     if (to.getTime() - from.getTime() > MAX_RANGE_MS) {
       throw badRange('单次查询时间范围不能超过 24 小时');
     }
-    const where = { deviceId, timestamp: { gte: from, lte: to } };
+    const intervals = await this.scope.intervals(deviceId, userId);
+    const where = {
+      deviceId,
+      timestamp: { gte: from, lte: to },
+      AND: [this.scope.scopeWhere('receivedAt', intervals)],
+    };
     const [total, points] = await this.prisma.$transaction([
       this.prisma.locationPoint.count({ where }),
       this.prisma.locationPoint.findMany({

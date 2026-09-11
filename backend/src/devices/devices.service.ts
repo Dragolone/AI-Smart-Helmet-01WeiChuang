@@ -71,19 +71,24 @@ export class DevicesService {
         message: '设备已被其他用户绑定',
       });
     }
-    // 条件更新：并发绑定只有一方能把 null 改成自己，另一方如实拿到 409
-    const won = await this.prisma.device.updateMany({
-      where: { deviceId, bindUserId: null },
-      data: { bindUserId: userId, boundAt: new Date() },
-    });
-    if (won.count === 0) {
-      throw new ConflictException({
-        code: 'DEVICE_ALREADY_BOUND',
-        message: '设备已被其他用户绑定',
+    const now = new Date();
+    // 条件更新：并发绑定只有一方能把 null 改成自己，另一方如实拿到 409；
+    // 同一事务开一段绑定历史（决策 #39：用户可见范围按绑定区间判定）
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const won = await tx.device.updateMany({
+        where: { deviceId, bindUserId: null },
+        data: { bindUserId: userId, boundAt: now },
       });
-    }
-    const updated = await this.prisma.device.findUniqueOrThrow({
-      where: { deviceId },
+      if (won.count === 0) {
+        throw new ConflictException({
+          code: 'DEVICE_ALREADY_BOUND',
+          message: '设备已被其他用户绑定',
+        });
+      }
+      await tx.deviceBinding.create({
+        data: { deviceId, userId, boundAt: now },
+      });
+      return tx.device.findUniqueOrThrow({ where: { deviceId } });
     });
     return this.toPublic(updated);
   }
@@ -125,11 +130,24 @@ export class DevicesService {
     db: DbClient = this.prisma,
   ): Promise<void> {
     await this.getOwned(userId, deviceId, db);
-    // 只解除绑定关系；设备记录与历史事件留档（API.md §4）
-    await db.device.update({
-      where: { deviceId },
-      data: { bindUserId: null, boundAt: null },
-    });
+    // 只解除绑定关系；设备记录与历史事件留档（API.md §4）；关闭当前这段绑定历史。
+    // 两步必须同事务：外层已在事务里（注销账号）直接用 tx，否则自己开一个
+    const now = new Date();
+    const run = async (c: DbClient) => {
+      await c.device.update({
+        where: { deviceId },
+        data: { bindUserId: null, boundAt: null },
+      });
+      await c.deviceBinding.updateMany({
+        where: { deviceId, userId, unboundAt: null },
+        data: { unboundAt: now },
+      });
+    };
+    if (db === this.prisma) {
+      await this.prisma.$transaction((tx) => run(tx));
+    } else {
+      await run(db);
+    }
   }
 
   /** 解绑该用户名下全部设备（注销账号用）：逐台走 unbind，口径与 DELETE /devices/{id}/binding 完全一致 */

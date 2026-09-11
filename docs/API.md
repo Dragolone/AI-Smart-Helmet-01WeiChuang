@@ -88,7 +88,9 @@ Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / 
 | GET | /devices | 我的设备列表 |
 | GET | /devices/{deviceId} | 设备详情（含实时状态快照） |
 | PATCH | /devices/{deviceId} | 重命名（2026-08-17）。body：`{ name?: string }`（≤20 字符，trim 后空串=清除，App 回退显示 deviceId）；返回更新后的 device 对象 |
-| DELETE | /devices/{deviceId}/binding | 解绑（软删除绑定关系，设备数据留档） |
+| DELETE | /devices/{deviceId}/binding | 解绑（软删除绑定关系，设备数据留档；关闭当前这段绑定历史） |
+
+绑定历史与可见范围（✅ 2026-09-10 负责人拍板，决策 #39）：每次绑定/解绑记一段区间（`device_bindings`）。§5 轨迹、§6 事件、§9 媒体只返回**当前用户在该设备上的绑定区间内**到达（服务端 `receivedAt`）的数据——换绑后新主看不到前主期间的数据；同一用户解绑再绑回同一台头盔，之前的记录仍然可见。§7 事故记录按建单时的 userId 固化，不受影响；Admin 全量可见。
 | GET | /devices/{deviceId}/status | 设备状态：`{ online, lastSeenAt, battery, charging?, signalLevel?, sleeping, firmwareVersion }` |
 | GET | /devices/{deviceId}/battery-history?hours=24 | 电量历史（✅ 2026-09-10）：`{ from, to, points: [{ timestamp, battery, charging }] }`。数据源=raw_events 的 `device_status` 心跳，按 **10 分钟桶取桶内最后一条**（24h ≤ 144 点）；`hours` 1–168 默认 24；仅本人设备（否则 404）。App 设备详情页据此画 24h 电量曲线（替代原大电量条） |
 
@@ -110,7 +112,7 @@ device 对象补充字段（2026-08-17，TS 类型见 `@helmet/shared` DevicePub
 - 坐标系原样返回并带 `coordinateSystem`；是否服务端统一转 gcj02 随地图 Spike 定稿（DECISIONS 待定项）。
 - 轨迹查询走服务层（为未来 Retention/降采样留余地），App/Admin 不假设“所有点都在”。
 - 位置分享：MVP 用 App 端生成分享内容（坐标 + 高德跳转链接），**不做服务端分享短链** ⚠️ 若产品要求可访问网页版分享再评估。
-- ✅ 本节已实现（2026-08-15）：位置由 Ingest 从 location_update 事件写入 location_points 表（仅已注册设备；payload 逐字段校验，不合法只留 raw）；归属校验与 §4 同口径（非本人 404）。
+- ✅ 本节已实现（2026-08-15）：位置由 Ingest 从 location_update 事件写入 location_points 表（仅已注册设备；payload 逐字段校验，不合法只留 raw）；归属校验与 §4 同口径（非本人 404），且 latest/范围查询只含本人绑定区间内的点（决策 #39）。
 
 ## 6. 事件查询（危险事件 / 全量事件历史）
 
@@ -122,7 +124,7 @@ device 对象补充字段（2026-08-17，TS 类型见 `@helmet/shared` DevicePub
 `event` 列表项（TS 类型见 `@helmet/shared` EventListItem）：`{ eventId, deviceId, eventType, timestamp, receivedAt, summary }`；详情（EventDetail）追加 `payload`（原样）与 `media: [{ mediaId, status, duration }]`。
 
 - `summary` 为服务端生成的一句话摘要，仅兜底展示；**客户端逻辑不得依赖其内容**（App 有本地化文案时可忽略）。
-- 归属口径：按设备**当前绑定**判定（与 §4/§5 一致）；校验失败的 `_invalid` 占位事件不出现在任何查询结果。
+- 归属口径：设备须**当前绑定**给本人（与 §4/§5 一致），且列表/详情只含本人**绑定区间内**到达的事件（决策 #39，按 receivedAt 判）；校验失败的 `_invalid` 占位事件不出现在任何查询结果。
 - 「当前危险状态」由 App 从 WS `risk_event` 事件流推导，服务端不维护实时态（✅ 口径 2026-08-16 定稿，决策 #27）；历史随时可查本节接口。
 - ✅ 本节已实现（2026-08-16）：media 数组由 §9 媒体表反查填充（WS `risk_event` 推送时媒体通常尚未上传，实时消息中恒为空，App 用详情接口兜底）。
 

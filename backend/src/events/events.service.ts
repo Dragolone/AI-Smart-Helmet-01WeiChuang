@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { EventDetail, EventListItem, Paginated } from '@helmet/shared';
+import { BindingScopeService } from '../devices/binding-scope.service';
 import type { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -21,12 +22,15 @@ const deviceNotFound = () =>
 
 @Injectable()
 export class EventsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly scope: BindingScopeService,
+  ) {}
 
   /**
    * 事件历史（§6）：最新在前；type 多值逗号分隔且必须是 EVENTS.md §3 已知类型；
    * `_invalid` 占位事件永不出现在任何查询结果里。
-   * 归属口径：按设备**当前绑定**判定（与 §4/§5 一致；raw_events 无 userId 冗余）。
+   * 归属口径：设备须当前绑定给该用户（与 §4/§5 一致），且只返回该用户绑定区间内到达的事件（决策 #39）。
    */
   async list(
     userId: string,
@@ -44,10 +48,12 @@ export class EventsService {
     const types = this.parseTypes(opts.type);
     const timeRange = this.parseTimeRange(opts.from, opts.to);
 
+    const intervals = await this.scope.intervals(deviceId, userId);
     const where: Prisma.RawEventWhereInput = {
       deviceId,
       eventType: types ? { in: types } : { not: INVALID_EVENT_TYPE },
       ...(timeRange ? { timestamp: timeRange } : {}),
+      AND: [this.scope.scopeWhere('receivedAt', intervals)],
     };
     const [total, events] = await this.prisma.$transaction([
       this.prisma.rawEvent.count({ where }),
@@ -78,8 +84,12 @@ export class EventsService {
       where: { deviceId: event.deviceId },
       select: { bindUserId: true },
     });
-    // 与列表同口径：非本人绑定设备的事件一律 404，不泄露存在性
+    // 与列表同口径：非本人绑定设备、或不在本人绑定区间内的事件一律 404，不泄露存在性
     if (!device || device.bindUserId !== userId) {
+      throw new NotFoundException({ code: 'NOT_FOUND', message: '事件不存在' });
+    }
+    const intervals = await this.scope.intervals(event.deviceId, userId);
+    if (!this.scope.inScope(event.receivedAt, intervals)) {
       throw new NotFoundException({ code: 'NOT_FOUND', message: '事件不存在' });
     }
     // 关联媒体（§6/§9）：危险/摔倒事件反查 relatedEventId；video_ready 事件带自己那条

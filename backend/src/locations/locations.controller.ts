@@ -41,7 +41,7 @@ export class LocationsController {
   ) {
     // 归属校验与 devices 同口径：非本人设备 404，不泄露存在性
     await this.devices.getOwned(req.user.userId, deviceId);
-    return this.locations.latest(deviceId);
+    return this.locations.latest(req.user.userId, deviceId);
   }
 
   @Get()
@@ -52,6 +52,7 @@ export class LocationsController {
   ) {
     await this.devices.getOwned(req.user.userId, deviceId);
     return this.locations.listRange(
+      req.user.userId,
       deviceId,
       query.from,
       query.to,

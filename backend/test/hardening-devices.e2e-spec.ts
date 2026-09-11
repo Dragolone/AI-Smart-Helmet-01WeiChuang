@@ -547,38 +547,76 @@ describe('加固：设备 / 命令 / 查询边界 (e2e)', () => {
     });
   });
 
-  describe('轨迹与事件的归属切换', () => {
-    it('换绑后：旧主看不到设备事件/轨迹/事故；新主看得到设备历史事件（当前口径，见报告 #15）', async () => {
-      await relay(http, owner.token, devMain, [
+  describe('轨迹与事件的归属切换（决策 #39：按绑定区间可见）', () => {
+    it('换绑后新主看不到前主的事件/轨迹/媒体；前主解绑再绑回来，自己的两段历史都可见', async () => {
+      const ownerEvents = [
         envelope(devMain, 'location_update', validLocation(1)),
         envelope(devMain, 'collision_risk', { riskLevel: 'high' }),
-      ]).expect(202);
+      ];
+      await relay(http, owner.token, devMain, ownerEvents).expect(202);
+      const ownerRisk = ownerEvents[1].eventId as string;
+      const events = (token: string) =>
+        request(http)
+          .get(`/api/v1/devices/${devMain}/events?pageSize=100`)
+          .set(auth(token));
+      const latest = (token: string) =>
+        request(http)
+          .get(`/api/v1/devices/${devMain}/locations/latest`)
+          .set(auth(token));
+
       await request(http)
         .delete(`/api/v1/devices/${devMain}/binding`)
         .set(auth(owner.token))
         .expect(204);
-      await request(http)
-        .get(`/api/v1/devices/${devMain}/events`)
-        .set(auth(owner.token))
-        .expect(404);
-      await request(http)
-        .get(`/api/v1/devices/${devMain}/locations/latest`)
-        .set(auth(owner.token))
-        .expect(404);
+      // 解绑后设备接口本身 404（当前非绑定）
+      await events(owner.token).expect(404);
+      await latest(owner.token).expect(404);
+
+      // 新主：看不到前主期间的任何数据
       await bindDevice(http, other.token, devMain);
-      const ev = await request(http)
-        .get(`/api/v1/devices/${devMain}/events`)
+      const otherEmpty = await events(other.token).expect(200);
+      expect(otherEmpty.body.total).toBe(0);
+      expect((await latest(other.token).expect(200)).body.location).toBeNull();
+      await request(http)
+        .get(`/api/v1/events/${ownerRisk}`)
         .set(auth(other.token))
-        .expect(200);
-      console.log(
-        '[new owner sees previous owner events] total =',
-        ev.body.total,
-      );
+        .expect(404);
+      // 新主自己的数据正常
+      const otherEvent = envelope(devMain, 'location_update', validLocation(9));
+      await relay(http, other.token, devMain, [otherEvent]).expect(202);
+      expect((await events(other.token).expect(200)).body.total).toBe(1);
+      expect(
+        (await latest(other.token).expect(200)).body.location.latitude,
+      ).toBeCloseTo(31.2009, 4);
       await request(http)
         .delete(`/api/v1/devices/${devMain}/binding`)
         .set(auth(other.token))
         .expect(204);
+
+      // 前主绑回来：只看到自己那段（2 条），看不到新主那 1 条；最新位置是自己的点
       await bindDevice(http, owner.token, devMain);
+      const ownerAgain = await events(owner.token).expect(200);
+      expect(ownerAgain.body.total).toBe(2);
+      const ids = (ownerAgain.body.items as Array<{ eventId: string }>).map(
+        (i) => i.eventId,
+      );
+      expect(ids).toContain(ownerRisk);
+      expect(ids).not.toContain(otherEvent.eventId);
+      expect(
+        (await latest(owner.token).expect(200)).body.location.latitude,
+      ).toBeCloseTo(31.2001, 4);
+      await request(http)
+        .get(`/api/v1/events/${ownerRisk}`)
+        .set(auth(owner.token))
+        .expect(200);
+      // 再来一段：绑回来之后的新事件也可见（两段区间拼接）
+      await relay(http, owner.token, devMain, [
+        envelope(devMain, 'obstacle_risk', {}),
+      ]).expect(202);
+      expect((await events(owner.token).expect(200)).body.total).toBe(3);
+      expect(
+        await prisma.deviceBinding.count({ where: { deviceId: devMain } }),
+      ).toBe(3);
     });
   });
 });
