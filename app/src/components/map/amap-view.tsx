@@ -1,17 +1,19 @@
 // App 内部 Map 组件层（决策 #11/#33）：WebView + 高德 JS API 2.0 的唯一封装点。
 // 业务页只使用本组件的命令式接口（setHelmet/setTrack/…），不触碰 WebView/JS API 细节——换库只改这里。
-// 地图固定暗色样式（设计系统"深色监控台"口径，与 design/map.png 一致）。
-import { useCallback, useEffect, useRef, type RefObject } from 'react';
-import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
-import { WebView, type WebViewMessageEvent } from 'react-native-webview';
+// 底图样式跟随 App 外观（2026-09-10）：深色=高德 dark 样式 + 压暗滤镜；浅色=高德 normal 样式、不加滤镜。
+import { useCallback, useEffect, useRef, type RefObject } from "react";
+import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
+import { WebView, type WebViewMessageEvent } from "react-native-webview";
 
-import { Colors } from '@/constants/theme';
-import type { LngLat } from './coords';
+import { Colors } from "@/constants/theme";
+import { useT } from "@/i18n";
+import type { LngLat } from "./coords";
 
-const JS_KEY = process.env.EXPO_PUBLIC_AMAP_JS_KEY ?? '';
-const SECURITY_CODE = process.env.EXPO_PUBLIC_AMAP_JS_SECURITY_CODE ?? '';
-/** 荧光柠檬品牌色：轨迹辉光与头盔 Marker 用（地图始终暗色，取 dark 值） */
+const JS_KEY = process.env.EXPO_PUBLIC_AMAP_JS_KEY ?? "";
+const SECURITY_CODE = process.env.EXPO_PUBLIC_AMAP_JS_SECURITY_CODE ?? "";
+/** 荧光柠檬品牌色：轨迹辉光与头盔 Marker 用 */
 const ACCENT = Colors.dark.brand;
+const ACCENT_LIGHT = Colors.light.brand;
 
 export interface AmapViewHandle {
   /** 移动头盔 Marker（实时位置或回放位置共用）；follow 时镜头平滑跟随 */
@@ -31,13 +33,15 @@ interface Props {
   /** 命令句柄注入位：父组件传 useRef(null)，本组件挂载后填充。
    *  不用 useImperativeHandle——实测其在本项目 React Compiler 下 ref 永不挂载（2026-08-16）。 */
   controllerRef: RefObject<AmapViewHandle | null>;
+  /** 浅色外观：切换时父组件用 key 重挂载本组件（底图样式在初始化时决定） */
+  light?: boolean;
 }
 
 type Cmd =
-  | { type: 'helmet'; lng: number; lat: number; follow: boolean }
-  | { type: 'track'; path: [number, number][] }
-  | { type: 'clearTrack' }
-  | { type: 'center'; lng: number; lat: number; zoom?: number };
+  | { type: "helmet"; lng: number; lat: number; follow: boolean }
+  | { type: "track"; path: [number, number][] }
+  | { type: "clearTrack" }
+  | { type: "center"; lng: number; lat: number; zoom?: number };
 
 // 默认视野：深圳（设备无数据时的兜底画面）
 const HTML = `<!doctype html>
@@ -84,28 +88,39 @@ const HTML = `<!doctype html>
     if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(obj));
   }
   window.onerror = function (msg) { post({ type: 'error', message: String(msg) }); };
+  // 页内可见/上抛的错误文案由 RN 侧按当前语言注入（window.__I18N），页面自身不含任何语言文案
+  function i18n(key, msg) {
+    var raw = (window.__I18N || {})[key] || key;
+    return msg === undefined ? raw : raw.replace('{msg}', msg);
+  }
 </script>
 <script
   src="https://webapi.amap.com/maps?v=2.0&key=${JS_KEY}"
-  onerror="post({ type: 'error', message: 'JS API 脚本加载失败（网络不可达或 Key 服务异常）' })"></script>
+  onerror="post({ type: 'error', message: i18n('scriptLoad') })"></script>
 </head>
 <body>
 <div id="map"></div>
 <script>
 try {
-  if (typeof AMap === 'undefined') throw new Error('AMap 未定义（脚本未加载成功）');
-  if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
-    document.body.classList.add('ios-dark');
-  } else {
-    document.body.classList.add('with-canvas-filter');
+  if (typeof AMap === 'undefined') throw new Error(i18n('noAmap'));
+  var LIGHT = !!window.__LIGHT;
+  var MAP_STYLE = LIGHT ? 'amap://styles/normal' : 'amap://styles/dark';
+  document.documentElement.style.background = LIGHT ? '#F4F5F7' : '#0B0C0E';
+  document.body.style.background = LIGHT ? '#F4F5F7' : '#0B0C0E';
+  if (!LIGHT) {
+    if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
+      document.body.classList.add('ios-dark');
+    } else {
+      document.body.classList.add('with-canvas-filter');
+    }
   }
   var IOS_DARK = document.body.classList.contains('ios-dark');
   // 预反色调色板：iOS 端颜色经容器 invert+hue-rotate 后近似回到品牌荧光/深徽章
-  document.body.style.setProperty('--neon', IOS_DARK ? '#A5B50D' : '${ACCENT}');
+  document.body.style.setProperty('--neon', IOS_DARK ? '#A5B50D' : (LIGHT ? '${ACCENT_LIGHT}' : '${ACCENT}'));
   document.body.style.setProperty('--badge', IOS_DARK ? '#F2F3F6' : '#17181B');
   var ICON_FILL = IOS_DARK ? '#0B0C0E' : '#F4F5F7';
   var map = new AMap.Map('map', {
-    mapStyle: 'amap://styles/dark',
+    mapStyle: MAP_STYLE,
     // 纯监控底图（对齐 design/map.png）：不渲染 POI 点标注层
     features: ['bg', 'road', 'building'],
     center: [114.0579, 22.5431],
@@ -155,12 +170,12 @@ try {
   }, 700);
   // iOS WKWebView 偶发初始化期样式配置未生效（Android 正常）：complete 后与延时各补设一次
   map.on('complete', function () {
-    map.setMapStyle('amap://styles/dark');
+    map.setMapStyle(MAP_STYLE);
     post({ type: 'ready' });
   });
   // 用户手势拖图(程序 panTo/setCenter 不触发 dragstart)→ 上报供"退出跟随"用
   map.on('dragstart', function () { post({ type: 'userpan' }); });
-  setTimeout(function () { map.setMapStyle('amap://styles/dark'); }, 2500);
+  setTimeout(function () { map.setMapStyle(MAP_STYLE); }, 2500);
 
   window.__cmd = function (cmd) {
     try {
@@ -182,17 +197,32 @@ try {
       } else if (cmd.type === 'center') {
         map.setZoomAndCenter(cmd.zoom || map.getZoom(), [cmd.lng, cmd.lat]);
       }
-    } catch (e) { post({ type: 'error', message: 'cmd 执行失败：' + e.message }); }
+    } catch (e) { post({ type: 'error', message: i18n('cmd', e.message) }); }
   };
 } catch (e) {
-  post({ type: 'error', message: '初始化失败：' + e.message });
+  post({ type: 'error', message: i18n('init', e.message) });
 }
 </script>
 </body>
 </html>`;
 
-export function AmapView({ style, onReady, onError, onUserPan, controllerRef }: Props) {
+export function AmapView({
+  style,
+  onReady,
+  onError,
+  onUserPan,
+  controllerRef,
+  light = false,
+}: Props) {
   const webRef = useRef<WebView>(null);
+  const t = useT();
+  // 注入给页内 JS 的错误文案（key 与页内 i18n() 调用一一对应）；{msg} 由页内替换
+  const i18nJson = JSON.stringify({
+    scriptLoad: t("map.err.scriptLoad"),
+    noAmap: t("map.err.noAmap"),
+    cmd: t("map.err.cmd"),
+    init: t("map.err.init"),
+  });
   // 就绪标志与队列全用 ref：send 的行为不依赖渲染期状态，杜绝闭包捕获旧值
   //（曾因 onReady 回调里的命令带着 ready=false 旧闭包入队、错过唯一一次冲刷而丢失）
   const readyRef = useRef(false);
@@ -220,33 +250,41 @@ export function AmapView({ style, onReady, onError, onUserPan, controllerRef }: 
     controllerRef.current = {
       setHelmet: (pos, opts) =>
         send({
-          type: 'helmet',
+          type: "helmet",
           lng: pos.longitude,
           lat: pos.latitude,
           follow: opts?.follow ?? false,
         }),
       setTrack: (path) =>
         send({
-          type: 'track',
+          type: "track",
           path: path.map((p) => [p.longitude, p.latitude]),
         }),
-      clearTrack: () => send({ type: 'clearTrack' }),
+      clearTrack: () => send({ type: "clearTrack" }),
       setCenter: (pos, zoom) =>
-        send({ type: 'center', lng: pos.longitude, lat: pos.latitude, zoom }),
+        send({ type: "center", lng: pos.longitude, lat: pos.latitude, zoom }),
     };
     return () => {
       controllerRef.current = null;
     };
   }, [send, controllerRef]);
 
+  // 切换语言不重挂载地图（会丢失镜头/轨迹），只把新文案推进页内
+  useEffect(() => {
+    webRef.current?.injectJavaScript(`window.__I18N=${i18nJson};true;`);
+  }, [i18nJson]);
+
   const handleMessage = (e: WebViewMessageEvent) => {
     let msg: { type?: string; message?: string };
     try {
-      msg = JSON.parse(e.nativeEvent.data) as { type?: string; message?: string };
+      msg = JSON.parse(e.nativeEvent.data) as {
+        type?: string;
+        message?: string;
+      };
     } catch {
       return;
     }
-    if (msg.type === 'ready') {
+    if (msg.type === "ready") {
       // ready 会重发多次（对抗通道就绪竞态）：每次都冲刷队列（幂等），onReady 只回调一次
       readyRef.current = true;
       const queued = pending.current;
@@ -256,10 +294,10 @@ export function AmapView({ style, onReady, onError, onUserPan, controllerRef }: 
         announcedRef.current = true;
         onReady?.();
       }
-    } else if (msg.type === 'userpan') {
+    } else if (msg.type === "userpan") {
       onUserPan?.();
-    } else if (msg.type === 'error') {
-      onError?.(msg.message ?? '地图未知错误');
+    } else if (msg.type === "error") {
+      onError?.(msg.message ?? t("map.err.unknown"));
     }
   };
 
@@ -268,14 +306,17 @@ export function AmapView({ style, onReady, onError, onUserPan, controllerRef }: 
   return (
     <View style={style}>
       <WebView
+        injectedJavaScriptBeforeContentLoaded={`window.__LIGHT=${light ? "true" : "false"};window.__I18N=${i18nJson};true;`}
         ref={webRef}
         style={styles.fill}
         containerStyle={styles.fill}
-        source={{ html: HTML, baseUrl: 'https://uri.amap.com' }}
-        originWhitelist={['*']}
+        source={{ html: HTML, baseUrl: "https://uri.amap.com" }}
+        originWhitelist={["*"]}
         javaScriptEnabled
         onMessage={handleMessage}
-        onError={(e) => onError?.(`WebView 错误：${e.nativeEvent.description}`)}
+        onError={(e) =>
+          onError?.(t("map.err.webview", { msg: e.nativeEvent.description }))
+        }
         // 地图页手势全部交给 WebView；禁掉滚动回弹避免与地图拖动打架
         scrollEnabled={false}
         bounces={false}
@@ -287,5 +328,5 @@ export function AmapView({ style, onReady, onError, onUserPan, controllerRef }: 
 }
 
 const styles = StyleSheet.create({
-  fill: { flex: 1, backgroundColor: '#0B0C0E' },
+  fill: { flex: 1, backgroundColor: "#0B0C0E" },
 });

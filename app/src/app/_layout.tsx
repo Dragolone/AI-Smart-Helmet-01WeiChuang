@@ -1,18 +1,15 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useEffect } from 'react';
-import {
-  DarkTheme,
-  DefaultTheme,
-  Stack,
-  ThemeProvider,
-} from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { LogBox } from 'react-native';
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
+import * as SplashScreen from "expo-splash-screen";
+import { LogBox } from "react-native";
 
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import { ToastHost } from '@/components/toast';
-import { useColorScheme } from '@/hooks/use-color-scheme';
-import { useAuthStore } from '@/stores/auth-store';
+import { AnimatedSplashOverlay } from "@/components/animated-icon";
+import { ToastHost } from "@/components/toast";
+import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useLocaleStore, useT } from "@/i18n";
+import { useAuthStore } from "@/stores/auth-store";
+import { useThemeStore } from "@/stores/theme-store";
 
 // 已知无害：开发期 iOS 摘除了推送 entitlement（个人团队签不了 aps-environment），
 // expo-notifications 启动自检读不到钥匙串会报此错。公司账号恢复正式签名后删除本行。
@@ -30,42 +27,73 @@ const queryClient = new QueryClient({
 /** 登录门控：导航器保持挂载，Stack.Protected 按会话状态切换可用路由组（guard 翻转自动重定向） */
 function RootNavigator() {
   const authed = useAuthStore((s) => s.tokens !== null);
+  const t = useT();
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Protected guard={authed}>
-        <Stack.Screen name="(tabs)" />
+        {/* 标签页自身不显示 header，但它的 title 会成为下级页面返回键的文字（默认会露出路由组名 "(tabs)"） */}
+        <Stack.Screen name="(tabs)" options={{ title: t("nav.back") }} />
         <Stack.Screen
           name="bind-device"
           options={{
-            presentation: 'modal',
+            presentation: "modal",
             headerShown: true,
-            title: '绑定设备',
+            title: t("nav.bindDevice"),
           }}
         />
         <Stack.Screen
           name="device/[deviceId]"
-          options={{ headerShown: true, title: '设备详情' }}
+          options={{ headerShown: true, title: t("nav.deviceDetail") }}
         />
         <Stack.Screen
           name="add-contact"
           options={{
-            presentation: 'modal',
+            presentation: "modal",
             headerShown: true,
-            title: '添加紧急联系人',
+            title: t("nav.addContact"),
           }}
         />
         <Stack.Screen
           name="accident/[accidentId]"
-          options={{ headerShown: true, title: '事故详情' }}
+          options={{ headerShown: true, title: t("nav.accidentDetail") }}
         />
         <Stack.Screen
           name="events"
-          options={{ headerShown: true, title: '安全事件' }}
+          options={{ headerShown: true, title: t("nav.events") }}
+        />
+        <Stack.Screen
+          name="contacts"
+          options={{ headerShown: true, title: t("nav.contacts") }}
+        />
+        <Stack.Screen
+          name="accidents"
+          options={{ headerShown: true, title: t("nav.accidents") }}
+        />
+        <Stack.Screen
+          name="account/change-password"
+          options={{ headerShown: true, title: t("nav.changePassword") }}
+        />
+        <Stack.Screen
+          name="account/change-phone"
+          options={{ headerShown: true, title: t("nav.changePhone") }}
+        />
+        <Stack.Screen
+          name="account/delete"
+          options={{ headerShown: true, title: t("nav.deleteAccount") }}
+        />
+        <Stack.Screen
+          name="help"
+          options={{ headerShown: true, title: t("nav.help") }}
+        />
+        {/* 隐私政策 / 用户协议共用一页，具体标题由页面按 doc 参数自行 setOptions */}
+        <Stack.Screen
+          name="legal/[doc]"
+          options={{ headerShown: true, title: t("nav.privacy") }}
         />
         {/* SOS 全屏页：手势返回禁用——处理中的求救不允许误滑关闭 */}
         <Stack.Screen
           name="sos-active"
-          options={{ presentation: 'fullScreenModal', gestureEnabled: false }}
+          options={{ presentation: "fullScreenModal", gestureEnabled: false }}
         />
       </Stack.Protected>
       <Stack.Protected guard={!authed}>
@@ -81,17 +109,24 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
   const hydrated = useAuthStore((s) => s.hydrated);
   const hydrate = useAuthStore((s) => s.hydrate);
+  const hydrateLocale = useLocaleStore((s) => s.hydrate);
+  const hydrateTheme = useThemeStore((s) => s.hydrate);
+  // 语言/外观设置恢复完再挂路由：原生标签条挂载后再改标签文字会错位（2026-09-10 真机实证）
+  const localeHydrated = useLocaleStore((s) => s.hydrated);
+  const themeHydrated = useThemeStore((s) => s.hydrated);
 
   useEffect(() => {
     void hydrate();
-  }, [hydrate]);
+    void hydrateLocale();
+    void hydrateTheme();
+  }, [hydrate, hydrateLocale, hydrateTheme]);
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+      <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
         <AnimatedSplashOverlay />
         {/* SecureStore 恢复完成前不挂路由，避免登录态闪变；空白由 SplashOverlay 兜住 */}
-        {hydrated && <RootNavigator />}
+        {hydrated && localeHydrated && themeHydrated && <RootNavigator />}
         <ToastHost />
       </ThemeProvider>
     </QueryClientProvider>

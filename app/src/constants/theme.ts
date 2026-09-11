@@ -17,10 +17,13 @@ export const Colors = {
     text: '#16181D',
     background: '#F4F5F7',
     backgroundElement: '#FFFFFF',
-    backgroundSelected: '#E9EBEF',
+    backgroundSelected: '#EEF0F3',
     textSecondary: '#60646C',
     border: 'rgba(17, 24, 39, 0.08)',
-    brand: '#C7E62E',
+    borderStrong: 'rgba(17, 24, 39, 0.16)',
+    // 浅色荧光柠檬三次真机迭代：#C7E62E 偏暗沉、#D6F536 白底上太淡看不清（2026-09-11 反馈）
+    // → 去掉白混、拉满饱和度、亮度压一档：白底上更醒目，仍是荧光感，深色字 onBrand 对比充足
+    brand: '#B9E600',
     onBrand: '#151804',
     success: '#1F9D55',
     successBg: 'rgba(31, 157, 85, 0.12)',
@@ -28,6 +31,8 @@ export const Colors = {
     warningBg: 'rgba(185, 125, 16, 0.12)',
     danger: '#D9534F',
     dangerBg: 'rgba(217, 83, 79, 0.12)',
+    /** 大面积红底 + 白字的唯一场景（SOS 按钮）：比 danger 深一档保证 ≥ 4.5:1 对比 */
+    sos: '#E0332A',
   },
   dark: {
     text: '#FFFFFF',
@@ -36,6 +41,7 @@ export const Colors = {
     backgroundSelected: '#1F2126',
     textSecondary: '#9BA1AA',
     border: 'rgba(255, 255, 255, 0.08)',
+    borderStrong: 'rgba(255, 255, 255, 0.24)',
     brand: '#D9F24A',
     onBrand: '#131503',
     success: '#4ADE80',
@@ -44,6 +50,7 @@ export const Colors = {
     warningBg: 'rgba(245, 184, 74, 0.14)',
     danger: '#F26D5F',
     dangerBg: 'rgba(242, 109, 95, 0.16)',
+    sos: '#E8433B',
   },
 } as const;
 

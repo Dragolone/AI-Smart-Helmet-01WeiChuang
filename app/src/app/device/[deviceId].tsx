@@ -1,74 +1,110 @@
 // 设备状态页（API.md §4 /devices/{id} + /devices/{id}/status；online 以服务端计算为准）
 // 2026-08-16 风格迭代：大标识标题 + 状态药丸 + 电量仪表卡 + 数据行卡片
-import { Ionicons } from '@expo/vector-icons';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Ionicons } from "@expo/vector-icons";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { router, useLocalSearchParams, useNavigation } from "expo-router";
+import { useRef, useState } from "react";
+import {
+  Alert,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
 
-import { devicesApi } from '@/api/devices';
-import { showToast } from '@/components/toast';
-import { toUserMessage } from '@/api/error-messages';
-import { Badge } from '@/components/badge';
-import { FormInput, PrimaryButton } from '@/components/form';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Radius } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { devicesApi } from "@/api/devices";
+import { showToast } from "@/components/toast";
+import { toUserMessage } from "@/api/error-messages";
+import { Badge } from "@/components/badge";
+import { Tappable } from "@/components/tappable";
+import { BatteryChart } from "@/components/battery-chart";
+import {
+  VolumeSlider,
+  VOLUME_LOUD_THRESHOLD,
+} from "@/components/volume-slider";
+import { FormInput, PrimaryButton } from "@/components/form";
+import { ThemedText } from "@/components/themed-text";
+import { ThemedView } from "@/components/themed-view";
+import { Radius } from "@/constants/theme";
+import { useTheme } from "@/hooks/use-theme";
+import { useLocale, useT } from "@/i18n";
+import { shortDate, shortTime } from "@/i18n/format";
 
 function InfoRow({
   icon,
   label,
   value,
+  onPress,
+  valueColor,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   value: string;
+  onPress?: () => void;
+  valueColor?: string;
 }) {
   const theme = useTheme();
+  const Wrapper = onPress ? Tappable : View;
   return (
-    <View
+    <Wrapper
+      {...(onPress ? { onPress, feedback: "fill" as const } : {})}
       style={[
         styles.row,
         { backgroundColor: theme.backgroundElement, borderColor: theme.border },
-      ]}>
+      ]}
+    >
       <View style={styles.rowLeft}>
         <Ionicons name={icon} size={16} color={theme.textSecondary} />
         <ThemedText type="label" themeColor="textSecondary">
           {label}
         </ThemedText>
       </View>
-      <ThemedText type="smallBold">{value}</ThemedText>
-    </View>
+      <ThemedText
+        type="smallBold"
+        style={valueColor ? { color: valueColor } : undefined}
+      >
+        {value}
+      </ThemedText>
+    </Wrapper>
   );
 }
 
 export default function DeviceDetailScreen() {
   const { deviceId } = useLocalSearchParams<{ deviceId: string }>();
   const theme = useTheme();
+  const t = useT();
+  const locale = useLocale();
   const queryClient = useQueryClient();
   const [unbinding, setUnbinding] = useState(false);
 
   const status = useQuery({
-    queryKey: ['device-status', deviceId],
+    queryKey: ["device-status", deviceId],
     queryFn: () => devicesApi.status(deviceId),
     // 心跳 60s + 在线窗口 90s：15s 轮询兜底（WS 推送为主）
     refetchInterval: 15_000,
   });
 
+  // 24h 电量历史（10 分钟桶；60s 心跳 → 每分钟刷新即可）
+  const battery = useQuery({
+    queryKey: ["device-battery-history", deviceId],
+    queryFn: () => devicesApi.batteryHistory(deviceId, 24),
+    refetchInterval: 60_000,
+  });
+
   // 详情（name/bindCode 等静态信息，与状态分开缓存）
   const detail = useQuery({
-    queryKey: ['device-detail', deviceId],
+    queryKey: ["device-detail", deviceId],
     queryFn: () => devicesApi.detail(deviceId),
   });
 
   // 设备设置（§8 命令+回执状态机）:有未终态命令时 2s 快轮询直到回执/超时
   const settings = useQuery({
-    queryKey: ['device-settings', deviceId],
+    queryKey: ["device-settings", deviceId],
     queryFn: () => devicesApi.settings(deviceId),
     refetchInterval: (q) => {
       const st = q.state.data?.lastCommand?.status;
-      return st === 'pending' || st === 'delivered' ? 2_000 : 30_000;
+      return st === "pending" || st === "delivered" ? 2_000 : 30_000;
     },
   });
   const [sending, setSending] = useState(false);
@@ -77,31 +113,112 @@ export default function DeviceDetailScreen() {
     setSending(true);
     devicesApi
       .putSettings(deviceId, { settings: { [key]: value } })
-      .then(() => queryClient.invalidateQueries({ queryKey: ['device-settings', deviceId] }))
-      .catch((e) => Alert.alert('下发失败', toUserMessage(e)))
+      .then(() =>
+        queryClient.invalidateQueries({
+          queryKey: ["device-settings", deviceId],
+        }),
+      )
+      .catch((e) => Alert.alert(t("device.sendFailed"), toUserMessage(e)))
       .finally(() => setSending(false));
+  };
+
+  /** 蜂鸣音量（BLE 协议 v0.6 内存表 0x24：1–100%，默认 80）；超过高音量线先确认，防止贴耳伤听力 */
+  // 拖动中：像调耳机音量一样即时生效——每跨一档就下发，但同一 200ms 内只发最后一条，
+  // 且拖动阶段封顶在高音量线；超过线的最终值等松手确认后再发
+  const navigation = useNavigation();
+  const liveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const livePending = useRef<number | null>(null);
+  const liveSent = useRef<number | null>(null);
+  const flushLive = () => {
+    liveTimer.current = null;
+    const v = livePending.current;
+    livePending.current = null;
+    if (v === null || v === liveSent.current) return;
+    liveSent.current = v;
+    devicesApi.putSettings(deviceId, { settings: { volume: v } }).catch(() => {
+      /* 拖动中的中间值失败不打扰，松手那条会报错 */
+    });
+  };
+  const onVolumeStep = (v: number) => {
+    livePending.current = Math.min(v, VOLUME_LOUD_THRESHOLD);
+    if (!liveTimer.current) liveTimer.current = setTimeout(flushLive, 200);
+  };
+  const onVolumeDragging = (dragging: boolean) => {
+    // 拖动时关掉 iOS 返回手势，免得向右滑把页面滑走
+    navigation.setOptions({ gestureEnabled: !dragging });
+    if (dragging) liveSent.current = null;
+  };
+  const sendVolume = (v: number) => {
+    if (liveTimer.current) {
+      clearTimeout(liveTimer.current);
+      liveTimer.current = null;
+      livePending.current = null;
+    }
+    if (v > VOLUME_LOUD_THRESHOLD) {
+      Alert.alert(
+        t("device.volumeLoudTitle"),
+        t("device.volumeLoudBody", { n: v }),
+        [
+          {
+            text: t("common.cancel"),
+            style: "cancel",
+            // 取消：回落到高音量线，让滑杆与头盔一致
+            onPress: () => sendSetting("volume", VOLUME_LOUD_THRESHOLD),
+          },
+          {
+            text: t("device.volumeLoudConfirm"),
+            style: "destructive",
+            onPress: () => sendSetting("volume", v),
+          },
+        ],
+      );
+      return;
+    }
+    sendSetting("volume", v);
+  };
+  // 绑定码默认打码，点一下显示 10 秒（防旁人看到后绑走）
+  const [bindCodeShown, setBindCodeShown] = useState(false);
+  const revealBindCode = () => {
+    setBindCodeShown(true);
+    setTimeout(() => setBindCodeShown(false), 10_000);
   };
 
   const lastCmd = settings.data?.lastCommand ?? null;
   const cmdStatusText =
     lastCmd == null
       ? null
-      : lastCmd.status === 'pending'
-        ? { text: '下发中…', color: theme.warning }
-        : lastCmd.status === 'delivered'
-          ? { text: '已送达设备,等待执行回执', color: theme.warning }
-          : lastCmd.status === 'success'
-            ? { text: `执行成功 · ${lastCmd.executedAt ? new Date(lastCmd.executedAt).toLocaleTimeString() : ''}`, color: theme.success }
-            : lastCmd.status === 'failed'
-              ? { text: `执行失败${lastCmd.errorCode ? `（${lastCmd.errorCode}）` : ''}`, color: theme.danger }
-              : { text: '设备离线未送达(绝不显示为已生效)', color: theme.textSecondary };
+      : lastCmd.status === "pending"
+        ? { text: t("device.cmd.pending"), color: theme.warning }
+        : lastCmd.status === "delivered"
+          ? { text: t("device.cmd.delivered"), color: theme.warning }
+          : lastCmd.status === "success"
+            ? {
+                text: lastCmd.executedAt
+                  ? t("device.cmd.successAt", {
+                      time: shortTime(lastCmd.executedAt, locale),
+                    })
+                  : t("device.cmd.success"),
+                color: theme.success,
+              }
+            : lastCmd.status === "failed"
+              ? {
+                  text: lastCmd.errorCode
+                    ? t("device.cmd.failedCode", { code: lastCmd.errorCode })
+                    : t("device.cmd.failed"),
+                  color: theme.danger,
+                }
+              : {
+                  // 离线未送达：绝不显示为已生效
+                  text: t("device.cmd.offline"),
+                  color: theme.textSecondary,
+                };
 
   const [renameOpen, setRenameOpen] = useState(false);
-  const [nameDraft, setNameDraft] = useState('');
+  const [nameDraft, setNameDraft] = useState("");
   const [renaming, setRenaming] = useState(false);
 
   const openRename = () => {
-    setNameDraft(detail.data?.name ?? '');
+    setNameDraft(detail.data?.name ?? "");
     setRenameOpen(true);
   };
 
@@ -111,32 +228,36 @@ export default function DeviceDetailScreen() {
       .rename(deviceId, { name: nameDraft })
       .then(async () => {
         setRenameOpen(false);
-        showToast('已重命名');
+        showToast(t("device.renamed"));
         // 列表/详情/地图药丸同步刷新
         await Promise.all([
-          queryClient.invalidateQueries({ queryKey: ['device-detail', deviceId] }),
-          queryClient.invalidateQueries({ queryKey: ['devices'] }),
+          queryClient.invalidateQueries({
+            queryKey: ["device-detail", deviceId],
+          }),
+          queryClient.invalidateQueries({ queryKey: ["devices"] }),
         ]);
       })
-      .catch((e) => Alert.alert('重命名失败', toUserMessage(e)))
+      .catch((e) => Alert.alert(t("device.renameFailed"), toUserMessage(e)))
       .finally(() => setRenaming(false));
   };
 
   const unbind = () => {
-    Alert.alert('解除绑定', `确定解绑 ${deviceId} 吗？历史数据会保留。`, [
-      { text: '取消', style: 'cancel' },
+    Alert.alert(t("device.unbind"), t("device.unbindBody", { id: deviceId }), [
+      { text: t("common.cancel"), style: "cancel" },
       {
-        text: '解绑',
-        style: 'destructive',
+        text: t("device.unbindAction"),
+        style: "destructive",
         onPress: () => {
           setUnbinding(true);
           devicesApi
             .unbind(deviceId)
             .then(async () => {
-              await queryClient.invalidateQueries({ queryKey: ['devices'] });
+              await queryClient.invalidateQueries({ queryKey: ["devices"] });
               router.back();
             })
-            .catch((e) => Alert.alert('解绑失败', toUserMessage(e)))
+            .catch((e) =>
+              Alert.alert(t("device.unbindFailed"), toUserMessage(e)),
+            )
             .finally(() => setUnbinding(false));
         },
       },
@@ -144,204 +265,238 @@ export default function DeviceDetailScreen() {
   };
 
   const s = status.data;
-  const batteryColor =
-    s?.battery == null
-      ? theme.textSecondary
-      : s.battery <= 20
-        ? theme.danger
-        : s.battery <= 40
-          ? theme.warning
-          : theme.success;
 
   return (
     <ThemedView style={styles.flex}>
       {/* 内容随设置区增长会超出一屏,必须可滚动(Android 实证:小屏下半截不可见且无法下滑) */}
       <ScrollView
         contentContainerStyle={styles.container}
-        showsVerticalScrollIndicator={false}>
-      <View style={styles.titleRow}>
-        <Pressable style={styles.titlePress} onPress={openRename} hitSlop={6}>
-          <ThemedText type="title" style={styles.title} numberOfLines={1}>
-            {detail.data?.name ?? deviceId}
-          </ThemedText>
-          <Ionicons name="pencil-outline" size={18} color={theme.textSecondary} />
-        </Pressable>
-        {s && (
-          <Badge
-            variant={s.online ? 'success' : 'neutral'}
-            label={s.online ? '在线' : '离线'}
-          />
-        )}
-      </View>
-      {detail.data?.name && (
-        <ThemedText type="small" themeColor="textSecondary" style={styles.subId}>
-          {deviceId}
-        </ThemedText>
-      )}
-
-      {status.isError && (
-        <ThemedText type="small">{toUserMessage(status.error)}</ThemedText>
-      )}
-
-      {s && (
-        <>
-          <View
-            style={[
-              styles.batteryCard,
-              { backgroundColor: theme.backgroundElement, borderColor: theme.border },
-            ]}>
-            <ThemedText type="label" themeColor="textSecondary">
-              电量
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.titleRow}>
+          <Pressable style={styles.titlePress} onPress={openRename} hitSlop={6}>
+            <ThemedText type="title" style={styles.title} numberOfLines={1}>
+              {detail.data?.name ?? deviceId}
             </ThemedText>
-            <View style={styles.batteryValueRow}>
-              <ThemedText type="display" style={{ color: batteryColor }}>
-                {s.battery !== null ? `${s.battery}%` : '—'}
-              </ThemedText>
-              {s.charging ? (
-                <Badge variant="warning" label="充电中" />
-              ) : null}
-            </View>
-            <View style={[styles.batteryTrack, { backgroundColor: theme.backgroundSelected }]}>
-              <View
-                style={[
-                  styles.batteryFill,
-                  {
-                    width: `${Math.max(2, Math.min(100, s.battery ?? 0))}%`,
-                    backgroundColor: batteryColor,
-                  },
-                ]}
+            <Ionicons
+              name="pencil-outline"
+              size={18}
+              color={theme.textSecondary}
+            />
+          </Pressable>
+          {s && (
+            <Badge
+              variant={s.online ? "success" : "neutral"}
+              label={s.online ? t("common.online") : t("common.offline")}
+            />
+          )}
+        </View>
+        {detail.data?.name && (
+          <ThemedText
+            type="small"
+            themeColor="textSecondary"
+            style={styles.subId}
+          >
+            {deviceId}
+          </ThemedText>
+        )}
+
+        {status.isError && (
+          <ThemedText type="small">{toUserMessage(status.error)}</ThemedText>
+        )}
+
+        {s && (
+          <>
+            <View
+              style={[
+                styles.batteryCard,
+                {
+                  backgroundColor: theme.backgroundElement,
+                  borderColor: theme.border,
+                },
+              ]}
+            >
+              <BatteryChart
+                points={battery.data?.points ?? []}
+                to={battery.data?.to}
+                current={s.battery}
+                charging={s.charging}
+                labels={{
+                  title: t("devices.battery"),
+                  window: t("device.batteryWindow"),
+                  charging: t("devices.charging"),
+                  empty: t("device.batteryEmpty"),
+                }}
               />
             </View>
-          </View>
 
-          <InfoRow
-            icon="cellular-outline"
-            label="信号"
-            value={s.signalLevel !== null ? String(s.signalLevel) : '未上报'}
-          />
-          <InfoRow
-            icon={s.sleeping ? 'moon-outline' : 'flash-outline'}
-            label="工作状态"
-            value={s.sleeping ? '休眠中' : '活动中'}
-          />
-          <InfoRow
-            icon="hardware-chip-outline"
-            label="固件版本"
-            value={s.firmwareVersion ?? '未知'}
-          />
-          <InfoRow
-            icon="time-outline"
-            label="最后心跳"
-            value={s.lastSeenAt ? new Date(s.lastSeenAt).toLocaleString() : '从未上报'}
-          />
-          <InfoRow
-            icon="key-outline"
-            label="绑定码"
-            value={detail.data?.bindCode ?? '—'}
-          />
+            <InfoRow
+              icon="cellular-outline"
+              label={t("device.signal")}
+              value={
+                s.signalLevel !== null
+                  ? String(s.signalLevel)
+                  : t("device.notReported")
+              }
+            />
+            <InfoRow
+              icon={s.sleeping ? "moon-outline" : "flash-outline"}
+              label={t("device.workState")}
+              value={s.sleeping ? t("device.sleeping") : t("device.active")}
+            />
+            <InfoRow
+              icon="hardware-chip-outline"
+              label={t("devices.firmware")}
+              value={s.firmwareVersion ?? t("common.unknown")}
+            />
+            <InfoRow
+              icon="time-outline"
+              label={t("device.lastHeartbeat")}
+              value={
+                s.lastSeenAt
+                  ? `${shortDate(s.lastSeenAt, locale)} ${shortTime(s.lastSeenAt, locale)}`
+                  : t("device.neverReported")
+              }
+            />
+            <InfoRow
+              icon={bindCodeShown ? "eye-outline" : "eye-off-outline"}
+              label={t("device.bindCode")}
+              value={
+                bindCodeShown
+                  ? (detail.data?.bindCode ?? "—")
+                  : t("device.bindCodeHidden")
+              }
+              valueColor={bindCodeShown ? undefined : theme.textSecondary}
+              onPress={
+                bindCodeShown ? () => setBindCodeShown(false) : revealBindCode
+              }
+            />
 
-          {/* 设备设置下发（§8;参数为演示项,清单与值域待硬件定稿 ⚠️） */}
-          <View
-            style={[styles.settingsCard, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-            <View style={styles.settingsHeader}>
-              <ThemedText type="smallBold" style={{ fontSize: 15 }}>
-                设备设置
-              </ThemedText>
-              <ThemedText type="label" themeColor="textSecondary">
-                演示参数 · 待硬件定稿
-              </ThemedText>
-            </View>
-
-            <View style={styles.settingRow}>
-              <ThemedText type="small" themeColor="textSecondary">
-                蜂鸣音量
-              </ThemedText>
-              <View style={styles.chipGroup}>
-                {[50, 75, 100].map((v) => {
-                  const active = settings.data?.settings.volume === v;
-                  return (
-                    <Pressable key={v} disabled={sending} onPress={() => sendSetting('volume', v)}>
-                      <View
-                        style={[
-                          styles.settingChip,
-                          {
-                            backgroundColor: active ? theme.brand : theme.backgroundSelected,
-                          },
-                        ]}>
-                        <ThemedText
-                          type="smallBold"
-                          style={{ fontSize: 13, color: active ? theme.onBrand : theme.textSecondary }}>
-                          {v}
-                        </ThemedText>
-                      </View>
-                    </Pressable>
-                  );
-                })}
+            {/* 设备设置下发（§8;参数为演示项,清单与值域待硬件定稿 ⚠️） */}
+            <View
+              style={[
+                styles.settingsCard,
+                {
+                  backgroundColor: theme.backgroundElement,
+                  borderColor: theme.border,
+                },
+              ]}
+            >
+              <View style={styles.settingsHeader}>
+                <ThemedText type="smallBold" style={{ fontSize: 15 }}>
+                  {t("device.settings")}
+                </ThemedText>
               </View>
-            </View>
 
-            <View style={styles.settingRow}>
-              <ThemedText type="small" themeColor="textSecondary">
-                示廓灯
-              </ThemedText>
-              <View style={styles.chipGroup}>
-                {[
-                  { v: true, label: '开' },
-                  { v: false, label: '关' },
-                ].map(({ v, label }) => {
-                  const active = settings.data?.settings.light === v;
-                  return (
-                    <Pressable key={label} disabled={sending} onPress={() => sendSetting('light', v)}>
-                      <View
-                        style={[
-                          styles.settingChip,
-                          {
-                            backgroundColor: active ? theme.brand : theme.backgroundSelected,
-                          },
-                        ]}>
-                        <ThemedText
-                          type="smallBold"
-                          style={{ fontSize: 13, color: active ? theme.onBrand : theme.textSecondary }}>
-                          {label}
-                        </ThemedText>
-                      </View>
-                    </Pressable>
-                  );
-                })}
+              <VolumeSlider
+                value={
+                  typeof settings.data?.settings.volume === "number"
+                    ? settings.data.settings.volume
+                    : 80
+                }
+                onStep={onVolumeStep}
+                onRelease={sendVolume}
+                onDraggingChange={onVolumeDragging}
+              />
+
+              <View style={styles.settingRow}>
+                <ThemedText type="small" themeColor="textSecondary">
+                  {t("device.light")}
+                </ThemedText>
+                <View style={styles.chipGroup}>
+                  {[
+                    { v: true, label: t("device.on") },
+                    { v: false, label: t("device.off") },
+                  ].map(({ v, label }) => {
+                    const active = settings.data?.settings.light === v;
+                    return (
+                      <Tappable
+                        key={label}
+                        disabled={sending}
+                        onPress={() => sendSetting("light", v)}
+                      >
+                        <View
+                          style={[
+                            styles.settingChip,
+                            {
+                              backgroundColor: active
+                                ? theme.brand
+                                : theme.backgroundSelected,
+                            },
+                          ]}
+                        >
+                          <ThemedText
+                            type="smallBold"
+                            style={{
+                              fontSize: 13,
+                              color: active
+                                ? theme.onBrand
+                                : theme.textSecondary,
+                            }}
+                          >
+                            {label}
+                          </ThemedText>
+                        </View>
+                      </Tappable>
+                    );
+                  })}
+                </View>
               </View>
+
+              {cmdStatusText && (
+                <ThemedText type="small" style={{ color: cmdStatusText.color }}>
+                  {t("device.lastCommand", { status: cmdStatusText.text })}
+                </ThemedText>
+              )}
             </View>
-
-            {cmdStatusText && (
-              <ThemedText type="small" style={{ color: cmdStatusText.color }}>
-                最近下发:{cmdStatusText.text}
-              </ThemedText>
-            )}
-          </View>
-        </>
-      )}
-
+          </>
+        )}
 
         <View style={styles.footer}>
-          <PrimaryButton title="解除绑定" onPress={unbind} loading={unbinding} danger />
+          <PrimaryButton
+            title={t("device.unbind")}
+            onPress={unbind}
+            loading={unbinding}
+            danger
+          />
         </View>
       </ScrollView>
 
       {/* 重命名弹层（跨平台；Alert.prompt 仅 iOS 可用故自建） */}
-      <Modal visible={renameOpen} transparent animationType="fade" onRequestClose={() => setRenameOpen(false)}>
-        <Pressable style={styles.modalMask} onPress={() => setRenameOpen(false)}>
+      <Modal
+        visible={renameOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRenameOpen(false)}
+      >
+        <Pressable
+          style={styles.modalMask}
+          onPress={() => setRenameOpen(false)}
+        >
           <Pressable
-            style={[styles.modalCard, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}
-            onPress={() => undefined}>
-            <ThemedText type="subtitle">重命名设备</ThemedText>
+            style={[
+              styles.modalCard,
+              {
+                backgroundColor: theme.backgroundElement,
+                borderColor: theme.border,
+              },
+            ]}
+            onPress={() => undefined}
+          >
+            <ThemedText type="subtitle">{t("device.renameTitle")}</ThemedText>
             <FormInput
-              label="设备名"
+              label={t("device.nameLabel")}
               value={nameDraft}
               onChangeText={setNameDraft}
-              placeholder="1-20 字符；留空恢复默认(设备号)"
+              placeholder={t("device.namePlaceholder")}
               maxLength={20}
               autoFocus
             />
-            <PrimaryButton title="保存" onPress={submitRename} loading={renaming} />
+            <PrimaryButton
+              title={t("common.save")}
+              onPress={submitRename}
+              loading={renaming}
+            />
           </Pressable>
         </Pressable>
       </Modal>
@@ -353,18 +508,24 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: { padding: 20, gap: 12, paddingBottom: 28 },
   titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: 4,
   },
   title: { fontSize: 30, lineHeight: 36, flexShrink: 1 },
-  titlePress: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: 10 },
+  titlePress: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flex: 1,
+    marginRight: 10,
+  },
   subId: { marginTop: -8 },
   modalMask: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    justifyContent: 'center',
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
     padding: 28,
   },
   modalCard: {
@@ -379,13 +540,6 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 10,
   },
-  batteryValueRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  batteryTrack: { height: 6, borderRadius: 3, overflow: 'hidden' },
-  batteryFill: { height: 6, borderRadius: 3 },
   settingsCard: {
     borderRadius: Radius.card,
     borderWidth: 1,
@@ -393,30 +547,30 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   settingsHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "baseline",
   },
   settingRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
-  chipGroup: { flexDirection: 'row', gap: 8 },
+  chipGroup: { flexDirection: "row", gap: 8 },
   settingChip: {
     borderRadius: Radius.pill,
     paddingHorizontal: 14,
     paddingVertical: 6,
   },
   row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     borderRadius: Radius.control,
     borderWidth: 1,
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
-  rowLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  rowLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
   footer: { marginTop: 8 },
 });

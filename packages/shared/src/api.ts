@@ -146,6 +146,19 @@ export interface DeviceStatus {
   firmwareVersion: string | null;
 }
 
+/** 电量历史点（API.md §4 GET /devices/{id}/battery-history）：10 分钟桶，取桶内最后一条心跳 */
+export interface BatteryHistoryPoint {
+  timestamp: string;
+  battery: number;
+  charging: boolean | null;
+}
+
+export interface BatteryHistoryResponse {
+  from: string;
+  to: string;
+  points: BatteryHistoryPoint[];
+}
+
 /** 设备列表/详情项（含状态快照）。bindCode 仅经归属校验的端点返回（本人可见，供详情展示） */
 export interface DevicePublic extends DeviceStatus {
   deviceId: string;

@@ -222,7 +222,10 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 > 3. **本地怎么拿验证码**：短信现在是 Console Mock，码打在后端终端日志 `[MOCK SMS] → 138****0000 [verify_code] 您的验证码为123456…`；连云端时 `docker compose -f docker-compose.prod.yml logs backend | grep verify_code`（让 B 帮你看也行）。真短信要等签名/模板过审 + 运营商报备，约两周。
 > 4. **旧账号不受影响**，登录不需要验证码。你本地库里的测试账号照常能登。云端已验收通过并留了一个测试账号：手机 `19900001234` / 密码 `test_password_1`（昵称「云端测试」），直接登录联调即可。
 > 5. 🆕 **App 正式命名（汤总 2026-09-10 拍板）**：显示名与上架名 **「零一唯创」**（不再叫「AI智能头盔」，品牌 App 不限定头盔）；正式包名 / Bundle ID **`com.lingyiweichuang.app`**（安卓包名不能以数字开头，故不用 01weichuang）。请改 `app.json` 的 `name`、`android.package`、`ios.bundleIdentifier` 后 `npx expo prebuild --clean` 重建双端，高德平台 Key 绑定同步改。App 备案要用这两样，改完告诉 B。开屏/图标你已经切成公司品牌，正好对上。
-> 6. 这次改动在 PR #56，**麻烦你 Review**（团队规则：动 Contract 和新依赖要对方看一眼；新依赖是腾讯云短信官方 SDK）。看完没问题 B 合并并更新云端。
+> 📎 **向公司侧索取的资料清单**：`docs/ASSET_REQUESTS.md`（头盔产品图 / 型号与编号规则 / 品牌矢量 / 图标定稿 / 公司与客服信息 / 商店文案等 11 项）——负责人对表跟进。
+>
+> 6. 🆕 **UI 重设计已落地（2026-09-10，负责人验收设计稿后 B 线实现，PR `feat/ui-redesign`）**：五个主页按定稿重排（设备大卡 + 逐行列表 / 地图去调试条 + 底部信息卡 + 历史轨迹折叠 / 安全状态卡 + 底部 SOS 长按 / 对讲空态按钮下沉 + PTT 居中 / 我的紧凑设置行 + 单色图标）；**所有可点元素统一按压反馈**（`components/tappable.tsx`，列表行 fill、图标 opacity、主按钮 scale+触觉）；**三语切换**（简/繁/英，`src/i18n/`，字典按页分文件，「我的 → 语言」切换，跟随系统默认）；紧急联系人与事故记录拆成独立页 `contacts.tsx` / `accidents.tsx`。**请 Review 并双端真机过一遍**；新页面文案一律走 `useT()`，新增 key 三种语言都要补；spike-* 页不在范围。设计稿：见负责人发的画布链接。
+> 7. 这次改动在 PR #56，**麻烦你 Review**（团队规则：动 Contract 和新依赖要对方看一眼；新依赖是腾讯云短信官方 SDK）。看完没问题 B 合并并更新云端。
 
 
 **已完成（2f89744，2026-08-25 A 线自主推进）**：决策 #36 对接——App 接 WS `device_command` + relay-ack 回执（commandId 去重、幂等重试；BLE 写入为 `__DEV__` 占位，模拟器实测下发→delivered→executed→设置页 success 全链路通过）；上行中转队列骨架（7 种事件过滤、批量 ≤100、断线按原 eventId 补传，`app/src/services/ble-relay*.ts`）；地图跟随开关 + 设备切换 + 事故详情小地图导航 + 全局 Toast。交接文档已消化删除。

@@ -1,5 +1,6 @@
 // 设备接口（docs/API.md §4；backend/src/devices 已实现并核对）
 import type {
+  BatteryHistoryResponse,
   BindDeviceRequest,
   CommandPublic,
   DevicePublic,
@@ -21,6 +22,12 @@ export const devicesApi = {
 
   detail: (deviceId: string) =>
     api<DevicePublic>(`/devices/${encodeURIComponent(deviceId)}`),
+
+  /** 24h 电量历史（API.md §4；10 分钟桶） */
+  batteryHistory: (deviceId: string, hours = 24) =>
+    api<BatteryHistoryResponse>(
+      `/devices/${encodeURIComponent(deviceId)}/battery-history?hours=${hours}`,
+    ),
 
   status: (deviceId: string) =>
     api<DeviceStatus>(`/devices/${encodeURIComponent(deviceId)}/status`),

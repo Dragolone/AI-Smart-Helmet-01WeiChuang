@@ -143,6 +143,51 @@ describe('设备绑定全链路 (e2e)', () => {
     );
   });
 
+  it('电量历史：device_status 心跳按 10 分钟桶聚合，仅本人可查', async () => {
+    const BUCKET = 10 * 60_000;
+    // 对齐到桶起点再取样，避免用例卡在桶边界：桶 A 三条（取最后一条）、桶 B 一条
+    const bucketA = Math.floor(Date.now() / BUCKET) * BUCKET - 2 * BUCKET;
+    const bucketB = bucketA - 2 * BUCKET;
+    const now = Date.now();
+    const samples = [
+      { t: bucketA + 1 * 60_000, battery: 90, charging: false },
+      { t: bucketA + 2 * 60_000, battery: 89, charging: false },
+      { t: bucketA + 3 * 60_000, battery: 88, charging: false },
+      { t: bucketB + 5 * 60_000, battery: 95, charging: true },
+    ];
+    await prisma.rawEvent.createMany({
+      data: samples.map((x, i) => ({
+        eventId: `e2e-bat-${now}-${i}`,
+        deviceId,
+        eventType: 'device_status',
+        timestamp: new Date(x.t),
+        schemaVersion: 1,
+        payload: { battery: x.battery, charging: x.charging },
+        source: 'mqtt',
+      })),
+    });
+    const res = await request(http)
+      .get(`/api/v1/devices/${deviceId}/battery-history?hours=1`)
+      .set('Authorization', `Bearer ${tokenA}`)
+      .expect(200);
+    const points = res.body.points as { battery: number; charging: boolean }[];
+    expect(points).toHaveLength(2);
+    expect(points[0]).toMatchObject({ battery: 95, charging: true });
+    expect(points[1]).toMatchObject({ battery: 88, charging: false });
+    await request(http)
+      .get(`/api/v1/devices/${deviceId}/battery-history?hours=0`)
+      .set('Authorization', `Bearer ${tokenA}`)
+      .expect(400);
+    // 他人不可见（与 detail 同口径 404）
+    await request(http)
+      .get(`/api/v1/devices/${deviceId}/battery-history`)
+      .set('Authorization', `Bearer ${tokenB}`)
+      .expect(404);
+    await prisma.rawEvent.deleteMany({
+      where: { eventId: { startsWith: `e2e-bat-${now}` } },
+    });
+  });
+
   it('解绑 → 204，列表清空，设备记录留档', async () => {
     await request(http)
       .delete(`/api/v1/devices/${deviceId}/binding`)

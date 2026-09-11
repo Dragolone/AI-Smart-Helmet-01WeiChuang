@@ -1,23 +1,24 @@
 // 注册页（API.md §2：POST /auth/sms-code 取验证码 → POST /auth/register 带 code）
-import { Link } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { Link } from "expo-router";
+import { useEffect, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
   StyleSheet,
   View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import { authApi } from '@/api/auth';
-import { toUserMessage } from '@/api/error-messages';
-import { FormError, FormInput, PrimaryButton } from '@/components/form';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Radius } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
-import { useAuthStore } from '@/stores/auth-store';
+import { authApi } from "@/api/auth";
+import { toUserMessage } from "@/api/error-messages";
+import { FormError, FormInput, PrimaryButton } from "@/components/form";
+import { ThemedText } from "@/components/themed-text";
+import { ThemedView } from "@/components/themed-view";
+import { Radius } from "@/constants/theme";
+import { useTheme } from "@/hooks/use-theme";
+import { useT } from "@/i18n";
+import { useAuthStore } from "@/stores/auth-store";
 
 /** 与后端 SMS_CODE_RESEND_INTERVAL_SECONDS 默认一致；超前点击由服务端 429 兜底 */
 const RESEND_SECONDS = 60;
@@ -25,12 +26,13 @@ const PHONE_PATTERN = /^1[3-9]\d{9}$/;
 
 export default function RegisterScreen() {
   const theme = useTheme();
+  const t = useT();
   const signIn = useAuthStore((s) => s.signIn);
-  const [phone, setPhone] = useState('');
-  const [code, setCode] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirm, setConfirm] = useState('');
-  const [nickname, setNickname] = useState('');
+  const [phone, setPhone] = useState("");
+  const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [nickname, setNickname] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [sending, setSending] = useState(false);
@@ -50,12 +52,12 @@ export default function RegisterScreen() {
   const sendCode = async () => {
     setError(null);
     if (!PHONE_PATTERN.test(phone.trim())) {
-      setError('请先输入正确的 11 位手机号');
+      setError(t("auth.invalidPhone"));
       return;
     }
     setSending(true);
     try {
-      await authApi.sendSmsCode({ phone: phone.trim(), purpose: 'register' });
+      await authApi.sendSmsCode({ phone: phone.trim(), purpose: "register" });
       const t = Date.now();
       setNow(t);
       setCooldownUntil(t + RESEND_SECONDS * 1000);
@@ -69,15 +71,15 @@ export default function RegisterScreen() {
   const submit = async () => {
     setError(null);
     if (!/^\d{6}$/.test(code)) {
-      setError('请输入 6 位短信验证码');
+      setError(t("auth.invalidCode"));
       return;
     }
     if (password !== confirm) {
-      setError('两次输入的密码不一致');
+      setError(t("auth.passwordMismatch"));
       return;
     }
     if (password.length < 8) {
-      setError('密码至少 8 位');
+      setError(t("auth.passwordTooShort"));
       return;
     }
     setBusy(true);
@@ -102,29 +104,30 @@ export default function RegisterScreen() {
     <SafeAreaView style={styles.flex}>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
         <ThemedView style={styles.container}>
-          <ThemedText type="title">注册</ThemedText>
+          <ThemedText type="title">{t("auth.register")}</ThemedText>
 
           <FormInput
-            label="手机号"
+            label={t("auth.phone")}
             icon="phone-portrait-outline"
             value={phone}
             onChangeText={setPhone}
             keyboardType="phone-pad"
             maxLength={11}
-            placeholder="11 位大陆手机号"
+            placeholder={t("auth.phonePlaceholder")}
           />
           <View style={styles.codeRow}>
             <View style={styles.flex}>
               <FormInput
-                label="短信验证码"
+                label={t("auth.smsCode")}
                 icon="chatbox-ellipses-outline"
                 value={code}
                 onChangeText={setCode}
                 keyboardType="number-pad"
                 maxLength={6}
-                placeholder="6 位数字"
+                placeholder={t("auth.smsCodePlaceholder")}
               />
             </View>
             <Pressable
@@ -136,50 +139,56 @@ export default function RegisterScreen() {
                   borderColor: codeButtonDisabled ? theme.border : theme.brand,
                   opacity: pressed ? 0.7 : 1,
                 },
-              ]}>
+              ]}
+            >
               <ThemedText
                 type="smallBold"
                 style={{
                   color: codeButtonDisabled ? theme.textSecondary : theme.brand,
-                }}>
+                }}
+              >
                 {sending
-                  ? '发送中…'
+                  ? t("auth.sending")
                   : cooldown > 0
-                    ? `${cooldown}s 后重发`
-                    : '获取验证码'}
+                    ? t("auth.resend", { n: cooldown })
+                    : t("auth.getCode")}
               </ThemedText>
             </Pressable>
           </View>
           <FormInput
-            label="密码"
+            label={t("auth.password")}
             icon="lock-closed-outline"
             value={password}
             onChangeText={setPassword}
             secureTextEntry
-            placeholder="8–72 位"
+            placeholder={t("auth.passwordPlaceholder")}
           />
           <FormInput
-            label="确认密码"
+            label={t("auth.confirmPassword")}
             icon="lock-closed-outline"
             value={confirm}
             onChangeText={setConfirm}
             secureTextEntry
-            placeholder="再输一遍"
+            placeholder={t("auth.confirmPlaceholder")}
           />
           <FormInput
-            label="昵称（可选）"
+            label={t("auth.nickname")}
             icon="person-outline"
             value={nickname}
             onChangeText={setNickname}
             maxLength={30}
-            placeholder="怎么称呼你"
+            placeholder={t("auth.nicknamePlaceholder")}
           />
 
           <FormError message={error} />
-          <PrimaryButton title="注册并登录" onPress={submit} loading={busy} />
+          <PrimaryButton
+            title={t("auth.registerAndLogin")}
+            onPress={submit}
+            loading={busy}
+          />
 
           <Link href="/login" style={styles.link}>
-            <ThemedText type="link">已有账号？登录</ThemedText>
+            <ThemedText type="link">{t("auth.haveAccount")}</ThemedText>
           </Link>
         </ThemedView>
       </KeyboardAvoidingView>
@@ -189,15 +198,15 @@ export default function RegisterScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  container: { flex: 1, justifyContent: 'center', padding: 24, gap: 12 },
-  codeRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 10 },
+  container: { flex: 1, justifyContent: "center", padding: 24, gap: 12 },
+  codeRow: { flexDirection: "row", alignItems: "flex-end", gap: 10 },
   codeButton: {
     borderWidth: 1,
     borderRadius: Radius.control,
     paddingHorizontal: 14,
     paddingVertical: 14,
     minWidth: 112,
-    alignItems: 'center',
+    alignItems: "center",
   },
-  link: { alignSelf: 'center', marginTop: 8 },
+  link: { alignSelf: "center", marginTop: 8 },
 });
