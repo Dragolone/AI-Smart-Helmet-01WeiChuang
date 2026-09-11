@@ -14,6 +14,8 @@ import { SmsCodeService, type SmsCodePurpose } from './sms-code.service';
 
 /** API.md §2 定稿：access 15 分钟 / refresh 30 天（轮换制） */
 const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+/** 刚轮换掉的 token 在此窗口内再次出现 = App 并发刷新的良性竞态（只拒绝本次），超过窗口才按盗用撤销全部会话 */
+const REFRESH_REUSE_GRACE_MS = 10_000;
 const BCRYPT_ROUNDS = 10;
 
 export interface TokenPair {
@@ -224,7 +226,14 @@ export class AuthService {
     // 注销时已撤销全部 token，这里是兜底：已注销用户不得续期
     if (record.user.deletedAt) throw unauthorized('账号已注销');
     if (record.revokedAt) {
-      // 已轮换掉的 token 再次出现 = 疑似被盗用，终止该用户所有会话
+      if (Date.now() - record.revokedAt.getTime() < REFRESH_REUSE_GRACE_MS) {
+        // 并发刷新的输家：另一方刚刚轮换成功，本次拒绝即可，不能把赢家的新会话也撤销
+        throw new UnauthorizedException({
+          code: 'UNAUTHORIZED',
+          message: 'refresh token 已被使用，请用最新的 token',
+        });
+      }
+      // 已轮换掉的 token 过了并发窗口再次出现 = 疑似被盗用，终止该用户所有会话
       this.logger.warn(
         `refresh token 复用检测：撤销用户 ${record.userId} 全部会话`,
       );
@@ -237,10 +246,17 @@ export class AuthService {
     if (record.expiresAt.getTime() < Date.now()) {
       throw unauthorized('refresh token 已过期，请重新登录');
     }
-    await this.prisma.refreshToken.update({
-      where: { tokenHash },
+    // 条件轮换：同一 token 并发刷新只有一方成功，输家拿 401 但不触发全局撤销（那是良性竞态，不是盗用）
+    const rotated = await this.prisma.refreshToken.updateMany({
+      where: { tokenHash, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+    if (rotated.count === 0) {
+      throw new UnauthorizedException({
+        code: 'UNAUTHORIZED',
+        message: 'refresh token 已被使用，请用最新的 token',
+      });
+    }
     return this.issueTokens(record.userId);
   }
 

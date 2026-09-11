@@ -209,7 +209,8 @@ model Media {
   relatedEventId String?  @map("related_event_id")
   // 秒（EVENTS.md 4.9）
   duration       Int?
-  sizeBytes      Int?     @map("size_bytes")
+  // 视频可超 2GB：int4 会溢出让整条媒体元数据丢失
+  sizeBytes      BigInt?  @map("size_bytes")
   storageKey     String?  @map("storage_key")
   status         String   @default("ready") // ready | pending_upload
   createdAt      DateTime @default(now()) @map("created_at")

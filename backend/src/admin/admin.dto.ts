@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   IsIn,
   IsInt,
+  IsISO8601,
   IsOptional,
   IsString,
   Max,
@@ -73,11 +74,11 @@ export class AdminEventsQueryDto extends AdminListQueryDto {
   deviceId?: string;
 
   @IsOptional()
-  @IsString()
+  @IsISO8601({ strict: true })
   from?: string;
 
   @IsOptional()
-  @IsString()
+  @IsISO8601({ strict: true })
   to?: string;
 
   // invalid=true 只看校验失败的 _invalid 留档（排查用）；缺省排除

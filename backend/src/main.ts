@@ -13,6 +13,11 @@ async function bootstrap() {
   // 原生 ws（决策 #25）：App 用平台原生 WebSocket 直连，不用 Socket.IO
   app.useWebSocketAdapter(new WsAdapter(app));
   app.setGlobalPrefix('api/v1');
+  // 生产在 Caddy 之后：信任第一跳代理，req.ip 才是真实客户端（限频按 IP 计）
+  (app.getHttpAdapter().getInstance() as import('express').Express).set(
+    'trust proxy',
+    1,
+  );
   app.use(requestIdMiddleware);
   // whitelist：丢弃 DTO 未声明的字段，防参数污染
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));

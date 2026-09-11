@@ -9,6 +9,9 @@ const isNonEmptyString = (v: unknown): v is string =>
 const isNonNegativeInt = (v: unknown): v is number =>
   typeof v === 'number' && Number.isInteger(v) && v >= 0;
 
+/** int4 列（duration）的上限；sizeBytes 走 bigint 列，只需 JS 安全整数 */
+const INT32_MAX = 2_147_483_647;
+
 export interface MediaPayload {
   videoId: string;
   relatedEventId: string | null;
@@ -28,8 +31,14 @@ export function extractMediaPayload(
     relatedEventId: isNonEmptyString(p.relatedEventId)
       ? p.relatedEventId
       : null,
-    duration: isNonNegativeInt(p.duration) ? p.duration : null,
-    sizeBytes: isNonNegativeInt(p.sizeBytes) ? p.sizeBytes : null,
+    duration:
+      isNonNegativeInt(p.duration) && p.duration <= INT32_MAX
+        ? p.duration
+        : null,
+    sizeBytes:
+      isNonNegativeInt(p.sizeBytes) && Number.isSafeInteger(p.sizeBytes)
+        ? p.sizeBytes
+        : null,
     storageKey: isNonEmptyString(p.storageKey) ? p.storageKey : null,
   };
 }
@@ -61,7 +70,7 @@ export class MediaRecorderService {
           videoId: media.videoId,
           relatedEventId: media.relatedEventId,
           duration: media.duration,
-          sizeBytes: media.sizeBytes,
+          sizeBytes: media.sizeBytes === null ? null : BigInt(media.sizeBytes),
           storageKey: media.storageKey,
           // 上传方式待硬件定稿（EVENTS.md 4.9 ⚠️）：暂无 storageKey 的先登记、不可换 URL
           status: media.storageKey ? 'ready' : 'pending_upload',

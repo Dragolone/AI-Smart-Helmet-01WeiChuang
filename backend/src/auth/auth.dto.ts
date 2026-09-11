@@ -5,7 +5,26 @@ import {
   Matches,
   MaxLength,
   MinLength,
+  registerDecorator,
+  type ValidationOptions,
 } from 'class-validator';
+
+/** bcrypt 只看前 72 **字节**：MaxLength 按字符数算，72 个汉字 = 216 字节会被静默截断 */
+const MAX_PASSWORD_BYTES = 72;
+function MaxBytes(max: number, options?: ValidationOptions) {
+  return (object: object, propertyName: string): void => {
+    registerDecorator({
+      name: 'maxBytes',
+      target: object.constructor,
+      propertyName,
+      options: { message: `${propertyName} 不能超过 ${max} 字节`, ...options },
+      validator: {
+        validate: (value: unknown) =>
+          typeof value === 'string' && Buffer.byteLength(value, 'utf-8') <= max,
+      },
+    });
+  };
+}
 import { SMS_CODE_PURPOSES, type SmsCodePurpose } from './sms-code.service';
 
 const PHONE_PATTERN = /^1[3-9]\d{9}$/;
@@ -30,6 +49,7 @@ export class RegisterDto {
   @IsString()
   @MinLength(8)
   @MaxLength(72)
+  @MaxBytes(MAX_PASSWORD_BYTES)
   password!: string;
 
   @IsOptional()
@@ -58,6 +78,7 @@ export class ResetPasswordDto {
   @IsString()
   @MinLength(8)
   @MaxLength(72)
+  @MaxBytes(MAX_PASSWORD_BYTES)
   newPassword!: string;
 }
 

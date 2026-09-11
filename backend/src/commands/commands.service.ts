@@ -322,13 +322,39 @@ export class CommandsService implements OnModuleInit {
         nextStatus === COMMAND_STATUS.success &&
         command.type === 'set_config'
       ) {
+        // 迟到回执不能把更新的命令已生效的键覆盖回旧值：剔除比本命令更晚下发且已 success 的命令触碰过的键
+        const newer = await tx.deviceCommand.findMany({
+          where: {
+            deviceId: command.deviceId,
+            type: 'set_config',
+            status: COMMAND_STATUS.success,
+            issuedAt: { gt: command.issuedAt },
+            id: { not: command.id },
+          },
+          select: { params: true },
+        });
+        const shadowed = new Set(
+          newer.flatMap((c) =>
+            Object.keys(c.params as Record<string, unknown>),
+          ),
+        );
+        const applicable = Object.fromEntries(
+          Object.entries(command.params as Record<string, unknown>).filter(
+            ([k]) => !shadowed.has(k),
+          ),
+        );
+        if (shadowed.size > 0) {
+          this.logger.warn(
+            `迟到回执 ${command.id}：键 ${[...shadowed].join(',')} 已被更新命令覆盖，不回写`,
+          );
+        }
         const device = await tx.device.findUnique({
           where: { deviceId: command.deviceId },
           select: { settings: true },
         });
         const merged = {
           ...((device?.settings as Record<string, unknown> | null) ?? {}),
-          ...(command.params as Record<string, unknown>),
+          ...applicable,
         };
         await tx.device.update({
           where: { deviceId: command.deviceId },

@@ -33,7 +33,8 @@
 | PHONE_ALREADY_REGISTERED | 409 | 注册/换绑手机号已存在 |
 | PASSWORD_INCORRECT | 400 | 已登录用户提交的当前密码不正确（修改密码 / 注销账号） |
 | BIND_CODE_INVALID | 403 | 设备绑定码不正确 |
-| RATE_LIMITED | 429 | 触发限流 |
+| PAYLOAD_TOO_LARGE | 413 | 请求体超过 100KB（body-parser 上限；头像 data URI 上限 90KB） |
+| RATE_LIMITED | 429 | 触发限流（公开认证接口按 IP / IP+手机号，响应带 `Retry-After` 秒数；规则见 §2） |
 | INTERNAL_ERROR | 500 | 服务端异常（带 requestId 供排查） |
 
 ## 1.2 健康检查（✅ 已实现）
@@ -49,8 +50,10 @@
 | POST | /auth/sms-code | 下发短信验证码（✅ 2026-09-09 负责人拍板：注册必须验证码）。body：`{ phone, purpose: "register" \| "reset_password" \| "change_phone" }` → 204。规则：6 位数字、**5 分钟有效、一次性、连续错 5 次作废**；同号同用途 **60s 内重发 → 429 `SMS_CODE_TOO_FREQUENT`**，**每号每日 10 条 → 429 `SMS_CODE_DAILY_LIMIT`**；`register` 用途下手机号已注册 → 409 `PHONE_ALREADY_REGISTERED`；`reset_password` 用途下未注册 → 404 `PHONE_NOT_REGISTERED`；**`change_phone` 用途（✅ 2026-09-11）：`phone` 为待换绑的新号**，已注册 → 409 `PHONE_ALREADY_REGISTERED`；短信通道失败 → 503 `SMS_SEND_FAILED`（不计入限频）。库中只存验证码哈希 |
 | POST | /auth/register | 注册。body：`{ phone, code, password, nickname? }`——`code` 为上一步 `register` 用途的验证码；错误/过期/已用/超次统一 400 `SMS_CODE_INVALID`（不区分原因）。校验顺序：手机号已注册 409 → 验证码 400 → 建号并返回 `{ accessToken, refreshToken, user }` |
 | POST | /auth/reset-password | 找回密码。body：`{ phone, code, newPassword }`（`reset_password` 用途验证码）→ 204；成功后**该用户全部 refresh token 作废**，所有设备需重新登录。未注册 404 `PHONE_NOT_REGISTERED` |
-| POST | /auth/login | 登录。body：`{ phone, password }` → `{ accessToken, refreshToken, user }` |
-| POST | /auth/refresh | body：`{ refreshToken }` → 新 `{ accessToken, refreshToken }`（refresh 轮换，旧 refreshToken 作废） |
+| POST | /auth/login | 登录。body：`{ phone, password }` → `{ accessToken, refreshToken, user }`。密码 8–72 字符且 ≤ 72 字节（bcrypt 上限，超出 400） |
+| POST | /auth/refresh | body：`{ refreshToken }` → 新 `{ accessToken, refreshToken }`（refresh 轮换，旧 refreshToken 作废；同一 token 并发刷新只有一方成功，其余 401；已轮换的 token 在 10s 并发窗口后再次出现才视为盗用撤销全部会话） |
+
+限频（2026-09-10 加固，单实例内存滑动窗口，超限 429 `RATE_LIMITED` + `Retry-After`）：`/auth/login` 同 IP+手机号 10 次/分、同 IP 100 次/分；`/auth/sms-code` 同 IP 5 条/分、50 条/天（同号 60s/日限另计）；`/auth/register` 20 次/分；`/auth/reset-password` 同 IP+手机号 10 次/分；`/auth/refresh` 60 次/分；`/admin/auth/login` 10 次/分。
 | POST | /auth/logout | 作废当前 refreshToken |
 | POST | /auth/change-password | 修改密码（✅ 2026-09-11，**需登录**）。body：`{ oldPassword, newPassword, refreshToken? }` → 204。旧密码错误 → 400 `PASSWORD_INCORRECT`；`newPassword` 与注册同规则（8–72）。成功后**撤销该用户其他全部 refresh token**；带上当前设备的 `refreshToken`（须属于本人）则该会话保留，本设备免重新登录 |
 | POST | /auth/change-phone | 换绑手机号（✅ 2026-09-11，**需登录**）。body：`{ newPhone, code }`（`code` 为 `change_phone` 用途、发往 `newPhone` 的验证码）→ 200 返回更新后的 `user` 对象。校验顺序：`newPhone` 已注册 409 `PHONE_ALREADY_REGISTERED` → 验证码错误/过期/已用 400 `SMS_CODE_INVALID` → 改号。会话不受影响；原号即刻释放可供他人注册 |
@@ -152,7 +155,7 @@ SOS 状态机为服务端权威（DECISIONS #8/#26）：`pending → notified | 
 | POST | /devices/{deviceId}/commands/{commandId}/relay-ack | **BLE 下行链的回执入口（决策 #36）**：App 替头盔提交命令回执。body：`{ "stage": "delivered" }`（App 已收到命令并写入头盔——蓝牙版的 delivered 语义，对应 4G 版的 PUBACK）或 `{ "stage": "executed", "result": "success" \| "failed", "errorCode"?, "executedAt"? }`（头盔执行结果；executedAt 缺省取服务器时间）→ `200 { commandId, status }`（更新后状态）。**幂等不报错**：已终态命令再收 delivered/重复 executed 都返回当前状态；已判 offline 后迟到 executed 如实覆盖（同 MQTT cmd_ack 语义）。鉴权：用户 JWT + 设备归属（非本人 404 DEVICE_NOT_FOUND）+ 命令须属于该设备（否则 404 NOT_FOUND）。信任级与 §12.1 app-relay 一致（App 本就是蓝牙版设备的代理） |
 
 - **下发通道（决策 #36）**：命令创建后**双路并行**——MQTT QoS1 发布（4G 链路）+ WS `device_command` 推送给绑定用户（BLE 链路）。业务与状态机不感知设备形态；先到的 delivered 生效（条件更新幂等）。
-- **状态口径（✅ 定稿 2026-08-16，决策 #27④）**：`delivered` = MQTT PUBACK（送达 Broker，非送达设备）；**30s**（`COMMAND_ACK_TIMEOUT_SECONDS`）无 cmd_ack → `offline`（App 显示"未送达/等待执行"）；**迟到回执如实覆盖 offline**（设备实际执行了就记 success/failed）。
+- **状态口径（✅ 定稿 2026-08-16，决策 #27④）**：`delivered` = MQTT PUBACK（送达 Broker，非送达设备）；**30s**（`COMMAND_ACK_TIMEOUT_SECONDS`）无 cmd_ack → `offline`（App 显示"未送达/等待执行"）；**迟到回执如实覆盖 offline**（设备实际执行了就记 success/failed）；但合入「当前生效设置」时，**比它更晚下发且已 success 的命令触碰过的键不回写**（旧回执不能把新值覆盖回去，2026-09-10 加固）。
 - 设备离线：命令照发（Broker 持久会话补投，依赖 Clean Session 决策 ⚠️）；发布失败留 pending 超时判 offline。
 - 归属：非本人绑定设备一律 404。
 - ✅ 本节已实现（2026-08-16）：Mock 设备订阅 cmd 并自动回执（`MOCK_CMD_RESULT=success|failed|silent` 三态可演示）。
@@ -194,7 +197,7 @@ MVP 实用为主，全部只读 + 少量运维操作。
 
 ## 11. WebSocket（App 实时通道）
 
-- 端点：`/ws?token=<accessToken>`（✅ 定稿：**原生 ws**，决策 #25；token 走查询参数——RN/浏览器原生 WebSocket 无法可靠设置 header）；鉴权失败以关闭码 **4401** 断开。
+- 端点：`/ws?token=<accessToken>`（✅ 定稿：**原生 ws**，决策 #25；token 走查询参数——RN/浏览器原生 WebSocket 无法可靠设置 header）；鉴权失败以关闭码 **4401** 断开；连接在 accessToken 的 `exp` 到期时也以 4401 断开（连接不比凭证活得久），App 刷新 token 后重连。
 - 连接后服务端自动按“当前用户绑定的设备”推送，无需客户端订阅指令（MVP 简化）；data 内带 `deviceId` 区分多设备。
 - 消息统一格式（TS 类型见 `@helmet/shared` WsMessage）：
 

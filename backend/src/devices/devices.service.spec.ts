@@ -4,7 +4,13 @@ import { PrismaService } from '../prisma/prisma.service';
 
 describe('DevicesService（单测，mock 数据层）', () => {
   const prismaMock = {
-    device: { findUnique: jest.fn(), update: jest.fn(), findMany: jest.fn() },
+    device: {
+      findUnique: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+      findMany: jest.fn(),
+    },
   };
   let service: DevicesService;
 
@@ -68,21 +74,32 @@ describe('DevicesService（单测，mock 数据层）', () => {
     expect(prismaMock.device.update).not.toHaveBeenCalled();
   });
 
-  it('首次绑定成功 → 写入 bindUserId 与 boundAt', async () => {
+  it('首次绑定成功 → 条件更新（bindUserId 仍为空）写入 bindUserId 与 boundAt', async () => {
     prismaMock.device.findUnique.mockResolvedValue({ ...baseDevice });
-    prismaMock.device.update.mockResolvedValue({
+    prismaMock.device.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.device.findUniqueOrThrow.mockResolvedValue({
       ...baseDevice,
       bindUserId: 'u1',
       boundAt: new Date(),
     });
     const result = await service.bind('u1', 'helmet_001', '12345678');
     expect(result.deviceId).toBe('helmet_001');
-    expect(prismaMock.device.update).toHaveBeenCalledWith(
+    expect(prismaMock.device.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { deviceId: 'helmet_001' },
+        where: { deviceId: 'helmet_001', bindUserId: null },
         data: expect.objectContaining({ bindUserId: 'u1' }),
       }),
     );
+  });
+
+  it('并发绑定输家（条件更新命中 0 行）→ DEVICE_ALREADY_BOUND', async () => {
+    prismaMock.device.findUnique.mockResolvedValue({ ...baseDevice });
+    prismaMock.device.updateMany.mockResolvedValue({ count: 0 });
+    await expect(
+      service.bind('u1', 'helmet_001', '12345678'),
+    ).rejects.toMatchObject({
+      response: { code: 'DEVICE_ALREADY_BOUND' },
+    });
   });
 
   it('查看非本人设备 → DEVICE_NOT_FOUND（不泄露存在性）', async () => {

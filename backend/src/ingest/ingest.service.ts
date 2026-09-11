@@ -45,6 +45,19 @@ const KNOWN_OBJECT_TYPES = new Set([
   'unknown',
 ]);
 
+/**
+ * 数据库对"这一条数据"的拒绝（列范围、编码、非法值）→ 返回原因码；
+ * 连接类故障（P1xxx / 初始化失败）→ null，交给上层按真实 5xx 处理、MQTT 侧重试。
+ */
+function dbRejectionCode(err: unknown): string | null {
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    return err.code.startsWith('P1') ? null : err.code;
+  }
+  if (err instanceof Prisma.PrismaClientUnknownRequestError) return 'unknown';
+  if (err instanceof Prisma.PrismaClientValidationError) return 'validation';
+  return null;
+}
+
 @Injectable()
 export class IngestService {
   private readonly logger = new Logger(IngestService.name);
@@ -93,7 +106,23 @@ export class IngestService {
       return 'stored_invalid';
     }
 
-    const stored = await this.persist(result.envelope, source);
+    let stored: boolean;
+    try {
+      stored = await this.persist(result.envelope, source);
+    } catch (err) {
+      // 校验层没拦住但数据库仍拒绝（列约束/编码等）：降级为 _invalid 留档而不是让入口 5xx——
+      // app-relay 整批失败会让 App 反复重传同一批，把后面的 possible_fall 一起卡死（队头阻塞）
+      const rejection = dbRejectionCode(err);
+      if (!rejection) throw err;
+      this.logger.error(
+        `事件入库被数据库拒绝（已按 _invalid 留档）：${rejection} event=${result.envelope.eventId} device=${topicDeviceId}`,
+      );
+      await this.persist(
+        buildInvalidRecord(topicDeviceId, raw, `db_rejected_${rejection}`),
+        source,
+      );
+      return 'stored_invalid';
+    }
     if (stored) {
       await this.dispatchStored(result.envelope);
     }

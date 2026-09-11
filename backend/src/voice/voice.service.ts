@@ -91,25 +91,32 @@ export class VoiceService {
     });
     if (existing) return this.toWire(channel);
 
-    if (channel._count.members >= memberLimit()) {
-      throw new ConflictException({
-        code: 'CHANNEL_FULL',
-        message: `频道成员已达上限 ${memberLimit()}`,
+    // 事务级咨询锁按频道串行化「计数 → 加入」：并发加入不会突破成员上限（TRTC 房间超员）
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`voice:${channel.id}`}))`;
+      const members = await tx.voiceChannelMember.count({
+        where: { channelId: channel.id },
       });
-    }
-    try {
-      await this.prisma.voiceChannelMember.create({
-        data: { channelId: channel.id, userId },
-      });
-    } catch (err) {
-      // 并发重复加入：唯一约束兜底，幂等
-      if (!(
-        err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2002'
-      )) {
-        throw err;
+      if (members >= memberLimit()) {
+        throw new ConflictException({
+          code: 'CHANNEL_FULL',
+          message: `频道成员已达上限 ${memberLimit()}`,
+        });
       }
-    }
+      try {
+        await tx.voiceChannelMember.create({
+          data: { channelId: channel.id, userId },
+        });
+      } catch (err) {
+        // 并发重复加入：唯一约束兜底，幂等
+        if (!(
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002'
+        )) {
+          throw err;
+        }
+      }
+    });
     const fresh = await this.prisma.voiceChannel.findUniqueOrThrow({
       where: { id: channel.id },
       include: { _count: { select: { members: true } } },
