@@ -54,7 +54,7 @@
 
 ### 5. Apple Developer 公司账号（Organization）
 
-- **现状**：公司专用 Apple ID 已建（凭证入密码库）、管理人实名通过，卡在 **D-U-N-S 邓白氏建档**：查询工具无记录、自助申请失败（新公司）。**2026-09-08 已向 Apple Developer Support 发工单**；**2026-09-09 苹果回复（案例 102956478091，支持人员 Lynette）**：回复该邮件补四项信息（本地企业名称、电话、工作电话、工作邮箱；**只能用罗马字母**），即授权 Apple 向 D&B 提交建档；D&B 可能致电工作电话核实，须备好营业执照；建档完成后 D&B 通知。**下一步**：回邮件 → 等 D&U-N-S 编码 → Apple Developer App 填 Organization Details → 付 ¥688 → Apple 审核
+- **现状**：公司专用 Apple ID 已建（凭证入密码库）、管理人实名通过，卡在 **D-U-N-S 邓白氏建档**：查询工具无记录、自助申请失败（新公司）。**2026-09-08 已向 Apple Developer Support 发工单**；**2026-09-09 苹果回复（案例 102956478091，支持人员 Lynette）**：回复该邮件补四项信息（本地企业名称、电话、工作电话、工作邮箱；**只能用罗马字母**），即授权 Apple 向 D&B 提交建档；D&B 可能致电工作电话核实，须备好营业执照；建档完成后 D&B 通知。**2026-09-11 邓白氏（海南邓白氏）来邮：订单 10212210956843，须 9-14 15:00 前在 dnbportal.cn 完成企业核验并申请编码；2026-09-12 10:01 已提交企业核验（待核验，联系人钟祺龙，邮箱 3840404902@qq.com，英文名 Shenzhen Lingyi Weichuang Technology Co., Ltd.）。下一步**：核验通过 → 退出重登 → 应用场景选苹果开发者、填订单号+验证码提交 → 等编码 → Apple Developer App 填 Organization Details → 付 ¥688 → Apple 审核（过期可在 developer.apple.com/enroll/duns-lookup 重提，核验不用重做）
 - **流程**：D-U-N-S 建档 1–7 工作日出编码 → 回 Apple Developer App 填 Organization Details → 付 ¥688 → Apple 审核（可能电话核实公司）
 - **阻塞**：iOS 真机现用个人开发证书（7 天过期需重装）；TestFlight 分发、APNs 远程推送、Bundle ID 统一都等它
 - **公司信息**：深圳零一唯创科技有限公司 / 91440300MAK7XEPD38 / 深圳市坪山区龙田街道竹坑社区翠景路33号3栋坪山工匠园402
