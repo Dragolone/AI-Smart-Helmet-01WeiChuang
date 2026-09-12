@@ -23,7 +23,7 @@
 
 | code | HTTP | 场景 |
 |------|------|------|
-| VALIDATION_FAILED | 400 | 请求体/参数校验失败 |
+| VALIDATION_FAILED | 400 | 请求体/参数校验失败（含任何字段带 NUL `\u0000`，PostgreSQL 不接受；设备入口 `/ingest/*` 例外——脏 envelope 留档为 invalid 不整批拒绝） |
 | UNAUTHORIZED | 401 | 未登录或 token 无效/过期 |
 | FORBIDDEN | 403 | 无权访问该资源（含资源归属校验失败、非 Admin 访问 Admin API） |
 | NOT_FOUND | 404 | 通用资源不存在 |
@@ -59,7 +59,7 @@
 | POST | /auth/change-phone | 换绑手机号（✅ 2026-09-11，**需登录**）。body：`{ newPhone, code }`（`code` 为 `change_phone` 用途、发往 `newPhone` 的验证码）→ 200 返回更新后的 `user` 对象。校验顺序：`newPhone` 已注册 409 `PHONE_ALREADY_REGISTERED` → 验证码错误/过期/已用 400 `SMS_CODE_INVALID` → 改号。会话不受影响；原号即刻释放可供他人注册 |
 | GET | /users/me | 当前用户信息；已注销账号的残留 access token → 401 `UNAUTHORIZED` |
 | PATCH | /users/me | 更新昵称/头像等非敏感字段 |
-| DELETE | /users/me | 注销账号（✅ 2026-09-11，**需登录**；App Store 要求应用内可注销）。body：`{ password }` → 204；密码错误 → 400 `PASSWORD_INCORRECT`。**软删除**（`users.deleted_at`），一个事务内完成：置 `deletedAt`、`phone` 改写为 `deleted:<userId>`（**原手机号不保留**，即刻可重新注册为全新账号）、清空 `avatarUrl`、撤销全部 refresh token、解绑名下全部设备（与 `DELETE /devices/{deviceId}/binding` 同口径，设备与历史事件留档）、软删除全部紧急联系人。事故记录/事件/轨迹按设备留档不动。已注销用户：login 401（号已改写）、refresh 401（token 已撤销 + 服务端校验 `deletedAt`）；**JWT 守卫无状态，不查库**——注销后尚未过期的 access token 最多再存活 15 分钟（`/users/me` 会按 401 拒绝） |
+| DELETE | /users/me | 注销账号（✅ 2026-09-11，**需登录**；App Store 要求应用内可注销）。body：`{ password }` → 204；密码错误 → 400 `PASSWORD_INCORRECT`。**软删除**（`users.deleted_at`），一个事务内完成：置 `deletedAt`、`phone` 改写为 `deleted:<userId>`（**原手机号不保留**，即刻可重新注册为全新账号）、清空 `avatarUrl`、撤销全部 refresh token、解绑名下全部设备（与 `DELETE /devices/{deviceId}/binding` 同口径，设备与历史事件留档）、软删除全部紧急联系人。事故记录/事件/轨迹按设备留档不动。已注销用户：login 401（号已改写）、refresh 401（token 已撤销 + 服务端校验 `deletedAt`）；**JWT 守卫验签后查 `deleted_at`（✅ 2026-09-12 上线前探针修复）**——注销后残留的 access token 在全部 REST 接口与 WS 连接上立即 401 / 4401，不能再绑设备、建联系人、改资料 |
 
 `user` 对象：`{ id, phone, nickname, avatarUrl?, createdAt }`。密码 bcrypt/argon2 存储，任何接口不回传。
 

@@ -1,4 +1,5 @@
 import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { AllowNul } from '../common/nul.guard';
 import { Public } from '../common/public.decorator';
 import { EmqxHookService, type EmqxResult } from './emqx-hook.service';
 import { InternalTokenGuard } from './internal-token.guard';
@@ -18,6 +19,7 @@ interface AuthorizeBody {
 
 /** EMQX 内部回调：跳过用户 JWT（@Public），改用内部共享令牌校验来源。 */
 @Public()
+@AllowNul()
 @UseGuards(InternalTokenGuard)
 @Controller('internal/emqx')
 export class EmqxHookController {

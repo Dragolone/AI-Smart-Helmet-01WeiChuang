@@ -80,6 +80,7 @@ cd backend && npx prisma migrate dev   # 建表（要求 docker 里的 postgres 
 | App 装到 Android 真机/模拟器（含原生构建） | `npx expo run:android`（在 `app/` 目录） |
 | 启动后端（热重载） | `npm run start:dev -w backend` |
 | 启动管理后台 | `npm run dev -w admin` |
+| **拉完 main 先做**（2026-09-12 实测：漏做会让 e2e 注册全 500、app typecheck 假红） | ① `npx prisma migrate deploy` (在 `backend/`)——对方 PR 带的 migration 落到本机库；② `npm run build -w @helmet/shared`——刷新 dist 类型；③ 若 App 新增了路由，`npx expo start` 起一次让 `.expo/types/router.d.ts` 重新生成 |
 | 修改 packages/shared 后 | `npm run build -w @helmet/shared`——共享类型/常量以 dist 产物被各端引用，改完必须重新 build 才生效（`npm install` 时会经 prepare 自动构建一次，新克隆无需手动） |
 | 全部类型检查 | `npm run typecheck --workspaces --if-present` |
 | 全部 lint | `npm run lint --workspaces --if-present` |

@@ -1,4 +1,5 @@
 import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { AllowNul } from '../common/nul.guard';
 import { Public } from '../common/public.decorator';
 import { IngestService } from './ingest.service';
 import { WebhookApiKeyGuard } from './webhook-api-key.guard';
@@ -9,6 +10,7 @@ import { WebhookApiKeyGuard } from './webhook-api-key.guard';
  * 同校验、同 eventId 幂等、同业务分发——业务模块不感知来源（source=webhook 仅排查可见）。
  */
 @Public()
+@AllowNul()
 @UseGuards(WebhookApiKeyGuard)
 @Controller('ingest')
 export class WebhookController {
