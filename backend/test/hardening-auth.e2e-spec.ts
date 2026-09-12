@@ -6,10 +6,13 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { lastCodeFor, spyOnSms } from './helpers/register';
 import {
   auth,
+  bindDevice,
   buildApp,
+  cleanupDevices,
   cleanupUsers,
   createUser,
   histogram,
+  provisionDevice,
   randomPhone,
   sleep,
   type Http,
@@ -350,6 +353,44 @@ describe('加固：认证与令牌 (e2e)', () => {
       expect(r.status).toBe(404);
     });
 
+    it('注销后的残留 access token：读写接口一律 401，不能重新绑设备/建联系人/改资料/建频道', async () => {
+      const u = await createUser(app, http);
+      users.push(u);
+      const deviceId = `hard_ghost_${Date.now()}`;
+      await provisionDevice(prisma, deviceId);
+      await request(http)
+        .delete('/api/v1/users/me')
+        .set(auth(u.token))
+        .send({ password: u.password })
+        .expect(204);
+      const attempts = await Promise.all([
+        request(http)
+          .post('/api/v1/devices/bind')
+          .set(auth(u.token))
+          .send({ deviceId, bindCode: `bc_${deviceId}` }),
+        request(http)
+          .post('/api/v1/users/me/emergency-contacts')
+          .set(auth(u.token))
+          .send({ name: '幽灵', phone: '13900000009' }),
+        request(http)
+          .patch('/api/v1/users/me')
+          .set(auth(u.token))
+          .send({ nickname: '复活' }),
+        request(http)
+          .post('/api/v1/voice/channels')
+          .set(auth(u.token))
+          .send({ name: '幽灵频道' }),
+        request(http).get('/api/v1/devices').set(auth(u.token)),
+      ]);
+      expect(attempts.map((r) => r.status)).toEqual([401, 401, 401, 401, 401]);
+      expect(attempts.every((r) => r.body.code === 'UNAUTHORIZED')).toBe(true);
+      const dev = await prisma.device.findUnique({ where: { deviceId } });
+      expect(dev?.bindUserId).toBeNull();
+      const me = await prisma.user.findUnique({ where: { id: u.id } });
+      expect(me?.nickname).not.toBe('复活');
+      await cleanupDevices(prisma, [deviceId]);
+    });
+
     it('admin 密钥签发的 token 进用户接口 401；用户 token 进 admin 接口 401', async () => {
       const adminLike = await jwt.signAsync(
         { sub: 'admin_x', typ: 'admin' },
@@ -421,6 +462,55 @@ describe('加固：认证与令牌 (e2e)', () => {
           nickname: 'x'.repeat(31),
         })
         .expect(400);
+    });
+
+    it('NUL 字符（\\u0000）：昵称 / 密码 / 联系人 / 设备名 / 频道名 / 路径参数 → 400，不得 500', async () => {
+      const u = await createUser(app, http);
+      users.push(u);
+      const deviceId = `hard_nul_${Date.now()}`;
+      await provisionDevice(prisma, deviceId);
+      await bindDevice(http, u.token, deviceId);
+      const nul = 'a\u0000b';
+      const attempts = await Promise.all([
+        request(http)
+          .patch('/api/v1/users/me')
+          .set(auth(u.token))
+          .send({ nickname: nul }),
+        request(http)
+          .post('/api/v1/auth/login')
+          .send({ phone: u.phone, password: `${u.password}\u0000` }),
+        request(http)
+          .post('/api/v1/users/me/emergency-contacts')
+          .set(auth(u.token))
+          .send({ name: nul, phone: '13900000005' }),
+        request(http)
+          .post('/api/v1/users/me/emergency-contacts')
+          .set(auth(u.token))
+          .send({ name: '正常', phone: '13900000006', relation: nul }),
+        request(http)
+          .patch(`/api/v1/devices/${deviceId}`)
+          .set(auth(u.token))
+          .send({ name: nul }),
+        request(http)
+          .post('/api/v1/voice/channels')
+          .set(auth(u.token))
+          .send({ name: nul }),
+        request(http)
+          .get(`/api/v1/devices/${encodeURIComponent(nul)}`)
+          .set(auth(u.token)),
+        request(http)
+          .get(
+            `/api/v1/devices/${deviceId}/events?type=${encodeURIComponent(nul)}`,
+          )
+          .set(auth(u.token)),
+      ]);
+      for (const r of attempts) {
+        expect(r.status).toBe(400);
+        expect(r.body.code).toBe('VALIDATION_FAILED');
+      }
+      const me = await prisma.user.findUnique({ where: { id: u.id } });
+      expect(me?.nickname ?? '').not.toContain('\u0000');
+      await cleanupDevices(prisma, [deviceId]);
     });
 
     it('头像 data URI：合法 60KB 通过；非 base64 字符 / http 超长 / javascript: → 400', async () => {

@@ -8,6 +8,7 @@ import {
 import type { WsMessage } from '@helmet/shared';
 import type { IncomingMessage } from 'node:http';
 import { WebSocket } from 'ws';
+import { PrismaService } from '../prisma/prisma.service';
 
 /** 应用自定义关闭码（4000–4999 区间）：鉴权失败 */
 const CLOSE_UNAUTHORIZED = 4401;
@@ -28,7 +29,10 @@ export class RealtimeGateway
   /** access token 到期即断开（App 用新 token 重连）：连接不能比凭证活得久 */
   private readonly expiryTimers = new Map<WebSocket, NodeJS.Timeout>();
 
-  constructor(private readonly jwt: JwtService) {}
+  constructor(
+    private readonly jwt: JwtService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   async handleConnection(
     client: WebSocket,
@@ -48,6 +52,15 @@ export class RealtimeGateway
         token,
       );
       const userId = payload.sub;
+      // 与 HTTP 守卫同口径：注销后的残留 token 不得再收推送
+      const found = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { deletedAt: true },
+      });
+      if (found?.deletedAt) {
+        client.close(CLOSE_UNAUTHORIZED, '账号已注销');
+        return;
+      }
       if (typeof payload.exp === 'number') {
         const ttl = Math.max(payload.exp * 1000 - Date.now(), 0);
         const timer = setTimeout(

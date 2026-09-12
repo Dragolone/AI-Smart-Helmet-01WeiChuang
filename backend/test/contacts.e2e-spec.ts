@@ -72,6 +72,7 @@ describe('紧急联系人 (e2e)', () => {
     const cases = [
       { phone: '13800001111' }, // 缺 name
       { name: '', phone: '13800001111' }, // 空 name
+      { name: '   ', phone: '13800001111' }, // 全空白 name（会原样进 SOS 短信）
       { name: '妈妈', phone: '12345' }, // 手机号非法
       { name: '妈妈', phone: '23800001111' }, // 号段非法
       { name: 'x'.repeat(31), phone: '13800001111' }, // name 超长

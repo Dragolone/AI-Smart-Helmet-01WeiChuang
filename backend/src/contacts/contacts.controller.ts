@@ -9,6 +9,7 @@ import {
   Post,
   Req,
 } from '@nestjs/common';
+import { Transform } from 'class-transformer';
 import {
   IsOptional,
   IsString,
@@ -21,8 +22,12 @@ import { ContactsService } from './contacts.service';
 
 // 与 Auth 注册同口径的大陆手机号；SOS 短信直发此号码，入口必须挡住脏数据
 const PHONE_PATTERN = /^1[3-9]\d{9}$/;
+// 联系人名会原样进 SOS 短信文案，全空白名不能入库：先 trim 再验最小长度
+const trim = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim() : value;
 
 class CreateContactDto {
+  @Transform(trim)
   @IsString()
   @MinLength(1)
   @MaxLength(30)
@@ -39,6 +44,7 @@ class CreateContactDto {
 
 class UpdateContactDto {
   @IsOptional()
+  @Transform(trim)
   @IsString()
   @MinLength(1)
   @MaxLength(30)

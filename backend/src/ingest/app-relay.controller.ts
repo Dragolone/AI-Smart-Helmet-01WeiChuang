@@ -10,6 +10,7 @@ import { ArrayMaxSize, ArrayMinSize, IsArray, Matches } from 'class-validator';
 import { BLE_RELAY_EVENT_TYPES } from '@helmet/shared';
 import type { AppRelayResponse } from '@helmet/shared';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
+import { AllowNul } from '../common/nul.guard';
 import { PrismaService } from '../prisma/prisma.service';
 import { IngestService } from './ingest.service';
 
@@ -31,6 +32,7 @@ class AppRelayDto {
  * 与 MQTT 入口在统一 Ingest 层汇合——同校验、同幂等、同业务分发；重复/失败只计数不报错，
  * App 断线补传无需关心哪些已传过。
  */
+@AllowNul()
 @Controller('ingest')
 export class AppRelayController {
   constructor(
