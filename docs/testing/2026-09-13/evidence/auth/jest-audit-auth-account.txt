@@ -1,0 +1,75 @@
+(node:62694) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[31m[Nest] 62694  - [39m09/14/2026, 12:26:20 AM [31m  ERROR[39m [38;5;3m[SmsCodeService] [39m[31m验证码发送失败 → 191****0817：audit: provider down[39m
+[31m[Nest] 62694  - [39m09/14/2026, 12:26:21 AM [31m  ERROR[39m [38;5;3m[UnifiedExceptionFilter] [39m[31m未处理异常 [req_f9c4e8f0-6f48-41f0-b4df-926f2d410aab][39m
+PrismaClientKnownRequestError: 
+Invalid `prisma.user.update()` invocation:
+
+
+Unique constraint failed on the fields: (`phone`)
+    at Jr.handleRequestError (/Users/dravenzhong/Desktop/AI-Smart-Helmet-01WeiChuang/node_modules/@prisma/client/src/runtime/RequestHandler.ts:237:13)
+    at Jr.handleAndLogRequestError (/Users/dravenzhong/Desktop/AI-Smart-Helmet-01WeiChuang/node_modules/@prisma/client/src/runtime/RequestHandler.ts:183:12)
+    at Jr.request (/Users/dravenzhong/Desktop/AI-Smart-Helmet-01WeiChuang/node_modules/@prisma/client/src/runtime/RequestHandler.ts:152:12)
+    at processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at a (/Users/dravenzhong/Desktop/AI-Smart-Helmet-01WeiChuang/node_modules/@prisma/client/src/runtime/getPrismaClient.ts:1014:24)
+    at AuthService.changePhone (/Users/dravenzhong/Desktop/AI-Smart-Helmet-01WeiChuang/backend/src/auth/auth.service.ts:210:18)
+    at /Users/dravenzhong/Desktop/AI-Smart-Helmet-01WeiChuang/node_modules/@nestjs/core/router/router-execution-context.js:47:62
+    at /Users/dravenzhong/Desktop/AI-Smart-Helmet-01WeiChuang/node_modules/@nestjs/core/router/router-proxy.js:9:17
+FAIL test/audit-auth-account.e2e-spec.ts (5.747 s)
+  ● 审计 §6：账号全流程 / 验证码 / refresh / 撤销规则 (e2e) › 密码 72 字节边界（bcrypt） › 登录：API.md §2 登录密码「≤72 字节，超出 400」——72 汉字应 400；72 字节密码 + 1 字节应不匹配
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 400
+    Received: 200
+
+      298 |         `login 密码=已注册 72 字节密码 + 'x'（73 字节）→ ${prefix.status}（200 = bcrypt 按 72 字节前缀比较；契约要求超 72 字节 400）`,
+      299 |       );
+    > 300 |       expect(prefix.status).toBe(400);
+          |                             ^
+      301 |       expect(r.status).toBe(400);
+      302 |     });
+      303 |
+
+      at Object.<anonymous> (audit-auth-account.e2e-spec.ts:300:29)
+
+  ● 审计 §6：账号全流程 / 验证码 / refresh / 撤销规则 (e2e) › 密码 72 字节边界（bcrypt） › 修改密码：newPassword 72 个汉字（216 字节）应与注册同规则被 400（缺 @MaxBytes 则被静默截断）
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 400
+    Received: 204
+
+      321 |       }
+      322 |       // API.md §2：newPassword 与注册同规则；注册规则为 8–72 字符且 ≤72 字节
+    > 323 |       expect(res.status).toBe(400);
+          |                          ^
+      324 |     });
+      325 |   });
+      326 |
+
+      at Object.<anonymous> (audit-auth-account.e2e-spec.ts:323:26)
+
+  ● 审计 §6：账号全流程 / 验证码 / refresh / 撤销规则 (e2e) › 撤销规则矩阵（API.md §2） › 换手机号：会话不受影响；原号即刻可被他人注册；并发换号+注册同号不得 5xx（注入模拟竞态）
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 409
+    Received: 500
+
+      553 |         `换号 vs 注册同号竞态（注入）→ ${raced.status} ${raced.body.code ?? ''}（期望 409，不得 500）`,
+      554 |       );
+    > 555 |       expect(raced.status).toBe(409);
+          |                            ^
+      556 |     });
+      557 |
+      558 |     it('注销：全部撤销 + 残留 access 全接口 401 + 新 WS 4401；已建立的 WS 是否被踢（观察）', async () => {
+
+      at Object.<anonymous> (audit-auth-account.e2e-spec.ts:555:28)
+
+Test Suites: 1 failed, 1 total
+Tests:       3 failed, 15 passed, 18 total
+Snapshots:   0 total
+Time:        5.836 s
+Ran all test suites matching test/audit-auth-account.e2e-spec.ts.
+Force exiting Jest: Have you considered using `--detectOpenHandles` to detect async operations that kept running after all tests finished?

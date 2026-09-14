@@ -43,3 +43,5 @@ backend/src/generated/
 backend/prisma.config.js
 backend/prisma.config.d.ts
 backend/prisma.config.js.map
+docs/testing/**/.admin.env
+docs/testing/**/.devices.env

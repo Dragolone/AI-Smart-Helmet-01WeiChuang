@@ -1,0 +1,140 @@
+
+/Users/dravenzhong/Desktop/AI-Smart-Helmet-01WeiChuang/backend/test/audit-auth-account.e2e-spec.ts
+   86:35  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  132:25  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  137:35  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  159:40  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  166:38  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  173:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  186:19  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  197:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  201:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  272:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  278:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  286:31  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  294:33  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  299:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  303:36  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  316:33  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  323:41  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  340:36  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  353:31  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  359:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  369:19  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  380:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  388:32  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  393:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  397:32  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  406:35  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  410:36  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  430:36  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  435:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  445:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  449:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  453:38  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  459:40  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  468:32  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  472:32  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  476:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  478:19  warning  Unsafe argument of type `any` assigned to a parameter of type `string`  @typescript-eslint/no-unsafe-argument
+  486:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  490:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  498:32  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  503:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  508:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  512:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  516:32  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  530:33  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  537:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  544:33  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  566:35  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  589:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  607:35  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  608:34  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  611:19  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  615:19  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  621:19  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  623:41  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  626:19  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  632:19  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  639:19  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  649:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  653:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+  661:33  warning  Unsafe argument of type `any` assigned to a parameter of type `App`     @typescript-eslint/no-unsafe-argument
+
+/Users/dravenzhong/Desktop/AI-Smart-Helmet-01WeiChuang/backend/test/audit-auth-authz.e2e-spec.ts
+   90:34  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+   96:35  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  102:35  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  108:31  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  135:19  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  338:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  384:19  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  389:19  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  393:19  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  449:25  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  456:31  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  465:39  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  477:29  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  498:29  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  508:31  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  543:31  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+
+/Users/dravenzhong/Desktop/AI-Smart-Helmet-01WeiChuang/backend/test/audit-auth-binding.e2e-spec.ts
+   61:13  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+   64:29  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+   72:29  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+   80:29  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  166:34  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  171:19  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  194:19  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  198:38  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  203:19  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  227:19  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  231:19  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  242:38  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  247:19  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  285:36  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  382:33  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  431:17  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  451:15  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  454:15  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+
+/Users/dravenzhong/Desktop/AI-Smart-Helmet-01WeiChuang/backend/test/audit-auth-extra.e2e-spec.ts
+   77:32  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+   82:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+   89:32  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+   96:32  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  102:36  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  114:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  118:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  122:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  127:35  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  155:35  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  189:35  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  198:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  209:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  232:34  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  243:35  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+
+/Users/dravenzhong/Desktop/AI-Smart-Helmet-01WeiChuang/backend/test/audit-auth-ratelimit.e2e-spec.ts
+   86:15  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+   97:35  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  112:33  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  120:23  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  147:21  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  157:17  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  165:38  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  176:17  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  189:17  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  202:17  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  220:19  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  245:17  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  267:17  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+
+/Users/dravenzhong/Desktop/AI-Smart-Helmet-01WeiChuang/backend/test/helpers/audit-auth.ts
+   67:11  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+  117:29  warning  Unsafe argument of type `any` assigned to a parameter of type `App`  @typescript-eslint/no-unsafe-argument
+
+✖ 125 problems (0 errors, 125 warnings)
+

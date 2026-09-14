@@ -1,0 +1,56 @@
+[
+  {
+    "id": "F1",
+    "name": "无效/过期 token → 回登录页",
+    "status": "PASS",
+    "detail": "url=http://127.0.0.1:5173/login body= 智能头盔管理后台登 录 "
+  },
+  {
+    "id": "F2",
+    "name": "退出登录 → 回登录页且清 token",
+    "status": "PASS",
+    "detail": "url=http://127.0.0.1:5173/login token=已清"
+  },
+  {
+    "id": "F3",
+    "name": "退出后浏览器后退不应展示后台数据",
+    "status": "PASS",
+    "detail": "url=http://127.0.0.1:5173/login rows=0"
+  },
+  {
+    "id": "G1a",
+    "name": "设备详情页渲染",
+    "status": "PASS",
+    "detail": " 智能头盔管理后台概览用户设备事故 / SOS事件历史auditbrowser退出返回设备详情：audit_ui_4状态离线电量85%固件版本1.0.0-audit绑定用户19067846882（<img src=x onerror=alert(1)>）最后在"
+  },
+  {
+    "id": "G1b",
+    "name": "刷新深层 URL",
+    "status": "PASS",
+    "detail": "url=http://127.0.0.1:5173/devices/audit_ui_4"
+  },
+  {
+    "id": "G2",
+    "name": "事件页分页控件",
+    "status": "PASS",
+    "detail": "items=1 rows=13"
+  },
+  {
+    "id": "G3",
+    "name": "第二个标签页共享登录态",
+    "status": "PASS",
+    "detail": "rows=3"
+  },
+  {
+    "id": "G4",
+    "name": "事件页筛选控件存在（type/invalid）",
+    "status": "PASS",
+    "detail": "controls=1"
+  },
+  {
+    "id": "G5",
+    "name": "390px 小屏是否横向溢出",
+    "status": "PARTIAL",
+    "detail": "scrollW=635 clientW=390（表格自带横向滚动属正常）"
+  }
+]

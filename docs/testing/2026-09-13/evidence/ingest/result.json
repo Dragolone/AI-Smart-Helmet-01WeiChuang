@@ -1,0 +1,450 @@
+{
+ "area": "ingest（§7 三入口 / WebSocket / 命令状态机 / app-relay 剧本；不含真实 Broker）",
+ "summary": "接管上一轮 audit-ingest-entries（修正 webhook 口径、tsc/eslint 清零）并新增 audit-realtime、audit-commands 两套 e2e，共 36 用例：32 通过、4 条为故意失败的缺陷断言。CONFIRMED 缺陷 4 项：INGEST-01 未知 schemaVersion（999）照常进业务建 SOS/刷快照/入轨迹（P2，违反 EVENTS.md §1）；INGEST-02 webhook 非 JSON Content-Type 请求体 500（P3，违反 API.md §12「留档不报错」）；INGEST-03 MQTT 路径原始 NUL 字节导致 _invalid 留档本身入库失败、重试 3 次后消息丢弃（P2，违反「校验失败留档不丢弃」）；INGEST-04 注销账号后已建 WS 连接不关闭、继续收推送直到 exp（P3）。三入口业务等价、跨入口幂等、坏输入矩阵 30 条、部分批次中断、DB 连接类 5xx/重试与数据类 db_rejected 降级、命令状态机全路径（含并发回执只终态化一次、按键合并）均通过。真实进程 3400 + Mock app-relay 跑 fall/sos/risk/ski/断网补传 + 命令 success/failed/silent：1128 条事件全部唯一入库，两单 SOS 均在 15s 精确到期 notified，命令三态终态正确（silent → 8s offline）。旧报告 #1/#2/#3/#5/#9/#14 复验全部通过。",
+ "findings": [
+  {
+   "id": "INGEST-01",
+   "title": "未知 schemaVersion（如 999）不被拦截，照常进入业务流程（建 SOS、刷快照、入轨迹表）",
+   "severity": "P2",
+   "severity_reason": "当前无 v2 事件所以不出错，但 Contract 明文要求未知版本只留档告警不进业务；一旦硬件/算法升版本改字段语义，旧后端会用错误语义处理事件（保命链路上可能建错单或漏建单）。上一轮 contract 代理已静态发现，本轮复现。",
+   "status": "CONFIRMED",
+   "evidence_type": "integration(e2e in-process)",
+   "impact": "版本演进时的静默错误处理；与 EVENTS.md §1 / DECISIONS #18 兼容原则不符",
+   "preconditions": "设备已绑定；任意入口",
+   "repro": "backend/test/audit-ingest-entries.e2e-spec.ts 用例「【INGEST-01 缺陷断言】schemaVersion=999」：app-relay 提交 schemaVersion=999 的 possible_fall / device_status / location_update 各一条",
+   "expected": "三条进 raw_events（可带告警），sos_cases 不建单、devices.battery 不变、location_points 不入",
+   "actual": "sosCreated=1、batteryChanged=true、pointRecorded=true（raw 亦入库）",
+   "source_location": "backend/src/ingest/envelope.ts:83-88（只校验整数与 int32 范围）；backend/src/ingest/ingest.service.ts:100-112（persist 后无版本门禁直接 dispatchStored）",
+   "evidence_paths": [
+    "docs/testing/2026-09-13/evidence/ingest/audit-ingest-entries.final.log"
+   ],
+   "frequency": "100%",
+   "suggested_fix": "envelope.ts 增加 `SUPPORTED_SCHEMA_VERSIONS = new Set([1])`：不在集合内 → 按 `schema_version_unsupported` 走 buildInvalidRecord 留档并 warn（或保留原 eventType 入 raw 但在 ingestRaw 返回 'stored_invalid' 跳过 dispatchStored）；packages/shared 的 CURRENT_SCHEMA_VERSION 同步引用。",
+   "regression_scope": "三入口 + Mock（Mock 固定发 1 不受影响）；app-relay 响应 invalid 计数会变",
+   "old_report_ref": "—（上一轮 contract 代理静态发现）"
+  },
+  {
+   "id": "INGEST-02",
+   "title": "webhook 收到非 JSON Content-Type（如 text/plain）请求体时返回 500 INTERNAL_ERROR 并打印堆栈",
+   "severity": "P3",
+   "severity_reason": "需持有 X-Api-Key 才能触达；不丢数据、不影响设备链路；但违反 API.md §12「校验失败留档不报错，算法服务侧无需重试/错误分支」并制造 ERROR 日志噪音。",
+   "status": "CONFIRMED",
+   "evidence_type": "integration(e2e in-process)",
+   "impact": "算法服务侧误配 Content-Type 会看到 500，触发其重试逻辑；ERROR 日志可被刷",
+   "preconditions": "持有 INGEST_WEBHOOK_API_KEY",
+   "repro": "audit-ingest-entries 用例「【INGEST-02 缺陷断言】」：POST /api/v1/ingest/webhook，Content-Type: text/plain，body `{\"deviceId\":\"x\"}`",
+   "expected": "202 { invalid: true }，raw_events 留一条 deviceId=unknown 的 _invalid",
+   "actual": "500 INTERNAL_ERROR；日志 `TypeError [ERR_INVALID_ARG_TYPE]: The \"string\" argument must be of type string ... Received undefined`（Express 5 未解析 body 时 req.body=undefined → JSON.stringify(undefined)=undefined → Buffer.byteLength(undefined) 抛错）。空 body + application/json 则正常 202 invalid。",
+   "source_location": "backend/src/ingest/webhook.controller.ts:31-37；backend/src/ingest/envelope.ts:56（Buffer.byteLength(raw)）",
+   "evidence_paths": [
+    "docs/testing/2026-09-13/evidence/ingest/audit-ingest-entries.final.log",
+    "docs/testing/2026-09-13/evidence/ingest/audit-ingest-entries.run3.log"
+   ],
+   "frequency": "100%",
+   "suggested_fix": "webhook.controller 里 `JSON.stringify(body) ?? 'null'`（或 body===undefined 时传 'undefined' 字面量），让 validateEnvelope 按 not_an_object 留档；顺手在 validateEnvelope 入口 `typeof raw !== 'string'` 防御。",
+   "regression_scope": "仅 webhook 入口",
+   "old_report_ref": "—"
+  },
+  {
+   "id": "INGEST-03",
+   "title": "MQTT 路径原始 NUL 字节（0x00）消息：invalid_json 留档本身被 PostgreSQL 拒绝（22P05），重试 3 次后消息被放弃，未留档",
+   "severity": "P2",
+   "severity_reason": "违反 CLAUDE.md Event Rules「校验失败的事件必须留档不丢弃」；固件用 C 字符串带尾随 0x00 是常见情况，一旦出现该设备所有此类消息全部丢失且每条拖慢消费者 600ms（2×300ms 退避）。当前 MVP 无 4G 故只影响未来 4G/Mock MQTT 链路，定为 P2。",
+   "status": "CONFIRMED",
+   "evidence_type": "integration(e2e in-process)",
+   "impact": "消息丢失、无 _invalid 留档、消费者被无谓重试拖慢；app-relay/webhook 侧同样字节会被 body-parser 400 拒绝（不受影响）",
+   "preconditions": "MQTT 消费路径（processPublish）",
+   "repro": "audit-ingest-entries 用例「【INGEST-03 缺陷断言】」：processPublish('helmet/{id}/event', '{\"eventId\":\"m\\x00\"}') 与 合法 JSON + 尾随 0x00",
+   "expected": "resolve；raw_events 留 `_invalid` reason=invalid_json",
+   "actual": "reject：PrismaClientKnownRequestError 22P05 `unsupported Unicode escape sequence`（来自 buildInvalidRecord 的 payload.raw 含 0x00）；MqttConsumer 重试耗尽后 error 日志并放弃",
+   "source_location": "backend/src/ingest/envelope.ts:53（hasNul 只匹配转义 \\\\u0000 不匹配原始字节）；backend/src/ingest/envelope.ts:35（raw.slice 直接入 jsonb）；backend/src/ingest/ingest.service.ts:86-90（invalid 留档无二次防护）",
+   "evidence_paths": [
+    "docs/testing/2026-09-13/evidence/ingest/audit-ingest-entries.final.log"
+   ],
+   "frequency": "100%",
+   "suggested_fix": "buildInvalidRecord 里对 raw 做 `raw.replace(/\\u0000/g, '\\\\u0000')`（或 Buffer 转义为可打印形式）再 slice；hasNul 同时匹配原始 `\\u0000` 字符（`/\\\\u0000|\\u0000/`）。",
+   "regression_scope": "三入口的 _invalid 留档路径；现有 hardening-ingest NUL 用例",
+   "old_report_ref": "旧报告 #1 的 NUL 修复只覆盖转义形式"
+  },
+  {
+   "id": "INGEST-04",
+   "title": "注销账号（DELETE /users/me）后，已建立的 WS 连接不被关闭，继续接收该账号原绑定设备推送直到 access token 自然到期",
+   "severity": "P3",
+   "severity_reason": "窗口 ≤15 分钟且注销时设备已解绑（解绑后新事件不会推给该 userId，故实际泄漏面很小）；但与 §11「连接不比凭证活得久」、#61「注销残留 token 全接口 401」口径不一致。",
+   "status": "CONFIRMED",
+   "evidence_type": "integration(e2e in-process)",
+   "impact": "注销后旧 App 进程仍保持连接；若注销前后有他人重新绑定同设备，推送按 bindUserId 定向不会串到旧用户，风险主要是口径不一致",
+   "preconditions": "用户已建 WS 连接后注销",
+   "repro": "backend/test/audit-realtime.e2e-spec.ts 用例「【INGEST-04 缺陷断言】」：连接 → DELETE /users/me（正确密码）→ 3s 内观察连接关闭码",
+   "expected": "服务端以 4401 关闭；同 token 重连 4401（后者已通过）",
+   "actual": "3s 内连接仍 OPEN（still_open）；重连被正确拒绝 4401",
+   "source_location": "backend/src/users/users.service.ts:24-44（deleteAccount 未通知网关）；backend/src/realtime/realtime.gateway.ts（无 closeUser(userId) 方法）",
+   "evidence_paths": [
+    "docs/testing/2026-09-13/evidence/ingest/audit-realtime.run2.log"
+   ],
+   "frequency": "100%",
+   "suggested_fix": "RealtimeGateway 增加 `closeUser(userId, code=4401, reason)` 遍历 byUser.get(userId) 关闭；UsersService.deleteAccount 事务提交后调用（也可用于 reset-password 撤销全部会话的场景）。",
+   "regression_scope": "realtime.e2e / hardening-realtime / commands-relay 的连接计数用例",
+   "old_report_ref": "旧报告 #13 部分（WS 按 exp 关闭已修，注销场景未覆盖）"
+  }
+ ],
+ "coverage": [
+  {
+   "item": "三入口（MQTT 消费路径 / webhook / app-relay）同一合法事件业务效果一致（raw source 各异；轨迹、快照、WS 五类推送、§6 可见）",
+   "implementation": "ingest.service.ts ingestRaw/dispatchStored",
+   "existing_tests": "app-relay/webhook/hardening-ingest e2e（各入口单独）",
+   "new_tests": "audit-ingest-entries「三入口业务等价」",
+   "level": "integration(e2e in-process)",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/audit-ingest-entries.final.log"
+  },
+  {
+   "item": "跨入口重放同 eventId 只存一次、possible_fall 跨入口重放只建一单 SOS",
+   "implementation": "persist P2002 幂等 + SosTrigger 合并",
+   "existing_tests": "hardening-ingest（单入口）",
+   "new_tests": "audit-ingest-entries「跨入口重放」",
+   "level": "integration(e2e in-process)",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/audit-ingest-entries.final.log"
+  },
+  {
+   "item": "MQTT topic/deviceId 不符 → device_id_mismatch_with_topic 留档到 topic 设备；未识别 topic 忽略",
+   "implementation": "mqtt-consumer.service.ts processPublish + envelope.ts",
+   "existing_tests": "—",
+   "new_tests": "audit-ingest-entries「MQTT topic 解析」",
+   "level": "integration(e2e in-process)",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/audit-ingest-entries.final.log"
+  },
+  {
+   "item": "坏输入矩阵 30 条 × 三入口（schemaVersion 非整数/负/int32 越界/1e18、缺字段、未知 eventType、坏坐标、极端数值、非法日期 02-30/13 月/0000 年/缺时区/+25:00、payload 非对象、NUL 转义、1000 层嵌套）——正确拒绝或原始留档、接口不 5xx",
+   "implementation": "envelope.ts validateEnvelope",
+   "existing_tests": "hardening-ingest（部分）",
+   "new_tests": "audit-ingest-entries「坏输入矩阵」3 用例 + 「入库但不进业务」",
+   "level": "integration(e2e in-process)",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/audit-ingest-entries.final.log"
+  },
+  {
+   "item": "未知 schemaVersion（999）不进业务流程（EVENTS.md §1）",
+   "implementation": "envelope.ts（缺失）",
+   "existing_tests": "—",
+   "new_tests": "audit-ingest-entries「【INGEST-01 缺陷断言】」",
+   "level": "integration(e2e in-process)",
+   "result": "FAIL",
+   "evidence": "见 INGEST-01"
+  },
+  {
+   "item": "HTTP 层坏体：非法 JSON 400、原始 NUL 字节 400、>100KB 413 PAYLOAD_TOO_LARGE（app-relay 与 webhook）",
+   "implementation": "body-parser + UnifiedExceptionFilter",
+   "existing_tests": "hardening-ingest",
+   "new_tests": "audit-ingest-entries「HTTP 层坏体」",
+   "level": "integration(e2e in-process)",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/audit-ingest-entries.final.log"
+  },
+  {
+   "item": "webhook 非 JSON Content-Type / 空 body 走留档不 5xx",
+   "implementation": "webhook.controller.ts",
+   "existing_tests": "—",
+   "new_tests": "audit-ingest-entries「【INGEST-02 缺陷断言】」",
+   "level": "integration(e2e in-process)",
+   "result": "FAIL",
+   "evidence": "见 INGEST-02（空 body 部分通过，text/plain 500）"
+  },
+  {
+   "item": "MQTT 路径原始字节：非法 JSON → invalid_json；>64KB → payload_too_large（raw 截断 4096）",
+   "implementation": "envelope.ts",
+   "existing_tests": "—",
+   "new_tests": "audit-ingest-entries「MQTT 路径原始字节」",
+   "level": "integration(e2e in-process)",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/audit-ingest-entries.final.log"
+  },
+  {
+   "item": "MQTT 路径原始 NUL 字节留档不丢",
+   "implementation": "envelope.ts buildInvalidRecord",
+   "existing_tests": "—",
+   "new_tests": "audit-ingest-entries「【INGEST-03 缺陷断言】」",
+   "level": "integration(e2e in-process)",
+   "result": "FAIL",
+   "evidence": "见 INGEST-03"
+  },
+  {
+   "item": "部分批次中断：100 条发完后客户端立刻断开 → 服务端处理完 100 条、补传全 duplicate、possible_fall 仅一单；只发一半断开 → 0 条入库、补传全 accepted",
+   "implementation": "app-relay.controller.ts 逐条顺序处理",
+   "existing_tests": "—",
+   "new_tests": "audit-ingest-entries「部分批次中断」2 用例（原始 socket destroy）",
+   "level": "integration(e2e in-process, real TCP)",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/audit-ingest-entries.final.log"
+  },
+  {
+   "item": "DB 连接类故障（P1001）：app-relay/webhook 5xx INTERNAL_ERROR 不留档、恢复后重传入库；MQTT 路径重试 2 次（300ms 退避）后成功，3 次失败抛出放弃",
+   "implementation": "ingest.service.ts dbRejectionCode + mqtt-consumer PERSIST_RETRIES",
+   "existing_tests": "—",
+   "new_tests": "audit-ingest-entries「数据库连接类故障」「MQTT 路径重试」",
+   "level": "integration(e2e in-process, spy 注入)",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/audit-ingest-entries.final.log"
+  },
+  {
+   "item": "DB 数据类拒绝（P2000）：三入口降级 _invalid reason=db_rejected_P2000，接口不 5xx",
+   "implementation": "ingest.service.ts",
+   "existing_tests": "hardening-ingest",
+   "new_tests": "audit-ingest-entries「数据类拒绝」",
+   "level": "integration(e2e in-process)",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/audit-ingest-entries.final.log"
+  },
+  {
+   "item": "WS 缺失/乱码/伪造签名/过期 token → 4401 且不进连接表",
+   "implementation": "realtime.gateway.ts handleConnection",
+   "existing_tests": "realtime / hardening-realtime",
+   "new_tests": "audit-realtime 用例 1",
+   "level": "integration(e2e in-process)",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/audit-realtime.run2.log"
+  },
+  {
+   "item": "短 exp token 到期定时 4401 关闭；expiryTimers/clientUser/byUser 同步清理；到期前推送正常",
+   "implementation": "realtime.gateway.ts expiryTimers",
+   "existing_tests": "hardening-realtime",
+   "new_tests": "audit-realtime 用例 2",
+   "level": "integration(e2e in-process)",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/audit-realtime.run2.log"
+  },
+  {
+   "item": "重连语义：断线期间不补发；重连后 REST latest/轨迹拿到全部点（兜底）",
+   "implementation": "gateway + locations API",
+   "existing_tests": "—",
+   "new_tests": "audit-realtime 用例 3",
+   "level": "integration(e2e in-process)",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/audit-realtime.run2.log"
+  },
+  {
+   "item": "慢客户端（socket 暂停）不拖慢同用户其他 5 连接（200 条 <3s 全收），慢连接不被踢、恢复后补收",
+   "implementation": "pushToUser 同步扇出 ws.send",
+   "existing_tests": "—",
+   "new_tests": "audit-realtime 用例 4",
+   "level": "integration(e2e in-process)",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/audit-realtime.run2.log"
+  },
+  {
+   "item": "上行垃圾帧（1MB 二进制/非 JSON/伪造 device_command/伪造 sos_update/订阅指令）：连接不断、不产生命令或 SOS、后续推送正常",
+   "implementation": "gateway 无上行处理",
+   "existing_tests": "hardening-realtime",
+   "new_tests": "audit-realtime 用例 5",
+   "level": "integration(e2e in-process)",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/audit-realtime.run2.log"
+  },
+  {
+   "item": "多连接广播（同用户 4 连接全收、他人 0 收）与 close/terminate 混合断开后三张私有 Map 无残留",
+   "implementation": "handleDisconnect",
+   "existing_tests": "hardening-realtime（300 连接）",
+   "new_tests": "audit-realtime 用例 6",
+   "level": "integration(e2e in-process)",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/audit-realtime.run2.log"
+  },
+  {
+   "item": "连接补推：pending/delivered 按 issuedAt 升序补推；offline/success 不补推；他人连接不收",
+   "implementation": "commands.service.ts setUserConnectedHandler",
+   "existing_tests": "commands-relay",
+   "new_tests": "audit-realtime 用例 7",
+   "level": "integration(e2e in-process)",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/audit-realtime.run2.log"
+  },
+  {
+   "item": "注销账号后已建 WS 连接被关闭；同 token 重连 4401",
+   "implementation": "users.service.ts deleteAccount（未联动网关）",
+   "existing_tests": "—",
+   "new_tests": "audit-realtime「【INGEST-04 缺陷断言】」",
+   "level": "integration(e2e in-process)",
+   "result": "FAIL",
+   "evidence": "见 INGEST-04（重连 4401 部分通过）"
+  },
+  {
+   "item": "命令 pending→delivered（PUBACK=delivered、deliveredAt 落库、wire 含 commandId/params）；发布 reject 留 pending；未超时 tick 不动；超时 tick → offline；offline 期间设置不生效、REST 显示 offline/ackResult null",
+   "implementation": "commands.service.ts putSettings + commands-scheduler.service.ts tick",
+   "existing_tests": "commands.e2e",
+   "new_tests": "audit-commands 用例 1",
+   "level": "integration(e2e in-process, MqttConsumerService stub)",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/audit-commands.run2.log"
+  },
+  {
+   "item": "delivered→success 写设置；delivered→failed 记 errorCode 不写设置；重复/翻转回执（MQTT 与 relay-ack）不改终态",
+   "implementation": "applyAck 条件更新",
+   "existing_tests": "commands.e2e / commands-relay",
+   "new_tests": "audit-commands 用例 2",
+   "level": "integration(e2e in-process)",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/audit-commands.run2.log"
+  },
+  {
+   "item": "迟到 executed（MQTT 与 relay-ack 各一路）覆盖 offline 并写入设置；offline 后 relay delivered 不回退",
+   "implementation": "applyAck",
+   "existing_tests": "commands.e2e / commands-relay（单路）",
+   "new_tests": "audit-commands 用例 3",
+   "level": "integration(e2e in-process)",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/audit-commands.run2.log"
+  },
+  {
+   "item": "伪造/串线回执：未知 commandId、他设备冒领（MQTT）忽略；他人 relay-ack 404 DEVICE_NOT_FOUND；跨设备 404 NOT_FOUND；非法 JSON/非法 result 不炸",
+   "implementation": "handleAck parseAck / relayAck 归属校验",
+   "existing_tests": "commands.e2e",
+   "new_tests": "audit-commands 用例 4",
+   "level": "integration(e2e in-process)",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/audit-commands.run2.log"
+  },
+  {
+   "item": "按键合并：A{vol=1,ledA} → B{vol=9} success → A 迟到 success：vol 保持 9、ledA 合入；正序 C→D 后者生效",
+   "implementation": "applyAck shadowed keys",
+   "existing_tests": "commands.e2e（部分）",
+   "new_tests": "audit-commands 用例 5",
+   "level": "integration(e2e in-process)",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/audit-commands.run2.log"
+  },
+  {
+   "item": "同一命令 MQTT cmd_ack(success) 与 relay-ack executed(failed) 并发 ×5：只终态化一次、终态/ackResult/errorCode 一致、设置只按赢家写、事后再补另一结果不翻转",
+   "implementation": "applyAck $transaction + updateMany 条件更新",
+   "existing_tests": "—",
+   "new_tests": "audit-commands 用例 6",
+   "level": "integration(e2e in-process)",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/audit-commands.run2.log"
+  },
+  {
+   "item": "超时扫描 tick 与 success 回执并发 ×3：终态必为 success，后续 tick 不覆盖",
+   "implementation": "tick updateMany where status in pending/delivered",
+   "existing_tests": "—",
+   "new_tests": "audit-commands 用例 7",
+   "level": "integration(e2e in-process)",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/audit-commands.run2.log"
+  },
+  {
+   "item": "executedAt 非法（MQTT 与 relay）→ 服务器时间兜底；stage=executed 缺 result / stage 非法 / result 非法 → 400 VALIDATION_FAILED 且状态不变",
+   "implementation": "parseAck / RelayAckDto",
+   "existing_tests": "commands-relay",
+   "new_tests": "audit-commands 用例 8",
+   "level": "integration(e2e in-process)",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/audit-commands.run2.log"
+  },
+  {
+   "item": "settings 只含 success 命令的键、lastCommand 为最近一次下发；他人 404",
+   "implementation": "getSettings/getCommand",
+   "existing_tests": "commands.e2e",
+   "new_tests": "audit-commands 用例 9",
+   "level": "integration(e2e in-process)",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/audit-commands.run2.log"
+  },
+  {
+   "item": "「同一命令多台 App 下发 / App 重启重复接收 → 头盔只执行一次」",
+   "implementation": "App 侧 commandId 去重（ble-relay，A 线）；后端幂等已验",
+   "existing_tests": "app/src/services/__tests__（A 线）",
+   "new_tests": "—",
+   "level": "—",
+   "result": "OUT_OF_SCOPE",
+   "evidence": "后端只能保证回执幂等；「头盔真正执行次数」需真机/App 侧验证，本领域不覆盖"
+  },
+  {
+   "item": "真实进程（dist, PORT=3400, SOS 15s/扫描 1s/命令超时 8s）+ Mock TRANSPORT=app-relay：SCENARIO=fall / sos / risk / ski 各一轮",
+   "implementation": "mock-device relay-transport + 全链路",
+   "existing_tests": "—（旧报告脚本未入库）",
+   "new_tests": "scripts/relay-audit.sh scenario",
+   "level": "real-process + simulator",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/scenarios.summary.log、mock-fall.log、mock-sos.log、mock-risk.log、mock-ski.log、backend-3400.log：1128 条 raw 全部唯一（1128=1128 distinct）；possible_fall 与 manual_sos 各建一单，deadline=创建+15s，均在 deadline 精确终态化 notified（backend 日志 14:25:36→14:25:51、14:25:58→14:26:13）；collision_risk 3 条 + risk_cleared 2 条；ski 114 个点带海拔（1790–2110m 透传）"
+  },
+  {
+   "item": "RELAY_OFFLINE_CYCLE=3 断网补传：每第 3 次 flush 留缓存，下轮按原 eventId 补传，服务端无重复",
+   "implementation": "relay-transport 队列",
+   "existing_tests": "—",
+   "new_tests": "scripts/relay-audit.sh scenario riding 12 RELAY_OFFLINE_CYCLE=3",
+   "level": "real-process + simulator",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/mock-riding-RELAY_OFFLINE_CYCLE.log：8 次模拟断网、补传后 accepted 计数与入队一致、duplicate=0；退出瞬间恰逢第 24 次 flush 命中断网周期 → 1 条留在 Mock 缓存未提交（Mock 行为，非后端问题）"
+  },
+  {
+   "item": "MOCK_CMD_RESULT=success / failed / silent 经 WS device_command + relay-ack：success→settings 写入；failed→errorCode=MOCK_REJECTED 不写；silent→delivered 8s 后 offline 不写",
+   "implementation": "commands + relay-ack + scheduler",
+   "existing_tests": "—",
+   "new_tests": "scripts/relay-audit.sh command",
+   "level": "real-process + simulator",
+   "result": "PASS",
+   "evidence": "docs/testing/2026-09-13/evidence/ingest/scenarios.summary.log（三条命令终态 success/failed/offline；settings 仅 {volume_success:7}）、mock-cmd-*.log"
+  },
+  {
+   "item": "真实 EMQX Broker 链路（认证/ACL/订阅失败恢复/启动顺序）",
+   "implementation": "mqtt-consumer + emqx-hook",
+   "existing_tests": "emqx-hook.e2e",
+   "new_tests": "—",
+   "level": "—",
+   "result": "OUT_OF_SCOPE",
+   "evidence": "任务范围明确「不含真实 Broker」，归 mqtt 代理"
+  }
+ ],
+ "tests_added": [
+  "backend/test/audit-ingest-entries.e2e-spec.ts（接管：+expectWebhook 口径、+schemaVersion 2147483648/1e18 矩阵项、+INGEST-01/02/03 缺陷断言、+旧报告 #2/#3 复验；19 用例：16 通过 / 3 缺陷断言）",
+  "backend/test/audit-realtime.e2e-spec.ts（新增，8 用例：7 通过 / 1 缺陷断言 INGEST-04）",
+  "backend/test/audit-commands.e2e-spec.ts（新增，9 用例全部通过）",
+  "backend/test/helpers/audit-ingest.ts（接管：RawData 转字符串修 no-base-to-string；prettier）"
+ ],
+ "scripts_added": [
+  "docs/testing/2026-09-13/evidence/ingest/scripts/relay-audit.sh（start/setup/scenario/command/verify/stop：真实进程 + Mock app-relay 可复跑）",
+  "docs/testing/2026-09-13/evidence/ingest/scripts/run-mock.py（以默认信号处置启动 Mock 并到时发 SIGINT，绕过非交互 shell 后台进程忽略 SIGINT 的问题）"
+ ],
+ "blocked": [],
+ "old_report_reverify": [
+  {
+   "id": "#1",
+   "status": "复验通过",
+   "note": "NUL 转义 / schemaVersion 2147483648 与 1e18 / 年份 0000：三入口均留档不 5xx（矩阵）。注意原始 0x00 字节在 MQTT 路径仍丢消息 → 新 INGEST-03"
+  },
+  {
+   "id": "#2",
+   "status": "复验通过",
+   "note": "battery/signalLevel=1e12：字段丢弃、lastSeenAt 刷新、202"
+  },
+  {
+   "id": "#3",
+   "status": "复验通过",
+   "note": "video_ready sizeBytes=3e9 经 webhook 入媒体表 BigInt(3000000000)"
+  },
+  {
+   "id": "#5",
+   "status": "复验通过",
+   "note": ">100KB 请求体 app-relay/webhook 均 413 PAYLOAD_TOO_LARGE"
+  },
+  {
+   "id": "#9",
+   "status": "复验通过",
+   "note": "迟到 success 不覆盖更新命令已生效的键（vol 保持 9），独有键 ledA 合入；正序覆盖正常"
+  },
+  {
+   "id": "#14",
+   "status": "复验通过",
+   "note": "timestamp 02-30 / 13 月 → timestamp_out_of_range 留档不入库"
+  },
+  {
+   "id": "#13",
+   "status": "按后续决策变更",
+   "note": "WS 按 exp 定时 4401 关闭已修并复验通过；注销场景未覆盖 → INGEST-04"
+  }
+ ],
+ "resources_left": "真实后端进程 3400 已停止（relay-audit.sh stop），Mock 进程已清理。helmet_audit_ingest 库中残留：Mock 剧本账号 1 个（phone 19x 合成、nickname relay-audit）、设备 audit_relay_1789309185 及其 1128 条 raw_events / 895 条 location_points / 2 单 sos_cases / 3 条 device_commands（保留作证据，可用 scripts/relay-audit.sh verify 复查；e2e 各套件自有数据已在 afterAll 清理）。凭证文件在 scratchpad/relay-creds.env（会话结束即失效）。未创建 Docker 资源。",
+ "typecheck_lint": "backend `npx tsc --noEmit -p tsconfig.json`：本领域 4 个文件 0 错误（仓库其余错误来自其他代理的 audit-admin / audit-dbops 文件）。`npx eslint` 本领域 4 文件：0 error / 14 warning（均为 supertest App 类型的 no-unsafe-argument，与既有 e2e 一致）。app `npx tsc --noEmit`：1 错误来自 app/src/services/__tests__/audit-ble-defects.test.ts（BLE 代理文件），本领域未改 App 代码。",
+ "notes": "① 上一轮文件的三处失败已分类：webhook「内层 deviceId 不一致」是 BY_DESIGN（API.md §12 请求体即 envelope，无外层来源；改为 expectWebhook: 'stored'）；text/plain 与 MQTT 原始 NUL 保留为缺陷断言 INGEST-02/03。② SOS 通知只有 push|sent（Console Mock）——剧本账号未配紧急联系人故无 SMS 记录；Mock Provider 成功 ≠ 真实送达。③ 真实进程 MQTT_URL 指向死端口，命令 MQTT 发布失败留 pending，由 WS device_command → relay-ack delivered 推进——与决策 #35 蓝牙版形态一致。④ 4 条缺陷断言用例是故意失败的证据，请勿删改；修复后应转绿。⑤ INGEST-03 修复建议同时覆盖 hasNul 的原始字节形式，否则 app-relay 经 AllowNul 放行的 JSON 字符串内 \\u0000 转义（已拦）与原始字节（body-parser 400）两条路径口径不一。"
+}

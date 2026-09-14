@@ -1,0 +1,6 @@
+import { defineConfig } from '/Users/dravenzhong/Desktop/AI-Smart-Helmet-01WeiChuang/node_modules/prisma/config';
+export default defineConfig({
+  schema: '/Users/dravenzhong/Desktop/AI-Smart-Helmet-01WeiChuang/backend/prisma/schema.prisma',
+  migrations: { path: '/private/tmp/claude-501/-Users-dravenzhong-Desktop-AI-Smart-Helmet-01WeiChuang/f23220c2-7807-4477-a125-d5f13c84ad94/scratchpad/dbops/migrations_old' },
+  datasource: { url: process.env.DATABASE_URL! },
+});

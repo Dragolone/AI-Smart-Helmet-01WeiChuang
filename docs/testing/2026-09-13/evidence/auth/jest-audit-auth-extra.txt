@@ -1,0 +1,40 @@
+(node:64312) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[31m[Nest] 64312  - [39m09/14/2026, 12:26:25 AM [31m  ERROR[39m [38;5;3m[UnifiedExceptionFilter] [39m[31m未处理异常 [req_ae3e92bf-9a70-4097-a7c8-daacf28518d0][39m
+PrismaClientKnownRequestError: 
+Invalid `prisma.user.create()` invocation:
+
+
+Unique constraint failed on the fields: (`phone`)
+    at Jr.handleRequestError (/Users/dravenzhong/Desktop/AI-Smart-Helmet-01WeiChuang/node_modules/@prisma/client/src/runtime/RequestHandler.ts:237:13)
+    at Jr.handleAndLogRequestError (/Users/dravenzhong/Desktop/AI-Smart-Helmet-01WeiChuang/node_modules/@prisma/client/src/runtime/RequestHandler.ts:183:12)
+    at Jr.request (/Users/dravenzhong/Desktop/AI-Smart-Helmet-01WeiChuang/node_modules/@prisma/client/src/runtime/RequestHandler.ts:152:12)
+    at processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at a (/Users/dravenzhong/Desktop/AI-Smart-Helmet-01WeiChuang/node_modules/@prisma/client/src/runtime/getPrismaClient.ts:1014:24)
+    at AuthService.register (/Users/dravenzhong/Desktop/AI-Smart-Helmet-01WeiChuang/backend/src/auth/auth.service.ts:90:18)
+    at /Users/dravenzhong/Desktop/AI-Smart-Helmet-01WeiChuang/node_modules/@nestjs/core/router/router-execution-context.js:47:62
+    at /Users/dravenzhong/Desktop/AI-Smart-Helmet-01WeiChuang/node_modules/@nestjs/core/router/router-proxy.js:9:17
+FAIL test/audit-auth-extra.e2e-spec.ts (7.038 s)
+  ● 审计 §6：补充（密码字节边界 / 注册竞态 / WS 撤销 / Provider 挂起） (e2e) › 账号竞态 › 【AUTH-03 缺陷断言】注册 vs 换号同号竞态（注入 user.create 前占号）→ 应 409 PHONE_ALREADY_REGISTERED，不得 500
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 409
+    Received: 500
+
+      143 |       spy.mockRestore();
+      144 |       evidence(LOG, `注册竞态（注入）→ ${raced.status} ${raced.body.code ?? ''}（期望 409）`);
+    > 145 |       expect(raced.status).toBe(409);
+          |                            ^
+      146 |     });
+      147 |   });
+      148 |
+
+      at Object.<anonymous> (audit-auth-extra.e2e-spec.ts:145:28)
+
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 5 passed, 6 total
+Snapshots:   0 total
+Time:        7.133 s
+Ran all test suites matching test/audit-auth-extra.e2e-spec.ts.
+Force exiting Jest: Have you considered using `--detectOpenHandles` to detect async operations that kept running after all tests finished?

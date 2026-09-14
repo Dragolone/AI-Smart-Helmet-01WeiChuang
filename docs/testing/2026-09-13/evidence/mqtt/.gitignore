@@ -1,0 +1,2 @@
+# 审计设备密钥台账——绝不入库（含 deviceSecret 明文）
+.devices.env

@@ -1,0 +1,1 @@
+src/services/__tests__/audit-ble-defects.test.ts(78,17): error TS2322: Type 'Jest' is not assignable to type 'void | TestReturnValuePromise | TestReturnValueGenerator'.

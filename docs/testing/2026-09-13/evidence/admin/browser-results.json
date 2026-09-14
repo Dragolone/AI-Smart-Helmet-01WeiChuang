@@ -1,0 +1,113 @@
+{
+  "results": [
+    {
+      "id": "A1",
+      "name": "未登录直接打开设备详情深链",
+      "status": "FAIL",
+      "detail": "url=http://127.0.0.1:5173/login"
+    },
+    {
+      "id": "A2",
+      "name": "错误密码提示",
+      "status": "PASS",
+      "detail": "用户名或密码错误"
+    },
+    {
+      "id": "A3",
+      "name": "后端不可达提示是否与密码错误区分",
+      "status": "FAIL",
+      "detail": "用户名或密码错误用户名或密码错误"
+    },
+    {
+      "id": "A4",
+      "name": "正确凭证登录",
+      "status": "PASS",
+      "detail": "url=http://127.0.0.1:5173/users"
+    },
+    {
+      "id": "B1",
+      "name": "概览页渲染",
+      "status": "FAIL",
+      "detail": "rows=0 len=125"
+    },
+    {
+      "id": "B2",
+      "name": "用户页渲染",
+      "status": "PASS",
+      "detail": "rows=3 len=233"
+    },
+    {
+      "id": "B3",
+      "name": "设备页渲染",
+      "status": "PASS",
+      "detail": "rows=6 len=388"
+    },
+    {
+      "id": "B4",
+      "name": "事故页渲染",
+      "status": "FAIL",
+      "detail": "rows=1 len=195"
+    },
+    {
+      "id": "B5",
+      "name": "事件页渲染",
+      "status": "PASS",
+      "detail": "rows=13 len=886"
+    },
+    {
+      "id": "C1",
+      "name": "昵称含 <img onerror> 不执行、原样转义显示",
+      "status": "PASS",
+      "detail": "xssFired=false"
+    },
+    {
+      "id": "C2",
+      "name": "emoji/换行/超长昵称显示不破版",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "D1",
+      "name": "用户搜索命中与清空恢复",
+      "status": "PASS",
+      "detail": "filtered=1 all=3"
+    },
+    {
+      "id": "D2",
+      "name": "搜索 % 是否被当成 LIKE 通配符（应只命中含 % 的行）",
+      "status": "FAIL",
+      "detail": "rows(%)=3 rows(all)=3"
+    },
+    {
+      "id": "E1",
+      "name": "用户接口 500 时页面显示错误而非\"暂无数据\"",
+      "status": "FAIL",
+      "detail": "showsError=false showsEmpty=true"
+    },
+    {
+      "id": "E2",
+      "name": "概览接口 500 时不把故障显示成 0",
+      "status": "FAIL",
+      "detail": "zeroCount=4"
+    },
+    {
+      "id": "F1",
+      "name": "过期/无效 token → 回登录页",
+      "status": "FAIL",
+      "detail": "url=http://127.0.0.1:5173/login keys=admin_token,admin_username"
+    }
+  ],
+  "consoleMsgs": [
+    "error: Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "error: Failed to load resource: net::ERR_CONNECTION_REFUSED",
+    "error: Warning: [antd: Statistic] `valueStyle` is deprecated. Please use `styles.content` instead.",
+    "error: Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "failedReqs": [
+    "HTTP 401 http://127.0.0.1:5173/api/v1/admin/auth/login",
+    "POST http://127.0.0.1:5173/api/v1/admin/auth/login :: net::ERR_CONNECTION_REFUSED",
+    "HTTP 500 http://127.0.0.1:5173/api/v1/admin/users?page=1&pageSize=20",
+    "HTTP 500 http://127.0.0.1:5173/api/v1/admin/stats/overview",
+    "HTTP 401 http://127.0.0.1:5173/api/v1/admin/users?page=1&pageSize=20"
+  ]
+}

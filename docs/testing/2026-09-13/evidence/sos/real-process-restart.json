@@ -1,0 +1,94 @@
+{
+  "startedAt": "2026-09-13T14:18:39.097Z",
+  "env": {
+    "PORT": "3300",
+    "SOS_SCAN_INTERVAL_MS": "1000",
+    "SOS_COUNTDOWN_SECONDS": "20"
+  },
+  "scenarios": {
+    "A": {
+      "title": "app-relay 建单 → deadline 前 SIGKILL → 过 deadline 重启 → 扫描接管",
+      "sosId": "cmtzwg9720008sxy0n1cip6og",
+      "deadline": "2026-09-13T14:19:00.142Z",
+      "killedAt": "2026-09-13T14:18:45.170Z",
+      "restartReadyMs": 510,
+      "takeoverMs": 898,
+      "final": {
+        "id": "cmtzwg9720008sxy0n1cip6og",
+        "status": "notified",
+        "deadline": "2026-09-13T14:19:00.142Z",
+        "finalizedAt": "2026-09-13T14:19:04.517Z",
+        "createdAt": "2026-09-13T14:18:40.142Z",
+        "locationSource": "event"
+      },
+      "notifications": [
+        {
+          "channel": "sms",
+          "status": "sent",
+          "attempts": 1,
+          "lastError": ""
+        },
+        {
+          "channel": "push",
+          "status": "sent",
+          "attempts": 1,
+          "lastError": ""
+        }
+      ],
+      "log2": {
+        "takeover": "\u001b[33m[Nest] 30917  - \u001b[39m09/14/2026, 12:19:03 AM \u001b[33m   WARN\u001b[39m \u001b[38;5;3m[SosSchedulerService] \u001b[39m\u001b[33m启动接管：1 个进行中 SOS 重新纳入调度\u001b[39m",
+        "sms": 1,
+        "push": 1
+      }
+    },
+    "B": {
+      "title": "库态 notified + 通知行 pending/attempts=0（事务提交后、投递前崩溃）→ 启进程续投恰一次",
+      "resumeMs": 930,
+      "notifications": [
+        {
+          "channel": "sms",
+          "status": "sent",
+          "attempts": 1,
+          "lastError": ""
+        },
+        {
+          "channel": "push",
+          "status": "sent",
+          "attempts": 1,
+          "lastError": ""
+        }
+      ],
+      "log3": {
+        "takeover": null,
+        "sms": 1,
+        "push": 1
+      }
+    },
+    "C": {
+      "title": "库态 notified + sms 行 failed/attempts=1 → 启进程重试到 sent（最多 3 次）",
+      "notifications": [
+        {
+          "channel": "push",
+          "status": "sent",
+          "attempts": 1,
+          "lastError": ""
+        },
+        {
+          "channel": "sms",
+          "status": "sent",
+          "attempts": 2,
+          "lastError": "audit: 上一进程投递失败"
+        }
+      ],
+      "observation_lastErrorAfterSent": "audit: 上一进程投递失败",
+      "log4": {
+        "sms": 1,
+        "push": 0
+      }
+    }
+  },
+  "failures": [],
+  "bootMs": 524,
+  "finishedAt": "2026-09-13T14:19:19.539Z",
+  "result": "PASS"
+}

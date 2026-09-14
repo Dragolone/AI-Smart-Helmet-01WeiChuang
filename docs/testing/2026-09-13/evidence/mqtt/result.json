@@ -1,0 +1,113 @@
+{
+  "area": "mqtt",
+  "summary": "真实 EMQX(51883)+真实后端(3100)+Mock 设备全链路复验：设备认证正/误/空/冒用后端账号、Topic ACL(他人/通配/$SYS/非协议/四段)、topic 内冒充 deviceId 留档、eventId 幂等去重、非 JSON/70KB/1.1MB、内部回调令牌 401 与 fail-closed、EMQX 重启后重连重订阅、后端停机 QoS1 持久会话补投、命令三态(success/failed/silent/offline 绝不显示成功)+迟到回执覆盖 offline+跨设备伪造回执拒绝、fall→SOS→到期通知、risk 五类 WS 推送、ski altitude 全链路——均通过。发现两处链路缺陷:(MQTT-01)认证回调不校验 clientId，任一合法设备密钥即可用后端消费者固定 clientId 顶替其会话;(MQTT-02)顶替触发的重连后消费者「已订阅」假成功、实际 0 订阅、全链路静默失聪直到重启。另 Caddyfile 未排除 /internal(静态)。",
+  "findings": [
+    {
+      "id": "MQTT-02",
+      "title": "clientId 会话顶替后 MQTT 消费者「假重订阅」→ 全链路静默失聪，直到进程重启",
+      "severity": "P1",
+      "severity_reason": "后端消费者被顶替踢线后自动重连并打印「已订阅」，但 EMQX 侧 subscriptions_cnt=0，此后所有设备事件(含 possible_fall/manual_sos 保命事件)在 MQTT 链路上被静默丢弃，无任何错误日志、无告警、不自愈。MVP 唯一真机链路为 BLE(决策#35)、MQTT 由 Mock 驱动，故对当前 MVP 定为 P1；一旦硬件扩展 4G(链路形态注明保留 4G 代码)即为 P0。EMQX 重启这类正常重连能正确重订阅，唯独 clientId 顶替路径不能恢复。",
+      "status": "CONFIRMED",
+      "evidence_type": "real-process",
+      "impact": "任一持有合法设备密钥者(或任何被顶替事件)使后端消费者进入 connected 但 0 订阅的「聋」态：device_status/location/possible_fall/manual_sos/collision_risk/cmd_ack 全部收不到，SOS 状态机在 4G 链路上不再建单，且无告警提示运维。",
+      "preconditions": "后端 MQTT 消费者以固定 clientId(默认 backend_ingest / 本次 backend-audit-0913)、clean:false 连接;发生一次同 clientId 的 clean:true 顶替(见 MQTT-01)。",
+      "repro": "1) 后端 dist/main 连真实 EMQX，确认 EMQX API /clients/<clientId> subscriptions_cnt=4、探针 location 入库(raw_events=1)。2) 用合法设备凭证 + clientId=后端 clientId + clean:true 连接 EMQX 2s 后断开(scripts/../takeover.mjs)。3) 等后端自动重连(日志打印「已连接」「已订阅」成功、无 error)。4) 再查 EMQX /clients/<clientId> → subscriptions_cnt=0;再发 location QoS1 → PUBACK 却 raw_events=0、后端无「→ stored」日志。5) 重启后端 → subscriptions_cnt=4、入库恢复。",
+      "expected": "会话被顶替/丢失后，消费者重连必须真正恢复订阅并继续入库(或在无法恢复时告警并退出让守护进程重启);「已订阅」日志须与 Broker 实际订阅一致。",
+      "actual": "重连后 mqtt.js 的 subscribe 回调返回成功(SUBACK 视为已订阅)，但 Broker 实际 0 订阅;消费者永久收不到消息，无错误、无告警，仅进程重启可恢复。",
+      "source_location": "backend/src/ingest/mqtt-consumer.service.ts:120 (subscribeWithRetry 只在 SUBACK error 时重试，不校验订阅是否真正生效;connect 回调重订阅在顶替恢复场景下被 mqtt.js 内部订阅缓存吞掉)",
+      "evidence_paths": [
+        "docs/testing/2026-09-13/evidence/mqtt/auth-acl-matrix.log",
+        "docs/testing/2026-09-13/evidence/mqtt/probe-all.log",
+        "docs/testing/2026-09-13/evidence/mqtt/backend-run3.log",
+        "docs/testing/2026-09-13/evidence/mqtt/backend-run5.log"
+      ],
+      "frequency": "always (每次 clientId clean:true 顶替后必现;正常 EMQX 重启重连不受影响)",
+      "suggested_fix": "① 消费者监听 connack 的 sessionPresent，为 false(会话被清)时强制清缓存重订阅;或订阅后用 EMQX API/独立回环发布探针校验订阅确实生效，失败则退出让编排重启。② 更根本:堵住顶替(见 MQTT-01)。③ 增加「连续 N 秒无任何入站消息」健康探针告警，避免静默失聪不被发现。",
+      "regression_scope": "MQTT 4G 上行全链路(status/location/event/cmd_ack)、SOS 4G 建单、命令 cmd_ack 回执。BLE app-relay 链路不受影响。",
+      "old_report_ref": "无(2026-09-10 报告未测试 clientId 顶替场景)"
+    },
+    {
+      "id": "MQTT-01",
+      "title": "EMQX 认证回调忽略 clientId，可用后端消费者的固定 clientId 顶替其会话(DoS 触发器)",
+      "severity": "P2",
+      "severity_reason": "authenticate 回调只校验 username(deviceId)+password(deviceSecret)，完全不看 clientId，也不校验 clientId==deviceId。后端消费者用固定且可猜 clientId(默认 backend_ingest)。任一合法设备(username=自己、密钥正确、clientId=后端 id)即可连接并按 MQTT clientId 唯一性把后端消费者踢线。单独看只是可被踢线(会自动重连)，但叠加 MQTT-02 即造成永久静默失聪。需持有一份合法设备密钥方可利用，故定 P2。",
+      "status": "CONFIRMED",
+      "evidence_type": "real-process",
+      "impact": "任一合法设备密钥 → 反复顶替后端消费者;叠加 MQTT-02 → 整个 4G/MQTT 事件入口静默瘫痪。也说明 clientId 未与 deviceId 绑定，设备可任意伪造 clientId(AUTH-5 已连成功)。",
+      "preconditions": "拥有任一有效 deviceId+deviceSecret;已知/猜中后端消费者 clientId。",
+      "repro": "真实 EMQX:tryConnect({clientId: BACKEND_CLIENT_ID, username: 合法设备, password: 合法密钥, clean:true}) → 连接成功(AUTH-9)，同时后端消费者被踢线;进程内:POST /api/v1/internal/emqx/authenticate {clientid: 后端id, username: 设备, password: 正确密钥} → {result:'allow'}(audit-mqtt-hook.e2e 中 MQTT-01 断言失败)。",
+      "expected": "设备连接应校验 clientId == username(deviceId);使用后端保留 clientId 或与设备名不符的 clientId 一律拒绝(deny)。",
+      "actual": "clientId 完全不参与判定，任意 clientId(含后端消费者 id)只要设备密钥正确即 allow。",
+      "source_location": "backend/src/emqx/emqx-hook.controller.ts:29 与 emqx-hook.service.ts:37 (authenticate 未接收/校验 clientid)",
+      "evidence_paths": [
+        "docs/testing/2026-09-13/evidence/mqtt/auth-acl-matrix.log",
+        "docs/testing/2026-09-13/evidence/mqtt/internal-hook-token.log",
+        "docs/testing/2026-09-13/evidence/mqtt/audit-mqtt-hook.log"
+      ],
+      "frequency": "always",
+      "suggested_fix": "authenticate 回调接收 clientid 并校验:设备连接要求 clientid===username;后端服务账号要求 clientid===MQTT_BACKEND_CLIENT_ID(或专用保留前缀)，其它一律 deny。EMQX authn body 增加 clientid 传参(emqx.conf 已传 ${clientid})。文档 DEVICE_PROTOCOL §3 增补 clientId 绑定规则。",
+      "regression_scope": "所有 MQTT 连接鉴权;间接影响 4G 上行全链路可用性。",
+      "old_report_ref": "无(2026-09-10 报告 AUTH 项未含 clientId 绑定/顶替)"
+    },
+    {
+      "id": "MQTT-03",
+      "title": "内部 EMQX 回调端点经公网 API 网关可达，与 DEVICE_PROTOCOL §3.1「不经网关对公网暴露」不符",
+      "severity": "P3",
+      "severity_reason": "deploy/Caddyfile 的 {$API_DOMAIN} 块把所有路径(含 /api/v1/internal/emqx/*)整体 reverse_proxy 给 backend:3000，无 /internal 排除。虽有 InternalTokenGuard(共享令牌)兜底(令牌错/缺一律 401，已实测)，但端点确实暴露公网，仅靠一个共享密钥，违反文档「只在容器网络内可达」的纵深防御口径。静态审计，未在真实网关上打点。",
+      "status": "SUSPECTED",
+      "evidence_type": "static",
+      "impact": "内部认证/授权判定接口对公网可达，令牌一旦泄露即可探测/滥用;不符合文档承诺的网络隔离层。",
+      "preconditions": "production 使用 deploy/Caddyfile 且 API_DOMAIN 对公网开放。",
+      "repro": "读 deploy/Caddyfile:{$API_DOMAIN} { reverse_proxy backend:3000 } 无 handle /api/v1/internal/* 排除;对照 DEVICE_PROTOCOL §3.1「端点只在容器网络内可达，不经网关对公网暴露」。本地 3100 直连 /internal/emqx/authenticate 无令牌返回 401(fail-closed 生效)。",
+      "expected": "网关层显式拒绝/404 /api/v1/internal/*(或按来源 IP 白名单),使内部端点不经公网可达。",
+      "actual": "API_DOMAIN 全量代理，/internal 随之暴露，仅共享令牌保护。",
+      "source_location": "deploy/Caddyfile:9-11 ({$API_DOMAIN} reverse_proxy backend:3000，无 /internal 排除)",
+      "evidence_paths": [
+        "docs/testing/2026-09-13/evidence/mqtt/internal-hook-token.log"
+      ],
+      "frequency": "always (部署形态)",
+      "suggested_fix": "在 API_DOMAIN 块首加 `handle /api/v1/internal/* { respond 404 }` 或 `@internal path /api/v1/internal/*` + `respond @internal 404`;或用 remote_ip 白名单限容器网段。保留后端 InternalTokenGuard 作为二层防御。",
+      "regression_scope": "部署/网关配置;不影响本地与业务逻辑。",
+      "old_report_ref": "无"
+    }
+  ],
+  "coverage": [
+    { "item": "设备认证矩阵(正确/错误密钥/无凭证/空密码/不存在设备/冒用后端账号)", "implementation": "backend/src/emqx/emqx-hook.service.ts authenticate", "existing_tests": "无专项 e2e", "new_tests": "backend/test/audit-mqtt-hook.e2e-spec.ts(AUTHN-*);真机 scripts/auth-acl-matrix.mjs(AUTH-1..8)", "level": "real-process + integration", "result": "PASS", "evidence": "auth-acl-matrix.log AUTH-1..8 全 PASS;audit-mqtt-hook 15 项 authn/authz PASS" },
+    { "item": "username=B 但 clientid≠B 可连接(hook 无 clientid 规则)", "implementation": "authenticate 忽略 clientid", "existing_tests": "无", "new_tests": "auth-acl-matrix AUTH-5", "level": "real-process", "result": "PASS", "evidence": "AUTH-5 connect(此即 MQTT-01 的根因表现)" },
+    { "item": "Topic ACL:他人 cmd 订阅拒/他人 topic 发布静默丢弃/topic 内冒充 deviceId 留档/非协议/四段/通配/$SYS", "implementation": "emqx-hook.service.ts authorize + ingest device_id_mismatch_with_topic", "existing_tests": "无专项", "new_tests": "audit-mqtt-hook(AUTHZ-*);auth-acl-matrix ACL-1..13", "level": "real-process + integration", "result": "PASS", "evidence": "ACL-1..13 全 PASS(SUBACK 128、B 表 0 新增、device_id_mismatch_with_topic 留档);audit-mqtt-hook AUTHZ 全 PASS" },
+    { "item": "内部回调令牌:无/错令牌 401、fail-closed、header 与 query 两种携带", "implementation": "internal-token.guard.ts", "existing_tests": "无", "new_tests": "audit-mqtt-hook(AUTHN-TOKEN);internal-hook-token.log", "level": "real-process", "result": "PASS", "evidence": "no-token/bad-token→401、array-token→401、good-token→200/deny 判定正确" },
+    { "item": "后端不可达 fail-closed(EMQX 侧不默认放行)", "implementation": "DEVICE_PROTOCOL §3.1 already implemented", "existing_tests": "文档实测记录 2026-08-25", "new_tests": "观测:后端启动前 EMQX authn/authz econnrefused、设备连接被拒", "level": "real-process", "result": "PASS", "evidence": "backend-run2.log 启动阶段 econnrefused;EMQX no_match=deny 配置" },
+    { "item": "Caddyfile 是否暴露 /internal(静态)", "implementation": "deploy/Caddyfile", "existing_tests": "无", "new_tests": "静态审计", "level": "static", "result": "FAIL", "evidence": "见 MQTT-03" },
+    { "item": "消费者:EMQX 重启后重连重订阅", "implementation": "mqtt-consumer.service.ts on('connect')→subscribeWithRetry", "existing_tests": "无", "new_tests": "docker restart emqx 后查 subs_cnt 与入库", "level": "real-process", "result": "PASS", "evidence": "backend-run5.log;EMQX 重启后 subs_cnt=4、探针入库=1" },
+    { "item": "消费者:启动顺序(后端先于 Broker)", "implementation": "reconnectPeriod + subscribeWithRetry", "existing_tests": "无", "new_tests": "后端先起、EMQX 认证 econnrefused 阶段自动重连", "level": "real-process", "result": "PASS", "evidence": "backend-run2.log 反复重连直到 Broker+认证就绪后订阅成功" },
+    { "item": "后端停机期间 QoS1 消息持久会话(clean:false)补投", "implementation": "mqtt-consumer.service.ts clean:false", "existing_tests": "无", "new_tests": "scripts/../offline-redeliver.mjs", "level": "real-process", "result": "PASS", "evidence": "优雅停机→发 QoS1(stored=0)→重启→stored=1" },
+    { "item": "消费者:clientId 顶替后重订阅/会话破坏", "implementation": "同上", "existing_tests": "无", "new_tests": "takeover.mjs + auth-acl-matrix AUTH-9/10", "level": "real-process", "result": "FAIL", "evidence": "见 MQTT-02(subs 4→0、入库 1→0)" },
+    { "item": "剧本 fall→SOS→到期通知(MQTT)", "implementation": "mock SCENARIO=fall→possible_fall→SosTrigger/SosNotifier", "existing_tests": "sos 域另测", "new_tests": "真机 mock TRANSPORT=mqtt SCENARIO=fall", "level": "simulator + real-process", "result": "PASS", "evidence": "backend-run6.log:SOS 建单+[MOCK PUSH]倒计时→15s→notified+[MOCK SMS] sos_alert(手机号脱敏)。注:Mock Provider 成功≠真实送达" },
+    { "item": "剧本 risk 五类 WS 推送(MQTT)", "implementation": "mock SCENARIO=risk→collision_risk/risk_cleared/video_ready→WS", "existing_tests": "无", "new_tests": "ws-capture.mjs + mock SCENARIO=risk", "level": "simulator + real-process", "result": "PASS", "evidence": "ws-risk.log:WS 收到 risk_event×4、device_event×2、location_update×22、device_status×1" },
+    { "item": "剧本 ski altitude 全链路透传(MQTT)", "implementation": "mock SCENARIO=ski→altitude→raw_events/location_points", "existing_tests": "无", "new_tests": "mock SCENARIO=ski + psql 查 altitude", "level": "simulator + real-process", "result": "PASS", "evidence": "raw_events.payload.altitude 与 location_points.altitude 均为 1968/1985.5/2003" },
+    { "item": "命令三态 success/failed/silent + 离线 pending→offline 绝不 success", "implementation": "commands.service.ts putSettings/applyAck + commands-scheduler.service.ts", "existing_tests": "audit-commands.e2e(in-process)", "new_tests": "真机 mock MOCK_CMD_RESULT=success/failed/silent + 无设备离线", "level": "real-process + simulator", "result": "PASS", "evidence": "success→success+设置写入{volume:7};failed→failed+设置不写;silent→delivered→offline+不写;无设备→delivered(PUBACK)→offline。delivered=PUBACK≠success" },
+    { "item": "迟到 cmd_ack 覆盖 offline + 跨设备伪造回执拒绝", "implementation": "applyAck offline 覆盖 + handleAck deviceId 校验", "existing_tests": "无", "new_tests": "lateack.mjs", "level": "real-process", "result": "PASS", "evidence": "backend-run6.log:B 对 A 命令的回执「设备不符，忽略」;A 迟到回执「已判 offline 如实覆盖→success」并写入 lateKey:9" },
+    { "item": "1MB 消息/非 JSON/70KB/QoS 重复投递幂等", "implementation": "envelope.ts + ingest eventId 唯一约束 + EMQX max_packet_size", "existing_tests": "ingest 域另测", "new_tests": "auth-acl-matrix MSG-1..4", "level": "real-process", "result": "PASS", "evidence": "MSG-1 三次投递入库 1 条;MSG-2 invalid_json 留档;MSG-3 payload_too_large 留档;MSG-4 1.1MB 超 Broker 上限断连无 PUBACK" },
+    { "item": "既有 e2e 一套件 --detectOpenHandles 无 --forceExit 是否自然退出", "implementation": "test/audit-sos-realtime.e2e-spec.ts", "existing_tests": "该套件", "new_tests": "带 --detectOpenHandles 运行", "level": "integration", "result": "PASS", "evidence": "e2e-detectopenhandles.log:进程自然退出(无 'Jest did not exit'/'Force exiting'/open-handle 报告);唯一失败为 60s SOS 计时用例的时序(属 sos 域，非泄漏)" }
+  ],
+  "tests_added": [
+    "backend/test/audit-mqtt-hook.e2e-spec.ts (16 用例:15 PASS 锁定 authn/authz/内部令牌契约 + 1 故意失败的 MQTT-01 缺陷断言)"
+  ],
+  "scripts_added": [
+    "docs/testing/2026-09-13/evidence/mqtt/scripts/auth-acl-matrix.mjs (接管并修复:SUBACK 128 归一、AUTH-10 用新客户端探针、结果落 auth-acl-matrix.json)",
+    "docs/testing/2026-09-13/evidence/mqtt/scripts/env.sh|start-backend.sh|stop-backend.sh (接管，未改)",
+    "docs/testing/2026-09-13/evidence/mqtt/.gitignore (保护 .devices.env 不入库)",
+    "scratchpad/mqtt/probe-msg1.mjs|probe-all.mjs|takeover.mjs|offline-redeliver.mjs|lateack.mjs|ws-capture.mjs (临时探针，会话结束随 scratchpad 清除)"
+  ],
+  "blocked": [
+    { "item": "TRTC UserSig 真链路", "reason": "非本领域(voice 域);且正式 TRTC Key 待公司资质", "needed_resource": "TRTC 正式 Key", "steps": "N/A(超出 mqtt 领域)" },
+    { "item": "TLS(8883)/生产网关真实打点验证 MQTT-03", "reason": "本地隔离 EMQX 用 1883 明文;未在真实 Caddy 网关部署环境验证", "needed_resource": "development/production 网关环境", "steps": "在部署环境 curl https://<API_DOMAIN>/api/v1/internal/emqx/authenticate 观察是否可达" }
+  ],
+  "old_report_reverify": [
+    { "id": "2026-09-10 §5 MQTT 真跑验证(设备认证/ACL/冒充 deviceId 留档/事件入库/SOS/设置下发)", "status": "复验通过", "note": "全部在真实 EMQX 51883 + 隔离库上复现通过(auth-acl-matrix + 命令三态 + fall-SOS)。原报告用临时 1884 端口 EMQX 绕过 3000 占用问题;本轮用主代理提供的 51883 专用容器。" },
+    { "id": "2026-09-10 P0#1 envelope 毒事件(NUL/int32/极值年份)MQTT 路径", "status": "复验通过", "note": "MSG-3 payload_too_large→stored_invalid 证明 envelope 硬化在 MQTT 链路生效、不再 5xx/丢弃;NUL/int32 具体断言归 ingest 域。" },
+    { "id": "clientId 顶替 / 消费者失聪", "status": "新增(旧报告未覆盖)", "note": "MQTT-01/MQTT-02 为本轮新发现，旧报告 AUTH/消费者章节未测试此场景。" }
+  ],
+  "resources_left": "隔离容器 helmet-audit-0913-emqx(51883/58083) 与 helmet-audit-0913-pg(55432) 保持运行(未动其它容器);专用库 helmet_audit_mqtt 保留本轮合成数据(audit_mqtt_a/b/m 设备、1 个测试用户+紧急联系人+命令行);后端/Mock 进程已全部杀停(3100 clear);.devices.env 保存设备密钥(已 gitignore)。约 14.8M token 余量。",
+  "typecheck_lint": "backend `npx tsc --noEmit -p tsconfig.json`:我的 audit-mqtt-hook.e2e-spec.ts 无错误(其余 test/audit-admin、audit-dbops 的 TS 报错来自其它领域代理文件，非本轮引入)。`npx eslint test/audit-mqtt-hook.e2e-spec.ts`:0 error，3 warning(no-unsafe-argument on request(http)，与既有 audit-sos.e2e 等 16 处同款既定容忍模式)。App 侧未新增/改动文件，未跑 app tsc。"
+}

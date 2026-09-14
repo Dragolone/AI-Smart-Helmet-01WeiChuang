@@ -1,0 +1,194 @@
+{
+  "ranAt": "2026-09-13T14:23:53.820Z",
+  "results": [
+    {
+      "id": "AUTH-1",
+      "desc": "正确密钥连接",
+      "expected": "connect",
+      "actual": "connect",
+      "pass": true
+    },
+    {
+      "id": "AUTH-2",
+      "desc": "错误密钥",
+      "expected": "Not authorized",
+      "actual": "Connection refused: Not authorized",
+      "pass": true
+    },
+    {
+      "id": "AUTH-3",
+      "desc": "无凭证",
+      "expected": "Not authorized",
+      "actual": "Connection refused: Not authorized",
+      "pass": true
+    },
+    {
+      "id": "AUTH-4",
+      "desc": "冒用后端服务账号（错密码）",
+      "expected": "Not authorized",
+      "actual": "Connection refused: Not authorized",
+      "pass": true
+    },
+    {
+      "id": "AUTH-5",
+      "desc": "username=B 但 clientid≠B（hook 不校验 clientid）",
+      "expected": "connect (hook 无 clientid 规则)",
+      "actual": "connect",
+      "pass": true
+    },
+    {
+      "id": "AUTH-6",
+      "desc": "已开通但未绑定设备 B",
+      "expected": "connect（认证与绑定无关）",
+      "actual": "connect",
+      "pass": true
+    },
+    {
+      "id": "AUTH-7",
+      "desc": "空密码",
+      "expected": "Not authorized",
+      "actual": "Connection refused: Not authorized",
+      "pass": true
+    },
+    {
+      "id": "AUTH-8",
+      "desc": "不存在的 deviceId",
+      "expected": "Not authorized",
+      "actual": "Connection refused: Not authorized",
+      "pass": true
+    },
+    {
+      "id": "ACL-1",
+      "desc": "A subscribe 他人 helmet/B/cmd",
+      "expected": "SUBACK 128（拒绝）",
+      "actual": "128",
+      "pass": true
+    },
+    {
+      "id": "ACL-2",
+      "desc": "A subscribe 自己的 helmet/A/cmd",
+      "expected": "granted qos 1",
+      "actual": "1",
+      "pass": true
+    },
+    {
+      "id": "ACL-3",
+      "desc": "A subscribe 通配 helmet/#",
+      "expected": "SUBACK 128（拒绝）",
+      "actual": "128",
+      "pass": true
+    },
+    {
+      "id": "ACL-4",
+      "desc": "A subscribe 通配 helmet/+/cmd",
+      "expected": "SUBACK 128（拒绝）",
+      "actual": "128",
+      "pass": true
+    },
+    {
+      "id": "ACL-5",
+      "desc": "A subscribe $SYS/#",
+      "expected": "SUBACK 128（拒绝）",
+      "actual": "128",
+      "pass": true
+    },
+    {
+      "id": "ACL-6",
+      "desc": "A publish 到他人 helmet/B/event（合法 envelope deviceId=B）",
+      "expected": "PUBACK（deny_action=ignore 静默丢弃）",
+      "actual": "puback",
+      "pass": true
+    },
+    {
+      "id": "ACL-7",
+      "desc": "A publish 到 helmet/A/cmd（设备不许发 cmd 叶）",
+      "expected": "PUBACK 静默丢弃",
+      "actual": "puback",
+      "pass": true
+    },
+    {
+      "id": "ACL-8",
+      "desc": "A publish 到非协议 topic foo/bar",
+      "expected": "PUBACK 静默丢弃",
+      "actual": "puback",
+      "pass": true
+    },
+    {
+      "id": "ACL-9",
+      "desc": "A publish 到 helmet/A/unknown_leaf",
+      "expected": "PUBACK 静默丢弃",
+      "actual": "puback",
+      "pass": true
+    },
+    {
+      "id": "ACL-10",
+      "desc": "A publish 到 helmet/A/event/extra（四段）",
+      "expected": "PUBACK 静默丢弃",
+      "actual": "puback",
+      "pass": true
+    },
+    {
+      "id": "ACL-11",
+      "desc": "A 在自己 topic 内 envelope.deviceId=B",
+      "expected": "B 0 新增；A 侧 _invalid device_id_mismatch_with_topic",
+      "actual": "B 新增 0；A reasons=[{\"r\":\"device_id_mismatch_with_topic\",\"n\":\"2\"},{\"r\":\"invalid_json\",\"n\":\"1\"},{\"r\":\"payload_too_large\",\"n\":\"1\"}]",
+      "pass": true
+    },
+    {
+      "id": "ACL-12",
+      "desc": "B 表在 ACL-6..10 后仍 0 新增（他人 topic 越权 publish 未入库）",
+      "expected": "0",
+      "actual": "0",
+      "pass": true
+    },
+    {
+      "id": "ACL-13",
+      "desc": "A 收到 B 消息数（越权订阅全部被拒后）",
+      "expected": "0",
+      "actual": "0",
+      "pass": true
+    },
+    {
+      "id": "MSG-1",
+      "desc": "同 eventId QoS0 + QoS1×2 三次投递",
+      "expected": "入库 1 条",
+      "actual": "1",
+      "pass": true
+    },
+    {
+      "id": "MSG-2",
+      "desc": "非 JSON payload",
+      "expected": "_invalid invalid_json",
+      "actual": "[{\"r\":\"device_id_mismatch_with_topic\",\"n\":\"2\"},{\"r\":\"invalid_json\",\"n\":\"2\"},{\"r\":\"payload_too_large\",\"n\":\"2\"}]",
+      "pass": true
+    },
+    {
+      "id": "MSG-3",
+      "desc": "70KB（>65536 应用上限 <1MB Broker 上限）",
+      "expected": "_invalid payload_too_large",
+      "actual": "",
+      "pass": true
+    },
+    {
+      "id": "MSG-4",
+      "desc": "1.1MB 消息（超 Broker max_packet_size 1MB）",
+      "expected": "Broker 断开连接、无 PUBACK",
+      "actual": "puback=no_puback_4s closed=true",
+      "pass": true
+    },
+    {
+      "id": "AUTH-9",
+      "desc": "合法设备凭证 + clientId=后端消费者 backend-audit-0913",
+      "expected": "应被拒（clientid 与 username 不一致）",
+      "actual": "connect（顶替成功，后端消费者被踢线）",
+      "pass": false
+    },
+    {
+      "id": "AUTH-10",
+      "desc": "顶替期间设备发出的 QoS1 事件是否到达后端",
+      "expected": "1（若持久会话未被破坏）",
+      "actual": "0",
+      "pass": false
+    }
+  ]
+}

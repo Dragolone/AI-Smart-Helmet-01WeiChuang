@@ -1,0 +1,27 @@
+(node:57678) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+FAIL test/audit-auth-binding.e2e-spec.ts
+  ● 审计 §6：决策 #39 绑定区间 / 电量历史 / 绑定竞态 (e2e) › 【AUTH-06 缺陷断言】battery-history 不按绑定区间过滤：A 能看到 B 期间的电量点（决策 #39 隐私意图；§4 契约未明列）
+
+    expect(received).toHaveLength(expected)
+
+    Expected length: 0
+    Received length: 1
+    Received array:  ["2026-09-13T14:25:41.734Z"]
+
+      421 |       `battery-history（A 当前绑定）：B1 期间 device_status(battery=42) 点${leaked.length ? '出现' : '未出现'}；receivedAt 在 B1 内的点${leaked2 ? '出现' : '未出现'}（devices.service.ts batteryHistory 未接 BindingScope，且按设备 timestamp 而非 receivedAt 过滤）`,
+      422 |     );
+    > 423 |     expect(leaked).toHaveLength(0);
+          |                    ^
+      424 |     expect(leaked2).toBe(false);
+      425 |   });
+      426 |
+
+      at Object.<anonymous> (audit-auth-binding.e2e-spec.ts:423:20)
+
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 4 passed, 5 total
+Snapshots:   0 total
+Time:        1.75 s, estimated 2 s
+Ran all test suites matching test/audit-auth-binding.e2e-spec.ts.
+Force exiting Jest: Have you considered using `--detectOpenHandles` to detect async operations that kept running after all tests finished?
