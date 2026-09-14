@@ -1,22 +1,33 @@
 // 审计 2026-09-13 §8：导航跳转与位置分享的坐标系与 URL 正确性（决策 #32/#33）。
 // 高德 URI 要求 GCJ-02（dev=0 表示已是高德坐标）；App 内一律先 toGcj02 再传。
-import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { Linking, Platform } from 'react-native';
 import type { Mock } from 'jest-mock';
 import { openAmapNavigation } from '../nav-links';
 import { toGcj02, wgs84ToGcj02 } from '../coords';
 
-jest.mock('react-native', () => ({
-  Linking: { openURL: jest.fn() },
-  Platform: { OS: 'ios' },
-}));
-const openURL = Linking.openURL as unknown as Mock<(url: string) => Promise<void>>;
+// 不整模块 mock react-native：jest-expo 收尾时会读全局 fetch 的懒加载 getter，
+// 残缺的 react-native mock 会让 expo-modules-core 在测试结束后打警告 → jest 非零退出（CI 失败）。
+// 只 spy Linking.openURL，Platform.OS 按属性覆盖并在用例后还原。
+let openURL: Mock<(url: string) => Promise<void>>;
+const originalOS = Platform.OS;
+const setOS = (os: string): void => {
+  Object.defineProperty(Platform, 'OS', { value: os, configurable: true, writable: true });
+};
 
 describe('导航跳转链接', () => {
-  beforeEach(() => { openURL.mockReset(); openURL.mockResolvedValue(undefined); });
+  beforeEach(() => {
+    // jest-expo 已把 Linking.openURL 做成 jest.fn：每个用例前清掉调用记录，再给默认成功实现
+    openURL = Linking.openURL as unknown as Mock<(url: string) => Promise<void>>;
+    openURL.mockReset();
+    openURL.mockResolvedValue(undefined);
+  });
+  afterEach(() => {
+    setOS(originalOS);
+  });
 
   it('iOS 用 iosamap scheme，带 dev=0（声明坐标已是 GCJ-02）', async () => {
-    (Platform as { OS: string }).OS = 'ios';
+    setOS('ios');
     await openAmapNavigation({ longitude: 114.35, latitude: 22.69 }, '事故地点');
     const url = openURL.mock.calls[0][0] as string;
     expect(url).toMatch(/^iosamap:\/\/navi\?/);
@@ -26,7 +37,7 @@ describe('导航跳转链接', () => {
   });
 
   it('Android 用 androidamap scheme', async () => {
-    (Platform as { OS: string }).OS = 'android';
+    setOS('android');
     await openAmapNavigation({ longitude: 114.35, latitude: 22.69 }, 'x');
     expect(openURL.mock.calls[0][0]).toMatch(/^androidamap:\/\/navi\?/);
   });
