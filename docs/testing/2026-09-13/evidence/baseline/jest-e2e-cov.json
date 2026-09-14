@@ -1,0 +1,13 @@
+{
+  "rootDir": "/Users/dravenzhong/Desktop/AI-Smart-Helmet-01WeiChuang/backend",
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "testEnvironment": "node",
+  "testRegex": ".e2e-spec.ts$",
+  "testPathIgnorePatterns": ["/node_modules/", "audit-"],
+  "transform": { "^.+\\.(t|j)s$": "ts-jest" },
+  "moduleNameMapper": { "^(\\.{1,2}/.*)\\.js$": "$1" },
+  "collectCoverage": true,
+  "collectCoverageFrom": ["src/**/*.ts", "!src/generated/**", "!src/**/*.spec.ts", "!src/**/* 2.ts", "!src/main.ts"],
+  "coverageDirectory": "/Users/dravenzhong/Desktop/AI-Smart-Helmet-01WeiChuang/docs/testing/2026-09-13/evidence/baseline/e2e-coverage",
+  "coverageReporters": ["text", "json-summary"]
+}

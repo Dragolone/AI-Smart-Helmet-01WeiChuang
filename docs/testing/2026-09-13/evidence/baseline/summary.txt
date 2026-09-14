@@ -1,0 +1,18 @@
+node=v24.19.0 npm=11.17.0 start=2026-09-13T09:05:11Z
+01-shared-build rc=0 dur=0s
+02-backend-typecheck rc=0 dur=2s
+03-app-typecheck rc=0 dur=2s
+04-admin-typecheck rc=0 dur=1s
+05-mock-typecheck rc=0 dur=1s
+06-shared-typecheck rc=0 dur=0s
+07-backend-lint rc=1 dur=3s
+08-app-lint rc=0 dur=4s
+09-admin-lint rc=0 dur=0s
+10-backend-unit rc=0 dur=1s
+11-app-unit rc=0 dur=4s
+12-backend-cov rc=0 dur=2s
+13-app-cov rc=0 dur=1s
+14-backend-build rc=0 dur=3s
+15-admin-build rc=0 dur=2s
+end=2026-09-13T09:05:37Z
+DONE

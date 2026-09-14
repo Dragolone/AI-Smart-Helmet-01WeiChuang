@@ -1,0 +1,1283 @@
+{
+  "auditReportVersion": 2,
+  "vulnerabilities": {
+    "@expo/cli": {
+      "name": "@expo/cli",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        "@expo/config",
+        "@expo/config-plugins",
+        "@expo/inline-modules",
+        "@expo/metro-config",
+        "@expo/prebuild-config"
+      ],
+      "effects": [
+        "expo"
+      ],
+      "range": "<=0.0.0-canary-20231123-1b19f96-4 || >=0.0.1-canary-20231125-d600e44",
+      "nodes": [
+        "node_modules/@expo/cli"
+      ],
+      "fixAvailable": {
+        "name": "expo",
+        "version": "46.0.21",
+        "isSemVerMajor": true
+      }
+    },
+    "@expo/config": {
+      "name": "@expo/config",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        "@expo/config-plugins"
+      ],
+      "effects": [
+        "@expo/local-build-cache-provider",
+        "@expo/metro-config",
+        "expo"
+      ],
+      "range": "<=0.0.1-canary-20240418-8d74597 || >=3.3.23-alpha.0",
+      "nodes": [
+        "node_modules/@expo/config"
+      ],
+      "fixAvailable": {
+        "name": "expo",
+        "version": "46.0.21",
+        "isSemVerMajor": true
+      }
+    },
+    "@expo/config-plugins": {
+      "name": "@expo/config-plugins",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        "xcode"
+      ],
+      "effects": [
+        "@expo/cli",
+        "@expo/config",
+        "@expo/inline-modules",
+        "@expo/prebuild-config",
+        "expo",
+        "expo-splash-screen"
+      ],
+      "range": "*",
+      "nodes": [
+        "node_modules/@expo/config-plugins"
+      ],
+      "fixAvailable": {
+        "name": "expo",
+        "version": "46.0.21",
+        "isSemVerMajor": true
+      }
+    },
+    "@expo/inline-modules": {
+      "name": "@expo/inline-modules",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        "@expo/config-plugins"
+      ],
+      "effects": [
+        "@expo/cli"
+      ],
+      "range": ">=0.0.2-canary-20260409-6fc2991",
+      "nodes": [
+        "node_modules/@expo/inline-modules"
+      ],
+      "fixAvailable": {
+        "name": "expo",
+        "version": "46.0.21",
+        "isSemVerMajor": true
+      }
+    },
+    "@expo/local-build-cache-provider": {
+      "name": "@expo/local-build-cache-provider",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        "@expo/config"
+      ],
+      "effects": [
+        "expo"
+      ],
+      "range": "*",
+      "nodes": [
+        "node_modules/@expo/local-build-cache-provider"
+      ],
+      "fixAvailable": {
+        "name": "expo",
+        "version": "46.0.21",
+        "isSemVerMajor": true
+      }
+    },
+    "@expo/metro": {
+      "name": "@expo/metro",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        "metro",
+        "metro-config",
+        "metro-transform-worker"
+      ],
+      "effects": [],
+      "range": "<=55.1.1 || 56.0.0-rc.0 - 56.0.1",
+      "nodes": [
+        "node_modules/@expo/metro"
+      ],
+      "fixAvailable": true
+    },
+    "@expo/metro-config": {
+      "name": "@expo/metro-config",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        "@expo/config"
+      ],
+      "effects": [
+        "expo"
+      ],
+      "range": "<=0.0.1-canary-20240418-8d74597 || >=0.1.49-alpha.0",
+      "nodes": [
+        "node_modules/@expo/metro-config"
+      ],
+      "fixAvailable": {
+        "name": "expo",
+        "version": "46.0.21",
+        "isSemVerMajor": true
+      }
+    },
+    "@expo/prebuild-config": {
+      "name": "@expo/prebuild-config",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        "@expo/config",
+        "@expo/config-plugins"
+      ],
+      "effects": [],
+      "range": "*",
+      "nodes": [
+        "node_modules/@expo/prebuild-config"
+      ],
+      "fixAvailable": true
+    },
+    "@nestjs/core": {
+      "name": "@nestjs/core",
+      "severity": "high",
+      "isDirect": true,
+      "via": [
+        "@nestjs/platform-express",
+        "@nestjs/websockets"
+      ],
+      "effects": [
+        "@nestjs/platform-express",
+        "@nestjs/testing",
+        "@nestjs/websockets"
+      ],
+      "range": ">=7.6.0-next.1",
+      "nodes": [
+        "node_modules/@nestjs/core"
+      ],
+      "fixAvailable": {
+        "name": "@nestjs/core",
+        "version": "7.5.5",
+        "isSemVerMajor": true
+      }
+    },
+    "@nestjs/platform-express": {
+      "name": "@nestjs/platform-express",
+      "severity": "high",
+      "isDirect": true,
+      "via": [
+        "@nestjs/core",
+        "multer"
+      ],
+      "effects": [
+        "@nestjs/core",
+        "@nestjs/testing"
+      ],
+      "range": "*",
+      "nodes": [
+        "node_modules/@nestjs/platform-express"
+      ],
+      "fixAvailable": {
+        "name": "@nestjs/testing",
+        "version": "7.5.5",
+        "isSemVerMajor": true
+      }
+    },
+    "@nestjs/platform-ws": {
+      "name": "@nestjs/platform-ws",
+      "severity": "high",
+      "isDirect": true,
+      "via": [
+        "@nestjs/websockets"
+      ],
+      "effects": [],
+      "range": ">=8.0.0-alpha.1",
+      "nodes": [
+        "node_modules/@nestjs/platform-ws"
+      ],
+      "fixAvailable": {
+        "name": "@nestjs/platform-ws",
+        "version": "7.6.18",
+        "isSemVerMajor": true
+      }
+    },
+    "@nestjs/testing": {
+      "name": "@nestjs/testing",
+      "severity": "high",
+      "isDirect": true,
+      "via": [
+        "@nestjs/core",
+        "@nestjs/platform-express"
+      ],
+      "effects": [],
+      "range": ">=7.6.0-next.1",
+      "nodes": [
+        "node_modules/@nestjs/testing"
+      ],
+      "fixAvailable": {
+        "name": "@nestjs/testing",
+        "version": "7.5.5",
+        "isSemVerMajor": true
+      }
+    },
+    "@nestjs/websockets": {
+      "name": "@nestjs/websockets",
+      "severity": "high",
+      "isDirect": true,
+      "via": [
+        "@nestjs/core"
+      ],
+      "effects": [
+        "@nestjs/core",
+        "@nestjs/platform-ws"
+      ],
+      "range": ">=8.0.0-alpha.1",
+      "nodes": [
+        "node_modules/@nestjs/websockets"
+      ],
+      "fixAvailable": {
+        "name": "@nestjs/websockets",
+        "version": "7.6.18",
+        "isSemVerMajor": true
+      }
+    },
+    "@prisma/config": {
+      "name": "@prisma/config",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        "deepmerge-ts"
+      ],
+      "effects": [
+        "prisma"
+      ],
+      "range": "6.13.0-dev.1 - 8.1.0-dev.4",
+      "nodes": [
+        "node_modules/@prisma/config"
+      ],
+      "fixAvailable": {
+        "name": "prisma",
+        "version": "6.19.3",
+        "isSemVerMajor": true
+      }
+    },
+    "@xmldom/xmldom": {
+      "name": "@xmldom/xmldom",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1158517,
+          "name": "@xmldom/xmldom",
+          "dependency": "@xmldom/xmldom",
+          "title": "xmldom: XML fragment injection via invalid EntityReference.nodeName during requireWellFormed serialization",
+          "url": "https://github.com/advisories/GHSA-6gmq-8vp8-gcm6",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-116"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=0.9.0 <=0.9.11"
+        },
+        {
+          "source": 1158518,
+          "name": "@xmldom/xmldom",
+          "dependency": "@xmldom/xmldom",
+          "title": "xmldom: XML fragment injection via invalid EntityReference.nodeName during requireWellFormed serialization",
+          "url": "https://github.com/advisories/GHSA-6gmq-8vp8-gcm6",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-116"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=0.7.0 <=0.8.14"
+        },
+        {
+          "source": 1193671,
+          "name": "@xmldom/xmldom",
+          "dependency": "@xmldom/xmldom",
+          "title": "xmldom: HTML raw-text closing-tag case mismatch causes output amplification",
+          "url": "https://github.com/advisories/GHSA-6mj3-qw4j-hgrw",
+          "severity": "high",
+          "cwe": [
+            "CWE-178",
+            "CWE-400"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=0.9.0-beta.1 <=0.9.11"
+        },
+        {
+          "source": 1193695,
+          "name": "@xmldom/xmldom",
+          "dependency": "@xmldom/xmldom",
+          "title": "xmldom: Processing Instruction Target Injection Bypasses requireWellFormed",
+          "url": "https://github.com/advisories/GHSA-c7q8-3ch8-vqpv",
+          "severity": "high",
+          "cwe": [
+            "CWE-91"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=0.9.0 <=0.9.11"
+        },
+        {
+          "source": 1193696,
+          "name": "@xmldom/xmldom",
+          "dependency": "@xmldom/xmldom",
+          "title": "xmldom: Processing Instruction Target Injection Bypasses requireWellFormed",
+          "url": "https://github.com/advisories/GHSA-c7q8-3ch8-vqpv",
+          "severity": "high",
+          "cwe": [
+            "CWE-91"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=0.7.0 <=0.8.14"
+        },
+        {
+          "source": 1193697,
+          "name": "@xmldom/xmldom",
+          "dependency": "@xmldom/xmldom",
+          "title": "xmldom: requireWellFormed element/attribute name validation is bypassable via an embedded line terminator",
+          "url": "https://github.com/advisories/GHSA-jxjr-3g7g-3944",
+          "severity": "high",
+          "cwe": [
+            "CWE-91",
+            "CWE-625"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": "=0.9.11"
+        },
+        {
+          "source": 1193699,
+          "name": "@xmldom/xmldom",
+          "dependency": "@xmldom/xmldom",
+          "title": "xmldom: DocType `name` Injection Bypasses requireWellFormed",
+          "url": "https://github.com/advisories/GHSA-27p8-2357-5qqv",
+          "severity": "high",
+          "cwe": [
+            "CWE-91"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=0.9.0 <=0.9.11"
+        },
+        {
+          "source": 1193700,
+          "name": "@xmldom/xmldom",
+          "dependency": "@xmldom/xmldom",
+          "title": "xmldom: DocType `name` Injection Bypasses requireWellFormed",
+          "url": "https://github.com/advisories/GHSA-27p8-2357-5qqv",
+          "severity": "high",
+          "cwe": [
+            "CWE-91"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=0.7.0 <=0.8.14"
+        },
+        {
+          "source": 1193701,
+          "name": "@xmldom/xmldom",
+          "dependency": "@xmldom/xmldom",
+          "title": "xmldom: Creation-time XML Name/QName validation is bypassable via an embedded line terminator, allowing injection on the default serialization path",
+          "url": "https://github.com/advisories/GHSA-3px3-54cx-rmw9",
+          "severity": "high",
+          "cwe": [
+            "CWE-91",
+            "CWE-625"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=0.9.0 <=0.9.11"
+        },
+        {
+          "source": 1193702,
+          "name": "@xmldom/xmldom",
+          "dependency": "@xmldom/xmldom",
+          "title": "xmldom: requireWellFormed DocType publicId/systemId validation is bypassable via an embedded line terminator",
+          "url": "https://github.com/advisories/GHSA-vr34-hp96-76pp",
+          "severity": "high",
+          "cwe": [
+            "CWE-91",
+            "CWE-625"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=0.9.10 <=0.9.11"
+        },
+        {
+          "source": 1193704,
+          "name": "@xmldom/xmldom",
+          "dependency": "@xmldom/xmldom",
+          "title": "xmldom: Parser silently accepts a not-well-formed end tag whose name is followed by a line break and trailing content",
+          "url": "https://github.com/advisories/GHSA-6h8r-xr42-gp59",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-1286"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=0.9.0 <=0.9.11"
+        },
+        {
+          "source": 1193705,
+          "name": "@xmldom/xmldom",
+          "dependency": "@xmldom/xmldom",
+          "title": "xmldom: Parser silently accepts a not-well-formed end tag whose name is followed by a line break and trailing content",
+          "url": "https://github.com/advisories/GHSA-6h8r-xr42-gp59",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-1286"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=0.7.0 <=0.8.14"
+        },
+        {
+          "source": 1193707,
+          "name": "@xmldom/xmldom",
+          "dependency": "@xmldom/xmldom",
+          "title": "xmldom: Quadratic-time attribute deduplication",
+          "url": "https://github.com/advisories/GHSA-8344-3jmq-59r6",
+          "severity": "high",
+          "cwe": [
+            "CWE-407"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=0.9.0 <=0.9.11"
+        },
+        {
+          "source": 1193708,
+          "name": "@xmldom/xmldom",
+          "dependency": "@xmldom/xmldom",
+          "title": "xmldom: Quadratic-time attribute deduplication",
+          "url": "https://github.com/advisories/GHSA-8344-3jmq-59r6",
+          "severity": "high",
+          "cwe": [
+            "CWE-407"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=0.7.0 <=0.8.14"
+        },
+        {
+          "source": 1193709,
+          "name": "@xmldom/xmldom",
+          "dependency": "@xmldom/xmldom",
+          "title": "xmldom: End-tag Whitespace-Trim Regex ReDoS — quadratic backtracking in the 0.8.x end-tag parser",
+          "url": "https://github.com/advisories/GHSA-x4fp-j954-r2f4",
+          "severity": "high",
+          "cwe": [
+            "CWE-400",
+            "CWE-1333"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=0.7.0 <=0.8.14"
+        },
+        {
+          "source": 1193711,
+          "name": "@xmldom/xmldom",
+          "dependency": "@xmldom/xmldom",
+          "title": "xmldom: Quadratic-memory consumption",
+          "url": "https://github.com/advisories/GHSA-965w-775f-mr7g",
+          "severity": "high",
+          "cwe": [
+            "CWE-770"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=0.9.0 <=0.9.11"
+        },
+        {
+          "source": 1193712,
+          "name": "@xmldom/xmldom",
+          "dependency": "@xmldom/xmldom",
+          "title": "xmldom: Quadratic-memory consumption",
+          "url": "https://github.com/advisories/GHSA-965w-775f-mr7g",
+          "severity": "high",
+          "cwe": [
+            "CWE-770"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=0.7.0 <=0.8.14"
+        },
+        {
+          "source": 1193714,
+          "name": "@xmldom/xmldom",
+          "dependency": "@xmldom/xmldom",
+          "title": "xmldom: Quadratic-time parsing via the malformed-input recovery path — `parseElementStartPart` re-scan and `normalize()` adjacent-text merge",
+          "url": "https://github.com/advisories/GHSA-93r5-fhx6-vmg9",
+          "severity": "high",
+          "cwe": [
+            "CWE-400",
+            "CWE-407"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=0.9.0 <=0.9.11"
+        },
+        {
+          "source": 1193715,
+          "name": "@xmldom/xmldom",
+          "dependency": "@xmldom/xmldom",
+          "title": "xmldom: Quadratic-time parsing via the malformed-input recovery path — `parseElementStartPart` re-scan and `normalize()` adjacent-text merge",
+          "url": "https://github.com/advisories/GHSA-93r5-fhx6-vmg9",
+          "severity": "high",
+          "cwe": [
+            "CWE-400",
+            "CWE-407"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=0.7.0 <=0.8.14"
+        }
+      ],
+      "effects": [],
+      "range": "<=0.8.14 || 0.9.0-beta.1 - 0.9.11",
+      "nodes": [
+        "node_modules/@xmldom/xmldom",
+        "node_modules/plist/node_modules/@xmldom/xmldom"
+      ],
+      "fixAvailable": true
+    },
+    "decode-uri-component": {
+      "name": "decode-uri-component",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1147955,
+          "name": "decode-uri-component",
+          "dependency": "decode-uri-component",
+          "title": "decode-uri-component: Denial of service via exponential decoding of malformed percent-encoded input",
+          "url": "https://github.com/advisories/GHSA-vcc3-ghjq-m6fr",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-400",
+            "CWE-405",
+            "CWE-407",
+            "CWE-1176"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": "<=0.4.2"
+        }
+      ],
+      "effects": [
+        "query-string"
+      ],
+      "range": "<=0.4.2",
+      "nodes": [
+        "node_modules/decode-uri-component"
+      ],
+      "fixAvailable": {
+        "name": "expo-router",
+        "version": "5.1.11",
+        "isSemVerMajor": true
+      }
+    },
+    "deepmerge-ts": {
+      "name": "deepmerge-ts",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1145093,
+          "name": "deepmerge-ts",
+          "dependency": "deepmerge-ts",
+          "title": "DeepmergeTS has stack exhaustion when merging recursive object graphs",
+          "url": "https://github.com/advisories/GHSA-ggr8-5vv4-36mx",
+          "severity": "high",
+          "cwe": [
+            "CWE-674"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": "<8.0.0"
+        }
+      ],
+      "effects": [
+        "@prisma/config"
+      ],
+      "range": "<8.0.0",
+      "nodes": [
+        "node_modules/deepmerge-ts"
+      ],
+      "fixAvailable": {
+        "name": "prisma",
+        "version": "6.19.3",
+        "isSemVerMajor": true
+      }
+    },
+    "expo": {
+      "name": "expo",
+      "severity": "moderate",
+      "isDirect": true,
+      "via": [
+        "@expo/cli",
+        "@expo/config",
+        "@expo/config-plugins",
+        "@expo/local-build-cache-provider",
+        "@expo/metro-config"
+      ],
+      "effects": [],
+      "range": "40.0.0-alpha.0 - 40.0.0-beta.5 || >=41.0.0-alpha.0",
+      "nodes": [
+        "node_modules/expo"
+      ],
+      "fixAvailable": {
+        "name": "expo",
+        "version": "46.0.21",
+        "isSemVerMajor": true
+      }
+    },
+    "expo-router": {
+      "name": "expo-router",
+      "severity": "moderate",
+      "isDirect": true,
+      "via": [
+        "query-string"
+      ],
+      "effects": [],
+      "range": "1.2.2 - 3.1.2 || >=5.2.0-canary-20250611-f0afe80",
+      "nodes": [
+        "node_modules/expo-router"
+      ],
+      "fixAvailable": {
+        "name": "expo-router",
+        "version": "5.1.11",
+        "isSemVerMajor": true
+      }
+    },
+    "expo-splash-screen": {
+      "name": "expo-splash-screen",
+      "severity": "moderate",
+      "isDirect": true,
+      "via": [
+        "@expo/config-plugins"
+      ],
+      "effects": [],
+      "range": "55.0.10-canary-20260424-7bedc9d - 55.0.10-canary-20260429-a5e59cf || >=56.0.0-canary-20260212-4f61309",
+      "nodes": [
+        "node_modules/expo-splash-screen"
+      ],
+      "fixAvailable": {
+        "name": "expo-splash-screen",
+        "version": "55.0.25",
+        "isSemVerMajor": true
+      }
+    },
+    "fast-uri": {
+      "name": "fast-uri",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1158521,
+          "name": "fast-uri",
+          "dependency": "fast-uri",
+          "title": "fast-uri vulnerable to host confusion via skipped IDN canonicalization on scheme-relative references",
+          "url": "https://github.com/advisories/GHSA-5jgf-p345-68v8",
+          "severity": "high",
+          "cwe": [
+            "CWE-436"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N"
+          },
+          "range": ">=3.1.3 <3.1.6"
+        },
+        {
+          "source": 1158524,
+          "name": "fast-uri",
+          "dependency": "fast-uri",
+          "title": "fast-uri vulnerable to server-side request forgery via malformed IPv6 normalization",
+          "url": "https://github.com/advisories/GHSA-f65p-4m7j-42xc",
+          "severity": "high",
+          "cwe": [
+            "CWE-20",
+            "CWE-918"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N"
+          },
+          "range": ">=3.0.0 <3.1.6"
+        },
+        {
+          "source": 1158527,
+          "name": "fast-uri",
+          "dependency": "fast-uri",
+          "title": "fast-uri vulnerable to server-side request forgery via repeated hostname percent-decoding",
+          "url": "https://github.com/advisories/GHSA-fph4-wmhf-6fwf",
+          "severity": "high",
+          "cwe": [
+            "CWE-174",
+            "CWE-918"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N"
+          },
+          "range": ">=3.1.2 <3.1.6"
+        },
+        {
+          "source": 1158530,
+          "name": "fast-uri",
+          "dependency": "fast-uri",
+          "title": "fast-uri vulnerable to host confusion via percent-encoded scheme normalization",
+          "url": "https://github.com/advisories/GHSA-jqff-g426-hqxp",
+          "severity": "high",
+          "cwe": [
+            "CWE-177"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N"
+          },
+          "range": ">=3.0.0 <3.1.6"
+        }
+      ],
+      "effects": [],
+      "range": "3.0.0 - 3.1.5",
+      "nodes": [
+        "node_modules/fast-uri"
+      ],
+      "fixAvailable": true
+    },
+    "image-size": {
+      "name": "image-size",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1138808,
+          "name": "image-size",
+          "dependency": "image-size",
+          "title": "image-size: ICNS parser allows denial of service through an infinite loop",
+          "url": "https://github.com/advisories/GHSA-w3rx-r6r6-pgpr",
+          "severity": "high",
+          "cwe": [
+            "CWE-835"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+          },
+          "range": "<=2.0.2"
+        },
+        {
+          "source": 1138809,
+          "name": "image-size",
+          "dependency": "image-size",
+          "title": "image-size: JXL and HEIF parsers allow denial of service through infinite loops",
+          "url": "https://github.com/advisories/GHSA-5p2g-fcmc-qvqq",
+          "severity": "high",
+          "cwe": [
+            "CWE-835"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+          },
+          "range": "<=2.0.2"
+        }
+      ],
+      "effects": [
+        "metro"
+      ],
+      "range": "*",
+      "nodes": [
+        "node_modules/image-size"
+      ],
+      "fixAvailable": true
+    },
+    "js-yaml": {
+      "name": "js-yaml",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1193726,
+          "name": "js-yaml",
+          "dependency": "js-yaml",
+          "title": "js-yaml: maxTotalMergeKeys does not limit CPU use for empty merge sources",
+          "url": "https://github.com/advisories/GHSA-2883-xcg3-v3hh",
+          "severity": "high",
+          "cwe": [
+            "CWE-400",
+            "CWE-407"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+          },
+          "range": ">=3.0.0 <3.15.2"
+        },
+        {
+          "source": 1193727,
+          "name": "js-yaml",
+          "dependency": "js-yaml",
+          "title": "js-yaml: maxTotalMergeKeys does not limit CPU use for empty merge sources",
+          "url": "https://github.com/advisories/GHSA-2883-xcg3-v3hh",
+          "severity": "high",
+          "cwe": [
+            "CWE-400",
+            "CWE-407"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+          },
+          "range": ">=4.0.0 <4.3.2"
+        }
+      ],
+      "effects": [],
+      "range": "3.0.0 - 3.15.1 || 4.0.0 - 4.3.1",
+      "nodes": [
+        "node_modules/@istanbuljs/load-nyc-config/node_modules/js-yaml",
+        "node_modules/js-yaml"
+      ],
+      "fixAvailable": true
+    },
+    "metro": {
+      "name": "metro",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        "image-size",
+        "metro-config",
+        "metro-transform-worker"
+      ],
+      "effects": [
+        "@expo/metro",
+        "metro-config",
+        "metro-transform-worker"
+      ],
+      "range": "0.22.1 - 0.83.7 || 0.84.0 - 0.84.4 || 0.85.0 - 0.87.0",
+      "nodes": [
+        "node_modules/metro"
+      ],
+      "fixAvailable": true
+    },
+    "metro-config": {
+      "name": "metro-config",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        "metro"
+      ],
+      "effects": [
+        "metro"
+      ],
+      "range": "<=0.83.7 || 0.84.0 - 0.84.4 || 0.85.0 - 0.87.0",
+      "nodes": [
+        "node_modules/metro-config"
+      ],
+      "fixAvailable": true
+    },
+    "metro-transform-worker": {
+      "name": "metro-transform-worker",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        "metro"
+      ],
+      "effects": [
+        "@expo/metro",
+        "metro"
+      ],
+      "range": "0.60.0 - 0.83.7 || 0.84.0 - 0.84.4 || 0.85.0 - 0.87.0",
+      "nodes": [
+        "node_modules/metro-transform-worker"
+      ],
+      "fixAvailable": true
+    },
+    "multer": {
+      "name": "multer",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1193790,
+          "name": "multer",
+          "dependency": "multer",
+          "title": "multer vulnerable to Denial of Service via crafted multipart field names",
+          "url": "https://github.com/advisories/GHSA-wc9g-mqfw-jrwm",
+          "severity": "high",
+          "cwe": [
+            "CWE-248"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+          },
+          "range": "<2.3.0"
+        },
+        {
+          "source": 1193791,
+          "name": "multer",
+          "dependency": "multer",
+          "title": "multer vulnerable to Denial of Service via file descriptor leak on aborted uploads",
+          "url": "https://github.com/advisories/GHSA-qfvm-cv95-jqjf",
+          "severity": "high",
+          "cwe": [
+            "CWE-400",
+            "CWE-459"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+          },
+          "range": "=2.2.0"
+        },
+        {
+          "source": 1193792,
+          "name": "multer",
+          "dependency": "multer",
+          "title": "multer vulnerable to file size limit bypass via async fileFilter race condition",
+          "url": "https://github.com/advisories/GHSA-qvfw-j98x-7q72",
+          "severity": "low",
+          "cwe": [
+            "CWE-362"
+          ],
+          "cvss": {
+            "score": 3.7,
+            "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:L/A:N"
+          },
+          "range": "<2.3.0"
+        },
+        {
+          "source": 1193793,
+          "name": "multer",
+          "dependency": "multer",
+          "title": "multer vulnerable to Denial of Service via oversized array index in field names",
+          "url": "https://github.com/advisories/GHSA-535w-7cp7-47q4",
+          "severity": "high",
+          "cwe": [
+            "CWE-400"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+          },
+          "range": "<2.3.0"
+        }
+      ],
+      "effects": [
+        "@nestjs/platform-express"
+      ],
+      "range": "<=2.2.0",
+      "nodes": [
+        "node_modules/multer"
+      ],
+      "fixAvailable": {
+        "name": "@nestjs/testing",
+        "version": "7.5.5",
+        "isSemVerMajor": true
+      }
+    },
+    "mysql2": {
+      "name": "mysql2",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1153173,
+          "name": "mysql2",
+          "dependency": "mysql2",
+          "title": "MySQL2: Auth Plugin Downgrade to mysql_clear_password Leaks Plaintext Credentials",
+          "url": "https://github.com/advisories/GHSA-3f6p-5ww8-9rcr",
+          "severity": "high",
+          "cwe": [
+            "CWE-522"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": "<3.22.0"
+        },
+        {
+          "source": 1158532,
+          "name": "mysql2",
+          "dependency": "mysql2",
+          "title": "MySQL2: Unbounded zlib inflate in compressed MySQL protocol handler allows decompression-bomb DoS",
+          "url": "https://github.com/advisories/GHSA-rgwj-5xj2-c3m3",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-409"
+          ],
+          "cvss": {
+            "score": 5.9,
+            "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H"
+          },
+          "range": "<=3.23.0"
+        }
+      ],
+      "effects": [
+        "prisma"
+      ],
+      "range": "<=3.23.0",
+      "nodes": [
+        "node_modules/mysql2"
+      ],
+      "fixAvailable": {
+        "name": "prisma",
+        "version": "6.19.3",
+        "isSemVerMajor": true
+      }
+    },
+    "prisma": {
+      "name": "prisma",
+      "severity": "high",
+      "isDirect": true,
+      "via": [
+        "@prisma/config",
+        "mysql2"
+      ],
+      "effects": [],
+      "range": ">=6.13.0-dev.1",
+      "nodes": [
+        "node_modules/prisma"
+      ],
+      "fixAvailable": {
+        "name": "prisma",
+        "version": "6.19.3",
+        "isSemVerMajor": true
+      }
+    },
+    "qs": {
+      "name": "qs",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1158506,
+          "name": "qs",
+          "dependency": "qs",
+          "title": "qs array-limit bypass via bracket-key comma parsing",
+          "url": "https://github.com/advisories/GHSA-x5fp-wj9c-mxmx",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-770"
+          ],
+          "cvss": {
+            "score": 3.7,
+            "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:L"
+          },
+          "range": ">=6.14.2 <=6.15.3"
+        },
+        {
+          "source": 1158507,
+          "name": "qs",
+          "dependency": "qs",
+          "title": "qs: Denial of Service via Attacker Controlled isBuffer",
+          "url": "https://github.com/advisories/GHSA-4mjr-xmp4-gh2g",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-248",
+            "CWE-703"
+          ],
+          "cvss": {
+            "score": 5.3,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L"
+          },
+          "range": ">=2.2.5 <6.16.0"
+        }
+      ],
+      "effects": [],
+      "range": "2.2.5 - 6.15.3",
+      "nodes": [
+        "node_modules/qs"
+      ],
+      "fixAvailable": true
+    },
+    "query-string": {
+      "name": "query-string",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        "decode-uri-component"
+      ],
+      "effects": [
+        "expo-router"
+      ],
+      "range": "5.0.0 - 9.4.1",
+      "nodes": [
+        "node_modules/query-string"
+      ],
+      "fixAvailable": {
+        "name": "expo-router",
+        "version": "5.1.11",
+        "isSemVerMajor": true
+      }
+    },
+    "tencentcloud-sdk-nodejs-common": {
+      "name": "tencentcloud-sdk-nodejs-common",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        "uuid"
+      ],
+      "effects": [],
+      "range": ">=4.0.826",
+      "nodes": [
+        "node_modules/tencentcloud-sdk-nodejs-common"
+      ],
+      "fixAvailable": true
+    },
+    "uuid": {
+      "name": "uuid",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1119441,
+          "name": "uuid",
+          "dependency": "uuid",
+          "title": "uuid: Missing buffer bounds check in v3/v5/v6 when buf is provided",
+          "url": "https://github.com/advisories/GHSA-w5hq-g745-h8pq",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-787",
+            "CWE-1285"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N"
+          },
+          "range": "<11.1.1"
+        }
+      ],
+      "effects": [
+        "tencentcloud-sdk-nodejs-common",
+        "xcode"
+      ],
+      "range": "<11.1.1",
+      "nodes": [
+        "node_modules/tencentcloud-sdk-nodejs-common/node_modules/uuid",
+        "node_modules/uuid"
+      ],
+      "fixAvailable": {
+        "name": "expo",
+        "version": "46.0.21",
+        "isSemVerMajor": true
+      }
+    },
+    "xcode": {
+      "name": "xcode",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        "uuid"
+      ],
+      "effects": [
+        "@expo/config-plugins"
+      ],
+      "range": ">=0.9.2",
+      "nodes": [
+        "node_modules/xcode"
+      ],
+      "fixAvailable": {
+        "name": "expo",
+        "version": "46.0.21",
+        "isSemVerMajor": true
+      }
+    }
+  },
+  "metadata": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 16,
+      "high": 18,
+      "critical": 0,
+      "total": 34
+    },
+    "dependencies": {
+      "prod": 1388,
+      "dev": 526,
+      "optional": 103,
+      "peer": 86,
+      "peerOptional": 0,
+      "total": 2024
+    }
+  }
+}

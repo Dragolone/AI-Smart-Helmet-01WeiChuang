@@ -1,0 +1,57 @@
+  console.log
+    [audit] refresh 失败路径 → {"401":"clearSession","429":"clearSession","503":"clearSession","network":"clearSession"}
+
+      at Object.log (src/api/__tests__/audit-auth-client.test.ts:123:13)
+
+FAIL src/api/__tests__/audit-auth-client.test.ts
+  审计 §6 App api client：401 刷新排队与会话交错
+    ✓ 三个并发请求同时 401：只调用一次 /auth/refresh，三个请求都用新 token 重试成功 (26 ms)
+    ✕ 【AUTH-09 缺陷断言】刷新进行中用户 signOut：刷新返回后不得把新 token 写回（会话复活） (6 ms)
+    ✕ 【AUTH-09 缺陷断言】刷新进行中另一账号 signIn：旧账号的刷新结果不得覆盖新账号 token (7 ms)
+    ✓ 刷新遇 429 / 5xx / 网络错误：当前实现一律清会话（观察，记录为 P3） (6 ms)
+
+  ● 审计 §6 App api client：401 刷新排队与会话交错 › 【AUTH-09 缺陷断言】刷新进行中用户 signOut：刷新返回后不得把新 token 写回（会话复活）
+
+    expect(jest.fn()).not.toHaveBeenCalled()
+
+    Expected number of calls: 0
+    Received number of calls: 1
+
+    1: {"accessToken": "acc_new", "refreshToken": "ref_new"}
+
+      83 |     await pending;
+      84 |     // 期望：登出后会话保持为空；实际：setTokens 把刷新结果写回 → 已登出的账号复活
+    > 85 |     expect(setTokens).not.toHaveBeenCalled();
+         |                           ^
+      86 |     expect(tokens).toBeNull();
+      87 |   });
+      88 |
+
+      at Object.toHaveBeenCalled (src/api/__tests__/audit-auth-client.test.ts:85:27)
+      at asyncGeneratorStep (../node_modules/@babel/runtime/helpers/asyncToGenerator.js:3:17)
+      at _next (../node_modules/@babel/runtime/helpers/asyncToGenerator.js:17:9)
+
+  ● 审计 §6 App api client：401 刷新排队与会话交错 › 【AUTH-09 缺陷断言】刷新进行中另一账号 signIn：旧账号的刷新结果不得覆盖新账号 token
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "ref_B"
+    Received: "ref_new"
+
+      101 |     resolveRefresh(res(200, { accessToken: 'acc_new', refreshToken: 'ref_new' }));
+      102 |     await pending;
+    > 103 |     expect(tokens?.refreshToken).toBe('ref_B');
+          |                                  ^
+      104 |   });
+      105 |
+      106 |   it('刷新遇 429 / 5xx / 网络错误：当前实现一律清会话（观察，记录为 P3）', async () => {
+
+      at Object.toBe (src/api/__tests__/audit-auth-client.test.ts:103:34)
+      at asyncGeneratorStep (../node_modules/@babel/runtime/helpers/asyncToGenerator.js:3:17)
+      at _next (../node_modules/@babel/runtime/helpers/asyncToGenerator.js:17:9)
+
+Test Suites: 1 failed, 1 total
+Tests:       2 failed, 2 passed, 4 total
+Snapshots:   0 total
+Time:        0.325 s, estimated 1 s
+Ran all test suites matching /src\/api\/__tests__\/audit-auth-client.test.ts/i.
