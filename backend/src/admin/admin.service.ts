@@ -13,20 +13,39 @@ import { PrismaService } from '../prisma/prisma.service';
 import { toWireAccident } from '../sos/sos-wire';
 import type { Prisma } from '../generated/prisma/client';
 
+/**
+ * 关键词进 LIKE 前转义通配符：`%`/`_` 是 LIKE 元字符，Prisma 的 contains 不转义，
+ * 搜 `%` 会命中全部行（审计 ADMIN-02）；PostgreSQL LIKE 默认转义字符是反斜杠。
+ */
+const escapeLike = (kw: string | undefined): string | undefined =>
+  kw ? kw.replace(/[\\%_]/g, (m) => `\\${m}`) : kw;
+
 @Injectable()
 export class AdminService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async listUsers(page: number, pageSize: number, keyword?: string) {
-    const kw = keyword?.trim();
-    const where: Prisma.UserWhereInput = kw
-      ? {
-          OR: [
-            { phone: { contains: kw } },
-            { nickname: { contains: kw, mode: 'insensitive' } },
-          ],
-        }
-      : {};
+  /**
+   * 用户列表（API.md §10）。已注销账号记录保留（事故归属/审计需要），但默认不列出、不计入总数
+   *（口径 2026-09-15，审计 ADMIN-04）：运维查历史归属时用 includeDeleted=true 显式打开，行上带 deletedAt。
+   */
+  async listUsers(
+    page: number,
+    pageSize: number,
+    keyword?: string,
+    includeDeleted = false,
+  ) {
+    const kw = escapeLike(keyword?.trim());
+    const where: Prisma.UserWhereInput = {
+      ...(includeDeleted ? {} : { deletedAt: null }),
+      ...(kw
+        ? {
+            OR: [
+              { phone: { contains: kw } },
+              { nickname: { contains: kw, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
     const [total, users] = await this.prisma.$transaction([
       this.prisma.user.count({ where }),
       this.prisma.user.findMany({
@@ -37,6 +56,7 @@ export class AdminService {
           nickname: true,
           avatarUrl: true,
           createdAt: true,
+          deletedAt: true,
           _count: { select: { devices: true } },
         },
         orderBy: { createdAt: 'desc' },
@@ -51,6 +71,7 @@ export class AdminService {
         nickname: u.nickname,
         avatarUrl: u.avatarUrl,
         createdAt: u.createdAt,
+        deletedAt: u.deletedAt,
         deviceCount: u._count.devices,
       })),
       total,
@@ -65,7 +86,7 @@ export class AdminService {
     keyword?: string,
     online?: boolean,
   ) {
-    const kw = keyword?.trim();
+    const kw = escapeLike(keyword?.trim());
     const onlineSince = new Date(Date.now() - ONLINE_WINDOW_MS);
     const conditions: Prisma.DeviceWhereInput[] = [];
     if (kw) {
@@ -236,7 +257,8 @@ export class AdminService {
         this.prisma.device.count({
           where: { lastSeenAt: { gte: onlineSince } },
         }),
-        this.prisma.user.count(),
+        // 经营指标只计活跃账号；注销的壳记录（事故归属用）不算用户（口径 2026-09-15）
+        this.prisma.user.count({ where: { deletedAt: null } }),
         this.prisma.rawEvent.count({
           where: {
             receivedAt: { gte: todayStart },

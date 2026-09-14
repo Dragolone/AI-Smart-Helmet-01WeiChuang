@@ -33,8 +33,8 @@ export function useRealtimeUpdates(): void {
       getAccessToken: () => useAuthStore.getState().tokens?.accessToken ?? null,
       triggerTokenRefresh: () => authApi.me(),
     });
-    // BLE 上行中转队列与登录态同生命周期(决策 #35:BLE 是唯一真机数据链路)
-    startRelayUplink();
+    // BLE 上行中转队列与登录态同生命周期(决策 #35:BLE 是唯一真机数据链路)；按账号分区，换账号不混用
+    startRelayUplink(useAuthStore.getState().user?.id ?? undefined);
 
     const unsubscribe = realtimeClient.subscribe((message) => {
       switch (message.type) {

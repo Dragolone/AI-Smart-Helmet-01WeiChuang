@@ -9,6 +9,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { createHash, randomBytes } from 'node:crypto';
 import * as bcrypt from 'bcrypt';
+import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { SmsCodeService, type SmsCodePurpose } from './sms-code.service';
 
@@ -36,6 +37,16 @@ const hashRefreshToken = (token: string): string =>
 
 const unauthorized = (message: string): UnauthorizedException =>
   new UnauthorizedException({ code: 'UNAUTHORIZED', message });
+
+const phoneTaken = (): ConflictException =>
+  new ConflictException({
+    code: 'PHONE_ALREADY_REGISTERED',
+    message: '该手机号已注册',
+  });
+
+/** users.phone 唯一约束：并发的注册/换号「先查后写」会撞上它，按契约 409 而不是 500（审计 AUTH-03） */
+const isPhoneConflict = (err: unknown): boolean =>
+  err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
 
 @Injectable()
 export class AuthService {
@@ -78,18 +89,19 @@ export class AuthService {
     nickname?: string,
   ): Promise<{ user: SafeUser } & TokenPair> {
     const existing = await this.prisma.user.findUnique({ where: { phone } });
-    if (existing) {
-      throw new ConflictException({
-        code: 'PHONE_ALREADY_REGISTERED',
-        message: '该手机号已注册',
-      });
-    }
+    if (existing) throw phoneTaken();
     // 先校验并消费验证码，再建用户：验证码错误不留下半成品账号
     await this.smsCodes.verifyAndConsume(phone, 'register', code);
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
-    const user = await this.prisma.user.create({
-      data: { phone, passwordHash, nickname: nickname ?? null },
-    });
+    let user;
+    try {
+      user = await this.prisma.user.create({
+        data: { phone, passwordHash, nickname: nickname ?? null },
+      });
+    } catch (err) {
+      if (isPhoneConflict(err)) throw phoneTaken();
+      throw err;
+    }
     const tokens = await this.issueTokens(user.id);
     return { user: this.toSafeUser(user), ...tokens };
   }
@@ -200,17 +212,18 @@ export class AuthService {
       where: { phone: newPhone },
       select: { id: true },
     });
-    if (taken) {
-      throw new ConflictException({
-        code: 'PHONE_ALREADY_REGISTERED',
-        message: '该手机号已注册',
-      });
-    }
+    if (taken) throw phoneTaken();
     await this.smsCodes.verifyAndConsume(newPhone, 'change_phone', code);
-    const user = await this.prisma.user.update({
-      where: { id: userId },
-      data: { phone: newPhone },
-    });
+    let user;
+    try {
+      user = await this.prisma.user.update({
+        where: { id: userId },
+        data: { phone: newPhone },
+      });
+    } catch (err) {
+      if (isPhoneConflict(err)) throw phoneTaken();
+      throw err;
+    }
     this.logger.log(`用户 ${userId} 已换绑手机号`);
     return this.toSafeUser(user);
   }

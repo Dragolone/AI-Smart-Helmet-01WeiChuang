@@ -61,7 +61,8 @@ export const auth = {
     "auth.deleteDone": "账号已注销",
     "sos.fall": "跌倒检测",
     "sos.cancelledBody": "本次求救已取消，事故已留档。",
-    "sos.notifiedBody": "紧急联系人已收到通知，请保持手机畅通。",
+    "sos.notifiedBody":
+      "已向紧急联系人发出通知（发送结果以通知记录为准），请保持手机畅通；若无人回应请直接拨打电话求助。",
     "sos.pendingBody":
       "倒计时结束后将自动通知您的紧急联系人，除非您取消此操作。",
     "sos.autoSendSuffix": "秒后自动发送 SOS",
@@ -131,7 +132,8 @@ export const auth = {
     "auth.deleteDone": "帳號已註銷",
     "sos.fall": "跌倒偵測",
     "sos.cancelledBody": "本次求救已取消，事故已留存記錄。",
-    "sos.notifiedBody": "緊急聯絡人已收到通知，請保持手機暢通。",
+    "sos.notifiedBody":
+      "已向緊急聯絡人發出通知（發送結果以通知記錄為準），請保持手機暢通；若無人回應請直接撥打電話求助。",
     "sos.pendingBody": "倒數結束後將自動通知您的緊急聯絡人，除非您取消此操作。",
     "sos.autoSendSuffix": "秒後自動傳送 SOS",
     "sos.cancelling": "取消中…",
@@ -206,7 +208,7 @@ export const auth = {
     "sos.cancelledBody":
       "This SOS was cancelled. The incident has been logged.",
     "sos.notifiedBody":
-      "Your emergency contacts have been notified. Keep your phone reachable.",
+      "Notifications have been sent to your emergency contacts (see the notification log for delivery results). Keep your phone reachable, and call for help directly if no one responds.",
     "sos.pendingBody":
       "Your emergency contacts will be notified automatically when the countdown ends, unless you cancel.",
     "sos.autoSendSuffix": "seconds until SOS is sent",

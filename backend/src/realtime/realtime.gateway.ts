@@ -127,6 +127,23 @@ export class RealtimeGateway
     }
   }
 
+  /** 主动断开某用户的全部连接（注销账号）：连接不能比账号活得久（API.md §2 / 审计 AUTH-05、INGEST-04） */
+  closeUser(userId: string, code: number, reason: string): number {
+    const conns = this.byUser.get(userId);
+    if (!conns || conns.size === 0) return 0;
+    let closed = 0;
+    for (const ws of [...conns]) {
+      if (
+        ws.readyState === WebSocket.OPEN ||
+        ws.readyState === WebSocket.CONNECTING
+      ) {
+        ws.close(code, reason);
+        closed += 1;
+      }
+    }
+    return closed;
+  }
+
   /** 单条推送失败只跳过该连接，不影响其他连接与主流程 */
   pushToUser(userId: string, message: WsMessage): void {
     const conns = this.byUser.get(userId);

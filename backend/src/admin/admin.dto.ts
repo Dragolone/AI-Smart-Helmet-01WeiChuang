@@ -43,6 +43,13 @@ export class AdminListQueryDto {
   keyword?: string;
 }
 
+export class AdminUsersQueryDto extends AdminListQueryDto {
+  // 已注销账号默认不列出（口径 2026-09-15）；运维查历史事故归属时显式打开
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  includeDeleted?: 'true' | 'false';
+}
+
 export class AdminDevicesQueryDto extends AdminListQueryDto {
   // query string 里只有字符串；服务层转布尔
   @IsOptional()

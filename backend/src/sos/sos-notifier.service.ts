@@ -13,8 +13,33 @@ import {
   NOTIFICATION_STATUS,
   SOS_STATUS,
   maxNotifyAttempts,
+  notifyTimeoutMs,
 } from './sos.constants';
 import { toWireSos } from './sos-wire';
+
+/** 本人终态 Push 的标题按联系人短信的实际投递结果生成（审计 SOS-04：不能把「任务已创建」说成「已收到通知」） */
+export const PUSH_TITLE = {
+  contactsNotified: 'SOS 已通知紧急联系人',
+  contactsFailed: 'SOS 紧急联系人通知发送失败',
+  noContacts: 'SOS 未设置紧急联系人',
+} as const;
+
+class NotifyTimeoutError extends Error {
+  constructor(ms: number) {
+    super(`timeout after ${ms}ms`);
+    this.name = 'NotifyTimeoutError';
+  }
+}
+
+/** Provider 调用加超时：挂起的第三方调用按失败记 lastError=timeout，走既有重试，不占住扫描任务 */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new NotifyTimeoutError(ms)), ms);
+    timer.unref();
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
 
 /**
  * SOS 终态化与通知投递。confirm（SOS Now）、deadline 到期、pending 中设备再发 manual_sos
@@ -36,7 +61,10 @@ export class SosNotifierService {
    * 铺好通知任务行——事务提交后即使进程崩溃，扫描任务也能按行续投，通知不丢。
    * 返回 false = 没抢到转换（已取消或已通知）。
    */
-  async finalizeNotified(sosId: string): Promise<boolean> {
+  async finalizeNotified(
+    sosId: string,
+    options: { deliverInline?: boolean } = {},
+  ): Promise<boolean> {
     const finalized = await this.prisma.$transaction(async (tx) => {
       const won = await tx.sosCase.updateMany({
         where: { id: sosId, status: SOS_STATUS.pending },
@@ -77,7 +105,8 @@ export class SosNotifierService {
       `SOS ${sosId} 已终态化 notified（device=${finalized.deviceId}），开始投递通知`,
     );
     this.realtime.pushSosUpdate(finalized.userId, toWireSos(finalized));
-    await this.deliverPending(sosId);
+    // 扫描任务传 deliverInline=false：到期终态化只写库、不在这里等第三方，投递由扫描的独立阶段负责
+    if (options.deliverInline !== false) await this.deliverPending(sosId);
     return true;
   }
 
@@ -115,10 +144,15 @@ export class SosNotifierService {
       if (claimed.count === 0) continue; // 另一轮扫描已抢走这一次投递
 
       try {
-        await this.send(row, row.sos);
+        await withTimeout(this.send(row, row.sos), notifyTimeoutMs());
         await this.prisma.sosNotification.update({
           where: { id: row.id },
-          data: { status: NOTIFICATION_STATUS.sent, sentAt: new Date() },
+          // 重试成功后清掉上一次的错误：详情页不能同时显示「已发送」和旧错误文本（审计 SOS-08）
+          data: {
+            status: NOTIFICATION_STATUS.sent,
+            sentAt: new Date(),
+            lastError: null,
+          },
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -138,13 +172,43 @@ export class SosNotifierService {
       await this.sms.send(row.target, await this.smsMessage(sosCase));
       return;
     }
-    // push target 形如 user:<id>
-    await this.push.send(
-      row.target.replace(/^user:/, ''),
-      'SOS 已通知紧急联系人',
-      `头盔 ${sosCase.deviceId} 的求救已于 ${sosCase.finalizedAt?.toISOString() ?? ''} 通知紧急联系人`,
-      { sosId: sosCase.id, deviceId: sosCase.deviceId },
-    );
+    // push target 形如 user:<id>。标题/正文按此刻联系人短信的真实结果生成：
+    // 通知行按 createdAt 顺序投递，短信行在本人 Push 之前，所以这里读到的是本轮投递后的状态
+    const { title, body } = await this.pushText(sosCase);
+    await this.push.send(row.target.replace(/^user:/, ''), title, body, {
+      sosId: sosCase.id,
+      deviceId: sosCase.deviceId,
+    });
+  }
+
+  /** 四层语义区分（审计 SOS-04）：任务已创建 ≠ Provider 已接收 ≠ 联系人已收到；文案只承诺前两者 */
+  private async pushText(
+    sosCase: SosCase,
+  ): Promise<{ title: string; body: string }> {
+    const sms = await this.prisma.sosNotification.findMany({
+      where: { sosId: sosCase.id, channel: 'sms' },
+      select: { status: true },
+    });
+    const at = sosCase.finalizedAt?.toISOString() ?? '';
+    if (sms.length === 0) {
+      return {
+        title: PUSH_TITLE.noContacts,
+        body: `头盔 ${sosCase.deviceId} 的求救已于 ${at} 确认，但你尚未设置紧急联系人，无人会收到短信，请直接拨打电话求助`,
+      };
+    }
+    const sent = sms.filter(
+      (r) => r.status === NOTIFICATION_STATUS.sent,
+    ).length;
+    if (sent === 0) {
+      return {
+        title: PUSH_TITLE.contactsFailed,
+        body: `头盔 ${sosCase.deviceId} 的求救已于 ${at} 确认，向 ${sms.length} 位紧急联系人发送短信全部失败，系统会自动重试，请直接拨打电话求助`,
+      };
+    }
+    return {
+      title: PUSH_TITLE.contactsNotified,
+      body: `头盔 ${sosCase.deviceId} 的求救已于 ${at} 向 ${sent}/${sms.length} 位紧急联系人发出短信通知${sent < sms.length ? '（其余失败，系统会自动重试）' : ''}`,
+    };
   }
 
   /**

@@ -33,17 +33,37 @@ export class EmqxHookService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  /** MQTT 连接认证：后端服务账号走环境变量；设备走 devices 表密钥哈希。 */
+  /**
+   * MQTT 连接认证：后端服务账号走环境变量；设备走 devices 表密钥哈希。
+   * clientId 也参与判定（审计 MQTT-01）：MQTT 同 clientId 互踢，若不校验，任何持有一台设备密钥的人
+   * 都能用后端消费者的固定 clientId 把消费者顶下线。后端保留的 clientId 只允许服务账号使用；
+   * 设备 clientId 不做与 deviceId 相等的强约束（DEVICE_PROTOCOL §3 未约定，等硬件确认后再收紧）。
+   */
   async authenticate(
     username: string | undefined,
     password: string | undefined,
+    clientid?: string,
   ): Promise<EmqxResult> {
     if (!username || !password) return DENY;
 
     const serviceUser = process.env.MQTT_BACKEND_USERNAME ?? 'backend_ingest';
     const servicePass = process.env.MQTT_BACKEND_PASSWORD;
+    const backendClientId =
+      process.env.MQTT_BACKEND_CLIENT_ID ?? 'backend_ingest';
     if (username === serviceUser) {
+      if (clientid !== undefined && clientid !== backendClientId) {
+        this.logger.warn(
+          `MQTT 认证拒绝：服务账号使用了非保留 clientId（${clientid}）`,
+        );
+        return DENY;
+      }
       return servicePass && password === servicePass ? ALLOW : DENY;
+    }
+    if (clientid === backendClientId) {
+      this.logger.warn(
+        `MQTT 认证拒绝：设备 ${username} 试图使用后端保留的 clientId`,
+      );
+      return DENY;
     }
 
     const device = await this.prisma.device.findUnique({

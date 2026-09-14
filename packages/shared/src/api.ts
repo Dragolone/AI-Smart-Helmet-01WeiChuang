@@ -457,6 +457,8 @@ export interface AdminUserRow {
   nickname: string | null;
   avatarUrl: string | null;
   createdAt: string;
+  /** 已注销时间；列表默认不含已注销账号，`includeDeleted=true` 时才出现（口径 2026-09-15） */
+  deletedAt: string | null;
   deviceCount: number;
 }
 

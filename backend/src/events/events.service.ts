@@ -93,8 +93,12 @@ export class EventsService {
       throw new NotFoundException({ code: 'NOT_FOUND', message: '事件不存在' });
     }
     // 关联媒体（§6/§9）：危险/摔倒事件反查 relatedEventId；video_ready 事件带自己那条
+    // 限定同一设备：relatedEventId 是设备自报的字符串，别的设备可以填任意值，不能据此把它的媒体挂到本事件上（审计 MEDIA-01）
     const media = await this.prisma.media.findMany({
-      where: { OR: [{ relatedEventId: eventId }, { eventId }] },
+      where: {
+        deviceId: event.deviceId,
+        OR: [{ relatedEventId: eventId }, { eventId }],
+      },
       orderBy: { createdAt: 'asc' },
     });
     return toWireEventDetail(

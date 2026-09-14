@@ -13,6 +13,7 @@ import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 import { useState } from 'react'
 import { api } from '../api/client'
+import QueryError from '../components/QueryError'
 import { EVENT_TYPES } from '@helmet/shared'
 import type { AdminEventRow, Paginated } from '@helmet/shared'
 
@@ -119,10 +120,13 @@ export default function EventsPage() {
           <Typography.Text>只看校验失败留档</Typography.Text>
         </Space>
       </Space>
+      {query.isError && (
+        <QueryError error={query.error} onRetry={() => void query.refetch()} />
+      )}
       <Table<AdminEventRow>
         rowKey="eventId"
         columns={columns}
-        dataSource={query.data?.items}
+        dataSource={query.isError ? [] : query.data?.items}
         loading={query.isLoading}
         expandable={{
           expandedRowRender: (row) => (

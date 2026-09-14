@@ -4,25 +4,43 @@ import {
   type OnModuleDestroy,
   type OnModuleInit,
 } from '@nestjs/common';
+import type { RawEvent } from '../generated/prisma/client';
+import { SUPPORTED_SCHEMA_VERSIONS } from '../ingest/envelope';
+import type { ValidEnvelope } from '../ingest/envelope';
 import { PrismaService } from '../prisma/prisma.service';
-import { SOS_STATUS, scanIntervalMs } from './sos.constants';
+import {
+  SOS_STATUS,
+  reconcileGraceMs,
+  reconcileWindowMs,
+  scanIntervalMs,
+} from './sos.constants';
 import { SosNotifierService } from './sos-notifier.service';
+import { SosTriggerService } from './sos-trigger.service';
+
+/** 会触发 SOS 状态机的事件类型（EVENTS.md §3） */
+const TRIGGER_TYPES = ['possible_fall', 'manual_sos'];
 
 /**
  * SOS 后台扫描（决策 #8：持久化 deadline + 周期扫描，禁止仅靠内存 timer）。
  * 重启恢复不需要独立逻辑——扫描只看数据库，进程重启后第一轮 tick 天然接管所有
  * 「pending 且 deadline 已过」的单；启动时记录接管数量便于核对。
+ *
+ * 一轮 tick 分两个互不阻塞的阶段（审计 SOS-05）：
+ *   ① 到期终态化——只写库，永远很快；
+ *   ② 通知投递——要等第三方，可能慢。
+ * 各自独立防重入：投递阶段被一条挂起的短信拖住时，下一轮的终态化照常进行，其他用户的 SOS 不受牵连。
  */
 @Injectable()
 export class SosSchedulerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SosSchedulerService.name);
   private timer: NodeJS.Timeout | null = null;
-  /** 单实例内防重入：上一轮没跑完（如通知量大）就跳过本轮，避免自我踩踏 */
-  private running = false;
+  private finalizing = false;
+  private delivering = false;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifier: SosNotifierService,
+    private readonly sosTrigger: SosTriggerService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -32,6 +50,13 @@ export class SosSchedulerService implements OnModuleInit, OnModuleDestroy {
     if (pending > 0) {
       this.logger.warn(`启动接管：${pending} 个进行中 SOS 重新纳入调度`);
     }
+    // 启动对账（审计 SOS-02）：上次进程在「raw 已落库、SOS 尚未建单」之间倒下的事件在这里补建。
+    // 只在启动做一次全表窗口扫描（raw_events 没有 received_at 索引，不适合每轮都扫）
+    void this.reconcileLostTriggers().catch((err: unknown) =>
+      this.logger.error(
+        `启动对账失败（不影响调度）：${err instanceof Error ? err.message : String(err)}`,
+      ),
+    );
     const interval = scanIntervalMs();
     this.timer = setInterval(() => void this.tick(), interval);
     // 不阻止进程退出：HTTP 服务本身保活，测试结束不被定时器拖住
@@ -45,8 +70,13 @@ export class SosSchedulerService implements OnModuleInit, OnModuleDestroy {
 
   /** 一轮扫描：到期 pending 终态化 + 续投未完成通知。公开可调，测试直接驱动不等真实间隔。 */
   async tick(): Promise<void> {
-    if (this.running) return;
-    this.running = true;
+    await this.finalizeExpired();
+    await this.deliverOutstanding();
+  }
+
+  private async finalizeExpired(): Promise<void> {
+    if (this.finalizing) return;
+    this.finalizing = true;
     try {
       const expired = await this.prisma.sosCase.findMany({
         where: { status: SOS_STATUS.pending, deadline: { lte: new Date() } },
@@ -55,16 +85,106 @@ export class SosSchedulerService implements OnModuleInit, OnModuleDestroy {
         take: 50,
       });
       for (const { id } of expired) {
-        // 条件更新保证幂等：与 cancel/confirm 或另一轮扫描竞态时只有一方赢
-        await this.notifier.finalizeNotified(id);
+        // 条件更新保证幂等：与 cancel/confirm 或另一轮扫描竞态时只有一方赢；
+        // 不在这里等投递——通知行已在事务里铺好，由投递阶段（或下一轮）接手
+        await this.notifier.finalizeNotified(id, { deliverInline: false });
       }
+    } catch (err) {
+      this.logger.error(
+        `SOS 到期扫描失败（下一轮继续）：${err instanceof Error ? err.stack : String(err)}`,
+      );
+    } finally {
+      this.finalizing = false;
+    }
+  }
+
+  private async deliverOutstanding(): Promise<void> {
+    if (this.delivering) return;
+    this.delivering = true;
+    try {
       await this.notifier.deliverPending();
     } catch (err) {
       this.logger.error(
-        `SOS 扫描轮次失败（下一轮继续）：${err instanceof Error ? err.stack : String(err)}`,
+        `SOS 通知投递轮次失败（下一轮继续）：${err instanceof Error ? err.stack : String(err)}`,
       );
     } finally {
-      this.running = false;
+      this.delivering = false;
     }
   }
+
+  /**
+   * 对账：回看窗口内 raw_events 里的 possible_fall / manual_sos，若既没有对应的 SOS 单、
+   * 当时设备也没有进行中的单可并入（合并规则，EVENTS.md §4.4）、且当时有绑定用户，
+   * 说明建单在分发阶段丢失（DB 瞬断重试耗尽 / 进程被杀），按当时的绑定用户重新触发。
+   * 返回补建条数；公开供测试与运维手动调用。
+   */
+  async reconcileLostTriggers(): Promise<number> {
+    const now = Date.now();
+    const candidates = await this.prisma.rawEvent.findMany({
+      where: {
+        eventType: { in: TRIGGER_TYPES },
+        schemaVersion: { in: [...SUPPORTED_SCHEMA_VERSIONS] },
+        receivedAt: {
+          gte: new Date(now - reconcileWindowMs()),
+          lte: new Date(now - reconcileGraceMs()),
+        },
+      },
+      orderBy: { receivedAt: 'asc' },
+      take: 200,
+    });
+    if (candidates.length === 0) return 0;
+
+    const existing = await this.prisma.sosCase.findMany({
+      where: { triggerEventId: { in: candidates.map((c) => c.eventId) } },
+      select: { triggerEventId: true },
+    });
+    const hasCase = new Set(existing.map((c) => c.triggerEventId));
+
+    let recovered = 0;
+    for (const raw of candidates) {
+      if (hasCase.has(raw.eventId)) continue;
+      // 当时无绑定用户 → 口径为只留档（没有人可通知/取消）
+      const binding = await this.prisma.deviceBinding.findFirst({
+        where: {
+          deviceId: raw.deviceId,
+          boundAt: { lte: raw.receivedAt },
+          OR: [{ unboundAt: null }, { unboundAt: { gte: raw.receivedAt } }],
+        },
+        orderBy: { boundAt: 'desc' },
+        select: { userId: true },
+      });
+      if (!binding) continue;
+      // 当时该用户在该设备上已有进行中的单 → 按合并规则（设备 + 用户，决策 #40）只留档不建单，属正常，不是丢失
+      const mergedInto = await this.prisma.sosCase.findFirst({
+        where: {
+          deviceId: raw.deviceId,
+          userId: binding.userId,
+          createdAt: { lte: raw.receivedAt },
+          OR: [{ finalizedAt: null }, { finalizedAt: { gte: raw.receivedAt } }],
+        },
+        select: { id: true },
+      });
+      if (mergedInto) continue;
+      this.logger.warn(
+        `SOS 对账：事件 ${raw.eventId}（${raw.eventType}，device=${raw.deviceId}）已落库但无 SOS 单，重新触发`,
+      );
+      await this.sosTrigger.handleTrigger(toEnvelope(raw), binding.userId);
+      recovered += 1;
+    }
+    if (recovered > 0) this.logger.warn(`SOS 对账补建 ${recovered} 单`);
+    return recovered;
+  }
+}
+
+/** raw_events 行 → 分发用 envelope（与 Ingest 校验通过后的形态一致） */
+function toEnvelope(raw: RawEvent): ValidEnvelope {
+  return {
+    schemaVersion: raw.schemaVersion,
+    eventId: raw.eventId,
+    deviceId: raw.deviceId,
+    eventType: raw.eventType,
+    timestamp: raw.timestamp,
+    firmwareVersion: raw.firmwareVersion,
+    payload: (raw.payload ?? {}) as Record<string, unknown>,
+  };
 }

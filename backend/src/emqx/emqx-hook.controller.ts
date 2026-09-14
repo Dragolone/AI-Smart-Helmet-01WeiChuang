@@ -28,7 +28,7 @@ export class EmqxHookController {
   @Post('authenticate')
   @HttpCode(200)
   authenticate(@Body() body: AuthenticateBody): Promise<EmqxResult> {
-    return this.hook.authenticate(body.username, body.password);
+    return this.hook.authenticate(body.username, body.password, body.clientid);
   }
 
   @Post('authorize')

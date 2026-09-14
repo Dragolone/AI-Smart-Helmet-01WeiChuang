@@ -28,6 +28,10 @@ export function toUserMessage(err: unknown): string {
       ? translate(key)
       : translate("error.unknown", { code: err.code });
   }
+  // 请求超时（client.ts 的 AbortController）：与断网区分，给用户可执行的提示
+  if (err instanceof Error && err.name === "AbortError") {
+    return translate("error.timeout");
+  }
   // fetch 网络层失败（后端没起 / 无网络）
   return translate("error.network");
 }

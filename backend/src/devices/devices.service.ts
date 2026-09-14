@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import type { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { BindingScopeService } from './binding-scope.service';
 
 /** 允许在调用方的事务里执行（注销账号时与其他清理原子提交） */
 type DbClient = PrismaService | Prisma.TransactionClient;
@@ -50,7 +51,10 @@ const notFound = () =>
 
 @Injectable()
 export class DevicesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly scope: BindingScopeService,
+  ) {}
 
   async bind(userId: string, deviceId: string, bindCode: string) {
     const device = await this.prisma.device.findUnique({ where: { deviceId } });
@@ -183,11 +187,14 @@ export class DevicesService {
     await this.getOwned(userId, deviceId);
     const to = new Date();
     const from = new Date(to.getTime() - hours * 3_600_000);
+    // 与事件/轨迹同口径（决策 #39）：只返回本人绑定区间内到达的心跳，换绑后不泄露前主期间的电量（审计 AUTH-06）
+    const intervals = await this.scope.intervals(deviceId, userId);
     const rows = await this.prisma.rawEvent.findMany({
       where: {
         deviceId,
         eventType: 'device_status',
         timestamp: { gte: from, lte: to },
+        ...this.scope.scopeWhere('receivedAt', intervals),
       },
       orderBy: { timestamp: 'asc' },
       select: { timestamp: true, payload: true },

@@ -13,6 +13,7 @@ import { ArrowLeftOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api/client'
+import QueryError from '../components/QueryError'
 import type { AdminDeviceDetail, AdminEventRow } from '@helmet/shared'
 
 const formatTime = (v: string | null): string =>
@@ -45,10 +46,13 @@ export default function DeviceDetailPage() {
     enabled: Boolean(deviceId),
     refetchInterval: 30_000,
   })
-  const d = query.data
+  const d = query.isError ? undefined : query.data
 
   return (
     <Card loading={query.isLoading}>
+      {query.isError && (
+        <QueryError error={query.error} onRetry={() => void query.refetch()} />
+      )}
       <Space style={{ marginBottom: 16 }}>
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)}>
           返回

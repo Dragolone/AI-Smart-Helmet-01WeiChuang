@@ -62,9 +62,11 @@ export class LoginDto {
   @Matches(PHONE_PATTERN, { message: 'phone 必须是有效的大陆手机号' })
   phone!: string;
 
+  // 与注册同口径按字节挡（API.md §2「≤72 字节，超出 400」）：bcrypt 比较同样只看前 72 字节
   @IsString()
   @MinLength(1)
   @MaxLength(72)
+  @MaxBytes(MAX_PASSWORD_BYTES)
   password!: string;
 }
 
@@ -92,11 +94,14 @@ export class ChangePasswordDto {
   @IsString()
   @MinLength(1)
   @MaxLength(72)
+  @MaxBytes(MAX_PASSWORD_BYTES)
   oldPassword!: string;
 
+  // 新密码与注册/找回同规则：不按字节挡会被 bcrypt 静默截断成前 72 字节（审计 AUTH-02）
   @IsString()
   @MinLength(8)
   @MaxLength(72)
+  @MaxBytes(MAX_PASSWORD_BYTES)
   newPassword!: string;
 
   // 当前设备的 refresh token：带上则改密后本设备免重新登录，其余会话一律撤销
