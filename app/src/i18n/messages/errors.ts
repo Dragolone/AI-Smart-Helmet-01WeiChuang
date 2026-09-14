@@ -17,6 +17,7 @@ export const errors = {
     "error.internal": "服务暂时不可用，请稍后再试",
     "error.unknown": "操作失败（{code}）",
     "error.network": "网络连接失败，请检查网络后重试",
+    "error.timeout": "请求超时，请检查网络后重试。",
   },
   "zh-TW": {
     "error.validationFailed": "輸入格式不正確，請檢查後重試",
@@ -35,6 +36,7 @@ export const errors = {
     "error.internal": "服務暫時無法使用，請稍後再試",
     "error.unknown": "操作失敗（{code}）",
     "error.network": "網路連線失敗，請檢查網路後重試",
+    "error.timeout": "請求逾時，請檢查網路後重試。",
   },
   en: {
     "error.validationFailed": "Invalid input. Please check and try again.",
@@ -54,5 +56,6 @@ export const errors = {
     "error.internal": "Service temporarily unavailable. Try again later.",
     "error.unknown": "Something went wrong ({code})",
     "error.network": "Network error. Check your connection and try again.",
+    "error.timeout": "Request timed out. Check your connection and try again.",
   },
 } as const;

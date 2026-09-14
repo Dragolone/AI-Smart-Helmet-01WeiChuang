@@ -5,6 +5,7 @@ import dayjs from 'dayjs'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
+import QueryError from '../components/QueryError'
 import type { AdminDeviceRow, Paginated } from '@helmet/shared'
 
 const formatTime = (v: string | null): string =>
@@ -100,10 +101,13 @@ export default function DevicesPage() {
           }}
         />
       </Space>
+      {query.isError && (
+        <QueryError error={query.error} onRetry={() => void query.refetch()} />
+      )}
       <Table<AdminDeviceRow>
         rowKey="deviceId"
         columns={columns}
-        dataSource={query.data?.items}
+        dataSource={query.isError ? [] : query.data?.items}
         loading={query.isLoading}
         pagination={{
           current: page,

@@ -15,6 +15,17 @@ export type EnvelopeResult =
   { ok: true; envelope: ValidEnvelope } | { ok: false; reason: string };
 
 /**
+ * 服务端能正确解释的事件结构版本（EVENTS.md §1「当前固定 1」）。
+ * 结构合法但版本未知的事件只进原始表并告警、不进业务流程（DEVICE_PROTOCOL §9），
+ * 否则未来升版本后旧后端会用错误语义处理新事件（审计 INGEST-01）。
+ */
+export const SUPPORTED_SCHEMA_VERSIONS: ReadonlySet<number> = new Set([1]);
+
+/** PostgreSQL text/jsonb 不接受原始 NUL：留档前把它改写成可见的转义形式，留档本身不能再失败（审计 INGEST-03） */
+const printableRaw = (raw: string): string =>
+  raw.split('\u0000').join('\\u0000');
+
+/**
  * 校验失败的事件也必须落库（EVENTS.md §2），此处为它构造一条可入库的替身记录：
  * eventType 固定 `_invalid`，原始内容与失败原因放进 payload 供排查。
  */
@@ -31,7 +42,7 @@ export function buildInvalidRecord(
     timestamp: new Date(),
     firmwareVersion: null,
     // 恶意超长消息不能整条进库，截断留证足够排查
-    payload: { reason, raw: raw.slice(0, 4096) },
+    payload: { reason, raw: printableRaw(raw).slice(0, 4096) },
   };
 }
 

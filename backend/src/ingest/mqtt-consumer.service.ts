@@ -79,6 +79,11 @@ export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
       // 服务账号凭证：EMQX 开启认证后后端消费者也必须带证（emqx-hook 校验）
       username: process.env.MQTT_BACKEND_USERNAME ?? 'backend_ingest',
       password: process.env.MQTT_BACKEND_PASSWORD,
+      // 关掉 mqtt.js 的自动重订阅（审计 MQTT-02）：开着时它会把已订阅过的主题记在内存里，
+      // 之后再调 subscribe() 会被去重、直接回调成功而不真发 SUBSCRIBE——会话被 Broker 清掉
+      // （同 clientId 顶替、会话过期）后就变成「日志已订阅、Broker 零订阅」的静默失聪。
+      // 我们自己在每次 'connect' 上显式订阅并检查 SUBACK，才是可核实的订阅状态。
+      resubscribe: false,
     });
 
     // 覆写 handleMessage：mqtt.js 只有在本回调完成后才回 PUBACK——
@@ -101,8 +106,11 @@ export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
         .finally(() => done());
     };
 
-    this.client.on('connect', () => {
-      this.logger.log(`已连接 MQTT Broker：${url}`);
+    this.client.on('connect', (connack) => {
+      // sessionPresent=false 表示 Broker 没有保留我们的持久会话（首连、过期或被顶替），订阅必须重建
+      this.logger.log(
+        `已连接 MQTT Broker：${url}（sessionPresent=${String(connack.sessionPresent)}）`,
+      );
       this.subscribeWithRetry(1);
     });
 
@@ -122,14 +130,19 @@ export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
       clearTimeout(this.subscribeTimer);
       this.subscribeTimer = null;
     }
-    this.client?.subscribe(SUBSCRIBE_TOPICS, { qos: 1 }, (err) => {
-      if (!err) {
+    this.client?.subscribe(SUBSCRIBE_TOPICS, { qos: 1 }, (err, granted) => {
+      // SUBACK 里 qos=128 是 Broker 逐主题拒绝（ACL 未放行），mqtt.js 不把它当 err，必须自己看
+      const rejected = (granted ?? []).filter((g) => g.qos === 128);
+      if (!err && rejected.length === 0) {
         this.logger.log(`已订阅：${SUBSCRIBE_TOPICS.join(', ')}`);
         return;
       }
       if (this.shuttingDown) return;
+      const reason = err
+        ? err.message
+        : `Broker 拒绝：${rejected.map((g) => g.topic).join(', ')}`;
       this.logger.error(
-        `订阅失败（第 ${attempt} 次）：${err.message}；${SUBSCRIBE_RETRY_DELAY_MS}ms 后重试`,
+        `订阅失败（第 ${attempt} 次）：${reason}；${SUBSCRIBE_RETRY_DELAY_MS}ms 后重试`,
       );
       this.subscribeTimer = setTimeout(
         () => this.subscribeWithRetry(attempt + 1),

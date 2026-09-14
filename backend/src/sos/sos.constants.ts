@@ -20,6 +20,18 @@ export const scanIntervalMs = (): number =>
 export const maxNotifyAttempts = (): number =>
   readPositiveInt(process.env.SOS_NOTIFY_MAX_ATTEMPTS, 3);
 
+/** 单次 Provider 调用超时（毫秒）：一条挂起的短信/推送不能占住整个扫描任务（审计 SOS-05） */
+export const notifyTimeoutMs = (): number =>
+  readPositiveInt(process.env.SOS_NOTIFY_TIMEOUT_MS, 10_000);
+
+/** 启动对账回看窗口（分钟）：raw 已落库但没建单的摔倒/求救事件在此窗口内补建（审计 SOS-02） */
+export const reconcileWindowMs = (): number =>
+  readPositiveInt(process.env.SOS_RECONCILE_WINDOW_MINUTES, 15) * 60_000;
+
+/** 对账宽限（毫秒）：刚落库、分发仍在进行中的事件不参与对账，避免与在途分发重复触发 */
+export const reconcileGraceMs = (): number =>
+  readPositiveInt(process.env.SOS_RECONCILE_GRACE_MS, 3000);
+
 export const SOS_STATUS = {
   pending: 'pending',
   notified: 'notified',

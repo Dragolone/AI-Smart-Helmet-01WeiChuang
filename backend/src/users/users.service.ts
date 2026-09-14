@@ -3,6 +3,10 @@ import { AuthService } from '../auth/auth.service';
 import { ContactsService } from '../contacts/contacts.service';
 import { DevicesService } from '../devices/devices.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
+
+/** 应用自定义关闭码：鉴权失效（与 realtime.gateway 握手失败同码，App 据此走重新登录） */
+const CLOSE_UNAUTHORIZED = 4401;
 
 @Injectable()
 export class UsersService {
@@ -13,6 +17,7 @@ export class UsersService {
     private readonly auth: AuthService,
     private readonly devices: DevicesService,
     private readonly contacts: ContactsService,
+    private readonly realtime: RealtimeGateway,
   ) {}
 
   /**
@@ -35,7 +40,17 @@ export class UsersService {
       });
       await this.devices.unbindAll(userId, tx);
       await this.contacts.removeAll(userId, tx);
+      // 退出全部对讲频道：否则幽灵成员一直占名额、留在成员列表里（审计 VOICE-02）；频道本身保留
+      await tx.voiceChannelMember.deleteMany({ where: { userId } });
     });
-    this.logger.log(`用户 ${userId} 已注销：会话撤销、设备解绑、联系人删除`);
+    // 已建立的 WS 连接不能等 access token 自然过期再断（最长 15 分钟仍能收推送）
+    const closed = this.realtime.closeUser(
+      userId,
+      CLOSE_UNAUTHORIZED,
+      '账号已注销',
+    );
+    this.logger.log(
+      `用户 ${userId} 已注销：会话撤销、设备解绑、联系人删除、退出频道、断开 ${closed} 个实时连接`,
+    );
   }
 }

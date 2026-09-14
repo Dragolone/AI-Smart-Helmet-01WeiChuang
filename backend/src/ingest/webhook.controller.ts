@@ -30,8 +30,10 @@ export class WebhookController {
     const deviceId = typeof o.deviceId === 'string' ? o.deviceId : 'unknown';
     const eventId = typeof o.eventId === 'string' ? o.eventId : null;
 
+    // 非 JSON Content-Type / 空请求体时 body 为 undefined，JSON.stringify 会得到 undefined 而不是字符串——
+    // 按空文本交给 Ingest，走 invalid_json 留档（API.md §12：留档不报错，算法侧无需重试分支）
     const outcome = await this.ingest.ingestRaw(
-      JSON.stringify(body),
+      body === undefined ? '' : JSON.stringify(body),
       deviceId,
       'webhook',
     );

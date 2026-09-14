@@ -7,6 +7,7 @@ import { RealtimePushService } from '../realtime/realtime-push.service';
 import { SosTriggerService } from '../sos/sos-trigger.service';
 import { Prisma } from '../generated/prisma/client';
 import {
+  SUPPORTED_SCHEMA_VERSIONS,
   buildInvalidRecord,
   validateEnvelope,
   type ValidEnvelope,
@@ -106,6 +107,15 @@ export class IngestService {
       return 'stored_invalid';
     }
 
+    if (!SUPPORTED_SCHEMA_VERSIONS.has(result.envelope.schemaVersion)) {
+      // 版本未知：按原 eventId/eventType 留档（幂等、可回放），但不分发——语义未知的事件不能进业务流程
+      this.logger.warn(
+        `未知 schemaVersion=${result.envelope.schemaVersion}，只留档不进业务流程：${result.envelope.eventId}（device=${topicDeviceId}）`,
+      );
+      await this.persistOrArchive(result.envelope, raw, topicDeviceId, source);
+      return 'stored_invalid';
+    }
+
     let stored: boolean;
     try {
       stored = await this.persist(result.envelope, source);
@@ -181,6 +191,25 @@ export class IngestService {
       } else if (DEVICE_EVENT_TYPES.has(e.eventType)) {
         this.push.pushDeviceEvent(device.bindUserId, e);
       }
+    }
+  }
+
+  /** 留档但不分发：数据库拒绝单条数据时同样降级为 _invalid 留档，与主路径同口径 */
+  private async persistOrArchive(
+    e: ValidEnvelope,
+    raw: string,
+    topicDeviceId: string,
+    source: IngestSource,
+  ): Promise<void> {
+    try {
+      await this.persist(e, source);
+    } catch (err) {
+      const rejection = dbRejectionCode(err);
+      if (!rejection) throw err;
+      await this.persist(
+        buildInvalidRecord(topicDeviceId, raw, `db_rejected_${rejection}`),
+        source,
+      );
     }
   }
 

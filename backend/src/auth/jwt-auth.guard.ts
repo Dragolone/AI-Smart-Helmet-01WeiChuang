@@ -46,7 +46,11 @@ export class JwtAuthGuard implements CanActivate {
     }
     let userId: string;
     try {
-      const payload = await this.jwt.verifyAsync<{ sub: string }>(token);
+      const payload = await this.jwt.verifyAsync<{ sub: string; typ?: string }>(
+        token,
+      );
+      // 双保险（与 admin 守卫对称）：两套密钥被误配成同值时，admin token 也进不来用户接口
+      if (payload.typ === 'admin') throw new Error('not a user token');
       userId = payload.sub;
     } catch {
       throw new UnauthorizedException({

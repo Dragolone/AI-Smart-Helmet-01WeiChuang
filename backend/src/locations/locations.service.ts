@@ -33,7 +33,7 @@ export class LocationsService {
         deviceId,
         AND: [this.scope.scopeWhere('receivedAt', intervals)],
       },
-      orderBy: { timestamp: 'desc' },
+      orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
     });
     return { location: point ? toWireLocation(point) : null };
   }
@@ -65,7 +65,8 @@ export class LocationsService {
       this.prisma.locationPoint.findMany({
         where,
         // 轨迹回放按时间正序（API.md §5）
-        orderBy: { timestamp: 'asc' },
+        // 同一时间戳可能有多点：加唯一次序键，跨页/跨执行计划的页序才稳定（审计 DBOPS-01）
+        orderBy: [{ timestamp: 'asc' }, { id: 'asc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),

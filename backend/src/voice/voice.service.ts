@@ -94,6 +94,12 @@ export class VoiceService {
     // 事务级咨询锁按频道串行化「计数 → 加入」：并发加入不会突破成员上限（TRTC 房间超员）
     await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`voice:${channel.id}`}))`;
+      // 锁内再查一次成员身份：同一人并发加入时，先到者已入座，后到者必须幂等返回而不是撞名额 409（审计 VOICE-01）
+      const alreadyMember = await tx.voiceChannelMember.findUnique({
+        where: { channelId_userId: { channelId: channel.id, userId } },
+        select: { id: true },
+      });
+      if (alreadyMember) return;
       const members = await tx.voiceChannelMember.count({
         where: { channelId: channel.id },
       });

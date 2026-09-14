@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import { BindingScopeService } from './binding-scope.service';
 import { DevicesService } from './devices.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -50,6 +51,7 @@ describe('DevicesService（单测，mock 数据层）', () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         DevicesService,
+        BindingScopeService,
         { provide: PrismaService, useValue: prismaMock },
       ],
     }).compile();

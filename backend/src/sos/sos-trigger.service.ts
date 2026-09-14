@@ -6,6 +6,13 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PUSH_PROVIDER, type PushProvider } from '../providers/push.provider';
 import { RealtimePushService } from '../realtime/realtime-push.service';
 import { SOS_STATUS, countdownMs } from './sos.constants';
+
+/** 建单遇到数据库瞬断时的进程内重试（次数 × 起始间隔，指数退避）；耗尽后交给启动对账兜底 */
+const TRIGGER_RETRIES = 2;
+const TRIGGER_RETRY_BASE_MS = 200;
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 import { SosNotifierService } from './sos-notifier.service';
 import { toWireSos } from './sos-wire';
 
@@ -74,23 +81,52 @@ export class SosTriggerService {
         );
         return;
       }
-      await this.createOrMerge(e, bindUserId);
+      await this.createOrMergeWithRetry(e, bindUserId);
     } catch (err) {
+      // raw 已落库、eventId 幂等会挡住重投，这里的失败只能靠调度器的对账（reconcileLostTriggers）补建
       this.logger.error(
-        `SOS 触发处理失败（raw 已留档，可人工回放）event=${e.eventId} device=${e.deviceId}：${err instanceof Error ? err.stack : String(err)}`,
+        `SOS 触发处理失败（raw 已留档，等待对账补建）event=${e.eventId} device=${e.deviceId}：${err instanceof Error ? err.stack : String(err)}`,
       );
     }
   }
 
   /**
-   * 合并规则（2026-08-16 定稿，EVENTS.md §4.4）：
-   * 该设备已有 pending 时——新 possible_fall 只留档不建单（同一事故的重复判定）；
+   * 建单失败绝大多数是数据库瞬断/超时：先在进程内重试几次（审计 SOS-02 复现的正是「一次抛错就永久漏单」），
+   * 重试耗尽再交给启动/周期对账。createOrMerge 自身对 P2002 幂等，重复执行不会多建单。
+   */
+  private async createOrMergeWithRetry(
+    e: ValidEnvelope,
+    userId: string,
+  ): Promise<void> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= TRIGGER_RETRIES; attempt++) {
+      try {
+        await this.createOrMerge(e, userId);
+        return;
+      } catch (err) {
+        lastError = err;
+        if (attempt < TRIGGER_RETRIES) {
+          const delay = TRIGGER_RETRY_BASE_MS * 2 ** attempt;
+          this.logger.warn(
+            `SOS 建单失败（第 ${attempt + 1} 次），${delay}ms 后重试：${err instanceof Error ? err.message : String(err)}`,
+          );
+          await sleep(delay);
+        }
+      }
+    }
+    throw lastError;
+  }
+
+  /**
+   * 合并规则（2026-08-16 定稿，EVENTS.md §4.4；决策 #40 改为按「设备 + 用户」判定）：
+   * 该设备在同一绑定用户名下已有 pending 时——新 possible_fall 只留档不建单（同一事故的重复判定）；
    * 新 manual_sos 不建单但立即终态化通知（倒计时中按实体键 = 明确人为求救，等价 SOS Now）。
    * 终态（notified/cancelled）后的新事件正常建新单。
+   * 换绑后新用户的事件与前用户的进行中单互不相干（审计 SOS-03）：前用户的单照常倒计时、到期通知前用户的联系人。
    */
   private async createOrMerge(e: ValidEnvelope, userId: string): Promise<void> {
     const active = await this.prisma.sosCase.findFirst({
-      where: { deviceId: e.deviceId, status: SOS_STATUS.pending },
+      where: { deviceId: e.deviceId, userId, status: SOS_STATUS.pending },
     });
     if (active) {
       await this.applyMergeRule(e, active.id);
@@ -140,9 +176,9 @@ export class SosTriggerService {
         err instanceof Prisma.PrismaClientKnownRequestError &&
         err.code === 'P2002'
       ) {
-        // 并发兜底：同 triggerEventId 重放，或 partial unique index（每设备至多一个 pending）拦下并发建单
+        // 并发兜底：同 triggerEventId 重放，或 partial unique index（每设备每用户至多一个 pending）拦下并发建单
         const nowActive = await this.prisma.sosCase.findFirst({
-          where: { deviceId: e.deviceId, status: SOS_STATUS.pending },
+          where: { deviceId: e.deviceId, userId, status: SOS_STATUS.pending },
         });
         if (nowActive) {
           await this.applyMergeRule(e, nowActive.id);
@@ -181,16 +217,24 @@ export class SosTriggerService {
     const fromEvent = extractSosLocation(e.payload);
     if (fromEvent) return { ...fromEvent, source: 'event' };
 
-    const lastPoint = await this.prisma.locationPoint.findFirst({
-      where: { deviceId: e.deviceId },
-      orderBy: { timestamp: 'desc' },
-      select: {
-        latitude: true,
-        longitude: true,
-        coordinateSystem: true,
-        accuracy: true,
-      },
-    });
-    return lastPoint ? { ...lastPoint, source: 'last_point' } : null;
+    try {
+      const lastPoint = await this.prisma.locationPoint.findFirst({
+        where: { deviceId: e.deviceId },
+        orderBy: { timestamp: 'desc' },
+        select: {
+          latitude: true,
+          longitude: true,
+          coordinateSystem: true,
+          accuracy: true,
+        },
+      });
+      return lastPoint ? { ...lastPoint, source: 'last_point' } : null;
+    } catch (err) {
+      // 快照只是附加信息：副表查询失败绝不能阻塞建单（决策 #26③「都无则空快照照建单」，审计 SOS-01）
+      this.logger.warn(
+        `SOS 位置快照查询失败，按空快照建单 device=${e.deviceId}：${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    }
   }
 }

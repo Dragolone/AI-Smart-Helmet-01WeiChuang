@@ -25,6 +25,14 @@ const queryClient = new QueryClient({
   },
 });
 
+// 登出或换账号时清空查询缓存：query key 不含用户 id，staleTime 内新账号会直接看到上一账号的
+// 设备/事件/事故（审计 APP-01）。同一账号改昵称等 user 变更不清（id 不变）。
+useAuthStore.subscribe((state, prev) => {
+  const switched = (state.user?.id ?? null) !== (prev.user?.id ?? null);
+  const loggedOut = state.tokens === null && prev.tokens !== null;
+  if (switched || loggedOut) queryClient.clear();
+});
+
 /** 登录门控：导航器保持挂载，Stack.Protected 按会话状态切换可用路由组（guard 翻转自动重定向） */
 function RootNavigator() {
   const authed = useAuthStore((s) => s.tokens !== null);

@@ -183,8 +183,8 @@ model SosCase {
   updatedAt      DateTime  @updatedAt @map("updated_at")
   notifications  SosNotification[]
 
-  // 附加约束（见本次 migration SQL）：partial unique index「每设备至多一个 pending」，
-  // 并发触发的兜底闸门（Prisma schema 语法不支持 partial index，故此处仅注释留痕）
+  // 附加约束（见 migration SQL）：partial unique index「每设备每用户至多一个 pending」
+  //（决策 #40，2026-09-15；原为每设备一个），并发触发的兜底闸门（Prisma schema 语法不支持 partial index，故此处仅注释留痕）
   @@index([deviceId, createdAt])
   @@index([status, deadline])
   @@map("sos_cases")

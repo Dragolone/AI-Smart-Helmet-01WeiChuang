@@ -59,7 +59,7 @@
 | POST | /auth/change-phone | 换绑手机号（✅ 2026-09-11，**需登录**）。body：`{ newPhone, code }`（`code` 为 `change_phone` 用途、发往 `newPhone` 的验证码）→ 200 返回更新后的 `user` 对象。校验顺序：`newPhone` 已注册 409 `PHONE_ALREADY_REGISTERED` → 验证码错误/过期/已用 400 `SMS_CODE_INVALID` → 改号。会话不受影响；原号即刻释放可供他人注册 |
 | GET | /users/me | 当前用户信息；已注销账号的残留 access token → 401 `UNAUTHORIZED` |
 | PATCH | /users/me | 更新昵称/头像等非敏感字段 |
-| DELETE | /users/me | 注销账号（✅ 2026-09-11，**需登录**；App Store 要求应用内可注销）。body：`{ password }` → 204；密码错误 → 400 `PASSWORD_INCORRECT`。**软删除**（`users.deleted_at`），一个事务内完成：置 `deletedAt`、`phone` 改写为 `deleted:<userId>`（**原手机号不保留**，即刻可重新注册为全新账号）、清空 `avatarUrl`、撤销全部 refresh token、解绑名下全部设备（与 `DELETE /devices/{deviceId}/binding` 同口径，设备与历史事件留档）、软删除全部紧急联系人。事故记录/事件/轨迹按设备留档不动。已注销用户：login 401（号已改写）、refresh 401（token 已撤销 + 服务端校验 `deletedAt`）；**JWT 守卫验签后查 `deleted_at`（✅ 2026-09-12 上线前探针修复）**——注销后残留的 access token 在全部 REST 接口与 WS 连接上立即 401 / 4401，不能再绑设备、建联系人、改资料 |
+| DELETE | /users/me | 注销账号（✅ 2026-09-11，**需登录**；App Store 要求应用内可注销）。body：`{ password }` → 204；密码错误 → 400 `PASSWORD_INCORRECT`。**软删除**（`users.deleted_at`），一个事务内完成：置 `deletedAt`、`phone` 改写为 `deleted:<userId>`（**原手机号不保留**，即刻可重新注册为全新账号）、清空 `avatarUrl`、撤销全部 refresh token、解绑名下全部设备（与 `DELETE /devices/{deviceId}/binding` 同口径，设备与历史事件留档）、软删除全部紧急联系人、**退出全部对讲频道（释放名额，频道本身保留；2026-09-14 审计 VOICE-02 补）**，并**主动以 4401 断开该账号已建立的 WebSocket 连接**（2026-09-14 审计 AUTH-05/INGEST-04 补）。事故记录/事件/轨迹按设备留档不动。已注销用户：login 401（号已改写）、refresh 401（token 已撤销 + 服务端校验 `deletedAt`）；**JWT 守卫验签后查 `deleted_at`（✅ 2026-09-12 上线前探针修复）**——注销后残留的 access token 在全部 REST 接口与 WS 连接上立即 401 / 4401，不能再绑设备、建联系人、改资料 |
 
 `user` 对象：`{ id, phone, nickname, avatarUrl?, createdAt }`。密码 bcrypt/argon2 存储，任何接口不回传。
 
@@ -92,7 +92,7 @@ Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / 
 
 绑定历史与可见范围（✅ 2026-09-10 负责人拍板，决策 #39）：每次绑定/解绑记一段区间（`device_bindings`）。§5 轨迹、§6 事件、§9 媒体只返回**当前用户在该设备上的绑定区间内**到达（服务端 `receivedAt`）的数据——换绑后新主看不到前主期间的数据；同一用户解绑再绑回同一台头盔，之前的记录仍然可见。§7 事故记录按建单时的 userId 固化，不受影响；Admin 全量可见。
 | GET | /devices/{deviceId}/status | 设备状态：`{ online, lastSeenAt, battery, charging?, signalLevel?, sleeping, firmwareVersion }` |
-| GET | /devices/{deviceId}/battery-history?hours=24 | 电量历史（✅ 2026-09-10）：`{ from, to, points: [{ timestamp, battery, charging }] }`。数据源=raw_events 的 `device_status` 心跳，按 **10 分钟桶取桶内最后一条**（24h ≤ 144 点）；`hours` 1–168 默认 24；仅本人设备（否则 404）。App 设备详情页据此画 24h 电量曲线（替代原大电量条） |
+| GET | /devices/{deviceId}/battery-history?hours=24 | 电量历史（✅ 2026-09-10）：`{ from, to, points: [{ timestamp, battery, charging }] }`。数据源=raw_events 的 `device_status` 心跳，按 **10 分钟桶取桶内最后一条**（24h ≤ 144 点）；`hours` 1–168 默认 24；仅本人设备（否则 404）。App 设备详情页据此画 24h 电量曲线（替代原大电量条）；**只返回本人绑定区间内（服务端 receivedAt）到达的心跳**（决策 #39 同口径，2026-09-14 审计 AUTH-06 补） |
 
 device 对象补充字段（2026-08-17，TS 类型见 `@helmet/shared` DevicePublic）：`name`（用户自定义名，null 时 App 显示 deviceId）、`bindCode`（仅经归属校验的端点返回——本人可见，供详情页展示）。
 
@@ -143,8 +143,10 @@ SOS 状态机为服务端权威（DECISIONS #8/#26）：`pending → notified | 
 `sos` 对象（TS 类型见 `@helmet/shared` Sos）：`{ sosId, deviceId, triggerEventId, triggerType: "possible_fall"|"manual_sos", status: "pending"|"notified"|"cancelled", deadline, createdAt, updatedAt }`。
 
 - App 收到 WebSocket/Push 的 `sos` 对象后按 `deadline` 本地倒计时渲染，不自行计时判断超时。
-- 错误码：`SOS_ALREADY_FINALIZED`（409，取消/确认时状态机已终态）；取消/确认权限以**建单时固化的绑定用户**为准，他人操作一律 404（不泄露存在性）。
-- 通知：超时/确认后逐个紧急联系人发 SMS（同号去重）+ 本人 Push，逐条留档（成功/失败/通道/重试次数，失败重试上限 3 次）；事故位置快照优先取触发事件内嵌位置，回落最新轨迹点（✅ 口径 2026-08-16 定稿）。
+- 错误码：`SOS_ALREADY_FINALIZED`（409，取消/确认时状态机已终态）；取消/确认权限以**建单时固化的绑定用户**为准，他人操作一律 404（不泄露存在性）。进行中的单按「设备 + 用户」唯一（决策 #40）：换绑后新用户的求救另建新单，前用户的单不受影响。
+- 通知：超时/确认后逐个紧急联系人发 SMS（同号去重）+ 本人 Push，逐条留档（成功/失败/通道/重试次数，失败重试上限 3 次；单次 Provider 调用超时 `SOS_NOTIFY_TIMEOUT_MS` 默认 10s，超时按失败记 `timeout` 走重试）；事故位置快照优先取触发事件内嵌位置，回落最新轨迹点（✅ 口径 2026-08-16 定稿）。
+- **状态语义（2026-09-14 审计 SOS-04 定稿）**：`status=notified` 只表示「已到期/已确认并创建了通知任务」，**不等于联系人已收到**——实际投递结果以 `GET /accidents/{id}` 的 `notifications[]` 逐条状态为准（`sent` = 服务商已接收，无回执时不代表送达）。本人 Push 标题按此刻短信结果生成：全部/部分成功 →「SOS 已通知紧急联系人」；全部失败 →「SOS 紧急联系人通知发送失败」；未设置联系人 →「SOS 未设置紧急联系人」。App 文案统一为「已向紧急联系人发出通知」而非「已收到通知」。
+- **可靠性兜底（2026-09-14 审计 SOS-01/02/05 修复）**：位置快照查询失败不阻塞建单；建单遇数据库瞬断进程内重试；启动时对账最近 `SOS_RECONCILE_WINDOW_MINUTES`（默认 15）分钟内「raw 已落库但无 SOS 单」的摔倒/求救事件并按当时绑定用户补建。
 - ✅ 实现状态（2026-08-16）：本节全部端点已实现（active / cancel / confirm / accidents 列表与详情 + 状态机：触发/合并/倒计时/扫描/重启接管/通知重试）。
 
 ## 8. 设备设置下发（命令）
@@ -185,7 +187,7 @@ MVP 实用为主，全部只读 + 少量运维操作。
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | /admin/auth/login | body：`{ username, password }` → `{ admin: { id, username }, accessToken }`。失败统一 401 UNAUTHORIZED（不区分账号不存在与密码错误） |
-| GET | /admin/users?page=&pageSize=&keyword= | 用户列表/搜索（keyword 匹配 phone/nickname）。item：`{ id, phone, nickname, avatarUrl, createdAt, deviceCount }` |
+| GET | /admin/users?page=&pageSize=&keyword= | 用户列表/搜索（keyword 匹配 phone/nickname）。item：`{ id, phone, nickname, avatarUrl, createdAt, deviceCount }`；**已注销账号默认不列出、`includeDeleted=true` 时列出并带 `deletedAt`；`stats/overview.userTotal` 只计未注销账号**（口径 2026-09-15，审计 ADMIN-04；记录保留供事故归属与审计） |
 | GET | /admin/devices?page=&pageSize=&keyword=&online= | 设备列表（keyword 匹配 deviceId/绑定手机号；`online=true|false` 按 90s 心跳窗口筛选，口径与 §4 status 一致）。item：`{ deviceId, online, lastSeenAt, battery, charging, signalLevel, sleeping, firmwareVersion, boundAt, createdAt, bindUser: { id, phone, nickname } | null }` |
 | GET | /admin/accidents?status=&deviceId=&page=&pageSize= | 事故/SOS 记录（✅ 2026-08-16，Week 7–8）：`status=pending\|notified\|cancelled`、deviceId 精确筛；item = AccidentListItem + `user: { id, phone, nickname } \| null`（TS 类型 AdminAccidentRow），最新在前 |
 | GET | /admin/events?type=&deviceId=&from=&to=&invalid=&page=&pageSize= | 全量事件查询（✅ 2026-08-16）：默认排除校验失败留档，`invalid=true` 切换到 `_invalid` 视图（**不设独立端点，定稿**）；Admin 是排查工具，item 带业务接口不可见的 `source`/`clockSkew` 与原样 `payload`（TS 类型 AdminEventRow），按接收时间最新在前 |

@@ -4,6 +4,7 @@ import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 import { useState } from 'react'
 import { api } from '../api/client'
+import QueryError from '../components/QueryError'
 import type { AdminAccidentRow, Paginated, SosStatus } from '@helmet/shared'
 
 const formatTime = (v: string | null): string =>
@@ -104,10 +105,13 @@ export default function AccidentsPage() {
           }}
         />
       </Space>
+      {query.isError && (
+        <QueryError error={query.error} onRetry={() => void query.refetch()} />
+      )}
       <Table<AdminAccidentRow>
         rowKey="sosId"
         columns={columns}
-        dataSource={query.data?.items}
+        dataSource={query.isError ? [] : query.data?.items}
         loading={query.isLoading}
         pagination={{
           current: page,

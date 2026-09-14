@@ -23,7 +23,7 @@
 
 | 字段 | 类型 | 必填 | 说明 / 值域 |
 |------|------|------|-------------|
-| schemaVersion | integer | 必填 | 事件结构版本，当前固定 `1`；未知版本进原始事件表并告警，不进业务流程。值域 0–2147483647（int4），越界按校验失败留档 |
+| schemaVersion | integer | 必填 | 事件结构版本，当前固定 `1`；未知版本按原 eventId 进原始事件表并告警、不进业务流程（app-relay/webhook 计入 `invalid`；✅ 2026-09-14 审计 INGEST-01 实现）。值域 0–2147483647（int4），越界按校验失败留档 |
 | eventId | string (UUID) | 必填 | **设备/算法侧生成**；服务端幂等去重依据——同 eventId 只存一次、只通知一次 |
 | deviceId | string | 必填 | 硬件团队分配的设备 ID，如 `helmet_001`；必须与 MQTT 认证身份一致，不一致拒收 |
 | eventType | string (枚举) | 必填 | 见 §3 事件类型总表；未知类型进原始事件表并告警 |
@@ -105,7 +105,7 @@
 | location | object | 选填 | — | 同 4.3 location |
 
 > SOS 状态机为服务端权威（DECISIONS #8）：创建后服务端持久化 deadline 并经 WebSocket/Push 下发，App 只渲染倒计时；重复上报（同 eventId）不重复建单。
-> **并发合并规则（✅ 定稿 2026-08-16，DECISIONS #26）**：该设备已有进行中（pending）SOS 时——新 **possible_fall** 只留档不建单（同一事故的重复判定）；新 **manual_sos** 不建单但**立即触发通知**（倒计时中按实体键 = 明确人为求救，等价 App 端 SOS Now）。终态（notified/cancelled）后的新事件正常建新单。未绑定用户的设备只留档不建单。deadline 一律按服务器时间计算，设备时钟偏移（clock_skew）不影响状态机。
+> **并发合并规则（✅ 定稿 2026-08-16，DECISIONS #26；2026-09-15 决策 #40 改为按「设备 + 当前绑定用户」判定）**：该设备在**同一绑定用户名下**已有进行中（pending）SOS 时——新 **possible_fall** 只留档不建单（同一事故的重复判定）；新 **manual_sos** 不建单但**立即触发通知**（倒计时中按实体键 = 明确人为求救，等价 App 端 SOS Now）。终态（notified/cancelled）后的新事件正常建新单。未绑定用户的设备只留档不建单。**换绑后**新用户的事件另建新单，前用户的进行中单不受影响（照常倒计时、到期通知前用户的联系人；数据库约束「每设备每用户至多一个 pending」）。deadline 一律按服务器时间计算，设备时钟偏移（clock_skew）不影响状态机。
 
 ### 4.5 collision_risk / obstacle_risk
 

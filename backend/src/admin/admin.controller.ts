@@ -5,7 +5,7 @@ import {
   AdminAccidentsQueryDto,
   AdminDevicesQueryDto,
   AdminEventsQueryDto,
-  AdminListQueryDto,
+  AdminUsersQueryDto,
 } from './admin.dto';
 import { AdminService } from './admin.service';
 
@@ -17,8 +17,13 @@ export class AdminController {
   constructor(private readonly admin: AdminService) {}
 
   @Get('users')
-  users(@Query() query: AdminListQueryDto) {
-    return this.admin.listUsers(query.page, query.pageSize, query.keyword);
+  users(@Query() query: AdminUsersQueryDto) {
+    return this.admin.listUsers(
+      query.page,
+      query.pageSize,
+      query.keyword,
+      query.includeDeleted === 'true',
+    );
   }
 
   @Get('devices')

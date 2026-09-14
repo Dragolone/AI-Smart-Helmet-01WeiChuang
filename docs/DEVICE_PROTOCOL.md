@@ -67,6 +67,7 @@
 | 方式 | MQTT username = `deviceId`，password = `deviceSecret` | ✅ |
 | deviceSecret 分发 | 出厂/注册时由后端生成并写入设备；Mock 设备用同一机制注册获取 | ⚠️ 写入方式待硬件确认 |
 | 校验 | EMQX 认证对接后端（HTTP auth），后端为唯一凭证权威 | ✅ |
+| clientId | 后端消费者的固定 clientId（`MQTT_BACKEND_CLIENT_ID`）为保留值：设备连接不得使用，服务账号必须使用（2026-09-14 审计 MQTT-01 修复）。设备 clientId 建议 = deviceId（Mock 已如此），是否强制待硬件确认 | ✅ 软件侧 / ⚠️ 设备侧 |
 
 ### 3.1 EMQX → 后端 内部回调（✅ 已实现，部署时 EMQX 按此配置）
 

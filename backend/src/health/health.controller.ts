@@ -1,4 +1,5 @@
-import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Get, HttpStatus, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { Public } from '../common/public.decorator';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -7,16 +8,17 @@ import { PrismaService } from '../prisma/prisma.service';
 export class HealthController {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** 探活响应体按 API.md §1.2 固定为 { status, database }：直接写状态码而不抛异常，统一过滤器不会改写它 */
   @Get()
-  async check(): Promise<{ status: string; database: string }> {
+  async check(
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ status: string; database: string }> {
     try {
       await this.prisma.$queryRaw`SELECT 1`;
       return { status: 'ok', database: 'connected' };
     } catch {
-      throw new ServiceUnavailableException({
-        status: 'error',
-        database: 'unreachable',
-      });
+      res.status(HttpStatus.SERVICE_UNAVAILABLE);
+      return { status: 'error', database: 'unreachable' };
     }
   }
 }
