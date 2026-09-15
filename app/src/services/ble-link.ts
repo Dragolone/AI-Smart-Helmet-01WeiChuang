@@ -35,7 +35,9 @@ import {
   enqueueRelayEvent,
   flushRelayQueue,
 } from "@/services/ble-relay-uplink";
+import { translate } from "@/i18n";
 import { devLog } from "@/services/dev-log";
+import { HelmetLinkService } from "helmet-link-service";
 import { useBleStore } from "@/stores/ble-store";
 import type { BleDeviceLink } from "@/stores/ble-store";
 
@@ -64,6 +66,12 @@ export function getBleManager(): BleManager {
 /** Android 12+ 需要运行时 BLUETOOTH_SCAN/CONNECT;旧版本靠定位权限;iOS 由系统在首次使用时弹窗 */
 export async function requestBlePermissions(): Promise<boolean> {
   if (Platform.OS !== "android") return true;
+  if (Platform.Version >= 33) {
+    // Android 13+ 前台服务的常驻通知需要通知权限；拒绝也不阻塞链路（服务照跑，只是通知不显示）
+    await PermissionsAndroid.request(
+      PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+    ).catch(() => undefined);
+  }
   if (Platform.Version >= 31) {
     const r = await PermissionsAndroid.requestMultiple([
       PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
@@ -443,6 +451,7 @@ async function connect(
       sessions.delete(deviceId);
       store().patchLink(deviceId, { phase: running ? "disconnected" : "idle" });
       log(`${deviceId} 断开：${reason}`);
+      syncForegroundService();
       if (running) scheduleReconnect(deviceId);
     });
     sessions.set(deviceId, session);
@@ -454,6 +463,7 @@ async function connect(
       eventsReceived: 0,
     });
     log(`${deviceId} 已连接，固件 ${session.firmwareVersion}`);
+    syncForegroundService();
   } catch (e) {
     const code = (e as { code?: string }).code;
     log(`${deviceId} 连接/握手失败`, (e as Error).message);
@@ -475,6 +485,28 @@ async function connect(
   } finally {
     connecting = null;
     void ensureScanning();
+  }
+}
+
+/**
+ * Android 前台服务（决策 #41）：有任一头盔在连 → 起服务 + 常驻通知；链路停止 → 撤。
+ * 掉线重连期间保持服务（否则退后台后的重连扫描会被系统掐掉）。iOS 上为空操作。
+ */
+function syncForegroundService(): void {
+  if (Platform.OS !== "android" || !HelmetLinkService.available) return;
+  if (running && targets.length > 0) {
+    const names = targets.map((id) => id.slice(-6)).join(", ");
+    HelmetLinkService.start(
+      translate("device.ble.serviceTitle"),
+      translate(
+        sessions.size > 0
+          ? "device.ble.serviceConnected"
+          : "device.ble.serviceSearching",
+        { names },
+      ),
+    );
+  } else {
+    HelmetLinkService.stop();
   }
 }
 
@@ -567,6 +599,7 @@ export function stopBleLink(): void {
   }
   for (const s of sessions.values()) s.close("stopped");
   sessions.clear();
+  syncForegroundService();
   targets = [];
   reconnectDelay.clear();
   blocked.clear();

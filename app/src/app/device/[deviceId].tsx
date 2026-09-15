@@ -7,6 +7,7 @@ import { useRef, useState } from "react";
 import {
   Alert,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -31,6 +32,7 @@ import { Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { useLocale, useT } from "@/i18n";
 import { retryBleLink } from "@/services/ble-link";
+import { HelmetLinkService } from "helmet-link-service";
 import { useBleStore } from "@/stores/ble-store";
 import { shortDate, shortTime } from "@/i18n/format";
 
@@ -120,10 +122,16 @@ export default function DeviceDetailScreen() {
   // 睁/闭眼图标即可点提示,不再附加"点击查看"文字(负责人口径)
   const [bindCodeShown, setBindCodeShown] = useState(false);
   // BLE 近场链路状态（services/ble-link 写入 store；本页只显示，不做连接判断）
+  // Android 省电白名单（决策 #41）：华为等机型未加白名单时后台链路随时被杀
+  const [batteryOptOk, setBatteryOptOk] = useState(() =>
+    HelmetLinkService.isIgnoringBatteryOptimizations(),
+  );
   const bleLink = useBleStore((st) => st.links[deviceId]);
   const bleAdapter = useBleStore((st) => st.adapter);
   const bleStatusText =
-    bleAdapter === "off" || bleAdapter === "unauthorized" || bleAdapter === "unsupported"
+    bleAdapter === "off" ||
+    bleAdapter === "unauthorized" ||
+    bleAdapter === "unsupported"
       ? t(`device.ble.${bleAdapter}`)
       : t(`device.ble.${bleLink?.phase ?? "idle"}`) +
         (bleLink?.phase === "connected" && bleLink.firmwareVersion
@@ -149,10 +157,12 @@ export default function DeviceDetailScreen() {
   ) {
     setOptimisticVolume(null);
   }
-  const volumePending = optimisticVolume !== null && optimisticVolume !== serverVolume;
+  const volumePending =
+    optimisticVolume !== null && optimisticVolume !== serverVolume;
 
   const sendSetting = (key: string, value: string | number | boolean) => {
-    if (key === "volume" && typeof value === "number") setOptimisticVolume(value);
+    if (key === "volume" && typeof value === "number")
+      setOptimisticVolume(value);
     setSending(true);
     devicesApi
       .putSettings(deviceId, { settings: { [key]: value } })
@@ -398,7 +408,9 @@ export default function DeviceDetailScreen() {
             <InfoRow
               icon={bindCodeShown ? "eye-outline" : "eye-off-outline"}
               label={t("device.bindCode")}
-              value={bindCodeShown ? (detail.data?.bindCode ?? "—") : "••••••••"}
+              value={
+                bindCodeShown ? (detail.data?.bindCode ?? "—") : "••••••••"
+              }
               valueColor={bindCodeShown ? undefined : theme.textSecondary}
               onPress={
                 bindCodeShown ? () => setBindCodeShown(false) : revealBindCode
@@ -425,6 +437,37 @@ export default function DeviceDetailScreen() {
                   : undefined
               }
             />
+            {Platform.OS === "android" && HelmetLinkService.available && (
+              <InfoRow
+                icon={
+                  batteryOptOk
+                    ? "battery-charging-outline"
+                    : "battery-dead-outline"
+                }
+                label={t("device.batteryOpt")}
+                value={
+                  batteryOptOk
+                    ? t("device.batteryOpt.ok")
+                    : t("device.batteryOpt.limited")
+                }
+                valueColor={batteryOptOk ? theme.success : theme.danger}
+                onPress={
+                  batteryOptOk
+                    ? undefined
+                    : () => {
+                        HelmetLinkService.requestIgnoreBatteryOptimizations();
+                        // 回来后重查一次（系统对话框没有回调）
+                        setTimeout(
+                          () =>
+                            setBatteryOptOk(
+                              HelmetLinkService.isIgnoringBatteryOptimizations(),
+                            ),
+                          1500,
+                        );
+                      }
+                }
+              />
+            )}
 
             {/* 设备设置下发（§8;参数为演示项,清单与值域待硬件定稿 ⚠️） */}
             <View
@@ -525,32 +568,32 @@ export default function DeviceDetailScreen() {
           onPress={() => setRenameOpen(false)}
         >
           <ReAnimated.View entering={FadeInDown.duration(200)}>
-          <Pressable
-            style={[
-              styles.modalCard,
-              {
-                backgroundColor: theme.backgroundElement,
-                borderColor: theme.border,
-              },
-            ]}
-            onPress={() => undefined}
-          >
-            <ThemedText type="subtitle">{t("device.renameTitle")}</ThemedText>
-            <FormInput
-              label={t("device.nameLabel")}
-              value={nameDraft}
-              onChangeText={setNameDraft}
-              placeholder={t("device.namePlaceholder")}
-              maxLength={20}
-              autoFocus
-            />
-            <PrimaryButton
-              title={t("common.save")}
-              onPress={submitRename}
-              loading={renaming}
-            />
-          </Pressable>
-        </ReAnimated.View>
+            <Pressable
+              style={[
+                styles.modalCard,
+                {
+                  backgroundColor: theme.backgroundElement,
+                  borderColor: theme.border,
+                },
+              ]}
+              onPress={() => undefined}
+            >
+              <ThemedText type="subtitle">{t("device.renameTitle")}</ThemedText>
+              <FormInput
+                label={t("device.nameLabel")}
+                value={nameDraft}
+                onChangeText={setNameDraft}
+                placeholder={t("device.namePlaceholder")}
+                maxLength={20}
+                autoFocus
+              />
+              <PrimaryButton
+                title={t("common.save")}
+                onPress={submitRename}
+                loading={renaming}
+              />
+            </Pressable>
+          </ReAnimated.View>
         </Pressable>
       </Modal>
     </ThemedView>

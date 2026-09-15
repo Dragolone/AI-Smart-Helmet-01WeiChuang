@@ -6,6 +6,10 @@ import { attachSession } from "@/api/client";
 import { authApi } from "@/api/auth";
 
 const TOKEN_KEY = "helmet.session.tokens";
+/** 钥匙串可访问性：默认 WHEN_UNLOCKED 在锁屏时写入会抛 "User interaction is not allowed"
+ *  （2026-09-16 iPhone 锁屏 BLE 中转实测：后台刷新 token 后持久化失败，冷启动即掉登录）。
+ *  改为首次解锁后即可读写，后台/锁屏期间的 token 轮换才能落盘。 */
+const KEYCHAIN = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK };
 const USER_KEY = "helmet.session.user";
 
 /** SecureStore 只存最小档案:iOS 钥匙串单值上限 2KB,data-URI 头像(≈20KB)绝不能入;
@@ -73,10 +77,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           accessToken: auth.accessToken,
           refreshToken: auth.refreshToken,
         }),
+        KEYCHAIN,
       ),
       SecureStore.setItemAsync(
         USER_KEY,
         JSON.stringify(toPersistable(auth.user)),
+        KEYCHAIN,
       ),
     ]);
   },
@@ -107,6 +113,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     await SecureStore.setItemAsync(
       USER_KEY,
       JSON.stringify(toPersistable(user)),
+      KEYCHAIN,
     );
   },
 }));
@@ -116,7 +123,7 @@ attachSession({
   getTokens: () => useAuthStore.getState().tokens,
   setTokens: async (tokens) => {
     useAuthStore.setState({ tokens });
-    await SecureStore.setItemAsync(TOKEN_KEY, JSON.stringify(tokens));
+    await SecureStore.setItemAsync(TOKEN_KEY, JSON.stringify(tokens), KEYCHAIN);
   },
   clearSession: async () => {
     useAuthStore.setState({ tokens: null, user: null });
