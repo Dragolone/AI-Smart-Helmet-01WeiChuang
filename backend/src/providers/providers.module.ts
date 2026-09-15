@@ -5,7 +5,15 @@ import {
   SMS_PROVIDER,
   type SmsProvider,
 } from './sms.provider';
-import { MockStorageProvider, STORAGE_PROVIDER } from './storage.provider';
+import {
+  MockStorageProvider,
+  STORAGE_PROVIDER,
+  type StorageProvider,
+} from './storage.provider';
+import {
+  TencentCosProvider,
+  tencentCosConfigFromEnv,
+} from './tencent-cos.provider';
 import {
   TencentSmsProvider,
   tencentSmsConfigFromEnv,
@@ -29,12 +37,27 @@ const smsProviderFactory = (): SmsProvider => {
   return new ConsoleSmsProvider();
 };
 
+/** 对象存储：TENCENT_COS_* 密钥与桶名齐全即走腾讯云 COS，否则 Mock（占位 URL，不可访问） */
+const storageProviderFactory = (): StorageProvider => {
+  const config = tencentCosConfigFromEnv();
+  if (config) {
+    new Logger('ProvidersModule').log(
+      `对象存储：腾讯云 COS（${config.bucket} / ${config.region}）`,
+    );
+    return new TencentCosProvider(config);
+  }
+  new Logger('ProvidersModule').log(
+    '对象存储：Mock（未配置 TENCENT_COS_*，签发的是不可访问的占位 URL）',
+  );
+  return new MockStorageProvider();
+};
+
 /** 第三方 Provider（CLAUDE.md：薄接口 + Mock 实现，账号审核期不阻塞开发；禁止 Plugin Architecture） */
 @Module({
   providers: [
     { provide: SMS_PROVIDER, useFactory: smsProviderFactory },
     { provide: PUSH_PROVIDER, useClass: ConsolePushProvider },
-    { provide: STORAGE_PROVIDER, useClass: MockStorageProvider },
+    { provide: STORAGE_PROVIDER, useFactory: storageProviderFactory },
   ],
   exports: [SMS_PROVIDER, PUSH_PROVIDER, STORAGE_PROVIDER],
 })

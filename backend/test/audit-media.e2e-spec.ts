@@ -39,6 +39,10 @@ describe('audit-media：媒体元数据与预签名 URL (e2e)', () => {
   beforeAll(async () => {
     process.env.INGEST_WEBHOOK_API_KEY = API_KEY;
     process.env.MEDIA_URL_TTL_SECONDS = '1';
+    // 本套件断言 Mock 存储的占位 URL；本机 backend/.env 配了 TENCENT_COS_* 时 dotenv 会带进来，这里屏蔽
+    delete process.env.TENCENT_COS_SECRET_ID;
+    delete process.env.TENCENT_COS_SECRET_KEY;
+    delete process.env.TENCENT_COS_BUCKET;
     ({ app, http, prisma } = await buildApp());
     owner = await createUser(app, http);
     other = await createUser(app, http);
