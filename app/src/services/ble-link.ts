@@ -340,6 +340,9 @@ class HelmetSession {
 let targets: string[] = [];
 let running = false;
 let scanning = false;
+/** 本轮是否全量扫描（过滤扫描无命中后的兜底） */
+let unfiltered = false;
+const SCAN_FALLBACK_MS = 20_000;
 let connecting: string | null = null;
 const sessions = new Map<string, HelmetSession>();
 /** 握手时 deviceId 与绑定不符的设备：不再自动重连，等用户在设备页手动重试 */
@@ -384,17 +387,33 @@ async function ensureScanning(): Promise<void> {
   } catch (e) {
     log("查询已连接外设失败", (e as Error).message);
   }
-  log("扫描目标", want.map(advName).join(","));
+  log(
+    "扫描目标",
+    want.map(advName).join(","),
+    unfiltered ? "(全量扫描)" : "(FEE0 过滤)",
+  );
   const seen = new Set<string>();
+  let hit = false;
+  // 过滤扫描 20 s 无一命中 → 下一轮改为全量扫描按名匹配（部分机型/广播包不带 FEE0 时的兜底；
+  // iOS 后台仍需过滤扫描，所以只在前台可见的这一轮切换，重连周期回到过滤模式）
+  const fallbackTimer = setTimeout(() => {
+    if (!scanning || hit || unfiltered) return;
+    log("过滤扫描 20 s 无命中，改为全量扫描");
+    mgr.stopDeviceScan();
+    scanning = false;
+    unfiltered = true;
+    void ensureScanning();
+  }, SCAN_FALLBACK_MS);
   for (const id of want) store().patchLink(id, { phase: "scanning" });
   // 按服务 UUID FEE0 过滤扫描，再按广播名 `Helmet-<后6位>` 匹配到具体设备：
   // iOS 退后台后只有带服务 UUID 过滤的扫描才会继续投递（真机实测 2026-09-16，不过滤时锁屏即停），
   // 因此硬件广播包必须携带 FEE0（DEVICE_PROTOCOL §1.2 已向硬件确认项）。
   mgr.startDeviceScan(
-    [SERVICE_UUID],
+    unfiltered ? null : [SERVICE_UUID],
     { allowDuplicates: false },
     (error, device) => {
       if (error) {
+        clearTimeout(fallbackTimer);
         log("扫描错误", error.message);
         scanning = false;
         scheduleReconnect("scan-error");
@@ -426,6 +445,9 @@ async function ensureScanning(): Promise<void> {
         target = candidates[0];
         byName = false;
       }
+      hit = true;
+      clearTimeout(fallbackTimer);
+      unfiltered = false;
       mgr.stopDeviceScan();
       scanning = false;
       void connect(target, device, byName);
