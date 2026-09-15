@@ -168,6 +168,23 @@ class Helmet:
                 await self.notify(frame)
                 self.pending_ack[seq] = (frame, retries + 1, now + 1.5)
 
+    async def re_advertise(self) -> None:
+        """macOS 中心断开后不会自动恢复广播；不能再走 server.start()（服务不可重复添加），直接重开广播。"""
+        from bless.backends.corebluetooth.server import (  # type: ignore
+            CBAdvertisementDataLocalNameKey,
+            CBAdvertisementDataServiceUUIDsKey,
+        )
+
+        assert self.server is not None
+        if await self.server.is_advertising():
+            return
+        delegate = self.server.peripheral_manager_delegate
+        uuids = [svc.obj.UUID() for svc in self.server.services.values()]
+        await delegate.start_advertising(
+            {CBAdvertisementDataLocalNameKey: self.server.name, CBAdvertisementDataServiceUUIDsKey: uuids}
+        )
+        self.log("已重新广播")
+
     async def link_watchdog(self) -> None:
         """bless 无断连回调：轮询 is_connected；中心断开后清订阅并重新广播（macOS 不会自动恢复广播）。"""
         was = False
@@ -183,8 +200,7 @@ class Helmet:
                 self.subscribed = False
                 self.log("中心已断开 → 停止推送，重新广播")
                 try:
-                    await self.server.stop()
-                    await self.server.start(prioritize_local_name=False)
+                    await self.re_advertise()
                 except Exception as e:  # noqa: BLE001
                     self.log(f"重新广播失败：{e}")
             was = now_conn

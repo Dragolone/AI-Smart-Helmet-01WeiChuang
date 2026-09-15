@@ -151,7 +151,9 @@ export async function flushRelayQueue(): Promise<void> {
       devLog(
         "BLE-RELAY",
         `已中转 ${dev} accepted=${counts.accepted} duplicate=${counts.duplicate} invalid=${counts.invalid}` +
-          (queue.length > 0 ? `(缓存剩余 ${queue.length})` : ""),
+          (queue.length > 0
+            ? `(缓存剩余 ${queue.length}: ${queue.map((e) => `${e.eventType}@${e.deviceId}`).join(",")})`
+            : ""),
       );
     } catch (e) {
       if (isUnrecoverable(e)) {
