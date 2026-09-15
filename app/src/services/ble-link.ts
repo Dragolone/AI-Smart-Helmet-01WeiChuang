@@ -322,6 +322,8 @@ let connecting: string | null = null;
 const sessions = new Map<string, HelmetSession>();
 /** 握手时 deviceId 与绑定不符的设备：不再自动重连，等用户在设备页手动重试 */
 const blocked = new Set<string>();
+/** 核身失败的兜底候选外设（peripheral id）：本次链路周期内不再尝试 */
+const ignoredPeripherals = new Set<string>();
 const reconnectDelay = new Map<string, number>();
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let stateSub: Subscription | null = null;
@@ -348,7 +350,7 @@ async function ensureScanning(): Promise<void> {
   try {
     const already = await mgr.connectedDevices([SERVICE_UUID]);
     for (const d of already) {
-      const name = d.name ?? d.localName;
+      const name = d.localName ?? d.name;
       const target = want.find((id) => advName(id) === name);
       if (target) {
         scanning = false;
@@ -366,28 +368,54 @@ async function ensureScanning(): Promise<void> {
   // 按服务 UUID FEE0 过滤扫描，再按广播名 `Helmet-<后6位>` 匹配到具体设备：
   // iOS 退后台后只有带服务 UUID 过滤的扫描才会继续投递（真机实测 2026-09-16，不过滤时锁屏即停），
   // 因此硬件广播包必须携带 FEE0（DEVICE_PROTOCOL §1.2 已向硬件确认项）。
-  mgr.startDeviceScan([SERVICE_UUID], { allowDuplicates: false }, (error, device) => {
-    if (error) {
-      log("扫描错误", error.message);
+  mgr.startDeviceScan(
+    [SERVICE_UUID],
+    { allowDuplicates: false },
+    (error, device) => {
+      if (error) {
+        log("扫描错误", error.message);
+        scanning = false;
+        scheduleReconnect("scan-error");
+        return;
+      }
+      if (!device) return;
+      // 广播里的 localName 优先：iOS 的 device.name 是系统缓存的 GAP 名，可能是外设旧名/主机名（真机实测）
+      const name = device.localName ?? device.name;
+      if (__DEV__ && name && !seen.has(name)) {
+        seen.add(name);
+        log("发现", name, device.serviceUUIDs?.join(",") ?? "");
+      }
+      let target = name
+        ? wanted().find((id) => advName(id) === name)
+        : undefined;
+      let byName = true;
+      if (!target) {
+        // 名字对不上但广播了 FEE0 且只有一个目标：连上去读 0x40 核身（名字被系统缓存/截断时的兜底）
+        const advertisesService = device.serviceUUIDs?.some(
+          (u) => u.toLowerCase() === SERVICE_UUID,
+        );
+        const candidates = wanted();
+        if (
+          !advertisesService ||
+          candidates.length !== 1 ||
+          ignoredPeripherals.has(device.id)
+        )
+          return;
+        target = candidates[0];
+        byName = false;
+      }
+      mgr.stopDeviceScan();
       scanning = false;
-      scheduleReconnect("scan-error");
-      return;
-    }
-    const name = device?.name ?? device?.localName;
-    if (__DEV__ && device && name && !seen.has(name)) {
-      seen.add(name);
-      log("发现", name, device.serviceUUIDs?.join(",") ?? "");
-    }
-    if (!device || !name || !name.startsWith(ADV_NAME_PREFIX)) return;
-    const target = wanted().find((id) => advName(id) === name);
-    if (!target) return;
-    mgr.stopDeviceScan();
-    scanning = false;
-    void connect(target, device);
-  });
+      void connect(target, device, byName);
+    },
+  );
 }
 
-async function connect(deviceId: string, found: Device): Promise<void> {
+async function connect(
+  deviceId: string,
+  found: Device,
+  byName = true,
+): Promise<void> {
   connecting = deviceId;
   store().patchLink(deviceId, { phase: "connecting", errorCode: undefined });
   let session: HelmetSession | null = null;
@@ -417,7 +445,12 @@ async function connect(deviceId: string, found: Device): Promise<void> {
     log(`${deviceId} 连接/握手失败`, (e as Error).message);
     sessions.delete(deviceId);
     session?.close("handshake-failed");
-    if (code === "DEVICE_ID_MISMATCH") {
+    if (code === "DEVICE_ID_MISMATCH" && !byName) {
+      // 兜底候选核身失败：只是别人的头盔，忽略这台外设继续扫
+      ignoredPeripherals.add(found.id);
+      store().patchLink(deviceId, { phase: "disconnected" });
+      scheduleReconnect(deviceId);
+    } else if (code === "DEVICE_ID_MISMATCH") {
       // 广播名撞车或绑错设备：不自动重试，页面显示错误让用户处理
       blocked.add(deviceId);
       store().patchLink(deviceId, { phase: "error", errorCode: code });
@@ -523,6 +556,7 @@ export function stopBleLink(): void {
   targets = [];
   reconnectDelay.clear();
   blocked.clear();
+  ignoredPeripherals.clear();
   store().reset();
   // 释放原生栈：否则 JS 重载/登出后系统仍握着外设连接，头盔不再广播、下次扫描找不到
   manager?.destroy();
