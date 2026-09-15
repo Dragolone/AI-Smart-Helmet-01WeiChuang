@@ -9,8 +9,12 @@ import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { ToastHost } from "@/components/toast";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useLocaleStore, useT } from "@/i18n";
+import { installDevErrorTap } from "@/services/dev-log";
 import { useAuthStore } from "@/stores/auth-store";
 import { useThemeStore } from "@/stores/theme-store";
+
+// 开发期：未捕获异常旁路上报（真机 Metro 日志通道断时仍能看到红屏原因）
+installDevErrorTap();
 
 // 已知无害：开发期 iOS 摘除了推送 entitlement（个人团队签不了 aps-environment），
 // expo-notifications 启动自检读不到钥匙串会报此错。公司账号恢复正式签名后删除本行。

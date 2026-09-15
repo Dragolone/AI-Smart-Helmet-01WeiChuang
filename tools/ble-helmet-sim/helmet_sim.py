@@ -12,6 +12,8 @@
 """
 import argparse
 import asyncio
+import json
+import os
 import struct
 import sys
 import time
@@ -67,10 +69,27 @@ class Helmet:
         self.subscribed = False
         self.server: Optional[BlessServer] = None
         self.pending_ack: Dict[int, Tuple[bytes, int, float]] = {}  # seq -> (frame, retries, deadline)
-        self.flash: List[bytes] = []  # 高危离线保护队列（高危帧原样存）
+        # 高危离线保护队列（高危帧原样存）；落盘模拟 Flash 掉电保持，重启仿真器后仍可补传
+        self.flash_file = os.path.expanduser(f"~/.helmet/ble-sim-flash.{device_id}.json")
+        self.flash: List[bytes] = self._load_flash()
         self.rtc_offset = 0  # 对时后与本机时钟差
         self.synced = False
         self.log_prefix = f"[{device_id}]"
+
+    # —— Flash 落盘 ——
+    def _load_flash(self) -> List[bytes]:
+        try:
+            with open(self.flash_file) as f:
+                data = json.load(f)
+            self.seq = max(self.seq, int(data.get("seq", self.seq)))
+            return [bytes.fromhex(h) for h in data.get("frames", [])]
+        except (OSError, ValueError):
+            return []
+
+    def save_flash(self) -> None:
+        os.makedirs(os.path.dirname(self.flash_file), exist_ok=True)
+        with open(self.flash_file, "w") as f:
+            json.dump({"seq": self.seq, "frames": [fr.hex() for fr in self.flash]}, f)
 
     # —— 工具 ——
     def now_utc(self) -> int:
@@ -125,6 +144,7 @@ class Helmet:
         if not self.subscribed:
             if code in HIGH_RISK:
                 self.flash.append(frame)
+                self.save_flash()
                 self.log(f"离线：高危事件 code={code} seq={self.seq} 压入 Flash（队列 {len(self.flash)}）")
             return  # 周期事件离线即丢（FIFO 语义，仿真不保存），不刷屏
         await self.notify(frame)
@@ -142,10 +162,32 @@ class Helmet:
                     self.log(f"seq={seq} 重发 3 次无 ACK → 压入 Flash 保护队列")
                     del self.pending_ack[seq]
                     self.flash.append(frame)
+                    self.save_flash()
                     continue
                 self.log(f"seq={seq} 1.5s 无 ACK，重发第 {retries + 1} 次")
                 await self.notify(frame)
                 self.pending_ack[seq] = (frame, retries + 1, now + 1.5)
+
+    async def link_watchdog(self) -> None:
+        """bless 无断连回调：轮询 is_connected；中心断开后清订阅并重新广播（macOS 不会自动恢复广播）。"""
+        was = False
+        while True:
+            await asyncio.sleep(1)
+            if not self.server:
+                continue
+            now_conn = bool(await self.server.is_connected())
+            if now_conn and not was:
+                self.subscribed = True
+                self.log("中心已订阅 Notify（连接建立）")
+            if was and not now_conn:
+                self.subscribed = False
+                self.log("中心已断开 → 停止推送，重新广播")
+                try:
+                    await self.server.stop()
+                    await self.server.start(prioritize_local_name=False)
+                except Exception as e:  # noqa: BLE001
+                    self.log(f"重新广播失败：{e}")
+            was = now_conn
 
     async def periodic(self) -> None:
         last_loc = last_hb = 0.0
@@ -173,6 +215,7 @@ class Helmet:
                 before = len(self.flash)
                 self.flash = [f for f in self.flash if struct.unpack("<I", f[2:6])[0] != seq]
                 if len(self.flash) != before:
+                    self.save_flash()
                     self.log(f"ACK seq={seq} → Flash 擦除（剩余 {len(self.flash)}）")
             return
         seq = data[1]
@@ -266,8 +309,9 @@ async def main() -> None:
         GATTCharacteristicProperties.write | GATTCharacteristicProperties.write_without_response,
         None, GATTAttributePermissions.writeable,
     )
-    await server.start()
-    helmet.log(f"广播中：{name}（服务 FEE0）。命令：fall/sos/collision/obstacle/clear/loc/hb/offline N/quit")
+    # prioritize_local_name=False：广播包同时带 FEE0 服务 UUID（App 按服务 UUID 过滤扫描，iOS 后台扫描硬性要求）
+    await server.start(prioritize_local_name=False)
+    helmet.log(f"广播中：{name}（服务 FEE0）。命令：fall/sos/collision/obstacle/clear/loc/hb/offline N/quit；Flash 队列 {len(helmet.flash)} 条")
 
     # bless 没有通用的「订阅状态」回调：把 CCCD 语义近似为「服务已启动且有中心连接」——
     # 首次收到任何 write（握手 Step 3 READ 在开 Notify 之后）即视为已订阅。
@@ -283,6 +327,7 @@ async def main() -> None:
 
     asyncio.create_task(helmet.ack_watchdog())
     asyncio.create_task(helmet.periodic())
+    asyncio.create_task(helmet.link_watchdog())
 
     reader = asyncio.StreamReader()
     protocol = asyncio.StreamReaderProtocol(reader)

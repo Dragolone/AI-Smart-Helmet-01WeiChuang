@@ -18,6 +18,7 @@ import { authApi } from '@/api/auth';
 import { devicesApi } from '@/api/devices';
 import { realtimeClient } from '@/api/realtime';
 import { setBleTargets, startBleLink, stopBleLink } from '@/services/ble-link';
+import { devLog } from '@/services/dev-log';
 import { handleDeviceCommand } from '@/services/ble-relay';
 import { startRelayUplink, stopRelayUplink } from '@/services/ble-relay-uplink';
 import { useAuthStore } from '@/stores/auth-store';
@@ -29,6 +30,7 @@ export function useRealtimeUpdates(): void {
   const presentedSosId = useRef<string | null>(null);
 
   useEffect(() => {
+    devLog('realtime', 'effect authed=', authed);
     if (!authed) return;
 
     realtimeClient.start({

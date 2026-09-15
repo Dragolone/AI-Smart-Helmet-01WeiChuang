@@ -36,7 +36,7 @@
 | 项 | 定稿值 |
 |---|---|
 | GATT 角色 | 头盔 = Server（从机），App = Client（主机）；Just Works 配对，无 PIN |
-| 广播名 / 间隔 | `Helmet-<deviceId 后 6 位>`；100 ms |
+| 广播名 / 间隔 | `Helmet-<deviceId 后 6 位>`；100 ms；**广播包须携带服务 UUID FEE0**（App 按服务 UUID 过滤扫描，iOS 后台扫描硬性要求，2026-09-16 真机实测；⚠️ 待硬件确认） |
 | 服务 / 特征值 | 服务 `FEE0`；A `FEE1` Notify（上行：应答、事件、补传）；B `FEE2` Write / Write Without Response（下行：指令、ACK） |
 | MTU / 字节序 | App 协商 247；单帧 4–25 B 无分帧；多字节小端 |
 | 下行帧 | `[指令码 1B][Seq 1B][参数…]`；应答 `[指令码][Seq][ERROR 1B][数据…]` |
