@@ -3,7 +3,7 @@
 // 设计对齐定稿套图：警示图标 + 超大倒计时 + 灰色取消 / 红色立即求救双药丸
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useAudioPlayer } from "expo-audio";
+import { setAudioModeAsync, useAudioPlayer } from "expo-audio";
 import * as Haptics from "expo-haptics";
 import { useKeepAwake } from "expo-keep-awake";
 import { router, useLocalSearchParams } from "expo-router";
@@ -66,19 +66,42 @@ export default function SosActiveScreen() {
   const counting = sos != null && sos.status === "pending";
   useEffect(() => {
     if (!counting) return;
-    alarm.play();
+    // 警报音绝不能把页面打崩：锁屏/后台时 AVAudioSession 激活可能失败（expo-audio 同步抛
+    // "Session activation failed"，Release 下未捕获即整 App 崩溃，2026-09-16 真机实证——
+    // 摔倒时手机恰恰在口袋里）。播放失败只记日志，倒计时与取消按钮照常。
+    const safePlay = () => {
+      try {
+        alarm.play();
+      } catch (e) {
+        console.warn("[SOS] 警报音播放失败（后台/锁屏音频会话不可用）", e);
+      }
+    };
+    // 先把音频会话设成可后台播放 + 静音键下也响：摔倒告警必须在锁屏状态出声
+    void setAudioModeAsync({
+      playsInSilentMode: true,
+      shouldPlayInBackground: true,
+      interruptionMode: "doNotMix",
+      allowsRecording: false,
+      shouldRouteThroughEarpiece: false,
+    })
+      .catch((e) => console.warn("[SOS] 音频模式设置失败", e))
+      .then(safePlay);
     // 每秒重播警报段(0.9s 素材)+ 振动;不用 player.loop——
     // React Compiler 禁止修改 hook 返回对象的属性
     const t = setInterval(() => {
       alarm.seekTo(0).catch(() => {});
-      alarm.play();
+      safePlay();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(
         () => {},
       );
     }, 1000);
     return () => {
       clearInterval(t);
-      alarm.pause();
+      try {
+        alarm.pause();
+      } catch {
+        // 会话已失效时 pause 也可能抛，忽略
+      }
     };
   }, [counting, alarm]);
 

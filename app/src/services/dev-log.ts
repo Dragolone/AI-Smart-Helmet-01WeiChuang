@@ -1,6 +1,7 @@
 // 开发期旁路日志：真机 Metro 日志通道不稳时，把关键日志同时 POST 到本机 HTTP 接收器
-// （`EXPO_PUBLIC_BLE_LOG_URL`，DEVELOPMENT.md 仿真器一节）。生产构建整段为空操作。
-const SINK = __DEV__ ? process.env.EXPO_PUBLIC_BLE_LOG_URL : undefined;
+// （`EXPO_PUBLIC_BLE_LOG_URL`，DEVELOPMENT.md 仿真器一节）。未设该变量时整段为空操作。
+// 只看环境变量不看 __DEV__：Release 构建测后台链路时也要能看到日志；正式环境的 .env 不设该变量即为空操作
+const SINK = process.env.EXPO_PUBLIC_BLE_LOG_URL || undefined;
 
 export function devLog(tag: string, ...args: unknown[]): void {
   console.log(`[${tag}]`, ...args);

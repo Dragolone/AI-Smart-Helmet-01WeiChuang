@@ -43,7 +43,21 @@ let manager: BleManager | null = null;
 
 /** 惰性单例:BleManager 构造即拉起原生栈,只在真正用 BLE 时创建 */
 export function getBleManager(): BleManager {
-  if (!manager) manager = new BleManager();
+  if (!manager) {
+    // iOS 状态恢复（决策 #41 低成本档）：App 在后台被系统回收后，CoreBluetooth 会因外设事件
+    // 重新拉起 App 并交还已连接的外设；此时目标列表可能还没设，交给 ensureScanning 的
+    // connectedDevices 复用路径处理。Android 无此机制，参数被忽略。
+    manager = new BleManager({
+      restoreStateIdentifier: "helmet-ble-central",
+      restoreStateFunction: (restored) => {
+        const names =
+          restored?.connectedPeripherals?.map((d) => d.localName ?? d.name) ??
+          [];
+        log("系统恢复 BLE 状态", names.join(",") || "(无已连接外设)");
+        if (running) void ensureScanning();
+      },
+    });
+  }
   return manager;
 }
 
