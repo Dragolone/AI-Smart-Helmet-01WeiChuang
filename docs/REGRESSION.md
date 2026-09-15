@@ -77,7 +77,7 @@
 | 7.5.2 | 地图页/SOS 页停留 | 屏幕不自动熄灭(keep-awake) | | | |
 | 7.5.3 | 杀 App 后重开(有未上传中转事件时) | 队列从文件恢复并补传(服务端 duplicate 幂等) | ✅ | | ✅ 仿真 09-16(重开后 duplicate=2 幂等) |
 | 7.5.4 | BLE 权限流程(GATT 已落地) | Android 12+ 运行时弹权限;iOS 首次使用系统弹窗,文案为中文 | | | ✅ 仿真 09-16(iOS 中文弹窗;Android 待华为) |
-| 7.5.5 | BLE 后台保活(Week 11 必测) | iOS bluetooth-central / 华为杀后台实测,结果记入 DEVELOPMENT.md | | | ⚠️ 09-16(退后台 JS 挂起→链路断,回前台重连补传;锁屏久驻/华为待测) |
+| 7.5.5 | BLE 后台保活(Week 11 必测) | iOS bluetooth-central / 华为杀后台实测,结果记入 DEVELOPMENT.md | | | ⚠️ 09-16(退后台 JS 挂起→链路断;锁屏 5min 不重连,事件留头盔 Flash,解锁回 App 补传;华为待测;后台实时需原生方案+拍板) |
 
 ## 8. 边界与弱网
 
