@@ -10,7 +10,7 @@
 |---|---|---|
 | 机型 / 系统版本 | 建议华为 P30 Pro（无 GMS） ______ | 建议 iPhone 14 Pro Max ______ |
 | App 版本 / 构建号 | ______ | ______ |
-| Bundle ID / 包名 | `com.dravenzhong.helmet`（公司账号到位后换 `com.lingyiweichuang.app`） | 同左 |
+| Bundle ID / 包名 | `com.lingyiweichuang.app`（2026-09-16 起；显示名「零一唯创」） | 同左 |
 | 后端环境 | 本机 LAN / `https://dev-api.01weichuang.com/api/v1` | 同左 |
 | 头盔硬件版本 | 未到位（本轮以 Mock/注入替代） | 同左 |
 

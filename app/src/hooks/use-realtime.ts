@@ -15,7 +15,9 @@ import type {
 } from '@helmet/shared';
 
 import { authApi } from '@/api/auth';
+import { devicesApi } from '@/api/devices';
 import { realtimeClient } from '@/api/realtime';
+import { setBleTargets, startBleLink, stopBleLink } from '@/services/ble-link';
 import { handleDeviceCommand } from '@/services/ble-relay';
 import { startRelayUplink, stopRelayUplink } from '@/services/ble-relay-uplink';
 import { useAuthStore } from '@/stores/auth-store';
@@ -35,6 +37,18 @@ export function useRealtimeUpdates(): void {
     });
     // BLE 上行中转队列与登录态同生命周期(决策 #35:BLE 是唯一真机数据链路)；按账号分区，换账号不混用
     startRelayUplink(useAuthStore.getState().user?.id ?? undefined);
+    // BLE 近场链路：目标 = 已绑定设备；绑定/解绑后随 ['devices'] 缓存变化同步目标
+    const bleTargetsOf = () =>
+      (queryClient.getQueryData<DevicePublic[]>(['devices']) ?? []).map((d) => d.deviceId);
+    void queryClient
+      .fetchQuery({ queryKey: ['devices'], queryFn: devicesApi.list, staleTime: 10_000 })
+      .catch(() => undefined)
+      .then(() => startBleLink(bleTargetsOf()));
+    const unsubscribeCache = queryClient.getQueryCache().subscribe((event) => {
+      if (event.query.queryKey[0] === 'devices' && event.type === 'updated') {
+        setBleTargets(bleTargetsOf());
+      }
+    });
 
     const unsubscribe = realtimeClient.subscribe((message) => {
       switch (message.type) {
@@ -108,6 +122,8 @@ export function useRealtimeUpdates(): void {
       appState.remove();
       realtimeClient.stop();
       stopRelayUplink();
+      unsubscribeCache();
+      stopBleLink();
     };
   }, [authed, queryClient]);
 }

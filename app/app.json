@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "AI智能头盔",
+    "name": "零一唯创",
     "slug": "app",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon",
-      "bundleIdentifier": "com.dravenzhong.helmet",
+      "bundleIdentifier": "com.lingyiweichuang.app",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "用于队友间的实时语音对讲。",
         "UIBackgroundModes": [
@@ -31,7 +31,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.dravenzhong.helmet"
+      "package": "com.lingyiweichuang.app"
     },
     "web": {
       "output": "static",

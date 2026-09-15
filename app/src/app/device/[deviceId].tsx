@@ -30,6 +30,8 @@ import { ThemedView } from "@/components/themed-view";
 import { Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { useLocale, useT } from "@/i18n";
+import { retryBleLink } from "@/services/ble-link";
+import { useBleStore } from "@/stores/ble-store";
 import { shortDate, shortTime } from "@/i18n/format";
 
 function InfoRow({
@@ -117,6 +119,16 @@ export default function DeviceDetailScreen() {
   // 绑定码默认打码,点击显示 10 秒(防旁人看到后绑走);
   // 睁/闭眼图标即可点提示,不再附加"点击查看"文字(负责人口径)
   const [bindCodeShown, setBindCodeShown] = useState(false);
+  // BLE 近场链路状态（services/ble-link 写入 store；本页只显示，不做连接判断）
+  const bleLink = useBleStore((st) => st.links[deviceId]);
+  const bleAdapter = useBleStore((st) => st.adapter);
+  const bleStatusText =
+    bleAdapter === "off" || bleAdapter === "unauthorized" || bleAdapter === "unsupported"
+      ? t(`device.ble.${bleAdapter}`)
+      : t(`device.ble.${bleLink?.phase ?? "idle"}`) +
+        (bleLink?.phase === "connected" && bleLink.firmwareVersion
+          ? ` · v${bleLink.firmwareVersion}`
+          : "");
   const revealBindCode = () => {
     setBindCodeShown(true);
     setTimeout(() => setBindCodeShown(false), 10_000);
@@ -390,6 +402,27 @@ export default function DeviceDetailScreen() {
               valueColor={bindCodeShown ? undefined : theme.textSecondary}
               onPress={
                 bindCodeShown ? () => setBindCodeShown(false) : revealBindCode
+              }
+            />
+            <InfoRow
+              icon={
+                bleLink?.phase === "connected"
+                  ? "bluetooth"
+                  : "bluetooth-outline"
+              }
+              label={t("device.ble")}
+              value={bleStatusText}
+              valueColor={
+                bleLink?.phase === "connected"
+                  ? theme.success
+                  : bleLink?.phase === "error"
+                    ? theme.danger
+                    : theme.textSecondary
+              }
+              onPress={
+                bleLink && bleLink.phase !== "connected" && bleAdapter === "on"
+                  ? () => retryBleLink(deviceId)
+                  : undefined
               }
             />
 
