@@ -119,6 +119,12 @@ export function enqueueRelayEvent(envelope: Envelope): void {
   // 保命事件入队即持锁（Android）：华为息屏深睡会挂起 App 网络，靠锁把上传窗口撑开；周期事件不持
   if (CRITICAL_TYPES.has(envelope.eventType))
     HelmetLinkService.holdNetwork(CRITICAL_HOLD_MS);
+  // 深睡里 JS 定时器不走（华为实测 15 min 零 flush），但 BLE 事件到达时 JS 一定在跑：
+  // 借每 5 s 一次的位置包做「距上次成功上传 >5 min 就持锁冲一次」的触发点，不依赖 setInterval
+  if (Date.now() - lastFlushOkAt > PERIODIC_HOLD_INTERVAL_MS && !flushing) {
+    HelmetLinkService.holdNetwork(PERIODIC_HOLD_MS);
+    void flushRelayQueue();
+  }
   if (queue.length > QUEUE_MAX) {
     // 先丢最旧的周期事件（位置/心跳）；整队都是高危事件时才丢最旧的那条（审计 BLE-04）
     const victim = queue.findIndex((e) => !CRITICAL_TYPES.has(e.eventType));
