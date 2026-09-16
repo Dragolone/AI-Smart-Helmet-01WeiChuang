@@ -27,6 +27,11 @@ const CRITICAL_TYPES = new Set<string>([
 const QUEUE_MAX = 1000;
 /** 高危事件待上传期间的持锁上限：够重试几轮，不够把电池耗干 */
 const CRITICAL_HOLD_MS = 90_000;
+/** 深睡期间周期事件的补偿：距上次成功上传超过这个时长且队列非空，就短暂持锁把积压冲出去
+ *  （华为实测：加白名单 + 「休眠时保持网络」仍挂起后台 HTTP，位置包只能靠持锁窗口批量走） */
+const PERIODIC_HOLD_INTERVAL_MS = 5 * 60_000;
+const PERIODIC_HOLD_MS = 20_000;
+let lastFlushOkAt = Date.now();
 /** Contract 硬上限（API.md §12.1） */
 const MAX_BATCH = 100;
 const FLUSH_INTERVAL_MS = 5_000;
@@ -137,6 +142,9 @@ const isUnrecoverable = (e: unknown): boolean => {
 export async function flushRelayQueue(): Promise<void> {
   if (flushing || queue.length === 0) return;
   flushing = true;
+  if (Date.now() - lastFlushOkAt > PERIODIC_HOLD_INTERVAL_MS) {
+    HelmetLinkService.holdNetwork(PERIODIC_HOLD_MS);
+  }
   const ownerAtStart = owner;
   try {
     // 一批只提交一个设备(接口按设备鉴权)；设备之间轮转，谁也不能长期霸占
@@ -154,6 +162,7 @@ export async function flushRelayQueue(): Promise<void> {
       // 202 = 整批已消化(accepted/duplicate 入库,invalid 服务端留档不重试)→ 整批出队
       const sent = new Set(batch);
       queue = queue.filter((e) => !sent.has(e));
+      lastFlushOkAt = Date.now();
       if (!queue.some((e) => CRITICAL_TYPES.has(e.eventType)))
         HelmetLinkService.releaseNetwork();
       devLog(
