@@ -13,6 +13,7 @@ import { File, Paths } from "expo-file-system";
 
 import { relayApi } from "@/api/relay";
 import { devLog } from "@/services/dev-log";
+import { HelmetLinkService } from "helmet-link-service";
 
 const RELAY_SCOPE = new Set<string>(BLE_RELAY_EVENT_TYPES);
 /** 溢出时最后才丢的类型：保命链路与危险留档（与头盔 Flash「高危永不覆盖」口径一致） */
@@ -24,6 +25,8 @@ const CRITICAL_TYPES = new Set<string>([
 ]);
 /** 离线缓存上限：溢出丢最旧的周期事件并告警，绝不静默截断 */
 const QUEUE_MAX = 1000;
+/** 高危事件待上传期间的持锁上限：够重试几轮，不够把电池耗干 */
+const CRITICAL_HOLD_MS = 90_000;
 /** Contract 硬上限（API.md §12.1） */
 const MAX_BATCH = 100;
 const FLUSH_INTERVAL_MS = 5_000;
@@ -108,6 +111,9 @@ export function enqueueRelayEvent(envelope: Envelope): void {
     return;
   }
   queue.push(envelope);
+  // 保命事件入队即持锁（Android）：华为息屏深睡会挂起 App 网络，靠锁把上传窗口撑开；周期事件不持
+  if (CRITICAL_TYPES.has(envelope.eventType))
+    HelmetLinkService.holdNetwork(CRITICAL_HOLD_MS);
   if (queue.length > QUEUE_MAX) {
     // 先丢最旧的周期事件（位置/心跳）；整队都是高危事件时才丢最旧的那条（审计 BLE-04）
     const victim = queue.findIndex((e) => !CRITICAL_TYPES.has(e.eventType));
@@ -148,6 +154,8 @@ export async function flushRelayQueue(): Promise<void> {
       // 202 = 整批已消化(accepted/duplicate 入库,invalid 服务端留档不重试)→ 整批出队
       const sent = new Set(batch);
       queue = queue.filter((e) => !sent.has(e));
+      if (!queue.some((e) => CRITICAL_TYPES.has(e.eventType)))
+        HelmetLinkService.releaseNetwork();
       devLog(
         "BLE-RELAY",
         `已中转 ${dev} accepted=${counts.accepted} duplicate=${counts.duplicate} invalid=${counts.invalid}` +

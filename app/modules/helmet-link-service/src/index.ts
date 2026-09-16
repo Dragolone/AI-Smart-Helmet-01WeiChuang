@@ -9,6 +9,8 @@ interface NativeLinkService {
   isRunning(): boolean;
   isIgnoringBatteryOptimizations(): boolean;
   requestIgnoreBatteryOptimizations(): void;
+  holdNetwork(ms: number): void;
+  releaseNetwork(): void;
 }
 
 const native =
@@ -34,5 +36,12 @@ export const HelmetLinkService = {
   },
   requestIgnoreBatteryOptimizations(): void {
     native?.requestIgnoreBatteryOptimizations();
+  },
+  /** 高危事件待上传：短暂持 CPU/Wi-Fi 锁（最多 ms 毫秒），上传完成后 releaseNetwork */
+  holdNetwork(ms: number): void {
+    native?.holdNetwork(ms);
+  },
+  releaseNetwork(): void {
+    native?.releaseNetwork();
   },
 };
