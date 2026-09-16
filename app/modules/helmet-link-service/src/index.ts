@@ -39,9 +39,10 @@ export const HelmetLinkService = {
   },
   /** 高危事件待上传：短暂持 CPU/Wi-Fi 锁（最多 ms 毫秒），上传完成后 releaseNetwork */
   holdNetwork(ms: number): void {
-    native?.holdNetwork(ms);
+    // 原生包可能比 JS 旧（dev client 热更）：方法不存在时静默跳过，绝不让上传链路因此失败
+    if (typeof native?.holdNetwork === "function") native.holdNetwork(ms);
   },
   releaseNetwork(): void {
-    native?.releaseNetwork();
+    if (typeof native?.releaseNetwork === "function") native.releaseNetwork();
   },
 };
