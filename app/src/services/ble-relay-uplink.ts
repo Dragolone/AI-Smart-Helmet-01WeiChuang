@@ -121,8 +121,16 @@ export function enqueueRelayEvent(envelope: Envelope): void {
     HelmetLinkService.holdNetwork(CRITICAL_HOLD_MS);
   // 深睡里 JS 定时器不走（华为实测 15 min 零 flush），但 BLE 事件到达时 JS 一定在跑：
   // 借每 5 s 一次的位置包做「距上次成功上传 >5 min 就持锁冲一次」的触发点，不依赖 setInterval
-  if (Date.now() - lastFlushOkAt > PERIODIC_HOLD_INTERVAL_MS && !flushing) {
-    HelmetLinkService.holdNetwork(PERIODIC_HOLD_MS);
+  // 队列里还有高危事件（上一次上传失败，例如深睡刚醒时的 SSL 读错误）也要借这次事件立刻重试，
+  // 不能等 5 min 的周期窗口——实测一次失败后保命事件被拖到下个窗口
+  const criticalPending = queue.some((e) => CRITICAL_TYPES.has(e.eventType));
+  if (
+    !flushing &&
+    (criticalPending || Date.now() - lastFlushOkAt > PERIODIC_HOLD_INTERVAL_MS)
+  ) {
+    HelmetLinkService.holdNetwork(
+      criticalPending ? CRITICAL_HOLD_MS : PERIODIC_HOLD_MS,
+    );
     void flushRelayQueue();
   }
   if (queue.length > QUEUE_MAX) {
