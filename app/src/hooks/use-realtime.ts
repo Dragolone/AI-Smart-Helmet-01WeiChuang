@@ -19,6 +19,7 @@ import { devicesApi } from "@/api/devices";
 import { realtimeClient } from "@/api/realtime";
 import { sosApi } from "@/api/sos";
 import { setBleTargets, startBleLink, stopBleLink } from "@/services/ble-link";
+import { checkBatteryAlert } from "@/services/battery-alert";
 import { devLog } from "@/services/dev-log";
 import { handleDeviceCommand } from "@/services/ble-relay";
 import { startRelayUplink, stopRelayUplink } from "@/services/ble-relay-uplink";
@@ -102,6 +103,10 @@ export function useRealtimeUpdates(): void {
               d.deviceId === deviceId ? { ...d, ...status } : d,
             ),
           );
+          const dev = queryClient
+            .getQueryData<DevicePublic[]>(["devices"])
+            ?.find((d) => d.deviceId === deviceId);
+          checkBatteryAlert(deviceId, dev?.name ?? deviceId, status);
           break;
         }
         case "risk_event":

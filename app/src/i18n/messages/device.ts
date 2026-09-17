@@ -1,6 +1,9 @@
 // device 页文案（设备详情 + 绑定设备）。三种语言的 key 必须一一对应。
 export const device = {
   "zh-CN": {
+    "battery.channel": "头盔电量",
+    "battery.lowTitle": "头盔电量低",
+    "battery.lowBody": "{name} 电量剩 {battery}%，请尽快充电",
     "device.info": "设备信息",
     "device.sendFailed": "下发失败",
     "device.volume": "蜂鸣音量",
@@ -68,6 +71,9 @@ export const device = {
     "device.bindAction": "绑定",
   },
   "zh-TW": {
+    "battery.channel": "頭盔電量",
+    "battery.lowTitle": "頭盔電量低",
+    "battery.lowBody": "{name} 電量剩 {battery}%，請盡快充電",
     "device.info": "裝置資訊",
     "device.sendFailed": "下發失敗",
     "device.volume": "蜂鳴音量",
@@ -135,6 +141,9 @@ export const device = {
     "device.bindAction": "綁定",
   },
   en: {
+    "battery.channel": "Helmet battery",
+    "battery.lowTitle": "Helmet battery low",
+    "battery.lowBody": "{name} is at {battery}%, charge it soon",
     "device.info": "Device info",
     "device.sendFailed": "Couldn't send setting",
     "device.volume": "Buzzer volume",
@@ -185,10 +194,12 @@ export const device = {
     "device.ble.unauthorized": "Bluetooth permission denied",
     "device.ble.unsupported": "Bluetooth unavailable on this device",
     "device.ble.serviceTitle": "Guarding helmet link",
-    "device.ble.serviceConnected": "Connected to helmet {names}; falls and hazards report in real time",
+    "device.ble.serviceConnected":
+      "Connected to helmet {names}; falls and hazards report in real time",
     "device.ble.serviceSearching": "Searching for helmet {names}…",
     "device.batteryOpt": "Background",
-    "device.batteryOpt.limited": "Restricted by battery saver, tap to whitelist",
+    "device.batteryOpt.limited":
+      "Restricted by battery saver, tap to whitelist",
     "device.batteryOpt.ok": "Unrestricted",
     "device.settings": "Device settings",
     "device.light": "Marker light",

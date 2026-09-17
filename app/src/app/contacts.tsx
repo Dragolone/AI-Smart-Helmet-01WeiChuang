@@ -2,7 +2,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { Alert, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, ScrollView, Share, StyleSheet, View } from "react-native";
 import type { EmergencyContact } from "@helmet/shared";
 
 import { contactsApi } from "@/api/contacts";
@@ -67,6 +67,19 @@ function ContactRow({
           {contact.phone}
         </ThemedText>
       </View>
+      <Tappable
+        accessibilityRole="button"
+        accessibilityLabel={t("contacts.tell")}
+        onPress={() =>
+          void Share.share({
+            message: t("contacts.tellMessage", { name: contact.name }),
+          }).catch(() => undefined)
+        }
+        hitSlop={8}
+        style={styles.trash}
+      >
+        <Ionicons name="share-outline" size={20} color={theme.textSecondary} />
+      </Tappable>
       <Tappable
         accessibilityRole="button"
         accessibilityLabel={t("common.delete")}

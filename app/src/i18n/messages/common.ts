@@ -1,6 +1,9 @@
 // 三端共用文案：标签栏、通用动作、相对时间、导航标题
 export const common = {
   "zh-CN": {
+    "contacts.tell": "告诉 TA",
+    "contacts.tellMessage":
+      "{name}，我在「零一唯创」智能头盔 App 里把你设为了紧急联系人。如果我骑行时摔倒或按下求救、且 60 秒内没有取消，你会收到一条带我位置的短信提醒——到时请先打我电话，联系不上就报警。谢谢！",
     "app.crashTitle": "出了点问题",
     "app.crashBody": "这一页遇到了错误，你的数据和头盔连接不受影响。",
     "app.crashRetry": "重试",
@@ -89,6 +92,9 @@ export const common = {
     "common.failed": "操作失败",
   },
   "zh-TW": {
+    "contacts.tell": "告訴 TA",
+    "contacts.tellMessage":
+      "{name}，我在「零一唯創」智慧頭盔 App 裡把你設為了緊急聯絡人。如果我騎行時跌倒或按下求救、且 60 秒內沒有取消，你會收到一則附我位置的簡訊提醒——到時請先打我電話，聯絡不上就報警。謝謝！",
     "app.crashTitle": "出了點問題",
     "app.crashBody": "這一頁遇到了錯誤，你的資料和頭盔連線不受影響。",
     "app.crashRetry": "重試",
@@ -177,6 +183,9 @@ export const common = {
     "common.failed": "操作失敗",
   },
   en: {
+    "contacts.tell": "Tell them",
+    "contacts.tellMessage":
+      "{name}, I've set you as my emergency contact in the Zero-One Innovation helmet app. If I fall or press SOS while riding and don't cancel within 60 s, you'll get an SMS with my location — please call me first, and call emergency services if you can't reach me. Thanks!",
     "app.crashTitle": "Something went wrong",
     "app.crashBody":
       "This screen hit an error. Your data and helmet link are unaffected.",
