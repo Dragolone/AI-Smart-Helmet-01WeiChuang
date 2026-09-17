@@ -37,11 +37,13 @@
 | **ADMIN-04** | 口径（负责人 2026-09-15 拍板「记录保留」）：已注销账号记录保留供事故归属与审计；用户列表默认 `deletedAt IS NULL`，`includeDeleted=true` 时列出并带 `deletedAt`；`stats/overview.userTotal` 只计未注销；后台用户页加「含已注销」筛选，已注销行以标记代替手机号并显示注销时间 | `admin/admin.service.ts`、`admin/admin.controller.ts`、`admin/admin.dto.ts`、`packages/shared/src/api.ts`（`AdminUserRow.deletedAt`）、`admin/src/pages/UsersPage.tsx`、`docs/API.md §10` | audit-admin 29/29 转绿；既有 admin/admin-detail-stats/admin-events/account e2e 32/32 |
 | **DBOPS-01** | 轨迹查询 orderBy 追加 `id` 次序键 | `locations/locations.service.ts` | audit-dbops 转绿 |
 | **DBOPS-05** | /health 503 直接写状态码返回文档规定的 `{status, database}` 体 | `health/health.controller.ts` | 转绿 |
+| **SOS-09**（2026-09-17 补） | `deliverPending` 排序改为 `[{channel:'desc'},{createdAt:'asc'},{id:'asc'}]`：同一单 sms 先于 push，全序稳定，`take:100` 也优先装短信行；测试助手 `notificationsOf` 同口径读回 | `sos/sos-notifier.service.ts`、`test/helpers/audit-sos.ts`、新增 `test/sos-notify-order.e2e-spec.ts` | 新回归 2/2 转绿（含 push 行 backdate 5s 的最坏情况）；audit-sos-faults 7/7；全量 e2e 46 套件 452/452 |
+| **APP-02**（2026-09-17 补） | 删除 5 个 spike-* 页与 `EXPO_PUBLIC_TRTC_SDKAPPID/SECRETKEY`（对讲早已改服务端签发 UserSig），`.env.example` 同步 | `app/src/app/(tabs)/spike-*.tsx`、`app/src/app/spike-map-web.tsx`、`app/.env.example`、`docs/THIRD_PARTY.md` | 客户端包内不再含任何 TRTC 密钥；App 单测 172/172 |
 | **DBOPS-06** | 用户守卫拒绝 `typ=admin` 的 token；两密钥同值时启动打 ERROR 日志（不阻断启动） | `auth/jwt-auth.guard.ts`、`admin/admin.constants.ts` | 转绿 |
 
 ## 未修（需拍板或超出本轮范围）
 
-- SOS-06/07（P3，语义记录）、AUTH-04/07/11、MQTT-03（Caddy 是否暴露 `/internal`，属部署配置）、APP-02（spike 页与客户端 TRTC SecretKey，正式包前清理）、APP-04 的 9 条文案、DBOPS-07（SIGTERM 排空期）、DBOPS-08（`npm audit fix` 与 Dockerfile `--omit=dev`，涉及依赖升级需双人同意）、仓库卫生（HYG/ENV）。
+- SOS-06/07（P3，语义记录）、AUTH-04/07/11、MQTT-03（Caddy 是否暴露 `/internal`，属部署配置）、~~APP-02~~（**2026-09-17 已修，见上表**）、APP-04 的 9 条文案、DBOPS-07（SIGTERM 排空期）、DBOPS-08（`npm audit fix` 与 Dockerfile `--omit=dev`，涉及依赖升级需双人同意）、仓库卫生（HYG/ENV）。
 
 ## 修复后的最终校验
 

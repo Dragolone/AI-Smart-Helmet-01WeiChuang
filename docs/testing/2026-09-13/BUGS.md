@@ -6,7 +6,7 @@
 > **本轮无 P0。** 全部「缺陷断言」测试已提交在 `backend/test/audit-*.e2e-spec.ts` 与 `app/src/**/__tests__/audit-*.test.ts`，**修复前会失败，这是刻意保留的证据**（审计规则：不删不跳过失败测试）。
 
 
-> **修复状态（2026-09-15）**：已修复并复验的 ID 见同目录 `FIXES.md`。**仍开放**（SOS-03 已按决策 #40 修复、ADMIN-04 已按「记录保留」口径修复）；SOS-06/07、AUTH-04/07/11、MQTT-03、APP-02/04、DBOPS-07/08、部分 CONTRACT 文档差异、HYG/ENV/TEST/COV 项。
+> **修复状态（2026-09-15）**：已修复并复验的 ID 见同目录 `FIXES.md`。**仍开放**（SOS-03 已按决策 #40 修复、ADMIN-04 已按「记录保留」口径修复；**APP-02 与新补录的 SOS-09 已于 2026-09-17 修复**）；SOS-06/07、AUTH-04/07/11、MQTT-03、APP-04、DBOPS-07/08、部分 CONTRACT 文档差异、HYG/ENV/TEST/COV 项。
 
 ## 索引
 
@@ -50,6 +50,7 @@
 | BLE-08 | P3 | CONFIRMED | 队列文件内容为 `null` 时产生未处理的 Promise rejection |
 | AUTH-01/04/05/06/07/10/11 | P3 | CONFIRMED | 见下文逐条 |
 | SOS-06/07/08 | P3 | CONFIRMED/BY_DESIGN | 见下文逐条 |
+| SOS-09 | P2 | CONFIRMED | 通知投递顺序不确定 → 本人 Push 可能抢在短信前发出，误报「短信全部失败」（2026-09-17 补录，已修） |
 | INGEST-02/04 | P3 | CONFIRMED | 见下文逐条 |
 | CONTRACT-01…15 | P3 | 混合 | Contract 一致性差异，见 `evidence/contract/diff-table.md` |
 | HYG-01/02、ENV-01/02、TEST-01、COV-01/02 | P3 | CONFIRMED | 仓库卫生与测试基建，见 `evidence/baseline/main-agent-findings.md` |
@@ -521,6 +522,22 @@
 | 实际 | update({status:'sent', sentAt}) 未写 lastError:null |
 | 源码位置 | backend/src/sos/sos-notifier.service.ts:119-122 |
 | 复现频率 | 确定性 |
+
+### SOS-09 · P2 · CONFIRMED — 通知投递顺序不确定：本人 Push 抢在短信前发出，误报「短信全部失败」
+
+> 2026-09-17 补录：本轮之外发现（跑全量 e2e 并开覆盖率插桩时，审计用例 ⑥ 的顺序断言翻转），同日已修复并加回归测试。
+
+| 项 | 内容 |
+|---|---|
+| 严重度理由 | 不丢通知，但会在求救最关键的时刻给用户一条与事实相反的告警（「短信全部失败，请直接拨打电话求助」），可能让人放弃等待救援 |
+| 证据来源 | integration（进程内 e2e） |
+| 影响范围 | 每一次 SOS 终态化通知；顺序由数据库执行计划决定，两种结果都可能出现 |
+| 前置条件 | SOS 终态化时同一事务创建 sms + push 两行通知 |
+| 最小复现 | `backend/test/sos-notify-order.e2e-spec.ts`（把 push 行的 createdAt backdate 5s，即当年真实可能出现的 tie 结果之一）→ Push 标题为「SOS 紧急联系人通知发送失败」而短信随后成功 |
+| 预期 | 同一单先投 sms 再投 push（SOS-04 的 pushText 按「此刻短信结果」生成正文，顺序是业务前提） |
+| 实际 | `deliverPending` 只按 `createdAt asc` 排序；Postgres `now()` 返回事务开始时间，两行 createdAt 完全相同 → 无唯一次序键，顺序任意（与 DBOPS-01 同类） |
+| 源码位置 | backend/src/sos/sos-notifier.service.ts（deliverPending 的 orderBy）；测试侧 `test/helpers/audit-sos.ts` 的 notificationsOf 同样缺次序键，导致审计用例 ⑥ 的断言本身也是 flaky |
+| 复现频率 | 非确定性（负载/插桩会改变翻转概率） |
 | 证据文件 | docs/testing/2026-09-13/evidence/sos/real-process-restart.json、docs/testing/2026-09-13/evidence/sos/real-process-restart.log |
 | 建议修法 | 成功分支 data 增加 lastError: null |
 | 回归范围 | 通知重试用例 |
