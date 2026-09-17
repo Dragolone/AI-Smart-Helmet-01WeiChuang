@@ -31,6 +31,7 @@ function ContactRow({
   onDelete: () => void;
 }) {
   const theme = useTheme();
+  const t = useT();
   return (
     <View
       style={[
@@ -66,7 +67,13 @@ function ContactRow({
           {contact.phone}
         </ThemedText>
       </View>
-      <Tappable onPress={onDelete} hitSlop={8} style={styles.trash}>
+      <Tappable
+        accessibilityRole="button"
+        accessibilityLabel={t("common.delete")}
+        onPress={onDelete}
+        hitSlop={8}
+        style={styles.trash}
+      >
         <Ionicons name="trash-outline" size={20} color={theme.textSecondary} />
       </Tappable>
     </View>

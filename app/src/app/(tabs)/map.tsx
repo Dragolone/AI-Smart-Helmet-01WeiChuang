@@ -1100,6 +1100,9 @@ export default function MapScreen() {
                       <View style={styles.replayRow}>
                         <Tappable
                           accessibilityRole="button"
+                          accessibilityLabel={t(
+                            playing ? "map.pause" : "map.play",
+                          )}
                           style={[
                             styles.playBtn,
                             {

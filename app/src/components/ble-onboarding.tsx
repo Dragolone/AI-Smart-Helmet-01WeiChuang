@@ -111,7 +111,13 @@ export function BleOnboardingCard() {
           {t("ble.onboarding.title")}
         </ThemedText>
         {!hasBlocker && (
-          <Tappable feedback="opacity" onPress={dismiss} hitSlop={8}>
+          <Tappable
+            feedback="opacity"
+            accessibilityRole="button"
+            accessibilityLabel={t("common.close")}
+            onPress={dismiss}
+            hitSlop={8}
+          >
             <Ionicons name="close" size={18} color={theme.textSecondary} />
           </Tappable>
         )}

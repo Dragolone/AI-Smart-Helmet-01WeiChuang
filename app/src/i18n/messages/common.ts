@@ -1,10 +1,13 @@
 // 三端共用文案：标签栏、通用动作、相对时间、导航标题
 export const common = {
   "zh-CN": {
+    "common.close": "关闭",
     "ble.onboarding.title": "让头盔连上手机",
-    "ble.onboarding.body": "摔倒、危险预警都靠这条蓝牙链路上报，三步做完就一直自动连接",
+    "ble.onboarding.body":
+      "摔倒、危险预警都靠这条蓝牙链路上报，三步做完就一直自动连接",
     "ble.onboarding.bluetooth": "打开手机蓝牙",
-    "ble.onboarding.bluetoothHint": "iPhone 在控制中心打开；安卓在系统设置里打开",
+    "ble.onboarding.bluetoothHint":
+      "iPhone 在控制中心打开；安卓在系统设置里打开",
     "ble.onboarding.permission": "允许「零一唯创」使用蓝牙",
     "ble.onboarding.permissionHint": "之前拒绝过，需要到系统设置里重新允许",
     "ble.onboarding.whitelist": "允许后台运行",
@@ -13,8 +16,10 @@ export const common = {
     "ble.banner.off": "手机蓝牙已关闭，头盔无法连接",
     "ble.banner.unauthorized": "未允许蓝牙权限，头盔无法连接",
     "keepalive.title": "请不要手动关闭 App",
-    "keepalive.body": "锁屏、切到别的 App 都没关系。但如果从多任务里把「零一唯创」上滑关闭，头盔检测到的摔倒会等到下次打开 App 才通知。",
-    "keepalive.androidTip": "华为等机型：在最近任务里长按本应用选择「锁定」，可以防止一键清理时被误关。",
+    "keepalive.body":
+      "锁屏、切到别的 App 都没关系。但如果从多任务里把「零一唯创」上滑关闭，头盔检测到的摔倒会等到下次打开 App 才通知。",
+    "keepalive.androidTip":
+      "华为等机型：在最近任务里长按本应用选择「锁定」，可以防止一键清理时被误关。",
     "keepalive.ok": "知道了",
     "empty.eventsTitle": "还没有安全事件",
     "empty.eventsBody": "头盔连上后，摔倒、碰撞、障碍物等事件会出现在这里",
@@ -81,10 +86,13 @@ export const common = {
     "common.failed": "操作失败",
   },
   "zh-TW": {
+    "common.close": "關閉",
     "ble.onboarding.title": "讓頭盔連上手機",
-    "ble.onboarding.body": "跌倒、危險預警都靠這條藍牙鏈路上報，三步做完就會一直自動連線",
+    "ble.onboarding.body":
+      "跌倒、危險預警都靠這條藍牙鏈路上報，三步做完就會一直自動連線",
     "ble.onboarding.bluetooth": "打開手機藍牙",
-    "ble.onboarding.bluetoothHint": "iPhone 在控制中心打開；Android 在系統設定裡打開",
+    "ble.onboarding.bluetoothHint":
+      "iPhone 在控制中心打開；Android 在系統設定裡打開",
     "ble.onboarding.permission": "允許「零一唯創」使用藍牙",
     "ble.onboarding.permissionHint": "之前拒絕過，需要到系統設定裡重新允許",
     "ble.onboarding.whitelist": "允許背景執行",
@@ -93,8 +101,10 @@ export const common = {
     "ble.banner.off": "手機藍牙已關閉，頭盔無法連線",
     "ble.banner.unauthorized": "未允許藍牙權限，頭盔無法連線",
     "keepalive.title": "請不要手動關閉 App",
-    "keepalive.body": "鎖屏、切到別的 App 都沒關係。但如果從多工列把「零一唯創」上滑關閉，頭盔偵測到的跌倒會等到下次打開 App 才通知。",
-    "keepalive.androidTip": "華為等機型：在最近任務裡長按本應用選擇「鎖定」，可防止一鍵清理時被誤關。",
+    "keepalive.body":
+      "鎖屏、切到別的 App 都沒關係。但如果從多工列把「零一唯創」上滑關閉，頭盔偵測到的跌倒會等到下次打開 App 才通知。",
+    "keepalive.androidTip":
+      "華為等機型：在最近任務裡長按本應用選擇「鎖定」，可防止一鍵清理時被誤關。",
     "keepalive.ok": "知道了",
     "empty.eventsTitle": "還沒有安全事件",
     "empty.eventsBody": "頭盔連上後，跌倒、碰撞、障礙物等事件會出現在這裡",
@@ -161,25 +171,35 @@ export const common = {
     "common.failed": "操作失敗",
   },
   en: {
+    "common.close": "Close",
     "ble.onboarding.title": "Connect your helmet",
-    "ble.onboarding.body": "Falls and hazard alerts travel over this Bluetooth link. Three steps, then it connects automatically.",
+    "ble.onboarding.body":
+      "Falls and hazard alerts travel over this Bluetooth link. Three steps, then it connects automatically.",
     "ble.onboarding.bluetooth": "Turn on Bluetooth",
-    "ble.onboarding.bluetoothHint": "iPhone: Control Center; Android: system settings",
+    "ble.onboarding.bluetoothHint":
+      "iPhone: Control Center; Android: system settings",
     "ble.onboarding.permission": "Allow Bluetooth for this app",
-    "ble.onboarding.permissionHint": "It was denied before; re-enable it in system settings",
+    "ble.onboarding.permissionHint":
+      "It was denied before; re-enable it in system settings",
     "ble.onboarding.whitelist": "Allow background activity",
-    "ble.onboarding.whitelistHint": "Battery-saver whitelist keeps the link alive when the screen is off",
+    "ble.onboarding.whitelistHint":
+      "Battery-saver whitelist keeps the link alive when the screen is off",
     "ble.onboarding.go": "Settings",
     "ble.banner.off": "Bluetooth is off, the helmet can't connect",
-    "ble.banner.unauthorized": "Bluetooth permission denied, the helmet can't connect",
+    "ble.banner.unauthorized":
+      "Bluetooth permission denied, the helmet can't connect",
     "keepalive.title": "Please don't force-close the app",
-    "keepalive.body": "Locking the screen or switching apps is fine. But if you swipe the app away in the app switcher, a fall detected by the helmet won't be reported until you open the app again.",
-    "keepalive.androidTip": "Huawei and similar phones: long-press the app in Recents and choose Lock so it survives one-tap cleanup.",
+    "keepalive.body":
+      "Locking the screen or switching apps is fine. But if you swipe the app away in the app switcher, a fall detected by the helmet won't be reported until you open the app again.",
+    "keepalive.androidTip":
+      "Huawei and similar phones: long-press the app in Recents and choose Lock so it survives one-tap cleanup.",
     "keepalive.ok": "Got it",
     "empty.eventsTitle": "No safety events yet",
-    "empty.eventsBody": "Falls, collisions and obstacle warnings will show up here once the helmet is connected",
+    "empty.eventsBody":
+      "Falls, collisions and obstacle warnings will show up here once the helmet is connected",
     "empty.contactsTitle": "No emergency contacts yet",
-    "empty.contactsBody": "They are notified automatically if a fall isn't cancelled within 60 s. Add at least one.",
+    "empty.contactsBody":
+      "They are notified automatically if a fall isn't cancelled within 60 s. Add at least one.",
     "empty.contactsAction": "Add your first contact",
     "empty.accidentsTitle": "No incident records yet",
     "empty.accidentsBody": "Fall and manual SOS records are kept here",
