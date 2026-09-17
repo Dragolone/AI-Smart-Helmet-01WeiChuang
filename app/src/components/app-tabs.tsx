@@ -1,5 +1,4 @@
 // 底部标签（最终 IA 定案 2026-08-16）：设备 / 地图 / 对讲 / 安全 / 我的（Android 上限 5）
-// spike-* 页面文件保留（统一清 legacy 时删除），不再占标签位。
 // 图标双轨：iOS 用 SF Symbols（模板 PNG 在 iOS 原生标签条按原始尺寸渲染会撑爆整条栏，
 // 2026-08-16 真机实证）；Android 继续用模板 PNG（正式设计资产出图后统一替换）。
 import { NativeTabs } from 'expo-router/unstable-native-tabs';

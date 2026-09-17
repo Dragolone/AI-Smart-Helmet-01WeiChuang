@@ -80,7 +80,7 @@
 - 选型已定案（决策 #22），后端 UserSig 自实现官方 HMAC-SHA256 算法，不引 SDK 依赖
 - ✅ **补验通过（2026-08-16）**：Developer A 提供个人测试应用凭证，填入 `backend/.env` 的 `TRTC_SDK_APP_ID` / `TRTC_SECRET_KEY` 后实测「注册 → 建频道 → 取进房凭证」全链路，`POST /voice/channels/:channelId/token` 正常返回 `sdkAppId` / `roomId` / `userSig`（216 字符）/ `expiresAt`（24h）。**Week 9–10 遗留项①清零**
 - 正式应用待公司资质就绪后在同一腾讯云账号下创建，**换 Key 零代码改动**（仅改 env）
-- ⚠️ 当前 App 端对讲仍用客户端本地生成 UserSig（`EXPO_PUBLIC_TRTC_SECRETKEY` 进了客户端）+ 固定演示房间，属 Spike 遗留。**SecretKey 不得随正式包分发**——A 线已接下「对讲页接后端频道管理」任务，切到 §13 接口后此风险消除
+- ✅ 对讲已切服务端签发 UserSig；**2026-09-17 删除 spike-* 页与 `EXPO_PUBLIC_TRTC_SDKAPPID/SECRETKEY`（SecretKey 曾随 Spike 页进客户端包）**，App 不再持有任何 TRTC 密钥
 
 ## 域名与 HTTPS（决策 #34）
 
