@@ -174,7 +174,7 @@ SOS 状态机为服务端权威（DECISIONS #8/#26）：`pending → notified | 
 - 媒体元数据随 `video_ready` 事件入库（EVENTS.md 4.9），幂等：同 eventId 或同 (deviceId, videoId) 只登记一条。
 - `storageKey` 缺失（上传方式待硬件确认 ⚠️）时 status=`pending_upload`，换 URL 返回 409 `MEDIA_NOT_READY`（错误码只增）。
 - §6 事件详情的 `media` 数组：危险/摔倒事件按 `relatedEventId` 反查，video_ready 事件带自身条目。
-- ✅ 本节已实现（2026-08-16）：StorageProvider 薄接口 + Mock 实现（本地假 URL）；云厂商 OSS/COS 就绪后换实现零业务改动。
+- ✅ 本节已实现（2026-08-16）：StorageProvider 薄接口 + Mock 实现（本地假 URL）。**2026-09-16 接入腾讯云 COS**（`TencentCosProvider`，env 齐全即切换，否则 Mock），返回的 `url` 为私有桶对象的签名 GET 链接，过期后 COS 侧返回 403；响应结构 `{ url, expiresAt }` 不变。
 
 ## 10. Admin API（/api/v1/admin/*，独立角色守卫）
 
