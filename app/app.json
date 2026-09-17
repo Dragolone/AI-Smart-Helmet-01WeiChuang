@@ -72,7 +72,7 @@
         "expo-camera",
         {
           "cameraPermission": "用于扫描头盔上的二维码完成绑定。",
-          "microphonePermission": false,
+          "microphonePermission": "用于队友间的实时语音对讲。",
           "recordAudioAndroid": false
         }
       ],

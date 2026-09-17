@@ -37,6 +37,8 @@ interface Props {
   controllerRef: RefObject<AmapViewHandle | null>;
   /** 浅色外观：切换时父组件用 key 重挂载本组件（底图样式在初始化时决定） */
   light?: boolean;
+  /** 用户头像（http 或 data URI）：有则 Marker 徽章显示头像，无则显示头盔图标 */
+  avatarUrl?: string | null;
 }
 
 type Cmd =
@@ -44,7 +46,8 @@ type Cmd =
   | { type: "track"; path: [number, number][] }
   | { type: "clearTrack" }
   | { type: "center"; lng: number; lat: number; zoom?: number }
-  | { type: "helmetState"; online: boolean };
+  | { type: "helmetState"; online: boolean }
+  | { type: "avatar"; url: string | null };
 
 // 默认视野：深圳（设备无数据时的兜底画面）
 const HTML = `<!doctype html>
@@ -83,6 +86,9 @@ const HTML = `<!doctype html>
     background: var(--badge, #17181B); border: 2.5px solid var(--neon, ${ACCENT});
     display: flex; align-items: center; justify-content: center;
     box-shadow: 0 0 18px var(--neon, ${ACCENT}); }
+  .hm .badge img.av { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
+  /* iOS 暗色：容器整体 invert 会把照片反色，头像自身再反一次抵消（静态滤镜，不含动画子层） */
+  .hm .badge img.av.inv { filter: invert(1) hue-rotate(180deg); }
   /* 锚点荧光小圆点（map.png 的 Marker 底部落点） */
   .hm .tip { position: absolute; left: 50%; top: 60px; width: 10px; height: 10px;
     transform: translate(-50%, -50%); border-radius: 50%;
@@ -134,13 +140,19 @@ try {
   });
   // Marker 按 map.png：暗色圆徽章（白色头盔图标）+ 荧光描边 + 波纹 + 底部荧光落点
   var helmetOnline = true;
-  var helmetContent =
-    '<div class="hm"><div class="ring"></div><div class="ring r2"></div><div class="ring r3"></div>' +
-    '<div class="tip"></div>' +
-    '<div class="badge"><svg viewBox="0 0 24 24" width="24" height="24" fill="' + ICON_FILL + '">' +
-    '<path d="M12 4a8 8 0 0 0-8 8v3.5A1.5 1.5 0 0 0 5.5 17H7l1.2 2.2c.3.5.8.8 1.4.8h4.8c.6 0 1.1-.3 1.4-.8L17 17h1.5a1.5 1.5 0 0 0 1.5-1.5V12a8 8 0 0 0-8-8Zm-6 8a6 6 0 0 1 12 0v1H6Z"/></svg></div></div>';
+  var avatarUrl = null;
+  var HELMET_SVG = '<svg viewBox="0 0 24 24" width="24" height="24" fill="' + ICON_FILL + '">' +
+    '<path d="M12 4a8 8 0 0 0-8 8v3.5A1.5 1.5 0 0 0 5.5 17H7l1.2 2.2c.3.5.8.8 1.4.8h4.8c.6 0 1.1-.3 1.4-.8L17 17h1.5a1.5 1.5 0 0 0 1.5-1.5V12a8 8 0 0 0-8-8Zm-6 8a6 6 0 0 1 12 0v1H6Z"/></svg>';
+  // 徽章内容：有头像用头像（圆形裁切），否则头盔图标；src 经 encodeURI 防止引号截断标签
+  function helmetHtml() {
+    var inner = avatarUrl
+      ? '<img class="av' + (IOS_DARK ? ' inv' : '') + '" src="' + String(avatarUrl).replace(/"/g, '&quot;') + '" alt="">'
+      : HELMET_SVG;
+    return '<div class="hm' + (helmetOnline ? '' : ' off') + '"><div class="ring"></div><div class="ring r2"></div><div class="ring r3"></div>' +
+      '<div class="tip"></div><div class="badge">' + inner + '</div></div>';
+  }
   var helmet = new AMap.Marker({
-    content: helmetContent,
+    content: helmetHtml(),
     // 锚点对准 .tip 荧光点（宽 64 的中线，纵向 60px 处）
     anchor: 'top-left',
     offset: new AMap.Pixel(-32, -60),
@@ -207,7 +219,11 @@ try {
         // 离线：整块 Marker 换成带 .off 的内容（setContent 是 2.0 公开 API，比摸 DOM 稳）
         if (helmetOnline === !!cmd.online) return;
         helmetOnline = !!cmd.online;
-        helmet.setContent(helmetOnline ? helmetContent : helmetContent.replace('class="hm"', 'class="hm off"'));
+        helmet.setContent(helmetHtml());
+      } else if (cmd.type === 'avatar') {
+        if (avatarUrl === (cmd.url || null)) return;
+        avatarUrl = cmd.url || null;
+        helmet.setContent(helmetHtml());
       }
     } catch (e) { post({ type: 'error', message: i18n('cmd', e.message) }); }
   };
@@ -225,6 +241,7 @@ export function AmapView({
   onUserPan,
   controllerRef,
   light = false,
+  avatarUrl = null,
 }: Props) {
   const webRef = useRef<WebView>(null);
   const t = useT();
@@ -281,6 +298,11 @@ export function AmapView({
       controllerRef.current = null;
     };
   }, [send, controllerRef]);
+
+  // 头像变化（或地图重挂载）时推进页内；未就绪会排队，ready 后统一冲刷
+  useEffect(() => {
+    send({ type: "avatar", url: avatarUrl });
+  }, [avatarUrl, send]);
 
   // 切换语言不重挂载地图（会丢失镜头/轨迹），只把新文案推进页内
   useEffect(() => {
