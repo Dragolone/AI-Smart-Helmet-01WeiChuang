@@ -126,7 +126,12 @@ export class SosNotifierService {
         sos: { status: SOS_STATUS.notified },
       },
       include: { sos: true },
-      orderBy: { createdAt: 'asc' },
+      // 顺序是业务约束不是口味：push 正文按「此刻短信的真实结果」生成（见 pushText），
+      // 短信必须先投，否则用户会收到「短信全部失败，请直接拨打电话求助」而短信其实马上就成功了。
+      // 两行在同一事务创建 → Postgres now() 取事务开始时间 → createdAt 完全相同，单按它排序
+      // 区分不了先后（同 DBOPS-01 的缺少唯一次序键）。channel desc 把 'sms' 排在 'push' 前，
+      // id 兜底保证全序稳定；take 也因此优先装满短信行。
+      orderBy: [{ channel: 'desc' }, { createdAt: 'asc' }, { id: 'asc' }],
       take: 100,
     });
 
