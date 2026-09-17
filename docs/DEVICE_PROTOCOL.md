@@ -36,7 +36,7 @@
 | 项 | 定稿值 |
 |---|---|
 | GATT 角色 | 头盔 = Server（从机），App = Client（主机）；Just Works 配对，无 PIN |
-| 广播名 / 间隔 | `Helmet-<deviceId 后 6 位>`；100 ms |
+| 广播名 / 间隔 | `Helmet-<deviceId 后 6 位>`；100 ms；**广播包须携带服务 UUID FEE0**（App 按服务 UUID 过滤扫描，iOS 后台扫描硬性要求，2026-09-16 真机实测；⚠️ 待硬件确认） |
 | 服务 / 特征值 | 服务 `FEE0`；A `FEE1` Notify（上行：应答、事件、补传）；B `FEE2` Write / Write Without Response（下行：指令、ACK） |
 | MTU / 字节序 | App 协商 247；单帧 4–25 B 无分帧；多字节小端 |
 | 下行帧 | `[指令码 1B][Seq 1B][参数…]`；应答 `[指令码][Seq][ERROR 1B][数据…]` |
@@ -162,7 +162,7 @@ ACL 规则：设备 `helmet_001` 只允许 publish `helmet/helmet_001/{status,lo
 
 **当前开工前置（最卡工期，优先级从高到低）：**
 
-1. ✅ **BLE 数据协议已定稿（v0.6，硬件 Seamus Zhang 2026-09-08；决策 #38）**：原文 `docs/hardware/BLE通信协议手册-v0.6.html`，软件侧摘要见 §1.2。软件侧审阅 v0.5 提出的 7 项必改 + 5 项建议全部落实。**v0.6 遗留 3 处文档级修正（已回硬件，不阻塞开工）**：① 例 4 / 4.5 节「0x26 连写 02 5A」把音量写到了 0x27（跌倒检测使能），音量在 0x24，应拆两条写；② 握手第 3 步读 0x40×16B 只得 deviceId，固件版本需另读 0x00–0x02；③ RESEND 补传覆盖的事件类型（仅高危 vs 含位置/心跳 FIFO）需写明。A 线中转模块据此开工，先用 Mac bless / nRF Connect GATT Server 仿真头盔自测；
+1. ✅ **BLE 数据协议已定稿（v0.6，硬件 Seamus Zhang 2026-09-08；决策 #38）**：原文 `docs/hardware/BLE通信协议手册-v0.6.html`，软件侧摘要见 §1.2。软件侧审阅 v0.5 提出的 7 项必改 + 5 项建议全部落实。**v0.6 遗留 3 处文档级修正（已回硬件，不阻塞开工）**：① 例 4 / 4.5 节「0x26 连写 02 5A」把音量写到了 0x27（跌倒检测使能），音量在 0x24，应拆两条写；② 握手第 3 步读 0x40×16B 只得 deviceId，固件版本需另读 0x00–0x02；③ RESEND 补传覆盖的事件类型（仅高危 vs 含位置/心跳 FIFO）需写明；④（2026-09-16 补）示例帧的十六进制与标注十进制不一致：例 5/6 `88 79 A2 6A` = 0x6AA27988 = 1789032840（非 1788856200），例 2/6/7 `ED 4E CD 01 17 7C 29 07` = 30.232301° / 120.159255°（非 30.256877 / 120.158231）——**字节流为准**，App 解析以字节实现并以此为单测夹具。**✅ A 线 App BLE 中转模块已按 v0.6 实现（2026-09-16）**：`app/src/services/ble/protocol.ts`（帧编解码 + envelope 翻译 + 设置键→寄存器映射，17 个单测钉住手册示例）、`app/src/services/ble-link.ts`（扫描/连接/五步握手/ACK/补传/重连）、`app/src/services/ble-relay.ts`（设置下发 → 0x03 WRITE → 按头盔错误码回执）；仿真器 `tools/ble-helmet-sim/helmet_sim.py`（DEVELOPMENT.md 常用命令）；
 2. 🔴 **Wi-Fi 近场细节**：
    - ① 实时视频推流协议 —— ✅ **硬件 2026-08-25 已答**：主控 **全志 V821 SoC**，官方参考方案 `sample_smartIPC_demo` 走 **RTSP**，编码 **H.264**，媒体由 **RTP** 承载（RTP/UDP 还是 RTP over TCP 取决于 SDK 配置 `rtsp_net_type`），主/子码流以不同 `rtsp id` 区分（默认 `main_rtsp_id = 0`）。文档：<https://docs.aw-ol.com/docs/soc/v821/solution/ipc-camera/>
      **仍需硬件补充（🔴 2026-09-01 实时预览已拍板进 MVP——决策 #37，以下缺项连同 ④ 热点参数升级为 A 线 Spike 开工硬前置）**：⚠️ 子码流的 rtsp id 与分辨率（App 预览应用子码流，主码流解码与带宽压力过大）；⚠️ `rtsp_net_type` 实配值（局域网直连建议 RTP/UDP，延迟更低）；⚠️ 完整拉流 URL 格式与是否需要鉴权。

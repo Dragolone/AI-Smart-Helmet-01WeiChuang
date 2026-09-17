@@ -3,6 +3,9 @@
 export const accident = {
   "zh-CN": {
     "accident.device": "设备",
+    "sosAlert.channel": "紧急求助",
+    "sosAlert.title": "检测到摔倒 / 紧急求助",
+    "sosAlert.body": "60 秒后将自动通知紧急联系人，如为误触请打开 App 取消",
     "accident.triggeredAt": "触发时间",
     "accident.deadline": "倒计时截止",
     "accident.location": "事故位置",
@@ -21,6 +24,9 @@ export const accident = {
   },
   "zh-TW": {
     "accident.device": "裝置",
+    "sosAlert.channel": "緊急求助",
+    "sosAlert.title": "偵測到跌倒 / 緊急求助",
+    "sosAlert.body": "60 秒後將自動通知緊急聯絡人，若為誤觸請開啟 App 取消",
     "accident.triggeredAt": "觸發時間",
     "accident.deadline": "倒數截止",
     "accident.location": "事故位置",
@@ -39,6 +45,9 @@ export const accident = {
   },
   en: {
     "accident.device": "Device",
+    "sosAlert.channel": "Emergency SOS",
+    "sosAlert.title": "Fall detected / SOS",
+    "sosAlert.body": "Emergency contacts will be notified in 60 s. Open the app to cancel if this was a mistake.",
     "accident.triggeredAt": "Triggered",
     "accident.deadline": "Countdown ends",
     "accident.location": "Location",

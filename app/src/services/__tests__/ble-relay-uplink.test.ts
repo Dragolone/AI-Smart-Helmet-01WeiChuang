@@ -57,10 +57,10 @@ describe('enqueueRelayEvent + flushRelayQueue', () => {
     expect(pushMock).not.toHaveBeenCalled();
   });
 
-  it('提交失败整批保留,下轮按原 eventId 补传', async () => {
-    enqueueRelayEvent(env('manual_sos'));
+  it('提交失败整批保留,下轮按原 eventId 补传（高危事件入队即触发首发,不等周期）', async () => {
     pushMock.mockRejectedValueOnce(new Error('offline'));
-    await flushRelayQueue();
+    enqueueRelayEvent(env('manual_sos')); // 高危事件入队立即 flush 一次（深睡定时器不走,靠事件驱动）
+    await new Promise((r) => setTimeout(r, 0));
     expect(pushMock).toHaveBeenCalledTimes(1);
     const firstBatch = pushMock.mock.calls[0][0].envelopes;
     await flushRelayQueue();

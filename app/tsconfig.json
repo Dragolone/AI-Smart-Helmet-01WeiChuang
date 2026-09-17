@@ -8,6 +8,9 @@
       ],
       "@/assets/*": [
         "./assets/*"
+      ],
+      "helmet-link-service": [
+        "./modules/helmet-link-service/src/index.ts"
       ]
     }
   },

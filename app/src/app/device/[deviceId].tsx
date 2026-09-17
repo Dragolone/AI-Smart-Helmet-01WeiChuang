@@ -3,10 +3,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
+import type React from "react";
 import { useRef, useState } from "react";
 import {
   Alert,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -18,6 +20,7 @@ import { devicesApi } from "@/api/devices";
 import { showToast } from "@/components/toast";
 import { toUserMessage } from "@/api/error-messages";
 import { Badge } from "@/components/badge";
+import { AnimatedChip, PulseDot } from "@/components/motion";
 import { Tappable } from "@/components/tappable";
 import { BatteryChart } from "@/components/battery-chart";
 import {
@@ -30,6 +33,9 @@ import { ThemedView } from "@/components/themed-view";
 import { Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { useLocale, useT } from "@/i18n";
+import { retryBleLink } from "@/services/ble-link";
+import { HelmetLinkService } from "helmet-link-service";
+import { useBleStore } from "@/stores/ble-store";
 import { shortDate, shortTime } from "@/i18n/format";
 
 function InfoRow({
@@ -38,12 +44,14 @@ function InfoRow({
   value,
   onPress,
   valueColor,
+  valueLeading,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   value: string;
   onPress?: () => void;
   valueColor?: string;
+  valueLeading?: React.ReactNode;
 }) {
   const theme = useTheme();
   const Wrapper = onPress ? Tappable : View;
@@ -61,12 +69,15 @@ function InfoRow({
           {label}
         </ThemedText>
       </View>
-      <ThemedText
-        type="smallBold"
-        style={valueColor ? { color: valueColor } : undefined}
-      >
-        {value}
-      </ThemedText>
+      <View style={styles.rowValue}>
+        {valueLeading}
+        <ThemedText
+          type="smallBold"
+          style={valueColor ? { color: valueColor } : undefined}
+        >
+          {value}
+        </ThemedText>
+      </View>
     </Wrapper>
   );
 }
@@ -117,6 +128,22 @@ export default function DeviceDetailScreen() {
   // 绑定码默认打码,点击显示 10 秒(防旁人看到后绑走);
   // 睁/闭眼图标即可点提示,不再附加"点击查看"文字(负责人口径)
   const [bindCodeShown, setBindCodeShown] = useState(false);
+  // BLE 近场链路状态（services/ble-link 写入 store；本页只显示，不做连接判断）
+  // Android 省电白名单（决策 #41）：华为等机型未加白名单时后台链路随时被杀
+  const [batteryOptOk, setBatteryOptOk] = useState(() =>
+    HelmetLinkService.isIgnoringBatteryOptimizations(),
+  );
+  const bleLink = useBleStore((st) => st.links[deviceId]);
+  const bleAdapter = useBleStore((st) => st.adapter);
+  const bleStatusText =
+    bleAdapter === "off" ||
+    bleAdapter === "unauthorized" ||
+    bleAdapter === "unsupported"
+      ? t(`device.ble.${bleAdapter}`)
+      : t(`device.ble.${bleLink?.phase ?? "idle"}`) +
+        (bleLink?.phase === "connected" && bleLink.firmwareVersion
+          ? ` · v${bleLink.firmwareVersion}`
+          : "");
   const revealBindCode = () => {
     setBindCodeShown(true);
     setTimeout(() => setBindCodeShown(false), 10_000);
@@ -137,10 +164,12 @@ export default function DeviceDetailScreen() {
   ) {
     setOptimisticVolume(null);
   }
-  const volumePending = optimisticVolume !== null && optimisticVolume !== serverVolume;
+  const volumePending =
+    optimisticVolume !== null && optimisticVolume !== serverVolume;
 
   const sendSetting = (key: string, value: string | number | boolean) => {
-    if (key === "volume" && typeof value === "number") setOptimisticVolume(value);
+    if (key === "volume" && typeof value === "number")
+      setOptimisticVolume(value);
     setSending(true);
     devicesApi
       .putSettings(deviceId, { settings: { [key]: value } })
@@ -160,6 +189,8 @@ export default function DeviceDetailScreen() {
   const liveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const livePending = useRef<number | null>(null);
   const liveSent = useRef<number | null>(null);
+  /** 拖动开始时的音量：拖动中已即时下发过中间值（≤ 高音量线）时，取消高音量确认要把它还回去 */
+  const dragStart = useRef<number | null>(null);
   const flushLive = () => {
     liveTimer.current = null;
     const v = livePending.current;
@@ -177,7 +208,10 @@ export default function DeviceDetailScreen() {
   const onVolumeDragging = (dragging: boolean) => {
     // 拖动时关掉 iOS 返回手势，免得向右滑把页面滑走
     navigation.setOptions({ gestureEnabled: !dragging });
-    if (dragging) liveSent.current = null;
+    if (dragging) {
+      liveSent.current = null;
+      dragStart.current = optimisticVolume ?? serverVolume;
+    }
   };
   const sendVolume = (v: number) => {
     if (liveTimer.current) {
@@ -193,8 +227,19 @@ export default function DeviceDetailScreen() {
           {
             text: t("common.cancel"),
             style: "cancel",
-            // 取消 = 什么都不下发:滑杆已随 value 回到原值,头盔保持原音量
-            // (此前误把音量设到阈值,负责人 2026-09-11 指正)
+            // 取消 = 回到拖动前的音量。拖动过程中为了"即时生效"已经把 ≤ 高音量线的中间值发过去了
+            // （60 → 拖到 90 的路上 80 已下发），所以取消不能"什么都不做"，要把起点值发回去
+            // （负责人 2026-09-17 指正：取消后音量停在 80）
+            onPress: () => {
+              const back = dragStart.current;
+              if (
+                back !== null &&
+                liveSent.current !== null &&
+                liveSent.current !== back
+              ) {
+                sendSetting("volume", back);
+              }
+            },
           },
           {
             text: t("device.volumeLoudConfirm"),
@@ -386,12 +431,84 @@ export default function DeviceDetailScreen() {
             <InfoRow
               icon={bindCodeShown ? "eye-outline" : "eye-off-outline"}
               label={t("device.bindCode")}
-              value={bindCodeShown ? (detail.data?.bindCode ?? "—") : "••••••••"}
+              value={
+                bindCodeShown ? (detail.data?.bindCode ?? "—") : "••••••••"
+              }
               valueColor={bindCodeShown ? undefined : theme.textSecondary}
               onPress={
                 bindCodeShown ? () => setBindCodeShown(false) : revealBindCode
               }
             />
+            <InfoRow
+              icon={
+                bleLink?.phase === "connected"
+                  ? "bluetooth"
+                  : "bluetooth-outline"
+              }
+              label={t("device.ble")}
+              value={bleStatusText}
+              valueLeading={
+                bleLink ? (
+                  <PulseDot
+                    color={
+                      bleLink.phase === "connected"
+                        ? theme.success
+                        : bleLink.phase === "error"
+                          ? theme.danger
+                          : theme.textSecondary
+                    }
+                    active={
+                      bleLink.phase === "scanning" ||
+                      bleLink.phase === "connecting" ||
+                      bleLink.phase === "handshaking"
+                    }
+                  />
+                ) : undefined
+              }
+              valueColor={
+                bleLink?.phase === "connected"
+                  ? theme.success
+                  : bleLink?.phase === "error"
+                    ? theme.danger
+                    : theme.textSecondary
+              }
+              onPress={
+                bleLink && bleLink.phase !== "connected" && bleAdapter === "on"
+                  ? () => retryBleLink(deviceId)
+                  : undefined
+              }
+            />
+            {Platform.OS === "android" && HelmetLinkService.available && (
+              <InfoRow
+                icon={
+                  batteryOptOk
+                    ? "battery-charging-outline"
+                    : "battery-dead-outline"
+                }
+                label={t("device.batteryOpt")}
+                value={
+                  batteryOptOk
+                    ? t("device.batteryOpt.ok")
+                    : t("device.batteryOpt.limited")
+                }
+                valueColor={batteryOptOk ? theme.success : theme.danger}
+                onPress={
+                  batteryOptOk
+                    ? undefined
+                    : () => {
+                        HelmetLinkService.requestIgnoreBatteryOptimizations();
+                        // 回来后重查一次（系统对话框没有回调）
+                        setTimeout(
+                          () =>
+                            setBatteryOptOk(
+                              HelmetLinkService.isIgnoringBatteryOptimizations(),
+                            ),
+                          1500,
+                        );
+                      }
+                }
+              />
+            )}
 
             {/* 设备设置下发（§8;参数为演示项,清单与值域待硬件定稿 ⚠️） */}
             <View
@@ -428,34 +545,18 @@ export default function DeviceDetailScreen() {
                   ].map(({ v, label }) => {
                     const active = settings.data?.settings.light === v;
                     return (
-                      <Tappable
+                      <AnimatedChip
                         key={label}
+                        label={label}
+                        active={active}
                         disabled={sending}
                         onPress={() => sendSetting("light", v)}
-                      >
-                        <View
-                          style={[
-                            styles.settingChip,
-                            {
-                              backgroundColor: active
-                                ? theme.brand
-                                : theme.backgroundSelected,
-                            },
-                          ]}
-                        >
-                          <ThemedText
-                            type="smallBold"
-                            style={{
-                              fontSize: 13,
-                              color: active
-                                ? theme.onBrand
-                                : theme.textSecondary,
-                            }}
-                          >
-                            {label}
-                          </ThemedText>
-                        </View>
-                      </Tappable>
+                        style={styles.settingChip}
+                        activeBg={theme.brand}
+                        inactiveBg={theme.backgroundSelected}
+                        activeFg={theme.onBrand}
+                        inactiveFg={theme.textSecondary}
+                      />
                     );
                   })}
                 </View>
@@ -492,32 +593,32 @@ export default function DeviceDetailScreen() {
           onPress={() => setRenameOpen(false)}
         >
           <ReAnimated.View entering={FadeInDown.duration(200)}>
-          <Pressable
-            style={[
-              styles.modalCard,
-              {
-                backgroundColor: theme.backgroundElement,
-                borderColor: theme.border,
-              },
-            ]}
-            onPress={() => undefined}
-          >
-            <ThemedText type="subtitle">{t("device.renameTitle")}</ThemedText>
-            <FormInput
-              label={t("device.nameLabel")}
-              value={nameDraft}
-              onChangeText={setNameDraft}
-              placeholder={t("device.namePlaceholder")}
-              maxLength={20}
-              autoFocus
-            />
-            <PrimaryButton
-              title={t("common.save")}
-              onPress={submitRename}
-              loading={renaming}
-            />
-          </Pressable>
-        </ReAnimated.View>
+            <Pressable
+              style={[
+                styles.modalCard,
+                {
+                  backgroundColor: theme.backgroundElement,
+                  borderColor: theme.border,
+                },
+              ]}
+              onPress={() => undefined}
+            >
+              <ThemedText type="subtitle">{t("device.renameTitle")}</ThemedText>
+              <FormInput
+                label={t("device.nameLabel")}
+                value={nameDraft}
+                onChangeText={setNameDraft}
+                placeholder={t("device.namePlaceholder")}
+                maxLength={20}
+                autoFocus
+              />
+              <PrimaryButton
+                title={t("common.save")}
+                onPress={submitRename}
+                loading={renaming}
+              />
+            </Pressable>
+          </ReAnimated.View>
         </Pressable>
       </Modal>
     </ThemedView>
@@ -591,6 +692,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
+  rowValue: { flexDirection: "row", alignItems: "center", gap: 6 },
   rowLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
   footer: { marginTop: 8 },
 });

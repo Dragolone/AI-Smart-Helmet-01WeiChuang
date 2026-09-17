@@ -104,7 +104,7 @@
 | 项 | 决策依据 | 当前状态 |
 |---|---|---|
 | **实时视频预览** | 决策 #37（已拍板进 MVP） | App 端零实现（`grep rtsp\|vlc\|softap` 无命中）；硬件四项参数（子码流 id/分辨率、`rtsp_net_type`、拉流 URL 与鉴权、AP SSID/密码/IP）未提供，Spike 未开工 |
-| **BLE GATT 收发与二进制解析** | 决策 #35/#38（BLE 是 MVP 唯一真机链路） | `ble-link.ts` 只有管理器与权限；扫描/连接/握手/对时/MTU/ACK/Flash 补传/帧翻译/UUIDv5 eventId 全部未实现。上行队列骨架已在，下行 `writeToHelmet` 是 `__DEV__` 占位 |
+| **BLE GATT 收发与二进制解析** | 决策 #35/#38（BLE 是 MVP 唯一真机链路） | `ble-link.ts` 只有管理器与权限；扫描/连接/握手/对时/MTU/ACK/Flash 补传/帧翻译/UUIDv5 eventId 全部未实现。上行队列骨架已在，下行 `writeToHelmet` 是 `__DEV__` 占位 **→ ✅ 2026-09-16 已实现**（`services/ble/protocol.ts` + `ble-link.ts` + `ble-relay.ts`，仿真器 `tools/ble-helmet-sim/`；真机对仿真器与后台保活实测待做） |
 | **真机双端验收** | CLAUDE.md Platform Policy（硬性） | 全部未测，清单见 `DEVICE_CHECKLIST.md` |
 | **真实推送（APNs / 厂商通道）** | THIRD_PARTY #5/#6 | 未申请；App 杀后台收不到远程推送，SOS 只有 WS + 全屏页兜底 |
 | **真实短信** | THIRD_PARTY #4 | 签名/模板待过审 + 运营商报备 ~2 周；代码就绪，配齐六项 env 即切换 |

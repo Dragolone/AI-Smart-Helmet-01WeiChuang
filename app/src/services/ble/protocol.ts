@@ -1,0 +1,336 @@
+// BLE 协议纯函数层（Contract：docs/hardware/BLE通信协议手册-v0.6.html，速查 DEVICE_PROTOCOL §1.2）。
+// 只做字节 ⇄ 结构 ⇄ EVENTS.md envelope 的翻译，不碰蓝牙栈、不做任何业务判断
+// （软件绝不基于原始传感器数据做算法决策——CLAUDE.md 核心原则）。
+import type {
+  EventEnvelope,
+  EventType,
+  RiskDirection,
+  RiskLevel,
+  RiskObjectType,
+} from '@helmet/shared';
+import { CURRENT_SCHEMA_VERSION } from '@helmet/shared';
+
+import {
+  HELMET_BLE_NAMESPACE,
+  asciiZ,
+  readI16,
+  readI32,
+  readU16,
+  readU32,
+  uuidV5,
+  writeU16,
+  writeU32,
+} from './bytes';
+
+export const SERVICE_UUID = '0000fee0-0000-1000-8000-00805f9b34fb';
+/** 特征值 A：头盔 → App（Notify：应答 / 事件 / 补传） */
+export const CHAR_NOTIFY_UUID = '0000fee1-0000-1000-8000-00805f9b34fb';
+/** 特征值 B：App → 头盔（Write：指令 / ACK） */
+export const CHAR_WRITE_UUID = '0000fee2-0000-1000-8000-00805f9b34fb';
+export const ADV_NAME_PREFIX = 'Helmet-';
+export const REQUEST_MTU = 247;
+
+export const Ins = {
+  PING: 0x01,
+  READ: 0x02,
+  WRITE: 0x03,
+  TIME_SYNC: 0x04,
+  EVENT: 0x05,
+  ACK: 0x06,
+  RESEND_QUERY: 0x07,
+  RESEND_DATA: 0x08,
+  RECOVERY: 0x09,
+  RESET: 0x0a,
+} as const;
+
+/** 内存控制表首地址（手册 §2.0） */
+export const Reg = {
+  FW_MAJOR: 0x00,
+  FW_MINOR: 0x01,
+  FW_PATCH: 0x02,
+  HEARTBEAT_PERIOD: 0x20,
+  LOC_PERIOD_MOVING: 0x21,
+  LOC_PERIOD_STILL: 0x22,
+  BUZZER_ENABLED: 0x23,
+  BUZZER_VOLUME: 0x24,
+  VIBRATION: 0x25,
+  LIGHT: 0x26,
+  FALL_DETECT: 0x27,
+  FALL_SENSITIVITY: 0x28,
+  RADAR: 0x29,
+  RADAR_DISTANCE: 0x2a,
+  OBSTACLE_WARN: 0x2b,
+  SOS_BUTTON: 0x2c,
+  DISCONNECT_BEEP: 0x2d,
+  EVENT_SEQ_BASE: 0x34,
+  DEVICE_ID: 0x40,
+} as const;
+
+/** 手册 §3.0 错误码 → 回执 errorCode 标识符（云端 cmd_ack.errorCode 原样落库） */
+export const ERROR_NAMES: Record<number, string> = {
+  0x00: 'STATUS_OK',
+  0x01: 'ERR_LENGTH',
+  0x02: 'ERR_INSTRUCTION',
+  0x03: 'ERR_ADDR_RANGE',
+  0x04: 'ERR_EPROM_LOCKED',
+  0x05: 'ERR_PARAM_VALUE',
+  0x06: 'ERR_BATTERY_LOW',
+  0x07: 'ERR_HARDWARE_FAULT',
+};
+
+export const EVENT_CODE_TO_TYPE: Record<number, EventType> = {
+  0x01: 'possible_fall',
+  0x02: 'manual_sos',
+  0x03: 'collision_risk',
+  0x04: 'obstacle_risk',
+  0x05: 'risk_cleared',
+  0x06: 'location_update',
+  0x07: 'device_status',
+};
+/** 高危四类必 ACK（手册 §1.3）；周期事件不 ACK */
+export const HIGH_RISK_CODES = new Set([0x01, 0x02, 0x03, 0x04]);
+
+// —— 下行指令构造（§1.1：[指令码][Seq][参数…]） ——
+export const buildPing = (seq: number): Uint8Array => Uint8Array.from([Ins.PING, seq & 255]);
+export const buildRead = (seq: number, addr: number, len: number): Uint8Array =>
+  Uint8Array.from([Ins.READ, seq & 255, addr & 255, len & 255]);
+export const buildWrite = (seq: number, addr: number, data: number[]): Uint8Array =>
+  Uint8Array.from([Ins.WRITE, seq & 255, addr & 255, ...data.map((d) => d & 255)]);
+export const buildTimeSync = (seq: number, utcSeconds: number): Uint8Array =>
+  Uint8Array.from([Ins.TIME_SYNC, seq & 255, ...writeU32(utcSeconds)]);
+export const buildResendQuery = (seq: number): Uint8Array =>
+  Uint8Array.from([Ins.RESEND_QUERY, seq & 255]);
+export const buildResendData = (seq: number, offset: number, count: number): Uint8Array =>
+  Uint8Array.from([Ins.RESEND_DATA, seq & 255, ...writeU16(offset), count & 255]);
+/** ACK 无流水号：[0x06][Event_Code][Event_Seq 4B][0x00]（§1.3） */
+export const buildAck = (eventCode: number, eventSeq: number): Uint8Array =>
+  Uint8Array.from([Ins.ACK, eventCode & 255, ...writeU32(eventSeq), 0x00]);
+
+// —— 上行解析（§1.2 应答 / §1.3 事件） ——
+export type InboundResponse = {
+  kind: 'response';
+  ins: number;
+  seq: number;
+  error: number;
+  data: Uint8Array;
+};
+export type InboundEvent = {
+  kind: 'event';
+  code: number;
+  eventSeq: number;
+  /** UTC 秒；0 = 头盔未校时（云端按接收时间兜底） */
+  timestamp: number;
+  payload: Uint8Array;
+};
+export type Inbound = InboundResponse | InboundEvent;
+
+export function parseInbound(bytes: Uint8Array): Inbound | null {
+  if (bytes.length < 2) return null;
+  if (bytes[0] === Ins.EVENT) {
+    if (bytes.length < 10) return null;
+    return {
+      kind: 'event',
+      code: bytes[1],
+      eventSeq: readU32(bytes, 2),
+      timestamp: readU32(bytes, 6),
+      payload: bytes.subarray(10),
+    };
+  }
+  if (bytes.length < 3) return null;
+  return {
+    kind: 'response',
+    ins: bytes[0],
+    seq: bytes[1],
+    error: bytes[2],
+    data: bytes.subarray(3),
+  };
+}
+
+export const firmwareFromBytes = (b: Uint8Array): string =>
+  b.length >= 3 ? `${b[0]}.${b[1]}.${b[2]}` : 'unknown';
+export const deviceIdFromBytes = (b: Uint8Array): string => asciiZ(b);
+
+/** eventId 确定性派生：同一头盔同一 Event_Seq 永远得到同一 UUID（重发/补传天然幂等） */
+export const eventIdFor = (deviceId: string, eventSeq: number): string =>
+  uuidV5(HELMET_BLE_NAMESPACE, `${deviceId}:${eventSeq}`);
+
+const RISK_LEVEL: Record<number, RiskLevel> = { 1: 'low', 2: 'medium', 3: 'high' };
+const OBJECT_TYPE: Record<number, RiskObjectType> = {
+  0: 'unknown',
+  1: 'vehicle',
+  2: 'pedestrian',
+  3: 'obstacle',
+};
+const DIRECTION: Record<number, RiskDirection> = { 1: 'front', 2: 'rear', 3: 'left', 4: 'right' };
+
+const coord = (b: Uint8Array, o: number) => ({
+  latitude: readI32(b, o) / 1e6,
+  longitude: readI32(b, o + 4) / 1e6,
+  coordinateSystem: 'wgs84' as const,
+});
+
+export interface TranslateContext {
+  deviceId: string;
+  firmwareVersion: string;
+  /** App 收到帧的时刻，未校时（timestamp=0）时作为事件时间兜底 */
+  receivedAt: Date;
+}
+
+/**
+ * 事件帧 → EVENTS.md envelope（DEVICE_PROTOCOL §1.2 翻译规则）。
+ * 返回 null 表示该帧不进云端：未知事件码、载荷长度不符、无定位的位置包（0xFF 精度）。
+ * 原始字节字段（冲击力/倾角/TTC/按键时长/触发方式）原样附在 payload 里落库，供未来 AI 服务读取。
+ */
+export function translateEvent(ev: InboundEvent, ctx: TranslateContext): EventEnvelope | null {
+  const eventType = EVENT_CODE_TO_TYPE[ev.code];
+  if (!eventType) return null;
+  const p = ev.payload;
+  let payload: Record<string, unknown> | null = null;
+
+  switch (ev.code) {
+    case 0x01: // possible_fall 11B
+      if (p.length < 11) return null;
+      payload = {
+        confidence: p[0] / 100,
+        impactG: p[1] / 10,
+        tiltDeg: p[2],
+        location: coord(p, 3),
+      };
+      break;
+    case 0x02: // manual_sos 11B
+      if (p.length < 11) return null;
+      payload = {
+        triggerMode: p[0] === 2 ? 'double_click' : 'long_press',
+        pressDurationMs: readU16(p, 1),
+        location: coord(p, 3),
+      };
+      break;
+    case 0x03: // collision_risk 15B
+    case 0x04: // obstacle_risk 15B
+      if (p.length < 15) return null;
+      payload = {
+        riskLevel: RISK_LEVEL[p[0]] ?? 'high',
+        objectType: OBJECT_TYPE[p[1]] ?? 'unknown',
+        direction: DIRECTION[p[2]],
+        distance: readU16(p, 3) / 10,
+        ttcSeconds: p[5] / 10,
+        approachSpeedKmh: p[6],
+        location: coord(p, 7),
+      };
+      break;
+    case 0x05: {
+      // risk_cleared 4B：0 = 清除全部
+      if (p.length < 4) return null;
+      const clearedSeq = readU32(p, 0);
+      payload = clearedSeq === 0 ? {} : { clearedEventId: eventIdFor(ctx.deviceId, clearedSeq) };
+      break;
+    }
+    case 0x06: {
+      // location_update 15B
+      if (p.length < 15) return null;
+      const accuracy = p[12];
+      if (accuracy === 0xff) return null; // 无定位：不往云端塞无效坐标
+      const heading = readU16(p, 10);
+      const altitude = readI16(p, 13);
+      payload = {
+        ...coord(p, 0),
+        speed: readU16(p, 8) / 10,
+        heading: heading === 0xffff ? 0 : heading / 10,
+        accuracy,
+        ...(altitude !== 0x7fff ? { altitude } : {}),
+      };
+      break;
+    }
+    case 0x07: // device_status 2B
+      if (p.length < 2) return null;
+      payload = { battery: p[0], charging: p[1] === 1 };
+      break;
+    default:
+      return null;
+  }
+
+  const timestamp =
+    ev.timestamp === 0 ? ctx.receivedAt.toISOString() : new Date(ev.timestamp * 1000).toISOString();
+  const envelope = {
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    eventId: eventIdFor(ctx.deviceId, ev.eventSeq),
+    deviceId: ctx.deviceId,
+    eventType,
+    timestamp,
+    firmwareVersion: ctx.firmwareVersion,
+    payload,
+  };
+  return envelope as unknown as EventEnvelope;
+}
+
+// —— 设置下发：云端 set_config 键 → 内存表寄存器（App 侧是唯一权威，后端不做键白名单） ——
+export interface RegisterWrite {
+  addr: number;
+  data: number[];
+}
+
+const bool = (v: unknown) => (v === true || v === 1 || v === '1' || v === 'on' ? 1 : 0);
+const clampInt = (v: unknown, min: number, max: number): number | null => {
+  const n = typeof v === 'number' ? v : Number(v);
+  if (!Number.isFinite(n)) return null;
+  const r = Math.round(n);
+  return r < min || r > max ? null : r;
+};
+
+/**
+ * 返回 null = 该键不受硬件支持或取值越界（调用方回执 failed + errorCode）。
+ * 注意手册例 4 把音量与大灯连写到 0x26 是文档笔误（v0.6 遗留修正①）：音量在 0x24，
+ * 本表逐键单独写，不做连续地址合并。
+ */
+export function settingToRegisterWrite(key: string, value: unknown): RegisterWrite | null {
+  switch (key) {
+    case 'volume': {
+      const v = clampInt(value, 1, 100);
+      return v === null ? null : { addr: Reg.BUZZER_VOLUME, data: [v] };
+    }
+    case 'buzzer':
+      return { addr: Reg.BUZZER_ENABLED, data: [bool(value)] };
+    case 'light': {
+      // App 目前是开/关：开 = 低亮档（1）；将来分档再扩展为 0–3
+      if (typeof value === 'boolean') return { addr: Reg.LIGHT, data: [value ? 1 : 0] };
+      const v = clampInt(value, 0, 3);
+      return v === null ? null : { addr: Reg.LIGHT, data: [v] };
+    }
+    case 'vibration': {
+      const v = clampInt(value, 0, 3);
+      return v === null ? null : { addr: Reg.VIBRATION, data: [v] };
+    }
+    case 'fallDetect':
+      return { addr: Reg.FALL_DETECT, data: [bool(value)] };
+    case 'fallSensitivity': {
+      const v = clampInt(value, 1, 3);
+      return v === null ? null : { addr: Reg.FALL_SENSITIVITY, data: [v] };
+    }
+    case 'radar':
+      return { addr: Reg.RADAR, data: [bool(value)] };
+    case 'radarDistance': {
+      const v = clampInt(value, 5, 30);
+      return v === null ? null : { addr: Reg.RADAR_DISTANCE, data: [v] };
+    }
+    case 'obstacleWarn':
+      return { addr: Reg.OBSTACLE_WARN, data: [bool(value)] };
+    case 'sosButton':
+      return { addr: Reg.SOS_BUTTON, data: [bool(value)] };
+    case 'disconnectBeep':
+      return { addr: Reg.DISCONNECT_BEEP, data: [bool(value)] };
+    case 'heartbeatPeriod': {
+      const v = clampInt(value, 1, 255);
+      return v === null ? null : { addr: Reg.HEARTBEAT_PERIOD, data: [v] };
+    }
+    case 'locationPeriodMoving': {
+      const v = clampInt(value, 1, 255);
+      return v === null ? null : { addr: Reg.LOC_PERIOD_MOVING, data: [v] };
+    }
+    case 'locationPeriodStill': {
+      const v = clampInt(value, 1, 255);
+      return v === null ? null : { addr: Reg.LOC_PERIOD_STILL, data: [v] };
+    }
+    default:
+      return null;
+  }
+}

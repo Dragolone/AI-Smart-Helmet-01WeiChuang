@@ -128,3 +128,5 @@
 - **软著**：中国版权保护中心 <https://register.ccopyright.com.cn/> 在线填表（照 `01/软著/软著申请表填写信息.md` 逐项抄）→ 上传源程序/说明书 PDF + 营业执照 → 打印申请表盖章。免费 30 个工作日；加急找代理 5–10 个工作日。证书是安卓各商店上架的硬性材料。
 - **App 备案**：腾讯云控制台「备案」→ 新增 App（安卓、iOS 各一条），填 App 名「零一唯创」、包名 / Bundle ID、服务域名 `api.01weichuang.com`、服务器 111.230.157.151。主体已备案，只做 App 新增，1–2 周。**前置**：A 线把 `app.json` 的 `name` 改为「零一唯创」、`android.package` / `ios.bundleIdentifier` 改为 `com.lingyiweichuang.app`（需 `npx expo prebuild --clean`，高德平台 Key 绑定同步更新）。
 - **上架其余材料**（交付前一周准备）：隐私政策 + 用户协议网页（挂官网）、各尺寸截图、审核演示账号（建议后端加「审核白名单手机号固定验证码」配置）、安卓各商店企业开发者账号（营业执照 + 对公打款）。
+
+- **Apple Critical Alerts entitlement（2026-09-17 新增待办）**：锁屏 SOS 告警目前走普通本地通知（系统通知声，静音键/勿扰会压掉）；要穿透静音需向 Apple 申请 `com.apple.developer.usernotifications.critical-alerts`，公司 Apple Developer 账号到位后提交（说明用途：摔倒/求救 60 s 倒计时提醒）。
