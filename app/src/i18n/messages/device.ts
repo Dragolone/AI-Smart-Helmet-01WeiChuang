@@ -1,6 +1,15 @@
 // device 页文案（设备详情 + 绑定设备）。三种语言的 key 必须一一对应。
 export const device = {
   "zh-CN": {
+    "scan.title": "扫码绑定",
+    "scan.action": "扫描头盔二维码",
+    "scan.orType": "或手动输入",
+    "scan.hint": "对准头盔或说明卡上的二维码",
+    "scan.notBindCode": "这不是绑定二维码，请换一个",
+    "scan.permissionTitle": "需要相机权限",
+    "scan.permissionBody": "只在扫描绑定二维码时使用相机，不会拍照或录像。",
+    "scan.allow": "允许使用相机",
+    "scan.typeInstead": "改为手动输入",
     "battery.channel": "头盔电量",
     "battery.lowTitle": "头盔电量低",
     "battery.lowBody": "{name} 电量剩 {battery}%，请尽快充电",
@@ -71,6 +80,15 @@ export const device = {
     "device.bindAction": "绑定",
   },
   "zh-TW": {
+    "scan.title": "掃碼綁定",
+    "scan.action": "掃描頭盔二維碼",
+    "scan.orType": "或手動輸入",
+    "scan.hint": "對準頭盔或說明卡上的二維碼",
+    "scan.notBindCode": "這不是綁定二維碼，請換一個",
+    "scan.permissionTitle": "需要相機權限",
+    "scan.permissionBody": "只在掃描綁定二維碼時使用相機，不會拍照或錄影。",
+    "scan.allow": "允許使用相機",
+    "scan.typeInstead": "改為手動輸入",
     "battery.channel": "頭盔電量",
     "battery.lowTitle": "頭盔電量低",
     "battery.lowBody": "{name} 電量剩 {battery}%，請盡快充電",
@@ -141,6 +159,16 @@ export const device = {
     "device.bindAction": "綁定",
   },
   en: {
+    "scan.title": "Scan to bind",
+    "scan.action": "Scan helmet QR code",
+    "scan.orType": "or type it in",
+    "scan.hint": "Point at the QR code on the helmet or its card",
+    "scan.notBindCode": "Not a binding QR code, try another",
+    "scan.permissionTitle": "Camera access needed",
+    "scan.permissionBody":
+      "The camera is only used to scan the binding QR code — no photos or video.",
+    "scan.allow": "Allow camera",
+    "scan.typeInstead": "Type it instead",
     "battery.channel": "Helmet battery",
     "battery.lowTitle": "Helmet battery low",
     "battery.lowBody": "{name} is at {battery}%, charge it soon",

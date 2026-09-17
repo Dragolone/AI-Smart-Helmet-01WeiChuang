@@ -58,6 +58,14 @@ function RootNavigator() {
           }}
         />
         <Stack.Screen
+          name="scan-bind"
+          options={{
+            presentation: "fullScreenModal",
+            headerShown: true,
+            title: t("scan.title"),
+          }}
+        />
+        <Stack.Screen
           name="device/[deviceId]"
           options={{ headerShown: true, title: t("nav.deviceDetail") }}
         />

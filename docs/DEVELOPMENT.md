@@ -93,6 +93,7 @@ cd backend && npx prisma migrate dev   # 建表（要求 docker 里的 postgres 
 
 - **iPhone**：设置 → 隐私与安全性 → 开发者模式 → 打开并重启；用数据线连 Mac，首次需在手机上信任此电脑。
 - **Android**：设置 → 关于手机 → 连点「版本号」7 次开启开发者选项 → 打开「USB 调试」；连线后允许调试授权。
+- **原生依赖变更后所有开发包都要重建**（CNG：`npx expo prebuild` → iOS 先删 `ios/app/app.entitlements` 里的 `aps-environment`（个人团队签不了）→ `pod install` → xcodebuild / `gradlew assembleDebug`）。只连 Metro 不重建会在进入用到该模块的页面时红屏 `Cannot find native module`。最近一次：**2026-09-17 新增 `expo-camera`（扫码绑定）**，此后 iPhone Release、模拟器 dev-client（Bundle ID 已随改名变为 `com.lingyiweichuang.app`）、华为 APK 都需要是 09-17 之后打的包。
 
 ## 平台限制清单（持续维护）
 

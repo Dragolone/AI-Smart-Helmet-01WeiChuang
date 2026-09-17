@@ -1,12 +1,17 @@
 // 绑定设备（模态页，API.md §4 POST /devices/bind；Mock 设备绑定码由 provision:device 生成）
 import { useQueryClient } from "@tanstack/react-query";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
-import { StyleSheet } from "react-native";
+import { StyleSheet, View } from "react-native";
 
 import { devicesApi } from "@/api/devices";
 import { toUserMessage } from "@/api/error-messages";
-import { FormError, FormInput, PrimaryButton } from "@/components/form";
+import {
+  FormError,
+  FormInput,
+  PrimaryButton,
+  SecondaryButton,
+} from "@/components/form";
 import { showToast } from "@/components/toast";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
@@ -15,8 +20,13 @@ import { useT } from "@/i18n";
 export default function BindDeviceScreen() {
   const t = useT();
   const queryClient = useQueryClient();
-  const [deviceId, setDeviceId] = useState("");
-  const [bindCode, setBindCode] = useState("");
+  // 扫码页 replace 回来时带参数预填（scan-bind → parseBindQr）
+  const params = useLocalSearchParams<{
+    deviceId?: string;
+    bindCode?: string;
+  }>();
+  const [deviceId, setDeviceId] = useState(params.deviceId ?? "");
+  const [bindCode, setBindCode] = useState(params.bindCode ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -43,6 +53,16 @@ export default function BindDeviceScreen() {
   return (
     <ThemedView style={styles.container}>
       <ThemedText type="small">{t("device.bindLead")}</ThemedText>
+      <SecondaryButton
+        title={t("scan.action")}
+        icon="qr-code-outline"
+        onPress={() => router.push("/scan-bind")}
+      />
+      <View style={styles.orRow}>
+        <ThemedText type="label" themeColor="textSecondary">
+          {t("scan.orType")}
+        </ThemedText>
+      </View>
       <FormInput
         label={t("device.deviceId")}
         icon="hardware-chip-outline"
@@ -72,4 +92,5 @@ export default function BindDeviceScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 20, gap: 12 },
+  orRow: { alignItems: "center", marginTop: 2 },
 });

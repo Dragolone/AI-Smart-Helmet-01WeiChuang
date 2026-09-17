@@ -69,6 +69,14 @@
         }
       ],
       [
+        "expo-camera",
+        {
+          "cameraPermission": "用于扫描头盔上的二维码完成绑定。",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "用于选择照片设置您的头像。"
