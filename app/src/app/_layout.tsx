@@ -9,6 +9,7 @@ import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { ToastHost } from "@/components/toast";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useLocaleStore, useT } from "@/i18n";
+import { ConnectionBanner } from "@/components/connection-banner";
 import { ThemeFade } from "@/components/theme-fade";
 import { installDevErrorTap } from "@/services/dev-log";
 import { useAuthStore } from "@/stores/auth-store";
@@ -146,6 +147,7 @@ export default function RootLayout() {
           {/* SecureStore 恢复完成前不挂路由，避免登录态闪变；空白由 SplashOverlay 兜住 */}
           {hydrated && localeHydrated && themeHydrated && <RootNavigator />}
           <ToastHost />
+          <ConnectionBanner />
         </ThemeProvider>
       </QueryClientProvider>
     </GestureHandlerRootView>
