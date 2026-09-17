@@ -28,6 +28,7 @@ import { Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { useLocale, useT } from "@/i18n";
 import { relativeTime } from "@/i18n/format";
+import { BleBlockerBanner } from "@/components/ble-onboarding";
 import { EmptyState } from "@/components/empty-state";
 
 /** 头盔演示图池：设备暂无型号字段（待硬件定稿），按 deviceId 稳定散列分配 */
@@ -378,6 +379,9 @@ export default function DevicesScreen() {
           ) : hero ? (
             <>
               <HeroCard device={hero} />
+              <BleBlockerBanner
+                onPress={() => router.push(`/device/${hero.deviceId}`)}
+              />
               <SectionLabel
                 title={t("devices.allDevices")}
                 caption={t("devices.countCaption", {

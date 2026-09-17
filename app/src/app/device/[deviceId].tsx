@@ -25,6 +25,7 @@ import { devicesApi } from "@/api/devices";
 import { showToast } from "@/components/toast";
 import { toUserMessage } from "@/api/error-messages";
 import { Badge } from "@/components/badge";
+import { BleOnboardingCard } from "@/components/ble-onboarding";
 import { AnimatedChip, PulseDot } from "@/components/motion";
 import { Tappable } from "@/components/tappable";
 import { BatteryChart } from "@/components/battery-chart";
@@ -426,6 +427,8 @@ export default function DeviceDetailScreen() {
         {status.isError && (
           <ThemedText type="small">{toUserMessage(status.error)}</ThemedText>
         )}
+
+        <BleOnboardingCard />
 
         {s && (
           <>
