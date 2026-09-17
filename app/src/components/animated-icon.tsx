@@ -118,7 +118,7 @@ export function AnimatedSplashOverlay() {
 
   const watermark = (
     <Image
-      source={require('@/assets/images/company-mark.png')}
+      source={require('@/assets/images/company-mark.webp')}
       style={styles.watermark}
       contentFit="contain"
     />

@@ -27,6 +27,7 @@ import { Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { useLocale, useT, type MessageKey } from "@/i18n";
 import { shortDate, shortTime } from "@/i18n/format";
+import { EmptyState } from "@/components/empty-state";
 
 type Translate = ReturnType<typeof useT>;
 
@@ -142,6 +143,22 @@ const RISK_LABEL: Record<
   low: { label: "safety.level.low", tone: "neutral" },
 };
 
+/** 事件列表分组标题：今天 / 昨天 / 其它按短日期 */
+function dayLabelOf(
+  iso: string,
+  locale: Parameters<typeof shortDate>[1],
+  t: (k: "common.today" | "common.yesterday") => string,
+): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const dayStart = (x: Date) =>
+    new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((dayStart(now) - dayStart(d)) / 86_400_000);
+  if (diff === 0) return t("common.today");
+  if (diff === 1) return t("common.yesterday");
+  return shortDate(iso, locale);
+}
+
 export default function EventsScreen() {
   const theme = useTheme();
   const t = useT();
@@ -215,6 +232,8 @@ export default function EventsScreen() {
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
+            tintColor={theme.brand}
+            colors={[theme.brand]}
             refreshing={perDevice.some((q) => q.isRefetching)}
             onRefresh={() => perDevice.forEach((q) => void q.refetch())}
           />
@@ -224,47 +243,67 @@ export default function EventsScreen() {
           <ThemedText type="small">{toUserMessage(firstError)}</ThemedText>
         )}
         {items.map((e, i) => {
+          // 按天分组：与上一条不同天时在前面插一个小标题（今天 / 昨天 / 日期）
+          const dayKey = dayLabelOf(e.timestamp, locale, t);
+          const prevKey =
+            i > 0 ? dayLabelOf(items[i - 1].timestamp, locale, t) : null;
+          const header =
+            dayKey !== prevKey ? (
+              <ThemedText
+                type="label"
+                themeColor="textSecondary"
+                style={[styles.dayHeader, i > 0 && styles.dayHeaderGap]}
+              >
+                {dayKey}
+              </ThemedText>
+            ) : null;
           const meta = EVENT_META[e.eventType];
           const icon = meta?.icon ?? "alert-circle-outline";
           const c = toneColor(meta?.tone ?? "neutral");
           return (
-            <Animated.View
-              key={e.eventId}
-              entering={FadeInDown.duration(300).delay(Math.min(i * 45, 400))}
-            >
-              <Tappable feedback="fill" onPress={() => setDetailId(e.eventId)}>
-                {
-                  <View
-                    style={[
-                      styles.card,
-                      {
-                        backgroundColor: theme.backgroundElement,
-                        borderColor: theme.border,
-                      },
-                    ]}
-                  >
-                    <View style={[styles.iconTile, { backgroundColor: c.bg }]}>
-                      <Ionicons name={icon} size={22} color={c.fg} />
-                    </View>
-                    <View style={styles.cardBody}>
-                      <ThemedText type="smallBold" style={{ fontSize: 15 }}>
-                        {meta ? t(meta.title) : e.eventType}
-                      </ThemedText>
+            <View key={e.eventId}>
+              {header}
+              <Animated.View
+                entering={FadeInDown.duration(300).delay(Math.min(i * 45, 400))}
+              >
+                <Tappable
+                  feedback="fill"
+                  onPress={() => setDetailId(e.eventId)}
+                >
+                  {
+                    <View
+                      style={[
+                        styles.card,
+                        {
+                          backgroundColor: theme.backgroundElement,
+                          borderColor: theme.border,
+                        },
+                      ]}
+                    >
+                      <View
+                        style={[styles.iconTile, { backgroundColor: c.bg }]}
+                      >
+                        <Ionicons name={icon} size={22} color={c.fg} />
+                      </View>
+                      <View style={styles.cardBody}>
+                        <ThemedText type="smallBold" style={{ fontSize: 15 }}>
+                          {meta ? t(meta.title) : e.eventType}
+                        </ThemedText>
 
-                      <ThemedText type="label" themeColor="textSecondary">
-                        {e.deviceId} · {shortDate(e.timestamp, locale)}{" "}
-                        {shortTime(e.timestamp, locale)}
-                      </ThemedText>
+                        <ThemedText type="label" themeColor="textSecondary">
+                          {e.deviceId} · {shortTime(e.timestamp, locale)}
+                        </ThemedText>
+                      </View>
+                      <Ionicons
+                        name="chevron-forward"
+                        size={16}
+                        color={theme.textSecondary}
+                      />
                     </View>
-                    <Ionicons
-                      name="chevron-forward"
-                      size={16}
-                      color={theme.textSecondary}
-                    />
-                  </View>
-                }
-              </Tappable>
-            </Animated.View>
+                  }
+                </Tappable>
+              </Animated.View>
+            </View>
           );
         })}
         {loading && items.length === 0 && (
@@ -281,16 +320,11 @@ export default function EventsScreen() {
           </View>
         )}
         {!loading && items.length === 0 && (
-          <View style={styles.empty}>
-            <Ionicons
-              name="shield-checkmark-outline"
-              size={44}
-              color={theme.textSecondary}
-            />
-            <ThemedText type="small" themeColor="textSecondary">
-              {t("events.empty")}
-            </ThemedText>
-          </View>
+          <EmptyState
+            icon="shield-checkmark-outline"
+            title={t("empty.eventsTitle")}
+            body={t("empty.eventsBody")}
+          />
         )}
       </ScrollView>
 
@@ -436,6 +470,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   cardBody: { flex: 1, gap: 3 },
+  dayHeader: { paddingHorizontal: 4, paddingBottom: 6, letterSpacing: 0.4 },
+  dayHeaderGap: { paddingTop: 10 },
   empty: { alignItems: "center", gap: 10, paddingVertical: 60 },
   modalMask: {
     flex: 1,

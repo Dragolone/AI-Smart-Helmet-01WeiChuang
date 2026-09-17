@@ -1,6 +1,8 @@
 // 地图页文案。改地图页的人在这里加 key（三种语言都要有）。
 export const map = {
   "zh-CN": {
+    "map.play": "播放",
+    "map.pause": "暂停",
     "map.riding": "骑行中",
     "map.parked": "静止",
     "map.offline": "设备离线",
@@ -37,6 +39,8 @@ export const map = {
     "map.dayBefore": "前天",
   },
   "zh-TW": {
+    "map.play": "播放",
+    "map.pause": "暫停",
     "map.riding": "騎行中",
     "map.parked": "靜止",
     "map.offline": "裝置離線",
@@ -73,6 +77,8 @@ export const map = {
     "map.dayBefore": "前天",
   },
   en: {
+    "map.play": "Play",
+    "map.pause": "Pause",
     "map.riding": "Riding",
     "map.parked": "Parked",
     "map.offline": "Device offline",

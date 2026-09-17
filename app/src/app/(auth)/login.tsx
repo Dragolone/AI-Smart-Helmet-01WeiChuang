@@ -7,7 +7,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { authApi } from "@/api/auth";
 import { toUserMessage } from "@/api/error-messages";
-import { FormError, FormInput, PrimaryButton } from "@/components/form";
+import {
+  FormError,
+  FormInput,
+  PrimaryButton,
+  errorField,
+  type FormField,
+} from "@/components/form";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { useT } from "@/i18n";
@@ -19,6 +25,13 @@ export default function LoginScreen() {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  /** 能落到具体字段的错误就地显示（红框 + 抖动），落不到的走页面级 FormError */
+  const [fieldError, setFieldError] = useState<{
+    field: FormField;
+    message: string;
+  } | null>(null);
+  const fe = (f: FormField) =>
+    fieldError?.field === f ? fieldError.message : null;
   const [busy, setBusy] = useState(false);
 
   // 记住上次登录的手机号(只存号码不存密码);读取失败静默忽略
@@ -32,6 +45,7 @@ export default function LoginScreen() {
 
   const submit = async () => {
     setError(null);
+    setFieldError(null);
     setBusy(true);
     try {
       const auth = await authApi.login({ phone: phone.trim(), password });
@@ -40,7 +54,9 @@ export default function LoginScreen() {
       );
       await signIn(auth); // AuthGate 检测到会话后自动跳转主页
     } catch (e) {
-      setError(toUserMessage(e));
+      const field = errorField(e);
+      if (field) setFieldError({ field, message: toUserMessage(e) });
+      else setError(toUserMessage(e));
     } finally {
       setBusy(false);
     }
@@ -60,6 +76,7 @@ export default function LoginScreen() {
 
           <FormInput
             label={t("auth.phone")}
+            error={fe("phone")}
             icon="phone-portrait-outline"
             value={phone}
             onChangeText={setPhone}
@@ -70,6 +87,7 @@ export default function LoginScreen() {
           />
           <FormInput
             label={t("auth.password")}
+            error={fe("password")}
             icon="lock-closed-outline"
             value={password}
             onChangeText={setPassword}

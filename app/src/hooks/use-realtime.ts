@@ -17,6 +17,7 @@ import type {
 import { authApi } from "@/api/auth";
 import { devicesApi } from "@/api/devices";
 import { realtimeClient } from "@/api/realtime";
+import { sosApi } from "@/api/sos";
 import { setBleTargets, startBleLink, stopBleLink } from "@/services/ble-link";
 import { devLog } from "@/services/dev-log";
 import { handleDeviceCommand } from "@/services/ble-relay";
@@ -50,6 +51,25 @@ export function useRealtimeUpdates(): void {
       (queryClient.getQueryData<DevicePublic[]>(["devices"]) ?? []).map(
         (d) => d.deviceId,
       );
+    // 冷启动补拉：App 被杀/重开期间若有 SOS 仍在倒计时（例如点了锁屏通知才打开 App），
+    // WS 不会重推创建消息，主动查一次 active 并拉起倒计时页；服务端仍是权威
+    const resumePendingSos = async (ids: string[]) => {
+      for (const id of ids) {
+        try {
+          const { sos } = await sosApi.active(id);
+          if (!sos || sos.status !== "pending") continue;
+          queryClient.setQueryData<ActiveSosResponse>(["sos-active", id], {
+            sos,
+          });
+          if (presentedSosId.current === sos.sosId) continue;
+          presentedSosId.current = sos.sosId;
+          devLog("SOS", `冷启动发现进行中 SOS ${sos.sosId}`);
+          router.push(`/sos-active?sosId=${sos.sosId}&deviceId=${id}`);
+        } catch {
+          // 网络失败不阻塞；安全页仍会按常规查询展示
+        }
+      }
+    };
     void queryClient
       .fetchQuery({
         queryKey: ["devices"],
@@ -57,7 +77,10 @@ export function useRealtimeUpdates(): void {
         staleTime: 10_000,
       })
       .catch(() => undefined)
-      .then(() => startBleLink(bleTargetsOf()));
+      .then(() => {
+        startBleLink(bleTargetsOf());
+        void resumePendingSos(bleTargetsOf());
+      });
     const unsubscribeCache = queryClient.getQueryCache().subscribe((event) => {
       if (event.query.queryKey[0] === "devices" && event.type === "updated") {
         setBleTargets(bleTargetsOf());
@@ -116,7 +139,11 @@ export function useRealtimeUpdates(): void {
             router.push(
               `/sos-active?sosId=${sos.sosId}&deviceId=${sos.deviceId}`,
             );
-            void showSosAlertIfBackground(sos.sosId, sos.deviceId);
+            void showSosAlertIfBackground(
+              sos.sosId,
+              sos.deviceId,
+              sos.deadline,
+            );
           }
           if (sos.status !== "pending") void clearSosAlert(sos.sosId);
           break;

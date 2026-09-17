@@ -14,12 +14,18 @@ import {
   StyleSheet,
   View,
 } from "react-native";
-import ReAnimated, { FadeInDown } from "react-native-reanimated";
+import ReAnimated, {
+  FadeInDown,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 
 import { devicesApi } from "@/api/devices";
 import { showToast } from "@/components/toast";
 import { toUserMessage } from "@/api/error-messages";
 import { Badge } from "@/components/badge";
+import { BleOnboardingCard } from "@/components/ble-onboarding";
 import { AnimatedChip, PulseDot } from "@/components/motion";
 import { Tappable } from "@/components/tappable";
 import { BatteryChart } from "@/components/battery-chart";
@@ -79,6 +85,53 @@ function InfoRow({
         </ThemedText>
       </View>
     </Wrapper>
+  );
+}
+
+/** 低频信息折叠区：默认收起，首屏只留电量/连接/设置；展开用淡入下滑，箭头旋转 */
+function DeviceInfoSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  const theme = useTheme();
+  const [open, setOpen] = useState(false);
+  const rot = useSharedValue(0);
+  const chevron = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rot.get()}deg` }],
+  }));
+  return (
+    <View style={styles.infoSection}>
+      <Tappable
+        feedback="opacity"
+        onPress={() => {
+          rot.set(withTiming(open ? 0 : 90, { duration: 180 }));
+          setOpen((v) => !v);
+        }}
+        style={styles.infoHeader}
+      >
+        <ThemedText type="smallBold" themeColor="textSecondary">
+          {title}
+        </ThemedText>
+        <ReAnimated.View style={chevron}>
+          <Ionicons
+            name="chevron-forward"
+            size={16}
+            color={theme.textSecondary}
+          />
+        </ReAnimated.View>
+      </Tappable>
+      {open && (
+        <ReAnimated.View
+          entering={FadeInDown.duration(200)}
+          style={styles.infoBody}
+        >
+          {children}
+        </ReAnimated.View>
+      )}
+    </View>
   );
 }
 
@@ -375,6 +428,8 @@ export default function DeviceDetailScreen() {
           <ThemedText type="small">{toUserMessage(status.error)}</ThemedText>
         )}
 
+        <BleOnboardingCard />
+
         {s && (
           <>
             <View
@@ -400,45 +455,6 @@ export default function DeviceDetailScreen() {
               />
             </View>
 
-            <InfoRow
-              icon="cellular-outline"
-              label={t("device.signal")}
-              value={
-                s.signalLevel !== null
-                  ? String(s.signalLevel)
-                  : t("device.notReported")
-              }
-            />
-            <InfoRow
-              icon={s.sleeping ? "moon-outline" : "flash-outline"}
-              label={t("device.workState")}
-              value={s.sleeping ? t("device.sleeping") : t("device.active")}
-            />
-            <InfoRow
-              icon="hardware-chip-outline"
-              label={t("devices.firmware")}
-              value={s.firmwareVersion ?? t("common.unknown")}
-            />
-            <InfoRow
-              icon="time-outline"
-              label={t("device.lastHeartbeat")}
-              value={
-                s.lastSeenAt
-                  ? `${shortDate(s.lastSeenAt, locale)} ${shortTime(s.lastSeenAt, locale)}`
-                  : t("device.neverReported")
-              }
-            />
-            <InfoRow
-              icon={bindCodeShown ? "eye-outline" : "eye-off-outline"}
-              label={t("device.bindCode")}
-              value={
-                bindCodeShown ? (detail.data?.bindCode ?? "—") : "••••••••"
-              }
-              valueColor={bindCodeShown ? undefined : theme.textSecondary}
-              onPress={
-                bindCodeShown ? () => setBindCodeShown(false) : revealBindCode
-              }
-            />
             <InfoRow
               icon={
                 bleLink?.phase === "connected"
@@ -571,6 +587,50 @@ export default function DeviceDetailScreen() {
           </>
         )}
 
+        {s && (
+          <DeviceInfoSection title={t("device.info")}>
+            <InfoRow
+              icon="cellular-outline"
+              label={t("device.signal")}
+              value={
+                s.signalLevel !== null
+                  ? String(s.signalLevel)
+                  : t("device.notReported")
+              }
+            />
+            <InfoRow
+              icon={s.sleeping ? "moon-outline" : "flash-outline"}
+              label={t("device.workState")}
+              value={s.sleeping ? t("device.sleeping") : t("device.active")}
+            />
+            <InfoRow
+              icon="hardware-chip-outline"
+              label={t("devices.firmware")}
+              value={s.firmwareVersion ?? t("common.unknown")}
+            />
+            <InfoRow
+              icon="time-outline"
+              label={t("device.lastHeartbeat")}
+              value={
+                s.lastSeenAt
+                  ? `${shortDate(s.lastSeenAt, locale)} ${shortTime(s.lastSeenAt, locale)}`
+                  : t("device.neverReported")
+              }
+            />
+            <InfoRow
+              icon={bindCodeShown ? "eye-outline" : "eye-off-outline"}
+              label={t("device.bindCode")}
+              value={
+                bindCodeShown ? (detail.data?.bindCode ?? "—") : "••••••••"
+              }
+              valueColor={bindCodeShown ? undefined : theme.textSecondary}
+              onPress={
+                bindCodeShown ? () => setBindCodeShown(false) : revealBindCode
+              }
+            />
+          </DeviceInfoSection>
+        )}
+
         <View style={styles.footer}>
           <PrimaryButton
             title={t("device.unbind")}
@@ -692,6 +752,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
+  infoSection: { gap: 8 },
+  infoHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 4,
+    paddingVertical: 6,
+  },
+  infoBody: { gap: 8 },
   rowValue: { flexDirection: "row", alignItems: "center", gap: 6 },
   rowLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
   footer: { marginTop: 8 },

@@ -619,6 +619,10 @@ export default function MapScreen() {
   };
 
   const online = device?.online ?? false;
+  // 离线时 Marker 变灰停波纹，一眼能看出"这不是实时位置"
+  useEffect(() => {
+    mapRef.current?.setHelmetOnline(online);
+  }, [online]);
   const dotColor = !wsUp
     ? theme.warning
     : online
@@ -666,6 +670,7 @@ export default function MapScreen() {
               ? gcjPath[replayIdx]
               : liveLoc && toGcj02(liveLoc);
           if (pos) mapRef.current?.setHelmet(pos, { follow: true });
+          mapRef.current?.setHelmetOnline(online);
         }}
       />
 
@@ -1095,6 +1100,9 @@ export default function MapScreen() {
                       <View style={styles.replayRow}>
                         <Tappable
                           accessibilityRole="button"
+                          accessibilityLabel={t(
+                            playing ? "map.pause" : "map.play",
+                          )}
                           style={[
                             styles.playBtn,
                             {

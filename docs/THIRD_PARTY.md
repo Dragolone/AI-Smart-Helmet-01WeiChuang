@@ -14,7 +14,7 @@
 | 4 | 腾讯云短信（签名 + 模板） | 🔄 服务已开通（2026-09-09）；资质/签名/模板待提交（承诺书待盖章）；后端腾讯云实现已就绪等六项配置 | 注册验证码 + SOS 短信真发（现为 Console Mock，不阻塞） | 负责人 |
 | 5 | Apple Developer 公司账号 | 🔄 D-U-N-S 查询无记录、自助申请失败；**2026-09-08 已向 Apple Developer Support 发工单**；**2026-09-09 苹果已回复（案例 102956478091）**：回邮件补四项（本地企业名/电话/工作电话/工作邮箱，仅罗马字母）即由 Apple 代向邓白氏免费建档，邓白氏可能电话核实，需备好营业执照 | iOS TestFlight 分发、APNs 远程推送、正式 Bundle ID | 负责人 |
 | 6 | 推送：极光 + 安卓厂商通道 | ⬜ 待申请 | App 被杀后收不到推送（现只有本地通知） | 负责人 |
-| 7 | 高德地图 Key | ✅ **企业认证已完成（2026-09-06）**；个人 Key 支撑开发中，待在企业主体下建 Key 并换入 `app/.env` | 不阻塞开发 | 负责人 |
+| 7 | 高德地图 Key | ✅ 企业认证已完成（2026-09-06）；企业主体三把 Key 已建并换入（2026-09-17，测试额度）；**商用授权 = 付费年包 ¥5 万/年，上线前待汤总拍板（买 / 换图商）** | 不阻塞开发 | 负责人 → 汤总 |
 | 8 | 腾讯云 TRTC 应用 | ✅ **已完成（2026-09-10）**：应用在公司腾讯云账号下（SDKAppID 1600157223）；云端 `deploy/.env` 已填，进房凭证接口实测返回 userSig | — | 负责人 |
 | 9 | 软件著作权（App） | 🔄 **材料已备好（2026-09-10）**：软件名「零一唯创App V1.0」（汤总定名），源程序 60 页 + 说明书 14 页 + 填表信息在负责人桌面 `01/软著/`；待版权中心网站提交 + 申请表盖章 | 安卓商店上架硬性要求（30 个工作日，可加急） | 负责人 |
 | 10 | App 备案（工信部） | ⬜ 待办：腾讯云控制台「备案」→ 新增 App，主体沿用公司；**前置=正式包名定稿**（建议 `com.lingyiweichuang.app`，安卓包名段不能以数字开头故不能用 01weichuang） | 苹果 / 安卓商店上架均查备案号（1–2 周） | 负责人 |
@@ -61,7 +61,7 @@
 
 ### 5. Apple Developer 公司账号（Organization）
 
-- **现状**：公司专用 Apple ID 已建（凭证入密码库）、管理人实名通过，卡在 **D-U-N-S 邓白氏建档**：查询工具无记录、自助申请失败（新公司）。**2026-09-08 已向 Apple Developer Support 发工单**；**2026-09-09 苹果回复（案例 102956478091，支持人员 Lynette）**：回复该邮件补四项信息（本地企业名称、电话、工作电话、工作邮箱；**只能用罗马字母**），即授权 Apple 向 D&B 提交建档；D&B 可能致电工作电话核实，须备好营业执照；建档完成后 D&B 通知。**2026-09-11 邓白氏（海南邓白氏）来邮：订单 10212210956843，须 9-14 15:00 前在 dnbportal.cn 完成企业核验并申请编码；2026-09-12 10:01 已提交企业核验（待核验，联系人钟祺龙，邮箱 3840404902@qq.com，英文名 Shenzhen Lingyi Weichuang Technology Co., Ltd.）。企业核验 12:05 通过；**编码申请已提交（申请编号 d2026091210082070466041，待审核，5 个工作日通道）**。下一步**：等编码邮件（预计 9-19 前） → Apple Developer App 填 Organization Details → 付 ¥688 → Apple 审核（过期可在 developer.apple.com/enroll/duns-lookup 重提，核验不用重做）
+- **现状**：公司专用 Apple ID 已建（凭证入密码库）、管理人实名通过，卡在 **D-U-N-S 邓白氏建档**：查询工具无记录、自助申请失败（新公司）。**2026-09-08 已向 Apple Developer Support 发工单**；**2026-09-09 苹果回复（案例 102956478091，支持人员 Lynette）**：回复该邮件补四项信息（本地企业名称、电话、工作电话、工作邮箱；**只能用罗马字母**），即授权 Apple 向 D&B 提交建档；D&B 可能致电工作电话核实，须备好营业执照；建档完成后 D&B 通知。**2026-09-11 邓白氏（海南邓白氏）来邮：订单 10212210956843，须 9-14 15:00 前在 dnbportal.cn 完成企业核验并申请编码；2026-09-12 10:01 已提交企业核验（待核验，联系人钟祺龙，邮箱 3840404902@qq.com，英文名 Shenzhen Lingyi Weichuang Technology Co., Ltd.）。企业核验 12:05 通过；**编码申请已提交（申请编号 d2026091210082070466041，待审核，5 个工作日通道）**。9-17 审核员退回简称格式（改为「零一唯创科技」/「Lingyi Weichuang Technology」）当日改完；**9-17 18:38 邓白氏编码审核通过、已交付：D-U-N-S = 576655751**（深圳零一唯创科技有限公司 / Shenzhen Lingyi Weichuang Technology Co., Ltd.）。下一步**：编码 1–2 工作日自动发到苹果留的邮箱；D&B → Apple 数据同步 5–14 工作日，**9-23 起在 developer.apple.com/enroll/duns-lookup 查询，查到后 Apple Developer App 填 Organization Details → 付 ¥688 → Apple 审核（电话核实统一指向法人龙俊洁 15014036340）** → Apple Developer App 填 Organization Details → 付 ¥688 → Apple 审核（过期可在 developer.apple.com/enroll/duns-lookup 重提，核验不用重做）
 - **流程**：D-U-N-S 建档 1–7 工作日出编码 → 回 Apple Developer App 填 Organization Details → 付 ¥688 → Apple 审核（可能电话核实公司）
 - **阻塞**：iOS 真机现用个人开发证书（7 天过期需重装）；TestFlight 分发、APNs 远程推送、Bundle ID 统一都等它
 - **公司信息**：深圳零一唯创科技有限公司 / 91440300MAK7XEPD38 / 深圳市坪山区龙田街道竹坑社区翠景路33号3栋坪山工匠园402
@@ -79,14 +79,15 @@
 - **个人 Key 已到位**（2026-08-16），地图 Spike 已完成、地图库已定案 WebView + JS API（决策 #33），A 线地图页已实现——**开发不再被阻塞**
 - ✅ **企业认证已完成（2026-09-06）**：对公打款回填通过，账号主体已为深圳零一唯创科技有限公司
 - **需要的 Key**（见 `app/.env.example`）：Web端(JS API) Key + 安全密钥 = **地图主 Key**；Android Key（包名 + SHA1）、iOS Key（Bundle ID）保留备查
-- **剩余动作（不急，正式包前完成）**：在企业主体下重新创建 Web端(JS API) Key + 安全密钥，换入 `app/.env` 的 `EXPO_PUBLIC_AMAP_JS_KEY` / `EXPO_PUBLIC_AMAP_JS_SECURITY_CODE`（配额与商用授权走企业 Key）；Android/iOS Key 待第 5 项定下正式 Bundle ID 后一并创建
+- ~~剩余动作：在企业主体下重新创建 Web端(JS API) Key 换入~~ → **2026-09-17 发现企业账号「未获得技术服务使用许可」是付费年包**（基础版 ¥50,000/年、高级版 ¥100,000/年，2024.7.16 新定价起企业主体商用授权与正式配额依赖它）。**MVP 期间维持个人 Key（JS API 不绑包名/SHA1，Bundle ID 切换对地图零影响）**，不阻塞任何开发/演示。
+- 🔴 **上线前待汤总拍板（经营成本项）**：① 购买高德基础版 ¥5 万/年（合规 + 配额一次解决）；② 换腾讯位置服务/百度地图（评估企业免费配额与商用条款；地图层是独立组件，换 JS API 底图约一周）；③ 个人 Key 商用——违反条款、有封 Key 风险，不建议。~~可先在企业账号试建 Web端(JS API) Key~~ → ✅ **2026-09-17 企业账号已建三把 Key**（应用「AI头盔」：Web端(JS API)+安全密钥 / iOS `com.lingyiweichuang.app` / Android 包名 + debug.keystore SHA1），**Web Key 已换入 `app/.env`**（模拟器地图验证通过；旧个人 Key 以注释留在 `.env` 备回滚，Key 值只在密码管理器/私聊，不进 Git）。控制台明示：未购许可前 Key「仅供短期、少量测试」——上线前决策不变。Android Key 现绑的是 Expo 默认 `debug.keystore` 指纹，**正式签名证书生成后要回控制台改「发布版 SHA1」**。
 
 ### 8. 腾讯云 TRTC
 
 - 选型已定案（决策 #22），后端 UserSig 自实现官方 HMAC-SHA256 算法，不引 SDK 依赖
 - ✅ **补验通过（2026-08-16）**：Developer A 提供个人测试应用凭证，填入 `backend/.env` 的 `TRTC_SDK_APP_ID` / `TRTC_SECRET_KEY` 后实测「注册 → 建频道 → 取进房凭证」全链路，`POST /voice/channels/:channelId/token` 正常返回 `sdkAppId` / `roomId` / `userSig`（216 字符）/ `expiresAt`（24h）。**Week 9–10 遗留项①清零**
 - 正式应用待公司资质就绪后在同一腾讯云账号下创建，**换 Key 零代码改动**（仅改 env）
-- ⚠️ 当前 App 端对讲仍用客户端本地生成 UserSig（`EXPO_PUBLIC_TRTC_SECRETKEY` 进了客户端）+ 固定演示房间，属 Spike 遗留。**SecretKey 不得随正式包分发**——A 线已接下「对讲页接后端频道管理」任务，切到 §13 接口后此风险消除
+- ✅ 对讲已切服务端签发 UserSig；**2026-09-17 删除 spike-* 页与 `EXPO_PUBLIC_TRTC_SDKAPPID/SECRETKEY`（SecretKey 曾随 Spike 页进客户端包）**，App 不再持有任何 TRTC 密钥
 
 ## 域名与 HTTPS（决策 #34）
 

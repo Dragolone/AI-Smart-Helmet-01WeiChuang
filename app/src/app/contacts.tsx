@@ -17,6 +17,7 @@ import { translate, useT } from "@/i18n";
 import Animated from "react-native-reanimated";
 
 import { listEntering } from "@/components/motion";
+import { EmptyState } from "@/components/empty-state";
 
 const MAX_CONTACTS = 5;
 
@@ -30,6 +31,7 @@ function ContactRow({
   onDelete: () => void;
 }) {
   const theme = useTheme();
+  const t = useT();
   return (
     <View
       style={[
@@ -65,7 +67,13 @@ function ContactRow({
           {contact.phone}
         </ThemedText>
       </View>
-      <Tappable onPress={onDelete} hitSlop={8} style={styles.trash}>
+      <Tappable
+        accessibilityRole="button"
+        accessibilityLabel={t("common.delete")}
+        onPress={onDelete}
+        hitSlop={8}
+        style={styles.trash}
+      >
         <Ionicons name="trash-outline" size={20} color={theme.textSecondary} />
       </Tappable>
     </View>
@@ -129,11 +137,14 @@ export default function ContactsScreen() {
           </Card>
         ) : (
           !contacts.isLoading && (
-            <View style={styles.empty}>
-              <ThemedText type="small" themeColor="textSecondary">
-                {t("contacts.empty")}
-              </ThemedText>
-            </View>
+            <EmptyState
+              icon="people-outline"
+              title={t("empty.contactsTitle")}
+              body={t("empty.contactsBody")}
+              actionLabel={t("empty.contactsAction")}
+              actionIcon="add"
+              onAction={() => router.push("/add-contact")}
+            />
           )
         )}
       </ScrollView>
