@@ -12,6 +12,7 @@ import {
   Animated,
   type LayoutChangeEvent,
   Platform,
+  Pressable,
   Share,
   StyleSheet,
   View,
@@ -53,7 +54,7 @@ const SHEET_TIMING = { duration: 220, easing: Easing.out(Easing.cubic) };
 const SHEET_OPEN = 4000;
 /** iOS 原生玻璃标签条高度（不含 home 指示条） */
 const IOS_TAB_BAR_H = 62;
-const CARD_PAD_TOP = 16;
+const CARD_PAD_TOP = 8;
 type RangeHours = (typeof RANGE_OPTIONS)[number];
 type Translate = ReturnType<typeof useT>;
 
@@ -343,27 +344,34 @@ export default function MapScreen() {
   };
   // 手势只挂在状态行上：卡身里的按钮/拖杆不会被抽屉手势抢走（快速点击历史轨迹误触）。
   // 回调跑在 UI 线程（worklet）：只能用共享值和常量
-  const sheetPan = Gesture.Pan()
-    .activeOffsetY([-6, 6])
-    .failOffsetX([-12, 12])
-    .onStart(() => {
-      const hi = CARD_PAD_TOP + contentH.get() + cardPadBottom;
-      const cur = maxH.get() >= SHEET_OPEN ? hi : maxH.get();
-      maxH.set(cur);
-      sheetStart.set(cur);
-    })
-    .onUpdate((e) => {
-      const lo = CARD_PAD_TOP + headerH.get() + cardPadBottom;
-      const hi = CARD_PAD_TOP + contentH.get() + cardPadBottom;
-      maxH.set(Math.min(hi, Math.max(lo, sheetStart.get() - e.translationY)));
-    })
-    .onEnd((e) => {
-      const lo = CARD_PAD_TOP + headerH.get() + cardPadBottom;
-      const hi = CARD_PAD_TOP + contentH.get() + cardPadBottom;
-      const collapse =
-        e.velocityY > 400 || (e.velocityY > -400 && maxH.get() < (lo + hi) / 2);
-      runOnJS(snapSheet)(collapse);
-    });
+  const makeSheetPan = (enabled: boolean) =>
+    Gesture.Pan()
+      .enabled(enabled)
+      .activeOffsetY([-6, 6])
+      .failOffsetX([-12, 12])
+      .onStart(() => {
+        const hi = CARD_PAD_TOP + contentH.get() + cardPadBottom;
+        const cur = maxH.get() >= SHEET_OPEN ? hi : maxH.get();
+        maxH.set(cur);
+        sheetStart.set(cur);
+      })
+      .onUpdate((e) => {
+        const lo = CARD_PAD_TOP + headerH.get() + cardPadBottom;
+        const hi = CARD_PAD_TOP + contentH.get() + cardPadBottom;
+        maxH.set(Math.min(hi, Math.max(lo, sheetStart.get() - e.translationY)));
+      })
+      .onEnd((e) => {
+        const lo = CARD_PAD_TOP + headerH.get() + cardPadBottom;
+        const hi = CARD_PAD_TOP + contentH.get() + cardPadBottom;
+        const collapse =
+          e.velocityY > 400 ||
+          (e.velocityY > -400 && maxH.get() < (lo + hi) / 2);
+        runOnJS(snapSheet)(collapse);
+      });
+  // 展开时：手势只在抓手 + 状态行 + 四格数据（按钮行不受影响）；
+  // 收起时：整张可见的卡（含标签栏上方那段留白）都能上滑展开，不用精确按到状态行
+  const sheetPan = makeSheetPan(!panelCollapsed);
+  const cardPan = makeSheetPan(panelCollapsed);
   const sheetStyle = useAnimatedStyle(() => ({ maxHeight: maxH.get() }));
   // 右侧圆钮栈骑在抽屉上方：overlay 底部已让出 reserve，再补抽屉高出的部分
   const overlayReserve =
@@ -862,315 +870,341 @@ export default function MapScreen() {
             },
           ]}
         >
-          <Reanimated.View
-            style={[
-              styles.bottomCard,
-              {
-                backgroundColor: theme.backgroundElement,
-                borderColor: theme.border,
-                paddingBottom: cardPadBottom,
-              },
-              sheetStyle,
-            ]}
-          >
-            {/* 裁切盒在底部内边距之上：收起时只露状态行，玻璃标签条下不再透出后面的内容 */}
-            <View style={styles.cardClip}>
-              <View style={styles.cardContent} onLayout={onContentLayout}>
-                <GestureDetector gesture={sheetPan}>
-                  <Tappable
-                    feedback="opacity"
-                    onLayout={onHeaderLayout}
-                    onPress={() => snapSheet(!panelCollapsed)}
-                    style={styles.cardHeader}
-                  >
-                    <View style={styles.headerLeft}>
-                      <View
-                        style={[
-                          styles.statusChip,
-                          {
-                            backgroundColor: online
-                              ? theme.brand
-                              : theme.backgroundSelected,
-                          },
-                        ]}
-                      >
-                        <ThemedText
-                          type="smallBold"
-                          style={[
-                            styles.statusChipText,
-                            {
-                              color: online
-                                ? theme.onBrand
-                                : theme.textSecondary,
-                            },
-                          ]}
+          <GestureDetector gesture={cardPan}>
+            <Reanimated.View
+              style={[
+                styles.bottomCard,
+                {
+                  backgroundColor: theme.backgroundElement,
+                  borderColor: theme.border,
+                  paddingBottom: cardPadBottom,
+                },
+                sheetStyle,
+              ]}
+            >
+              {/* 裁切盒在底部内边距之上：收起时只露状态行，玻璃标签条下不再透出后面的内容 */}
+              <View style={styles.cardClip}>
+                <View style={styles.cardContent} onLayout={onContentLayout}>
+                  {/* 手势区 = 抓手 + 状态行 + 四格数据（无按钮的区域都能拖），按钮行以下不响应抽屉手势 */}
+                  <GestureDetector gesture={sheetPan}>
+                    <View style={styles.gripZone}>
+                      <View style={styles.gripHead} onLayout={onHeaderLayout}>
+                        <Pressable
+                          onPress={() => snapSheet(!panelCollapsed)}
+                          hitSlop={{ top: 14, bottom: 6, left: 80, right: 80 }}
+                          style={styles.grabberWrap}
                         >
-                          {online ? t("map.riding") : t("map.offline")}
-                        </ThemedText>
-                      </View>
-                      <ThemedText
-                        type="small"
-                        themeColor="textSecondary"
-                        numberOfLines={1}
-                        style={styles.caption}
-                      >
-                        {caption}
-                      </ThemedText>
-                    </View>
-                    {!online && (
-                      <ThemedText
-                        type="small"
-                        themeColor="textSecondary"
-                        style={styles.captionRight}
-                      >
-                        {t("map.lastSeen", {
-                          ago: relativeTime(device.lastSeenAt ?? null, locale),
-                        })}
-                      </ThemedText>
-                    )}
-                    <Ionicons
-                      name={panelCollapsed ? "chevron-up" : "chevron-down"}
-                      size={18}
-                      color={theme.textSecondary}
-                    />
-                  </Tappable>
-                </GestureDetector>
-
-                {
-                  <View style={styles.statsRow}>
-                    <Stat
-                      label={t("map.speed")}
-                      value={
-                        statPoint ? (statPoint.speed * 3.6).toFixed(0) : "—"
-                      }
-                      unit="km/h"
-                    />
-                    <Stat
-                      label={t("map.distance")}
-                      value={(distanceMeters / 1000).toFixed(1)}
-                      unit="km"
-                    />
-                    <Stat
-                      label={t("map.altitude")}
-                      value={
-                        statPoint?.altitude != null
-                          ? statPoint.altitude.toFixed(0)
-                          : "—"
-                      }
-                      unit="m"
-                    />
-                    <Stat
-                      label={t("map.battery")}
-                      value={
-                        device.battery != null ? String(device.battery) : "—"
-                      }
-                      unit="%"
-                      valueColor={theme.brand}
-                    />
-                  </View>
-                }
-
-                {
-                  <View style={styles.actionRow}>
-                    <SecondaryButton
-                      compact
-                      title={t("map.history")}
-                      icon="time-outline"
-                      onPress={toggleHistory}
-                      style={styles.flex1}
-                    />
-                    <PrimaryButton
-                      compact
-                      title={t("map.navigate")}
-                      icon="navigate"
-                      onPress={navigateTo}
-                      disabled={!sharePos}
-                      style={styles.flex1}
-                    />
-                  </View>
-                }
-
-                {historyOpen && (
-                  <>
-                    <View
-                      style={[
-                        styles.divider,
-                        { backgroundColor: theme.border },
-                      ]}
-                    />
-
-                    <View style={styles.replayHeader}>
-                      <ThemedText
-                        type="smallBold"
-                        themeColor="textSecondary"
-                        style={styles.panelTitle}
-                      >
-                        {t("map.replay")}
-                      </ThemedText>
-                      <ThemedText
-                        type="small"
-                        themeColor="textSecondary"
-                        style={styles.panelMeta}
-                      >
-                        {canReplay ? (
-                          <>
+                          <View
+                            style={[
+                              styles.grabber,
+                              { backgroundColor: theme.border },
+                            ]}
+                          />
+                        </Pressable>
+                        <Tappable
+                          feedback="opacity"
+                          onPress={() => snapSheet(!panelCollapsed)}
+                          style={styles.cardHeader}
+                        >
+                          <View style={styles.headerLeft}>
+                            <View
+                              style={[
+                                styles.statusChip,
+                                {
+                                  backgroundColor: online
+                                    ? theme.brand
+                                    : theme.backgroundSelected,
+                                },
+                              ]}
+                            >
+                              <ThemedText
+                                type="smallBold"
+                                style={[
+                                  styles.statusChipText,
+                                  {
+                                    color: online
+                                      ? theme.onBrand
+                                      : theme.textSecondary,
+                                  },
+                                ]}
+                              >
+                                {online ? t("map.riding") : t("map.offline")}
+                              </ThemedText>
+                            </View>
                             <ThemedText
                               type="small"
-                              themeColor="brand"
-                              style={styles.panelMeta}
+                              themeColor="textSecondary"
+                              numberOfLines={1}
+                              style={styles.caption}
                             >
-                              {formatClock(replayElapsedMs)}
+                              {caption}
                             </ThemedText>
-                            {" / "}
-                            {formatClock(trackEndMs - trackStartMs)}
-                          </>
-                        ) : track.isLoading ? (
-                          t("map.loadingTrack")
-                        ) : (
-                          t("map.noTrack")
-                        )}
-                      </ThemedText>
-                    </View>
+                          </View>
+                          {!online && (
+                            <ThemedText
+                              type="small"
+                              themeColor="textSecondary"
+                              style={styles.captionRight}
+                            >
+                              {t("map.lastSeen", {
+                                ago: relativeTime(
+                                  device.lastSeenAt ?? null,
+                                  locale,
+                                ),
+                              })}
+                            </ThemedText>
+                          )}
+                        </Tappable>
+                      </View>
 
-                    <View style={styles.chipRow}>
-                      <Chip
-                        label={`${dayLabel(dayOffset, t)} ▾`}
-                        active={dayOffset > 0}
-                        onPress={() => setDateOpen((v) => !v)}
+                      {
+                        <View style={styles.statsRow}>
+                          <Stat
+                            label={t("map.speed")}
+                            value={
+                              statPoint
+                                ? (statPoint.speed * 3.6).toFixed(0)
+                                : "—"
+                            }
+                            unit="km/h"
+                          />
+                          <Stat
+                            label={t("map.distance")}
+                            value={(distanceMeters / 1000).toFixed(1)}
+                            unit="km"
+                          />
+                          <Stat
+                            label={t("map.altitude")}
+                            value={
+                              statPoint?.altitude != null
+                                ? statPoint.altitude.toFixed(0)
+                                : "—"
+                            }
+                            unit="m"
+                          />
+                          <Stat
+                            label={t("map.battery")}
+                            value={
+                              device.battery != null
+                                ? String(device.battery)
+                                : "—"
+                            }
+                            unit="%"
+                            valueColor={theme.brand}
+                          />
+                        </View>
+                      }
+                    </View>
+                  </GestureDetector>
+
+                  {
+                    <View style={styles.actionRow}>
+                      <SecondaryButton
+                        compact
+                        title={t("map.history")}
+                        icon="time-outline"
+                        onPress={toggleHistory}
+                        style={styles.flex1}
                       />
-                      {RANGE_OPTIONS.map((h) => (
-                        <Chip
-                          key={h}
-                          label={`${h}h`}
-                          active={dayOffset === 0 && range === h}
-                          disabled={dayOffset > 0}
-                          onPress={() => setRange(h)}
-                        />
-                      ))}
+                      <PrimaryButton
+                        compact
+                        title={t("map.navigate")}
+                        icon="navigate"
+                        onPress={navigateTo}
+                        disabled={!sharePos}
+                        style={styles.flex1}
+                      />
                     </View>
+                  }
 
-                    {dateOpen && (
+                  {historyOpen && (
+                    <>
+                      <View
+                        style={[
+                          styles.divider,
+                          { backgroundColor: theme.border },
+                        ]}
+                      />
+
+                      <View style={styles.replayHeader}>
+                        <ThemedText
+                          type="smallBold"
+                          themeColor="textSecondary"
+                          style={styles.panelTitle}
+                        >
+                          {t("map.replay")}
+                        </ThemedText>
+                        <ThemedText
+                          type="small"
+                          themeColor="textSecondary"
+                          style={styles.panelMeta}
+                        >
+                          {canReplay ? (
+                            <>
+                              <ThemedText
+                                type="small"
+                                themeColor="brand"
+                                style={styles.panelMeta}
+                              >
+                                {formatClock(replayElapsedMs)}
+                              </ThemedText>
+                              {" / "}
+                              {formatClock(trackEndMs - trackStartMs)}
+                            </>
+                          ) : track.isLoading ? (
+                            t("map.loadingTrack")
+                          ) : (
+                            t("map.noTrack")
+                          )}
+                        </ThemedText>
+                      </View>
+
                       <View style={styles.chipRow}>
-                        {DAY_OFFSETS.map((d) => (
+                        <Chip
+                          label={`${dayLabel(dayOffset, t)} ▾`}
+                          active={dayOffset > 0}
+                          onPress={() => setDateOpen((v) => !v)}
+                        />
+                        {RANGE_OPTIONS.map((h) => (
                           <Chip
-                            key={d}
-                            label={dayLabel(d, t)}
-                            active={dayOffset === d}
-                            onPress={() => {
-                              setDayOffset(d);
-                              setDateOpen(false);
-                            }}
+                            key={h}
+                            label={`${h}h`}
+                            active={dayOffset === 0 && range === h}
+                            disabled={dayOffset > 0}
+                            onPress={() => setRange(h)}
                           />
                         ))}
                       </View>
-                    )}
 
-                    <View style={styles.replayRow}>
-                      <Tappable
-                        accessibilityRole="button"
-                        style={[
-                          styles.playBtn,
-                          {
-                            borderColor: canReplay ? theme.brand : theme.border,
-                          },
-                        ]}
-                        onPress={togglePlay}
-                        disabled={!canReplay}
-                      >
-                        <Ionicons
-                          name={playing ? "pause" : "play"}
-                          size={16}
-                          color={canReplay ? theme.brand : theme.textSecondary}
-                        />
-                      </Tappable>
-                      <Tappable
-                        accessibilityRole="button"
-                        style={[
-                          styles.speedBtn,
-                          { backgroundColor: theme.backgroundSelected },
-                        ]}
-                        disabled={!canReplay}
-                        onPress={() =>
-                          setSpeed((v) => (v === 1 ? 2 : v === 2 ? 4 : 1))
-                        }
-                      >
-                        <ThemedText
-                          type="smallBold"
+                      {dateOpen && (
+                        <View style={styles.chipRow}>
+                          {DAY_OFFSETS.map((d) => (
+                            <Chip
+                              key={d}
+                              label={dayLabel(d, t)}
+                              active={dayOffset === d}
+                              onPress={() => {
+                                setDayOffset(d);
+                                setDateOpen(false);
+                              }}
+                            />
+                          ))}
+                        </View>
+                      )}
+
+                      <View style={styles.replayRow}>
+                        <Tappable
+                          accessibilityRole="button"
                           style={[
-                            styles.chipText,
+                            styles.playBtn,
                             {
-                              color:
-                                speed > 1 ? theme.brand : theme.textSecondary,
+                              borderColor: canReplay
+                                ? theme.brand
+                                : theme.border,
                             },
                           ]}
+                          onPress={togglePlay}
+                          disabled={!canReplay}
                         >
-                          ×{speed}
-                        </ThemedText>
-                      </Tappable>
-                      <View style={styles.seekColumn}>
-                        <SeekBar
-                          ratio={replayRatio}
-                          accent={theme.brand}
-                          trackColor={theme.backgroundSelected}
-                          onSeek={(r) => {
-                            if (!canReplay) return;
-                            setPlaying(false);
-                            setReplayIdx(Math.round(r * (gcjPath.length - 1)));
-                          }}
-                        />
-                        <View style={styles.seekLabels}>
-                          <ThemedText
-                            type="small"
-                            themeColor="textSecondary"
-                            style={styles.seekLabel}
-                          >
-                            00:00
-                          </ThemedText>
-                          <ThemedText
-                            type="small"
-                            themeColor="textSecondary"
-                            style={styles.seekLabel}
-                          >
-                            {canReplay
-                              ? formatClock(trackEndMs - trackStartMs)
-                              : "--:--"}
-                          </ThemedText>
-                        </View>
-                      </View>
-                      {replayIdx !== null && (
+                          <Ionicons
+                            name={playing ? "pause" : "play"}
+                            size={16}
+                            color={
+                              canReplay ? theme.brand : theme.textSecondary
+                            }
+                          />
+                        </Tappable>
                         <Tappable
-                          hitSlop={8}
-                          style={styles.exitBtn}
-                          onPress={exitReplay}
+                          accessibilityRole="button"
+                          style={[
+                            styles.speedBtn,
+                            { backgroundColor: theme.backgroundSelected },
+                          ]}
+                          disabled={!canReplay}
+                          onPress={() =>
+                            setSpeed((v) => (v === 1 ? 2 : v === 2 ? 4 : 1))
+                          }
                         >
                           <ThemedText
                             type="smallBold"
-                            themeColor="brand"
-                            style={styles.chipText}
+                            style={[
+                              styles.chipText,
+                              {
+                                color:
+                                  speed > 1 ? theme.brand : theme.textSecondary,
+                              },
+                            ]}
                           >
-                            {t("map.backToLive")}
+                            ×{speed}
                           </ThemedText>
                         </Tappable>
-                      )}
-                    </View>
+                        <View style={styles.seekColumn}>
+                          <SeekBar
+                            ratio={replayRatio}
+                            accent={theme.brand}
+                            trackColor={theme.backgroundSelected}
+                            onSeek={(r) => {
+                              if (!canReplay) return;
+                              setPlaying(false);
+                              setReplayIdx(
+                                Math.round(r * (gcjPath.length - 1)),
+                              );
+                            }}
+                          />
+                          <View style={styles.seekLabels}>
+                            <ThemedText
+                              type="small"
+                              themeColor="textSecondary"
+                              style={styles.seekLabel}
+                            >
+                              00:00
+                            </ThemedText>
+                            <ThemedText
+                              type="small"
+                              themeColor="textSecondary"
+                              style={styles.seekLabel}
+                            >
+                              {canReplay
+                                ? formatClock(trackEndMs - trackStartMs)
+                                : "--:--"}
+                            </ThemedText>
+                          </View>
+                        </View>
+                        {replayIdx !== null && (
+                          <Tappable
+                            hitSlop={8}
+                            style={styles.exitBtn}
+                            onPress={exitReplay}
+                          >
+                            <ThemedText
+                              type="smallBold"
+                              themeColor="brand"
+                              style={styles.chipText}
+                            >
+                              {t("map.backToLive")}
+                            </ThemedText>
+                          </Tappable>
+                        )}
+                      </View>
 
-                    {track.data?.truncated && (
-                      <ThemedText
-                        type="small"
-                        themeColor="textSecondary"
-                        style={styles.note}
-                      >
-                        {t("map.truncated", {
-                          shown: MAX_TRACK_PAGES * TRACK_PAGE_SIZE,
-                          total: track.data.total,
-                        })}
-                      </ThemedText>
-                    )}
-                  </>
-                )}
+                      {track.data?.truncated && (
+                        <ThemedText
+                          type="small"
+                          themeColor="textSecondary"
+                          style={styles.note}
+                        >
+                          {t("map.truncated", {
+                            shown: MAX_TRACK_PAGES * TRACK_PAGE_SIZE,
+                            total: track.data.total,
+                          })}
+                        </ThemedText>
+                      )}
+                    </>
+                  )}
+                </View>
               </View>
-            </View>
-          </Reanimated.View>
+            </Reanimated.View>
+          </GestureDetector>
         </Animated.View>
       )}
     </View>
@@ -1284,6 +1318,10 @@ const styles = StyleSheet.create({
   },
   cardClip: { overflow: "hidden", flexShrink: 1, minHeight: 0 },
   cardContent: { gap: 14 },
+  gripZone: { gap: 14 },
+  gripHead: { gap: 6 },
+  grabberWrap: { alignItems: "center", paddingVertical: 2 },
+  grabber: { width: 38, height: 5, borderRadius: 3 },
   cardHeader: {
     flexDirection: "row",
     alignItems: "center",
