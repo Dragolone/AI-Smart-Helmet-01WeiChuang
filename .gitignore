@@ -45,3 +45,7 @@ backend/prisma.config.d.ts
 backend/prisma.config.js.map
 docs/testing/**/.admin.env
 docs/testing/**/.devices.env
+
+# Python 缓存（tools/ble-helmet-sim）
+__pycache__/
+*.pyc
