@@ -1,6 +1,7 @@
 // device 页文案（设备详情 + 绑定设备）。三种语言的 key 必须一一对应。
 export const device = {
   "zh-CN": {
+    "device.info": "设备信息",
     "device.sendFailed": "下发失败",
     "device.volume": "蜂鸣音量",
     "device.applying": "响应中…",
@@ -67,6 +68,7 @@ export const device = {
     "device.bindAction": "绑定",
   },
   "zh-TW": {
+    "device.info": "裝置資訊",
     "device.sendFailed": "下發失敗",
     "device.volume": "蜂鳴音量",
     "device.applying": "響應中…",
@@ -133,6 +135,7 @@ export const device = {
     "device.bindAction": "綁定",
   },
   en: {
+    "device.info": "Device info",
     "device.sendFailed": "Couldn't send setting",
     "device.volume": "Buzzer volume",
     "device.applying": "Applying…",

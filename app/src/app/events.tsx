@@ -27,6 +27,7 @@ import { Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { useLocale, useT, type MessageKey } from "@/i18n";
 import { shortDate, shortTime } from "@/i18n/format";
+import { EmptyState } from "@/components/empty-state";
 
 type Translate = ReturnType<typeof useT>;
 
@@ -215,6 +216,8 @@ export default function EventsScreen() {
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
+            tintColor={theme.brand}
+            colors={[theme.brand]}
             refreshing={perDevice.some((q) => q.isRefetching)}
             onRefresh={() => perDevice.forEach((q) => void q.refetch())}
           />
@@ -281,16 +284,11 @@ export default function EventsScreen() {
           </View>
         )}
         {!loading && items.length === 0 && (
-          <View style={styles.empty}>
-            <Ionicons
-              name="shield-checkmark-outline"
-              size={44}
-              color={theme.textSecondary}
-            />
-            <ThemedText type="small" themeColor="textSecondary">
-              {t("events.empty")}
-            </ThemedText>
-          </View>
+          <EmptyState
+            icon="shield-checkmark-outline"
+            title={t("empty.eventsTitle")}
+            body={t("empty.eventsBody")}
+          />
         )}
       </ScrollView>
 

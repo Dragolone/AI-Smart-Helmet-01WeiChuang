@@ -16,6 +16,7 @@ import Animated, {
   interpolateColor,
   useAnimatedStyle,
   useSharedValue,
+  withSequence,
   withSpring,
   withTiming,
 } from "react-native-reanimated";
@@ -29,9 +30,11 @@ export function FormInput(
   props: TextInputProps & {
     label: string;
     icon?: keyof typeof Ionicons.glyphMap;
+    /** 就地错误：边框变红 + 下方红字 + 抖一下；由页面按错误码映射到具体字段 */
+    error?: string | null;
   },
 ) {
-  const { label, icon, style, ...rest } = props;
+  const { label, icon, style, error, ...rest } = props;
   const theme = useTheme();
   const [focused, setFocused] = useState(false);
   // 聚焦：边框从描边色渐变到品牌色 + 外发光轻起（180 ms），失焦反向；不再硬切
@@ -39,13 +42,25 @@ export function FormInput(
   useEffect(() => {
     focus.set(withTiming(focused ? 1 : 0, { duration: 180 }));
   }, [focused, focus]);
+  const shake = useSharedValue(0);
+  useEffect(() => {
+    if (!error) return;
+    shake.set(
+      withSequence(
+        withTiming(-6, { duration: 40 }),
+        withTiming(6, { duration: 60 }),
+        withTiming(-4, { duration: 60 }),
+        withTiming(3, { duration: 50 }),
+        withTiming(0, { duration: 50 }),
+      ),
+    );
+  }, [error, shake]);
   const wrapStyle = useAnimatedStyle(() => ({
-    borderColor: interpolateColor(
-      focus.get(),
-      [0, 1],
-      [theme.border, theme.brand],
-    ),
-    shadowOpacity: focus.get() * 0.35,
+    borderColor: error
+      ? theme.danger
+      : interpolateColor(focus.get(), [0, 1], [theme.border, theme.brand]),
+    shadowOpacity: error ? 0 : focus.get() * 0.35,
+    transform: [{ translateX: shake.get() }],
   }));
   return (
     <>
@@ -71,6 +86,14 @@ export function FormInput(
           {...rest}
         />
       </Animated.View>
+      {error ? (
+        <ThemedText
+          type="small"
+          style={[styles.fieldError, { color: theme.danger }]}
+        >
+          {error}
+        </ThemedText>
+      ) : null}
     </>
   );
 }
@@ -144,6 +167,24 @@ export function PrimaryButton({
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
+/** 按错误码把服务端/本地校验错误落到具体字段；映射不到的走页面级 FormError */
+export type FormField = "phone" | "password" | "code" | "confirm" | "nickname";
+export function errorField(err: unknown): FormField | null {
+  const code = String((err as { code?: string })?.code ?? "").toUpperCase();
+  if (!code) return null;
+  if (code.includes("SMS_CODE") || code.includes("VERIFY_CODE")) return "code";
+  if (code.includes("PASSWORD") || code.includes("CREDENTIAL"))
+    return "password";
+  if (
+    code.includes("PHONE") ||
+    code.includes("USER_NOT_FOUND") ||
+    code.includes("USER_EXISTS")
+  )
+    return "phone";
+  if (code.includes("NICKNAME")) return "nickname";
+  return null;
+}
+
 /** 次按钮：描边药丸，白字。用于同屏第二动作（绑定新设备、历史轨迹、邀请码加入） */
 export function SecondaryButton({
   title,
@@ -203,6 +244,7 @@ export function FormError({ message }: { message: string | null }) {
 }
 
 const styles = StyleSheet.create({
+  fieldError: { marginTop: -6 },
   inputWrap: {
     flexDirection: "row",
     alignItems: "center",

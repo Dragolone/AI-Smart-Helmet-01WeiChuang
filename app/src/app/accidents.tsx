@@ -18,6 +18,7 @@ import { shortDate, shortTime } from "@/i18n/format";
 import Animated from "react-native-reanimated";
 
 import { listEntering } from "@/components/motion";
+import { EmptyState } from "@/components/empty-state";
 
 function AccidentRow({
   item,
@@ -104,11 +105,11 @@ export default function AccidentsScreen() {
             ))}
           </Card>
         ) : (
-          <View style={styles.empty}>
-            <ThemedText type="small" themeColor="textSecondary">
-              {t("safety.accidentsNone")}
-            </ThemedText>
-          </View>
+          <EmptyState
+            icon="shield-checkmark-outline"
+            title={t("empty.accidentsTitle")}
+            body={t("empty.accidentsBody")}
+          />
         )}
       </ScrollView>
     </ThemedView>

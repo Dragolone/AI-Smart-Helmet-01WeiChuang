@@ -17,6 +17,7 @@ import { translate, useT } from "@/i18n";
 import Animated from "react-native-reanimated";
 
 import { listEntering } from "@/components/motion";
+import { EmptyState } from "@/components/empty-state";
 
 const MAX_CONTACTS = 5;
 
@@ -129,11 +130,14 @@ export default function ContactsScreen() {
           </Card>
         ) : (
           !contacts.isLoading && (
-            <View style={styles.empty}>
-              <ThemedText type="small" themeColor="textSecondary">
-                {t("contacts.empty")}
-              </ThemedText>
-            </View>
+            <EmptyState
+              icon="people-outline"
+              title={t("empty.contactsTitle")}
+              body={t("empty.contactsBody")}
+              actionLabel={t("empty.contactsAction")}
+              actionIcon="add"
+              onAction={() => router.push("/add-contact")}
+            />
           )
         )}
       </ScrollView>

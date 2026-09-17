@@ -28,6 +28,7 @@ import { Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { useLocale, useT } from "@/i18n";
 import { relativeTime } from "@/i18n/format";
+import { EmptyState } from "@/components/empty-state";
 
 /** 头盔演示图池：设备暂无型号字段（待硬件定稿），按 deviceId 稳定散列分配 */
 const HELMET_IMAGES = [
@@ -318,6 +319,7 @@ function DeviceRow({
 }
 
 export default function DevicesScreen() {
+  const theme = useTheme();
   const t = useT();
   const devices = useQuery({
     queryKey: ["devices"],
@@ -347,6 +349,8 @@ export default function DevicesScreen() {
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
+              tintColor={theme.brand}
+              colors={[theme.brand]}
               refreshing={refreshing}
               onRefresh={() => void onRefresh()}
             />
@@ -394,18 +398,11 @@ export default function DevicesScreen() {
               </Card>
             </>
           ) : (
-            <View style={styles.empty}>
-              <ThemedText type="smallBold" style={{ fontSize: 20 }}>
-                {t("devices.emptyTitle")}
-              </ThemedText>
-              <ThemedText
-                type="small"
-                themeColor="textSecondary"
-                style={styles.emptyBody}
-              >
-                {t("devices.emptyBody")}
-              </ThemedText>
-            </View>
+            <EmptyState
+              icon="bicycle-outline"
+              title={t("empty.devicesTitle")}
+              body={t("devices.emptyBody")}
+            />
           )}
         </ScrollView>
 

@@ -13,7 +13,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { authApi } from "@/api/auth";
 import { toUserMessage } from "@/api/error-messages";
-import { FormError, FormInput, PrimaryButton } from "@/components/form";
+import {
+  FormError,
+  FormInput,
+  PrimaryButton,
+  errorField,
+  type FormField,
+} from "@/components/form";
 import { showToast } from "@/components/toast";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
@@ -33,6 +39,15 @@ export default function ResetPasswordScreen() {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
+  /** 能落到具体字段的错误就地显示（红框 + 抖动），落不到的走页面级 FormError */
+  const [fieldError, setFieldError] = useState<{
+    field: FormField;
+    message: string;
+  } | null>(null);
+  const fe = (f: FormField) =>
+    fieldError?.field === f ? fieldError.message : null;
+  const fail = (field: FormField, message: string) =>
+    setFieldError({ field, message });
   const [busy, setBusy] = useState(false);
   const [sending, setSending] = useState(false);
   /** 重发限频用截止时间戳 + 墙钟计算剩余——递减 state 在 App 退后台时定时器
@@ -50,8 +65,9 @@ export default function ResetPasswordScreen() {
 
   const sendCode = async () => {
     setError(null);
+    setFieldError(null);
     if (!PHONE_PATTERN.test(phone.trim())) {
-      setError(t("auth.invalidPhone"));
+      fail("phone", t("auth.invalidPhone"));
       return;
     }
     setSending(true);
@@ -64,7 +80,9 @@ export default function ResetPasswordScreen() {
       setNow(t);
       setCooldownUntil(t + RESEND_SECONDS * 1000);
     } catch (e) {
-      setError(toUserMessage(e));
+      const field = errorField(e);
+      if (field) fail(field, toUserMessage(e));
+      else setError(toUserMessage(e));
     } finally {
       setSending(false);
     }
@@ -72,16 +90,17 @@ export default function ResetPasswordScreen() {
 
   const submit = async () => {
     setError(null);
+    setFieldError(null);
     if (!/^\d{6}$/.test(code)) {
-      setError(t("auth.invalidCode"));
+      fail("code", t("auth.invalidCode"));
       return;
     }
     if (password !== confirm) {
-      setError(t("auth.passwordMismatch"));
+      fail("confirm", t("auth.passwordMismatch"));
       return;
     }
     if (password.length < 8) {
-      setError(t("auth.passwordTooShort"));
+      fail("password", t("auth.passwordTooShort"));
       return;
     }
     setBusy(true);
@@ -95,7 +114,9 @@ export default function ResetPasswordScreen() {
       showToast(t("auth.resetDone"));
       router.back();
     } catch (e) {
-      setError(toUserMessage(e));
+      const field = errorField(e);
+      if (field) fail(field, toUserMessage(e));
+      else setError(toUserMessage(e));
     } finally {
       setBusy(false);
     }
@@ -117,6 +138,7 @@ export default function ResetPasswordScreen() {
 
           <FormInput
             label={t("auth.phone")}
+            error={fe("phone")}
             icon="phone-portrait-outline"
             value={phone}
             onChangeText={setPhone}
@@ -129,6 +151,7 @@ export default function ResetPasswordScreen() {
             <View style={styles.flex}>
               <FormInput
                 label={t("auth.smsCode")}
+                error={fe("code")}
                 icon="chatbox-ellipses-outline"
                 value={code}
                 onChangeText={setCode}
@@ -164,6 +187,7 @@ export default function ResetPasswordScreen() {
           </View>
           <FormInput
             label={t("auth.newPassword")}
+            error={fe("password")}
             icon="lock-closed-outline"
             value={password}
             onChangeText={setPassword}
@@ -172,6 +196,7 @@ export default function ResetPasswordScreen() {
           />
           <FormInput
             label={t("auth.confirmNewPassword")}
+            error={fe("confirm")}
             icon="lock-closed-outline"
             value={confirm}
             onChangeText={setConfirm}
