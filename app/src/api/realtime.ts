@@ -2,11 +2,14 @@
 // - `ws://<host>/ws?token=<accessToken>`，服务端按用户自动推送，无订阅指令；
 // - 加速通道不是可靠通道：断线指数退避重连，REST 轮询继续作为兜底；
 // - 4401（token 失效）→ 触发一次认证请求让 api 层静默刷新，再用新 token 重连。
-import type { WsMessage } from '@helmet/shared';
+import type { WsMessage } from "@helmet/shared";
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000/api/v1';
+import { devLog } from "@/services/dev-log";
+
+const API_URL =
+  process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
 /** http(s)://host[:port]/api/v1 → ws(s)://host[:port]/ws */
-const WS_URL = API_URL.replace(/^http/, 'ws').replace(/\/api\/v1\/?$/, '/ws');
+const WS_URL = API_URL.replace(/^http/, "ws").replace(/\/api\/v1\/?$/, "/ws");
 
 const CLOSE_UNAUTHORIZED = 4401;
 const BACKOFF_BASE_MS = 1000;
@@ -80,7 +83,7 @@ class RealtimeClient {
     ws.onopen = () => {
       this.attempts = 0;
       this.setConnected(true);
-      if (__DEV__) console.log('[realtime] 已连接');
+      devLog("realtime", "已连接");
     };
 
     ws.onmessage = (event) => {
@@ -88,7 +91,7 @@ class RealtimeClient {
         const message = JSON.parse(String(event.data)) as WsMessage;
         for (const listener of this.listeners) listener(message);
       } catch {
-        if (__DEV__) console.warn('[realtime] 消息解析失败，已忽略');
+        if (__DEV__) console.warn("[realtime] 消息解析失败，已忽略");
       }
     };
 
@@ -115,9 +118,12 @@ class RealtimeClient {
 
   private scheduleReconnect(): void {
     if (!this.running) return;
-    const delay = Math.min(BACKOFF_BASE_MS * 2 ** this.attempts, BACKOFF_MAX_MS);
+    const delay = Math.min(
+      BACKOFF_BASE_MS * 2 ** this.attempts,
+      BACKOFF_MAX_MS,
+    );
     this.attempts += 1;
-    if (__DEV__) console.log(`[realtime] ${delay}ms 后重连（第 ${this.attempts} 次）`);
+    devLog("realtime", `${delay}ms 后重连（第 ${this.attempts} 次）`);
     this.reconnectTimer = setTimeout(() => this.connect(), delay);
   }
 }

@@ -8,8 +8,9 @@ import * as Haptics from "expo-haptics";
 import { useKeepAwake } from "expo-keep-awake";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { Alert, Pressable, StyleSheet, View } from "react-native";
+import { Alert, AppState, Pressable, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { devLog } from "@/services/dev-log";
 import type { Sos } from "@helmet/shared";
 
 import { toUserMessage } from "@/api/error-messages";
@@ -69,11 +70,13 @@ export default function SosActiveScreen() {
     // 警报音绝不能把页面打崩：锁屏/后台时 AVAudioSession 激活可能失败（expo-audio 同步抛
     // "Session activation failed"，Release 下未捕获即整 App 崩溃，2026-09-16 真机实证——
     // 摔倒时手机恰恰在口袋里）。播放失败只记日志，倒计时与取消按钮照常。
+    devLog("SOS", "倒计时页开始警报", AppState.currentState);
     const safePlay = () => {
       try {
         alarm.play();
+        devLog("SOS", "警报音 play() 已调用");
       } catch (e) {
-        console.warn("[SOS] 警报音播放失败（后台/锁屏音频会话不可用）", e);
+        devLog("SOS", "警报音播放失败（后台/锁屏音频会话不可用）", e as Error);
       }
     };
     // 先把音频会话设成可后台播放 + 静音键下也响：摔倒告警必须在锁屏状态出声
@@ -84,7 +87,7 @@ export default function SosActiveScreen() {
       allowsRecording: false,
       shouldRouteThroughEarpiece: false,
     })
-      .catch((e) => console.warn("[SOS] 音频模式设置失败", e))
+      .catch((e) => devLog("SOS", "音频模式设置失败", e as Error))
       .then(safePlay);
     // 每秒重播警报段(0.9s 素材)+ 振动;不用 player.loop——
     // React Compiler 禁止修改 hook 返回对象的属性
