@@ -254,6 +254,16 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 - 部署到云服务器、准备演示脚本（Mock 剧本常驻）、补文档、双端最终回归、UI 打磨。
 - **验收标准**：负责人在演示环境从头到尾走一遍全部功能，无阻塞性问题。
 
+### 上线前提醒清单（2026-09-17 起累积；进入 Week 12 / 准备正式包时逐条过，Claude 负责主动提醒）
+
+| # | 事项 | 谁 | 说明 |
+|---|------|----|------|
+| 1 | **生成公司 Android 正式签名证书（release keystore）** | A 线 | `keytool -genkey`，有效期 ≥25 年；文件 + 密码入密码管理器，**绝不进 Git**；改 `android/app/build.gradle` release 签名（现在 release 仍用 Expo 默认 `debug.keystore`，不能上架，丢了就无法给已装用户推更新） |
+| 2 | **高德「AI头盔-安卓端」Key 改「发布版 SHA1」** | 负责人 | 第 1 项做完后用新证书 SHA1 回控制台更新（调试版 SHA1 保留 debug 那个 `5E:8F:…:25`，开发包继续可用）；当前地图走 JS API Key 不校验签名，不急 |
+| 3 | **高德商用授权决策** | 汤总 | 企业 Key 未购许可前只是「短期、少量测试」额度：买基础版 ¥5 万/年，或换腾讯/百度（地图层独立组件，约一周）。见 THIRD_PARTY.md §7 |
+| 4 | Apple 公司账号 → TestFlight / APNs / Critical Alerts | 负责人 | D-U-N-S 建档待重提；到位后 iOS 推送与 SOS 关键提醒补验 |
+| 5 | App 备案（腾讯云） | 负责人 | 安卓、iOS 各一条，包名 `com.lingyiweichuang.app`，前置已满足 |
+
 ---
 
 ## 附：每周固定动作
