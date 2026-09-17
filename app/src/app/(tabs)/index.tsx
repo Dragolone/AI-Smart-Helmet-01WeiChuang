@@ -30,6 +30,7 @@ import { useLocale, useT } from "@/i18n";
 import { relativeTime } from "@/i18n/format";
 import { BleBlockerBanner } from "@/components/ble-onboarding";
 import { EmptyState } from "@/components/empty-state";
+import { RideSummaryCard } from "@/components/ride-summary";
 
 /** 头盔演示图池：设备暂无型号字段（待硬件定稿），按 deviceId 稳定散列分配 */
 const HELMET_IMAGES = [
@@ -382,6 +383,7 @@ export default function DevicesScreen() {
               <BleBlockerBanner
                 onPress={() => router.push(`/device/${hero.deviceId}`)}
               />
+              <RideSummaryCard deviceId={hero.deviceId} />
               <SectionLabel
                 title={t("devices.allDevices")}
                 caption={t("devices.countCaption", {

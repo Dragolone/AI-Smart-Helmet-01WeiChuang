@@ -2,11 +2,13 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import type {
   LatestLocationResponse,
   LocationPoint as WireLocationPoint,
+  LocationSummaryResponse,
   Paginated,
 } from '@helmet/shared';
 import { BindingScopeService } from '../devices/binding-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { toWireLocation } from './location-wire';
+import { computeRideStats } from './ride-stats';
 
 /** 单次轨迹查询时间范围上限（API.md §5 定稿：24h） */
 const MAX_RANGE_MS = 24 * 60 * 60 * 1000;
@@ -38,14 +40,7 @@ export class LocationsService {
     return { location: point ? toWireLocation(point) : null };
   }
 
-  async listRange(
-    userId: string,
-    deviceId: string,
-    fromIso: string,
-    toIso: string,
-    page: number,
-    pageSize: number,
-  ): Promise<Paginated<WireLocationPoint>> {
+  private parseRange(fromIso: string, toIso: string): { from: Date; to: Date } {
     const from = new Date(fromIso);
     const to = new Date(toIso);
     if (from.getTime() >= to.getTime()) {
@@ -54,12 +49,58 @@ export class LocationsService {
     if (to.getTime() - from.getTime() > MAX_RANGE_MS) {
       throw badRange('单次查询时间范围不能超过 24 小时');
     }
+    return { from, to };
+  }
+
+  private async rangeWhere(
+    userId: string,
+    deviceId: string,
+    from: Date,
+    to: Date,
+  ) {
     const intervals = await this.scope.intervals(deviceId, userId);
-    const where = {
+    return {
       deviceId,
       timestamp: { gte: from, lte: to },
       AND: [this.scope.scopeWhere('receivedAt', intervals)],
     };
+  }
+
+  /** 区间统计（API.md §5）：App 首页「今日骑行」用；一次取全区间点做几何累加，避免 App 翻页拼装 */
+  async summaryRange(
+    userId: string,
+    deviceId: string,
+    fromIso: string,
+    toIso: string,
+  ): Promise<LocationSummaryResponse> {
+    const { from, to } = this.parseRange(fromIso, toIso);
+    const where = await this.rangeWhere(userId, deviceId, from, to);
+    const points = await this.prisma.locationPoint.findMany({
+      where,
+      orderBy: [{ timestamp: 'asc' }, { id: 'asc' }],
+      select: { latitude: true, longitude: true, speed: true, timestamp: true },
+    });
+    const s = computeRideStats(points);
+    return {
+      distanceMeters: s.distanceMeters,
+      movingSeconds: s.movingSeconds,
+      maxSpeed: s.maxSpeed,
+      pointCount: s.pointCount,
+      firstAt: s.firstAt?.toISOString() ?? null,
+      lastAt: s.lastAt?.toISOString() ?? null,
+    };
+  }
+
+  async listRange(
+    userId: string,
+    deviceId: string,
+    fromIso: string,
+    toIso: string,
+    page: number,
+    pageSize: number,
+  ): Promise<Paginated<WireLocationPoint>> {
+    const { from, to } = this.parseRange(fromIso, toIso);
+    const where = await this.rangeWhere(userId, deviceId, from, to);
     const [total, points] = await this.prisma.$transaction([
       this.prisma.locationPoint.count({ where }),
       this.prisma.locationPoint.findMany({

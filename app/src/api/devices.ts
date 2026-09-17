@@ -7,18 +7,19 @@ import type {
   DeviceStatus,
   LatestLocationResponse,
   LocationPoint,
+  LocationSummaryResponse,
   Paginated,
   PutSettingsRequest,
   SettingsResponse,
   UpdateDeviceRequest,
-} from '@helmet/shared';
-import { api } from './client';
+} from "@helmet/shared";
+import { api } from "./client";
 
 export const devicesApi = {
   bind: (body: BindDeviceRequest) =>
-    api<DevicePublic>('/devices/bind', { method: 'POST', body }),
+    api<DevicePublic>("/devices/bind", { method: "POST", body }),
 
-  list: () => api<DevicePublic[]>('/devices'),
+  list: () => api<DevicePublic[]>("/devices"),
 
   detail: (deviceId: string) =>
     api<DevicePublic>(`/devices/${encodeURIComponent(deviceId)}`),
@@ -35,13 +36,13 @@ export const devicesApi = {
   /** 重命名（API.md §4 PATCH）；name 传空串或 null = 清除自定义名 */
   rename: (deviceId: string, body: UpdateDeviceRequest) =>
     api<DevicePublic>(`/devices/${encodeURIComponent(deviceId)}`, {
-      method: 'PATCH',
+      method: "PATCH",
       body,
     }),
 
   unbind: (deviceId: string) =>
     api<void>(`/devices/${encodeURIComponent(deviceId)}/binding`, {
-      method: 'DELETE',
+      method: "DELETE",
     }),
 
   /** 最新位置（API.md §5；无位置数据时 location 为 null）——WS 断线时的 REST 兜底 */
@@ -57,9 +58,15 @@ export const devicesApi = {
   /** 下发设置（命令+回执状态机,决策 #27③④）:202 返回命令对象,回执后生效 */
   putSettings: (deviceId: string, body: PutSettingsRequest) =>
     api<CommandPublic>(`/devices/${encodeURIComponent(deviceId)}/settings`, {
-      method: 'PUT',
+      method: "PUT",
       body,
     }),
+
+  /** 区间轨迹统计（API.md §5 summary）：首页「今日骑行」用，服务端累加，不在 App 翻页拼 */
+  locationSummary: (deviceId: string, from: string, to: string) =>
+    api<LocationSummaryResponse>(
+      `/devices/${encodeURIComponent(deviceId)}/locations/summary?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    ),
 
   /** 历史轨迹（API.md §5：from/to 必填、范围 ≤24h、timestamp 升序、pageSize ≤100） */
   locations: (

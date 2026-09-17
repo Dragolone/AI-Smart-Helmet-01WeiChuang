@@ -5,6 +5,14 @@ import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
 import { DevicesService } from '../devices/devices.service';
 import { LocationsService } from './locations.service';
 
+class RangeQueryDto {
+  @IsISO8601({ strict: true })
+  from!: string;
+
+  @IsISO8601({ strict: true })
+  to!: string;
+}
+
 class LocationsQueryDto {
   // 时间范围必填（API.md §5）；范围上限与先后关系在服务层校验
   @IsISO8601({ strict: true })
@@ -42,6 +50,22 @@ export class LocationsController {
     // 归属校验与 devices 同口径：非本人设备 404，不泄露存在性
     await this.devices.getOwned(req.user.userId, deviceId);
     return this.locations.latest(req.user.userId, deviceId);
+  }
+
+  /** 区间统计（里程/移动时长/最高速）；路由声明在 :page 之类通配前，避免被当成参数 */
+  @Get('summary')
+  async summary(
+    @Req() req: AuthenticatedRequest,
+    @Param('deviceId') deviceId: string,
+    @Query() query: RangeQueryDto,
+  ) {
+    await this.devices.getOwned(req.user.userId, deviceId);
+    return this.locations.summaryRange(
+      req.user.userId,
+      deviceId,
+      query.from,
+      query.to,
+    );
   }
 
   @Get()

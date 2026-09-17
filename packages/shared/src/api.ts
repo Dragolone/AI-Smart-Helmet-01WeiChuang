@@ -194,6 +194,19 @@ export interface LatestLocationResponse {
   location: LocationPoint | null;
 }
 
+/** GET /devices/{id}/locations/summary?from&to（API.md §5）：区间轨迹统计，服务端按相邻点累加；无点时 maxSpeed/firstAt/lastAt 为 null */
+export interface LocationSummaryResponse {
+  /** 米 */
+  distanceMeters: number;
+  /** 秒，只累计相邻点间隔 ≤10 min 且平均速度 ≥0.5 m/s 的段 */
+  movingSeconds: number;
+  /** m/s，与 location.speed 同单位 */
+  maxSpeed: number | null;
+  pointCount: number;
+  firstAt: string | null;
+  lastAt: string | null;
+}
+
 // —— §6 事件查询（已实现） ——
 
 /** 事件详情里的关联媒体（§9 媒体模块落地前恒为空数组） */
