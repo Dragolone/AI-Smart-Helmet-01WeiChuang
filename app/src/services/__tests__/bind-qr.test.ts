@@ -28,6 +28,10 @@ describe("parseBindQr", () => {
       },
     );
   });
+  it("rejects a bind URL with no device id at all", () => {
+    expect(parseBindQr("https://01weichuang.com/bind")).toBeNull();
+    expect(parseBindQr("helmet://bind?c=12345678")).toBeNull();
+  });
   it("rejects junk", () => {
     expect(parseBindQr("")).toBeNull();
     expect(

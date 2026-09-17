@@ -88,6 +88,14 @@ describe("checkBatteryAlert", () => {
     expect(mockToast).toHaveBeenCalledTimes(3);
   });
 
+  it("21–25% 是回滞区间：既不提醒也不重置", () => {
+    checkBatteryAlert("h1", "头盔", st(12)); // 先提醒过 10 档
+    checkBatteryAlert("h1", "头盔", st(23)); // 回滞区：不提醒
+    expect(mockToast).toHaveBeenCalledTimes(1);
+    checkBatteryAlert("h1", "头盔", st(12)); // 也没被重置 → 不重复提醒
+    expect(mockToast).toHaveBeenCalledTimes(1);
+  });
+
   it("tracks devices independently", () => {
     checkBatteryAlert("h1", "A", st(12));
     checkBatteryAlert("h2", "B", st(12));
@@ -126,6 +134,17 @@ describe("checkBatteryAlert", () => {
       content: Record<string, unknown>;
     };
     expect(req.content.channelId).toBe("device");
+  });
+
+  it("still notifies when the Android channel cannot be created", async () => {
+    override(Platform, "OS", "android");
+    override(AppState, "currentState", "background");
+    (mockChannel as unknown as Mock<() => Promise<void>>).mockRejectedValueOnce(
+      new Error("channel blocked"),
+    );
+    checkBatteryAlert("h1", "头盔", st(8));
+    await flush();
+    expect(mockSchedule).toHaveBeenCalledTimes(1);
   });
 
   it("swallows notification failures", async () => {

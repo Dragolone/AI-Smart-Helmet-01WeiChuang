@@ -19,7 +19,10 @@ import { devicesApi } from "@/api/devices";
 import { realtimeClient } from "@/api/realtime";
 import { sosApi } from "@/api/sos";
 import { setBleTargets, startBleLink, stopBleLink } from "@/services/ble-link";
-import { checkBatteryAlert } from "@/services/battery-alert";
+import {
+  checkBatteryAlert,
+  resetBatteryAlerts,
+} from "@/services/battery-alert";
 import { devLog } from "@/services/dev-log";
 import { handleDeviceCommand } from "@/services/ble-relay";
 import { startRelayUplink, stopRelayUplink } from "@/services/ble-relay-uplink";
@@ -184,6 +187,7 @@ export function useRealtimeUpdates(): void {
       stopRelayUplink();
       unsubscribeCache();
       stopBleLink();
+      resetBatteryAlerts();
     };
   }, [authed, queryClient]);
 }

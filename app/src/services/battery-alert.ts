@@ -60,7 +60,8 @@ export function checkBatteryAlert(
   );
 }
 
-/** 测试/换账号用 */
+/** 登出/换账号：清掉「已提醒过」记录，新会话下同一台设备该提醒还要再提醒 */
 export function resetBatteryAlerts(): void {
   notified.clear();
+  channelReady = false;
 }
