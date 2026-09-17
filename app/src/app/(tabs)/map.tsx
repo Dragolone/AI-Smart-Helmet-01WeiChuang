@@ -32,6 +32,7 @@ import { devicesApi } from "@/api/devices";
 import { realtimeClient } from "@/api/realtime";
 import { PrimaryButton, SecondaryButton } from "@/components/form";
 import { AmapView, type AmapViewHandle } from "@/components/map/amap-view";
+import { useAuthStore } from "@/stores/auth-store";
 import {
   cumulativeMeters,
   toGcj02,
@@ -295,6 +296,8 @@ export default function MapScreen() {
   const locale = useLocale();
   const insets = useSafeAreaInsets();
   const mapRef = useRef<AmapViewHandle>(null);
+  // Marker 徽章显示本人头像（无头像回落头盔图标）
+  const avatarUrl = useAuthStore((s) => s.user?.avatarUrl ?? null);
   const [mapError, setMapError] = useState<string | null>(null);
   const [range, setRange] = useState<RangeHours>(1);
   const [dayOffset, setDayOffset] = useState(0);
@@ -658,6 +661,7 @@ export default function MapScreen() {
         // 外观切换时重挂载：底图样式在 WebView 初始化时决定；onReady 会重推当前状态
         key={scheme}
         light={scheme === "light"}
+        avatarUrl={avatarUrl}
         style={StyleSheet.absoluteFill}
         controllerRef={mapRef}
         onUserPan={() => setFollowing(false)}
