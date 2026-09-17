@@ -37,6 +37,7 @@ import {
 } from "@/components/map/coords";
 import { openAmapNavigation } from "@/components/map/nav-links";
 import { AnimatedChip, ValueTransition } from "@/components/motion";
+import { devLog } from "@/services/dev-log";
 import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
 import { Radius } from "@/constants/theme";
@@ -332,8 +333,30 @@ export default function MapScreen() {
   };
   const onContentLayout = (e: LayoutChangeEvent) => {
     const h = e.nativeEvent.layout.height;
-    if (h > 0) contentH.set(h);
+    if (h <= 0) return;
+    const grew = contentH.get() > 0 && h !== contentH.get();
+    contentH.set(h);
+    // 展开态且当前是定高（刚拖过/弹簧未收尾）时内容变了：跟到新高度再交还自适应，
+    // 否则历史轨迹面板会被裁在标签栏下面、收起后留一块黑（负责人 2026-09-17 指正）
+    if (grew && !collapsedSV.get() && fixedH.get() >= 0) {
+      fixedH.set(
+        withSpring(
+          CARD_PAD_TOP + h + cardPadBottom,
+          SHEET_SPRING,
+          (finished) => {
+            if (finished) fixedH.set(-1);
+          },
+        ),
+      );
+    }
   };
+  // 真机排查：标签页内的 insets.bottom 是否已含标签条（模拟器 83，含；真机待读）
+  useEffect(() => {
+    devLog(
+      "MAP",
+      `insets bottom=${insets.bottom} top=${insets.top} platform=${Platform.OS}`,
+    );
+  }, [insets.bottom, insets.top]);
   const onHeaderLayout = (e: LayoutChangeEvent) => {
     headerH.set(e.nativeEvent.layout.height);
   };
@@ -578,6 +601,8 @@ export default function MapScreen() {
   const toggleHistory = () => {
     if (historyOpen && replayIdx !== null) exitReplay();
     setHistoryOpen((v) => !v);
+    // 打开回放面板时抽屉必须是展开的，否则面板长在看不见的地方
+    if (collapsedSV.get()) snapSheet(false);
   };
 
   const toggleFollow = () => {

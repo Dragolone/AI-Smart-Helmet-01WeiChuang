@@ -50,7 +50,8 @@ export async function showSosAlertIfBackground(
       content: {
         title: translate("sosAlert.title"),
         body: translate("sosAlert.body"),
-        sound: "default",
+        // Android 上 "default" 会被当成自定义音频文件名报错；true = 通道默认铃声
+        sound: Platform.OS === "ios" ? "default" : true,
         interruptionLevel: "timeSensitive",
         priority: Notifications.AndroidNotificationPriority.MAX,
         data: { sosId, deviceId },
