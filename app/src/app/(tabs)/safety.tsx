@@ -457,6 +457,20 @@ export default function SafetyScreen() {
                 </ThemedText>
               </View>
             </AnimatedPressable>
+            <Tappable
+              feedback="opacity"
+              accessibilityRole="button"
+              onPress={() => router.push("/sos-active?drill=1")}
+              hitSlop={8}
+              style={styles.drillLink}
+            >
+              <ThemedText
+                type="small"
+                style={{ color: theme.textSecondary, fontSize: 13 }}
+              >
+                {t("safety.drillLink")}
+              </ThemedText>
+            </Tappable>
           </View>
         )}
       </SafeAreaView>
@@ -495,6 +509,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   sosHint: { textAlign: "center", fontSize: 13 },
+  drillLink: { alignSelf: "center", paddingVertical: 6, paddingHorizontal: 8 },
   sosBtn: {
     height: 72,
     borderRadius: Radius.pill,

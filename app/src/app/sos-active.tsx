@@ -1,6 +1,8 @@
 // SOS 倒计时全屏页（API.md §7；决策 #8：服务端权威——App 只按 deadline 渲染，
 // 取消/立即求救调 API，最终状态以服务端推送/响应为准，本地绝不判断超时）
 // 设计对齐定稿套图：警示图标 + 超大倒计时 + 灰色取消 / 红色立即求救双药丸
+// 演练模式（?drill=1）：同一页面、同样的警报音/振动/倒计时，但**不碰服务端、不通知任何人**——
+// 新用户先见过一次求救长什么样，真出事时才敢按、也知道怎么取消。顶部常驻醒目标记避免混淆。
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { setAudioModeAsync, useAudioPlayer } from "expo-audio";
@@ -26,10 +28,12 @@ function secondsLeft(deadline: string, now: number): number {
 }
 
 export default function SosActiveScreen() {
-  const { sosId, deviceId } = useLocalSearchParams<{
+  const { sosId, deviceId, drill } = useLocalSearchParams<{
     sosId: string;
     deviceId: string;
+    drill?: string;
   }>();
+  const isDrill = drill === "1";
   const theme = useTheme();
   const t = useT();
   const queryClient = useQueryClient();
@@ -38,6 +42,14 @@ export default function SosActiveScreen() {
    *  不能用"空转 tick（值不读）强制重渲染"——React Compiler 判定无依赖变化会 memo 掉
    *  整个渲染，倒计时数字永远停在首帧（2026-08-17 真机实证）。 */
   const [now, setNow] = useState(() => Date.now());
+  /** 演练：本地 60 s deadline + 本地状态；到期在渲染期推导为 notified（真实模式由服务端判定） */
+  const [drillState, setDrillState] = useState<{
+    deadline: string;
+    status: "pending" | "cancelled" | "notified";
+  }>(() => ({
+    deadline: new Date(Date.now() + 60_000).toISOString(),
+    status: "pending",
+  }));
 
   // WS 推送直写 ['sos', sosId] 缓存；进页面时再以 REST 兜底拉一次权威状态
   const sosQuery = useQuery({
@@ -50,8 +62,25 @@ export default function SosActiveScreen() {
             null);
     },
     refetchInterval: 10_000, // WS 断线时的兜底；正常时由推送更新缓存
+    enabled: !isDrill,
   });
-  const sos = sosQuery.data ?? null;
+  const drillSos: Sos | null = isDrill
+    ? {
+        sosId: "drill",
+        deviceId: deviceId ?? "",
+        triggerEventId: "drill",
+        triggerType: "manual_sos",
+        status:
+          drillState.status === "pending" &&
+          now >= new Date(drillState.deadline).getTime()
+            ? "notified"
+            : drillState.status,
+        deadline: drillState.deadline,
+        createdAt: drillState.deadline,
+        updatedAt: drillState.deadline,
+      }
+    : null;
+  const sos = isDrill ? drillSos : (sosQuery.data ?? null);
 
   // 每秒推进"当前时刻"，渲染期据此重算剩余秒数（仅展示用途，超时判定在服务端）
   useEffect(() => {
@@ -109,6 +138,13 @@ export default function SosActiveScreen() {
   }, [counting, alarm]);
 
   const act = (kind: "cancel" | "confirm") => {
+    if (isDrill) {
+      setDrillState((d) => ({
+        ...d,
+        status: kind === "cancel" ? "cancelled" : "notified",
+      }));
+      return;
+    }
     setBusy(kind);
     (kind === "cancel" ? sosApi.cancel(sosId) : sosApi.confirm(sosId))
       .then((updated) => {
@@ -125,6 +161,17 @@ export default function SosActiveScreen() {
     <SafeAreaView style={[styles.flex, { backgroundColor: theme.background }]}>
       <ThemedView style={styles.container}>
         <View style={styles.hero}>
+          {isDrill && (
+            <View style={[styles.drillBadge, { backgroundColor: theme.brand }]}>
+              <Ionicons name="school-outline" size={16} color={theme.onBrand} />
+              <ThemedText
+                type="smallBold"
+                style={{ color: theme.onBrand, fontSize: 13 }}
+              >
+                {t("sos.drillBadge")}
+              </ThemedText>
+            </View>
+          )}
           <View style={[styles.warnIcon, { backgroundColor: theme.dangerBg }]}>
             <Ionicons name="warning" size={40} color={theme.danger} />
           </View>
@@ -140,8 +187,8 @@ export default function SosActiveScreen() {
           >
             {finished
               ? sos.status === "cancelled"
-                ? t("sos.cancelledBody")
-                : t("sos.notifiedBody")
+                ? t(isDrill ? "sos.drillCancelledBody" : "sos.cancelledBody")
+                : t(isDrill ? "sos.drillNotifiedBody" : "sos.notifiedBody")
               : t("sos.pendingBody")}
           </ThemedText>
         </View>
@@ -239,6 +286,15 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: { flex: 1, padding: 24, justifyContent: "space-between" },
   hero: { alignItems: "center", gap: 12, marginTop: 24 },
+  drillBadge: {
+    marginBottom: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: Radius.pill,
+  },
   warnIcon: {
     width: 88,
     height: 88,

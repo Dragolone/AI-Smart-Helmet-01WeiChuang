@@ -1,6 +1,11 @@
 // auth 页文案（登录 / 注册 / 找回密码）+ SOS 倒计时页（sos.*）。三种语言的 key 必须一一对应。
 export const auth = {
   "zh-CN": {
+    "sos.drillBadge": "演练模式 · 不会通知任何人",
+    "sos.drillNotifiedBody":
+      "演练结束：真实情况下，此刻紧急联系人已收到带你位置的短信。",
+    "sos.drillCancelledBody":
+      "演练结束：你已在倒计时内取消，真实情况下不会打扰任何人。",
     "auth.appName": "零一唯创",
     "auth.slogan": "AI 赋能，智能守护每一次骑行安全",
     "auth.phone": "手机号",
@@ -72,6 +77,11 @@ export const auth = {
     "sos.close": "关闭",
   },
   "zh-TW": {
+    "sos.drillBadge": "演練模式 · 不會通知任何人",
+    "sos.drillNotifiedBody":
+      "演練結束：真實情況下，此刻緊急聯絡人已收到附你位置的簡訊。",
+    "sos.drillCancelledBody":
+      "演練結束：你已在倒數內取消，真實情況下不會打擾任何人。",
     "auth.appName": "零一唯創",
     "auth.slogan": "AI 賦能，智慧守護每一次騎行安全",
     "auth.phone": "手機號碼",
@@ -142,6 +152,11 @@ export const auth = {
     "sos.close": "關閉",
   },
   en: {
+    "sos.drillBadge": "Drill · nobody will be notified",
+    "sos.drillNotifiedBody":
+      "Drill over: in a real SOS your emergency contacts would now have an SMS with your location.",
+    "sos.drillCancelledBody":
+      "Drill over: you cancelled within the countdown — in a real SOS nobody would be bothered.",
     "auth.appName": "Lingyi Weichuang",
     "auth.slogan": "AI-powered protection for every ride",
     "auth.phone": "Phone",
