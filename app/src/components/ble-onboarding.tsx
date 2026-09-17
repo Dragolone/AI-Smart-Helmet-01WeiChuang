@@ -4,7 +4,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as SecureStore from "expo-secure-store";
 import { useEffect, useState } from "react";
-import { Linking, Platform, StyleSheet, View } from "react-native";
+import { AppState, Linking, Platform, StyleSheet, View } from "react-native";
 import Animated, { FadeInDown, FadeOut } from "react-native-reanimated";
 import { HelmetLinkService } from "helmet-link-service";
 
@@ -41,12 +41,14 @@ export function useBleOnboardingSteps(): Step[] {
   const [whitelisted, setWhitelisted] = useState(() =>
     HelmetLinkService.isIgnoringBatteryOptimizations(),
   );
+  // 用户去系统设置改完白名单回来时重查一次（回前台事件），不用每 2 s 轮询原生
   useEffect(() => {
-    const id = setInterval(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
       const now = HelmetLinkService.isIgnoringBatteryOptimizations();
       setWhitelisted((prev) => (prev === now ? prev : now));
-    }, 2000);
-    return () => clearInterval(id);
+    });
+    return () => sub.remove();
   }, []);
   const steps: Step[] = [
     {

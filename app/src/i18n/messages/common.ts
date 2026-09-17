@@ -1,6 +1,9 @@
 // 三端共用文案：标签栏、通用动作、相对时间、导航标题
 export const common = {
   "zh-CN": {
+    "app.crashTitle": "出了点问题",
+    "app.crashBody": "这一页遇到了错误，你的数据和头盔连接不受影响。",
+    "app.crashRetry": "重试",
     "common.close": "关闭",
     "ble.onboarding.title": "让头盔连上手机",
     "ble.onboarding.body":
@@ -86,6 +89,9 @@ export const common = {
     "common.failed": "操作失败",
   },
   "zh-TW": {
+    "app.crashTitle": "出了點問題",
+    "app.crashBody": "這一頁遇到了錯誤，你的資料和頭盔連線不受影響。",
+    "app.crashRetry": "重試",
     "common.close": "關閉",
     "ble.onboarding.title": "讓頭盔連上手機",
     "ble.onboarding.body":
@@ -171,6 +177,10 @@ export const common = {
     "common.failed": "操作失敗",
   },
   en: {
+    "app.crashTitle": "Something went wrong",
+    "app.crashBody":
+      "This screen hit an error. Your data and helmet link are unaffected.",
+    "app.crashRetry": "Try again",
     "common.close": "Close",
     "ble.onboarding.title": "Connect your helmet",
     "ble.onboarding.body":
