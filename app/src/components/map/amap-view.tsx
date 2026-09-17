@@ -22,6 +22,8 @@ export interface AmapViewHandle {
   setTrack(path: LngLat[]): void;
   clearTrack(): void;
   setCenter(pos: LngLat, zoom?: number): void;
+  /** 离线：Marker 变灰、停波纹；上线恢复 */
+  setHelmetOnline(online: boolean): void;
 }
 
 interface Props {
@@ -41,7 +43,8 @@ type Cmd =
   | { type: "helmet"; lng: number; lat: number; follow: boolean }
   | { type: "track"; path: [number, number][] }
   | { type: "clearTrack" }
-  | { type: "center"; lng: number; lat: number; zoom?: number };
+  | { type: "center"; lng: number; lat: number; zoom?: number }
+  | { type: "helmetState"; online: boolean };
 
 // 默认视野：深圳（设备无数据时的兜底画面）
 const HTML = `<!doctype html>
@@ -73,6 +76,9 @@ const HTML = `<!doctype html>
     100% { transform: scale(1.3); opacity: 0; }
   }
   .hm .badge { position: absolute; left: 50%; top: 32px; width: 42px; height: 42px;
+  .hm.off .badge { filter: grayscale(1); opacity: .55; }
+  .hm.off .ring { display: none; }
+  .hm.off .tip { opacity: .4; }
     transform: translate(-50%, -50%); border-radius: 50%;
     background: var(--badge, #17181B); border: 2.5px solid var(--neon, ${ACCENT});
     display: flex; align-items: center; justify-content: center;
@@ -127,6 +133,7 @@ try {
     zoom: 13,
   });
   // Marker 按 map.png：暗色圆徽章（白色头盔图标）+ 荧光描边 + 波纹 + 底部荧光落点
+  var helmetOnline = true;
   var helmetContent =
     '<div class="hm"><div class="ring"></div><div class="ring r2"></div><div class="ring r3"></div>' +
     '<div class="tip"></div>' +
@@ -196,6 +203,11 @@ try {
         if (glowInner) { glowHalo.hide(); glowOuter.hide(); glowInner.hide(); }
       } else if (cmd.type === 'center') {
         map.setZoomAndCenter(cmd.zoom || map.getZoom(), [cmd.lng, cmd.lat]);
+      } else if (cmd.type === 'helmetState') {
+        // 离线：整块 Marker 换成带 .off 的内容（setContent 是 2.0 公开 API，比摸 DOM 稳）
+        if (helmetOnline === !!cmd.online) return;
+        helmetOnline = !!cmd.online;
+        helmet.setContent(helmetOnline ? helmetContent : helmetContent.replace('class="hm"', 'class="hm off"'));
       }
     } catch (e) { post({ type: 'error', message: i18n('cmd', e.message) }); }
   };
@@ -263,6 +275,7 @@ export function AmapView({
       clearTrack: () => send({ type: "clearTrack" }),
       setCenter: (pos, zoom) =>
         send({ type: "center", lng: pos.longitude, lat: pos.latitude, zoom }),
+      setHelmetOnline: (online) => send({ type: "helmetState", online }),
     };
     return () => {
       controllerRef.current = null;

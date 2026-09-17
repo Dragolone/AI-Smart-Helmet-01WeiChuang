@@ -49,3 +49,5 @@ docs/testing/**/.devices.env
 # Python 缓存（tools/ble-helmet-sim）
 __pycache__/
 *.pyc
+app/modules/*/android/.gradle/
+app/modules/*/android/build/

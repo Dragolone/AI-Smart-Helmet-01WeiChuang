@@ -116,7 +116,11 @@ export function useRealtimeUpdates(): void {
             router.push(
               `/sos-active?sosId=${sos.sosId}&deviceId=${sos.deviceId}`,
             );
-            void showSosAlertIfBackground(sos.sosId, sos.deviceId);
+            void showSosAlertIfBackground(
+              sos.sosId,
+              sos.deviceId,
+              sos.deadline,
+            );
           }
           if (sos.status !== "pending") void clearSosAlert(sos.sosId);
           break;

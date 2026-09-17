@@ -6,6 +6,10 @@ export const accident = {
     "sosAlert.channel": "紧急求助",
     "sosAlert.title": "检测到摔倒 / 紧急求助",
     "sosAlert.body": "60 秒后将自动通知紧急联系人，如为误触请打开 App 取消",
+    "sosAlert.bodyCountdown":
+      "{seconds} 秒后将自动通知紧急联系人，误触请点「我没事」取消",
+    "sosAlert.cancelAction": "我没事，取消",
+    "sosAlert.openAction": "打开 App",
     "accident.triggeredAt": "触发时间",
     "accident.deadline": "倒计时截止",
     "accident.location": "事故位置",
@@ -27,6 +31,10 @@ export const accident = {
     "sosAlert.channel": "緊急求助",
     "sosAlert.title": "偵測到跌倒 / 緊急求助",
     "sosAlert.body": "60 秒後將自動通知緊急聯絡人，若為誤觸請開啟 App 取消",
+    "sosAlert.bodyCountdown":
+      "{seconds} 秒後將自動通知緊急聯絡人，誤觸請點「我沒事」取消",
+    "sosAlert.cancelAction": "我沒事，取消",
+    "sosAlert.openAction": "開啟 App",
     "accident.triggeredAt": "觸發時間",
     "accident.deadline": "倒數截止",
     "accident.location": "事故位置",
@@ -47,7 +55,12 @@ export const accident = {
     "accident.device": "Device",
     "sosAlert.channel": "Emergency SOS",
     "sosAlert.title": "Fall detected / SOS",
-    "sosAlert.body": "Emergency contacts will be notified in 60 s. Open the app to cancel if this was a mistake.",
+    "sosAlert.body":
+      "Emergency contacts will be notified in 60 s. Open the app to cancel if this was a mistake.",
+    "sosAlert.bodyCountdown":
+      'Emergency contacts will be notified in {seconds} s. Tap "I\'m OK" if this was a mistake.',
+    "sosAlert.cancelAction": "I'm OK, cancel",
+    "sosAlert.openAction": "Open app",
     "accident.triggeredAt": "Triggered",
     "accident.deadline": "Countdown ends",
     "accident.location": "Location",

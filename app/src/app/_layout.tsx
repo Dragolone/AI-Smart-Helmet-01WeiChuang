@@ -9,6 +9,7 @@ import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { ToastHost } from "@/components/toast";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useLocaleStore, useT } from "@/i18n";
+import { ThemeFade } from "@/components/theme-fade";
 import { installDevErrorTap } from "@/services/dev-log";
 import { useAuthStore } from "@/stores/auth-store";
 import { useThemeStore } from "@/stores/theme-store";
@@ -136,14 +137,17 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
-        <AnimatedSplashOverlay />
-        {/* SecureStore 恢复完成前不挂路由，避免登录态闪变；空白由 SplashOverlay 兜住 */}
-        {hydrated && localeHydrated && themeHydrated && <RootNavigator />}
-        <ToastHost />
-      </ThemeProvider>
-    </QueryClientProvider>
+      <QueryClientProvider client={queryClient}>
+        <ThemeFade scheme={colorScheme} />
+        <ThemeProvider
+          value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
+        >
+          <AnimatedSplashOverlay />
+          {/* SecureStore 恢复完成前不挂路由，避免登录态闪变；空白由 SplashOverlay 兜住 */}
+          {hydrated && localeHydrated && themeHydrated && <RootNavigator />}
+          <ToastHost />
+        </ThemeProvider>
+      </QueryClientProvider>
     </GestureHandlerRootView>
   );
 }
