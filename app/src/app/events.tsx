@@ -19,6 +19,7 @@ import { eventsApi } from "@/api/events";
 import { toUserMessage } from "@/api/error-messages";
 import { PrimaryButton } from "@/components/form";
 import { Skeleton } from "@/components/skeleton";
+import { AnimatedChip } from "@/components/motion";
 import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
@@ -193,28 +194,19 @@ export default function EventsScreen() {
       {/* 筛选 chips */}
       <View style={styles.chipRow}>
         {FILTERS.map((f) => (
-          <Tappable key={f.key} onPress={() => setFilter(f.key)}>
-            <View
-              style={[
-                styles.chip,
-                {
-                  backgroundColor:
-                    filter === f.key ? theme.brand : theme.backgroundElement,
-                  borderColor: filter === f.key ? theme.brand : theme.border,
-                },
-              ]}
-            >
-              <ThemedText
-                type="smallBold"
-                style={{
-                  color: filter === f.key ? theme.onBrand : theme.textSecondary,
-                  fontSize: 13,
-                }}
-              >
-                {t(f.label)}
-              </ThemedText>
-            </View>
-          </Tappable>
+          <AnimatedChip
+            key={f.key}
+            label={t(f.label)}
+            active={filter === f.key}
+            onPress={() => setFilter(f.key)}
+            style={styles.chip}
+            activeBg={theme.brand}
+            inactiveBg={theme.backgroundElement}
+            activeFg={theme.onBrand}
+            inactiveFg={theme.textSecondary}
+            borderActive={theme.brand}
+            borderInactive={theme.border}
+          />
         ))}
       </View>
 
@@ -311,92 +303,92 @@ export default function EventsScreen() {
       >
         <Pressable style={styles.modalMask} onPress={() => setDetailId(null)}>
           <Animated.View entering={FadeInDown.duration(200)}>
-          <Pressable
-            style={[
-              styles.modalCard,
-              {
-                backgroundColor: theme.backgroundElement,
-                borderColor: theme.border,
-              },
-            ]}
-            onPress={() => undefined}
-          >
-            {d ? (
-              <>
-                <View style={styles.detailHeader}>
-                  <ThemedText type="subtitle">
-                    {EVENT_META[d.eventType]
-                      ? t(EVENT_META[d.eventType].title)
-                      : d.eventType}
+            <Pressable
+              style={[
+                styles.modalCard,
+                {
+                  backgroundColor: theme.backgroundElement,
+                  borderColor: theme.border,
+                },
+              ]}
+              onPress={() => undefined}
+            >
+              {d ? (
+                <>
+                  <View style={styles.detailHeader}>
+                    <ThemedText type="subtitle">
+                      {EVENT_META[d.eventType]
+                        ? t(EVENT_META[d.eventType].title)
+                        : d.eventType}
+                    </ThemedText>
+                    {dRisk && (
+                      <View
+                        style={[
+                          styles.riskPill,
+                          { backgroundColor: toneColor(dRisk.tone).bg },
+                        ]}
+                      >
+                        <ThemedText
+                          type="smallBold"
+                          style={{
+                            color: toneColor(dRisk.tone).fg,
+                            fontSize: 12,
+                          }}
+                        >
+                          {t(dRisk.label)}
+                        </ThemedText>
+                      </View>
+                    )}
+                  </View>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {d.deviceId} · {shortDate(d.timestamp, locale)}{" "}
+                    {shortTime(d.timestamp, locale)}
                   </ThemedText>
-                  {dRisk && (
+                  {dFields.length > 0 && (
                     <View
                       style={[
-                        styles.riskPill,
-                        { backgroundColor: toneColor(dRisk.tone).bg },
+                        styles.fieldBox,
+                        { backgroundColor: theme.backgroundSelected },
                       ]}
                     >
-                      <ThemedText
-                        type="smallBold"
-                        style={{
-                          color: toneColor(dRisk.tone).fg,
-                          fontSize: 12,
-                        }}
-                      >
-                        {t(dRisk.label)}
-                      </ThemedText>
+                      {dFields.map((f) => (
+                        <View key={f.label} style={styles.fieldRow}>
+                          <ThemedText type="small" themeColor="textSecondary">
+                            {f.label}
+                          </ThemedText>
+                          <ThemedText type="smallBold">{f.value}</ThemedText>
+                        </View>
+                      ))}
                     </View>
                   )}
-                </View>
+                  {/* 视频片段：头盔侧留档后在此列出（守护模式类体验，MVP 后第一迭代） */}
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {d.media.length > 0
+                      ? t("events.mediaCount", { n: d.media.length })
+                      : t("events.mediaNone")}
+                  </ThemedText>
+                  <PrimaryButton
+                    compact
+                    title={t("events.viewOnMap")}
+                    icon="map-outline"
+                    onPress={() => {
+                      const at = d.timestamp;
+                      const dev = d.deviceId;
+                      setDetailId(null);
+                      router.push({
+                        pathname: "/map",
+                        params: { deviceId: dev, at },
+                      });
+                    }}
+                  />
+                </>
+              ) : (
                 <ThemedText type="small" themeColor="textSecondary">
-                  {d.deviceId} · {shortDate(d.timestamp, locale)}{" "}
-                  {shortTime(d.timestamp, locale)}
+                  {t("events.loading")}
                 </ThemedText>
-                {dFields.length > 0 && (
-                  <View
-                    style={[
-                      styles.fieldBox,
-                      { backgroundColor: theme.backgroundSelected },
-                    ]}
-                  >
-                    {dFields.map((f) => (
-                      <View key={f.label} style={styles.fieldRow}>
-                        <ThemedText type="small" themeColor="textSecondary">
-                          {f.label}
-                        </ThemedText>
-                        <ThemedText type="smallBold">{f.value}</ThemedText>
-                      </View>
-                    ))}
-                  </View>
-                )}
-                {/* 视频片段：头盔侧留档后在此列出（守护模式类体验，MVP 后第一迭代） */}
-                <ThemedText type="small" themeColor="textSecondary">
-                  {d.media.length > 0
-                    ? t("events.mediaCount", { n: d.media.length })
-                    : t("events.mediaNone")}
-                </ThemedText>
-                <PrimaryButton
-                  compact
-                  title={t("events.viewOnMap")}
-                  icon="map-outline"
-                  onPress={() => {
-                    const at = d.timestamp;
-                    const dev = d.deviceId;
-                    setDetailId(null);
-                    router.push({
-                      pathname: "/map",
-                      params: { deviceId: dev, at },
-                    });
-                  }}
-                />
-              </>
-            ) : (
-              <ThemedText type="small" themeColor="textSecondary">
-                {t("events.loading")}
-              </ThemedText>
-            )}
-          </Pressable>
-        </Animated.View>
+              )}
+            </Pressable>
+          </Animated.View>
         </Pressable>
       </Modal>
     </ThemedView>

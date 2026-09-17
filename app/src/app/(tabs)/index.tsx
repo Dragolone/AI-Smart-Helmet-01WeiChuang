@@ -7,6 +7,7 @@ import { Image } from "expo-image";
 import { router } from "expo-router";
 import { useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import Animated from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type {
   DevicePublic,
@@ -19,6 +20,7 @@ import { toUserMessage } from "@/api/error-messages";
 import { PrimaryButton, SecondaryButton } from "@/components/form";
 import { Card, SectionLabel } from "@/components/list";
 import { Skeleton } from "@/components/skeleton";
+import { ValueTransition, listEntering } from "@/components/motion";
 import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
@@ -162,15 +164,17 @@ function HeroCard({ device }: { device: DevicePublic }) {
               {t("devices.battery")}
             </ThemedText>
             <View style={styles.statValueRow}>
-              <ThemedText
-                type="display"
-                style={[
-                  styles.statValue,
-                  { color: batteryColor(device.battery, theme) },
-                ]}
-              >
-                {device.battery ?? "—"}
-              </ThemedText>
+              <ValueTransition value={device.battery ?? "—"}>
+                <ThemedText
+                  type="display"
+                  style={[
+                    styles.statValue,
+                    { color: batteryColor(device.battery, theme) },
+                  ]}
+                >
+                  {device.battery ?? "—"}
+                </ThemedText>
+              </ValueTransition>
               <ThemedText
                 type="small"
                 themeColor="textSecondary"
@@ -379,12 +383,13 @@ export default function DevicesScreen() {
               />
               <Card>
                 {list.map((d, i) => (
-                  <DeviceRow
-                    key={d.deviceId}
-                    device={d}
-                    current={d.deviceId === hero.deviceId}
-                    last={i === list.length - 1}
-                  />
+                  <Animated.View key={d.deviceId} entering={listEntering(i)}>
+                    <DeviceRow
+                      device={d}
+                      current={d.deviceId === hero.deviceId}
+                      last={i === list.length - 1}
+                    />
+                  </Animated.View>
                 ))}
               </Card>
             </>

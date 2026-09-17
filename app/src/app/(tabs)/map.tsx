@@ -29,6 +29,7 @@ import {
   type LngLat,
 } from "@/components/map/coords";
 import { openAmapNavigation } from "@/components/map/nav-links";
+import { AnimatedChip, ValueTransition } from "@/components/motion";
 import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
 import { Radius } from "@/constants/theme";
@@ -213,24 +214,18 @@ function Chip({
 }) {
   const theme = useTheme();
   return (
-    <Tappable
+    <AnimatedChip
+      label={label}
+      active={active}
       disabled={disabled}
       onPress={onPress}
-      style={[
-        styles.chip,
-        { backgroundColor: active ? theme.brand : theme.backgroundSelected },
-      ]}
-    >
-      <ThemedText
-        type="smallBold"
-        style={[
-          styles.chipText,
-          { color: active ? theme.onBrand : theme.textSecondary },
-        ]}
-      >
-        {label}
-      </ThemedText>
-    </Tappable>
+      style={styles.chip}
+      textStyle={styles.chipText}
+      activeBg={theme.brand}
+      inactiveBg={theme.backgroundSelected}
+      activeFg={theme.onBrand}
+      inactiveFg={theme.textSecondary}
+    />
   );
 }
 
@@ -256,13 +251,15 @@ function Stat({
         {label}
       </ThemedText>
       <View style={styles.statValueRow}>
-        <ThemedText
-          type="display"
-          style={[styles.statValue, { color: valueColor ?? theme.text }]}
-          numberOfLines={1}
-        >
-          {value}
-        </ThemedText>
+        <ValueTransition value={value}>
+          <ThemedText
+            type="display"
+            style={[styles.statValue, { color: valueColor ?? theme.text }]}
+            numberOfLines={1}
+          >
+            {value}
+          </ThemedText>
+        </ValueTransition>
         <ThemedText
           type="small"
           themeColor="textSecondary"

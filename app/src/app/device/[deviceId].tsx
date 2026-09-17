@@ -3,6 +3,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
+import type React from "react";
 import { useRef, useState } from "react";
 import {
   Alert,
@@ -19,6 +20,7 @@ import { devicesApi } from "@/api/devices";
 import { showToast } from "@/components/toast";
 import { toUserMessage } from "@/api/error-messages";
 import { Badge } from "@/components/badge";
+import { AnimatedChip, PulseDot } from "@/components/motion";
 import { Tappable } from "@/components/tappable";
 import { BatteryChart } from "@/components/battery-chart";
 import {
@@ -42,12 +44,14 @@ function InfoRow({
   value,
   onPress,
   valueColor,
+  valueLeading,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   value: string;
   onPress?: () => void;
   valueColor?: string;
+  valueLeading?: React.ReactNode;
 }) {
   const theme = useTheme();
   const Wrapper = onPress ? Tappable : View;
@@ -65,12 +69,15 @@ function InfoRow({
           {label}
         </ThemedText>
       </View>
-      <ThemedText
-        type="smallBold"
-        style={valueColor ? { color: valueColor } : undefined}
-      >
-        {value}
-      </ThemedText>
+      <View style={styles.rowValue}>
+        {valueLeading}
+        <ThemedText
+          type="smallBold"
+          style={valueColor ? { color: valueColor } : undefined}
+        >
+          {value}
+        </ThemedText>
+      </View>
     </Wrapper>
   );
 }
@@ -424,6 +431,24 @@ export default function DeviceDetailScreen() {
               }
               label={t("device.ble")}
               value={bleStatusText}
+              valueLeading={
+                bleLink ? (
+                  <PulseDot
+                    color={
+                      bleLink.phase === "connected"
+                        ? theme.success
+                        : bleLink.phase === "error"
+                          ? theme.danger
+                          : theme.textSecondary
+                    }
+                    active={
+                      bleLink.phase === "scanning" ||
+                      bleLink.phase === "connecting" ||
+                      bleLink.phase === "handshaking"
+                    }
+                  />
+                ) : undefined
+              }
               valueColor={
                 bleLink?.phase === "connected"
                   ? theme.success
@@ -504,34 +529,18 @@ export default function DeviceDetailScreen() {
                   ].map(({ v, label }) => {
                     const active = settings.data?.settings.light === v;
                     return (
-                      <Tappable
+                      <AnimatedChip
                         key={label}
+                        label={label}
+                        active={active}
                         disabled={sending}
                         onPress={() => sendSetting("light", v)}
-                      >
-                        <View
-                          style={[
-                            styles.settingChip,
-                            {
-                              backgroundColor: active
-                                ? theme.brand
-                                : theme.backgroundSelected,
-                            },
-                          ]}
-                        >
-                          <ThemedText
-                            type="smallBold"
-                            style={{
-                              fontSize: 13,
-                              color: active
-                                ? theme.onBrand
-                                : theme.textSecondary,
-                            }}
-                          >
-                            {label}
-                          </ThemedText>
-                        </View>
-                      </Tappable>
+                        style={styles.settingChip}
+                        activeBg={theme.brand}
+                        inactiveBg={theme.backgroundSelected}
+                        activeFg={theme.onBrand}
+                        inactiveFg={theme.textSecondary}
+                      />
                     );
                   })}
                 </View>
@@ -667,6 +676,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
+  rowValue: { flexDirection: "row", alignItems: "center", gap: 6 },
   rowLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
   footer: { marginTop: 8 },
 });
