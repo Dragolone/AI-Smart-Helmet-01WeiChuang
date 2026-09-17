@@ -189,6 +189,8 @@ export default function DeviceDetailScreen() {
   const liveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const livePending = useRef<number | null>(null);
   const liveSent = useRef<number | null>(null);
+  /** 拖动开始时的音量：拖动中已即时下发过中间值（≤ 高音量线）时，取消高音量确认要把它还回去 */
+  const dragStart = useRef<number | null>(null);
   const flushLive = () => {
     liveTimer.current = null;
     const v = livePending.current;
@@ -206,7 +208,10 @@ export default function DeviceDetailScreen() {
   const onVolumeDragging = (dragging: boolean) => {
     // 拖动时关掉 iOS 返回手势，免得向右滑把页面滑走
     navigation.setOptions({ gestureEnabled: !dragging });
-    if (dragging) liveSent.current = null;
+    if (dragging) {
+      liveSent.current = null;
+      dragStart.current = optimisticVolume ?? serverVolume;
+    }
   };
   const sendVolume = (v: number) => {
     if (liveTimer.current) {
@@ -222,8 +227,19 @@ export default function DeviceDetailScreen() {
           {
             text: t("common.cancel"),
             style: "cancel",
-            // 取消 = 什么都不下发:滑杆已随 value 回到原值,头盔保持原音量
-            // (此前误把音量设到阈值,负责人 2026-09-11 指正)
+            // 取消 = 回到拖动前的音量。拖动过程中为了"即时生效"已经把 ≤ 高音量线的中间值发过去了
+            // （60 → 拖到 90 的路上 80 已下发），所以取消不能"什么都不做"，要把起点值发回去
+            // （负责人 2026-09-17 指正：取消后音量停在 80）
+            onPress: () => {
+              const back = dragStart.current;
+              if (
+                back !== null &&
+                liveSent.current !== null &&
+                liveSent.current !== back
+              ) {
+                sendSetting("volume", back);
+              }
+            },
           },
           {
             text: t("device.volumeLoudConfirm"),
