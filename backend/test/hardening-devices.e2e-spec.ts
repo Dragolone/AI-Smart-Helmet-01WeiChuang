@@ -203,7 +203,7 @@ describe('加固：设备 / 命令 / 查询边界 (e2e)', () => {
         .set(auth(token))
         .send(body);
 
-    it('参数护栏：__proto__/constructor 键、21 键、嵌套、Infinity、空对象、非对象', async () => {
+    it('参数护栏：__proto__/constructor 键、21 键、嵌套、Infinity、空对象、非对象、未知键/越界/类型（决策 #43）', async () => {
       const proto = await put(
         JSON.parse('{"__proto__":{"polluted":true},"a":1}'),
       );
@@ -227,11 +227,15 @@ describe('加固：设备 / 命令 / 查询边界 (e2e)', () => {
       await put('str').expect(400);
       await put({ ['k'.repeat(65)]: 1 }).expect(400);
       await put({ s: 'x'.repeat(257) }).expect(400);
-      await put({ s: 'x'.repeat(256), n: -0, b: false }).expect(202);
+      // 决策 #43：字符串值与清单外的键一律拒；清单内边界值放行
+      await put({ volume: '80' }).expect(400);
+      await put({ volume: 101 }).expect(400);
+      await put({ buzzer: 1 }).expect(400);
+      await put({ volume: 100, vibration: 0, buzzer: false }).expect(202);
     });
 
     it('回执幂等与竞态：executed success/failed 各并发 5 次 → 终态只有一种，settings 只合入一次', async () => {
-      const c = await put({ beep: true, vol: 3 }).expect(202);
+      const c = await put({ buzzer: true, volume: 3 }).expect(202);
       const id = c.body.commandId as string;
       const results = await Promise.all([
         ...Array.from({ length: 5 }, () =>
@@ -252,13 +256,13 @@ describe('加固：设备 / 命令 / 查询边界 (e2e)', () => {
         where: { deviceId: devCmd },
       });
       const settings = (dev.settings ?? {}) as Record<string, unknown>;
-      if (finalRow.status === 'success') expect(settings.beep).toBe(true);
-      else expect(settings.beep).toBeUndefined();
+      if (finalRow.status === 'success') expect(settings.buzzer).toBe(true);
+      else expect(settings.buzzer).toBeUndefined();
     });
 
     it('回执顺序：旧命令的迟到 success 不覆盖新命令已生效的键，但未被覆盖的键照常合入', async () => {
-      const a = await put({ vol: 1, led: 'on' }).expect(202);
-      const b = await put({ vol: 9 }).expect(202);
+      const a = await put({ volume: 1, light: 1 }).expect(202);
+      const b = await put({ volume: 9 }).expect(202);
       await ack(b.body.commandId as string, {
         stage: 'executed',
         result: 'success',
@@ -272,12 +276,16 @@ describe('加固：设备 / 命令 / 查询边界 (e2e)', () => {
         .get(`/api/v1/devices/${devCmd}/settings`)
         .set(auth(owner.token))
         .expect(200);
-      expect((s.body.settings as { vol: number; led: string }).vol).toBe(9);
-      expect((s.body.settings as { vol: number; led: string }).led).toBe('on');
+      expect(
+        (s.body.settings as { volume: number; light: number }).volume,
+      ).toBe(9);
+      expect((s.body.settings as { volume: number; light: number }).light).toBe(
+        1,
+      );
     });
 
     it('回执护栏：他人 404、串设备 404、不存在命令 404、executed 缺 result 400、非法 stage 400、非法 executedAt 兜底', async () => {
-      const c = await put({ x: 1 }).expect(202);
+      const c = await put({ light: 1 }).expect(202);
       const id = c.body.commandId as string;
       await ack(id, { stage: 'delivered' }, other.token).expect(404);
       await ack(id, { stage: 'delivered' }, owner.token, devMain).expect(404);
@@ -298,7 +306,7 @@ describe('加固：设备 / 命令 / 查询边界 (e2e)', () => {
     });
 
     it('MQTT cmd_ack：串设备回执被忽略；非法 JSON 忽略；不存在命令忽略', async () => {
-      const c = await put({ y: 2 }).expect(202);
+      const c = await put({ vibration: 2 }).expect(202);
       const id = c.body.commandId as string;
       await commands.handleAck(
         devMain,
@@ -334,7 +342,8 @@ describe('加固：设备 / 命令 / 查询边界 (e2e)', () => {
     it('超时：20 个并发下发全部 pending → 1s 后 tick 全部 offline → 迟到回执如实覆盖', async () => {
       // 并发下发的压力面在 stress 套件（真实监听端口）验证；这里顺序下发只验状态机
       const results: request.Response[] = [];
-      for (let i = 0; i < 20; i += 1) results.push(await put({ i }));
+      for (let i = 0; i < 20; i += 1)
+        results.push(await put({ volume: 1 + i }));
       expect(
         results.every((r) => r.status === 202 && r.body.status === 'pending'),
       ).toBe(true);
