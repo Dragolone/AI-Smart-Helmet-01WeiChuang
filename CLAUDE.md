@@ -187,6 +187,7 @@ AI-Smart-Helmet-01WeiChuang/
     DEPLOYMENT.md     # 云端部署手册（development/production，含验收清单与排障）
     DEMO.md           # MVP 演示脚本（给演示者：每步做什么 → 应看到什么；Mock 剧本切换与复位）
     THIRD_PARTY.md    # 第三方账号/Key 状态台账（每周对表）
+    HARDWARE_SYNC_2026-09-18.md # 发硬件的进度说明 + 19 条待确认清单（快照；权威清单在 DEVICE_PROTOCOL §10）
   .github/workflows/  # GitHub Actions CI
   docker-compose.yml  # 本地 PostgreSQL + EMQX
   CLAUDE.md
@@ -382,5 +383,5 @@ AI-Smart-Helmet-01WeiChuang/
 1. **Apple Developer 公司账号**（进行中，2026-08-15）：公司专用 Apple ID 已建（QQ 邮箱 3840404902，凭证入密码库共享）、管理人实名通过、Organization 流程已走到 **D-U-N-S 邓白氏建档**（提交遇接口故障待重提；建档 1–7 个工作日出编码 → 回 Apple Developer App 填 Organization Details → 付 ¥688 → Apple 审核可能电话核实公司）。真机当前用个人开发证书（7 天过期需重装），TestFlight 与正式推送需公司账号。**正式包名/Bundle ID 已切换为 `com.lingyiweichuang.app`，显示名「零一唯创」（汤总 2026-09-10 拍板，A 线 2026-09-16 落地；原开发期 `com.dravenzhong.helmet` 弃用）**；高德 Key 绑定与 App 备案用此二值。公司信息：深圳零一唯创科技有限公司 / 91440300MAK7XEPD38 / 深圳市坪山区龙田街道竹坑社区翠景路33号3栋坪山工匠园402（最新地址，以此为准）。
 2. **RTC 云服务账号**：选型已定案腾讯 TRTC（DECISIONS.md，2026-08-15）；当前用个人测试应用，正式应用/Key 待公司资质就绪后创建。
 3. **短信签名/模板、地图企业 Key、推送厂商通道、云服务器、HTTPS 证书**：负责人启动申请；审核期间开发用 Mock Provider，不阻塞。**完整台账见 `docs/THIRD_PARTY.md`**（每周对表）。（进度 2026-08-16：云厂商统一腾讯云、域名走 `01weichuang.com` 子域名且**备案免重做**——决策 #34；高德个人 Key 已到位、**企业认证已完成（2026-09-06）**；云服务器已部署 development（2026-09-06）；COS/短信/推送待启动。）
-4. **DEVICE_PROTOCOL.md 中标 ⚠️ 的传输层细节**：待硬件团队在联调前（最晚 Week 10）逐项确认。
+4. **DEVICE_PROTOCOL.md §10 待硬件确认清单（19 条，A–E 分级）**：2026-09-18 已整理发张森淼（`docs/HARDWARE_SYNC_2026-09-18.md`），等回复；v0.6 已答项 2026-09-19 去标记（决策 #43/#44）。
 5. **硬件对讲电台（双模兜底）**：频段/功率/实测距离由硬件团队评估（决策 #20）；软件仅承担频道设置下发。

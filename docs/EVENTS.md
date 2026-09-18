@@ -71,10 +71,10 @@
 |------|------|------|------|-------------|
 | battery | integer | 必填 | % | 0–100 |
 | charging | boolean | 选填 | — | 是否充电中 |
-| signalLevel | integer | 选填 | 级 | 蜂窝/无线信号强度 0–4（⚠️ 分级口径待硬件确认；**决策 #35 后 MVP 头盔无 4G，BLE 链路下本字段通常缺省，扩展 4G 后启用**） |
+| signalLevel | integer | 选填 | 级 | 蜂窝/无线信号强度 0–4（⏸️ 分级口径 4G 扩展时确认；**决策 #35 后 MVP 头盔无 4G，BLE 链路下本字段缺省** — v0.6 心跳只带电量与充电状态） |
 | sleeping | boolean | 选填 | — | 当前是否处于休眠（与 sleep_entered/exited 冗余自校验用） |
 
-上报频率 ⚠️ 待硬件确认（建议 60s 心跳一次，与 MQTT Keep Alive 对齐）。
+上报频率 ✅ v0.6：心跳 60 s（可经设置 `heartbeatPeriod` 调整）；App 中转按收到的事件透传，云端不假设固定周期。
 
 ### 4.2 location_update
 
@@ -82,13 +82,13 @@
 |------|------|------|------|-------------|
 | latitude | number | 必填 | ° | -90 ~ 90 |
 | longitude | number | 必填 | ° | -180 ~ 180 |
-| coordinateSystem | string (枚举) | 必填 | — | `wgs84` \| `gcj02`；⚠️ 硬件 GPS 实际输出坐标系待确认（转换位置见 DECISIONS 待定项） |
+| coordinateSystem | string (枚举) | 必填 | — | `wgs84` \| `gcj02`；✅ 头盔 GPS 输出 WGS-84（v0.6，int32 ×10⁶），App 中转填 `wgs84`；wgs84→gcj02 在 App 地图层转换（决策 #33） |
 | accuracy | number | 必填 | m | ≥ 0，水平定位精度（68% 置信半径） |
-| speed | number | 必填 | m/s | ≥ 0；无效时传 0 并可用 accuracy 反映质量 ⚠️ 无效值口径待硬件确认 |
-| heading | number | 必填 | ° | 0 ~ 360，正北为 0 顺时针；静止时无效值口径 ⚠️ 待硬件确认 |
-| altitude | number | 选填 | m | 海拔 |
+| speed | number | 必填 | m/s | ≥ 0；v0.6 地速为 uint16 × 0.1 m/s，**无无效哨兵**，⚠️ 无定位时头盔填什么待硬件答（DEVICE_PROTOCOL §10 B-8）；无定位（精度 0xFF）的位置帧 App 整帧不上传 |
+| heading | number | 必填 | ° | 0 ~ 360，正北为 0 顺时针；✅ v0.6 无效值 0xFFFF（静止时常见），App 翻译为 0 |
+| altitude | number | 选填 | m | 海拔；v0.6 无效值 0x7FFF 时 App 省略本字段 |
 
-上报频率 ⚠️ 待硬件确认（影响功耗/流量；软件侧不假设固定 5s 一个点，见 CLAUDE.md 位置数据生命周期）。
+上报频率 ✅ v0.6：运动 5 s / 连续静止超 3 min 后 30 s（可经设置 `locationPeriodMoving` / `locationPeriodStill` 调整）；软件侧仍不假设固定周期（CLAUDE.md 位置数据生命周期）。
 
 ### 4.3 possible_fall（触发 SOS 状态机）
 
@@ -109,13 +109,13 @@
 
 ### 4.5 collision_risk / obstacle_risk
 
-两类事件 payload 结构相同：
+两类事件 payload 结构相同（v0.6 两事件载荷共 15 字节同布局；obstacle_risk 的目标类型/方向取值待硬件确认，DEVICE_PROTOCOL §10 B-7）：
 
 | 字段 | 类型 | 必填 | 单位 | 说明 / 值域 |
 |------|------|------|------|-------------|
-| riskLevel | string (枚举) | 必填 | — | `low` \| `medium` \| `high`（⚠️ 分级口径与档位数待算法确认） |
-| objectType | string (枚举) | 选填 | — | `vehicle` \| `pedestrian` \| `obstacle` \| `unknown`（⚠️ 集合待算法确认；集合外的值**原样落库**并告警，不改写——留档原则，供与算法团队对口径） |
-| direction | string (枚举) | 选填 | — | `front` \| `rear` \| `left` \| `right`（⚠️ 待算法确认） |
+| riskLevel | string (枚举) | 必填 | — | `low` \| `medium` \| `high`（✅ v0.6 三档 1/2/3 → low/medium/high；算法在头盔本地运行，此即算法口径；App 收到未知档位按 high 兜底） |
+| objectType | string (枚举) | 选填 | — | `vehicle` \| `pedestrian` \| `obstacle` \| `unknown`（✅ v0.6：0/1/2/3 → unknown/vehicle/pedestrian/obstacle；集合外的值**原样落库**并告警，不改写——留档原则） |
+| direction | string (枚举) | 选填 | — | `front` \| `rear` \| `left` \| `right`（✅ v0.6：1/2/3/4 → front/rear/left/right；未知值省略） |
 | distance | number | 选填 | m | ≥ 0，目标距离 |
 | confidence | number | 选填 | — | 0 ~ 1 |
 | algorithmVersion | string | 选填 | — | 原样落库 |
@@ -133,7 +133,7 @@
 
 | 字段 | 类型 | 必填 | 单位 | 说明 / 值域 |
 |------|------|------|------|-------------|
-| reason | string (枚举) | 选填 | — | `inactivity` \| `manual` \| `low_battery`（⚠️ 集合待硬件确认） |
+| reason | string (枚举) | 选填 | — | `inactivity` \| `manual` \| `low_battery`（⏸️ 休眠已移出 MVP，集合待硬件扩展时确认） |
 | battery | integer | 选填 | % | 0–100，进入/退出时电量快照 |
 
 ### 4.8 bluetooth_lost
@@ -152,7 +152,7 @@
 | relatedEventId | string (UUID) | 选填 | — | 关联的危险/摔倒事件 eventId |
 | duration | integer | 选填 | s | 片段时长 |
 | sizeBytes | integer | 选填 | byte | 文件大小 |
-| storageKey | string | ⚠️ 待定 | — | 媒体在对象存储中的位置；**上传方式（设备直传预签名 URL / 其他）待硬件确认后定稿本字段** |
+| storageKey | string | ⏸️ 待定 | — | 媒体在对象存储中的位置；**上云路径（SoftAP 无外网：经 App 中转 / 头盔切 STA）随 TF 卡读取排 MVP 后定稿**（DEVICE_PROTOCOL §10 E-17） |
 
 ## 5. 云端算法服务 Webhook（如有）
 
@@ -184,8 +184,8 @@
 
 ## 7. 待确认清单汇总
 
-**硬件团队**：device_status/location_update 上报频率与无效值口径、signalLevel 分级、sleep reason 集合、GPS 输出坐标系、video 上传方式与 storageKey。（~~可下发参数清单与错误码表、是否需要额外命令类型~~ 已定稿 2026-09-19，决策 #43。）
-**算法团队**：riskLevel 档位口径、objectType/direction 集合、Webhook 场景 firmwareVersion 取值。
+**硬件团队（余项，清单见 DEVICE_PROTOCOL §10）**：location_update 地速无效值（B-8）；后延：video 上云路径与 storageKey（E-17）、signalLevel 分级（4G 时）、sleep reason 集合（休眠移出 MVP）。（~~上报频率、GPS 坐标系、航向/精度/海拔无效值、可下发参数清单与错误码表、额外命令类型~~ 已由 v0.6 定稿，2026-09-19 去标记，决策 #43。）
+**算法团队**：~~riskLevel 档位口径、objectType/direction 集合~~（算法在头盔本地运行，口径已随 v0.6 定稿）；Webhook 场景 firmwareVersion 取值仅当引入云端算法服务时再定。
 **软件侧内部**：wgs84→gcj02 转换位置（随地图 Spike 定稿）。（~~同设备并发 SOS 合并规则~~ 已定稿 2026-08-16，见 §4.4 / DECISIONS #26。）
 
 以上确认前，Mock Device 按本文件当前默认值出数据；确认后更新本文件并同步 Mock 与 `packages/shared`。

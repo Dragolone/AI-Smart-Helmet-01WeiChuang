@@ -17,5 +17,5 @@
 ## 已知的后续演进点（审查发现，已排期）
 
 - **clock_skew 标记与 source 字段**（DEVICE_PROTOCOL §8 / EVENTS.md §1 承诺的服务端字段）：随 Week 3 的第一个业务 migration 一起补，避免为两个字段单开 migration。
-- **eventId 幂等粒度**：当前为全局唯一；待硬件确认 eventId 生成规则后评估是否改为 `(device_id, event_id)` 复合唯一（防理论上的跨设备事件压制）。结论记入 DECISIONS.md。
+- ~~**eventId 幂等粒度**~~ ✅ 定案维持全局唯一（2026-09-19，决策 #44）：BLE 版 eventId = UUID v5(deviceId + Event_Seq)，由 deviceId 派生，跨设备不可能相同；4G 版由设备生成 UUID 亦全局唯一。不改复合唯一，省一次 migration。
 - **位置数据生命周期**：MVP 不实现 Retention/降采样，但轨迹查询必须走服务层、不裸查表（CLAUDE.md Database Rules），为未来留余地。
