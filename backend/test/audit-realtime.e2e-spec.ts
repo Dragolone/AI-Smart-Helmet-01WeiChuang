@@ -226,8 +226,37 @@ describe('审计 §7：WebSocket 实时通道 (e2e)', () => {
       () => collectors.every((c) => c.messages.length >= N),
       30_000,
     ).catch((err: Error) => {
+      // 诊断：把客户端/服务端两侧的 socket 状态一起打出来——分清「服务端没发」「内核没送到」「客户端没读」
+      interface ClientInternals {
+        _socket: Socket & { isPaused(): boolean };
+        _receiver: { _state: number; _bufferedBytes: number };
+        bufferedAmount: number;
+        readyState: number;
+      }
+      const serverByRemotePort = new Map<number, WebSocket>();
+      for (const ws of internals.byUser.get(owner.id) ?? []) {
+        const port = (ws as unknown as { _socket: Socket })._socket.remotePort;
+        if (port !== undefined) serverByRemotePort.set(port, ws);
+      }
+      const describe = (ws: WebSocket, received: number): string => {
+        const c = ws as unknown as ClientInternals;
+        const srv = serverByRemotePort.get(c._socket.localPort ?? -1) as
+          (WebSocket & { _socket: Socket }) | undefined;
+        return [
+          `recv=${received}`,
+          `cli{ready=${c.readyState} flowing=${String(c._socket.readableFlowing)} paused=${c._socket.isPaused()} readableLen=${c._socket.readableLength} bytesRead=${c._socket.bytesRead} rxState=${c._receiver._state} rxBuf=${c._receiver._bufferedBytes}}`,
+          `srv{${srv ? `ready=${srv.readyState} bytesWritten=${srv._socket.bytesWritten} writableLen=${srv._socket.writableLength} buffered=${srv.bufferedAmount}` : 'not-found'}}`,
+        ].join(' ');
+      };
+      const lines = [
+        `slow: ${describe(slow, slowCollector.messages.length)}`,
+        ...fast.map(
+          (ws, i) =>
+            `fast${i + 1}: ${describe(ws, collectors[i].messages.length)}`,
+        ),
+      ];
       throw new Error(
-        `${err.message}：快连接各收 ${collectors.map((c) => c.messages.length).join('/')} 条，慢连接 ${slowCollector.messages.length} 条，byUser=${internals.byUser.get(owner.id)?.size ?? 0}`,
+        `${err.message}：快连接各收 ${collectors.map((c) => c.messages.length).join('/')} 条，慢连接 ${slowCollector.messages.length} 条，byUser=${internals.byUser.get(owner.id)?.size ?? 0}\n${lines.join('\n')}`,
       );
     });
     console.log(`慢客户端用例：快连接收齐 ${N} 条耗时 ${Date.now() - t0}ms`);
