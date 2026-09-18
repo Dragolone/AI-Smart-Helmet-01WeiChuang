@@ -2,7 +2,7 @@
 
 > 本文件是第三方账号/Key 的**唯一状态台账**，每周对表更新。申请主体统一为**深圳零一唯创科技有限公司**（91440300MAK7XEPD38）。
 > 相关决策：#34（云厂商统一腾讯云 + 域名备案复用）、#22（TRTC 选型）、#24（双 Bundle ID）、#33（地图库定案）。
-> 最后更新：2026-09-09
+> 最后更新：2026-09-18
 
 ## 状态总览
 
@@ -61,7 +61,7 @@
 
 ### 5. Apple Developer 公司账号（Organization）
 
-- **现状**：公司专用 Apple ID 已建（凭证入密码库）、管理人实名通过，卡在 **D-U-N-S 邓白氏建档**：查询工具无记录、自助申请失败（新公司）。**2026-09-08 已向 Apple Developer Support 发工单**；**2026-09-09 苹果回复（案例 102956478091，支持人员 Lynette）**：回复该邮件补四项信息（本地企业名称、电话、工作电话、工作邮箱；**只能用罗马字母**），即授权 Apple 向 D&B 提交建档；D&B 可能致电工作电话核实，须备好营业执照；建档完成后 D&B 通知。**2026-09-11 邓白氏（海南邓白氏）来邮：订单 10212210956843，须 9-14 15:00 前在 dnbportal.cn 完成企业核验并申请编码；2026-09-12 10:01 已提交企业核验（待核验，联系人钟祺龙，邮箱 3840404902@qq.com，英文名 Shenzhen Lingyi Weichuang Technology Co., Ltd.）。企业核验 12:05 通过；**编码申请已提交（申请编号 d2026091210082070466041，待审核，5 个工作日通道）**。9-17 审核员退回简称格式（改为「零一唯创科技」/「Lingyi Weichuang Technology」）当日改完；**9-17 18:38 邓白氏编码审核通过、已交付：D-U-N-S = 576655751**（深圳零一唯创科技有限公司 / Shenzhen Lingyi Weichuang Technology Co., Ltd.）。下一步（2026-09-18 核对苹果官方口径后修正，原写的「同步 5–14 工作日」过于悲观）**：苹果帮助页明写「**拿到 D-U-N-S 编码后至多 2 个工作日** Apple 即可从 D&B 收到你的信息，之后就能以公司身份注册」（<https://developer.apple.com/help/account/membership/D-U-N-S/>）。编码 9-17（周四）18:38 交付 → **9-21（周一）即可开始在 developer.apple.com/enroll/duns-lookup 查询**（该页需登录公司 Apple ID，查询时必须填**完整法定名称** Shenzhen Lingyi Weichuang Technology Co., Ltd. + 注册地址，不能用简称/商号，否则会报「未列为法律实体」）；查到后 Apple Developer App 填 Organization Details → 付 ¥688 → Apple 审核（电话核实统一指向法人龙俊洁 15014036340）。**若两周后（约 10-01）仍查不到**：发邮件给 D&B <https://support.dnb.com/?CUST=APPLEDEV> 催同步 → Apple Developer App 填 Organization Details → 付 ¥688 → Apple 审核（过期可在 developer.apple.com/enroll/duns-lookup 重提，核验不用重做）
+- **现状**：公司专用 Apple ID 已建（凭证入密码库）、管理人实名通过，卡在 **D-U-N-S 邓白氏建档**：查询工具无记录、自助申请失败（新公司）。**2026-09-08 已向 Apple Developer Support 发工单**；**2026-09-09 苹果回复（案例 102956478091，支持人员 Lynette）**：回复该邮件补四项信息（本地企业名称、电话、工作电话、工作邮箱；**只能用罗马字母**），即授权 Apple 向 D&B 提交建档；D&B 可能致电工作电话核实，须备好营业执照；建档完成后 D&B 通知。**2026-09-11 邓白氏（海南邓白氏）来邮：订单 10212210956843，须 9-14 15:00 前在 dnbportal.cn 完成企业核验并申请编码；2026-09-12 10:01 已提交企业核验（待核验，联系人钟祺龙，邮箱 3840404902@qq.com，英文名 Shenzhen Lingyi Weichuang Technology Co., Ltd.）。企业核验 12:05 通过；**编码申请已提交（申请编号 d2026091210082070466041，待审核，5 个工作日通道）**。9-17 审核员退回简称格式（改为「零一唯创科技」/「Lingyi Weichuang Technology」）当日改完；**9-17 18:38 邓白氏编码审核通过、已交付：D-U-N-S = 576655751**（深圳零一唯创科技有限公司 / Shenzhen Lingyi Weichuang Technology Co., Ltd.）。下一步（2026-09-18 核对苹果官方口径后修正，原写的「同步 5–14 工作日」过于悲观）**：苹果帮助页明写「**拿到 D-U-N-S 编码后至多 2 个工作日** Apple 即可从 D&B 收到你的信息，之后就能以公司身份注册」（<https://developer.apple.com/help/account/membership/D-U-N-S/>）。编码 9-17（周四）18:38 交付 → **9-21（周一）即可开始在 developer.apple.com/enroll/duns-lookup 查询**（该页需登录公司 Apple ID，查询时必须填**完整法定名称** Shenzhen Lingyi Weichuang Technology Co., Ltd. + 注册地址，不能用简称/商号，否则会报「未列为法律实体」）；查到后 Apple Developer App 填 Organization Details → 付 ¥688 → Apple 审核（电话核实统一指向法人龙俊洁 15014036340）。**若两周后（约 10-01）仍查不到**：发邮件给 D&B <https://support.dnb.com/?CUST=APPLEDEV> 催同步
 - **流程**：D-U-N-S 建档 1–7 工作日出编码 → 回 Apple Developer App 填 Organization Details → 付 ¥688 → Apple 审核（可能电话核实公司）
 - **阻塞**：iOS 真机现用个人开发证书（7 天过期需重装）；TestFlight 分发、APNs 远程推送、Bundle ID 统一都等它
 - **公司信息**：深圳零一唯创科技有限公司 / 91440300MAK7XEPD38 / 深圳市坪山区龙田街道竹坑社区翠景路33号3栋坪山工匠园402
