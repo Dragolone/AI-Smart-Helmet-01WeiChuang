@@ -63,6 +63,30 @@ describe('审计 §7：WebSocket 实时通道 (e2e)', () => {
     return ws;
   };
 
+  /**
+   * 客户端 open ≠ 服务端已订阅：handleConnection 在把连接加入推送表之前要 await 一次 DB 查询（注销校验），
+   * 这个窗口里的推送不会送达该连接（加速通道不补发）。CI 数据库慢时，紧接 open 的第一条推送就会漏掉
+   * 后连上的连接（2026-09-18 诊断：服务端 bytesWritten 恰少一条）。所以凡是"连上就推"的用例都要等注册计数到位。
+   */
+  const connectRegistered = async (
+    token: string,
+    userId: string,
+    n = 1,
+  ): Promise<WebSocket[]> => {
+    const before = internals.byUser.get(userId)?.size ?? 0;
+    const list = Array.from({ length: n }, () => connect(token));
+    await Promise.all(list.map((ws) => waitOpen(ws)));
+    await waitFor(
+      () => (internals.byUser.get(userId)?.size ?? 0) >= before + n,
+      10_000,
+    ).catch(() => {
+      throw new Error(
+        `连接已 open 但服务端 ${n} 条注册未到位：byUser=${internals.byUser.get(userId)?.size ?? 0}（期望 ≥ ${before + n}）`,
+      );
+    });
+    return list;
+  };
+
   const pushLocation = (i: number) =>
     ingest.ingestRaw(
       JSON.stringify(envelope(deviceId, 'location_update', validLocation(i))),
@@ -122,8 +146,7 @@ describe('审计 §7：WebSocket 实时通道 (e2e)', () => {
   it('短 exp token：到期即 4401 关闭；定时器与连接表同步清理；到期前推送正常', async () => {
     const timersBefore = internals.expiryTimers.size;
     const short = await jwt.signAsync({ sub: owner.id }, { expiresIn: '2s' });
-    const ws = connect(short);
-    await waitOpen(ws);
+    const [ws] = await connectRegistered(short, owner.id);
     const loc = collectWs(ws, 'location_update');
     await pushLocation(1);
     await waitFor(() => loc.messages.length === 1);
@@ -142,8 +165,7 @@ describe('审计 §7：WebSocket 实时通道 (e2e)', () => {
   });
 
   it('重连语义：断线期间的推送不补发（加速通道）；重连后 REST latest/轨迹 能拿到全部点（兜底）', async () => {
-    const ws1 = connect(owner.token);
-    await waitOpen(ws1);
+    const [ws1] = await connectRegistered(owner.token, owner.id);
     const c1 = collectWs<{ latitude: number }>(ws1, 'location_update');
     await pushLocation(10);
     await waitFor(() => c1.messages.length === 1);
@@ -152,8 +174,7 @@ describe('审计 §7：WebSocket 实时通道 (e2e)', () => {
     // 离线期间两条
     await pushLocation(11);
     await pushLocation(12);
-    const ws2 = connect(owner.token);
-    await waitOpen(ws2);
+    const [ws2] = await connectRegistered(owner.token, owner.id);
     const c2 = collectWs<{ latitude: number }>(ws2, 'location_update');
     await sleep(200);
     expect(c2.messages).toHaveLength(0); // 不补发历史
@@ -186,24 +207,15 @@ describe('审计 §7：WebSocket 实时通道 (e2e)', () => {
   });
 
   it('慢客户端（socket 暂停不读）不拖慢同用户其他连接：推送入库后服务端对其他连接全部刷出、其他连接全收；慢连接仍在线且未消费', async () => {
-    const slow = connect(owner.token);
-    await waitOpen(slow);
-    const fast = await Promise.all(
-      Array.from({ length: 5 }, async () => {
-        const ws = connect(owner.token);
-        await waitOpen(ws);
-        return ws;
-      }),
-    );
+    const [slow] = await connectRegistered(owner.token, owner.id);
+    const fast = await connectRegistered(owner.token, owner.id, 5);
     const collectors = fast.map((ws) => collectWs(ws, 'location_update'));
     // 暂停慢客户端的底层 socket：内核接收缓冲填满后服务端 send 只能堆在用户态缓冲
     (slow as unknown as { _socket: Socket })._socket.pause();
     const slowCollector = collectWs(slow, 'location_update');
 
-    // 40 条：足以暴露"逐连接串行等待"类的队头阻塞，又让每个客户端收到的总量（≈10KB）低于
-    // ws 客户端 Receiver 的 16KB 水位——超过水位会走 socket.pause/drain 流控，在 GitHub 2 核 runner 上
-    // 曾出现 2/5 个客户端停在 198/200 再也不动（2026-09-18 CI，服务端 send 无一失败）。
-    // 那是测试进程里 ws 客户端的流控边界，不是服务端行为，本用例不该踩它。
+    // 40 条足以暴露"逐连接串行等待"类的队头阻塞；CI 上曾见 2/5 个客户端各少 1–2 条，
+    // 根因是推送先于服务端注册（见 connectRegistered 注释），与条数无关
     const N = 40;
     for (let i = 0; i < N; i += 1) {
       await pushLocation(1000 + i);
@@ -270,8 +282,7 @@ describe('审计 §7：WebSocket 实时通道 (e2e)', () => {
   });
 
   it('客户端上行垃圾帧：1MB 二进制 / 非 JSON / 伪造 device_command / 伪造 sos_update → 连接不断、不产生命令或 SOS、后续推送正常', async () => {
-    const ws = connect(owner.token);
-    await waitOpen(ws);
+    const [ws] = await connectRegistered(owner.token, owner.id);
     const loc = collectWs(ws, 'location_update');
     const cmdBefore = await prisma.deviceCommand.count({ where: { deviceId } });
     const sosBefore = await prisma.sosCase.count({ where: { deviceId } });
@@ -313,15 +324,8 @@ describe('审计 §7：WebSocket 实时通道 (e2e)', () => {
   });
 
   it('多连接广播与断开清理：同用户 4 连接全收、他人 0 收；close/terminate 混合断开后三张私有 Map 均无残留', async () => {
-    const mine = await Promise.all(
-      Array.from({ length: 4 }, async () => {
-        const ws = connect(owner.token);
-        await waitOpen(ws);
-        return ws;
-      }),
-    );
-    const theirs = connect(other.token);
-    await waitOpen(theirs);
+    const mine = await connectRegistered(owner.token, owner.id, 4);
+    const [theirs] = await connectRegistered(other.token, other.id);
     const mineC = mine.map((ws) => collectWs(ws, 'location_update'));
     const theirsC = collectWs(theirs, 'location_update');
     await pushLocation(3000);

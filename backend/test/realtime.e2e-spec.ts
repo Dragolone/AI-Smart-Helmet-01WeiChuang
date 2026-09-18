@@ -12,6 +12,7 @@ import { UnifiedExceptionFilter } from '../src/common/http-exception.filter';
 import { requestIdMiddleware } from '../src/common/request-id.middleware';
 import { IngestService } from '../src/ingest/ingest.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { RealtimeGateway } from '../src/realtime/realtime.gateway';
 import { registerUser } from './helpers/register';
 
 const randomPhone = (): string =>
@@ -119,6 +120,31 @@ describe('WebSocket 实时通道 (e2e)', () => {
       .expect(200);
   });
 
+  /**
+   * 客户端 open ≠ 服务端已订阅：网关在登记连接前还要 await 一次 DB 查询，紧接 open 的推送可能漏掉
+   * 这条连接（加速通道不补发；2026-09-18 CI 诊断）。推送前等注册计数到位。
+   */
+  const openRegistered = async (token: string): Promise<WebSocket> => {
+    const { byUser } = app.get(RealtimeGateway);
+    const userId = (
+      JSON.parse(
+        Buffer.from(token.split('.')[1], 'base64url').toString('utf-8'),
+      ) as { sub: string }
+    ).sub;
+    const before = byUser.get(userId)?.size ?? 0;
+    const ws = new WebSocket(`${wsBase}?token=${token}`);
+    sockets.push(ws);
+    await waitOpen(ws);
+    const deadline = Date.now() + 10_000;
+    while ((byUser.get(userId)?.size ?? 0) < before + 1) {
+      if (Date.now() > deadline) {
+        throw new Error('连接已 open 但服务端注册未到位');
+      }
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    return ws;
+  };
+
   afterAll(async () => {
     for (const ws of sockets) ws.close();
     await prisma.locationPoint
@@ -142,9 +168,7 @@ describe('WebSocket 实时通道 (e2e)', () => {
   });
 
   it('绑定用户实时收到 location_update 推送（含海拔与设备号）', async () => {
-    const ws = new WebSocket(`${wsBase}?token=${ownerToken}`);
-    sockets.push(ws);
-    await waitOpen(ws);
+    const ws = await openRegistered(ownerToken);
 
     const waiting = nextMessage(ws);
     await ingest.ingestRaw(
@@ -168,9 +192,7 @@ describe('WebSocket 实时通道 (e2e)', () => {
   });
 
   it('device_status 事件推送 §4 status 对象', async () => {
-    const ws = new WebSocket(`${wsBase}?token=${ownerToken}`);
-    sockets.push(ws);
-    await waitOpen(ws);
+    const ws = await openRegistered(ownerToken);
 
     const waiting = nextMessage(ws);
     await ingest.ingestRaw(
