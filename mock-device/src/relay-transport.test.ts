@@ -14,12 +14,14 @@ interface Call {
 
 class FakeWebSocket {
   static urls: string[] = [];
+  static last: FakeWebSocket | null = null;
   onopen: (() => void) | null = null;
   onmessage: ((ev: { data: string }) => void) | null = null;
   onclose: ((ev: { code: number }) => void) | null = null;
   onerror: (() => void) | null = null;
   constructor(url: string) {
     FakeWebSocket.urls.push(url);
+    FakeWebSocket.last = this;
   }
   close(): void {}
 }
@@ -51,6 +53,9 @@ const fakeFetch = async (input: string | URL | Request, init?: RequestInit): Pro
   if (path === '/api/v1/auth/refresh') {
     refreshCount += 1;
     return json(200, { accessToken: `access_r${refreshCount}`, refreshToken: `refresh_r${refreshCount}` });
+  }
+  if (path.endsWith('/relay-ack')) {
+    return json(200, { commandId: path.split('/').at(-2), status: 'success' });
   }
   if (path === '/api/v1/ingest/app-relay') {
     const next = relayResponses.shift() ?? {
@@ -91,6 +96,7 @@ describe('relay-transport', () => {
     loginCount = 0;
     refreshCount = 0;
     FakeWebSocket.urls = [];
+    FakeWebSocket.last = null;
     globalThis.fetch = fakeFetch as typeof fetch;
     globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
   });
@@ -151,5 +157,39 @@ describe('relay-transport', () => {
     assert.equal(refreshCount, 1);
     assert.equal(relay[1].auth, 'Bearer access_r1', '重试用刷新后的 token');
     assert.deepEqual(relay[1].body, relay[0].body, '重试的是同一批（原 eventId 补传）');
+  });
+
+  it('WS 下行 set_config：先回 delivered，再按 v0.6 清单执行——越界回 executed failed + ERR_PARAM_VALUE:<key>，合法回 success', async () => {
+    const t = createRelayTransport(config());
+    await new Promise<void>((resolve) => t.start(resolve));
+    const ws = FakeWebSocket.last;
+    assert.ok(ws?.onmessage, 'WS 已挂上 onmessage');
+
+    const push = (commandId: string, params: Record<string, unknown>) =>
+      ws!.onmessage!({
+        data: JSON.stringify({
+          type: 'device_command',
+          sentAt: new Date().toISOString(),
+          data: { commandId, deviceId: 'helmet_relay_test', type: 'set_config', params, issuedAt: new Date().toISOString() },
+        }),
+      });
+    push('cmd_bad', { volume: 101 });
+    push('cmd_ok', { volume: 70, light: 2 });
+    push('cmd_bad', { volume: 101 }); // 连接补推的重复命令：幂等跳过
+    await new Promise((r) => setTimeout(r, 650));
+    await new Promise<void>((resolve) => t.stop(resolve));
+
+    const acks = calls.filter((c) => c.path.endsWith('/relay-ack')).map((c) => ({ id: c.path.split('/').at(-2), body: c.body as Record<string, unknown> }));
+    assert.deepEqual(
+      acks.map((a) => [a.id, a.body.stage, a.body.result ?? null, a.body.errorCode ?? null]),
+      [
+        ['cmd_bad', 'delivered', null, null],
+        ['cmd_ok', 'delivered', null, null],
+        ['cmd_bad', 'executed', 'failed', 'ERR_PARAM_VALUE:volume'],
+        ['cmd_ok', 'executed', 'success', null],
+      ],
+      '重复命令不再回执；越界由"头盔"拒绝而不是静默成功',
+    );
+    assert.equal(acks[0].body.stage, 'delivered');
   });
 });

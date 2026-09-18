@@ -243,7 +243,11 @@ export type CommandStatus =
   | 'offline';
 
 export interface PutSettingsRequest {
-  /** 扁平键值（标量），参数清单与取值范围待硬件定稿（⚠️） */
+  /**
+   * 扁平键值。✅ 参数清单定稿（决策 #43）：键名/类型/取值范围以 settings.ts 的 DEVICE_SETTINGS 为准，
+   * 服务端对未知键、类型不符、越界一律 400 VALIDATION_FAILED，不下发。
+   * 线上类型保持宽松（string 仍在联合里）只为不破坏调用方现有签名；想要编译期约束用 DeviceSettings。
+   */
   settings: Record<string, string | number | boolean>;
 }
 

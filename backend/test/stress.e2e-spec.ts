@@ -279,7 +279,7 @@ describe('压力：并发与吞吐 (e2e)', () => {
         { length: 50 },
         (_, i) => () =>
           call('PUT', `/api/v1/devices/${devCmd}/settings`, {
-            settings: { i },
+            settings: { volume: 1 + (i % 100) },
           }),
       ),
       50,
