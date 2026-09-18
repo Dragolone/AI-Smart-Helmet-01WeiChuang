@@ -194,7 +194,7 @@ describe('BLE 下行命令链：WS device_command + relay-ack (e2e)', () => {
   it('下发时 WS 在线 → 实时收到 device_command（双路：MQTT 也照发）', async () => {
     const ws = await connectWs(ownerToken);
     const waiting = collectMessages(ws, 800);
-    const commandId = await putSettings({ beepVolume: 70 });
+    const commandId = await putSettings({ volume: 70 });
 
     const messages = (await waiting).filter((m) => m.type === 'device_command');
     expect(messages).toHaveLength(1);
@@ -202,7 +202,7 @@ describe('BLE 下行命令链：WS device_command + relay-ack (e2e)', () => {
       deviceId,
       commandId,
       type: 'set_config',
-      params: { beepVolume: 70 },
+      params: { volume: 70 },
     });
     expect(typeof messages[0].data.issuedAt).toBe('string');
     // 双路下发：MQTT 同时照发，业务不感知设备形态
@@ -256,7 +256,7 @@ describe('BLE 下行命令链：WS device_command + relay-ack (e2e)', () => {
   it('relay-ack delivered → delivered + deliveredAt；重复 delivered 幂等', async () => {
     // 让 MQTT 发布失败以保住 pending（否则 PUBACK 先标 delivered，测不到本路径的状态推进）
     publishCommand.mockRejectedValueOnce(new Error('broker down'));
-    const commandId = await putSettings({ nightMode: true });
+    const commandId = await putSettings({ fallDetect: true });
     expect(await getStatus(commandId)).toBe('pending');
 
     const res = await relayAck(commandId, { stage: 'delivered' }).expect(200);
@@ -272,7 +272,7 @@ describe('BLE 下行命令链：WS device_command + relay-ack (e2e)', () => {
   });
 
   it('relay-ack executed success → 终态 + 设置合入（蓝牙版的"只认设备确认"）', async () => {
-    const commandId = await putSettings({ beepVolume: 55, ecoMode: true });
+    const commandId = await putSettings({ volume: 55, radar: true });
     const res = await relayAck(commandId, {
       stage: 'executed',
       result: 'success',
@@ -285,8 +285,8 @@ describe('BLE 下行命令链：WS device_command + relay-ack (e2e)', () => {
       .set('Authorization', `Bearer ${ownerToken}`)
       .expect(200);
     expect(settings.body.settings).toMatchObject({
-      beepVolume: 55,
-      ecoMode: true,
+      volume: 55,
+      radar: true,
     });
   });
 
@@ -296,7 +296,7 @@ describe('BLE 下行命令链：WS device_command + relay-ack (e2e)', () => {
       .set('Authorization', `Bearer ${ownerToken}`)
       .expect(200);
 
-    const commandId = await putSettings({ dangerZoneAlert: false });
+    const commandId = await putSettings({ obstacleWarn: false });
     await relayAck(commandId, {
       stage: 'executed',
       result: 'failed',
@@ -313,7 +313,7 @@ describe('BLE 下行命令链：WS device_command + relay-ack (e2e)', () => {
   });
 
   it('终态后再收 delivered/executed → 幂等返回现状，状态不回退不翻转', async () => {
-    const commandId = await putSettings({ x: 1 });
+    const commandId = await putSettings({ light: 1 });
     await relayAck(commandId, { stage: 'executed', result: 'success' }).expect(
       200,
     );
@@ -329,7 +329,7 @@ describe('BLE 下行命令链：WS device_command + relay-ack (e2e)', () => {
 
   it('offline 后迟到 executed → 如实覆盖（同 MQTT cmd_ack 语义）', async () => {
     publishCommand.mockRejectedValueOnce(new Error('broker down'));
-    const commandId = await putSettings({ lateAck: true });
+    const commandId = await putSettings({ disconnectBeep: true });
     await new Promise((r) => setTimeout(r, 1100)); // 超过 1s 回执窗口
     await scheduler.tick();
     expect(await getStatus(commandId)).toBe('offline');
@@ -342,11 +342,11 @@ describe('BLE 下行命令链：WS device_command + relay-ack (e2e)', () => {
       .get(`/api/v1/devices/${deviceId}/settings`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .expect(200);
-    expect(settings.body.settings).toMatchObject({ lateAck: true });
+    expect(settings.body.settings).toMatchObject({ disconnectBeep: true });
   });
 
   it('归属：非绑定用户 404 DEVICE_NOT_FOUND；命令不属于该设备 404 NOT_FOUND', async () => {
-    const commandId = await putSettings({ y: 2 });
+    const commandId = await putSettings({ vibration: 2 });
     const before = await getStatus(commandId);
     const other = await relayAck(
       commandId,
@@ -368,7 +368,7 @@ describe('BLE 下行命令链：WS device_command + relay-ack (e2e)', () => {
   });
 
   it('入参校验：stage 非法 / executed 缺 result → 400 VALIDATION_FAILED', async () => {
-    const commandId = await putSettings({ z: 3 });
+    const commandId = await putSettings({ light: 3 });
     const bad = await relayAck(commandId, { stage: 'acked' }).expect(400);
     expect(bad.body.code).toBe('VALIDATION_FAILED');
     const noResult = await relayAck(commandId, { stage: 'executed' }).expect(
@@ -378,7 +378,7 @@ describe('BLE 下行命令链：WS device_command + relay-ack (e2e)', () => {
   });
 
   it('非法 executedAt → 服务器时间兜底（设备/App 时钟不可信哲学）', async () => {
-    const commandId = await putSettings({ w: 4 });
+    const commandId = await putSettings({ volume: 4 });
     await relayAck(commandId, {
       stage: 'executed',
       result: 'success',

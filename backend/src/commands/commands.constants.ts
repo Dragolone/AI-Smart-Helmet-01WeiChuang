@@ -19,8 +19,3 @@ export const COMMAND_STATUS = {
   failed: 'failed',
   offline: 'offline',
 } as const;
-
-/** 设置参数护栏（清单与取值范围待硬件 ⚠️，先挡结构性脏数据）：扁平键值、标量、数量上限 */
-export const SETTINGS_MAX_KEYS = 20;
-export const SETTINGS_KEY_MAX_LENGTH = 64;
-export const SETTINGS_STRING_MAX_LENGTH = 256;

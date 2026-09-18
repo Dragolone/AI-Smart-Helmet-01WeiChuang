@@ -2,6 +2,7 @@
 // 含命令下行订阅与回执（§7）——这是 4G 链路独有的双向能力，app-relay 链路暂无对应通道。
 import { connect, type MqttClient } from 'mqtt';
 import type { EventEnvelope, EventType } from '@helmet/shared';
+import { executeSetConfig } from './settings-exec.ts';
 import type { EventKind, Log, Transport } from './transport.ts';
 
 export type CmdResult = 'success' | 'failed' | 'silent';
@@ -59,10 +60,16 @@ export function createMqttTransport(cfg: {
             log('（MOCK_CMD_RESULT=silent：不回执，服务端将超时判 offline）');
             return;
           }
+          // MOCK_CMD_RESULT=failed 强制拒绝（演示用）；否则按 v0.6 内存表逐键校验，越界照真机回 ERR_PARAM_VALUE
+          const outcome =
+            cmdResult === 'failed'
+              ? { result: 'failed' as const, errorCode: 'MOCK_REJECTED' }
+              : cmd.type === 'set_config'
+                ? executeSetConfig(cmd.params)
+                : { result: 'success' as const };
           const ack = {
             commandId: cmd.commandId,
-            result: cmdResult,
-            ...(cmdResult === 'failed' ? { errorCode: 'MOCK_REJECTED' } : {}),
+            ...outcome,
             executedAt: new Date().toISOString(),
           };
           // 模拟设备执行耗时后回执
@@ -73,7 +80,7 @@ export function createMqttTransport(cfg: {
               { qos: 1 },
               (err) => {
                 if (err) log(`回执发送失败: ${err.message}`);
-                else log(`已回执 ${cmdResult}（${cmd.commandId.slice(0, 8)}…）`);
+                else log(`已回执 ${outcome.result}（${cmd.commandId.slice(0, 8)}…）`);
               },
             );
           }, 500);

@@ -139,7 +139,7 @@ ACL 规则：设备 `helmet_001` 只允许 publish `helmet/helmet_001/{status,lo
 
 - 服务端命令状态机：`pending → delivered → success / failed / offline`。✅
 - 设备离线时命令保持 pending（是否 Broker 离线暂存取决于 Clean Session 决策 ⚠️）；超时未回执标记为 `offline`/超时，**绝不显示为成功**。✅
-- 允许远程设置的参数清单及取值范围：⚠️ 待硬件提供。
+- 允许远程设置的参数清单及取值范围：✅ 定稿（2026-09-19，决策 #43）= v0.6 内存控制表 0x20–0x2D 共 14 项，键名与范围见 API.md §8 表 / `@helmet/shared` `DEVICE_SETTINGS`；服务端入口按此校验，越界不下发。
 
 ## 8. 设备时钟与时间戳
 

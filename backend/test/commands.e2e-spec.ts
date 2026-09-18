@@ -145,8 +145,8 @@ describe('命令下发与回执状态机 (e2e)', () => {
 
   it('下发 → 202 pending 快照；PUBACK 后 delivered；MQTT 消息体含 commandId/params', async () => {
     const res = await putSettings(ownerToken, {
-      beepVolume: 80,
-      autoSleep: true,
+      volume: 80,
+      buzzer: true,
     }).expect(202);
     expect(res.body.status).toBe('pending');
     const commandId = res.body.commandId as string;
@@ -157,7 +157,7 @@ describe('命令下发与回执状态机 (e2e)', () => {
     expect(JSON.parse(payload)).toMatchObject({
       commandId,
       type: 'set_config',
-      params: { beepVolume: 80, autoSleep: true },
+      params: { volume: 80, buzzer: true },
     });
 
     // PUBACK 已回（stub resolve）→ delivered；设置尚未生效（未回执绝不显示成功）
@@ -171,9 +171,7 @@ describe('命令下发与回执状态机 (e2e)', () => {
   });
 
   it('success 回执 → 终态 + 设置生效；重复回执不双写', async () => {
-    const created = await putSettings(ownerToken, { beepVolume: 60 }).expect(
-      202,
-    );
+    const created = await putSettings(ownerToken, { volume: 60 }).expect(202);
     const commandId = created.body.commandId as string;
 
     await commands.handleAck(deviceId, ackOf(commandId, 'success'));
@@ -183,7 +181,7 @@ describe('命令下发与回执状态机 (e2e)', () => {
       .get(`/api/v1/devices/${deviceId}/settings`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .expect(200);
-    expect(settings.body.settings).toEqual({ beepVolume: 60 });
+    expect(settings.body.settings).toEqual({ volume: 60 });
 
     // 重复回执（QoS1 重复交付）：状态与设置都不再变
     await commands.handleAck(
@@ -196,28 +194,27 @@ describe('命令下发与回执状态机 (e2e)', () => {
   });
 
   it('failed 回执 → 终态 failed + errorCode；设置绝不合入', async () => {
-    const created = await putSettings(ownerToken, { beepVolume: 999 }).expect(
-      202,
-    );
+    // 入口校验放行的合法值，头盔侧仍可能拒绝（如电量过低）——设置绝不合入
+    const created = await putSettings(ownerToken, { volume: 70 }).expect(202);
     const commandId = created.body.commandId as string;
     await commands.handleAck(
       deviceId,
-      ackOf(commandId, 'failed', { errorCode: 'OUT_OF_RANGE' }),
+      ackOf(commandId, 'failed', { errorCode: 'ERR_BATTERY_LOW' }),
     );
     const cmd = await getCommand(commandId);
     expect(cmd.status).toBe('failed');
-    expect(cmd.errorCode).toBe('OUT_OF_RANGE');
+    expect(cmd.errorCode).toBe('ERR_BATTERY_LOW');
 
     const settings = await request(http)
       .get(`/api/v1/devices/${deviceId}/settings`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .expect(200);
     // 仍是上一次 success 的值
-    expect(settings.body.settings).toEqual({ beepVolume: 60 });
+    expect(settings.body.settings).toEqual({ volume: 60 });
   });
 
   it('无回执 → 扫描超时判 offline；迟到回执如实覆盖并生效设置', async () => {
-    const created = await putSettings(ownerToken, { nightMode: true }).expect(
+    const created = await putSettings(ownerToken, { fallDetect: true }).expect(
       202,
     );
     const commandId = created.body.commandId as string;
@@ -236,14 +233,12 @@ describe('命令下发与回执状态机 (e2e)', () => {
       .get(`/api/v1/devices/${deviceId}/settings`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .expect(200);
-    expect(settings.body.settings).toEqual({ beepVolume: 60, nightMode: true });
+    expect(settings.body.settings).toEqual({ volume: 60, fallDetect: true });
   });
 
   it('发布失败（Broker 不可达）→ 留 pending → 超时 offline（重启接管同机制）', async () => {
     publishCommand.mockRejectedValueOnce(new Error('MQTT 未连接'));
-    const created = await putSettings(ownerToken, { beepVolume: 40 }).expect(
-      202,
-    );
+    const created = await putSettings(ownerToken, { volume: 40 }).expect(202);
     const commandId = created.body.commandId as string;
     expect((await getCommand(commandId)).status).toBe('pending');
 
@@ -255,14 +250,14 @@ describe('命令下发与回执状态机 (e2e)', () => {
       .get(`/api/v1/devices/${deviceId}/settings`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .expect(200);
-    expect(settings.body.settings.beepVolume).toBe(60);
+    expect(settings.body.settings.volume).toBe(60);
   });
 
   it('脏回执防线：非法 JSON / 未知 commandId / 串线设备 一律忽略不炸', async () => {
     await commands.handleAck(deviceId, '{broken');
     await commands.handleAck(deviceId, ackOf(randomUUID(), 'success'));
     // 串线：别的设备回执我的命令
-    const created = await putSettings(ownerToken, { x: 1 }).expect(202);
+    const created = await putSettings(ownerToken, { light: 1 }).expect(202);
     await commands.handleAck(
       'evil_device',
       ackOf(created.body.commandId as string, 'success'),
@@ -272,17 +267,23 @@ describe('命令下发与回执状态机 (e2e)', () => {
     );
   });
 
-  it('入参护栏：嵌套对象 / 空对象 / 超 20 键 / 非法值类型 → 400', async () => {
+  it('入参护栏（决策 #43）：嵌套 / 空对象 / 未知键 / 类型不符 / 越界 → 400，且不创建、不下发命令', async () => {
+    const before = publishCommand.mock.calls.length;
     const cases: Record<string, unknown>[] = [
       { nested: { a: 1 } },
       {},
-      Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`k${i}`, 1])),
       { fn: null },
+      { beepVolume: 80 }, // 旧演示键名，不在 v0.6 清单
+      { volume: '80' }, // 字符串不当整数
+      { buzzer: 1 }, // 1 不当 true
+      { volume: 101 }, // 越界
+      { volume: 50, light: 9 }, // 任一键不合法整条拒绝
     ];
     for (const settings of cases) {
       const res = await putSettings(ownerToken, settings).expect(400);
       expect(res.body.code).toBe('VALIDATION_FAILED');
     }
+    expect(publishCommand.mock.calls.length).toBe(before);
   });
 
   it('命令历史最新在前分页；归属：他人操作一律 404、未登录 401', async () => {

@@ -70,7 +70,7 @@ describe('Admin 设备详情与概览统计 (e2e)', () => {
         deviceId,
         deviceSecretHash: createHash('sha256').update('e2e').digest('hex'),
         bindCode: `bc_${deviceId}`,
-        settings: { beepVolume: 70 },
+        settings: { volume: 70 },
       },
     });
     await prisma.adminUser.create({
@@ -141,7 +141,7 @@ describe('Admin 设备详情与概览统计 (e2e)', () => {
       .expect(200);
     expect(res.body.online).toBe(true);
     expect(res.body.battery).toBe(66);
-    expect(res.body.settings).toEqual({ beepVolume: 70 });
+    expect(res.body.settings).toEqual({ volume: 70 });
     expect(res.body.bindUser.id).toBe(userIds[0]);
 
     const events = res.body.recentEvents as Array<{

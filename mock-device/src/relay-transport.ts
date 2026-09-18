@@ -13,6 +13,7 @@ import type {
   WsDeviceCommandData,
   WsMessage,
 } from '@helmet/shared';
+import { executeSetConfig } from './settings-exec.ts';
 import type { EventKind, Log, Transport } from './transport.ts';
 
 const RELAY_SCOPE = new Set<string>(BLE_RELAY_EVENT_TYPES);
@@ -175,12 +176,17 @@ export function createRelayTransport(cfg: RelayConfig): Transport {
       log('（MOCK_CMD_RESULT=silent：头盔不回执行结果，服务端将超时判 offline）');
       return;
     }
-    // 模拟头盔执行耗时后回执（与 MQTT 模式同 500ms）
+    // 模拟头盔执行耗时后回执（与 MQTT 模式同 500ms）；failed 强制拒绝，否则按 v0.6 内存表逐键校验
+    const outcome =
+      cfg.cmdResult === 'failed'
+        ? { result: 'failed' as const, errorCode: 'MOCK_REJECTED' }
+        : cmd.type === 'set_config'
+          ? executeSetConfig(cmd.params)
+          : { result: 'success' as const };
     setTimeout(() => {
       void postAck(cmd.commandId, {
         stage: 'executed',
-        result: cfg.cmdResult,
-        ...(cfg.cmdResult === 'failed' ? { errorCode: 'MOCK_REJECTED' } : {}),
+        ...outcome,
         executedAt: new Date().toISOString(),
       });
     }, 500);

@@ -9,6 +9,7 @@ import type {
   CommandPublic,
   CommandStatus,
   DeviceCommand as WireCommand,
+  DeviceSettings,
   Paginated,
   RelayAckRequest,
   RelayAckResponse,
@@ -16,17 +17,13 @@ import type {
   WsDeviceCommandData,
   WsMessage,
 } from '@helmet/shared';
+import { checkDeviceSetting } from '@helmet/shared';
 import { Prisma } from '../generated/prisma/client';
 import type { DeviceCommand as DbCommand } from '../generated/prisma/client';
 import { MqttConsumerService } from '../ingest/mqtt-consumer.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
-import {
-  COMMAND_STATUS,
-  SETTINGS_KEY_MAX_LENGTH,
-  SETTINGS_MAX_KEYS,
-  SETTINGS_STRING_MAX_LENGTH,
-} from './commands.constants';
+import { COMMAND_STATUS } from './commands.constants';
 import { toWireCommand } from './command-wire';
 
 const deviceNotFound = () =>
@@ -38,38 +35,22 @@ const deviceNotFound = () =>
 const validationFailed = (message: string) =>
   new BadRequestException({ code: 'VALIDATION_FAILED', message });
 
-/** 设置参数护栏（清单待硬件 ⚠️）：扁平对象、标量值、数量/长度上限；结构性脏数据在入口挡住 */
-export function validateSettingsParams(
-  params: unknown,
-): Record<string, string | number | boolean> {
+/**
+ * 设置参数校验（API.md §8，决策 #43）：扁平对象、非空，且每个键都在 @helmet/shared 的
+ * DEVICE_SETTINGS 清单里、类型与取值范围合法。越界值在这里就拦下，不下发、不占命令记录——
+ * 头盔回 ERR_PARAM_VALUE 是最后一道防线，不是常规路径。
+ */
+export function validateSettingsParams(params: unknown): DeviceSettings {
   if (typeof params !== 'object' || params === null || Array.isArray(params)) {
     throw validationFailed('settings 必须是对象');
   }
   const entries = Object.entries(params as Record<string, unknown>);
   if (entries.length === 0) throw validationFailed('settings 不能为空');
-  if (entries.length > SETTINGS_MAX_KEYS) {
-    throw validationFailed(`settings 最多 ${SETTINGS_MAX_KEYS} 个键`);
-  }
-  const clean: Record<string, string | number | boolean> = {};
+  const clean: DeviceSettings = {};
   for (const [key, value] of entries) {
-    if (key.length > SETTINGS_KEY_MAX_LENGTH) {
-      throw validationFailed(`键名过长：${key.slice(0, 20)}…`);
-    }
-    const t = typeof value;
-    if (t === 'string') {
-      if ((value as string).length > SETTINGS_STRING_MAX_LENGTH) {
-        throw validationFailed(`键 ${key} 的字符串值过长`);
-      }
-      clean[key] = value as string;
-    } else if (t === 'number' && Number.isFinite(value)) {
-      clean[key] = value as number;
-    } else if (t === 'boolean') {
-      clean[key] = value as boolean;
-    } else {
-      throw validationFailed(
-        `键 ${key} 的值必须是字符串/数字/布尔（不允许嵌套）`,
-      );
-    }
+    const r = checkDeviceSetting(key, value);
+    if (!r.ok) throw validationFailed(r.message);
+    clean[r.key] = r.value;
   }
   return clean;
 }

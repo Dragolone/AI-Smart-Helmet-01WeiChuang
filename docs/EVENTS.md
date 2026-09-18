@@ -169,8 +169,8 @@
 | 字段 | 类型 | 必填 | 说明 / 值域 |
 |------|------|------|-------------|
 | commandId | string (UUID) | 必填 | 服务端生成；回执按此关联 |
-| type | string (枚举) | 必填 | MVP：`set_config`（⚠️ 是否需要 `request_status` 等其他命令待硬件确认） |
-| params | object | 必填 | `set_config` 时为参数键值对；**允许下发的参数清单与取值范围 ⚠️ 待硬件提供后在此定稿** |
+| type | string (枚举) | 必填 | MVP 只有 `set_config`；BLE 链路下状态可由 App 直接 READ 内存表，`request_status` 之类留到 4G 扩展再议 |
+| params | object | 必填 | `set_config` 时为参数键值对；**✅ 清单与取值范围定稿（决策 #43）**：14 项见 API.md §8 表，代码以 `@helmet/shared` `DEVICE_SETTINGS` 为准 |
 | issuedAt | string (ISO 8601 UTC) | 必填 | 服务端下发时间 |
 
 回执（`helmet/{deviceId}/cmd_ack`）：
@@ -179,12 +179,12 @@
 |------|------|------|-------------|
 | commandId | string (UUID) | 必填 | 对应命令 |
 | result | string (枚举) | 必填 | `success` \| `failed` |
-| errorCode | string | 选填 | 失败原因码（⚠️ 码表待硬件提供） |
+| errorCode | string | 选填 | 失败原因码。**✅ 码表 = BLE 协议 v0.6 §3.0**：`ERR_LENGTH` / `ERR_INSTRUCTION` / `ERR_ADDR_RANGE` / `ERR_EPROM_LOCKED` / `ERR_PARAM_VALUE` / `ERR_BATTERY_LOW` / `ERR_HARDWARE_FAULT`（`@helmet/shared` `HELMET_ERROR_CODES`）；App 中转侧追加 `:<key>` 指明设置项（如 `ERR_PARAM_VALUE:volume`），另有 `UNSUPPORTED_SETTING:<key>`、`EMPTY_PARAMS` 两个 App/Mock 自定义码。原样落库，不做枚举校验 |
 | executedAt | string (ISO 8601 UTC) | 必填 | 设备执行时间 |
 
 ## 7. 待确认清单汇总
 
-**硬件团队**：device_status/location_update 上报频率与无效值口径、signalLevel 分级、sleep reason 集合、GPS 输出坐标系、video 上传方式与 storageKey、可下发参数清单与错误码表、是否需要额外命令类型。
+**硬件团队**：device_status/location_update 上报频率与无效值口径、signalLevel 分级、sleep reason 集合、GPS 输出坐标系、video 上传方式与 storageKey。（~~可下发参数清单与错误码表、是否需要额外命令类型~~ 已定稿 2026-09-19，决策 #43。）
 **算法团队**：riskLevel 档位口径、objectType/direction 集合、Webhook 场景 firmwareVersion 取值。
 **软件侧内部**：wgs84→gcj02 转换位置（随地图 Spike 定稿）。（~~同设备并发 SOS 合并规则~~ 已定稿 2026-08-16，见 §4.4 / DECISIONS #26。）
 
