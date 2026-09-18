@@ -216,6 +216,28 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 
 ### A 线当前进度与待办（2026-09-06，B 线整理；A 线直接按此推进，有疑问群里问）
 
+> **📣 给 A 线的通知（2026-09-19，B 线）——四个 PR 已合 main，先看这段**
+>
+> **这次改了什么，跟你有关的：**
+> - `@helmet/shared` 新增 `DEVICE_SETTINGS`（v0.6 内存表 0x20–0x2D 共 14 项：键名 / bool 或 int / 取值范围 / 出厂默认 / 说明）、`checkDeviceSetting()`、`DeviceSettings` 类型、`HELMET_ERROR_CODES`。**服务端 PUT settings 现在按这张表校验**：未知键、类型不符（字符串 "80"、小数、用 1 代替 true）、越界一律 400 `VALIDATION_FAILED`，不创建命令。你现在发的 `volume`（1–100）和 `light`（0–3）都在表内，行为不变。决策 #43，API.md §8 有表。
+> - 事件 payload 补记了你 `translateEvent` 附上的原始字段（`impactG` / `tiltDeg`、`triggerMode` / `pressDurationMs`、`ttcSeconds` / `approachSpeedKmh`），EVENTS.md 4.3–4.5 与 shared `EventPayloadMap` 都有了，Mock 剧本也带同名字段。字段名是照你现在发的抄的，想改名两边一起改。
+> - 后端新增 `provision:batch`：一次出 N 台 deviceId / 绑定码 + 每台一张二维码（SVG/PNG，§11 格式 ①）。要测试码找我要。
+> - 硬件待确认 19 条已于 09-18 发张森淼（`docs/HARDWARE_SYNC_2026-09-18.md`，权威清单 DEVICE_PROTOCOL §10 A–E），视频四项参数在最前面，回了第一时间转你。
+>
+> **请你测（不等任何人，云端更新到 93bd4a4 之后）：**
+> 1. **双端真机回归**：`docs/REGRESSION.md` 的 Android / iOS 两列基本还是空的，这是 Week 11 出口标准。两台真机对云端 dev 从注册到危险事件走一遍，结果直接填表，❌ 附一行现象。
+> 2. **设置下发边界**：设备页音量拖到 1 和 100 应正常，云端对越界值会直接 400（App 只会在开发期注入时碰到）；Mock 现在对越界回 `failed + ERR_PARAM_VALUE:<key>`，看一眼回执状态流转 UI 是否把 errorCode 展示对。
+> 3. **华为复验扫码绑定**（决策 #42 还挂着「待 Android 验收」）。
+>
+> **请你改（半天到一天量级）：**
+> 4. `app/src/services/ble/protocol.ts` 里 14 个键的范围表与 shared `DEVICE_SETTINGS` 是两份，改成直接引用 shared，以后只改一处；`devicesApi.putSettings` 入参可以换成 `DeviceSettings` 拿编译期约束。
+> 5. 事件详情页可以用 `EventPayloadMap` 新字段展示冲击力 / 倾角 / TTC / 逼近速度（真机和 Mock 现在都带）。
+> 6. **设备页设置项补齐**：清单 14 项现在只暴露音量和大灯。跌倒检测开关 + 灵敏度、雷达开关 + 预警距离、障碍预警、SOS 按键使能、振动挡位、蜂鸣开关都可以做成开关 / 档位——后端已校验、Mock 已回执。暴露哪些让汤总定，UI 可以先做。
+> 7. **Android 正式签名证书**（上线前清单 #1）：keytool 生成、入密码管理器、改 release 签名。现在 release 包还是 debug keystore，不能上架；不依赖任何外部件。
+> 8. iOS 一个边界：系统回收进程后 BLE 状态恢复能否拉起 App（`restoreStateIdentifier` 配了但从没触发过），找机会用内存压力测一次，结论记 DEVELOPMENT.md 平台限制清单。
+>
+> **等硬件回复再动：** 视频四项到了开 RTSP Spike；v0.6 修正确认后核对 protocol.ts 两处假设（obstacle_risk 与 collision_risk 载荷同布局、RESEND 是否只含四类高危）。
+
 > **📣 给 A 线的通知（2026-09-09，B 线）——注册流程变了，请先看这段再动手**
 >
 > 1. **注册现在必须短信验证码**（负责人拍板）。后端已上线三个接口：`POST /auth/sms-code`、`POST /auth/register`（新增必填 `code`）、`POST /auth/reset-password`；Contract 见 API.md §2，类型在 shared（`SmsCodeRequest` / `RegisterRequest.code` / `ResetPasswordRequest`），`authApi` 已加 `sendSmsCode` / `resetPassword` 两个调用。
