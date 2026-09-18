@@ -71,7 +71,10 @@ export class TencentSmsProvider implements SmsProvider {
         secretKey: config.secretKey,
       },
       region: config.region ?? 'ap-guangzhou',
-      profile: { httpProfile: { endpoint: 'sms.tencentcloudapi.com' } },
+      // reqTimeout 单位秒：SDK 默认 60s 会让发码请求跟着挂 1 分钟（审计 AUTH-11）；应用层另有 SMS_SEND_TIMEOUT_MS 兜底
+      profile: {
+        httpProfile: { endpoint: 'sms.tencentcloudapi.com', reqTimeout: 10 },
+      },
     });
   }
 

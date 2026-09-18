@@ -204,16 +204,21 @@ describe('审计 §7：WebSocket 实时通道 (e2e)', () => {
     for (let i = 0; i < 200; i += 1) {
       await pushLocation(1000 + i);
     }
-    // 预算 10s 而不是 3s：本用例考核的是「慢连接不拖住其他连接」，不是绝对吞吐。
-    // 单独跑 3/3 稳过，但排在全量 46 套件（runInBand）末尾、机器有其他负载时会超 3s
-    // （2026-09-17 全量跑两次各挂一次，开覆盖率插桩必挂）——那是跑测机器的速度，不是服务端行为。
+    // 本用例考核的是「慢连接不拖住其他连接」，不是绝对吞吐，所以不对耗时设上限：
+    // 若服务端真有队头阻塞（等慢连接的 send 才发下一条），其他连接在慢连接暂停期间永远收不齐，
+    // 多长预算都会超时——超时即缺陷；而 GitHub 2 核 runner 跑到第 40+ 套件时本机 0.1s 的事
+    // 会拖到十几秒（2026-09-17 预算 3s/10s 各挂过一次），那是跑测机器的速度，不是服务端行为。
     // 真正的隔离性断言是下面三条：其他连接收齐 200 条、慢连接仍在线未被踢、且它还没消费完。
     const t0 = Date.now();
     await waitFor(
       () => collectors.every((c) => c.messages.length >= 200),
-      10_000,
-    );
-    expect(Date.now() - t0).toBeLessThan(10_000);
+      60_000,
+    ).catch((err: Error) => {
+      throw new Error(
+        `${err.message}：快连接各收 ${collectors.map((c) => c.messages.length).join('/')} 条，慢连接 ${slowCollector.messages.length} 条，byUser=${internals.byUser.get(owner.id)?.size ?? 0}`,
+      );
+    });
+    console.log(`慢客户端用例：快连接收齐 200 条耗时 ${Date.now() - t0}ms`);
     // 慢连接没有拖住主流程：服务端仍认为它在线（未被踢），推送尚未被它消费
     expect(internals.byUser.get(owner.id)?.size).toBe(6);
     expect(slowCollector.messages.length).toBeLessThan(200);

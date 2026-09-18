@@ -6,7 +6,7 @@
 > **本轮无 P0。** 全部「缺陷断言」测试已提交在 `backend/test/audit-*.e2e-spec.ts` 与 `app/src/**/__tests__/audit-*.test.ts`，**修复前会失败，这是刻意保留的证据**（审计规则：不删不跳过失败测试）。
 
 
-> **修复状态（2026-09-15）**：已修复并复验的 ID 见同目录 `FIXES.md`。**仍开放**（SOS-03 已按决策 #40 修复、ADMIN-04 已按「记录保留」口径修复；**APP-02 与新补录的 SOS-09 已于 2026-09-17 修复**）；SOS-06/07、AUTH-04/07/11、MQTT-03、APP-04、DBOPS-07/08、部分 CONTRACT 文档差异、HYG/ENV/TEST/COV 项。
+> **修复状态（2026-09-18）**：已修复并复验的 ID 见同目录 `FIXES.md`（含 2026-09-18 批次：SOS-06、AUTH-04/07/11、DBOPS-07、CONTRACT-04/05/06/11/12/13/14/15、HYG-01/02；MQTT-03 在部署配置批次）。**仍开放**：SOS-07（BY_DESIGN，语义记录）、APP-04 的 9 条文案（A 线）、DBOPS-08（依赖升级需双人同意；镜像含 devDependencies 为 Dockerfile 头注明的刻意取舍）、ENV-01/02（本机环境）、TEST-01 / COV-01 / COV-02（测试基建建议）。
 
 ## 索引
 

@@ -114,7 +114,7 @@
 | 字段 | 类型 | 必填 | 单位 | 说明 / 值域 |
 |------|------|------|------|-------------|
 | riskLevel | string (枚举) | 必填 | — | `low` \| `medium` \| `high`（⚠️ 分级口径与档位数待算法确认） |
-| objectType | string (枚举) | 选填 | — | `vehicle` \| `pedestrian` \| `obstacle` \| `unknown`（⚠️ 集合待算法确认；未知值按 `unknown` 落库并告警） |
+| objectType | string (枚举) | 选填 | — | `vehicle` \| `pedestrian` \| `obstacle` \| `unknown`（⚠️ 集合待算法确认；集合外的值**原样落库**并告警，不改写——留档原则，供与算法团队对口径） |
 | direction | string (枚举) | 选填 | — | `front` \| `rear` \| `left` \| `right`（⚠️ 待算法确认） |
 | distance | number | 选填 | m | ≥ 0，目标距离 |
 | confidence | number | 选填 | — | 0 ~ 1 |

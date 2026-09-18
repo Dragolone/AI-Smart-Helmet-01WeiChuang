@@ -36,18 +36,29 @@
 | PAYLOAD_TOO_LARGE | 413 | 请求体超过 100KB（body-parser 上限；头像 data URI 上限 90KB） |
 | RATE_LIMITED | 429 | 触发限流（公开认证接口按 IP / IP+手机号，响应带 `Retry-After` 秒数；规则见 §2） |
 | INTERNAL_ERROR | 500 | 服务端异常（带 requestId 供排查） |
+| SERVICE_UNAVAILABLE | 503 | 统一过滤器对 503 类异常的兜底码；各业务 503 有自己的码（见下表） |
+
+各节自有错误码索引（客户端文案按 code 映射，全部列在此便于对表；详情见各节）：
+
+| code | HTTP | 节 |
+|------|------|----|
+| SMS_CODE_INVALID / SMS_CODE_TOO_FREQUENT / SMS_CODE_DAILY_LIMIT / SMS_SEND_FAILED / PHONE_NOT_REGISTERED | 400 / 429 / 429 / 503 / 404 | §2 |
+| EMERGENCY_CONTACT_LIMIT_REACHED | 409 | §3 |
+| SOS_ALREADY_FINALIZED | 409 | §7 |
+| MEDIA_NOT_READY | 409 | §9 |
+| CHANNEL_FULL / TRTC_NOT_CONFIGURED | 409 / 503 | §13 |
 
 ## 1.2 健康检查（✅ 已实现）
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | /health | 服务与数据库连通性：`200 { "status": "ok", "database": "connected" }`；数据库不可达时 `503 { "status": "error", "database": "unreachable" }`。无需认证，供负载均衡/运维探活 |
+| GET | /health | 服务与数据库连通性：`200 { "status": "ok", "database": "connected" }`；数据库不可达时 `503 { "status": "error", "database": "unreachable" }`；进程收到 SIGTERM 后的排空期（默认 3s，`SHUTDOWN_DRAIN_MS`）返回 `503 { "status": "draining", "database": "connected" }`——网关/拨测据此摘流量，在途请求照常完成。无需认证，供负载均衡/运维探活 |
 
 ## 2. 认证与用户
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | /auth/sms-code | 下发短信验证码（✅ 2026-09-09 负责人拍板：注册必须验证码）。body：`{ phone, purpose: "register" \| "reset_password" \| "change_phone" }` → 204。规则：6 位数字、**5 分钟有效、一次性、连续错 5 次作废**；同号同用途 **60s 内重发 → 429 `SMS_CODE_TOO_FREQUENT`**，**每号每日 10 条 → 429 `SMS_CODE_DAILY_LIMIT`**；`register` 用途下手机号已注册 → 409 `PHONE_ALREADY_REGISTERED`；`reset_password` 用途下未注册 → 404 `PHONE_NOT_REGISTERED`；**`change_phone` 用途（✅ 2026-09-11）：`phone` 为待换绑的新号**，已注册 → 409 `PHONE_ALREADY_REGISTERED`；短信通道失败 → 503 `SMS_SEND_FAILED`（不计入限频）。库中只存验证码哈希 |
+| POST | /auth/sms-code | 下发短信验证码（✅ 2026-09-09 负责人拍板：注册必须验证码）。body：`{ phone, purpose: "register" \| "reset_password" \| "change_phone" }` → 204。规则：6 位数字、**5 分钟有效、一次性、连续错 5 次作废**；同号同用途 **60s 内重发 → 429 `SMS_CODE_TOO_FREQUENT`**，**每号每日 10 条 → 429 `SMS_CODE_DAILY_LIMIT`**；`register` 用途下手机号已注册 → 409 `PHONE_ALREADY_REGISTERED`；`reset_password` 用途下未注册 → 404 `PHONE_NOT_REGISTERED`；**`change_phone` 用途（✅ 2026-09-11）：`phone` 为待换绑的新号**，已注册 → 409 `PHONE_ALREADY_REGISTERED`；短信通道失败或超时（`SMS_SEND_TIMEOUT_MS`，默认 10s）→ 503 `SMS_SEND_FAILED`（不计入限频）。同号同用途并发发码只放行一条（服务端事务内串行化）。库中只存验证码哈希 |
 | POST | /auth/register | 注册。body：`{ phone, code, password, nickname? }`——`code` 为上一步 `register` 用途的验证码；错误/过期/已用/超次统一 400 `SMS_CODE_INVALID`（不区分原因）。校验顺序：手机号已注册 409 → 验证码 400 → 建号并返回 `{ accessToken, refreshToken, user }` |
 | POST | /auth/reset-password | 找回密码。body：`{ phone, code, newPassword }`（`reset_password` 用途验证码）→ 204；成功后**该用户全部 refresh token 作废**，所有设备需重新登录。未注册 404 `PHONE_NOT_REGISTERED` |
 | POST | /auth/login | 登录。body：`{ phone, password }` → `{ accessToken, refreshToken, user }`。密码 8–72 字符且 ≤ 72 字节（bcrypt 上限，超出 400） |
@@ -154,11 +165,11 @@ SOS 状态机为服务端权威（DECISIONS #8/#26）：`pending → notified | 
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| PUT | /devices/{deviceId}/settings | body：`{ settings: { <key>: <标量> } }`（扁平键值，≤20 键；**参数清单与取值范围 ⚠️ 待硬件提供**，当前只挡结构性脏数据）→ 创建 set_config 命令并经 MQTT 下发，`202 { commandId, status: "pending" }` |
+| PUT | /devices/{deviceId}/settings | body：`{ settings: { <key>: <标量> } }`（扁平键值，≤20 键；**参数清单与取值范围 ⚠️ 待硬件提供**，当前只挡结构性脏数据）→ 创建 set_config 命令并经 MQTT 下发，`202 { commandId, status: "pending" }`（TS 类型 PutSettingsResponse） |
 | GET | /devices/{deviceId}/settings | `{ settings, lastCommand }`——settings 为当前生效设置（**仅 success 回执后写入**），lastCommand 为最近一次下发（TS 类型 SettingsResponse） |
 | GET | /devices/{deviceId}/commands?page=&pageSize= | 命令历史（最新在前，TS 类型 CommandPublic） |
 | GET | /commands/{commandId} | 命令状态：`pending → delivered → success \| failed \| offline`（语义见 DEVICE_PROTOCOL §7，**未回执绝不显示成功**） |
-| POST | /devices/{deviceId}/commands/{commandId}/relay-ack | **BLE 下行链的回执入口（决策 #36）**：App 替头盔提交命令回执。body：`{ "stage": "delivered" }`（App 已收到命令并写入头盔——蓝牙版的 delivered 语义，对应 4G 版的 PUBACK）或 `{ "stage": "executed", "result": "success" \| "failed", "errorCode"?, "executedAt"? }`（头盔执行结果；executedAt 缺省取服务器时间）→ `200 { commandId, status }`（更新后状态）。**幂等不报错**：已终态命令再收 delivered/重复 executed 都返回当前状态；已判 offline 后迟到 executed 如实覆盖（同 MQTT cmd_ack 语义）。鉴权：用户 JWT + 设备归属（非本人 404 DEVICE_NOT_FOUND）+ 命令须属于该设备（否则 404 NOT_FOUND）。信任级与 §12.1 app-relay 一致（App 本就是蓝牙版设备的代理） |
+| POST | /devices/{deviceId}/commands/{commandId}/relay-ack | **BLE 下行链的回执入口（决策 #36）**：App 替头盔提交命令回执。body：`{ "stage": "delivered" }`（App 已收到命令并写入头盔——蓝牙版的 delivered 语义，对应 4G 版的 PUBACK）或 `{ "stage": "executed", "result": "success" \| "failed", "errorCode"?, "executedAt"? }`（头盔执行结果；executedAt 缺省或不是合法 ISO 8601 时一律取服务器时间——设备/App 时钟不可信）→ `200 { commandId, status }`（更新后状态）。**幂等不报错**：已终态命令再收 delivered/重复 executed 都返回当前状态；已判 offline 后迟到 executed 如实覆盖（同 MQTT cmd_ack 语义）。鉴权：用户 JWT + 设备归属（非本人 404 DEVICE_NOT_FOUND）+ 命令须属于该设备（否则 404 NOT_FOUND）。信任级与 §12.1 app-relay 一致（App 本就是蓝牙版设备的代理） |
 
 - **下发通道（决策 #36）**：命令创建后**双路并行**——MQTT QoS1 发布（4G 链路）+ WS `device_command` 推送给绑定用户（BLE 链路）。业务与状态机不感知设备形态；先到的 delivered 生效（条件更新幂等）。
 - **状态口径（✅ 定稿 2026-08-16，决策 #27④）**：`delivered` = MQTT PUBACK（送达 Broker，非送达设备）；**30s**（`COMMAND_ACK_TIMEOUT_SECONDS`）无 cmd_ack → `offline`（App 显示"未送达/等待执行"）；**迟到回执如实覆盖 offline**（设备实际执行了就记 success/failed）；但合入「当前生效设置」时，**比它更晚下发且已 success 的命令触碰过的键不回写**（旧回执不能把新值覆盖回去，2026-09-10 加固）。
@@ -257,7 +268,7 @@ MVP 实用为主，全部只读 + 少量运维操作。
 | GET | /voice/channels | 我加入的频道列表 |
 | POST | /voice/channels/join | body：`{ inviteCode }`；邀请码错误 404；满员 409 `CHANNEL_FULL`；重复加入幂等返回频道 |
 | DELETE | /voice/channels/{channelId}/membership | 退出频道（非成员 404；频道保留，MVP 不做解散/回收） |
-| GET | /voice/channels/{channelId}/members | 成员列表（仅成员可见）：`{ userId, nickname, avatarUrl, phone }`（**手机号脱敏**；avatarUrl 同频道成员互相可见,2026-08-17） |
+| GET | /voice/channels/{channelId}/members | 成员列表（仅成员可见）：`{ userId, nickname, avatarUrl, phone, joinedAt }`（**手机号脱敏**；avatarUrl 同频道成员互相可见,2026-08-17；TS 类型 VoiceChannelMemberPublic） |
 | POST | /voice/channels/{channelId}/token | 进房凭证（仅成员）：`{ sdkAppId, userId, roomId, userSig, expiresAt }`；TRTC 未配置时 503 `TRTC_NOT_CONFIGURED` |
 
 `channel` 对象（TS 类型见 `@helmet/shared` VoiceChannel）：`{ channelId, name, roomId, inviteCode, ownerId, memberCount, createdAt }`。

@@ -105,8 +105,18 @@ export class SosNotifierService {
       `SOS ${sosId} 已终态化 notified（device=${finalized.deviceId}），开始投递通知`,
     );
     this.realtime.pushSosUpdate(finalized.userId, toWireSos(finalized));
-    // 扫描任务传 deliverInline=false：到期终态化只写库、不在这里等第三方，投递由扫描的独立阶段负责
-    if (options.deliverInline !== false) await this.deliverPending(sosId);
+    // 扫描任务传 deliverInline=false：到期终态化只写库、不在这里等第三方，投递由扫描的独立阶段负责。
+    // 内联首投的异常不能外抛（审计 SOS-06）：终态化已提交即视为成功，投递问题由扫描按通知行续投；
+    // 否则 confirm 会给 App 回 500，而服务端其实已 notified，用户再点一次只会得到 409。
+    if (options.deliverInline !== false) {
+      try {
+        await this.deliverPending(sosId);
+      } catch (err) {
+        this.logger.error(
+          `SOS ${sosId} 终态化后首轮投递异常（状态已 notified，由扫描续投）：${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
     return true;
   }
 

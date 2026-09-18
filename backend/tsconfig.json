@@ -24,5 +24,6 @@
     "noFallthroughCasesInSwitch": false
   },
   // prisma.config.ts 只给 Prisma CLI 用；进了 tsc 编译范围会在根目录产生 .js 杂散文件，反过来干扰 Prisma CLI 读配置
-  "exclude": ["node_modules", "dist", "prisma.config.ts"]
+  // "* 2.ts"：仓库放在 iCloud 同步目录时会长出的杂散副本（审计 HYG-02），不能进编译/lint/dist
+  "exclude": ["node_modules", "dist", "prisma.config.ts", "**/* ?.ts"]
 }

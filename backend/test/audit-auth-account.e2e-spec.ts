@@ -205,7 +205,7 @@ describe('审计 §6：账号全流程 / 验证码 / refresh / 撤销规则 (e2e
       u.password = `audit_new_pw_${winner}`;
     });
 
-    it('并发发送同一号 ×6：无 5xx；记录 60s 间隔在并发下实际放行条数', async () => {
+    it('并发发送同一号 ×6：恰好 1 个 204，其余 429 SMS_CODE_TOO_FREQUENT；库中 1 条、Provider 只发 1 次【AUTH-04 修复验证】', async () => {
       const phone = randomPhone();
       phones.push(phone);
       const results = await Promise.all(
@@ -218,14 +218,18 @@ describe('审计 §6：账号全流程 / 验证码 / refresh / 撤销规则 (e2e
       const sent = sendMock.mock.calls.filter(([to]) => to === phone).length;
       evidence(
         LOG,
-        `并发发码同号 ×6 → ${hist(statuses)}；库中记录 ${rows} 条；Provider 实际发送 ${sent} 次（>1 = 60s 间隔在并发下被穿透）`,
+        `并发发码同号 ×6 → ${hist(statuses)}；库中记录 ${rows} 条；Provider 实际发送 ${sent} 次`,
       );
       expect(statuses.filter((s) => s >= 500)).toHaveLength(0);
-      expect(statuses.filter((s) => s === 204).length).toBeGreaterThanOrEqual(
-        1,
-      );
-      // 观察项：并发下应只放行 1 条（先查后写无锁 → 可能多条）
-      expect(rows).toBeGreaterThanOrEqual(1);
+      expect(statuses.filter((s) => s === 204)).toHaveLength(1);
+      // 事务内咨询锁串行化「查最新 → 建记录」：并发只放行 1 条，其余按 60s 间隔拒绝
+      const rejected = results.filter((r) => r.status === 429);
+      expect(rejected).toHaveLength(5);
+      expect(
+        rejected.every((r) => r.body.code === 'SMS_CODE_TOO_FREQUENT'),
+      ).toBe(true);
+      expect(rows).toBe(1);
+      expect(sent).toBe(1);
     });
 
     it('发送失败：Provider 抛错 → 503 SMS_SEND_FAILED，记录回滚，立即重发 204（不被 60s 限频）', async () => {

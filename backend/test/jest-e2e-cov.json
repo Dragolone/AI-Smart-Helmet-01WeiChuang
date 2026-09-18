@@ -2,6 +2,7 @@
   "moduleFileExtensions": ["js", "json", "ts"],
   "rootDir": "..",
   "testEnvironment": "node",
+  "testPathIgnorePatterns": ["/node_modules/", " \\d\\.e2e-spec\\.ts$"],
   "testRegex": "\\.e2e-spec\\.ts$",
   "transform": { "^.+\\.(t|j)s$": "ts-jest" },
   "moduleNameMapper": { "^(\\.{1,2}/.*)\\.js$": "$1" },
