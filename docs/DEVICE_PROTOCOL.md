@@ -1,7 +1,7 @@
 # DEVICE_PROTOCOL.md — 设备通信协议（定义“怎么传”）
 
 > 与 `EVENTS.md` 的分工：**EVENTS.md 定义传什么（字段、类型、单位、值域）；本文件定义怎么传（连接、认证、Topic、QoS、重连、ACK）。**
-> 状态标记：✅ 软件侧已定 ｜ ⚠️ 默认建议，待硬件团队确认（最晚 Week 10 联调前逐项确认并去除标记）。
+> 状态标记：✅ 已定 ｜ ⚠️ 待硬件团队确认（清单见 §10）｜ ⏸️ 后延至硬件扩展 4G 时确认。2026-09-19 按 BLE 协议 v0.6 去掉已答项。
 > Mock Device 必须与本协议完全一致，对 Backend 不可区分。
 
 ## 1. 总体链路（✅ 硬件 2026-08-24 确认链路形态，决策 #35；沿革：#6 → #29/#31 → #35）
@@ -29,7 +29,7 @@
 - **MVP 第一期中转 7 种事件**：`device_status`、`location_update`、`possible_fall`、`manual_sos`、`collision_risk`、`obstacle_risk`、`risk_cleared`——保命链路与危险留档完整。
 - **下一版本再接 4 种**（产品原因，非工作量）：`video_ready`（视频走 Wi-Fi，通知随之）、`sleep_entered/exited`（休眠展示已移出 MVP）、`bluetooth_lost`（蓝牙版中"断连=断网"，语义需重新设计）。
 - App 中转模块**原样透传** MQTT 同款事件 envelope（EVENTS.md §1），不修改内容；eventId 幂等规则不变——断线补传、重复转发都由服务端去重消化。
-- **BLE 传输细节 ⚠️ 待硬件团队定义**（联调清单第 1 条，**当前最卡工期的前置项**——决策 #35 后 BLE 是唯一真机数据链路）：GATT 服务/特征值、分帧与重组、App→头盔确认机制、头盔侧断连缓存与补传策略。
+- **BLE 传输细节 ✅ 已定稿（v0.6，决策 #38，2026-09-09）**：GATT 服务/特征值、单帧无分帧、高危事件 ACK 闭环、Flash 断连缓存与补传——摘要见 §1.2；余下修正与广播 FEE0 要求见 §10 A/B。
 
 ### 1.2 BLE 协议摘要（Contract 以 `docs/hardware/BLE通信协议手册-v0.6.html` 为准；本节为软件侧速查，2026-09-09）
 
@@ -57,17 +57,17 @@
 | 项 | 约定 | 状态 |
 |----|------|------|
 | Broker | EMQX（Docker 部署，local/development/production 同软件） | ✅ |
-| 端口 | 8883（MQTT over TLS）；本地开发可用 1883 明文，云端环境**必须 TLS** | ⚠️ 硬件模组是否支持 TLS 及证书方式待确认 |
-| MQTT 版本 | 3.1.1（兼容性优先；硬件模组若支持 5.0 再评估） | ⚠️ |
+| 端口 | 8883（MQTT over TLS）；本地开发可用 1883 明文，云端环境**必须 TLS** | ⏸️ 4G 模组是否支持 TLS 及证书预置方式，扩展 4G 时确认（§10 E-18） |
+| MQTT 版本 | 3.1.1（兼容性优先；硬件模组若支持 5.0 再评估） | ⏸️ 4G 扩展时确认 |
 
 ## 3. 设备认证
 
 | 项 | 约定 | 状态 |
 |----|------|------|
 | 方式 | MQTT username = `deviceId`，password = `deviceSecret` | ✅ |
-| deviceSecret 分发 | 出厂/注册时由后端生成并写入设备；Mock 设备用同一机制注册获取 | ⚠️ 写入方式待硬件确认 |
+| deviceSecret 分发 | 出厂时由后端生成（`provision:batch` 按台出表），产线写入头盔 0x50（32B，只写不可读，v0.6 标「预留 4G 鉴权」）；Mock 设备用同一机制注册获取 | ✅ 写入位置已定（v0.6）；MVP 是否随 deviceId 一起烧待硬件答（§10 C-11） |
 | 校验 | EMQX 认证对接后端（HTTP auth），后端为唯一凭证权威 | ✅ |
-| clientId | 后端消费者的固定 clientId（`MQTT_BACKEND_CLIENT_ID`）为保留值：设备连接不得使用，服务账号必须使用（2026-09-14 审计 MQTT-01 修复）。设备 clientId 建议 = deviceId（Mock 已如此），是否强制待硬件确认 | ✅ 软件侧 / ⚠️ 设备侧 |
+| clientId | 后端消费者的固定 clientId（`MQTT_BACKEND_CLIENT_ID`）为保留值：设备连接不得使用，服务账号必须使用（2026-09-14 审计 MQTT-01 修复）。设备 clientId 建议 = deviceId（Mock 已如此），是否强制待硬件确认 | ✅ 软件侧 / ⏸️ 设备侧 4G 扩展时确认 |
 
 ### 3.1 EMQX → 后端 内部回调（✅ 已实现，部署时 EMQX 按此配置）
 
@@ -100,29 +100,29 @@ ACL 规则：设备 `helmet_001` 只允许 publish `helmet/helmet_001/{status,lo
 
 | 项 | 默认建议 | 状态 |
 |----|---------|------|
-| QoS — event（SOS/摔倒/危险事件） | QoS 1（至少一次；重复交付由服务端 eventId 幂等消化） | ⚠️ |
-| QoS — location / status | QoS 0 或 1（高频数据可容忍丢点；带宽与功耗由硬件权衡） | ⚠️ |
-| QoS — cmd / cmd_ack | QoS 1 | ⚠️ |
-| Keep Alive | 60s；Broker 判定 1.5 × KeepAlive 无心跳 = 离线 | ⚠️ |
+| QoS — event（SOS/摔倒/危险事件） | QoS 1（至少一次；重复交付由服务端 eventId 幂等消化） | ⏸️ 4G 扩展时确认（BLE 链路对应物 = v0.6 高危事件 ACK 闭环，已定） |
+| QoS — location / status | QoS 0 或 1（高频数据可容忍丢点；带宽与功耗由硬件权衡） | ⏸️ 4G 扩展时确认（BLE：位置/心跳不 ACK，已定） |
+| QoS — cmd / cmd_ack | QoS 1 | ⏸️ 4G 扩展时确认 |
+| Keep Alive | 60s；Broker 判定 1.5 × KeepAlive 无心跳 = 离线 | ⏸️ 4G 扩展时确认（BLE：v0.6 心跳 60 s、链路监控超时 5 s） |
 | 在线/离线判定 | 以 EMQX 连接事件 + status 心跳综合判定，后端落库 last_seen_at | ✅ 软件侧 |
-| Clean Session | 待定：设备是否需要 Broker 侧离线消息（影响 cmd 下发策略） | ⚠️ |
+| Clean Session | 待定：设备是否需要 Broker 侧离线消息（影响 cmd 下发策略） | ⏸️ 4G 扩展时确认（BLE 下行走 WS + App，决策 #36，无此概念） |
 
 ## 6. 重连 / 离线缓存 / 重发
 
 | 项 | 约定 | 状态 |
 |----|------|------|
-| Reconnect | 设备断线后指数退避重连（建议 1s 起，上限 60s，带抖动） | ⚠️ 固件实现 |
-| Offline buffering | 弱网/断网期间设备本地缓存关键事件（至少 event 类），恢复后按原 eventId 补传 | ⚠️ 固件能力待确认（缓存容量、保留时长） |
+| Reconnect | BLE（v0.6）：连续 5 s 无 PDU 判链路断，头盔恢复广播，App 指数退避重连；4G：设备断线后指数退避重连（建议 1s 起，上限 60s，带抖动） | ✅ BLE 已定 / ⏸️ 4G 固件实现 |
+| Offline buffering | BLE（v0.6）：Flash 环形区 ≥ 1000 条 / 48 h，高危事件保护区永不覆盖、位置/心跳 FIFO；重连后 `0x07/0x08` 逐条补传、App ACK 即擦除，eventId 由 deviceId + Event_Seq 派生故补传天然幂等 | ✅ 已定；补传是否含位置/心跳待答（§10 B-5） |
 | 补传时间语义 | 补传事件保留原 `timestamp`（事件发生时间）；服务端以 `receivedAt` 记录实际到达时间 | ✅ |
 | Duplicate delivery | QoS 1 与补传都可能造成重复；**服务端按 eventId 幂等去重，只存一次、只通知一次**；设备无需保证不重发 | ✅ |
-| Retry | 设备侧发送失败重试策略由固件定义；软件侧不假设“必达” | ⚠️ |
+| Retry | BLE（v0.6）：高危事件 1.5 s 无 ACK 重发，3 次后入 Flash 保护队列；软件侧不假设“必达” | ✅ BLE 已定 / ⏸️ 4G 固件实现 |
 
 ## 7. 命令下发与 ACK（cmd / cmd_ack）
 
 > 本节的 MQTT cmd/cmd_ack 通道属 **4G 链路**。**BLE 链路（MVP 唯一真机链路）的下行命令走决策 #36（Contract 已定稿，见 API.md §8/§11）**：
 > 后端把命令经 WS `device_command` 消息推给绑定用户的 App（连接建立时补推 pending/delivered 存量）→ App 经 BLE 写给头盔 → App 提交 `POST /devices/{id}/commands/{cid}/relay-ack`（`stage=delivered` 表示已写入头盔；`stage=executed` 转发头盔执行结果）。
 > **delivered 语义对齐**：4G 版 = PUBACK（送达 Broker）；蓝牙版 = App 确认写入（送达中转节点）——App 即蓝牙版的 Broker。状态机 `pending → delivered → success/failed/offline` 与 30s 超时口径（#27④）两链路完全一致。
-> ⚠️ App→头盔的 BLE 写入格式（命令的 GATT 表达）随硬件 BLE 协议定义（§10 第 1 条）。
+> ✅ App→头盔的 BLE 写入 = v0.6 `0x03 WRITE [首地址 1B][数据 NB]`，逐键单写不连写（键→寄存器映射见 `app/src/services/ble/protocol.ts`）；头盔应答的错误码即回执 errorCode（EVENTS.md §6 码表）。
 
 
 命令消息（云 → 设备，格式细节在 EVENTS.md 定稿）：
@@ -138,7 +138,7 @@ ACL 规则：设备 `helmet_001` 只允许 publish `helmet/helmet_001/{status,lo
 ```
 
 - 服务端命令状态机：`pending → delivered → success / failed / offline`。✅
-- 设备离线时命令保持 pending（是否 Broker 离线暂存取决于 Clean Session 决策 ⚠️）；超时未回执标记为 `offline`/超时，**绝不显示为成功**。✅
+- 设备离线时命令保持 pending（4G 链路是否 Broker 离线暂存取决于 Clean Session 决策 ⏸️；BLE 链路由 App 中转，WS 连接建立时补推存量）；超时未回执标记为 `offline`/超时，**绝不显示为成功**。✅
 - 允许远程设置的参数清单及取值范围：✅ 定稿（2026-09-19，决策 #43）= v0.6 内存控制表 0x20–0x2D 共 14 项，键名与范围见 API.md §8 表 / `@helmet/shared` `DEVICE_SETTINGS`；服务端入口按此校验，越界不下发。
 
 ## 8. 设备时钟与时间戳
@@ -148,7 +148,7 @@ ACL 规则：设备 `helmet_001` 只允许 publish `helmet/helmet_001/{status,lo
 | timestamp | 设备事件发生时间（UTC ISO 8601），设备生成 | ✅ |
 | receivedAt | 服务器收到时间，服务端生成落库 | ✅ |
 | 时钟偏移处理 | `timestamp` 与 `receivedAt` 偏差超过阈值（默认 5 分钟）且非补传场景时，标记 clock_skew 并以 receivedAt 为业务兜底时间 | ✅ 软件侧默认，阈值可调 |
-| 设备对时方式 | NTP（经 Wi-Fi）/ BLE 由 App 下发对时 / 未来 4G 网络授时 | ⚠️ 固件实现，**决策 #35 后无 4G，对时方式需硬件明确** |
+| 设备对时方式 | ✅ v0.6：App 每次连接握手第 4 步 `TIME SYNC 0x04` 下发 UTC 秒校准头盔 RTC；RTC 晶振漂移 < 1.5 s/天；未校时的事件 Timestamp=0，App 以收到时刻代替 | ⚠️ RTC 掉电是否保持待硬件答（§10 B-9）：若关机归零，离线补传的事件时间会失真 |
 
 ## 9. 固件兼容
 
@@ -158,33 +158,43 @@ ACL 规则：设备 `helmet_001` 只允许 publish `helmet/helmet_001/{status,lo
 | schemaVersion | 事件结构版本号；服务端按版本兼容解析，未知版本进原始事件表并告警 | ✅ |
 | 兼容原则 | Contract 字段只增不改不删（新增为选填）；破坏性变更必须升 schemaVersion 并双方确认 | ✅ |
 
-## 10. 待硬件团队确认清单（汇总，2026-08-24 按决策 #35 重排）
+## 10. 待硬件团队确认清单（2026-09-19 重排；发硬件的完整说明见 `docs/HARDWARE_SYNC_2026-09-18.md`，09-18 已发张森淼，待回复）
 
-**当前开工前置（最卡工期，优先级从高到低）：**
+**A. 卡工期（本周要答）**
 
-1. ✅ **BLE 数据协议已定稿（v0.6，硬件 Seamus Zhang 2026-09-08；决策 #38）**：原文 `docs/hardware/BLE通信协议手册-v0.6.html`，软件侧摘要见 §1.2。软件侧审阅 v0.5 提出的 7 项必改 + 5 项建议全部落实。**v0.6 遗留 3 处文档级修正（已回硬件，不阻塞开工）**：① 例 4 / 4.5 节「0x26 连写 02 5A」把音量写到了 0x27（跌倒检测使能），音量在 0x24，应拆两条写；② 握手第 3 步读 0x40×16B 只得 deviceId，固件版本需另读 0x00–0x02；③ RESEND 补传覆盖的事件类型（仅高危 vs 含位置/心跳 FIFO）需写明；④（2026-09-16 补）示例帧的十六进制与标注十进制不一致：例 5/6 `88 79 A2 6A` = 0x6AA27988 = 1789032840（非 1788856200），例 2/6/7 `ED 4E CD 01 17 7C 29 07` = 30.232301° / 120.159255°（非 30.256877 / 120.158231）——**字节流为准**，App 解析以字节实现并以此为单测夹具。**✅ A 线 App BLE 中转模块已按 v0.6 实现（2026-09-16）**：`app/src/services/ble/protocol.ts`（帧编解码 + envelope 翻译 + 设置键→寄存器映射，17 个单测钉住手册示例）、`app/src/services/ble-link.ts`（扫描/连接/五步握手/ACK/补传/重连）、`app/src/services/ble-relay.ts`（设置下发 → 0x03 WRITE → 按头盔错误码回执）；仿真器 `tools/ble-helmet-sim/helmet_sim.py`（DEVELOPMENT.md 常用命令）；
-2. 🔴 **Wi-Fi 近场细节**：
-   - ① 实时视频推流协议 —— ✅ **硬件 2026-08-25 已答**：主控 **全志 V821 SoC**，官方参考方案 `sample_smartIPC_demo` 走 **RTSP**，编码 **H.264**，媒体由 **RTP** 承载（RTP/UDP 还是 RTP over TCP 取决于 SDK 配置 `rtsp_net_type`），主/子码流以不同 `rtsp id` 区分（默认 `main_rtsp_id = 0`）。文档：<https://docs.aw-ol.com/docs/soc/v821/solution/ipc-camera/>
-     **仍需硬件补充（🔴 2026-09-01 实时预览已拍板进 MVP——决策 #37，以下缺项连同 ④ 热点参数升级为 A 线 Spike 开工硬前置）**：⚠️ 子码流的 rtsp id 与分辨率（App 预览应用子码流，主码流解码与带宽压力过大）；⚠️ `rtsp_net_type` 实配值（局域网直连建议 RTP/UDP，延迟更低）；⚠️ 完整拉流 URL 格式与是否需要鉴权。
-     **App 侧影响（结论未定，待 Spike）**：iOS AVPlayer **不支持 RTSP**（系统级限制），WebView 亦不支持 `rtsp://` —— 地图那套「WebView 绕过原生库」在此不适用；行业解法为内嵌 libVLC 系播放器（体积 +数十 MB，且 RN 0.86 / Expo SDK 57 新架构兼容性存疑，同决策 #33 amap3d 风险类型），**必须双端真机 Spike 后才能定案**；降级预案 = App 内以 `rtsp://` 链接唤起系统 VLC。若硬件愿改用 **WebRTC**（V821 文档称可自行移植），App 端成本显著降低（`react-native-webrtc` 成熟，且已有 TRTC 原生依赖经验）。
-   - ② TF 卡视频文件的列表与下载接口（HTTP 文件服务？私有协议？）——**决策 #37 后 TF 卡读取排 MVP 后第一迭代，本项降为非紧急**；
-   - ③ 对讲机配置接口与参数清单（频道/频率/功率及取值范围）；
-   - ④ 热点参数：SSID 与密码规则、头盔侧 IP 是否固定；
-3. 🔴 **无 4G 期间的设备对时方式**（原 §8 依赖 4G 网络授时）。
+1. 🔴 **实时视频预览四项**（决策 #37，A 线 RTSP Spike 开工硬前置；09-06 列催、09-08 问卷再问，硬件答「先做 BLE」）：① 子码流 rtsp id 与分辨率/帧率/码率；② `rtsp_net_type` 实配值（RTP/UDP 还是 RTP over TCP）；③ 完整拉流 URL 与是否鉴权；④ 热点 SSID/密码规则、头盔 IP 是否固定、并发连接数。附问：能否改 WebRTC（V821 文档称可移植，App 端成本大降）。硬件 08-25 已答部分：主控全志 V821，`sample_smartIPC_demo` 走 RTSP / H.264 / RTP，主子码流按 `rtsp id` 区分（`main_rtsp_id = 0`），文档 <https://docs.aw-ol.com/docs/soc/v821/solution/ipc-camera/>。App 侧影响与降级预案见决策 #37。
+2. 🔴 **广播主包（ADV_IND）须携带 16-bit 服务 UUID `0xFEE0`**（2026-09-16 iPhone 真机实测：iOS 锁屏/退后台只允许按服务 UUID 过滤的扫描继续投递，否则断连后无法重连、事件堆在 Flash）。31 字节放得下：Flags 3 + UUID 4 + 名字 15。华为上按 FEE0 过滤扫不到 Mac 仿真器，真机到手复测。
 
-**Wi-Fi/BLE 形态下仍需确认：**
+**B. v0.6 手册修正与补充（A 线已按字节流实现，等书面确认或 v0.7）**
 
-4. 各类事件的上报频率（location 频率直接影响功耗与 BLE 带宽）；
-5. 断连离线缓存能力（容量、保留时长、补传策略）；
-6. 允许远程设置的参数清单、取值范围、执行回执错误码；
-7. deviceSecret 写入与出厂流程；
-8. ⚠️ **绑定二维码印制**（§11）：头盔机身或随机说明卡印一枚二维码，内容按 §11 格式，与 deviceId / 绑定码一同出厂。
+3. 例 4 / 4.5 节「0x26 连写 02 5A」把音量写到 0x27（跌倒使能），音量在 0x24；软件逐键单写，请确认固件对连写越界回 `ERR_PARAM_VALUE` 而非写坏 0x27。
+4. 握手第 3 步读 0x40 只得 deviceId，固件版本另读 0x00–0x02（软件发两条 READ，请把手册改成两步）。
+5. RESEND 补传范围：`0x07` 描述写「高危事件总数」，4.0 表又说位置/心跳走 FIFO 区——`0x08` 只吐四类高危，还是位置/心跳也吐。
+6. 示例帧十六进制与十进制标注不一致：例 5/6 `88 79 A2 6A` = 0x6AA27988 = 1789032840（非 1788856200）；例 2/6/7 `ED 4E CD 01 / 17 7C 29 07` = 30.232301° / 120.159255°（非 30.256877 / 120.158231）。软件按字节流实现并作单测夹具，请确认「字节流为准」。
+7. obstacle_risk（0x04）载荷格与 collision_risk 合并：确认同布局（15 B），及目标类型是否固定 3、方向固定 1。
+8. location_update 地速无无效哨兵（航向 0xFFFF / 精度 0xFF / 海拔 0x7FFF 已定）：无定位时速度传 0 还是别的。
+9. RTC 掉电是否保持（有无备电、关机多久内不丢）；否则离线补传事件 Timestamp=0，云端只能记补传时刻，事故时间失真。
 
-**⏸️ 后延至硬件扩展 4G 时再确认（决策 #35）：**
+**C. 出厂流程（第一台真机到手前定）**
 
-8. 4G 模组是否支持 MQTT over TLS，证书如何预置（地址 `dev-mqtt.01weichuang.com:8883`）；
-9. MQTT 3.1.1 / 5.0 支持情况；
-10. 各 Topic 的 QoS、Keep Alive 值、Clean Session / 离线消息需求。
+10. deviceId 生成与交接：软件 `provision:batch` 按台生成 deviceId（`helmet_` + 6 位小写十六进制，13 字符，0x40 放得下，后 6 位即广播名）/ deviceSecret / 绑定码，出 CSV + 二维码；产线烧 0x40 并加锁。待答：产线有无按台烧字符串的工具、一批多少台、提前多久给表。
+11. deviceSecret 是否现在烧 0x50（MVP BLE 链路不用，v0.6 标「预留 4G」；软件生成的正好 32 字符）。
+12. 绑定二维码印制（§11 格式 ①，图由 `provision:batch` 产出）：机身还是说明卡、尺寸、能否按台印不同码。
+13. 样机时间与数量（≥ 2 台，安卓与 iPhone 各接一台同时测）。
+
+**D. 对讲机（决策 #20 / #35 ③）**
+
+14. 硬件电台双模兜底做不做：频段 / 功率 / 实测距离（8 月中说评估，无结论）。不做则软件不做频道下发。
+15. 若做：配置接口走 Wi-Fi 热点还是 BLE WRITE，参数清单（频道/频率/功率）与取值范围——v0.6 内存表 0x20–0x2D 无对讲机地址。
+
+**E. 后延（不催，留档）**
+
+16. TF 卡视频列表/下载接口（HTTP 文件服务或私有协议）——MVP 后第一迭代（决策 #37）。
+17. 视频文件上云路径：SoftAP 模式头盔无外网，经 App 中转或头盔切 STA——影响 EVENTS.md 4.9 `storageKey` 与 COS 上传签名接口；video_ready 不在 BLE 第一期。
+18. 4G 扩展时：模组 MQTT over TLS 与证书预置（`dev-mqtt.01weichuang.com:8883`）、MQTT 3.1.1/5.0、各 Topic QoS / Keep Alive / Clean Session、重连退避、`signalLevel` 分级；dev 防火墙 1883 届时按硬件出口 IP 收紧。
+19. 休眠/防丢（决策 #31 移出 MVP）：`sleep reason` 集合、`bluetooth_lost` 语义。
+
+**已由 v0.6 关闭（2026-09-19 去标记，不再问硬件）**：BLE 数据协议（决策 #38）；上报频率（位置 5 s 运动 / 静止超 3 min 30 s，心跳 60 s）；断连缓存（≥ 1000 条 / 48 h，高危永不覆盖）；可下发参数清单与错误码表（决策 #43）；GPS 输出 WGS-84；航向/精度/海拔无效值；风险等级/目标类型/方向枚举；对时方式（TIME SYNC）；deviceSecret 写入位置（0x50）。
 
 ## 11. 绑定二维码（App 扫码绑定，2026-09-17 A 线新增，⚠️ 待硬件确认印制）
 

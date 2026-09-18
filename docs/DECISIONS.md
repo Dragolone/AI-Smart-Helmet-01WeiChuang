@@ -48,6 +48,7 @@
 | 41 | 2026-09-16 | **BLE 中转链路做「后台实时」低成本档，列 Week 11 必做**：iOS 用 ble-plx 状态恢复（`restoreStateIdentifier`）+ `bluetooth-central` 后台模式，退后台不主动断链，系统收到 Notify 唤醒 App 完成 ACK + 上传；Android 加前台服务 + 常驻通知，华为引导加省电白名单；后台只即时中转高危事件，位置/心跳攒批。原生侧 ACK/中转（JS 挂起也能跑）的高成本档不提前投入，看低成本档双端真机结果再定。对外口径补一句「手机需随身携带且 App 未被手动关闭」 | iPhone 真机对仿真头盔实测（2026-09-16）：退后台/锁屏后链路断、5 分钟不重连，摔倒事件留头盔 Flash，回前台 4 s 内补传建单——事件不丢但不实时；骑行时手机必然锁屏在口袋，不做等于蓝牙版「摔倒自动通知」在真实场景不成立，与决策 #28 口径冲突。负责人 2026-09-16 拍板做 | **iOS 侧当日验证通过（2026-09-16 06:04）**：Release + 锁屏 5 min 三次跌倒当秒上云；此前「锁屏不重连」实为 SOS 页警报音崩溃（commit 5e87692 修复），iOS 无需原生侧 ACK。**Android 侧同日验证通过（07:07）**：本地 Expo 模块前台服务，华为 P30 Pro 息屏退后台 6 min 未加白名单三次跌倒当秒上云；Android 前台服务若引新依赖按「新增大依赖双人同意」走；REGRESSION 7.5.5 / DEVICE_CHECKLIST 10.12–10.13 以此为验收口径；DEVELOPMENT.md 平台限制清单 2026-09-16 行为实测依据 |
 | 42 | 2026-09-17 | **App 引入 `expo-camera` 做扫码绑定**（新增原生依赖）：绑定页「扫描头盔二维码」→ 解析 DEVICE_PROTOCOL §11 三种码格式 → 预填设备号 + 绑定码；权限拒绝/无相机走手输。二维码印制作为硬件出厂项列入 DEVICE_PROTOCOL §10 清单 | 手输设备号 + 8 位绑定码是绑定流程最易错的一步；Expo 官方模块、SDK 57 同版本，不引第三方扫码库。负责人 2026-09-17 拍板「可以」 | iOS 真机 Release 构建安装通过、模拟器权限流程 + 取景 UI + 预填链路验证通过；**Android 华为待真机验证（APK 已可构建）**——按「原生库双端真机验证后定案」规则，Android 复验前本条状态为「已实现、待 Android 验收」。所有开发包需重建（DEVELOPMENT.md 真机调试） |
 | 43 | 2026-09-19 | **设备可下发参数清单定稿并落 `@helmet/shared`（`DEVICE_SETTINGS`，14 项）；服务端 PUT settings 按清单校验**：未知键 / 类型不符 / 越界一律 400 VALIDATION_FAILED，不创建命令、不下发；Mock 的 set_config 也按同表回执 `ERR_PARAM_VALUE:<key>`。回执 errorCode 码表 = v0.6 §3.0 七个 ERR_*（`HELMET_ERROR_CODES`） | 硬件 BLE 协议 v0.6 内存控制表 0x20–0x2D 给了完整清单、取值范围与错误码，「待硬件提供」的前提已消失；此前后端只挡结构性脏数据，越界值会被下发再等头盔回错——多一轮 30s 超时的坏体验，且 App/后端/Mock 各写一份范围表必然漂移 | API.md §8 / EVENTS.md §6 / DEVICE_PROTOCOL §7 去 ⚠️；`PutSettingsRequest` 线上类型保持宽松不破坏 App 现有签名，新增 `DeviceSettings` 供编译期约束；App 端 `settingToRegisterWrite` 的 14 个键与本表一致（A 线后续可改为直接引用 shared） |
+| 44 | 2026-09-19 | **eventId 幂等粒度维持全局唯一，不改 `(device_id, event_id)` 复合唯一**（关闭 DATABASE.md 演进点） | v0.6 定稿后 BLE 版 eventId = UUID v5(deviceId + Event_Seq)，含 deviceId 派生，跨设备撞不上；4G 版由设备生成 UUID v4 亦全局唯一。原担心的「跨设备事件压制」在两条链路上都不成立 | 无代码改动、无 migration；DATABASE.md 演进点划掉；若未来出现不带 deviceId 派生的第三方事件源再评估 |
 
 ## 待定决策（占位，定案后移入上表）
 
@@ -55,10 +56,10 @@
 |--------|------------|------|
 | **COS 视频云端保留期** | 负责人另行确认 | 候选：对象上传 90 天后由桶生命周期规则删除（不建议沉降低频：最短计费 30 天且读取另收费）；头盔 TF 卡原件不受影响。定案后需主账号在控制台配规则（`helmet-cos` 子账号无桶配置权限），并确认超期媒体的接口表现（建议 `410 MEDIA_EXPIRED`） |
 | ~~地图库最终选择（高德 RN 库 vs WebView JS API）~~ | 已定案 2026-08-16 | 定为 WebView + JS API，见决策 #33 |
-| BLE 库最终确认（默认 react-native-ble-plx） | Week 2 Spike 后 | 含 iOS 后台行为实测记录 |
-| iOS 后台能力限制口径（BLE 防丢、后台定位） | Week 2 Spike 后 | 实测记录进 DEVELOPMENT.md，口径与负责人确认 |
+| ~~BLE 库最终确认（默认 react-native-ble-plx）~~ | 已定案 2026-09-16 | react-native-ble-plx 3.5.1：iPhone + 华为真机对 v0.6 仿真头盔全链路通过（决策 #41；实测记录见 DEVELOPMENT.md 平台限制清单） |
+| ~~iOS 后台能力限制口径（BLE 防丢、后台定位）~~ | 已定案 2026-09-16/17 | 决策 #41：后台实时中转低成本档双端通过；对外口径「手机随身且 App 未被手动关闭」；BLE 防丢已移出 MVP（#31） |
 | ~~坐标转换位置（wgs84→gcj02 在服务端还是 App 端）~~ | 已定案 2026-08-16 | App 端 Map 组件层纯函数转换（后端只存原始坐标+coordinateSystem），见决策 #33 |
-| DEVICE_PROTOCOL.md 中标 ⚠️ 的传输层细节 | 最晚 Week 10 联调前 | 待硬件团队逐项确认 |
+| DEVICE_PROTOCOL.md 中标 ⚠️ 的传输层细节 | 硬件回复后 | 2026-09-19 按 v0.6 去掉已答项，余项重排为 §10 A–E 共 19 条（09-18 已发张森淼，`docs/HARDWARE_SYNC_2026-09-18.md`）；4G 相关 ⏸️ 后延 |
 | 推送服务商最终确认（极光 + 安卓厂商通道） | 资质下来后 | 当前暂定极光；APNs 依赖 Apple 公司账号。~~短信~~已随决策 #34 定为腾讯云短信 |
 | ~~RTC 服务商选型~~ | 已定案 2026-08-15 | 定为腾讯云 TRTC，见决策 #22 |
 | 硬件对讲电台（双模兜底）频段/功率/实测距离 | 硬件团队评估后 | 纯硬件功能；结论追加进决策 #20；软件仅承担频道设置下发 |
