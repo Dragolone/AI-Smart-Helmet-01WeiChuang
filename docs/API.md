@@ -95,7 +95,7 @@ Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / 
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | /devices/bind | 绑定。body：`{ deviceId, bindCode }`（⚠️ 绑定凭证形式——机身二维码/出厂绑定码——待硬件确认；Mock 设备用注册时生成的 bindCode 走同一流程） |
+| POST | /devices/bind | 绑定。body：`{ deviceId, bindCode }`（✅ 绑定凭证 = 出厂 8 位绑定码 + 绑定二维码，格式 DEVICE_PROTOCOL §11、由 `provision:batch` 产出；⚠️ 印制载体待硬件确认；Mock 设备用注册时生成的 bindCode 走同一流程） |
 | GET | /devices | 我的设备列表 |
 | GET | /devices/{deviceId} | 设备详情（含实时状态快照） |
 | PATCH | /devices/{deviceId} | 重命名（2026-08-17）。body：`{ name?: string }`（≤20 字符，trim 后空串=清除，App 回退显示 deviceId）；返回更新后的 device 对象 |
@@ -109,7 +109,7 @@ device 对象补充字段（2026-08-17，TS 类型见 `@helmet/shared` DevicePub
 
 - MVP 绑定关系：一台设备同时只能绑定一个用户；一个用户可绑多台。⚠️ 家庭共享/多人查看不在 MVP。
 - `online` 判定规则见 DEVICE_PROTOCOL §5，由服务端计算（lastSeenAt 距今 ≤ 90s），App 不自行判断。
-- ✅ 本节已实现（2026-08-15）：bind / 列表 / 详情 / 解绑 / status；设备开通用 `npm run provision:device -w backend`（生成 deviceId+deviceSecret+bindCode，Mock 与真机同机制）；绑定码 MVP 为 8 位数字（真机随附形式待硬件确认）。
+- ✅ 本节已实现（2026-08-15）：bind / 列表 / 详情 / 解绑 / status；设备开通用 `npm run provision:device -w backend`（生成 deviceId+deviceSecret+bindCode，Mock 与真机同机制）；绑定码 MVP 为 8 位数字（随附形式 = 二维码 + 说明卡，印制待硬件确认，DEVICE_PROTOCOL §10 C-12）。
 
 ## 5. 位置与轨迹
 
@@ -193,7 +193,7 @@ SOS 状态机为服务端权威（DECISIONS #8/#26）：`pending → notified | 
   类型严格：布尔只收 `true/false`，整数只收整数 number（`"80"`、`80.5`、`1` 代替 `true` 都拒）。回执 `errorCode` 码表见 EVENTS.md §6。
 - **下发通道（决策 #36）**：命令创建后**双路并行**——MQTT QoS1 发布（4G 链路）+ WS `device_command` 推送给绑定用户（BLE 链路）。业务与状态机不感知设备形态；先到的 delivered 生效（条件更新幂等）。
 - **状态口径（✅ 定稿 2026-08-16，决策 #27④）**：`delivered` = MQTT PUBACK（送达 Broker，非送达设备）；**30s**（`COMMAND_ACK_TIMEOUT_SECONDS`）无 cmd_ack → `offline`（App 显示"未送达/等待执行"）；**迟到回执如实覆盖 offline**（设备实际执行了就记 success/failed）；但合入「当前生效设置」时，**比它更晚下发且已 success 的命令触碰过的键不回写**（旧回执不能把新值覆盖回去，2026-09-10 加固）。
-- 设备离线：命令照发（Broker 持久会话补投，依赖 Clean Session 决策 ⚠️）；发布失败留 pending 超时判 offline。
+- 设备离线：命令照发（Broker 持久会话补投，依赖 Clean Session 决策 ⏸️ 4G 扩展时确认；BLE 链路走 WS + App 中转，决策 #36）；发布失败留 pending 超时判 offline。
 - 归属：非本人绑定设备一律 404。
 - ✅ 本节已实现（2026-08-16）：Mock 设备订阅 cmd 并自动回执（`MOCK_CMD_RESULT=success|failed|silent` 三态可演示）。
 
@@ -204,7 +204,7 @@ SOS 状态机为服务端权威（DECISIONS #8/#26）：`pending → notified | 
 | GET | /media/{mediaId}/url | 换取**有时效**预签名 URL：`{ url, expiresAt }`（**✅ 时效定稿 10 分钟**，env `MEDIA_URL_TTL_SECONDS` 可调）；归属校验：仅设备当前绑定用户可取，非本人一律 404 |
 
 - 媒体元数据随 `video_ready` 事件入库（EVENTS.md 4.9），幂等：同 eventId 或同 (deviceId, videoId) 只登记一条。
-- `storageKey` 缺失（上传方式待硬件确认 ⚠️）时 status=`pending_upload`，换 URL 返回 409 `MEDIA_NOT_READY`（错误码只增）。
+- `storageKey` 缺失（上云路径 ⏸️ MVP 后定，DEVICE_PROTOCOL §10 E-17）时 status=`pending_upload`，换 URL 返回 409 `MEDIA_NOT_READY`（错误码只增）。
 - §6 事件详情的 `media` 数组：危险/摔倒事件按 `relatedEventId` 反查，video_ready 事件带自身条目。
 - ✅ 本节已实现（2026-08-16）：StorageProvider 薄接口 + Mock 实现（本地假 URL）。**2026-09-16 接入腾讯云 COS**（`TencentCosProvider`，env 齐全即切换，否则 Mock），返回的 `url` 为私有桶对象的签名 GET 链接，过期后 COS 侧返回 403；响应结构 `{ url, expiresAt }` 不变。
 
@@ -300,5 +300,5 @@ MVP 实用为主，全部只读 + 少量运维操作。
 ## 14. 待定稿清单汇总
 
 **负责人**：注册凭据形式与验证码要求、位置分享是否需要网页版、Admin 概览指标集。（~~紧急联系人上限~~ 已定稿 5 个，2026-08-16）
-**硬件团队**：设备绑定凭证形式（bindCode 来源，二维码格式已定 DEVICE_PROTOCOL §11、印制待确认）、媒体上传方式。（~~设置参数清单~~ 已定稿 2026-09-19，决策 #43。）
+**硬件团队**：绑定二维码印制载体（格式已定 DEVICE_PROTOCOL §11）；⏸️ 媒体上云路径（MVP 后）。（~~设置参数清单~~ 已定稿 2026-09-19，决策 #43；~~bindCode 来源~~ = 软件签发，`provision:batch` 按台出表。）
 **软件侧内部**：token 有效期、轨迹单次查询范围上限、WebSocket 实现选型。（~~active SOS 空响应形式~~ 200 + null；~~预签名 URL 时效~~ 10 分钟；~~原始事件 Admin 端点形式~~ 合并单端点 + invalid 筛选——均已定稿 2026-08-16。）
