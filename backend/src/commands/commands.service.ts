@@ -9,10 +9,13 @@ import type {
   CommandPublic,
   CommandStatus,
   DeviceCommand as WireCommand,
+  DeviceSettingKey,
   DeviceSettings,
+  DeviceSettingValue,
   Paginated,
   RelayAckRequest,
   RelayAckResponse,
+  ReportSettingsResponse,
   SettingsResponse,
   WsDeviceCommandData,
   WsMessage,
@@ -23,7 +26,11 @@ import type { DeviceCommand as DbCommand } from '../generated/prisma/client';
 import { MqttConsumerService } from '../ingest/mqtt-consumer.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
-import { COMMAND_STATUS } from './commands.constants';
+import {
+  COMMAND_STATUS,
+  REPORT_RECENT_COMMAND_MS,
+  REPORT_SETTINGS_MAX_KEYS,
+} from './commands.constants';
 import { toWireCommand } from './command-wire';
 
 const deviceNotFound = () =>
@@ -34,6 +41,13 @@ const deviceNotFound = () =>
 
 const validationFailed = (message: string) =>
   new BadRequestException({ code: 'VALIDATION_FAILED', message });
+
+/**
+ * 生效设置的读-合-写按设备串行化：回执合入与头盔上报（决策 #45）写同一个 JSON 字段，
+ * 不加锁时两边并发会互相覆盖（后写者拿的是旧快照）。事务级咨询锁，提交即释放。
+ */
+const lockDeviceSettings = (tx: Prisma.TransactionClient, deviceId: string) =>
+  tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`device-settings:${deviceId}`}))`;
 
 /**
  * 设置参数校验（API.md §8，决策 #43）：扁平对象、非空，且每个键都在 @helmet/shared 的
@@ -249,7 +263,7 @@ export class CommandsService implements OnModuleInit {
 
   /**
    * 回执终态化核心（MQTT cmd_ack 与 relay-ack 两条路径共用，决策 #36）：
-   * 条件更新防竞态；迟到回执如实覆盖 offline；只有 success 才写入生效设置。
+   * 条件更新防竞态；迟到回执如实覆盖 offline；命令只有 success 才写入生效设置（另一来源是头盔上报，见 reportSettings）。
    */
   private async applyAck(
     command: DbCommand,
@@ -298,7 +312,7 @@ export class CommandsService implements OnModuleInit {
       });
       if (won.count === 0) return;
 
-      // 只有 success 才写入当前生效设置——未执行/失败绝不显示成功（CLAUDE.md 铁律）
+      // 命令只有 success 才写入当前生效设置——未执行/失败绝不显示成功（CLAUDE.md 铁律）
       if (
         nextStatus === COMMAND_STATUS.success &&
         command.type === 'set_config'
@@ -329,6 +343,7 @@ export class CommandsService implements OnModuleInit {
             `迟到回执 ${command.id}：键 ${[...shadowed].join(',')} 已被更新命令覆盖，不回写`,
           );
         }
+        await lockDeviceSettings(tx, command.deviceId);
         const device = await tx.device.findUnique({
           where: { deviceId: command.deviceId },
           select: { settings: true },
@@ -346,6 +361,103 @@ export class CommandsService implements OnModuleInit {
     this.logger.log(
       `命令回执已处理：${command.id} → ${nextStatus}${ack.errorCode ? `（${ack.errorCode}）` : ''}`,
     );
+  }
+
+  /**
+   * 头盔实际设置上报（API.md §8，决策 #45）：App 每次 BLE 握手后读回 0x20–0x2D 上报。
+   * 生效设置由此有两个来源，都是「设备确认过的值」：命令 success 回执 + 头盔上报的实际值。
+   * - 单键不合法只跳过该键：设备输入不可信，但一个怪值不能让整批校正作废；
+   * - 有未完成命令、或 30 s 内刚成功的命令碰过的键跳过：那条命令是更新的意图，App 读到的可能是写入前的旧值。
+   * 不创建命令、不改命令历史。
+   */
+  async reportSettings(
+    userId: string,
+    deviceId: string,
+    raw: unknown,
+  ): Promise<ReportSettingsResponse> {
+    await this.ensureDeviceOwned(userId, deviceId);
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+      throw validationFailed('settings 必须是对象');
+    }
+    const entries = Object.entries(raw as Record<string, unknown>);
+    if (entries.length === 0) throw validationFailed('settings 不能为空');
+    if (entries.length > REPORT_SETTINGS_MAX_KEYS) {
+      throw validationFailed(`settings 最多 ${REPORT_SETTINGS_MAX_KEYS} 个键`);
+    }
+
+    const skipped: ReportSettingsResponse['skipped'] = [];
+    const valid: [DeviceSettingKey, DeviceSettingValue][] = [];
+    for (const [key, value] of entries) {
+      const r = checkDeviceSetting(key, value);
+      if (r.ok) valid.push([r.key, r.value]);
+      else skipped.push({ key, reason: 'invalid', message: r.message });
+    }
+
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      await lockDeviceSettings(tx, deviceId);
+      const guarding = await tx.deviceCommand.findMany({
+        where: {
+          deviceId,
+          type: 'set_config',
+          OR: [
+            {
+              status: {
+                in: [COMMAND_STATUS.pending, COMMAND_STATUS.delivered],
+              },
+            },
+            {
+              status: COMMAND_STATUS.success,
+              ackedAt: { gt: new Date(Date.now() - REPORT_RECENT_COMMAND_MS) },
+            },
+          ],
+        },
+        select: { params: true },
+      });
+      const guarded = new Set(
+        guarding.flatMap((c) =>
+          Object.keys(c.params as Record<string, unknown>),
+        ),
+      );
+      const device = await tx.device.findUniqueOrThrow({
+        where: { deviceId },
+        select: { settings: true },
+      });
+      const current = (device.settings as Record<string, unknown> | null) ?? {};
+      const next: Record<string, unknown> = { ...current };
+      const applied: DeviceSettingKey[] = [];
+      const corrected: string[] = [];
+      for (const [key, value] of valid) {
+        if (guarded.has(key)) {
+          skipped.push({
+            key,
+            reason: 'recent_command',
+            message: `设置项 ${key} 有未完成或刚成功的下发命令，以命令为准`,
+          });
+          continue;
+        }
+        if (key in current && current[key] !== value) {
+          corrected.push(
+            `${key} ${JSON.stringify(current[key])}→${JSON.stringify(value)}`,
+          );
+        }
+        next[key] = value;
+        applied.push(key);
+      }
+      if (applied.length > 0) {
+        await tx.device.update({
+          where: { deviceId },
+          data: { settings: next as Prisma.InputJsonValue },
+        });
+      }
+      return { settings: next, applied, corrected };
+    });
+
+    if (outcome.corrected.length > 0) {
+      this.logger.log(
+        `头盔实际设置与记录不符，已按上报校正（${deviceId}）：${outcome.corrected.join('，')}`,
+      );
+    }
+    return { settings: outcome.settings, applied: outcome.applied, skipped };
   }
 
   /** 当前生效设置 + 最近一次下发状态（§8） */

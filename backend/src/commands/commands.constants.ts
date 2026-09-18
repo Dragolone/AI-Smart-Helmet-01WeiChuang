@@ -19,3 +19,12 @@ export const COMMAND_STATUS = {
   failed: 'failed',
   offline: 'offline',
 } as const;
+
+/** 头盔实际设置上报（决策 #45）：单次最多键数（清单 14 项，留余量挡脏数据） */
+export const REPORT_SETTINGS_MAX_KEYS = 32;
+
+/**
+ * 上报保护窗口：App 读回的值可能早于一条刚成功的命令（读在写之前、上报在回执之后到达），
+ * 窗口内被命令碰过的键以命令为准；真有重启落在窗口里，下次重连再校正。
+ */
+export const REPORT_RECENT_COMMAND_MS = 30_000;

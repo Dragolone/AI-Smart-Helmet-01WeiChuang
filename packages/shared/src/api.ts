@@ -5,6 +5,7 @@ import type {
   CoordinateSystem,
   DeviceCommand,
 } from './events';
+import type { DeviceSettingKey } from './settings';
 
 // —— §1 通用约定 ——
 
@@ -270,7 +271,26 @@ export interface CommandPublic {
   executedAt: string | null;
 }
 
-/** GET /devices/{id}/settings：当前生效设置（仅 success 回执写入）+ 最近一次下发 */
+/**
+ * POST /devices/{id}/settings/reported（决策 #45）：App 在每次 BLE 握手后读回头盔 0x20–0x2D，
+ * 把实际设置上报，让云端显示与头盔一致（例：大灯挡位掉电不保存，重启后回到关）。
+ */
+export interface ReportSettingsRequest {
+  settings: Record<string, number | boolean>;
+}
+
+/** invalid = 不在清单或类型/范围不合法；recent_command = 该键有未完成或 30 s 内刚成功的命令，以命令为准 */
+export type ReportSettingsSkipReason = 'invalid' | 'recent_command';
+
+export interface ReportSettingsResponse {
+  /** 合入后的当前生效设置 */
+  settings: Record<string, unknown>;
+  /** 本次被采纳的键 */
+  applied: DeviceSettingKey[];
+  skipped: { key: string; reason: ReportSettingsSkipReason; message: string }[];
+}
+
+/** GET /devices/{id}/settings：当前生效设置（success 回执或头盔上报的实际值，决策 #45）+ 最近一次下发 */
 export interface SettingsResponse {
   settings: Record<string, unknown>;
   lastCommand: CommandPublic | null;

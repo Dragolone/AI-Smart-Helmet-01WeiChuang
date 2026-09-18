@@ -123,6 +123,7 @@ ACL 规则：设备 `helmet_001` 只允许 publish `helmet/helmet_001/{status,lo
 > 后端把命令经 WS `device_command` 消息推给绑定用户的 App（连接建立时补推 pending/delivered 存量）→ App 经 BLE 写给头盔 → App 提交 `POST /devices/{id}/commands/{cid}/relay-ack`（`stage=delivered` 表示已写入头盔；`stage=executed` 转发头盔执行结果）。
 > **delivered 语义对齐**：4G 版 = PUBACK（送达 Broker）；蓝牙版 = App 确认写入（送达中转节点）——App 即蓝牙版的 Broker。状态机 `pending → delivered → success/failed/offline` 与 30s 超时口径（#27④）两链路完全一致。
 > ✅ App→头盔的 BLE 写入 = v0.6 `0x03 WRITE [首地址 1B][数据 NB]`，逐键单写不连写（键→寄存器映射见 `app/src/services/ble/protocol.ts`）；头盔应答的错误码即回执 errorCode（EVENTS.md §6 码表）。
+> ✅ 反向对齐（决策 #45）：App 每次握手完成后发 `READ 0x20 长度 0x0E` 把 14 个设置寄存器一次读回，翻成键值经 `POST /devices/{id}/settings/reported` 上报，云端显示随头盔实际状态校正（大灯 0x26 掉电不保存）。
 
 
 命令消息（云 → 设备，格式细节在 EVENTS.md 定稿）：

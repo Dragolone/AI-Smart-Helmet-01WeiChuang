@@ -166,7 +166,8 @@ SOS 状态机为服务端权威（DECISIONS #8/#26）：`pending → notified | 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | PUT | /devices/{deviceId}/settings | body：`{ settings: { <key>: <值> } }`（扁平键值；**✅ 参数清单定稿 2026-09-19，决策 #43**：14 项，键名/类型/取值范围以 `@helmet/shared` 的 `DEVICE_SETTINGS` 为准，见下表；未知键、类型不符、越界 → `400 VALIDATION_FAILED`，**服务端就拦、不创建命令、不下发**）→ 创建 set_config 命令并双路下发，`202 { commandId, status: "pending" }`（TS 类型 PutSettingsResponse） |
-| GET | /devices/{deviceId}/settings | `{ settings, lastCommand }`——settings 为当前生效设置（**仅 success 回执后写入**），lastCommand 为最近一次下发（TS 类型 SettingsResponse） |
+| GET | /devices/{deviceId}/settings | `{ settings, lastCommand }`——settings 为当前生效设置（**只写设备确认过的值：命令 success 回执，或头盔上报的实际值**，决策 #45），lastCommand 为最近一次下发（TS 类型 SettingsResponse） |
+| POST | /devices/{deviceId}/settings/reported | **头盔实际设置上报（✅ 2026-09-19，决策 #45）**：App 每次 BLE 握手后读回头盔 0x20–0x2D 上报，body `{ settings: { <key>: <值> } }`（≤ 32 键）→ `200 { settings, applied, skipped }`（TS 类型 ReportSettingsRequest / ReportSettingsResponse）。**逐键**校验：清单外、类型不符、越界只跳过该键（`reason: invalid`），不整批拒；**有未完成（pending/delivered）或 30 s 内刚 success 的命令碰过的键跳过**（`reason: recent_command`，以命令为准——App 读到的可能是写入前的旧值）；已判 offline 的命令不保护。不创建命令、不改 lastCommand。归属：非本人 404 DEVICE_NOT_FOUND；结构错误（非对象/空/超 32 键）400 VALIDATION_FAILED |
 | GET | /devices/{deviceId}/commands?page=&pageSize= | 命令历史（最新在前，TS 类型 CommandPublic） |
 | GET | /commands/{commandId} | 命令状态：`pending → delivered → success \| failed \| offline`（语义见 DEVICE_PROTOCOL §7，**未回执绝不显示成功**） |
 | POST | /devices/{deviceId}/commands/{commandId}/relay-ack | **BLE 下行链的回执入口（决策 #36）**：App 替头盔提交命令回执。body：`{ "stage": "delivered" }`（App 已收到命令并写入头盔——蓝牙版的 delivered 语义，对应 4G 版的 PUBACK）或 `{ "stage": "executed", "result": "success" \| "failed", "errorCode"?, "executedAt"? }`（头盔执行结果；executedAt 缺省或不是合法 ISO 8601 时一律取服务器时间——设备/App 时钟不可信）→ `200 { commandId, status }`（更新后状态）。**幂等不报错**：已终态命令再收 delivered/重复 executed 都返回当前状态；已判 offline 后迟到 executed 如实覆盖（同 MQTT cmd_ack 语义）。鉴权：用户 JWT + 设备归属（非本人 404 DEVICE_NOT_FOUND）+ 命令须属于该设备（否则 404 NOT_FOUND）。信任级与 §12.1 app-relay 一致（App 本就是蓝牙版设备的代理） |
@@ -192,6 +193,7 @@ SOS 状态机为服务端权威（DECISIONS #8/#26）：`pending → notified | 
 
   类型严格：布尔只收 `true/false`，整数只收整数 number（`"80"`、`80.5`、`1` 代替 `true` 都拒）。回执 `errorCode` 码表见 EVENTS.md §6。
 - **下发通道（决策 #36）**：命令创建后**双路并行**——MQTT QoS1 发布（4G 链路）+ WS `device_command` 推送给绑定用户（BLE 链路）。业务与状态机不感知设备形态；先到的 delivered 生效（条件更新幂等）。
+- **生效设置与头盔对齐（决策 #45）**：只靠命令回执时，头盔自己变了云端看不到——大灯挡位（0x26）掉电不保存，重启后回到关；RECOVERY 恢复出厂、别的手机改过也一样。上报与回执合入按设备串行化（事务级咨询锁），并发不互相覆盖；值与记录不符时后端日志打一行「已按上报校正」。
 - **状态口径（✅ 定稿 2026-08-16，决策 #27④）**：`delivered` = MQTT PUBACK（送达 Broker，非送达设备）；**30s**（`COMMAND_ACK_TIMEOUT_SECONDS`）无 cmd_ack → `offline`（App 显示"未送达/等待执行"）；**迟到回执如实覆盖 offline**（设备实际执行了就记 success/failed）；但合入「当前生效设置」时，**比它更晚下发且已 success 的命令触碰过的键不回写**（旧回执不能把新值覆盖回去，2026-09-10 加固）。
 - 设备离线：命令照发（Broker 持久会话补投，依赖 Clean Session 决策 ⏸️ 4G 扩展时确认；BLE 链路走 WS + App 中转，决策 #36）；发布失败留 pending 超时判 offline。
 - 归属：非本人绑定设备一律 404。

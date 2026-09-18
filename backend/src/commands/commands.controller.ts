@@ -30,6 +30,12 @@ class PutSettingsDto {
   settings!: Record<string, unknown>;
 }
 
+/** 头盔实际设置上报（决策 #45）：键值合法性在服务层逐键校验 */
+class ReportSettingsDto {
+  @IsObject()
+  settings!: Record<string, unknown>;
+}
+
 /** relay-ack 请求体（决策 #36）：stage 联合的字段依赖（executed 必带 result）在 controller 收口 */
 class RelayAckDto {
   @IsIn(['delivered', 'executed'])
@@ -84,6 +90,20 @@ export class CommandsController {
     @Param('deviceId') deviceId: string,
   ) {
     return this.commands.getSettings(req.user.userId, deviceId);
+  }
+
+  @Post('devices/:deviceId/settings/reported')
+  @HttpCode(200)
+  reportSettings(
+    @Req() req: AuthenticatedRequest,
+    @Param('deviceId') deviceId: string,
+    @Body() dto: ReportSettingsDto,
+  ) {
+    return this.commands.reportSettings(
+      req.user.userId,
+      deviceId,
+      dto.settings,
+    );
   }
 
   @Post('devices/:deviceId/commands/:commandId/relay-ack')
