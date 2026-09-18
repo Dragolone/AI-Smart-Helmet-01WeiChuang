@@ -125,7 +125,10 @@ describe('WebSocket 实时通道 (e2e)', () => {
    * 这条连接（加速通道不补发；2026-09-18 CI 诊断）。推送前等注册计数到位。
    */
   const openRegistered = async (token: string): Promise<WebSocket> => {
-    const { byUser } = app.get(RealtimeGateway);
+    // 网关的连接表是 private：借 app.get 的泛型按结构取到 Map，只按用户条目计数（与 audit-realtime 同法）
+    const gateway: { byUser: Map<string, Set<WebSocket>> } =
+      app.get(RealtimeGateway);
+    const byUser = gateway.byUser;
     const userId = (
       JSON.parse(
         Buffer.from(token.split('.')[1], 'base64url').toString('utf-8'),
