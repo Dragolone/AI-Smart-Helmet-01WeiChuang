@@ -185,6 +185,7 @@ AI-Smart-Helmet-01WeiChuang/
     DATABASE.md       # 数据模型设计决策（schema 以 Prisma 为准）
     DEVELOPMENT.md    # 本地环境、常用命令、联调方法、平台限制清单
     DEPLOYMENT.md     # 云端部署手册（development/production，含验收清单与排障）
+    DEMO.md           # MVP 演示脚本（给演示者：每步做什么 → 应看到什么；Mock 剧本切换与复位）
     THIRD_PARTY.md    # 第三方账号/Key 状态台账（每周对表）
   .github/workflows/  # GitHub Actions CI
   docker-compose.yml  # 本地 PostgreSQL + EMQX
