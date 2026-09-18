@@ -3,10 +3,19 @@
 # 启动：cd deploy && docker compose -f docker-compose.prod.yml up -d --build
 # 完整步骤与验收清单：docs/DEPLOYMENT.md
 
+# 容器日志轮转（上线前清单 #6 ②）：默认 json-file 不轮转，跑几个月会把 90GB 盘写满。
+# 每容器最多 5 × 20MB；更久的历史靠 §5 的备份与 COS，不靠容器日志。
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
   postgres:
     image: postgres:16
     restart: unless-stopped
+    logging: *default-logging
     # 不映射宿主端口：数据库仅容器网络内可达，杜绝公网扫库
     environment:
       POSTGRES_USER: helmet
@@ -23,6 +32,7 @@ services:
   emqx:
     image: emqx:5
     restart: unless-stopped
+    logging: *default-logging
     ports:
       # MQTT 明文：TLS 待硬件确认（DEVICE_PROTOCOL §3 ⚠️）；公网暴露面靠云防火墙限源 IP 收紧
       - "1883:1883"
@@ -42,6 +52,7 @@ services:
       context: ..
       dockerfile: backend/Dockerfile
     restart: unless-stopped
+    logging: *default-logging
     # 不映射宿主端口：REST/WS 一律经 gateway 443 进来；EMQX 回调走容器网络 backend:3000
     depends_on:
       postgres:
@@ -103,6 +114,7 @@ services:
       context: ..
       dockerfile: mock-device/Dockerfile
     restart: unless-stopped
+    logging: *default-logging
     profiles: ["demo"]
     depends_on:
       backend:
@@ -122,6 +134,7 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile.gateway
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "80:80"   # ACME HTTP 验证 + 自动跳转 https
       - "443:443"

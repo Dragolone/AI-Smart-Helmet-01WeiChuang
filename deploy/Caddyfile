@@ -7,13 +7,27 @@
 
 # App 的 REST + WebSocket 入口（wss 由 Caddy 透明代理，App 端 https→wss 自动推导）
 {$API_DOMAIN} {
-	reverse_proxy backend:3000
+	# EMQX 认证/授权回调只走容器网络 backend:3000（DEVICE_PROTOCOL §3.1），公网一律 404（审计 MQTT-03）；
+	# 后端 InternalTokenGuard 仍是第二层
+	@internal path /api/v1/internal/*
+	respond @internal 404
+	reverse_proxy backend:3000 {
+		# 显式用真实客户端 IP 覆写 X-Forwarded-For，不依赖 Caddy 默认的 trusted_proxies 行为；
+		# 后端 TRUST_PROXY=1 只信这一跳（审计 AUTH-07）
+		header_up X-Forwarded-For {remote_host}
+	}
 }
 
 # 管理后台：/api 同源转发给后端（与本地 vite proxy 同职责），其余走 SPA 静态文件
 {$ADMIN_DOMAIN} {
+	# handle 块按路径长度排序、最长优先：/api/v1/internal/* 先于 /api/* 命中，公网一律 404（审计 MQTT-03）
+	handle /api/v1/internal/* {
+		respond 404
+	}
 	handle /api/* {
-		reverse_proxy backend:3000
+		reverse_proxy backend:3000 {
+			header_up X-Forwarded-For {remote_host}
+		}
 	}
 	handle {
 		root * /srv/admin

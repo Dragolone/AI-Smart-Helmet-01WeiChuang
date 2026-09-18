@@ -1,0 +1,35 @@
+#!/bin/sh
+# PostgreSQL 每日自动备份到 COS（上线前清单 #6 ①）。宿主机 cron 调用，例：
+#   0 3 * * * /home/ubuntu/AI-Smart-Helmet-01WeiChuang/deploy/backup.sh >> /var/log/helmet-backup.log 2>&1
+# 流程：postgres 容器 pg_dump -Fc（自定义格式，自带压缩，pg_restore 可选表恢复）
+#      → 管道进 backend 容器 node dist/scripts/backup-upload.js（COS 凭证只在容器里，宿主机不落密钥）
+#      → 对象键 backups/helmet_<UTC 时间>.dump；上传后按 BACKUP_RETENTION_DAYS 清理旧备份（至少留 BACKUP_KEEP_MIN 份）
+# 可选 BACKUP_LOCAL_DIR：同时在宿主机留一份（如 /opt/helmet-backups），自行用 find -mtime 清理。
+# 任一环节失败脚本以非 0 退出并打印 ✕ 行——拨测/cron 邮件据此告警；上传脚本拒绝非 PGDMP 输入，pg_dump 失败不会传上去空文件。
+set -eu
+
+cd "$(dirname "$0")"
+COMPOSE="docker compose -f docker-compose.prod.yml"
+STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+KEY="backups/helmet_${STAMP}.dump"
+RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-30}"
+KEEP_MIN="${BACKUP_KEEP_MIN:-7}"
+
+echo "[$(date -u +%FT%TZ)] 开始备份 → ${KEY}（保留 ${RETENTION_DAYS} 天，至少 ${KEEP_MIN} 份）"
+
+dump() {
+  $COMPOSE exec -T postgres pg_dump -U helmet -Fc --no-owner helmet
+}
+
+if [ -n "${BACKUP_LOCAL_DIR:-}" ]; then
+  mkdir -p "$BACKUP_LOCAL_DIR"
+  LOCAL="$BACKUP_LOCAL_DIR/helmet_${STAMP}.dump"
+  dump > "$LOCAL"
+  $COMPOSE exec -T backend node dist/scripts/backup-upload.js --key "$KEY" --retention-days "$RETENTION_DAYS" --keep-min "$KEEP_MIN" < "$LOCAL"
+  echo "[$(date -u +%FT%TZ)] 本地副本：$LOCAL（$(du -h "$LOCAL" | cut -f1)）"
+else
+  # 没有本地目录时直接管道：pg_dump 失败会让上传脚本收到非 PGDMP 输入而拒绝（退出 1）
+  dump | $COMPOSE exec -T backend node dist/scripts/backup-upload.js --key "$KEY" --retention-days "$RETENTION_DAYS" --keep-min "$KEEP_MIN"
+fi
+
+echo "[$(date -u +%FT%TZ)] 备份完成"

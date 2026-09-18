@@ -114,7 +114,10 @@ docker compose -f docker-compose.prod.yml logs -f mock       # 应持续「已�
 | 4 | 本地 Mac 跑 Mock 指到云端(已开常驻 mock 的话,这步只需再验「错密钥被拒」):`MQTT_URL=mqtt://dev-mqtt.01weichuang.com:1883 DEVICE_ID=<id> DEVICE_SECRET=<密钥> npm run start -w mock-device` | Mock 日志「已连接」并持续「已发送 location_update」;错密钥则被拒(Not authorized),证明认证生效 |
 | 5 | Admin 设备列表刷新 | 该设备在线,电量在变 |
 | 6 | App 端 `EXPO_PUBLIC_API_URL=https://dev-api.01weichuang.com/api/v1` 重启 Metro,注册→绑定→地图页 | 全流程可用,地图上看到 Mock 头盔移动(WS 走 wss 自动) |
-| 7 | `docker compose -f docker-compose.prod.yml restart backend` 后重复 #1 | 服务自动恢复,health 正常(重启接管:含 SOS pending 恢复逻辑) |
+| 7 | `docker compose -f docker-compose.prod.yml restart backend` 后重复 #1 | 服务自动恢复,health 正常(重启接管:含 SOS pending 恢复逻辑)。重启期间 `curl` health 先见 `503 {"status":"draining"}` 再恢复 200(SIGTERM 排空,审计 DBOPS-07) |
+| 8 | `curl -s -o /dev/null -w '%{http_code}' -X POST https://dev-api.01weichuang.com/api/v1/internal/emqx/authenticate` | **404**——EMQX 回调只走容器网络,公网被网关拦下(审计 MQTT-03);同时 Mock 仍在线(容器内回调不受影响) |
+| 9 | `sh backup.sh`(§5 备份) | 末行 `✓ 已上传 backups/helmet_<时间>.dump(x MB)…`;COS 控制台桶内 `backups/` 出现该对象 |
+| 10 | `docker inspect helmet-backend-1 --format '{{json .HostConfig.LogConfig}}'`(容器名以 `docker compose ps` 为准) | `max-size: 20m / max-file: 5`——日志轮转生效,不会写满盘 |
 
 ## 5. 日常运维
 
@@ -131,14 +134,25 @@ docker compose -f docker-compose.prod.yml ps
 # EMQX Dashboard(本地 Mac 执行,浏览器开 http://localhost:18083,账号 admin/.env 里的密码)
 ssh -L 18083:localhost:18083 <user>@<服务器IP>
 
-# 数据库手动备份(MVP 级:定期执行,产物拉回本地保存)
-docker compose -f docker-compose.prod.yml exec postgres pg_dump -U helmet helmet | gzip > backup_$(date +%Y%m%d).sql.gz
+# 数据库备份:每日自动 → COS(上线前清单 #6 ①;脚本 deploy/backup.sh,上传逻辑 backend/src/scripts/backup-upload.ts)
+sh backup.sh                       # 手动跑一次:pg_dump -Fc → 管道进 backend 容器上传到 COS backups/,并清理超过保留期的旧份
+crontab -e                         # 加一行(每天 03:00 北京时间=19:00 UTC,按服务器时区调整):
+#   0 3 * * * /home/ubuntu/AI-Smart-Helmet-01WeiChuang/deploy/backup.sh >> /var/log/helmet-backup.log 2>&1
+# 可选环境变量(写在 crontab 行首):BACKUP_RETENTION_DAYS(默认 30)、BACKUP_KEEP_MIN(至少保留几份,默认 7)、BACKUP_LOCAL_DIR(同时留本地副本)
+# 备份失败脚本非 0 退出并打印 ✕ 行;上传脚本拒绝非 PGDMP 输入——pg_dump 失败不会上传空文件。COS 保留期由脚本清理,不依赖桶生命周期规则
+
+# 恢复演练 / 事故恢复(用隔离库先演练一次再动生产)
+docker compose -f docker-compose.prod.yml exec -T postgres pg_restore -U helmet -d helmet --clean --if-exists --no-owner < helmet_<时间>.dump
+#   备份文件从 COS 控制台下载,或 backend 容器内用同一套凭证取回;恢复后跑 §4 #1/#3/#5 验证计数与关系
 ```
+
+- **容器日志轮转**(上线前清单 #6 ②):compose 所有服务 `logging: json-file max-size 20m × max-file 5`(`x-logging` 锚点),改动后 `up -d` 重建才生效;更久的历史不靠容器日志。
+- **对外拨测告警**(上线前清单 #6 ③,账号侧待负责人开通):UptimeRobot(免费档 5 分钟一次)或腾讯云「云拨测」新建 HTTP(s) 监控 → URL `https://dev-api.01weichuang.com/api/v1/health`、方法 GET、关键字匹配 `"status":"ok"`、失败 2 次告警到邮箱/微信;production 上线时把 `api.01weichuang.com` 再加一条。`/health` 返回 `503 draining` 只在发布重启的几秒内出现,拨测间隔远大于它,不会误报。
 
 - 改了 `deploy/.env` 里的 `EMQX_INTERNAL_TOKEN`:重跑 `sh render-config.sh` 再 `up -d`(backend 与 emqx 都要重启)。
 - `.env` 里 `COMPOSE_PROFILES=demo` 打开后,§5 所有命令自动包含 mock 服务;`git pull` 后 `up -d --build` 会连 mock 一起重建。
 - 改了 `Caddyfile`:`docker compose -f docker-compose.prod.yml restart gateway`(volume 挂载,无需重建)。
-- **production 环境**:按 CLAUDE.md 规划 Week 11–12 从本套复制——新服务器 + 新 `.env`(全部密钥重新生成)+ 域名去掉 `dev-` 前缀,步骤完全相同。
+- **production 环境**:按 §8 清单从本套复制——新服务器 + 新 `.env`(全部密钥重新生成)+ 域名去掉 `dev-` 前缀,步骤完全相同。
 
 ## 6. 安全基线(部署时核对)
 
@@ -159,7 +173,25 @@ docker compose -f docker-compose.prod.yml exec postgres pg_dump -U helmet helmet
 | backend 起不来:`P1001 Can't reach database` | postgres 容器健康检查未过就被连了,`docker compose ... ps` 看 postgres 状态;一般 restart backend 即愈(depends_on 已配 healthy,极少出现) |
 | Admin 页面白屏 | 强刷(Cmd+Shift+R);仍白屏看 gateway 日志 `docker compose ... logs gateway`,确认 /srv/admin 有产物(镜像构建时烧入,重建 gateway 镜像) |
 
-## 8. 待硬件确认后:MQTT over TLS(8883)
+## 8. production 首次部署清单(Week 11–12,从 development 复制;逐条打勾)
+
+与 §3 步骤完全相同,只有输入不同。**development 的任何密钥、数据库、证书都不复用**。
+
+| # | 项 | 与 development 的差异 |
+|---|----|----------------------|
+| 1 | 新服务器(腾讯云轻量 2C4G 起,同一账号) | 新实例;development 保留作联调/演示 |
+| 2 | DNS 三条 A 记录 | `api` / `admin` / `mqtt.01weichuang.com`(去掉 `dev-` 前缀)→ 新 IP;先解析再部署 |
+| 3 | 防火墙 | 同 §2 表;1883 只放硬件团队出口 IP;22 只放办公出口 |
+| 4 | `deploy/.env` | `cp .env.example .env` 后:`API_DOMAIN`/`ADMIN_DOMAIN` 填正式域名;**全部密钥重新 `openssl rand -hex 32`**(POSTGRES/JWT/ADMIN_JWT/EMQX_INTERNAL_TOKEN/MQTT_BACKEND_PASSWORD/EMQX_NODE_COOKIE/EMQX_DASHBOARD_PASSWORD);COS/短信/TRTC 用**正式**子账号密钥与正式应用(THIRD_PARTY.md);`TRUST_PROXY` 保持默认 1;`SOS_COUNTDOWN_SECONDS=60` 不改(决策 #28) |
+| 5 | Mock 常驻 | 生产**不开** `COMPOSE_PROFILES=demo`;演示走 development |
+| 6 | `sh render-config.sh` + `up -d --build` | 同 §3 ④⑤ |
+| 7 | 管理员与设备 | `create:admin` 新建(密码入密码管理器);真机设备用 `provision:device` 逐台开通,deviceSecret 交硬件产线 |
+| 8 | 备份 cron | §5 那一行 crontab;跑一次 `sh backup.sh` 看到 ✓,COS 里 `backups/` 有对象 |
+| 9 | 拨测 | §5 对外拨测加 `api.01weichuang.com` 一条 |
+| 10 | 验收 | §4 全部 10 条 + §6 安全基线逐条打勾;App 正式包 `EXPO_PUBLIC_API_URL=https://api.01weichuang.com/api/v1` |
+| 11 | 上线后 | THIRD_PARTY §3 提醒:给 `helmet-cos` 子账号换新密钥(旧密钥曾进过聊天),换后 `deploy/.env` 更新并 `up -d` |
+
+## 9. 待硬件确认后:MQTT over TLS(8883)
 
 ⏸️ 决策 #35 后延——待硬件扩展 4G 时,张森淼确认 4G 模组支持 TLS 及证书预置方式后:
 

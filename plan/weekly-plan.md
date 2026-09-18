@@ -263,7 +263,7 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 | 3 | **高德商用授权决策** | 汤总 | 企业 Key 未购许可前只是「短期、少量测试」额度：买基础版 ¥5 万/年，或换腾讯/百度（地图层独立组件，约一周）。见 THIRD_PARTY.md §7 |
 | 4 | Apple 公司账号 → TestFlight / APNs / Critical Alerts | 负责人 | ✅ D-U-N-S 已下发 576655751（2026-09-17）；等邓白氏→苹果同步（9-23 起在 Apple Developer App 重试组织信息）→ 付 ¥688 → 苹果审核；到位后 iOS 推送与 SOS 关键提醒补验 |
 | 5 | App 备案（腾讯云） | 负责人 | 安卓、iOS 各一条，包名 `com.lingyiweichuang.app`，前置已满足 |
-| 6 | **生产环境运维三件套** | B 线 | ① PostgreSQL 每日自动 `pg_dump` 到 COS（现只有手册里的手动命令）；② compose 各服务加 `logging: max-size/max-file`（默认 json-file 不轮转，跑几个月会把盘写满）；③ 对外 `/health` 拨测告警（腾讯云监控或 UptimeRobot） |
+| 6 | **生产环境运维三件套** | B 线 | ① ✅ PostgreSQL 每日自动 `pg_dump` 到 COS（2026-09-18：`deploy/backup.sh` + `backend/src/scripts/backup-upload.ts`，服务器 crontab 一行，DEPLOYMENT.md §5；**云端 crontab 待部署时加**）；② ✅ compose 全部服务 `logging: 20m × 5`（2026-09-18）；③ 对外 `/health` 拨测告警——步骤已写 DEPLOYMENT.md §5，**UptimeRobot / 腾讯云拨测账号侧待负责人开通** |
 
 ---
 
