@@ -114,14 +114,21 @@ function maybeSendEmergency(current: (typeof ROUTE)[number]): void {
     accuracy: 8,
   };
   if (SCENARIO === 'fall') {
-    // confidence/algorithmVersion 原样落库不参与软件判断（EVENTS.md §2.5）
+    // confidence/algorithmVersion/impactG/tiltDeg 原样落库不参与软件判断（EVENTS.md §2.5 / 4.3）；
+    // 冲击与倾角取 v0.6 手册例 6 的值，让演示数据与真机同形
     publish('event', 'possible_fall', {
       confidence: 0.87,
       algorithmVersion: 'mock-fall-v1',
+      impactG: 4.5,
+      tiltDeg: 85,
       location,
     });
   } else {
-    publish('event', 'manual_sos', { location });
+    publish('event', 'manual_sos', {
+      triggerMode: 'long_press',
+      pressDurationMs: 2300,
+      location,
+    });
   }
   log(
     `🚨 已触发 ${SCENARIO === 'fall' ? 'possible_fall' : 'manual_sos'}（服务端将开始 SOS 倒计时）`,
@@ -168,6 +175,8 @@ function maybeSendRisk(current: (typeof ROUTE)[number]): void {
     objectType: 'vehicle',
     direction: 'rear',
     distance: 15 - (pointsSent % 3) * 3,
+    ttcSeconds: 1.8,
+    approachSpeedKmh: 55,
     confidence: 0.92,
     algorithmVersion: 'mock-risk-v1',
     location,
