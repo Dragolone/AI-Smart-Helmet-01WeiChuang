@@ -34,6 +34,11 @@ export class RealtimeGateway
     private readonly prisma: PrismaService,
   ) {}
 
+  /**
+   * 握手已由适配器完成（客户端此时已 open），这里再校验 token 与注销状态后才登记进推送表——
+   * 中间有一次 DB 查询的窗口，窗口内的推送不会送达该连接。这是加速通道的既定口径（不补发，REST 兜底），
+   * 但写 e2e 时不能把客户端 open 当作"已订阅"（2026-09-18 CI 诊断）。
+   */
   async handleConnection(
     client: WebSocket,
     req: IncomingMessage,
