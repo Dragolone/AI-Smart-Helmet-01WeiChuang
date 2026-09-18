@@ -94,14 +94,20 @@
 
 | 字段 | 类型 | 必填 | 单位 | 说明 / 值域 |
 |------|------|------|------|-------------|
-| confidence | number | 选填 | — | 0 ~ 1，算法置信度，原样落库 |
+| confidence | number | 选填 | — | 0 ~ 1，算法置信度，原样落库（BLE 版：v0.6 载荷 0–100% ÷ 100） |
 | algorithmVersion | string | 选填 | — | 算法版本，原样落库 |
+| impactG | number | 选填 | g | 冲击力（v0.6 载荷 0.1 g 分辨率；原样落库供未来 AI 服务读取，软件不判断） |
+| tiltDeg | number | 选填 | ° | 倾角 0–255（v0.6 载荷；原样落库） |
 | location | object | 选填 | — | 摔倒时位置快照，字段同 4.2（latitude/longitude/coordinateSystem 必填，其余选填） |
+
+> 2026-09-19 补记：`impactG` / `tiltDeg` 是 App 中转把 v0.6 二进制载荷翻译成 envelope 时附上的原始字段（`app/src/services/ble/protocol.ts`），4G 版设备可选填；Mock 剧本同样带上，使演示数据与真机同形。
 
 ### 4.4 manual_sos（触发 SOS 状态机）
 
 | 字段 | 类型 | 必填 | 单位 | 说明 / 值域 |
 |------|------|------|------|-------------|
+| triggerMode | string (枚举) | 选填 | — | `long_press` \| `double_click`（v0.6 触发方式 1/2；原样落库） |
+| pressDurationMs | integer | 选填 | ms | 按键时长（v0.6 uint16；长按判定阈值 2000 ms 在头盔侧） |
 | location | object | 选填 | — | 同 4.3 location |
 
 > SOS 状态机为服务端权威（DECISIONS #8）：创建后服务端持久化 deadline 并经 WebSocket/Push 下发，App 只渲染倒计时；重复上报（同 eventId）不重复建单。
@@ -116,7 +122,9 @@
 | riskLevel | string (枚举) | 必填 | — | `low` \| `medium` \| `high`（✅ v0.6 三档 1/2/3 → low/medium/high；算法在头盔本地运行，此即算法口径；App 收到未知档位按 high 兜底） |
 | objectType | string (枚举) | 选填 | — | `vehicle` \| `pedestrian` \| `obstacle` \| `unknown`（✅ v0.6：0/1/2/3 → unknown/vehicle/pedestrian/obstacle；集合外的值**原样落库**并告警，不改写——留档原则） |
 | direction | string (枚举) | 选填 | — | `front` \| `rear` \| `left` \| `right`（✅ v0.6：1/2/3/4 → front/rear/left/right；未知值省略） |
-| distance | number | 选填 | m | ≥ 0，目标距离 |
+| distance | number | 选填 | m | ≥ 0，目标距离（v0.6 0.1 m 分辨率，最大 6553.5 m） |
+| ttcSeconds | number | 选填 | s | 预测碰撞时间 TTC（v0.6 0.1 s 分辨率；原样落库，展示用） |
+| approachSpeedKmh | number | 选填 | km/h | 目标逼近速度（v0.6 uint8；原样落库） |
 | confidence | number | 选填 | — | 0 ~ 1 |
 | algorithmVersion | string | 选填 | — | 原样落库 |
 | location | object | 选填 | — | 同 4.3 location |

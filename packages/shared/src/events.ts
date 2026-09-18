@@ -88,11 +88,19 @@ export interface PossibleFallPayload {
   /** 0 ~ 1，算法置信度，原样落库不参与软件判断 */
   confidence?: number;
   algorithmVersion?: string;
+  /** 冲击力（g），v0.6 载荷；App 中转附上，原样落库 */
+  impactG?: number;
+  /** 倾角（°），v0.6 载荷；原样落库 */
+  tiltDeg?: number;
   location?: LocationSnapshot;
 }
 
 /** 4.4 manual_sos（触发 SOS 状态机） */
 export interface ManualSosPayload {
+  /** v0.6 触发方式：1 长按 / 2 双击 */
+  triggerMode?: 'long_press' | 'double_click';
+  /** 按键时长（ms），v0.6 uint16 */
+  pressDurationMs?: number;
   location?: LocationSnapshot;
 }
 
@@ -103,6 +111,10 @@ export interface RiskEventPayload {
   direction?: RiskDirection;
   /** ≥0（m），目标距离 */
   distance?: number;
+  /** 预测碰撞时间（s），v0.6 载荷；原样落库 */
+  ttcSeconds?: number;
+  /** 目标逼近速度（km/h），v0.6 载荷；原样落库 */
+  approachSpeedKmh?: number;
   confidence?: number;
   algorithmVersion?: string;
   location?: LocationSnapshot;
