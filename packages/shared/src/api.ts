@@ -247,6 +247,12 @@ export interface PutSettingsRequest {
   settings: Record<string, string | number | boolean>;
 }
 
+/** PUT /devices/{id}/settings 响应：命令已创建、尚未送达（状态流转见 CommandPublic.status） */
+export interface PutSettingsResponse {
+  commandId: string;
+  status: 'pending';
+}
+
 export interface CommandPublic {
   commandId: string;
   deviceId: string;
@@ -475,7 +481,8 @@ export interface AdminUserRow {
   deviceCount: number;
 }
 
-export interface AdminDeviceRow extends DevicePublic {
+/** GET /admin/devices 列表项（API.md §10.1）：状态字段同 DevicePublic，但不含用户自定义名与绑定码 */
+export interface AdminDeviceRow extends Omit<DevicePublic, 'name' | 'bindCode'> {
   bindUser: { id: string; phone: string; nickname: string | null } | null;
 }
 

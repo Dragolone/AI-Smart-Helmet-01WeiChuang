@@ -8,6 +8,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { createHash, randomBytes, randomInt } from 'node:crypto';
+import { withTimeout } from '../common/with-timeout';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   SMS_PROVIDER,
@@ -35,6 +36,8 @@ const resendInterval = (): number =>
   envInt('SMS_CODE_RESEND_INTERVAL_SECONDS', 60);
 const dailyLimit = (): number => envInt('SMS_CODE_DAILY_LIMIT', 10);
 const maxAttempts = (): number => envInt('SMS_CODE_MAX_ATTEMPTS', 5);
+/** 单次短信通道调用的应用层超时（审计 AUTH-11）：挂起的 Provider 不能把发码请求一起挂住 */
+const sendTimeoutMs = (): number => envInt('SMS_SEND_TIMEOUT_MS', 10_000);
 
 const hashCode = (code: string, salt: string): string =>
   createHash('sha256').update(`${salt}:${code}`).digest('hex');
@@ -56,59 +59,73 @@ export class SmsCodeService {
 
   /**
    * 下发验证码。限频与日限在这里挡；手机号是否已注册由调用方按 purpose 先行校验。
-   * 发送失败时删掉刚建的记录再抛错——否则用户没收到码还要被限频 60s。
+   * 「查最新 → 计数 → 建记录」在一个事务里、按「用途+号码」持咨询锁串行化（审计 AUTH-04）：
+   * 同号并发发码只放行一条，其余按 60s 间隔 429——先查后写不加锁时并发全部放行、Provider 真发多条。
+   * 发送在事务外（不让第三方调用占着数据库连接）；发送失败/超时删掉刚建的记录再抛错——
+   * 否则用户没收到码还要被限频 60s。
    */
   async issue(phone: string, purpose: SmsCodePurpose): Promise<void> {
     const now = Date.now();
-    const latest = await this.prisma.smsCode.findFirst({
-      where: { phone, purpose },
-      orderBy: { createdAt: 'desc' },
-      select: { createdAt: true },
-    });
-    if (latest && now - latest.createdAt.getTime() < resendInterval() * 1000) {
-      throw new HttpException(
-        {
-          code: 'SMS_CODE_TOO_FREQUENT',
-          message: `请 ${resendInterval()} 秒后再试`,
-        },
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
-    }
     const dayAgo = new Date(now - 24 * 60 * 60 * 1000);
-    const sentToday = await this.prisma.smsCode.count({
-      where: { phone, purpose, createdAt: { gte: dayAgo } },
-    });
-    if (sentToday >= dailyLimit()) {
-      throw new HttpException(
-        {
-          code: 'SMS_CODE_DAILY_LIMIT',
-          message: '今日验证码发送次数已达上限',
-        },
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
-    }
-    // 顺手清掉该号码 24h 前的旧记录：无需定时任务，表不会无限涨
-    await this.prisma.smsCode.deleteMany({
-      where: { phone, createdAt: { lt: dayAgo } },
-    });
-
     const code = randomInt(0, 1_000_000).toString().padStart(6, '0');
     const salt = randomBytes(8).toString('hex');
-    const row = await this.prisma.smsCode.create({
-      data: {
-        phone,
-        purpose,
-        salt,
-        codeHash: hashCode(code, salt),
-        expiresAt: new Date(now + ttlSeconds() * 1000),
-      },
-      select: { id: true },
-    });
-    try {
-      await this.sms.send(phone, {
-        template: 'verify_code',
-        params: { code, ttlMinutes: Math.round(ttlSeconds() / 60) },
+
+    const row = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`sms:${purpose}:${phone}`}))`;
+      const latest = await tx.smsCode.findFirst({
+        where: { phone, purpose },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
       });
+      if (
+        latest &&
+        now - latest.createdAt.getTime() < resendInterval() * 1000
+      ) {
+        throw new HttpException(
+          {
+            code: 'SMS_CODE_TOO_FREQUENT',
+            message: `请 ${resendInterval()} 秒后再试`,
+          },
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+      const sentToday = await tx.smsCode.count({
+        where: { phone, purpose, createdAt: { gte: dayAgo } },
+      });
+      if (sentToday >= dailyLimit()) {
+        throw new HttpException(
+          {
+            code: 'SMS_CODE_DAILY_LIMIT',
+            message: '今日验证码发送次数已达上限',
+          },
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+      // 顺手清掉该号码 24h 前的旧记录：无需定时任务，表不会无限涨
+      await tx.smsCode.deleteMany({
+        where: { phone, createdAt: { lt: dayAgo } },
+      });
+      return tx.smsCode.create({
+        data: {
+          phone,
+          purpose,
+          salt,
+          codeHash: hashCode(code, salt),
+          expiresAt: new Date(now + ttlSeconds() * 1000),
+        },
+        select: { id: true },
+      });
+    });
+
+    try {
+      await withTimeout(
+        this.sms.send(phone, {
+          template: 'verify_code',
+          params: { code, ttlMinutes: Math.round(ttlSeconds() / 60) },
+        }),
+        sendTimeoutMs(),
+        'sms.send(verify_code)',
+      );
     } catch (err) {
       await this.prisma.smsCode.delete({ where: { id: row.id } });
       const message = err instanceof Error ? err.message : String(err);

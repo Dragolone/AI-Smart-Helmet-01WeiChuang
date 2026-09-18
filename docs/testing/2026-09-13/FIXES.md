@@ -40,10 +40,17 @@
 | **SOS-09**（2026-09-17 补） | `deliverPending` 排序改为 `[{channel:'desc'},{createdAt:'asc'},{id:'asc'}]`：同一单 sms 先于 push，全序稳定，`take:100` 也优先装短信行；测试助手 `notificationsOf` 同口径读回 | `sos/sos-notifier.service.ts`、`test/helpers/audit-sos.ts`、新增 `test/sos-notify-order.e2e-spec.ts` | 新回归 2/2 转绿（含 push 行 backdate 5s 的最坏情况）；audit-sos-faults 7/7；全量 e2e 46 套件 452/452 |
 | **APP-02**（2026-09-17 补） | 删除 5 个 spike-* 页与 `EXPO_PUBLIC_TRTC_SDKAPPID/SECRETKEY`（对讲早已改服务端签发 UserSig），`.env.example` 同步 | `app/src/app/(tabs)/spike-*.tsx`、`app/src/app/spike-map-web.tsx`、`app/.env.example`、`docs/THIRD_PARTY.md` | 客户端包内不再含任何 TRTC 密钥；App 单测 172/172 |
 | **DBOPS-06** | 用户守卫拒绝 `typ=admin` 的 token；两密钥同值时启动打 ERROR 日志（不阻断启动） | `auth/jwt-auth.guard.ts`、`admin/admin.constants.ts` | 转绿 |
+| **AUTH-04**（2026-09-18 补） | `issue()` 的「查最新 → 计数 → 建记录」放进事务并按 `sms:<purpose>:<phone>` 取 `pg_advisory_xact_lock`（项目既有约定），短信在事务外发 | `auth/sms-code.service.ts` | audit-auth-account「并发发送同一号 ×6」改为精确断言（1×204 + 5×429、库 1 条、Provider 1 次）转绿；单测断言锁在查写之前 |
+| **AUTH-11**（2026-09-18 补） | 验证码短信调用包 `SMS_SEND_TIMEOUT_MS`（默认 10s）超时，超时按发送失败删记录并 503；`TencentSmsProvider` httpProfile `reqTimeout: 10` | `auth/sms-code.service.ts`、`common/with-timeout.ts`、`providers/tencent-sms.provider.ts` | 单测（假时钟）：挂起 Provider → 2s 后 503 + 删记录 |
+| **AUTH-07**（2026-09-18 补） | `trust proxy` 改由 `TRUST_PROXY` 决定，默认不信任任何 X-Forwarded-For；compose 显式 `TRUST_PROXY=1`（backend 只经 Caddy 一跳） | `common/trust-proxy.ts`、`main.ts`、`deploy/docker-compose.prod.yml`、`.env.example` | 单测覆盖取值解析；audit-auth-ratelimit 既有「无 trust proxy 伪造 XFF 不能绕过」用例即默认形态 |
+| **SOS-06**（2026-09-18 补） | `finalizeNotified` 内联首投包 try/catch 只记日志：终态化已提交即成功，投递由扫描续投 | `sos/sos-notifier.service.ts` | audit-sos-faults ③ 由「观察 500」改为断言 200 + notified、扫描续投恰一次 |
+| **DBOPS-07**（2026-09-18 补） | 自管 SIGTERM/SIGINT：先把 `/health` 切到 `503 draining`，等 `SHUTDOWN_DRAIN_MS`（默认 3s）再 `app.close()` 退出 0；compose `stop_grace_period: 15s` | `main.ts`、`common/shutdown-state.ts`、`health/health.controller.ts` | 新增 audit-shutdown（真实进程 `node dist/main.js`）：SIGTERM 后 150ms 内 /health 503 draining、排空期内登录接口仍 401、期满退出 0 并释放端口；CI 把 Build 提到 e2e 之前 |
+| **CONTRACT-04/05/06/11/12/13/14/15**（2026-09-18 补） | shared 增 `PutSettingsResponse`、`AdminDeviceRow` 改 `Omit<DevicePublic,'name'\|'bindCode'>`；API.md §1.1 补 SERVICE_UNAVAILABLE 与各节错误码索引、§1.2 补 draining、§8 补 executedAt 非法值口径、§13 补 joinedAt；EVENTS.md 4.5 改为「原样落库并告警」；删除未文档化的根路由 `GET /api/v1/`（AppController/AppService）；CLAUDE.md 找回密码页状态更新 | `packages/shared/src/api.ts`、`docs/API.md`、`docs/EVENTS.md`、`CLAUDE.md`、`backend/src/app.module.ts` | shared/backend/admin typecheck 通过；App 侧 `devices.ts` 改用 PutSettingsResponse 归 A 线 |
+| **HYG-01/02**（2026-09-18 补） | `git rm` 两个已跟踪的「 2」副本；`.gitignore` 加 `* 2.*` / `* 2/`；backend tsconfig `exclude` 与 jest `testPathIgnorePatterns` 排除「 2.ts」 | `.gitignore`、`backend/tsconfig.json`、`backend/package.json`、`backend/test/jest-e2e*.json` | `git ls-files \| grep ' 2\.'` 为空 |
 
 ## 未修（需拍板或超出本轮范围）
 
-- SOS-06/07（P3，语义记录）、AUTH-04/07/11、MQTT-03（Caddy 是否暴露 `/internal`，属部署配置）、~~APP-02~~（**2026-09-17 已修，见上表**）、APP-04 的 9 条文案、DBOPS-07（SIGTERM 排空期）、DBOPS-08（`npm audit fix` 与 Dockerfile `--omit=dev`，涉及依赖升级需双人同意）、仓库卫生（HYG/ENV）。
+- ~~SOS-06、AUTH-04/07/11、DBOPS-07、CONTRACT 差异、HYG~~（**2026-09-18 已修，见上表**）；SOS-07（BY_DESIGN：Provider 已收但 sent 未落库时下一轮重发，上限 `SOS_NOTIFY_MAX_ATTEMPTS`，宁可重发不可漏发——记录为设计口径）；MQTT-03（网关 `/api/v1/internal/*` 404，随部署配置批次 `chore/prod-ops`）；APP-04 的 9 条文案（A 线）；DBOPS-08（`npm audit fix` 涉及依赖升级需双人同意；本机 npm 源为 npmmirror 不提供 audit 接口，需 `--registry=https://registry.npmjs.org` 复跑；Dockerfile 含 devDependencies 是头注明的刻意取舍：provision/create:admin 脚本与 prisma CLI 要在容器内跑）；ENV-01/02 本机环境。
 
 ## 修复后的最终校验
 

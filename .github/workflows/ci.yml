@@ -50,6 +50,10 @@ jobs:
           DATABASE_URL: postgresql://helmet:helmet_ci@localhost:5432/helmet_ci
         run: npx prisma migrate deploy
 
+      # Build 先于 e2e：audit-shutdown 用例起真实进程 node dist/main.js 验证 SIGTERM 排空
+      - name: Build
+        run: npm run build --workspace backend --if-present && npm run build --workspace admin --if-present
+
       # 关键 API 集成测试（注册/登录/刷新全链路，跑在上一步刚建好的库上）
       - name: Backend e2e
         working-directory: backend
@@ -59,6 +63,3 @@ jobs:
           ADMIN_JWT_SECRET: ci_only_admin_secret
           EMQX_INTERNAL_TOKEN: ci_only_internal_token
         run: npm run test:e2e
-
-      - name: Build
-        run: npm run build --workspace backend --if-present && npm run build --workspace admin --if-present

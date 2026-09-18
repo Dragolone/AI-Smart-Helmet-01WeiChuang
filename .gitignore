@@ -52,3 +52,7 @@ __pycache__/
 *.pyc
 app/modules/*/android/.gradle/
 app/modules/*/android/build/
+
+# iCloud 同步目录长出的「xxx 2.ext」杂散副本（审计 HYG-01/02）：不进 Git；仓库建议放非同步目录
+* 2.*
+* 2/

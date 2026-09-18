@@ -187,7 +187,7 @@ describe('审计 §4 SOS 故障注入 (e2e, 手动 tick)', () => {
     expect(c!.latitude).toBeNull();
   });
 
-  it('③ 通知任务行已创建（事务已提交）后投递前中断：confirm 返回 5xx 但状态已 notified；下一轮扫描续投且恰好一次', async () => {
+  it('③ 通知任务行已创建（事务已提交）后投递前中断：confirm 仍 200 notified（终态化已提交即成功，SOS-06）；下一轮扫描续投且恰好一次', async () => {
     const c = (await sosByEvent(
       prisma,
       (
@@ -204,13 +204,15 @@ describe('审计 §4 SOS 故障注入 (e2e, 手动 tick)', () => {
       'findMany',
       new Error('audit: 投递前中断（模拟）'),
     );
-    let confirmStatus: number;
+    let confirmRes: request.Response;
     try {
-      confirmStatus = (await confirmSos(http, owner.token, c.id)).status;
+      confirmRes = await confirmSos(http, owner.token, c.id);
     } finally {
       fault.restore();
     }
-    expect(confirmStatus).toBe(500); // 观察：App 收到 5xx，但服务端状态其实已 notified
+    // 投递阶段的异常不外抛：App 拿到 200 + notified，与库内状态一致；投递由扫描按通知行续投
+    expect(confirmRes.status).toBe(200);
+    expect(confirmRes.body.status).toBe('notified');
     expect(
       (await prisma.sosCase.findUnique({ where: { id: c.id } }))!.status,
     ).toBe('notified');

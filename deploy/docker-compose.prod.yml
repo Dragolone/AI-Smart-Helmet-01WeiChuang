@@ -48,8 +48,14 @@ services:
         condition: service_healthy
       emqx:
         condition: service_started
+    # SIGTERM 后先 /health→503 排空 SHUTDOWN_DRAIN_MS 再关闭（默认 3s）；宽限期要比它长，否则 compose 会直接 SIGKILL
+    stop_grace_period: 15s
     environment:
       DATABASE_URL: postgresql://helmet:${POSTGRES_PASSWORD}@postgres:5432/helmet
+      # backend 只经 gateway 一跳到达：信任第一跳的 X-Forwarded-For，req.ip 才是真实客户端（限频按此计）
+      TRUST_PROXY: ${TRUST_PROXY:-1}
+      SHUTDOWN_DRAIN_MS: ${SHUTDOWN_DRAIN_MS:-}
+      SMS_SEND_TIMEOUT_MS: ${SMS_SEND_TIMEOUT_MS:-}
       MQTT_URL: mqtt://emqx:1883
       MQTT_BACKEND_CLIENT_ID: backend_ingest
       MQTT_BACKEND_USERNAME: ${MQTT_BACKEND_USERNAME:-backend_ingest}

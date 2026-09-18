@@ -9,6 +9,9 @@ const hash = (code: string, salt: string): string =>
 
 describe('SmsCodeService（单测，mock 数据层与短信通道）', () => {
   const prismaMock = {
+    // issue() 在事务内持咨询锁（审计 AUTH-04）：单测里事务回调直接拿到同一个 mock
+    $executeRaw: jest.fn(),
+    $transaction: jest.fn(),
     smsCode: {
       findFirst: jest.fn(),
       count: jest.fn(),
@@ -24,8 +27,14 @@ describe('SmsCodeService（单测，mock 数据层与短信通道）', () => {
 
   beforeEach(async () => {
     jest.resetAllMocks();
+    jest.useRealTimers();
     delete process.env.SMS_CODE_RESEND_INTERVAL_SECONDS;
     delete process.env.SMS_CODE_DAILY_LIMIT;
+    delete process.env.SMS_SEND_TIMEOUT_MS;
+    prismaMock.$executeRaw.mockResolvedValue(1);
+    prismaMock.$transaction.mockImplementation(
+      (fn: (tx: typeof prismaMock) => Promise<unknown>) => fn(prismaMock),
+    );
     prismaMock.smsCode.count.mockResolvedValue(0);
     prismaMock.smsCode.deleteMany.mockResolvedValue({ count: 0 });
     prismaMock.smsCode.create.mockResolvedValue({ id: 'c1' });
@@ -56,6 +65,40 @@ describe('SmsCodeService（单测，mock 数据层与短信通道）', () => {
     expect(created.codeHash).toBe(hash(message.params.code, created.salt));
     expect(created.codeHash).not.toContain(message.params.code);
     expect(created.expiresAt.getTime()).toBeGreaterThan(Date.now() + 290_000);
+  });
+
+  it('issue：事务内先按「用途+号码」取咨询锁再查写（并发发码只放行一条，审计 AUTH-04）；短信在事务外发', async () => {
+    prismaMock.smsCode.findFirst.mockResolvedValue(null);
+    await service.issue('13800138000', 'register');
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(1);
+    const lockSql = prismaMock.$executeRaw.mock
+      .calls[0][0] as TemplateStringsArray;
+    expect(lockSql.join('?')).toContain('pg_advisory_xact_lock');
+    expect(prismaMock.$executeRaw.mock.calls[0][1]).toBe(
+      'sms:register:13800138000',
+    );
+    const order = (fn: jest.Mock) => fn.mock.invocationCallOrder[0];
+    expect(order(prismaMock.$executeRaw)).toBeLessThan(
+      order(prismaMock.smsCode.findFirst),
+    );
+    expect(order(prismaMock.smsCode.create)).toBeLessThan(order(smsMock.send));
+  });
+
+  it('issue：短信通道挂起 → SMS_SEND_TIMEOUT_MS 后按失败处理：删记录 + 503（不占 60s 限频，审计 AUTH-11）', async () => {
+    jest.useFakeTimers();
+    process.env.SMS_SEND_TIMEOUT_MS = '2000';
+    prismaMock.smsCode.findFirst.mockResolvedValue(null);
+    smsMock.send.mockReturnValue(new Promise<void>(() => undefined)); // 永不 resolve
+    const pending = service.issue('13800138000', 'register');
+    const assertion = expect(pending).rejects.toMatchObject({
+      response: { code: 'SMS_SEND_FAILED' },
+      status: 503,
+    });
+    await jest.advanceTimersByTimeAsync(2_001);
+    await assertion;
+    expect(prismaMock.smsCode.delete).toHaveBeenCalledWith({
+      where: { id: 'c1' },
+    });
   });
 
   it('issue：60s 内重发 → 429 SMS_CODE_TOO_FREQUENT，不发短信', async () => {
