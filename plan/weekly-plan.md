@@ -235,6 +235,10 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 > 6. **设备页设置项补齐**：清单 14 项现在只暴露音量和大灯。跌倒检测开关 + 灵敏度、雷达开关 + 预警距离、障碍预警、SOS 按键使能、振动挡位、蜂鸣开关都可以做成开关 / 档位——后端已校验、Mock 已回执。暴露哪些让汤总定，UI 可以先做。
 > 7. **Android 正式签名证书**（上线前清单 #1）：keytool 生成、入密码管理器、改 release 签名。现在 release 包还是 debug keystore，不能上架；不依赖任何外部件。
 > 8. iOS 一个边界：系统回收进程后 BLE 状态恢复能否拉起 App（`restoreStateIdentifier` 配了但从没触发过），找机会用内存压力测一次，结论记 DEVELOPMENT.md 平台限制清单。
+> 9. **设置显示与头盔实际状态对齐**（负责人 2026-09-19 要求加）：云端「当前生效设置」只在下发成功时写入，头盔自己变了它看不到。最明显的是大灯——v0.6 内存表 0x26 标「掉电不保存」，头盔重启后回到关，但 App 设备页和后台仍显示上次下发的挡位；用 RECOVERY 恢复出厂、或别的手机改过设置也是同样问题。
+>    - **你这边（现在可做）**：握手读完 deviceId 和固件后，多发一条 READ `02 <seq> 20 0E`，把 0x20–0x2D 共 14 字节一次读回；按 `protocol.ts` 现有的键→寄存器映射反过来翻成键值（布尔寄存器 0/1 → false/true，其余原值），用 shared `checkDeviceSetting` 过一遍。开发期先在日志里打出与云端 `GET /devices/{id}/settings` 的差异。
+>    - **上报接口由 B 线加**（拟 `POST /devices/{id}/settings/reported`，body `{ settings }`：服务端按清单校验后合入生效设置，该键有未终态命令时跳过，免得盖掉正在下发的值）。Contract 定稿后我在群里说，你再接上调用。
+>    - 验收：仿真器把 0x26 改成 0 模拟重启 → App 重连后 5 s 内设备页与后台都显示「大灯 关」。
 >
 > **等硬件回复再动：** 视频四项到了开 RTSP Spike；v0.6 修正确认后核对 protocol.ts 两处假设（obstacle_risk 与 collision_risk 载荷同布局、RESEND 是否只含四类高危）。
 
