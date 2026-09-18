@@ -13,6 +13,7 @@ import { ArrowLeftOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api/client'
+import DeviceSettingsView from '../components/DeviceSettingsView'
 import QueryError from '../components/QueryError'
 import type { AdminDeviceDetail, AdminEventRow } from '@helmet/shared'
 
@@ -85,7 +86,7 @@ export default function DeviceDetailPage() {
               {formatTime(d.boundAt)}
             </Descriptions.Item>
             <Descriptions.Item label="当前生效设置" span={3}>
-              <code>{JSON.stringify(d.settings ?? {})}</code>
+              <DeviceSettingsView settings={d.settings} />
             </Descriptions.Item>
           </Descriptions>
           <Typography.Title level={5} style={{ marginTop: 24 }}>
