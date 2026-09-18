@@ -56,3 +56,6 @@ app/modules/*/android/build/
 # iCloud 同步目录长出的「xxx 2.ext」杂散副本（审计 HYG-01/02）：不进 Git；仓库建议放非同步目录
 * 2.*
 * 2/
+
+# 批量开通产物（provision:batch）：含 deviceSecret 的 CSV 与二维码，交接后销毁
+backend/provision-out/

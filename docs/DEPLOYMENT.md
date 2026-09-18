@@ -89,6 +89,8 @@ docker compose -f docker-compose.prod.yml logs -f backend
 ```bash
 docker compose -f docker-compose.prod.yml exec backend npm run create:admin       # 密码只显示一次
 docker compose -f docker-compose.prod.yml exec backend npm run provision:device   # deviceSecret 只显示一次
+docker compose -f docker-compose.prod.yml exec backend npm run provision:batch -- --count 20   # 产线批量开通:CSV + 二维码,产物在容器 /repo/backend/provision-out/
+docker compose -f docker-compose.prod.yml cp backend:/repo/backend/provision-out ./provision-out   # 拷出后交接,两边都销毁
 ```
 
 **⑦ 常驻演示 Mock 头盔**(CLAUDE.md「演示环境常驻 Mock 设备跑剧本,保证随时可 Demo」;compose 服务 `mock`,与外部真机/Mock 同认证同 Contract):
@@ -185,7 +187,7 @@ docker compose -f docker-compose.prod.yml exec -T postgres pg_restore -U helmet 
 | 4 | `deploy/.env` | `cp .env.example .env` 后:`API_DOMAIN`/`ADMIN_DOMAIN` 填正式域名;**全部密钥重新 `openssl rand -hex 32`**(POSTGRES/JWT/ADMIN_JWT/EMQX_INTERNAL_TOKEN/MQTT_BACKEND_PASSWORD/EMQX_NODE_COOKIE/EMQX_DASHBOARD_PASSWORD);COS/短信/TRTC 用**正式**子账号密钥与正式应用(THIRD_PARTY.md);`TRUST_PROXY` 保持默认 1;`SOS_COUNTDOWN_SECONDS=60` 不改(决策 #28) |
 | 5 | Mock 常驻 | 生产**不开** `COMPOSE_PROFILES=demo`;演示走 development |
 | 6 | `sh render-config.sh` + `up -d --build` | 同 §3 ④⑤ |
-| 7 | 管理员与设备 | `create:admin` 新建(密码入密码管理器);真机设备用 `provision:device` 逐台开通,deviceSecret 交硬件产线 |
+| 7 | 管理员与设备 | `create:admin` 新建(密码入密码管理器);真机设备用 `provision:batch` 按批开通(CSV + 二维码交产线,单台用 `provision:device`),deviceSecret 交硬件产线 |
 | 8 | 备份 cron | §5 那一行 crontab;跑一次 `sh backup.sh` 看到 ✓,COS 里 `backups/` 有对象 |
 | 9 | 拨测 | §5 对外拨测加 `api.01weichuang.com` 一条 |
 | 10 | 验收 | §4 全部 10 条 + §6 安全基线逐条打勾;App 正式包 `EXPO_PUBLIC_API_URL=https://api.01weichuang.com/api/v1` |
