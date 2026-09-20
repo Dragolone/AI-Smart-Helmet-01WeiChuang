@@ -67,7 +67,8 @@
   - D-U-N-S：576655751
   - Legal Entity Name：Shenzhen Lingyi Weichuang Technology Co., Ltd.
   - Headquarters Address：Room 402, Building 3, Pingshan Craftsman Park, No. 33 Cuijing Road, Zhukeng Community, Longtian Sub-district, Pingshan District, Shenzhen, CN 518118
-  - 下一步：付 ¥688 → Apple 审核（可能来电核实）→ 到位后 TestFlight 给硬件装 iPhone 包、APNs 补验、申请 Critical Alerts
+  - **2026-09-20 Enroll 填表进度**：机构信息已填（网站 01weichuang.com、电话 15014036340、机构邮箱 zhongqilong@01weichuang.com 已 Verified）；Signing Authority 关闭，验证人 = 法人龙俊杰（Junjie Long / Legal Representative / 15014036340）。**两个坑**：① 验证人邮箱**必须是公司域名**（@01weichuang.com），QQ 邮箱报 Invalid Email Address / lgEmail 未完成——需先给法人开公司邮箱；② 反复 Back 重填触发 **Work email verification is blocked**，Apple 要求联系支持（回案例 102956478091 求解封）或等约 24 h。下次一次填完，别多点 Verify。
+  - 下一步：解封后补验证人公司邮箱 → 付 ¥688 → Apple 审核（可能来电核实）→ 到位后 TestFlight 给硬件装 iPhone 包、APNs 补验、申请 Critical Alerts
 - **阻塞**：iOS 真机现用个人开发证书（7 天过期需重装）；TestFlight 分发、APNs 远程推送、Bundle ID 统一都等它
 - **公司信息**：深圳零一唯创科技有限公司 / 91440300MAK7XEPD38 / 深圳市坪山区龙田街道竹坑社区翠景路33号3栋坪山工匠园402
 - **后续动作**：账号下来后统一正式 Bundle ID（改 `app.json` → `npx expo prebuild --clean`），并同步更新高德 iOS Key 的 Bundle ID 绑定
