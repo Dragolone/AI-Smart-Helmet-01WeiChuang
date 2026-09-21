@@ -243,6 +243,18 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 >
 > **等硬件回复再动：** 视频四项到了开 RTSP Spike；v0.6 修正确认后核对 protocol.ts 两处假设（obstacle_risk 与 collision_risk 载荷同布局、RESEND 是否只含四类高危）。
 
+> **📣 A 线回复（2026-09-21）——④⑤⑥⑨ 与 ② 已做完并合 main**
+>
+> 🔴 **先说一个线上缺陷（决策 #43 的连带影响，已修）**：App 的大灯一直发布尔 `light: true/false`，而 `DEVICE_SETTINGS` 把 light 定义为 int 0–3，服务端按表校验后 **dev 上「大灯 开」从 #43 合并那天起就一直 400**。实测 `PUT {light:true}` → 400 `VALIDATION_FAILED`、`PUT {light:1}` → 202。现在设备页按 0–3 出四档（关/低亮/高亮/爆闪），云端历史存的 `light: true` 按低亮显示、下发一次即自愈。以后新增设置项时请留意：**清单里的类型就是唯一口径，App 不再自己猜。**
+>
+> - **④ 双份参数表已消除**：`protocol.ts` 只保留「键 → 寄存器地址」，类型与取值范围全部改调 shared `checkDeviceSetting`，两端不可能再对同一个值有不同解释。`settingToRegisterWrite` 现在对类型不符/越界一律返回 null → 回执 failed，与服务端同口径。
+> - **⑥ 设备页设置项已补齐**：新组件 `components/device-settings.tsx` 直接按 `DEVICE_SETTINGS` 渲染——bool 出开/关，小范围 int 出档位 chip（大灯、振动、灵敏度），`radarDistance` 出步进器。当前暴露 10 项（跌倒检测/灵敏度、SOS 按键、雷达/预警距离、障碍预警、大灯、振动、蜂鸣、断连蜂鸣），心跳与定位周期属工程参数没给终端用户。**要加/减哪项是一行数组的事**（`EXPOSED_SETTINGS`），汤总定了告诉我。
+> - **⑨ App 侧已完成，但需要你重新部署 dev-api**：握手加了 Step 6，读回 `0x20–0x2D` 共 14 字节 → `registersToSettings()` 翻成键值 → 调 `POST /devices/{id}/settings/reported`。排在补传高危事件之后（保命链路优先），读失败或网络不通只记日志、不影响链路。**dev-api 现在这个接口还是 404（云端停在 #43，没到 82df138）**，麻烦你更新一次，我再用仿真器跑「0x26 改 0 模拟重启 → App 重连后设备页显示大灯关」的验收。单测已覆盖读回翻译与上报（含大灯掉电、越界字节丢弃、上报失败不断链）。
+> - **⑤ 事件详情已展示新字段**：冲击力/倾角、触发方式/按键时长、预计碰撞时间/逼近速度，有就显示、没有不占位。模拟器对 dev 实测：跌倒事件显示 Impact 4.5 g / Tilt 85°。
+> - **② 回执 errorCode 展示已检查并改进**：路径本来就通，但显示的是原始码。现在正文说人话（`ERR_BATTERY_LOW` → 「头盔电量过低，暂时无法修改设置」），原始码留在括号里给技术支持；单测遍历 `HELMET_ERROR_CODES` 保证以后新增的码不会漏文案。
+>
+> **仍欠着（需要真机/负责人）**：① 双端真机回归（REGRESSION.md 两列 37 行还是空的）、③ 华为复验扫码绑定、⑦ Android 正式签名证书（keytool 我能跑，密码要负责人定并进密码管理器）、⑧ iOS 被系统回收后能否靠 BLE 状态恢复拉起。
+
 > **📣 给 A 线的通知（2026-09-09，B 线）——注册流程变了，请先看这段再动手**
 >
 > 1. **注册现在必须短信验证码**（负责人拍板）。后端已上线三个接口：`POST /auth/sms-code`、`POST /auth/register`（新增必填 `code`）、`POST /auth/reset-password`；Contract 见 API.md §2，类型在 shared（`SmsCodeRequest` / `RegisterRequest.code` / `ResetPasswordRequest`），`authApi` 已加 `sendSmsCode` / `resetPassword` 两个调用。
