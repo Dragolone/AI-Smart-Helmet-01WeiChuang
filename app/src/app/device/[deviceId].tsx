@@ -23,7 +23,7 @@ import ReAnimated, {
 
 import { devicesApi } from "@/api/devices";
 import { showToast } from "@/components/toast";
-import { toUserMessage } from "@/api/error-messages";
+import { helmetErrorText, toUserMessage } from "@/api/error-messages";
 import { Badge } from "@/components/badge";
 import { BleOnboardingCard } from "@/components/ble-onboarding";
 import { DeviceSettingList } from "@/components/device-settings";
@@ -326,8 +326,9 @@ export default function DeviceDetailScreen() {
               }
             : lastCmd.status === "failed"
               ? {
+                  // 正文说人话，原始码留在括号里给技术支持看
                   text: lastCmd.errorCode
-                    ? t("device.cmd.failedCode", { code: lastCmd.errorCode })
+                    ? `${helmetErrorText(lastCmd.errorCode, t)}（${lastCmd.errorCode}）`
                     : t("device.cmd.failed"),
                   color: theme.danger,
                 }

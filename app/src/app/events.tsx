@@ -126,6 +126,44 @@ function readableFields(
       label: t("events.field.distance"),
       value: `${payload.distance.toFixed(1)} m`,
     });
+  // v0.6 载荷里由 App 中转附上的硬件原始量（EVENTS.md 4.3–4.5）：有就显示，没有不占位
+  if (typeof payload.ttcSeconds === "number")
+    out.push({
+      label: t("events.field.ttc"),
+      value: `${payload.ttcSeconds.toFixed(1)} s`,
+    });
+  if (typeof payload.approachSpeedKmh === "number")
+    out.push({
+      label: t("events.field.approachSpeed"),
+      value: `${Math.round(payload.approachSpeedKmh)} km/h`,
+    });
+  if (typeof payload.impactG === "number")
+    out.push({
+      label: t("events.field.impact"),
+      value: `${payload.impactG.toFixed(1)} g`,
+    });
+  if (typeof payload.tiltDeg === "number")
+    out.push({
+      label: t("events.field.tilt"),
+      value: `${Math.round(payload.tiltDeg)}°`,
+    });
+  if (
+    payload.triggerMode === "long_press" ||
+    payload.triggerMode === "double_click"
+  )
+    out.push({
+      label: t("events.field.triggerMode"),
+      value: t(
+        payload.triggerMode === "long_press"
+          ? "events.trigger.longPress"
+          : "events.trigger.doubleClick",
+      ),
+    });
+  if (typeof payload.pressDurationMs === "number")
+    out.push({
+      label: t("events.field.pressDuration"),
+      value: `${(payload.pressDurationMs / 1000).toFixed(1)} s`,
+    });
   if (typeof payload.confidence === "number")
     out.push({
       label: t("events.field.confidence"),

@@ -35,3 +35,28 @@ export function toUserMessage(err: unknown): string {
   // fetch 网络层失败（后端没起 / 无网络）
   return translate("error.network");
 }
+
+/**
+ * 头盔回执错误码 → 用户看得懂的一句话（BLE v0.6 §3.0，清单见 shared HELMET_ERROR_CODES）。
+ * 回执里的码形如 `ERR_PARAM_VALUE:volume`（冒号后是设置键）——用户不该读到这种东西，
+ * 但技术支持需要，所以正文说人话、原始码留在括号里。
+ */
+export function helmetErrorText(
+  code: string,
+  t: (key: MessageKey) => string,
+): string {
+  const [name] = code.split(":");
+  const key = HELMET_ERROR_TEXT[name];
+  return key ? t(key) : code;
+}
+
+const HELMET_ERROR_TEXT: Record<string, MessageKey | undefined> = {
+  ERR_LENGTH: "device.err.protocol",
+  ERR_INSTRUCTION: "device.err.protocol",
+  ERR_ADDR_RANGE: "device.err.unsupported",
+  UNSUPPORTED_SETTING: "device.err.unsupported",
+  ERR_EPROM_LOCKED: "device.err.locked",
+  ERR_PARAM_VALUE: "device.err.paramValue",
+  ERR_BATTERY_LOW: "device.err.batteryLow",
+  ERR_HARDWARE_FAULT: "device.err.hardware",
+};

@@ -1,6 +1,12 @@
 // device 页文案（设备详情 + 绑定设备）。三种语言的 key 必须一一对应。
 export const device = {
   "zh-CN": {
+    "device.err.protocol": "头盔没听懂这条指令，请重试",
+    "device.err.unsupported": "这台头盔不支持该设置",
+    "device.err.locked": "头盔设置被锁定，请重启头盔后重试",
+    "device.err.paramValue": "该取值头盔不接受",
+    "device.err.batteryLow": "头盔电量过低，暂时无法修改设置",
+    "device.err.hardware": "头盔硬件异常，请联系售后",
     "device.level.off": "关",
     "device.level.lightLow": "低亮",
     "device.level.lightHigh": "高亮",
@@ -107,6 +113,12 @@ export const device = {
     "device.bindAction": "绑定",
   },
   "zh-TW": {
+    "device.err.protocol": "頭盔沒聽懂這條指令，請重試",
+    "device.err.unsupported": "這台頭盔不支援該設定",
+    "device.err.locked": "頭盔設定被鎖定，請重啟頭盔後重試",
+    "device.err.paramValue": "該取值頭盔不接受",
+    "device.err.batteryLow": "頭盔電量過低，暫時無法修改設定",
+    "device.err.hardware": "頭盔硬體異常，請聯絡售後",
     "device.level.off": "關",
     "device.level.lightLow": "低亮",
     "device.level.lightHigh": "高亮",
@@ -213,6 +225,14 @@ export const device = {
     "device.bindAction": "綁定",
   },
   en: {
+    "device.err.protocol":
+      "The helmet did not understand the command; try again",
+    "device.err.unsupported": "This helmet does not support that setting",
+    "device.err.locked":
+      "Helmet settings are locked; restart the helmet and retry",
+    "device.err.paramValue": "The helmet rejected that value",
+    "device.err.batteryLow": "Helmet battery too low to change settings",
+    "device.err.hardware": "Helmet hardware fault; please contact support",
     "device.level.off": "Off",
     "device.level.lightLow": "Low",
     "device.level.lightHigh": "High",
