@@ -23,6 +23,25 @@ type NotifyCb = (
   ch: { value: string } | null,
 ) => void;
 
+/** 手册 §2.0 出厂默认（0x20–0x2D）：心跳 60s / 运动 5s / 静止 30s / 蜂鸣开 / 音量 80 /
+ *  振动中 / 大灯关 / 跌倒检测开 / 灵敏度标准 / 雷达开 / 距离 15m / 障碍开 / SOS 键开 / 断连蜂鸣关 */
+const FACTORY_MEM: [number, number][] = [
+  [0x20, 60],
+  [0x21, 5],
+  [0x22, 30],
+  [0x23, 1],
+  [0x24, 80],
+  [0x25, 2],
+  [0x26, 0],
+  [0x27, 1],
+  [0x28, 2],
+  [0x29, 1],
+  [0x2a, 15],
+  [0x2b, 1],
+  [0x2c, 1],
+  [0x2d, 0],
+];
+
 class FakeHelmet {
   writes: string[] = [];
   acks: string[] = [];
@@ -31,7 +50,8 @@ class FakeHelmet {
   deviceId = "helmet_94173f";
   firmware = [1, 0, 3];
   flash: Uint8Array[] = [];
-  mem = new Map<number, number>();
+  /** 内存控制表；0x20–0x2D 预置成手册出厂默认，握手第 6 步读设置要用 */
+  mem = new Map<number, number>(FACTORY_MEM);
   /** 写寄存器时返回的错误码（默认 0 = OK） */
   writeError = 0;
   cancelled = 0;
@@ -61,6 +81,16 @@ class FakeHelmet {
           ]);
         } else if (addr === 0x00) {
           this.reply([ins, seq, 0, ...this.firmware.slice(0, len)]);
+        } else if (addr >= 0x20 && addr + len - 1 <= 0x2d) {
+          this.reply([
+            ins,
+            seq,
+            0,
+            ...Array.from(
+              { length: len },
+              (_, i) => this.mem.get(addr + i) ?? 0,
+            ),
+          ]);
         } else {
           this.reply([ins, seq, 3]);
         }
@@ -175,6 +205,17 @@ jest.mock("@/services/ble-relay-uplink", () => ({
   flushRelayQueue: jest.fn(async () => undefined),
 }));
 jest.mock("@/services/dev-log", () => ({ devLog: jest.fn() }));
+import { devicesApi } from "@/api/devices";
+
+jest.mock("@/api/devices", () => ({
+  devicesApi: {
+    reportSettings: jest.fn(async () => ({
+      settings: {},
+      applied: [],
+      skipped: [],
+    })),
+  },
+}));
 
 import {
   enqueueRelayEvent,
@@ -215,7 +256,8 @@ beforeEach(() => {
   helmet.writes = [];
   helmet.acks = [];
   helmet.flash = [];
-  helmet.mem.clear();
+  // 恢复出厂默认而不是清空：真头盔的内存表永远有值，清空会让读设置读到一片 0
+  helmet.mem = new Map(FACTORY_MEM);
   helmet.writeError = 0;
   helmet.deviceId = "helmet_94173f";
   helmet.cancelled = 0;
@@ -340,6 +382,51 @@ describe("事件", () => {
   });
 });
 
+describe("握手第 6 步：上报头盔实际设置（决策 #45）", () => {
+  const reportMock = devicesApi.reportSettings as unknown as Mock<
+    typeof devicesApi.reportSettings
+  >;
+  beforeEach(() => {
+    reportMock.mockClear();
+  });
+
+  it("读回 0x20–0x2D 并上报，云端据此纠正显示", async () => {
+    await connectHelmet();
+    expect(reportMock).toHaveBeenCalledTimes(1);
+    expect(reportMock.mock.calls[0][0]).toBe("helmet_94173f");
+    expect(reportMock.mock.calls[0][1]).toEqual({
+      settings: {
+        heartbeatPeriod: 60,
+        locationPeriodMoving: 5,
+        locationPeriodStill: 30,
+        buzzer: true,
+        volume: 80,
+        vibration: 2,
+        light: 0,
+        fallDetect: true,
+        fallSensitivity: 2,
+        radar: true,
+        radarDistance: 15,
+        obstacleWarn: true,
+        sosButton: true,
+        disconnectBeep: false,
+      },
+    });
+  });
+
+  it("大灯掉电不保存：头盔那头变成高亮，重连后上报的就是高亮", async () => {
+    helmet.mem.set(0x26, 2);
+    await connectHelmet();
+    const body = reportMock.mock.calls[0][1] as { settings: { light: number } };
+    expect(body.settings.light).toBe(2);
+  });
+
+  it("上报失败不影响链路（离线/服务端报错都照常连上）", async () => {
+    reportMock.mockRejectedValueOnce(new Error("network"));
+    await expect(connectHelmet()).resolves.toBeUndefined();
+  });
+});
+
 describe("设置写入与断连", () => {
   it("writeHelmetRegister：应答 OK → executed；错误码 → errorCode 名称；未连接 → 未送达", async () => {
     expect(await writeHelmetRegister("helmet_94173f", 0x24, [70])).toEqual({
@@ -351,7 +438,8 @@ describe("设置写入与断连", () => {
       executed: true,
     });
     expect(helmet.mem.get(0x24)).toBe(70);
-    expect(helmet.writes.at(-1)).toBe("03 05 24 46");
+    // 只校验「写指令 + 地址 + 值」，不钉死 Seq——握手步数变了它就会漂
+    expect(helmet.writes.at(-1)).toMatch(/^03 [0-9a-f]{2} 24 46$/);
     helmet.writeError = 5;
     expect(await writeHelmetRegister("helmet_94173f", 0x24, [200])).toEqual({
       delivered: true,

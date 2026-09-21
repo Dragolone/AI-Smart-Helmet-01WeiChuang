@@ -10,6 +10,8 @@ import type {
   LocationSummaryResponse,
   Paginated,
   PutSettingsRequest,
+  ReportSettingsRequest,
+  ReportSettingsResponse,
   SettingsResponse,
   UpdateDeviceRequest,
 } from "@helmet/shared";
@@ -56,6 +58,13 @@ export const devicesApi = {
     api<SettingsResponse>(`/devices/${encodeURIComponent(deviceId)}/settings`),
 
   /** 下发设置（命令+回执状态机,决策 #27③④）:202 返回命令对象,回执后生效 */
+  /** 头盔实际设置上报（决策 #45）：每次 BLE 握手读回 0x20–0x2D 后调用，云端据此纠正「当前生效设置」 */
+  reportSettings: (deviceId: string, body: ReportSettingsRequest) =>
+    api<ReportSettingsResponse>(
+      `/devices/${encodeURIComponent(deviceId)}/settings/reported`,
+      { method: "POST", body },
+    ),
+
   putSettings: (deviceId: string, body: PutSettingsRequest) =>
     api<CommandPublic>(`/devices/${encodeURIComponent(deviceId)}/settings`, {
       method: "PUT",

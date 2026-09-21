@@ -26,7 +26,8 @@ import { showToast } from "@/components/toast";
 import { toUserMessage } from "@/api/error-messages";
 import { Badge } from "@/components/badge";
 import { BleOnboardingCard } from "@/components/ble-onboarding";
-import { AnimatedChip, PulseDot } from "@/components/motion";
+import { DeviceSettingList } from "@/components/device-settings";
+import { PulseDot } from "@/components/motion";
 import { Tappable } from "@/components/tappable";
 import { BatteryChart } from "@/components/battery-chart";
 import {
@@ -550,33 +551,11 @@ export default function DeviceDetailScreen() {
                 onDraggingChange={onVolumeDragging}
               />
 
-              <View style={styles.settingRow}>
-                <ThemedText type="small" themeColor="textSecondary">
-                  {t("device.light")}
-                </ThemedText>
-                <View style={styles.chipGroup}>
-                  {[
-                    { v: true, label: t("device.on") },
-                    { v: false, label: t("device.off") },
-                  ].map(({ v, label }) => {
-                    const active = settings.data?.settings.light === v;
-                    return (
-                      <AnimatedChip
-                        key={label}
-                        label={label}
-                        active={active}
-                        disabled={sending}
-                        onPress={() => sendSetting("light", v)}
-                        style={styles.settingChip}
-                        activeBg={theme.brand}
-                        inactiveBg={theme.backgroundSelected}
-                        activeFg={theme.onBrand}
-                        inactiveFg={theme.textSecondary}
-                      />
-                    );
-                  })}
-                </View>
-              </View>
+              <DeviceSettingList
+                settings={settings.data?.settings}
+                disabled={sending}
+                onChange={sendSetting}
+              />
 
               {cmdStatusText && (
                 <ThemedText type="small" style={{ color: cmdStatusText.color }}>
@@ -731,17 +710,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "baseline",
-  },
-  settingRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  chipGroup: { flexDirection: "row", gap: 8 },
-  settingChip: {
-    borderRadius: Radius.pill,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
   },
   row: {
     flexDirection: "row",

@@ -19,6 +19,8 @@ import {
   REQUEST_MTU,
   Reg,
   SERVICE_UUID,
+  SETTINGS_READ_ADDR,
+  SETTINGS_READ_LEN,
   buildAck,
   buildRead,
   buildResendData,
@@ -28,6 +30,7 @@ import {
   deviceIdFromBytes,
   firmwareFromBytes,
   parseInbound,
+  registersToSettings,
   translateEvent,
 } from "@/services/ble/protocol";
 import type { InboundEvent, InboundResponse } from "@/services/ble/protocol";
@@ -35,6 +38,7 @@ import {
   enqueueRelayEvent,
   flushRelayQueue,
 } from "@/services/ble-relay-uplink";
+import { devicesApi } from "@/api/devices";
 import { translate } from "@/i18n";
 import { devLog } from "@/services/dev-log";
 import { HelmetLinkService } from "helmet-link-service";
@@ -204,6 +208,36 @@ class HelmetSession {
     );
     // Step 5：补传离线期间的高危事件（逐条 ACK 后头盔擦除）
     await this.resendOffline();
+    // Step 6：读回内存表实际设置并上报（决策 #45）。排在补传之后——保命事件先走，
+    // 设置只是显示口径。头盔大灯掉电不保存、RECOVERY 恢复出厂、别的手机改过设置，
+    // 云端「当前生效设置」都无从知道，只有连上的这台手机能纠正它。
+    await this.reportHelmetSettings();
+  }
+
+  /** 读 0x20–0x2D 翻成键值上报；读失败或网络不通都不影响链路，下次握手再来 */
+  private async reportHelmetSettings(): Promise<void> {
+    try {
+      const resp = await this.command(
+        buildRead(this.nextSeq(), SETTINGS_READ_ADDR, SETTINGS_READ_LEN),
+      );
+      const settings = registersToSettings(
+        SETTINGS_READ_ADDR,
+        Array.from(resp.data),
+      );
+      if (Object.keys(settings).length === 0) {
+        log(`${this.deviceId} 读回设置为空，跳过上报`);
+        return;
+      }
+      const r = await devicesApi.reportSettings(this.deviceId, { settings });
+      log(
+        `${this.deviceId} 实际设置已上报：采纳 ${r.applied.length} 项` +
+          (r.skipped.length
+            ? `，跳过 ${r.skipped.map((x) => `${x.key}(${x.reason})`).join("、")}`
+            : ""),
+      );
+    } catch (e) {
+      log(`${this.deviceId} 设置上报失败`, (e as Error).message);
+    }
   }
 
   private nextSeq(): number {
