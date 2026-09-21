@@ -1,5 +1,7 @@
 // 全局「连接中断」细条：WS 加速通道断开超过 4 s 才出现（启动/短暂重连不闪），恢复即收。
-// 地图页有自己的横幅（贴在设备药丸下），这里跳过 /map 避免叠两条。挂在根布局：NativeTabs 宿主对兄弟节点的绝对定位不可靠。
+// 只在标签根页显示：这些页顶部是大标题，药丸落在状态栏下不挡任何东西；二级页（设备详情、
+// 事件、SOS 等）有 44pt 导航条，同一位置会盖住标题——它们是过路页面，回到标签页就会看到。
+// 地图页有自己的横幅（贴在设备药丸下），跳过避免叠两条。挂在根布局：NativeTabs 宿主对兄弟节点的绝对定位不可靠。
 import { Ionicons } from "@expo/vector-icons";
 import { usePathname } from "expo-router";
 import { useEffect, useState } from "react";
@@ -14,6 +16,8 @@ import { useT } from "@/i18n";
 import { useAuthStore } from "@/stores/auth-store";
 
 const GRACE_MS = 4000;
+/** 标签根页（/map 有自己的横幅，不在此列） */
+const TAB_ROOTS = new Set(["/", "/intercom", "/safety", "/profile"]);
 
 export function ConnectionBanner() {
   const theme = useTheme();
@@ -40,7 +44,7 @@ export function ConnectionBanner() {
   }, [downSince]);
   const show = downSince !== null && elapsedFor === downSince;
 
-  if (!authed || !show || pathname === "/map") return null;
+  if (!authed || !show || !TAB_ROOTS.has(pathname)) return null;
   return (
     <View pointerEvents="none" style={[styles.wrap, { top: insets.top + 6 }]}>
       <Animated.View
