@@ -96,6 +96,33 @@ cd backend && npx prisma migrate dev   # 建表（要求 docker 里的 postgres 
 - **Android**：设置 → 关于手机 → 连点「版本号」7 次开启开发者选项 → 打开「USB 调试」；连线后允许调试授权。
 - **原生依赖变更后所有开发包都要重建**（CNG：`npx expo prebuild` → iOS 先删 `ios/app/app.entitlements` 里的 `aps-environment`（个人团队签不了）→ `pod install` → xcodebuild / `gradlew assembleDebug`）。只连 Metro 不重建会在进入用到该模块的页面时红屏 `Cannot find native module`。最近一次：**2026-09-17 新增 `expo-camera`（扫码绑定）**，此后 iPhone Release、模拟器 dev-client（Bundle ID 已随改名变为 `com.lingyiweichuang.app`）、华为 APK 都需要是 09-17 之后打的包。
 
+## Android 正式签名包（2026-09-21 起）
+
+正式证书：`~/.helmet/lingyiweichuang-release.keystore`，别名 `lingyiweichuang`（RSA 4096，有效期至 2054-02，主体 = 邓白氏登记英文名 Shenzhen Lingyi Weichuang Technology Co., Ltd.）。
+**口令只在负责人的密码管理器里**——不进 Git、不进 `.env`、不写任何脚本；需要时手工传给 gradle。
+证书指纹：SHA1 `2E:36:B3:C2:11:88:82:8F:1B:E2:F1:AC:90:1E:34:12:3A:B4:29:D8`（高德「发布版安全码SHA1」填这个）。
+
+`app/android/` 是 prebuild 生成物、不进 Git，所以**不改 `build.gradle`**（改了下次 prebuild 就没了），签名用命令行注入：
+
+```bash
+cd app/android
+./gradlew assembleRelease \
+  -Pandroid.injected.signing.store.file=$HOME/.helmet/lingyiweichuang-release.keystore \
+  -Pandroid.injected.signing.store.password='<密码管理器里的口令>' \
+  -Pandroid.injected.signing.key.alias=lingyiweichuang \
+  -Pandroid.injected.signing.key.password='<同上>'
+# 产物：app/build/outputs/apk/release/app-release.apk
+# 上架用 AAB 时把 assembleRelease 换成 bundleRelease
+```
+
+坑：
+
+- 不加这四个 `-P` 时 release 会退回 Expo 默认 `debug.keystore`（口令明文 `android`，是工程模板自带的公共调试密钥，**不能上架也没有任何保护**）。正式包务必确认签名对：`apksigner verify --print-certs <apk> | grep SHA-1`。
+- **换签名后手机上装不上**：Android 拒绝签名不一致的覆盖安装，华为上要先卸载旧的 debug 签名包再装。
+- 密钥丢了无法补发，已上架的条目等于作废——文件与口令都要有异地备份。
+
+✅ **2026-09-21 已实跑验证**：`assembleRelease` 用上述注入方式构建成功（3 分 19 秒，产物 221 MB），`apksigner verify --print-certs` 确认签名主体为公司英文名、SHA-1 = `2e36b3c2…29d8`，与证书一致。
+
 ## 平台限制清单（持续维护）
 
 > 记录 Week 2 Spike 及后续开发中实测到的 iOS / Android 系统限制。禁止静默降级——任何限制先记录在此并与负责人确认口径。
