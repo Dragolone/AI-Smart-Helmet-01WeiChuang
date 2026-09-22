@@ -2,7 +2,7 @@
 
 > 本文件是第三方账号/Key 的**唯一状态台账**，每周对表更新。申请主体统一为**深圳零一唯创科技有限公司**（91440300MAK7XEPD38）。
 > 相关决策：#34（云厂商统一腾讯云 + 域名备案复用）、#22（TRTC 选型）、#24（双 Bundle ID）、#33（地图库定案）。
-> 最后更新：2026-09-21
+> 最后更新：2026-09-22
 
 ## 状态总览
 
@@ -12,7 +12,7 @@
 | 2 | 云服务器（腾讯云轻量 2C4G） | ✅ **已购买并部署完成（2026-09-06）**：helmet-dev，广州，2核4G/90GB/6Mbps，1 年 816 元，到期 2027-09-06；三子域名解析 + HTTPS + Mock 接入全部验收通过 | — | 负责人 |
 | 3 | 对象存储 COS | ✅ **已开通并接入（2026-09-16）**：桶 `helmet-media-1415122735`（广州 / 单 AZ / 私有读写 / SSE-COS），子账号 `helmet-cos` 仅授 `QcloudCOSDataFullControl`；后端 `TencentCosProvider` 真桶自检 5 项通过；**云端 `deploy/.env` 待填** | 视频上传入口待硬件确认上传方式 | 负责人 |
 | 4 | 腾讯云短信（签名 + 模板） | 🔄 服务已开通（2026-09-09）；资质/签名/模板待提交（承诺书待盖章）；后端腾讯云实现已就绪等六项配置 | 注册验证码 + SOS 短信真发（现为 Console Mock，不阻塞） | 负责人 |
-| 5 | Apple Developer 公司账号 | 🔄 **D-U-N-S 576655751 已下发并于 2026-09-20 同步到 Apple**；Enroll 填表时工作邮箱验证被临时封锁，**已提工单 102969682223 待回复**；验证人（法人）须用 @01weichuang.com 公司邮箱 → 解封后补填 → 付 ¥688 → Apple 审核 | iOS TestFlight 分发、APNs 远程推送、Critical Alerts | 负责人 |
+| 5 | Apple Developer 公司账号 | 🔄 **2026-09-22 注册已提交，Apple 审核中（Enrollment ID `XD2C5LWH7J`）**：D-U-N-S 576655751；验证人 = 法人龙俊杰（long@01weichuang.com / 15014036340）。下一步：等审核邮件 → 付 ¥688 → 可能来电核实 | iOS TestFlight 分发、APNs 远程推送、Critical Alerts | 负责人 |
 | 6 | 推送：极光 + 安卓厂商通道 | ⬜ 待申请 | App 被杀后收不到推送（现只有本地通知） | 负责人 |
 | 7 | 高德地图 Key | ✅ 企业认证已完成（2026-09-06）；企业主体三把 Key 已建并换入（2026-09-17，测试额度）；**商用授权 = 付费年包 ¥5 万/年，上线前待汤总拍板（买 / 换图商）** | 不阻塞开发 | 负责人 → 汤总 |
 | 8 | 腾讯云 TRTC 应用 | ✅ **已完成（2026-09-10）**：应用在公司腾讯云账号下（SDKAppID 1600157223）；云端 `deploy/.env` 已填，进房凭证接口实测返回 userSig | — | 负责人 |
@@ -68,7 +68,8 @@
   - Legal Entity Name：Shenzhen Lingyi Weichuang Technology Co., Ltd.
   - Headquarters Address：Room 402, Building 3, Pingshan Craftsman Park, No. 33 Cuijing Road, Zhukeng Community, Longtian Sub-district, Pingshan District, Shenzhen, CN 518118
   - **2026-09-20 Enroll 填表进度**：机构信息已填（网站 01weichuang.com、电话 15014036340、机构邮箱 zhongqilong@01weichuang.com 已 Verified）；Signing Authority 关闭，验证人 = 法人龙俊杰（Junjie Long / Legal Representative / 15014036340）。**两个坑**：① 验证人邮箱**必须是公司域名**（@01weichuang.com），QQ 邮箱报 Invalid Email Address / lgEmail 未完成——需先给法人开公司邮箱；② 反复 Back 重填触发 **Work email verification is blocked**，Apple 要求联系支持或等约 24 h。**已于 2026-09-20 通过 developer.apple.com/contact →「会员资格和帐户 → 计划注册」提交中英双语工单，案例 ID 102969682223**（内容：请求解除工作邮箱验证限制 + 确认验证人邮箱是否必须公司域名）。下次一次填完，别多点 Verify。
-  - 下一步：解封后补验证人公司邮箱 → 付 ¥688 → Apple 审核（可能来电核实）→ 到位后 TestFlight 给硬件装 iPhone 包、APNs 补验、申请 Critical Alerts
+  - ✅ **2026-09-22 工作邮箱验证已解封，注册表一次填完提交，进入审核（Enrollment ID `XD2C5LWH7J`）**。验证人邮箱用法人公司邮箱 `long@01weichuang.com`。
+  - 下一步：等 Apple 审核邮件（发到公司 Apple ID 邮箱与 zhongqilong@01weichuang.com）→ 付 ¥688 → 可能来电核实（15014036340，法人接）→ 到位后 TestFlight 给硬件装 iPhone 包、APNs 补验、申请 Critical Alerts
 - **阻塞**：iOS 真机现用个人开发证书（7 天过期需重装）；TestFlight 分发、APNs 远程推送、Bundle ID 统一都等它
 - **公司信息**：深圳零一唯创科技有限公司 / 91440300MAK7XEPD38 / 深圳市坪山区龙田街道竹坑社区翠景路33号3栋坪山工匠园402
 - **后续动作**：账号下来后统一正式 Bundle ID（改 `app.json` → `npx expo prebuild --clean`），并同步更新高德 iOS Key 的 Bundle ID 绑定
