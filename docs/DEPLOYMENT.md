@@ -149,7 +149,7 @@ docker compose -f docker-compose.prod.yml exec -T postgres pg_restore -U helmet 
 ```
 
 - **容器日志轮转**(上线前清单 #6 ②):compose 所有服务 `logging: json-file max-size 20m × max-file 5`(`x-logging` 锚点),改动后 `up -d` 重建才生效;更久的历史不靠容器日志。
-- **对外拨测告警**(上线前清单 #6 ③,账号侧待负责人开通):UptimeRobot(免费档 5 分钟一次)或腾讯云「云拨测」新建 HTTP(s) 监控 → URL `https://dev-api.01weichuang.com/api/v1/health`、方法 GET、关键字匹配 `"status":"ok"`、失败 2 次告警到邮箱/微信;production 上线时把 `api.01weichuang.com` 再加一条。`/health` 返回 `503 draining` 只在发布重启的几秒内出现,拨测间隔远大于它,不会误报。
+- **对外拨测告警**(上线前清单 #6 ③,✅ 2026-09-22 已开通 UptimeRobot,账号 zhongqilong@01weichuang.com,HTTP/S 类型即可——`/health` 故障返回 503):UptimeRobot(免费档 5 分钟一次)或腾讯云「云拨测」新建 HTTP(s) 监控 → URL `https://dev-api.01weichuang.com/api/v1/health`、方法 GET、关键字匹配 `"status":"ok"`、失败 2 次告警到邮箱/微信;production 上线时把 `api.01weichuang.com` 再加一条。`/health` 返回 `503 draining` 只在发布重启的几秒内出现,拨测间隔远大于它,不会误报。
 
 - 改了 `deploy/.env` 里的 `EMQX_INTERNAL_TOKEN`:重跑 `sh render-config.sh` 再 `up -d`(backend 与 emqx 都要重启)。
 - `.env` 里 `COMPOSE_PROFILES=demo` 打开后,§5 所有命令自动包含 mock 服务;`git pull` 后 `up -d --build` 会连 mock 一起重建。
