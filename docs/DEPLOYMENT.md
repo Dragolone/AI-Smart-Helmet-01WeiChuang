@@ -139,7 +139,9 @@ ssh -L 18083:localhost:18083 <user>@<服务器IP>
 # 数据库备份:每日自动 → COS(上线前清单 #6 ①;脚本 deploy/backup.sh,上传逻辑 backend/src/scripts/backup-upload.ts)
 sh backup.sh                       # 手动跑一次:pg_dump -Fc → 管道进 backend 容器上传到 COS backups/,并清理超过保留期的旧份
 crontab -e                         # 加一行(每天 03:00 北京时间=19:00 UTC,按服务器时区调整):
-#   0 3 * * * /home/ubuntu/AI-Smart-Helmet-01WeiChuang/deploy/backup.sh >> /var/log/helmet-backup.log 2>&1
+#   0 3 * * * /home/ubuntu/AI-Smart-Helmet-01WeiChuang/deploy/backup.sh >> /home/ubuntu/helmet-backup.log 2>&1
+#   ⚠️ 日志别写 /var/log：cron 以 ubuntu 用户跑，那里没写权限，重定向失败会让整条任务不执行（2026-09-18~22 踩中，4 天无备份）
+#   ⚠️ 服务器无 MTA，cron 失败输出被丢弃、不会通知任何人；验收看 ~/helmet-backup.log 最后一行「备份完成」或 COS backups/ 最新对象时间
 # 可选环境变量(写在 crontab 行首):BACKUP_RETENTION_DAYS(默认 30)、BACKUP_KEEP_MIN(至少保留几份,默认 7)、BACKUP_LOCAL_DIR(同时留本地副本)
 # 备份失败脚本非 0 退出并打印 ✕ 行;上传脚本拒绝非 PGDMP 输入——pg_dump 失败不会上传空文件。COS 保留期由脚本清理,不依赖桶生命周期规则
 
@@ -188,7 +190,7 @@ docker compose -f docker-compose.prod.yml exec -T postgres pg_restore -U helmet 
 | 5 | Mock 常驻 | 生产**不开** `COMPOSE_PROFILES=demo`;演示走 development |
 | 6 | `sh render-config.sh` + `up -d --build` | 同 §3 ④⑤ |
 | 7 | 管理员与设备 | `create:admin` 新建(密码入密码管理器);真机设备用 `provision:batch` 按批开通(CSV + 二维码交产线,单台用 `provision:device`),deviceSecret 交硬件产线 |
-| 8 | 备份 cron | §5 那一行 crontab;跑一次 `sh backup.sh` 看到 ✓,COS 里 `backups/` 有对象 |
+| 8 | 备份 cron | §5 那一行 crontab(日志写 `/home/ubuntu/`,不要 `/var/log`);**用 crontab 里一模一样的整条命令**手动跑一次,`~/helmet-backup.log` 末行「备份完成」,COS 里 `backups/` 有新对象;次日再看一次日志确认定时触发 |
 | 9 | 拨测 | §5 对外拨测加 `api.01weichuang.com` 一条 |
 | 10 | 验收 | §4 全部 10 条 + §6 安全基线逐条打勾;App 正式包 `EXPO_PUBLIC_API_URL=https://api.01weichuang.com/api/v1` |
 | 11 | 上线后 | THIRD_PARTY §3 提醒:给 `helmet-cos` 子账号换新密钥(旧密钥曾进过聊天),换后 `deploy/.env` 更新并 `up -d` |

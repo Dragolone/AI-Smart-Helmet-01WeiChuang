@@ -1,6 +1,8 @@
 #!/bin/sh
 # PostgreSQL 每日自动备份到 COS（上线前清单 #6 ①）。宿主机 cron 调用，例：
-#   0 3 * * * /home/ubuntu/AI-Smart-Helmet-01WeiChuang/deploy/backup.sh >> /var/log/helmet-backup.log 2>&1
+#   0 3 * * * /home/ubuntu/AI-Smart-Helmet-01WeiChuang/deploy/backup.sh >> /home/ubuntu/helmet-backup.log 2>&1
+# 日志必须写到 cron 用户可写的位置：普通用户写 /var/log 会因重定向失败而整条任务不执行（2026-09-18~22 实际踩中，4 天无备份）。
+# 服务器没装 MTA，cron 的失败输出会被丢弃——脚本失败不会自动通知任何人，定期看日志或 COS backups/ 的最新时间。
 # 流程：postgres 容器 pg_dump -Fc（自定义格式，自带压缩，pg_restore 可选表恢复）
 #      → 管道进 backend 容器 node dist/scripts/backup-upload.js（COS 凭证只在容器里，宿主机不落密钥）
 #      → 对象键 backups/helmet_<UTC 时间>.dump；上传后按 BACKUP_RETENTION_DAYS 清理旧备份（至少留 BACKUP_KEEP_MIN 份）
