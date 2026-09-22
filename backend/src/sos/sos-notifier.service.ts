@@ -227,8 +227,9 @@ export class SosNotifierService {
   }
 
   /**
-   * 短信模板变量（sos_alert：{1} 佩戴者昵称 {2} 触发时间 {3} 位置）——运营商模板只收变量不收自由文本。
-   * 昵称截到 10 字、时间用短格式：腾讯云模板变量默认限长（THIRD_PARTY.md §4），超长整条拒发。
+   * SOS 通知消息：短信本身是固定文案、不带变量（决策 #46，腾讯云新建通知类模板禁止变量）；
+   * 昵称 / 触发时间 / 位置照常算好放进 params，给后续带位置的渠道用（语音通知 / 分享链接）。
+   * 昵称截 10 字、时间短格式沿用原变量限长口径，渠道接入时不用再改。
    */
   private async smsMessage(c: SosCase): Promise<SmsMessage> {
     const user = await this.prisma.user.findUnique({
