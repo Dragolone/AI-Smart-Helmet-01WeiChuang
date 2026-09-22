@@ -16,7 +16,10 @@ export type SmsMessage =
     }
   | {
       template: 'sos_alert';
-      /** {1} 佩戴者昵称；{2} 触发时间（本地时区短格式）；{3} 位置文本或链接 */
+      /**
+       * 佩戴者昵称 / 触发时间 / 位置文本。**短信不带这些**：腾讯云 2026 起新建通知类模板禁止变量，
+       * sos_alert 是固定文案（SOS_ALERT_TEXT，决策 #46）。字段保留给后续带位置的渠道（语音通知 / 分享链接）。
+       */
       params: { nickname: string; triggeredAt: string; locationText: string };
     };
 
@@ -33,13 +36,17 @@ export const maskPhone = (phone: string): string =>
     ? `${phone.slice(0, 3)}****${phone.slice(-4)}`
     : `${phone.slice(0, 1)}****`;
 
+/** SOS 通知短信固定文案，须与腾讯云审核通过的「SOS紧急通知」模板逐字一致（决策 #46） */
+export const SOS_ALERT_TEXT =
+  '您被设为紧急联系人的骑行者，其零一唯创智能头盔刚刚发出紧急求救，请立即致电确认其安全。';
+
 /** 模板渲染成可读文本（Mock 打印用；与腾讯云侧审核通过的模板文案保持一致） */
 export const renderSmsText = (m: SmsMessage): string => {
   switch (m.template) {
     case 'verify_code':
       return `您的验证码为${m.params.code}，${m.params.ttlMinutes}分钟内有效，请勿泄露给他人。`;
     case 'sos_alert':
-      return `您的联系人${m.params.nickname}佩戴的智能头盔于${m.params.triggeredAt}触发紧急求救，位置：${m.params.locationText}，请尽快联系确认。`;
+      return SOS_ALERT_TEXT;
   }
 };
 

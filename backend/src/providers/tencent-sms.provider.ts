@@ -54,7 +54,8 @@ export const toTemplateParamSet = (m: SmsMessage): string[] => {
     case 'verify_code':
       return [m.params.code, String(m.params.ttlMinutes)];
     case 'sos_alert':
-      return [m.params.nickname, m.params.triggeredAt, m.params.locationText];
+      // 固定文案模板，无变量（腾讯云新建通知类模板不支持变量，决策 #46）
+      return [];
   }
 };
 
