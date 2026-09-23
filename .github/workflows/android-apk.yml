@@ -16,7 +16,8 @@ on:
 jobs:
   apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 首次冷构建（无缓存）实测超过 45 分钟：Hermes + 十几个原生模块在 4 核 runner 上很慢
+    timeout-minutes: 120
     env:
       # secrets 不能直接用在 step 的 if 里，先在 job 级折成布尔字符串
       HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
@@ -32,6 +33,11 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+
+      # Gradle 依赖与构建缓存：第二次起可省下大半时间
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
 
       - name: Install
         run: npm ci
@@ -67,14 +73,14 @@ jobs:
         run: |
           if [ -n "$KEYSTORE_PATH" ]; then
             echo "使用正式证书签名"
-            ./gradlew assembleRelease --no-daemon \
+            ./gradlew assembleRelease \
               -Pandroid.injected.signing.store.file="$KEYSTORE_PATH" \
               -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
               -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
               -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
           else
             echo "未配置签名 secret：用 debug.keystore（仅测试装机）"
-            ./gradlew assembleRelease --no-daemon
+            ./gradlew assembleRelease
           fi
 
       - name: Name the artifact
