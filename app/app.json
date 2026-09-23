@@ -62,7 +62,8 @@
             "networkInspector": false
           },
           "android": {
-            "networkInspector": false
+            "networkInspector": false,
+            "minSdkVersion": 26
           }
         }
       ],
