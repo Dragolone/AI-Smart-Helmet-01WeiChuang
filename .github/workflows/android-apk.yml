@@ -1,0 +1,91 @@
+# 手动触发：在 GitHub 上打一个安卓 APK（给硬件联调 / 内测装机），产物挂在 Actions 的 Artifacts 里。
+# 为什么放 CI：本机 node_modules 被 iCloud 挪成占位时 gradle 起不来（DEVELOPMENT.md「iCloud」一节）；
+# 另外任何人（A/B 线）都能不装 Android 工具链拿到同一份包。
+# 签名：仓库配了 ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD
+# 四个 secret 时用正式证书；没配则退回 Expo 模板的 debug.keystore（只能测试装机，不能上架，DEVELOPMENT.md 有说明）。
+name: Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: "打进包里的后端地址（EXPO_PUBLIC_API_URL）"
+        required: true
+        default: "https://dev-api.01weichuang.com/api/v1"
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # secrets 不能直接用在 step 的 if 里，先在 job 级折成布尔字符串
+      HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install
+        run: npm ci
+
+      - name: Build shared types
+        run: npm run build -w @helmet/shared
+
+      # CNG：android/ 不进 Git，每次从 app.json + 插件重新生成
+      - name: Prebuild (android)
+        working-directory: app
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Restore release keystore (optional)
+        id: keystore
+        if: ${{ env.HAS_KEYSTORE == 'true' }}
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "path=$RUNNER_TEMP/release.keystore" >> "$GITHUB_OUTPUT"
+
+      - name: Assemble release
+        working-directory: app/android
+        env:
+          EXPO_PUBLIC_API_URL: ${{ github.event.inputs.api_url }}
+          EXPO_PUBLIC_AMAP_ANDROID_KEY: ${{ secrets.EXPO_PUBLIC_AMAP_ANDROID_KEY }}
+          EXPO_PUBLIC_AMAP_JS_KEY: ${{ secrets.EXPO_PUBLIC_AMAP_JS_KEY }}
+          EXPO_PUBLIC_AMAP_JS_SECURITY_CODE: ${{ secrets.EXPO_PUBLIC_AMAP_JS_SECURITY_CODE }}
+          KEYSTORE_PATH: ${{ steps.keystore.outputs.path }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_PATH" ]; then
+            echo "使用正式证书签名"
+            ./gradlew assembleRelease --no-daemon \
+              -Pandroid.injected.signing.store.file="$KEYSTORE_PATH" \
+              -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
+              -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
+              -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
+          else
+            echo "未配置签名 secret：用 debug.keystore（仅测试装机）"
+            ./gradlew assembleRelease --no-daemon
+          fi
+
+      - name: Name the artifact
+        id: meta
+        run: |
+          short=$(git rev-parse --short HEAD)
+          echo "name=helmet-app-${short}" >> "$GITHUB_OUTPUT"
+          cp app/android/app/build/outputs/apk/release/app-release.apk "helmet-app-${short}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: helmet-app-*.apk
+          retention-days: 30

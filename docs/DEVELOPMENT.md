@@ -123,6 +123,8 @@ cd app/android
 - **换签名后手机上装不上**：Android 拒绝签名不一致的覆盖安装，华为上要先卸载旧的 debug 签名包再装。
 - 密钥丢了无法补发，已上架的条目等于作废——文件与口令都要有异地备份。
 
+**在 GitHub 上打包（2026-09-23 起，本机起不来 gradle 时用）**：Actions → 「Android APK」→ Run workflow（可改打进包里的后端地址，默认云端 dev）→ 跑完在该次运行的 Artifacts 下载 `helmet-app-<短 SHA>.apk`。仓库 secrets 里配了 `ANDROID_KEYSTORE_BASE64`（`base64 -i ~/.helmet/lingyiweichuang-release.keystore | pbcopy`）、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD` 就用正式证书，否则退回 debug.keystore（只能测试装机）；高德 Key 从 `EXPO_PUBLIC_AMAP_*` 三个 secret 读，没配则地图页无法加载但其余功能正常。
+
 ✅ **2026-09-21 已实跑验证**：`assembleRelease` 用上述注入方式构建成功（3 分 19 秒，产物 221 MB），`apksigner verify --print-certs` 确认签名主体为公司英文名、SHA-1 = `2e36b3c2…29d8`，与证书一致。
 
 ## 平台限制清单（持续维护）
