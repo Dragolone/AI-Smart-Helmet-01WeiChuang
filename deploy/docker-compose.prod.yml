@@ -146,6 +146,7 @@ services:
       - backend
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./legal:/srv/legal:ro   # 隐私政策/用户协议静态页，对外 https://<API_DOMAIN>/legal/privacy
       - caddy_data:/data      # 证书与 ACME 账号——删卷=重新签发，触发 Let's Encrypt 频率限制
       - caddy_config:/config
     environment:

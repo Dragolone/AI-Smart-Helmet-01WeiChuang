@@ -263,13 +263,20 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 > 7. App Store Connect → My Apps 建 App 记录（名称「零一唯创」、Bundle ID 选已注册的、SKU `lingyiweichuang-app`、主要语言简体中文）——你有 Create Apps 权限；负责人若已建则跳过。
 > 8. Xcode Archive → Distribute → TestFlight 内部测试；把张森淼的 Apple ID 加为测试员，他装 TestFlight 即可。安卓包走 GitHub Actions「Android APK」workflow（见 09-23 通知）。
 >
-> **五、真机验收欠账（不等任何人）**
+> **五、合规：注册页同意勾选（新增 2026-09-23 晚，做第 5 项前先做这条）**
+> 13. **隐私政策与用户协议已上线**，两个公开 URL 直接用：
+>     - 隐私政策 `https://dev-api.01weichuang.com/legal/privacy`
+>     - 用户服务协议 `https://dev-api.01weichuang.com/legal/terms`
+>
+>     注册页加一行「我已阅读并同意《用户服务协议》和《隐私政策》」**勾选框默认不勾**、不勾不让提交；书名号内两处可点，用 WebView 或系统浏览器打开都行。**极光 SDK 必须等用户勾了这个同意之后才初始化**（第 5 项的硬前置，商店合规检查的高频扣分项，静默初始化会被驳回）。首次启动的隐私弹窗如果你打算做，同意前不要初始化任何第三方 SDK、不要请求任何权限。production 上线后 URL 换成 `api.01weichuang.com`，到时候 B 线会提醒。
+>
+> **六、真机验收欠账（不等任何人）**
 > 9. **双端真机回归**：REGRESSION.md Android / iOS 两列 37 行填表，Week 11 出口标准。
 > 10. **华为复验扫码绑定**（决策 #42 待 Android 验收）。
 > 11. iOS 被系统回收后能否靠 BLE 状态恢复拉起（`restoreStateIdentifier` 从没触发过），内存压力测一次，结论记平台限制清单。
 > 12. **Android 正式签名证书**（上线前清单 #1）：你 keytool 生成、口令你先定，**文件和口令交负责人入密码管理器**，仓库不进；`build.gradle` release 签名改读 `~/.helmet/android-release-keystore.env`（已有约定，见 main 上 7005221）；生成后把发布版 SHA1 发负责人改高德 Key。
 >
-> **不用你管的**：APNs .p8 生成与上传极光、极光 Master Secret 与后端 `JPushProvider`、腾讯云短信、Critical Alerts entitlement 申请、软著、App 备案——负责人与 B 线。
+> **不用你管的**：APNs .p8 生成与上传极光、极光 Master Secret 与后端 `JPushProvider`（✅ 2026-09-23 已上线云端）、腾讯云短信、Critical Alerts entitlement 申请、软著、App 备案、隐私政策与用户协议正文（✅ 已写好托管，你只接链接和勾选）——负责人与 B 线。
 >
 > **📣 给 A 线的通知（2026-09-23，B 线）——硬件视频参数到了，RTSP Spike 可以开工**
 >

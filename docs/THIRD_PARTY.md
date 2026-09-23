@@ -97,7 +97,7 @@
   - ✅ Android 包名 `com.lingyiweichuang.app`
   - ⬜ iOS：**Apple 公司账号 2026-09-23 已到位** → 生成 APNs Auth Key（.p8，§5 清单第 3 条）→ 极光选「Token Authentication 配置」（不过期、生产/开发共用），填 .p8 + Key ID + Team ID
   - ⬜ 厂商通道：优先华为（AppGallery Connect，需登记正式签名 SHA256）+ 小米；OPPO/vivo 通常要求先上架（依赖第 10 项 App 备案）；荣耀单独注册
-  - ⬜ 极光「隐私协议」字段：App 隐私政策有公开 URL 后补填；App 须在用户同意隐私政策后才初始化极光 SDK
+  - ⬜ 极光「隐私协议」字段：填 `https://dev-api.01weichuang.com/legal/privacy`（**2026-09-23 已上线**，见下第 11 项；production 后换 `api.` 域名）；App 须在用户同意隐私政策后才初始化极光 SDK
   - ✅ **后端 `JPushProvider`（2026-09-23，B 线）**：`JPUSH_APP_KEY` + `JPUSH_MASTER_SECRET` 齐全即走极光 REST v3（`POST /v3/push`，Basic 鉴权），否则 Console Mock；可选 `JPUSH_APNS_PRODUCTION=true`（TestFlight/App Store 包用 APNs 生产环境，Xcode 直装开发包留空）、`PUSH_SEND_TIMEOUT_MS`（默认 10 s）。**定向口径：audience = alias，alias = 用户 ID**——服务端不存设备 token、不建表；极光返回非 2xx（含 1011「该 alias 无设备」）一律抛错，SOS 通知记 failed 并按既有规则重试。
   - ⬜ App 端 SDK 接入（A 线，weekly-plan 09-23 通知第 5 条）：登录成功后 `setAlias(userId)`、退出 `deleteAlias`；**须在用户同意隐私政策后才初始化**。
   - ✅ **云端 development 已切极光（2026-09-23 11:01 UTC）**：`deploy/.env` 已填 `JPUSH_APP_KEY` / `JPUSH_MASTER_SECRET`，backend 重建后日志「推送通道：极光（APNs 沙盒环境）」（同批带上 #77/#78/#84/#95，main=9261ee6）。⚠️ Master Secret 曾出现在截图/聊天，**上线前在极光「应用信息」点「重置」换新并同步改 .env**。
@@ -157,6 +157,17 @@
 
 - **软著**：中国版权保护中心 <https://register.ccopyright.com.cn/> 在线填表（照 `01/软著/软著申请表填写信息.md` 逐项抄）→ 上传源程序/说明书 PDF + 营业执照 → 打印申请表盖章。免费 30 个工作日；加急找代理 5–10 个工作日。证书是安卓各商店上架的硬性材料。
 - **App 备案**：腾讯云控制台「备案」→ 新增 App（安卓、iOS 各一条），填 App 名「零一唯创」、包名 / Bundle ID、服务域名 `api.01weichuang.com`、服务器 111.230.157.151。主体已备案，只做 App 新增，1–2 周。**前置**：A 线把 `app.json` 的 `name` 改为「零一唯创」、`android.package` / `ios.bundleIdentifier` 改为 `com.lingyiweichuang.app`（需 `npx expo prebuild --clean`，高德平台 Key 绑定同步更新）。
-- **上架其余材料**（交付前一周准备）：隐私政策 + 用户协议网页（挂官网）、各尺寸截图、审核演示账号（建议后端加「审核白名单手机号固定验证码」配置）、安卓各商店企业开发者账号（营业执照 + 对公打款）。
+- **上架其余材料**（交付前一周准备）：~~隐私政策 + 用户协议网页~~（✅ 见第 11 项）、各尺寸截图、审核演示账号（建议后端加「审核白名单手机号固定验证码」配置）、安卓各商店企业开发者账号（营业执照 + 对公打款）。
+
+## 11. 隐私政策与用户服务协议（2026-09-23 新增）
+
+- ✅ **两份文本已写好并上线**（B 线，`deploy/legal/`，网关静态托管、不经后端）：
+  - 隐私政策 <https://dev-api.01weichuang.com/legal/privacy>
+  - 用户服务协议 <https://dev-api.01weichuang.com/legal/terms>
+- 内容按本仓库实际数据流写：采集项（手机号/昵称头像/紧急联系人/设备状态/位置与轨迹/安全事件及原始判定参数/媒体/实时语音/蓝牙/日志与推送标识）、**第三方 SDK 清单**（极光推送、腾讯云 TRTC、高德地图 JS API、腾讯云 COS、腾讯云短信）、境内存储（腾讯云广州）、保存期限、你的权利（含应用内注销）。
+- **用户服务协议 §二 写明了决策 #35 的前提**：MVP 头盔无 4G，摔倒自动通知需要「手机在身边 + 蓝牙已连 + App 在运行 + 手机有网 + 已设联系人」同时成立。这正是 CLAUDE.md 里挂着的「对外口径必须补此前提」的待决项，文本层面已落地；**对外宣传口径（决策 #28）仍需负责人按同一说法同步**。
+- ⬜ **待负责人**：两份文本按公司要求审阅（尤其责任限制、争议解决管辖、联系邮箱是否换成专用邮箱），需要法务过目的话在上架前完成。
+- ⬜ **待 A 线**：注册页加「我已阅读并同意《用户服务协议》和《隐私政策》」勾选（默认不勾），两个链接指向上述 URL；**极光 SDK 必须在用户勾选同意之后再初始化**（工信部与各商店合规检查的高频扣分项）。见 weekly-plan A 线通知。
+- ⬜ **上线切换**：production 后把 URL 换成 `https://api.01weichuang.com/legal/...`，极光后台、商店后台、App 内链接三处同步。
 
 - **Apple Critical Alerts entitlement（2026-09-17 新增待办）**：锁屏 SOS 告警目前走普通本地通知（系统通知声，静音键/勿扰会压掉）；要穿透静音需向 Apple 申请 `com.apple.developer.usernotifications.critical-alerts`，公司 Apple Developer 账号到位后提交（说明用途：摔倒/求救 60 s 倒计时提醒）。

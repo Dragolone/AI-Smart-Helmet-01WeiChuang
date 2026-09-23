@@ -155,7 +155,23 @@ docker compose -f docker-compose.prod.yml exec -T postgres pg_restore -U helmet 
 
 - 改了 `deploy/.env` 里的 `EMQX_INTERNAL_TOKEN`:重跑 `sh render-config.sh` 再 `up -d`(backend 与 emqx 都要重启)。
 - `.env` 里 `COMPOSE_PROFILES=demo` 打开后,§5 所有命令自动包含 mock 服务;`git pull` 后 `up -d --build` 会连 mock 一起重建。
-- 改了 `Caddyfile`:`docker compose -f docker-compose.prod.yml restart gateway`(volume 挂载,无需重建)。
+- 改了 `Caddyfile`:**先在运行中的容器里校验再重启**(Caddyfile 是 bind mount,`git pull` 后容器内已是新文件,校验不影响仍在跑的旧配置;配置写坏时 `restart` 会让网关起不来,API 与 Admin 一起断):
+
+  ```bash
+  docker compose -f docker-compose.prod.yml exec gateway caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+  docker compose -f docker-compose.prod.yml restart gateway      # 校验通过再执行
+  ```
+
+- **隐私政策 / 用户协议静态页**(`deploy/legal/`,2026-09-23 新增):对外地址 `https://<API_DOMAIN>/legal/privacy`、`/legal/terms`,由网关直接提供,不经后端。目录走 volume 挂载,**首次生效要 `up -d gateway` 重建容器**(新增挂载点),之后改文案只需 `git pull` + `restart gateway`:
+
+  ```bash
+  git pull
+  docker compose -f docker-compose.prod.yml exec gateway caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+  docker compose -f docker-compose.prod.yml up -d gateway
+  curl -sI https://dev-api.01weichuang.com/legal/privacy | head -1   # 期望 HTTP/2 200
+  ```
+
+  这两个 URL 是极光「隐私协议」字段、App 备案、双端应用商店上架的硬性材料;production 上线后同一路径换成 `api.01weichuang.com`,App 内链接同步改。
 - **production 环境**:按 §8 清单从本套复制——新服务器 + 新 `.env`(全部密钥重新生成)+ 域名去掉 `dev-` 前缀,步骤完全相同。
 
 ## 6. 安全基线(部署时核对)
