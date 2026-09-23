@@ -30,5 +30,21 @@
   // 自动重排会产生与内容无关的巨大 diff
   "[markdown]": {
     "editor.formatOnSave": false
-  }
+  },
+
+  // 关掉 VS Code 的 Java/Gradle 工程导入。本仓库的 Java/Kotlin 全是安卓原生代码
+  //（app/android 由 prebuild 生成、app/modules 与 node_modules 里的库只能随主工程一起编），
+  // 在 Android Studio 里开 app/android 编辑；VS Code 单独导入这些目录必然缺插件版本，
+  // 会在问题面板刷出几十条假报错（2026-09-24 清 Gradle 缓存后集中爆出）。
+  // 只加 java.import.exclusions 不够：Gradle for Java 的构建服务器与任务扫描不认它。
+  "java.import.gradle.enabled": false,
+  "java.import.maven.enabled": false,
+  "java.gradle.buildServer.enabled": "off",
+  "gradle.autoDetect": "off",
+  "java.import.exclusions": [
+    "**/node_modules/**",
+    "**/app/modules/**",
+    "**/app/android/**"
+  ],
+  "java.configuration.updateBuildConfiguration": "disabled"
 }
