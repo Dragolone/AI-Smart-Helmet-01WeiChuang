@@ -287,6 +287,18 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 > - 顺带：随包的 v0.6 手册改了例 4（0x23 蜂鸣器开关 + 0x24 音量连写），仓库副本已换新；`protocol.ts` 逐键单写不受影响。
 > - **蓝牙工程模式页已加**（硬件 09-23 提的「测试模式」：登录页长按 App 名 3 秒进入，不登录、不上云，14 个编号按钮逐条发指令、每帧 hex + 解释、自动 ACK 开关、日志分享；清单 `docs/BLE_BENCH.md`）。B 线做的 App 侧代码，你 Review：`services/ble-bench.ts`、`services/ble/describe.ts`、`app/ble-bench.tsx`。给硬件的安卓 APK 由 B 打包。
 
+> **📣 A 线回复（2026-09-23）——RTSP Spike 做完了，双端都能播；选型要负责人/汤总拍一下板**
+
+> 完整报告 **`docs/RTSP_SPIKE_2026-09-23.md`**，DECISIONS 待定表已挂一行。**分支 `spike/rtsp-player` 挂起，拍板前不合 main。**
+>
+> - **结论：能播。** `react-native-vlc-media-player`（内嵌 libVLC）在华为和 iPhone 真机上都出画了，和 RN 0.86 / Expo SDK 57 新架构兼容，没红屏没崩溃。**首帧 Android 174 ms / iOS 694 ms**，稳态无错误无二次缓冲。用的是 `tools/rtsp-mock` 起的同约定测试流（h264 / 1280×720 / 30fps / 无音频 / 强制 TCP），参数 `--rtsp-tcp --network-caching=150 --no-audio --drop-late-frames --skip-frames`。
+> - **端到端延迟这次没测**——mock 是 `testsrc` 合成图，没有可对齐的时间基准，跟硬件那个「2–3 s」不是一个口径，对不了表。等真机出一路带可视时间戳的画面再量。
+> - **代价（要拍板的就是这两条）**：① 包体 **Android +40.9 MB、iOS +31.9 MB**；② **Android minSdk 必须 24 → 26，放弃 Android 7.0/7.1**（libvlc-all 3.6.3 硬性要求）。
+> - **省包体的路 B**：自研 Expo 模块，iOS 仍用 MobileVLCKit（AVPlayer 不支持 RTSP，绕不开），Android 换 media3-exoplayer-rtsp → Android 侧降到 ≈ +0.5 MB 且保住 minSdk 24。代价是 **3–5 人天 + media3 的 RTSP 能力还得先花半天验证**。
+> - **我的建议**：先走路 A 把 #37 第 ② 步的预览页做出来，包体记成上线前欠账；等功能稳了、真硬件联调过了，如果体积真的卡上架再换 Android 一侧（JS 层 API 不变，替换可控）。现在 MVP 缺的是功能不是体积。
+> - **SoftAP 那块两条路都得做，没省掉**：Android `bindProcessToNetwork`、iOS `NEHotspotConfiguration`，本次没覆盖（测试流跑在普通 Wi-Fi 上）。弱网断流恢复、长时间播放发热/内存也没测。
+> - 顺手记一笔给 B 线：**云端 dev 现在没有常驻测试账号**（我原先那个 `13900000042` 是本地库的，云端 401）。要不要建一个进 REGRESSION.md，你定；建的话验证码得从服务器 `docker compose logs backend | grep verify_code` 里捞。
+
 > **📣 A 线回复（2026-09-21）——④⑤⑥⑨ 与 ② 已做完并合 main**
 >
 > 🔴 **先说一个线上缺陷（决策 #43 的连带影响，已修）**：App 的大灯一直发布尔 `light: true/false`，而 `DEVICE_SETTINGS` 把 light 定义为 int 0–3，服务端按表校验后 **dev 上「大灯 开」从 #43 合并那天起就一直 400**。实测 `PUT {light:true}` → 400 `VALIDATION_FAILED`、`PUT {light:1}` → 202。现在设备页按 0–3 出四档（关/低亮/高亮/爆闪），云端历史存的 `light: true` 按低亮显示、下发一次即自愈。以后新增设置项时请留意：**清单里的类型就是唯一口径，App 不再自己猜。**
