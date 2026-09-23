@@ -307,8 +307,8 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 
 | # | 事项 | 谁 | 说明 |
 |---|------|----|------|
-| 1 | ~~生成公司 Android 正式签名证书~~ ✅ **2026-09-21 已生成** | A 线 | `~/.helmet/lingyiweichuang-release.keystore`，别名 `lingyiweichuang`，RSA 4096 / 10000 天（至 2054-02），主体 = 邓白氏登记英文名。**口令只在负责人密码管理器里，未写入任何文件与 Git**。`android/` 不进 Git 故不改 build.gradle，签名走命令行注入，命令见 DEVELOPMENT.md「Android 正式签名包」。🔴 **负责人待办：把 keystore 文件另外备份一份到公司长期保管处——文件丢了和口令丢了一样致命，补发不了** |
-| 2 | **高德「AI头盔-安卓端」Key 改「发布版 SHA1」** | 负责人 | 第 1 项已完成，**新证书 SHA1 = `2E:36:B3:C2:11:88:82:8F:1B:E2:F1:AC:90:1E:34:12:3A:B4:29:D8`**，填进控制台「发布版安全码SHA1」；调试版保留 `5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25`（开发包继续可用）。当前地图走 JS API Key 不校验签名，不急 |
+| 1 | ~~生成公司 Android 正式签名证书~~ ✅ **2026-09-21 已生成** | A 线 | `~/.helmet/lingyiweichuang-release.keystore`，别名 `lingyiweichuang`，RSA 4096 / 10000 天（至 2054-02），主体 = 邓白氏登记英文名。**口令不进 Git**；本机存 `~/.helmet/android-release-keystore.env`（chmod 600，仓库外），密码管理器另留一份。`android/` 不进 Git 故不改 build.gradle，签名走命令行注入，命令见 DEVELOPMENT.md「Android 正式签名包」。🔴 **负责人待办：把 keystore 文件另外备份一份到公司长期保管处——文件丢了和口令丢了一样致命，补发不了** |
+| 2 | ~~高德「AI头盔-安卓端」Key 改「发布版 SHA1」~~ ✅ **2026-09-23 负责人已改** | 负责人 | 第 1 项已完成，新证书 SHA1 `2E:36:B3:C2:11:88:82:8F:1B:E2:F1:AC:90:1E:34:12:3A:B4:29:D8` 已填入控制台「发布版安全码SHA1」；调试版保留 `5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25`（开发包继续可用）。当前地图走 JS API Key 不校验签名，不急 |
 | 3 | **高德商用授权决策** | 汤总 | 企业 Key 未购许可前只是「短期、少量测试」额度：买基础版 ¥5 万/年，或换腾讯/百度（地图层独立组件，约一周）。见 THIRD_PARTY.md §7 |
 | 4 | Apple 公司账号 → TestFlight / APNs / Critical Alerts | 负责人 | ✅ D-U-N-S 已下发 576655751（2026-09-17）；等邓白氏→苹果同步（9-23 起在 Apple Developer App 重试组织信息）→ 付 ¥688 → 苹果审核；到位后 iOS 推送与 SOS 关键提醒补验 |
 | 5 | App 备案（腾讯云） | 负责人 | 安卓、iOS 各一条，包名 `com.lingyiweichuang.app`，前置已满足 |

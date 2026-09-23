@@ -107,12 +107,13 @@ cd backend && npx prisma migrate dev   # 建表（要求 docker 里的 postgres 
 `app/android/` 是 prebuild 生成物、不进 Git，所以**不改 `build.gradle`**（改了下次 prebuild 就没了），签名用命令行注入：
 
 ```bash
+set -a; . ~/.helmet/android-release-keystore.env; set +a   # 凭证只从这里读，不写进命令历史
 cd app/android
 ./gradlew assembleRelease \
-  -Pandroid.injected.signing.store.file=$HOME/.helmet/lingyiweichuang-release.keystore \
-  -Pandroid.injected.signing.store.password='<密码管理器里的口令>' \
-  -Pandroid.injected.signing.key.alias=lingyiweichuang \
-  -Pandroid.injected.signing.key.password='<同上>'
+  -Pandroid.injected.signing.store.file="$HELMET_RELEASE_STORE_FILE" \
+  -Pandroid.injected.signing.store.password="$HELMET_RELEASE_STORE_PASSWORD" \
+  -Pandroid.injected.signing.key.alias="$HELMET_RELEASE_KEY_ALIAS" \
+  -Pandroid.injected.signing.key.password="$HELMET_RELEASE_KEY_PASSWORD"
 # 产物：app/build/outputs/apk/release/app-release.apk
 # 上架用 AAB 时把 assembleRelease 换成 bundleRelease
 ```
