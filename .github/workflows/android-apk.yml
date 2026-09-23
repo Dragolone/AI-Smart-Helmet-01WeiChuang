@@ -59,8 +59,10 @@ jobs:
           echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
           echo "path=$RUNNER_TEMP/release.keystore" >> "$GITHUB_OUTPUT"
 
+      # 步骤级限时：超时时 job 正常收尾，日志与下面的 gradle.log 才保得住（job 级超时会把日志一起丢掉，09-23 两次实测）
       - name: Assemble release
         working-directory: app/android
+        timeout-minutes: 80
         env:
           EXPO_PUBLIC_API_URL: ${{ github.event.inputs.api_url }}
           EXPO_PUBLIC_AMAP_ANDROID_KEY: ${{ secrets.EXPO_PUBLIC_AMAP_ANDROID_KEY }}
@@ -71,17 +73,28 @@ jobs:
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          # 只编 arm64-v8a：真机全是 arm64，四种 ABI 的 C++（新架构 + reanimated 等）是冷构建最慢的部分
+          args=(assembleRelease --console=plain -PreactNativeArchitectures=arm64-v8a)
           if [ -n "$KEYSTORE_PATH" ]; then
             echo "使用正式证书签名"
-            ./gradlew assembleRelease \
-              -Pandroid.injected.signing.store.file="$KEYSTORE_PATH" \
-              -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
-              -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
-              -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
+            args+=(-Pandroid.injected.signing.store.file="$KEYSTORE_PATH"
+                   -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD"
+                   -Pandroid.injected.signing.key.alias="$KEY_ALIAS"
+                   -Pandroid.injected.signing.key.password="$KEY_PASSWORD")
           else
             echo "未配置签名 secret：用 debug.keystore（仅测试装机）"
-            ./gradlew assembleRelease
           fi
+          ./gradlew "${args[@]}" 2>&1 | tee "$RUNNER_TEMP/gradle.log"
+          exit "${PIPESTATUS[0]}"
+
+      - name: Upload gradle log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-log-${{ github.run_id }}
+          path: ${{ runner.temp }}/gradle.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Name the artifact
         id: meta
