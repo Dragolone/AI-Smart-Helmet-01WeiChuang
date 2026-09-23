@@ -2,7 +2,7 @@
 
 > 本文件是第三方账号/Key 的**唯一状态台账**，每周对表更新。申请主体统一为**深圳零一唯创科技有限公司**（91440300MAK7XEPD38）。
 > 相关决策：#34（云厂商统一腾讯云 + 域名备案复用）、#22（TRTC 选型）、#24（双 Bundle ID）、#33（地图库定案）。
-> 最后更新：2026-09-22
+> 最后更新：2026-09-23
 
 ## 状态总览
 
@@ -12,7 +12,7 @@
 | 2 | 云服务器（腾讯云轻量 2C4G） | ✅ **已购买并部署完成（2026-09-06）**：helmet-dev，广州，2核4G/90GB/6Mbps，1 年 816 元，到期 2027-09-06；三子域名解析 + HTTPS + Mock 接入全部验收通过 | — | 负责人 |
 | 3 | 对象存储 COS | ✅ **已开通并接入（2026-09-16）**：桶 `helmet-media-1415122735`（广州 / 单 AZ / 私有读写 / SSE-COS），子账号 `helmet-cos` 仅授 `QcloudCOSDataFullControl`；后端 `TencentCosProvider` 真桶自检 5 项通过；**2026-09-22 子账号密钥已轮换（旧密钥曾出现在对话中），新密钥填入云端 `deploy/.env`，容器内 verify:cos 5 项通过；旧密钥（09-16）已禁用并删除，负责人本机 `backend/.env` 已换新且本地 verify:cos 5 项通过** | 视频上传入口待硬件确认上传方式 | 负责人 |
 | 4 | 腾讯云短信（签名 + 模板） | 🔄 服务已开通（2026-09-09）；**资质 ID 1309643 已通过（2026-09-22）**；两个模板（验证码 2739084、SOS 通知 2739086）**已生效**；签名「零一唯创」被驳回（公司类型签名须为营业执照全称的连续片段，不得跳字），改为 **「深圳零一唯创」（ID 723610）腾讯云已过审，2026-09-23 起运营商报备中**（验证码/通知两类，7–10 工作日；营销类不报备）；报备成功前签名状态显示「不可用」，真发会失败；后端腾讯云实现已就绪等六项配置 | 注册验证码 + SOS 短信真发（现为 Console Mock，不阻塞） | 负责人 |
-| 5 | Apple Developer 公司账号 | 🔄 **2026-09-22 注册已提交，Apple 审核中（Enrollment ID `XD2C5LWH7J`）**：D-U-N-S 576655751；验证人 = 法人龙俊洁（long@01weichuang.com / 15014036340）。**2026-09-23 签名权限验证表已由法人龙俊杰提交**（Apple 要求 signature authority reference 填 verification form）。下一步：等 Apple 审核邮件 → 付 ¥688 → 可能来电核实（15014036340） | iOS TestFlight 分发、APNs 远程推送、Critical Alerts | 负责人 |
+| 5 | Apple Developer 公司账号 | ✅ **已开通（2026-09-23）**：Apple Developer Program 组织账号「Shenzhen Lingyi Weichuang Technology Co., Ltd.」，有效期至 2027-09-23（年付 ¥688，到期前续）。**后续动作见 §5「账号到位后清单」** | — | 负责人 |
 | 6 | 推送：极光 + 安卓厂商通道 | 🔄 **极光账号 + 应用已建（2026-09-22）**：登录邮箱 zhongqilong@01weichuang.com，企业开发者，应用「零一唯创」AppKey `79cce150234ce38063213ccd`，Android 包名已配；iOS（APNs .p8）等第 5 项，厂商通道待逐家注册 | App 被杀后收不到推送（现只有本地通知） | 负责人 |
 | 7 | 高德地图 Key | ✅ 企业认证已完成（2026-09-06）；企业主体三把 Key 已建并换入（2026-09-17，测试额度）；**商用授权 = 付费年包 ¥5 万/年，上线前待汤总拍板（买 / 换图商）** | 不阻塞开发 | 负责人 → 汤总 |
 | 8 | 腾讯云 TRTC 应用 | ✅ **已完成（2026-09-10）**：应用在公司腾讯云账号下（SDKAppID 1600157223）；云端 `deploy/.env` 已填，进房凭证接口实测返回 userSig | — | 负责人 |
@@ -72,8 +72,16 @@
   - **2026-09-20 Enroll 填表进度**：机构信息已填（网站 01weichuang.com、电话 15014036340、机构邮箱 zhongqilong@01weichuang.com 已 Verified）；Signing Authority 关闭，验证人 = 法人龙俊洁（Junjie Long / Legal Representative / 15014036340）。**两个坑**：① 验证人邮箱**必须是公司域名**（@01weichuang.com），QQ 邮箱报 Invalid Email Address / lgEmail 未完成——需先给法人开公司邮箱；② 反复 Back 重填触发 **Work email verification is blocked**，Apple 要求联系支持或等约 24 h。**已于 2026-09-20 通过 developer.apple.com/contact →「会员资格和帐户 → 计划注册」提交中英双语工单，案例 ID 102969682223**（内容：请求解除工作邮箱验证限制 + 确认验证人邮箱是否必须公司域名）。下次一次填完，别多点 Verify。
   - ✅ **2026-09-22 工作邮箱验证已解封，注册表一次填完提交，进入审核（Enrollment ID `XD2C5LWH7J`）**。验证人邮箱用法人公司邮箱 `long@01weichuang.com`。
   - ✅ **2026-09-23 签名权限验证表已提交**：Apple 邮件 "Complete Verification Form for Apple Developer Program enrollment" 要求签名权限验证人（法人龙俊杰）填表，当日提交完成。填表要点留档：「法人实体名称」= **Shenzhen Lingyi Weichuang Technology Co., Ltd.**（Apple 账户页显示的登记名，Lingyi / Weichuang 分写；填人名会报「与待处理注册申请不匹配」）；注册 ID XD2C5LWH7J；6 位验证码在发给验证人的邮件正文里
-  - 下一步：等 Apple 审核邮件（发到公司 Apple ID 邮箱与 zhongqilong@01weichuang.com）→ 付 ¥688 → 可能来电核实（15014036340，法人接）→ 到位后 TestFlight 给硬件装 iPhone 包、APNs 补验、申请 Critical Alerts
-- **阻塞**：iOS 真机现用个人开发证书（7 天过期需重装）；TestFlight 分发、APNs 远程推送、Bundle ID 统一都等它
+  - ✅ **2026-09-23 审核通过、已付费，账号生效（Valid through Sep 23, 2027）**。
+- **账号到位后清单（2026-09-23 起）**：
+  1. ⬜ 记下 **Team ID**（developer.apple.com → Account → Membership details）→ 替换 `app/app.json` 的 `ios.appleTeamId`（现为开发期个人团队 `LZ3H94F5LC`），A 线 Xcode 改用公司 Team 签名
+  2. ⬜ Identifiers → 注册 App ID `com.lingyiweichuang.app`，Capabilities 勾 **Push Notifications**（Background Modes 不需在此登记）
+  3. ⬜ Keys → 新建 **APNs Auth Key**（勾 Apple Push Notifications service），下载 `.p8`（仅能下载一次，入密码库），记 Key ID → 极光控制台 iOS 推送设置选「Token Authentication」填 .p8 + Key ID + Team ID（§6）
+  4. ⬜ App Store Connect → Users and Access → 邀请 Wesley（App Manager 或 Developer）与 zhongqilong@01weichuang.com（Admin）
+  5. ⬜ App Store Connect → My Apps → 新建 App：名称「零一唯创」、Bundle ID 选上一步、SKU `lingyiweichuang-app`、主要语言简体中文 → TestFlight 才有落点；给硬件的 iPhone 测试包走 TestFlight 内部测试
+  6. ⬜ 申请 **Critical Alerts entitlement**（<https://developer.apple.com/contact/request/notifications-critical-alerts-entitlement/>，用途：摔倒/求救 60 s 倒计时提醒需穿透静音与勿扰）
+  7. ⬜ 个人开发证书退役：A/B 两台 Mac 的真机包改公司 Team 签名后，7 天过期问题消失
+- ~~**阻塞**：iOS 真机现用个人开发证书（7 天过期需重装）；TestFlight 分发、APNs 远程推送、Bundle ID 统一都等它~~ → 2026-09-23 解除
 - **公司信息**：深圳零一唯创科技有限公司 / 91440300MAK7XEPD38 / 深圳市坪山区龙田街道竹坑社区翠景路33号3栋坪山工匠园402
 - **后续动作**：账号下来后统一正式 Bundle ID（改 `app.json` → `npx expo prebuild --clean`），并同步更新高德 iOS Key 的 Bundle ID 绑定
 
@@ -87,7 +95,7 @@
   - ✅ 极光账号：邮箱注册（`zhongqilong@01weichuang.com`；企业微信免费版不支持别名/公共邮箱，交接时在极光改绑邮箱），企业开发者主体「深圳零一唯创科技有限公司」；凭证入密码库
   - ✅ 应用「零一唯创」（类别 实用工具/其它工具）：AppKey `79cce150234ce38063213ccd`（公开值，会打进 App 包）；**Master Secret 仅在密码库 / 服务器 `.env`，不进 Git、不进 App**
   - ✅ Android 包名 `com.lingyiweichuang.app`
-  - ⬜ iOS：等 Apple 公司账号 → 生成 APNs Auth Key（.p8）→ 极光选「Token Authentication 配置」（不过期、生产/开发共用），填 .p8 + Key ID + Team ID
+  - ⬜ iOS：**Apple 公司账号 2026-09-23 已到位** → 生成 APNs Auth Key（.p8，§5 清单第 3 条）→ 极光选「Token Authentication 配置」（不过期、生产/开发共用），填 .p8 + Key ID + Team ID
   - ⬜ 厂商通道：优先华为（AppGallery Connect，需登记正式签名 SHA256）+ 小米；OPPO/vivo 通常要求先上架（依赖第 10 项 App 备案）；荣耀单独注册
   - ⬜ 极光「隐私协议」字段：App 隐私政策有公开 URL 后补填；App 须在用户同意隐私政策后才初始化极光 SDK
   - ⬜ 后端 `JPushProvider`（B 线，配齐 AppKey + Master Secret 即真发，否则 Console Mock）；App 端 SDK 接入（A 线，需 config plugin + 原生重建）
