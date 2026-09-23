@@ -26,6 +26,7 @@ import { Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
 import { useAuthStore } from "@/stores/auth-store";
+import { useConsentStore } from "@/stores/consent-store";
 
 /** 与后端 SMS_CODE_RESEND_INTERVAL_SECONDS 默认一致；超前点击由服务端 429 兜底 */
 const RESEND_SECONDS = 60;
@@ -35,6 +36,7 @@ export default function RegisterScreen() {
   const theme = useTheme();
   const t = useT();
   const signIn = useAuthStore((s) => s.signIn);
+  const acceptPrivacy = useConsentStore((s) => s.accept);
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
@@ -116,6 +118,8 @@ export default function RegisterScreen() {
         password,
         ...(nickname.trim() && { nickname: nickname.trim() }),
       });
+      // 勾选 + 提交成功 = 同意成立；先记同意再登录，登录态钩子里的推送 SDK 初始化才放行
+      await acceptPrivacy();
       await signIn(auth); // 注册即登录（后端直接发 token）
     } catch (e) {
       const field = errorField(e);

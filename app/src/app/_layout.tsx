@@ -14,6 +14,7 @@ import { ConnectionBanner } from "@/components/connection-banner";
 import { ThemeFade } from "@/components/theme-fade";
 import { installDevErrorTap } from "@/services/dev-log";
 import { useAuthStore } from "@/stores/auth-store";
+import { useConsentStore } from "@/stores/consent-store";
 import { useThemeStore } from "@/stores/theme-store";
 
 // 开发期：未捕获异常旁路上报（真机 Metro 日志通道断时仍能看到红屏原因）
@@ -140,6 +141,8 @@ export default function RootLayout() {
   const hydrate = useAuthStore((s) => s.hydrate);
   const hydrateLocale = useLocaleStore((s) => s.hydrate);
   const hydrateTheme = useThemeStore((s) => s.hydrate);
+  // 隐私政策同意标记：不门控 UI，只决定第三方 SDK（极光）能不能初始化（services/push.ts）
+  const hydrateConsent = useConsentStore((s) => s.hydrate);
   // 语言/外观设置恢复完再挂路由：原生标签条挂载后再改标签文字会错位（2026-09-10 真机实证）
   const localeHydrated = useLocaleStore((s) => s.hydrated);
   const themeHydrated = useThemeStore((s) => s.hydrated);
@@ -148,7 +151,8 @@ export default function RootLayout() {
     void hydrate();
     void hydrateLocale();
     void hydrateTheme();
-  }, [hydrate, hydrateLocale, hydrateTheme]);
+    void hydrateConsent();
+  }, [hydrate, hydrateLocale, hydrateTheme, hydrateConsent]);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

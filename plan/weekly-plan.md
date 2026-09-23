@@ -304,6 +304,14 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 > - 🔴 **坑**：App 里本来就有一个 `legal/[doc].tsx`，渲染的是 `i18n/messages/legal.ts` 里一份 **09-11 草案**（页面自己标着「待公司法务确认」）；你托管的那两个 URL 是 **V1.0 / 09-23 / 深圳零一唯创科技有限公司**，两份内容已经分叉了（托管版覆盖了实时视频预览、语音对讲，草案没有）。一个包里两份口径不同的隐私政策会卡审核，也让用户「同意」的到底是哪份变得不确定。**已改成 WebView 读你托管的那份，草案 19 节正文删掉**；地址从 `EXPO_PUBLIC_API_URL` 推导，你换后端我不用改代码。代价是这两页要联网，离线显示「打不开 + 重试 / 用浏览器打开」。
 > - 这条是第 5 项（极光 SDK）的硬前置，现在解除了。**极光初始化必须挂在这个同意之后**，我接的时候会照做。
 > - ⚠️ 测的是源码不变式不是交互：勾选框能不能点、点书名号会不会连带把勾选切掉，还要双端真机各点一次，REGRESSION 1.1 已经把这几条写进预期了。
+>
+> **第 5、6 项（极光 SDK + 点击落地）App 侧代码也做完了（2026-09-24 凌晨，决策 #48）——等真机三态**：
+> - 官方 `jpush-react-native@3.2.8`，原生配置由 `app/plugins/with-jpush.js` 生成（DEVELOPMENT.md「极光推送」一节写了为什么这样接、为什么不用社区插件）。
+> - 口径照你说的：登录 `setAlias(userId)`、登出 `deleteAlias`；**SDK 只在同意隐私政策后初始化**；点通知：进行中 → 倒计时页，否则 → 事故详情（accidentId = sosId）。老用户换机直接登录看不到注册页那个勾选，所以**登录页也补了一次勾选，每台设备只问一次**。
+> - 🔴 **一个你要知道的原生坑**：极光初始化会把 expo-notifications 的 `UNUserNotificationCenter` delegate 顶掉，SOS 锁屏本地通知的「取消/查看」按钮会全废。我在 AppDelegate 补丁里把回调转发回 expo 了，REGRESSION 4.9 专门验这条。
+> - 极光 SDK 的 manifest 顺带申请 READ_PHONE_STATE / 外部存储 / GET_TASKS / 后台定位，全屏蔽了（`android.blockedPermissions`），不然商店合规那关过不去。
+> - **需要你**：① APNs .p8 上传极光（没这个 iOS 一条也收不到）；② 服务端 `JPUSH_APNS_PRODUCTION`——Xcode 直装的 Debug 包留空，TestFlight/Release 包设 true，不一致极光静默丢。
+> - 真机三态（前台/后台/被杀）双端明天测，REGRESSION 4.6–4.10。
 
 > **📣 A 线回复（2026-09-21）——④⑤⑥⑨ 与 ② 已做完并合 main**
 >

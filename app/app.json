@@ -36,7 +36,14 @@
         "monochromeImage": "./assets/images/icon-android-mono.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.lingyiweichuang.app"
+      "package": "com.lingyiweichuang.app",
+      "blockedPermissions": [
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.GET_TASKS",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.READ_PHONE_STATE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ]
     },
     "plugins": [
       "expo-router",
@@ -90,11 +97,18 @@
           ],
           "bluetoothAlwaysPermission": "用于连接您的智能头盔,接收摔倒检测与危险预警等安全事件(即使 App 在后台)。"
         }
-      ]
+      ],
+      "./plugins/with-jpush.js"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "jpush": {
+        "appKey": "79cce150234ce38063213ccd",
+        "channel": "official"
+      }
     }
   }
 }

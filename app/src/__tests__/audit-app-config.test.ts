@@ -99,3 +99,33 @@ describe("app.json 权限用途说明（CNG 唯一真相）", () => {
     );
   });
 });
+
+describe("app.json 推送接入（极光，决策 #10 / #48）", () => {
+  const e = appJson.expo as unknown as {
+    plugins: PluginEntry[];
+    extra?: { jpush?: { appKey?: string; channel?: string } };
+    android?: { blockedPermissions?: string[] };
+  };
+
+  it("AppKey 是公开值，放 extra.jpush 供 JS 与原生插件共用", () => {
+    expect(e.extra?.jpush?.appKey).toMatch(/^[0-9a-f]{24}$/);
+  });
+
+  it("挂了本地 config plugin（Android 占位符 + iOS AppDelegate 补丁）", () => {
+    const names = e.plugins.map((p) => (Array.isArray(p) ? p[0] : p));
+    expect(names).toContain("./plugins/with-jpush.js");
+  });
+
+  it("极光 SDK 顺带申请的超范围权限一律屏蔽（商店合规高频扣分项）", () => {
+    const blocked = e.android?.blockedPermissions ?? [];
+    for (const p of [
+      "android.permission.READ_PHONE_STATE",
+      "android.permission.GET_TASKS",
+      "android.permission.WRITE_EXTERNAL_STORAGE",
+      "android.permission.READ_EXTERNAL_STORAGE",
+      "android.permission.ACCESS_BACKGROUND_LOCATION",
+    ]) {
+      expect(blocked).toContain(p);
+    }
+  });
+});

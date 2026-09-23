@@ -24,6 +24,7 @@ import {
   resetBatteryAlerts,
 } from "@/services/battery-alert";
 import { devLog } from "@/services/dev-log";
+import { startPush, stopPush } from "@/services/push";
 import { handleDeviceCommand } from "@/services/ble-relay";
 import { startRelayUplink, stopRelayUplink } from "@/services/ble-relay-uplink";
 import {
@@ -51,6 +52,9 @@ export function useRealtimeUpdates(): void {
     // BLE 上行中转队列与登录态同生命周期(决策 #35:BLE 是唯一真机数据链路)；按账号分区，换账号不混用
     startRelayUplink(useAuthStore.getState().user?.id ?? undefined);
     void ensureSosAlertPermission();
+    // 远程推送（极光）：alias = 用户 ID；内部会等隐私政策同意后才初始化 SDK
+    const uid = useAuthStore.getState().user?.id;
+    if (uid) startPush(uid);
     // BLE 近场链路：目标 = 已绑定设备；绑定/解绑后随 ['devices'] 缓存变化同步目标
     const bleTargetsOf = () =>
       (queryClient.getQueryData<DevicePublic[]>(["devices"]) ?? []).map(
@@ -189,6 +193,7 @@ export function useRealtimeUpdates(): void {
       unsubscribeCache();
       stopBleLink();
       resetBatteryAlerts();
+      stopPush();
     };
   }, [authed, queryClient]);
 }

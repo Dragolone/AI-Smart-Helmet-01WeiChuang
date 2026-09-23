@@ -96,7 +96,7 @@ cd backend && npx prisma migrate dev   # 建表（要求 docker 里的 postgres 
 
 - **iPhone**：设置 → 隐私与安全性 → 开发者模式 → 打开并重启；用数据线连 Mac，首次需在手机上信任此电脑。
 - **Android**：设置 → 关于手机 → 连点「版本号」7 次开启开发者选项 → 打开「USB 调试」；连线后允许调试授权。
-- **原生依赖变更后所有开发包都要重建**（CNG：`npx expo prebuild` → `pod install` → xcodebuild / `gradlew assembleDebug`；**2026-09-23 起 iOS 用公司团队 `B3NHB45FS7` 签名，不再需要手删 `aps-environment`**）。只连 Metro 不重建会在进入用到该模块的页面时红屏 `Cannot find native module`。最近一次：**2026-09-17 新增 `expo-camera`（扫码绑定）**，此后 iPhone Release、模拟器 dev-client（Bundle ID 已随改名变为 `com.lingyiweichuang.app`）、华为 APK 都需要是 09-17 之后打的包。
+- **原生依赖变更后所有开发包都要重建**（CNG：`npx expo prebuild` → `pod install` → xcodebuild / `gradlew assembleDebug`；**2026-09-23 起 iOS 用公司团队 `B3NHB45FS7` 签名，不再需要手删 `aps-environment`**）。只连 Metro 不重建会在进入用到该模块的页面时红屏 `Cannot find native module`。最近一次：**2026-09-24 新增 `jpush-react-native` / `jcore-react-native`（极光推送，决策 #48）**，此后三处包都需要是 09-24 之后打的；上一次是 2026-09-17 新增 `expo-camera`（扫码绑定）。
 
 ## Android 正式签名包（2026-09-21 起）
 
@@ -153,6 +153,19 @@ printf %s "$HELMET_RELEASE_KEY_PASSWORD"   | gh secret set ANDROID_KEY_PASSWORD
 地图相关的 `EXPO_PUBLIC_AMAP_JS_KEY` / `EXPO_PUBLIC_AMAP_JS_SECURITY_CODE` 也要配成 secret，否则 CI 出的包地图是空白的（值在 `app/.env`）。
 
 拿到包后确认签名对：`apksigner verify --print-certs app-release.apk | grep SHA-1`，应为 `2e36b3c2…29d8`。
+
+## 极光推送（App 侧，2026-09-24 起）
+
+决策 #10 定极光为统一推送层、#48 定 App 侧接法。服务端只认 **alias = 用户 ID**（`backend/src/providers/jpush.provider.ts`），App 不上报 token。
+
+- **原生配置全部由 `app/plugins/with-jpush.js` 生成**（CNG，别手改 ios/ android/）：Android 往 `app/build.gradle` 写 `manifestPlaceholders`（`JPUSH_PKGNAME/APPKEY/CHANNEL`）+ manifest 两条 meta-data；iOS 给 `AppDelegate.swift` 补三块（deviceToken → `JPUSHService.registerDeviceToken`；`extension AppDelegate: JPUSHRegisterDelegate`；`super.application(didFinishLaunching)` 之后记下 expo-notifications 的 `UNUserNotificationCenter` delegate 并在极光回调里转发回去）、bridging header 加 `#import <JPUSHService.h>` / `<RCTJPushEventQueue.h>`、Info.plist 加 `remote-notification` 后台模式。补丁靠锚点正则，**Expo 模板升级后 `app/plugins/__tests__/with-jpush.test.ts` 会先红**，prebuild 时锚点失效直接抛错不静默漏补。
+- **为什么要转发 delegate**：极光初始化会把自己设成 `UNUserNotificationCenter.delegate`，把 expo-notifications 顶掉——不转发的话 SOS 锁屏本地通知的「取消 / 查看」按钮（`services/sos-alert.ts`）全废。
+- **为什么不在 AppDelegate 里初始化极光**（社区插件 mx-jpush-expo 是这么干的）：SDK 必须等用户同意隐私政策后才能起（商店合规，THIRD_PARTY §6）。初始化在 JS `services/push.ts`：登录态钩子 `use-realtime.ts` 调 `startPush(userId)` → 读 `consent-store`，同意了就 `init + setAlias`，没同意就挂起等同意那一刻；登出 `stopPush()` → `deleteAlias`。**监听必须先于 init 挂上**：Android 被杀状态下点通知启动 App，`init()` 里会回放缓存的那次点击。
+- **AppKey** 在 `app.json` `extra.jpush.appKey`（公开值，JS 与插件共用一份）；Master Secret 只在服务器。
+- **APNs 环境要对齐**：App 侧 `production: !__DEV__`（Xcode Debug 包 = development，Release/TestFlight = production），服务端 `JPUSH_APNS_PRODUCTION` 要和装机包一致，不一致极光会静默丢或报 1011。
+- **权限**：极光 SDK 的 manifest 带 `READ_PHONE_STATE` / 外部存储 / `GET_TASKS` / `ACCESS_BACKGROUND_LOCATION`，全部用 `app.json` `android.blockedPermissions` 屏蔽（`audit-app-config.test.ts` 钉住）。
+- **本机怎么验**：dev 云端后端已切极光真发。登录后 Metro 日志看 `[PUSH] registrationID …` 与 `setAlias <userId>`；服务端触发 SOS（Mock `SCENARIO=fall`）→ 手机应收到「SOS 倒计时已开始」；分别在前台 / 后台 / 杀掉 App 三态各点一次通知，前两态应进倒计时页，被杀态应先冷启动再进（REGRESSION 4.6–4.8）。
+- **已知未验证（2026-09-24 夜，无真机）**：① `RCTJPushModule` 是老式 NativeModule，靠新架构 interop 跑（`RCTBridgeProxy` 有 `launchOptions` / `enqueueJSCall`，理论上够）；② ~~Swift 转发写法能否编译~~ → ✅ **2026-09-24 00:0x 本机结果**：`xcodebuild` Debug（iPhone 14 Pro Max，公司团队）**BUILD SUCCEEDED**，AppDelegate 补丁与 bridging header 编译通过；`gradlew assembleDebug`（arm64）**BUILD SUCCESSFUL in 59s**，APK 内 `JPUSH_APPKEY/CHANNEL` meta-data 已解析、五个屏蔽权限确认不在包里（`aapt2 dump permissions`）。iPhone 装新包冷启动：`[PUSH]` 读到 AppKey（首版用 `expo-constants` 读 `extra` 在 dev-client 上为空，改为直接 `import app.json`），登录态钩子按预期打出「未同意隐私政策，推送 SDK 暂不初始化」——**SDK 真正 init / setAlias / 收推送三态要等真机上勾一次同意（登出→登录页勾选），未测**；③ 华为不走厂商通道时被杀后的到达率（THIRD_PARTY §6 厂商通道待注册）。
 
 ## 平台限制清单（持续维护）
 

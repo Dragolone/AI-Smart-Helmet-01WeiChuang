@@ -1,0 +1,177 @@
+// 极光 config plugin 的补丁全靠锚点正则，Expo 模板一改就会在 prebuild 时炸或（更糟）静默漏补。
+// 夹具 = Expo SDK 57 生成的真实 AppDelegate.swift / build.gradle 片段；模板升级后这里先红。
+import { describe, expect, it } from "@jest/globals";
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const plugin = require("../with-jpush.js") as {
+  applyAppDelegate: (s: string) => string;
+  applyAppBuildGradle: (s: string, cfg: { appKey: string; channel: string }) => string;
+  applyAndroidManifest: (m: unknown) => unknown;
+  applyBridgingHeader: (s: string) => string;
+  applyInfoPlist: (p: Record<string, unknown>) => Record<string, unknown>;
+  readJPushExtra: (c: unknown) => { appKey: string; channel: string };
+};
+
+const APP_DELEGATE_SDK57 = `internal import Expo
+import React
+import ReactAppDependencyProvider
+
+@main
+class AppDelegate: ExpoAppDelegate {
+  var window: UIWindow?
+
+  var reactNativeDelegate: ExpoReactNativeFactoryDelegate?
+  var reactNativeFactory: RCTReactNativeFactory?
+
+  public override func application(
+    _ application: UIApplication,
+    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+  ) -> Bool {
+    let delegate = ReactNativeDelegate()
+    let factory = ExpoReactNativeFactory(delegate: delegate)
+    delegate.dependencyProvider = RCTAppDependencyProvider()
+
+    reactNativeDelegate = delegate
+    reactNativeFactory = factory
+
+#if os(iOS) || os(tvOS)
+    window = UIWindow(frame: UIScreen.main.bounds)
+    factory.startReactNative(
+      withModuleName: "main",
+      in: window,
+      launchOptions: launchOptions)
+#endif
+
+    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  // Linking API
+  public override func application(
+    _ app: UIApplication,
+    open url: URL,
+    options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+  ) -> Bool {
+    return super.application(app, open: url, options: options) || RCTLinkingManager.application(app, open: url, options: options)
+  }
+}
+
+class ReactNativeDelegate: ExpoReactNativeFactoryDelegate {
+  override func bundleURL() -> URL? {
+    return Bundle.main.url(forResource: "main", withExtension: "jsbundle")
+  }
+}
+`;
+
+const BUILD_GRADLE_SDK57 = `android {
+    ndkVersion rootProject.ext.ndkVersion
+    namespace 'com.lingyiweichuang.app'
+    defaultConfig {
+        applicationId 'com.lingyiweichuang.app'
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName "1.0.0"
+    }
+}
+`;
+
+describe("iOS AppDelegate.swift 补丁", () => {
+  const once = plugin.applyAppDelegate(APP_DELEGATE_SDK57);
+
+  it("四块都补上了", () => {
+    expect(once).toContain("import UserNotifications");
+    expect(once).toContain("JPUSHService.registerDeviceToken(deviceToken)");
+    expect(once).toContain("extension AppDelegate: JPUSHRegisterDelegate");
+    // 记 delegate 必须在 super 之后（expo-notifications 在 super 里才把 delegate 设上）
+    const superIdx = once.indexOf("let jpushLaunched = super.application(application, didFinishLaunchingWithOptions: launchOptions)");
+    const rememberIdx = once.indexOf("AppDelegate.jpushForwardDelegate = UNUserNotificationCenter.current().delegate");
+    expect(superIdx).toBeGreaterThan(0);
+    expect(rememberIdx).toBeGreaterThan(superIdx);
+    // 原来的裸 return 不能还留着，否则 Swift 报 unreachable / 重复 return
+    expect(once).not.toMatch(/^\s*return super\.application\(application, didFinishLaunchingWithOptions: launchOptions\)\s*$/m);
+  });
+
+  it("被杀状态下点击会先压进 RCTJPushEventQueue（JS 起来后回放）", () => {
+    expect(once).toContain("RCTJPushEventQueue.sharedInstance()._notificationQueue?.insert(userInfo, at: 0)");
+    expect(once).toContain('NSNotification.Name("J_APNS_NOTIFICATION_OPENED_EVENT")');
+  });
+
+  it("回调转发回 expo-notifications（SOS 锁屏本地通知的按钮不能废）", () => {
+    expect(once).toContain("forward.userNotificationCenter(_:didReceive:withCompletionHandler:)");
+    expect(once).toContain("forward.userNotificationCenter(_:willPresent:withCompletionHandler:)");
+  });
+
+  it("不在 AppDelegate 里初始化极光（必须等用户同意隐私政策后由 JS 触发）", () => {
+    expect(once).not.toContain("JPUSHService.setup");
+    expect(once).not.toContain("registerForRemoteNotificationConfig");
+  });
+
+  it("幂等：再补一次结果不变", () => {
+    expect(plugin.applyAppDelegate(once)).toBe(once);
+  });
+
+  it("不是 Expo 模板就报错，不静默漏补", () => {
+    expect(() => plugin.applyAppDelegate("class AppDelegate: UIResponder {}")).toThrow(/Expo 模板/);
+    const noReturn = APP_DELEGATE_SDK57.replace(
+      "return super.application(application, didFinishLaunchingWithOptions: launchOptions)",
+      "return true",
+    );
+    expect(() => plugin.applyAppDelegate(noReturn)).toThrow(/remember-delegate/);
+  });
+});
+
+describe("Android build.gradle 占位符", () => {
+  const cfg = { appKey: "79cce150234ce38063213ccd", channel: "official" };
+  const once = plugin.applyAppBuildGradle(BUILD_GRADLE_SDK57, cfg);
+
+  it("三个占位符都在，且包名跟着 applicationId 走", () => {
+    expect(once).toContain("JPUSH_PKGNAME: applicationId");
+    expect(once).toContain('JPUSH_APPKEY: "79cce150234ce38063213ccd"');
+    expect(once).toContain('JPUSH_CHANNEL: "official"');
+    // 插在 defaultConfig 里、applicationId 之后
+    expect(once.indexOf("manifestPlaceholders")).toBeGreaterThan(once.indexOf("applicationId 'com.lingyiweichuang.app'"));
+  });
+
+  it("幂等", () => {
+    expect(plugin.applyAppBuildGradle(once, cfg)).toBe(once);
+  });
+
+  it("找不到 applicationId 就报错", () => {
+    expect(() => plugin.applyAppBuildGradle("android {}", cfg)).toThrow(/applicationId/);
+  });
+});
+
+describe("Android manifest / iOS plist / bridging header", () => {
+  it("manifest 加两条 meta-data，重复应用不重复加", () => {
+    const manifest = {
+      manifest: {
+        application: [{ $: { "android:name": ".MainApplication" }, "meta-data": [] as unknown[] }],
+      },
+    };
+    plugin.applyAndroidManifest(manifest);
+    plugin.applyAndroidManifest(manifest);
+    const names = manifest.manifest.application[0]["meta-data"].map(
+      (m) => (m as { $: Record<string, string> }).$["android:name"],
+    );
+    expect(names).toEqual(["JPUSH_APPKEY", "JPUSH_CHANNEL"]);
+  });
+
+  it("Info.plist 补 remote-notification 后台模式，保留原有 audio", () => {
+    const out = plugin.applyInfoPlist({ UIBackgroundModes: ["audio"] });
+    expect(out.UIBackgroundModes).toEqual(["audio", "remote-notification"]);
+    expect(plugin.applyInfoPlist(out).UIBackgroundModes).toEqual(["audio", "remote-notification"]);
+  });
+
+  it("bridging header 两行 import 幂等", () => {
+    const template = "//\n// Use this file to import your target's public headers that you would like to expose to Swift.\n//\n";
+    const once = plugin.applyBridgingHeader(template);
+    expect(once).toContain("#import <JPUSHService.h>");
+    expect(once).toContain("#import <RCTJPushEventQueue.h>");
+    expect(plugin.applyBridgingHeader(once)).toBe(once);
+  });
+
+  it("app.json 缺 appKey 直接报错", () => {
+    expect(() => plugin.readJPushExtra({ extra: {} })).toThrow(/appKey/);
+    expect(plugin.readJPushExtra({ extra: { jpush: { appKey: "k" } } })).toEqual({ appKey: "k", channel: "official" });
+  });
+});
