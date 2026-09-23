@@ -1,5 +1,5 @@
 // 注册页（API.md §2：POST /auth/sms-code 取验证码 → POST /auth/register 带 code）
-import { Link } from "expo-router";
+import { Link, router } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -8,6 +8,7 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { authApi } from "@/api/auth";
@@ -39,6 +40,8 @@ export default function RegisterScreen() {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [nickname, setNickname] = useState("");
+  // 合规：默认不勾，不勾不让提交（极光等第三方 SDK 也必须等这一步之后才初始化）
+  const [consented, setConsented] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** 能落到具体字段的错误就地显示（红框 + 抖动），落不到的走页面级 FormError */
   const [fieldError, setFieldError] = useState<{
@@ -89,6 +92,10 @@ export default function RegisterScreen() {
   const submit = async () => {
     setError(null);
     setFieldError(null);
+    if (!consented) {
+      setError(t("auth.consentRequired"));
+      return;
+    }
     if (!/^\d{6}$/.test(code)) {
       fail("code", t("auth.invalidCode"));
       return;
@@ -206,6 +213,44 @@ export default function RegisterScreen() {
             placeholder={t("auth.nicknamePlaceholder")}
           />
 
+          {/* 同意勾选：默认不勾、不勾不让提交（商店合规高频扣分项）。
+              书名号两处各自可点，跳 legal/[doc]（正文由后端托管，见 constants/legal.ts）。
+              整行可点切换勾选；书名号是嵌套 Text 的 onPress，靠它先成为 touch responder
+              来避免连带切换外层勾选——这条依赖 RN 的响应者链，双端真机各点一次确认（REGRESSION 1.1）。 */}
+          <Pressable
+            onPress={() => setConsented((v) => !v)}
+            style={styles.consentRow}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: consented }}
+            accessibilityLabel={`${t("auth.consentPrefix")}${t("auth.consentTerms")}${t("auth.consentAnd")}${t("auth.consentPrivacy")}`}
+          >
+            <Ionicons
+              name={consented ? "checkbox" : "square-outline"}
+              size={20}
+              color={consented ? theme.brand : theme.textSecondary}
+            />
+            <ThemedText type="small" style={styles.consentText}>
+              {t("auth.consentPrefix")}
+              <ThemedText
+                type="small"
+                style={{ color: theme.brand }}
+                onPress={() => router.push("/legal/terms")}
+                suppressHighlighting
+              >
+                {t("auth.consentTerms")}
+              </ThemedText>
+              {t("auth.consentAnd")}
+              <ThemedText
+                type="small"
+                style={{ color: theme.brand }}
+                onPress={() => router.push("/legal/privacy")}
+                suppressHighlighting
+              >
+                {t("auth.consentPrivacy")}
+              </ThemedText>
+            </ThemedText>
+          </Pressable>
+
           <FormError message={error} />
           <PrimaryButton
             title={t("auth.registerAndLogin")}
@@ -226,6 +271,8 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: { flex: 1, justifyContent: "center", padding: 24, gap: 12 },
   codeRow: { flexDirection: "row", alignItems: "flex-end", gap: 10 },
+  consentRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  consentText: { flex: 1, lineHeight: 20 },
   codeButton: {
     borderWidth: 1,
     borderRadius: Radius.control,

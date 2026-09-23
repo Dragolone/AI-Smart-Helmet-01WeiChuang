@@ -1,0 +1,73 @@
+// 合规门控（B 线 2026-09-23 第 13 项）的两条不变式，钉在测试里：
+//   ① 注册页必须有「同意协议」勾选，默认不勾，不勾不得发起注册请求；
+//   ② 隐私政策 / 用户服务协议只能有一个来源——后端托管版，App 内不得再内置正文。
+// 为什么用源码断言而不是渲染断言：本仓库的 jest（jest-expo + react-test-renderer + React 19）
+// 渲染带 hooks 的屏幕组件会挂在 dispatcher 上（现有组件测试都是 class 组件，没踩到）；
+// 为一条门控改测试栈不划算，先用源码不变式兜住「被误删/被绕过」这个最主要的退化风险。
+// ⚠️ 这测不了交互是否真的好使：勾选框能不能点、书名号会不会连带切换勾选，
+//    仍要真机各点一次（REGRESSION 1.1）。
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { describe, expect, it } from "@jest/globals";
+
+import { legalOrigin, legalUrl } from "../constants/legal";
+
+const read = (p: string) => readFileSync(join(__dirname, "..", p), "utf8");
+
+describe("注册页同意勾选", () => {
+  const src = read("app/(auth)/register.tsx");
+
+  it("有 checkbox 角色的控件", () => {
+    expect(src).toContain('accessibilityRole="checkbox"');
+  });
+
+  it("默认不勾选", () => {
+    expect(src).toMatch(/useState\(false\)/);
+    expect(src).toContain("const [consented, setConsented] = useState(false)");
+  });
+
+  it("未勾选时 submit 直接返回，早于任何网络调用", () => {
+    const body = src.slice(src.indexOf("const submit = async"));
+    const guard = body.indexOf("if (!consented)");
+    const call = body.indexOf("authApi.register");
+    expect(guard).toBeGreaterThanOrEqual(0);
+    expect(call).toBeGreaterThan(guard);
+    // 守卫和它的 return 之间不能插进别的语句
+    expect(body.slice(guard, guard + 120)).toContain("return;");
+  });
+
+  it("两份文档各有一个入口", () => {
+    expect(src).toContain('router.push("/legal/terms")');
+    expect(src).toContain('router.push("/legal/privacy")');
+  });
+});
+
+describe("法律文档单一来源", () => {
+  it("字典里不再内置正文章节", () => {
+    const dict = read("i18n/messages/legal.ts");
+    // 旧草案的章节 key 形如 legal.privacy.s1.p；一条都不该再有
+    expect(dict).not.toMatch(/legal\.(privacy|terms)\.s\d+\./);
+  });
+
+  it("阅读页走 WebView 打托管地址，不再本地渲染章节", () => {
+    const page = read("app/legal/[doc].tsx");
+    expect(page).toContain("react-native-webview");
+    expect(page).toContain("legalUrl");
+    expect(page).not.toContain("sections.map");
+  });
+
+  it("地址跟着 EXPO_PUBLIC_API_URL 走，换后端不用改代码", () => {
+    expect(legalUrl("privacy", "https://dev-api.01weichuang.com/api/v1")).toBe(
+      "https://dev-api.01weichuang.com/legal/privacy",
+    );
+    expect(legalUrl("terms", "http://192.168.1.111:3000/api/v1")).toBe(
+      "http://192.168.1.111:3000/legal/terms",
+    );
+  });
+
+  it("API base 配坏时返回空串而不是抛异常", () => {
+    expect(legalOrigin("这不是个 URL")).toBe("");
+    expect(legalUrl("privacy", "")).toBe("");
+  });
+});
