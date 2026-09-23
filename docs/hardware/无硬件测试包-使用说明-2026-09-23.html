@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI智能头盔 · 无硬件测试包</title>
+<link rel="stylesheet" href="_style.css">
+</head>
+<body>
+<div class="container">
+    <h1>《AI智能头盔》无硬件测试包</h1>
+    <div class="meta-info">
+        <span><strong>给谁</strong>：手机 APP</span>
+        <span><strong>用途</strong>：没有头盔时测视频播放</span>
+        <span><strong>协议</strong>：与真机相同 rtsp://IP:8554/ch0</span>
+    </div>
+
+    <div class="toc">
+        <strong>目录</strong>
+        <ul>
+            <li><a href="#s1">1.0 这个包做什么</a></li>
+            <li><a href="#s2">2.0 电脑怎么开测试流</a></li>
+            <li><a href="#s3">3.0 APP 怎么播</a></li>
+            <li><a href="#s4">4.0 和真机的差别</a></li>
+            <li><a href="#s5">5.0 BLE 怎么测</a></li>
+        </ul>
+    </div>
+
+    <h2 id="s1">1.0 这个包做什么</h2>
+    <p>在电脑上起一路和头盔<strong>相同约定</strong>的 RTSP：端口 8554、路径 <code>/ch0</code>、H.264、1280×720、30 fps、TCP。画面是彩条加时间戳，用来把播放页做完，不需要板子。</p>
+    <table class="data-table">
+        <thead><tr><th>文件</th><th>干什么</th></tr></thead>
+        <tbody>
+            <tr><td><code>启动测试流.bat</code></td><td>双击启动（推荐）</td></tr>
+            <tr><td><code>start_rtsp.ps1</code></td><td>实际拉起 ffmpeg 的脚本</td></tr>
+            <tr><td><code>BLE十六进制对照.txt</code></td><td>组包 / 解包单元测试用的十六进制例子</td></tr>
+            <tr><td><code>使用说明.html</code></td><td>本页</td></tr>
+        </tbody>
+    </table>
+
+    <h2 id="s2">2.0 电脑怎么开测试流</h2>
+    <ol>
+        <li>安装 ffmpeg：<code>winget install Gyan.FFmpeg</code>，或从 <a href="https://ffmpeg.org/download.html">ffmpeg.org</a> 下载并把 <code>bin</code> 加入 PATH。</li>
+        <li>电脑和手机连<strong>同一个普通 Wi-Fi</strong>（家里路由即可）。</li>
+        <li>关掉 VPN。</li>
+        <li>双击 <code>启动测试流.bat</code>。窗口会打印本机 IP 和完整 URL。</li>
+        <li>先用本机 VLC：媒体 → 打开网络串流 → 粘贴 <code>rtsp://127.0.0.1:8554/ch0</code>，选项加 <code>:rtsp-tcp</code>。看到彩条说明源是好的。</li>
+    </ol>
+    <p class="note-text">ffmpeg 监听一次只接一个客户端。用完 VLC 先关掉，再开 APP。黑窗口不要关，关了流就停。</p>
+
+    <h2 id="s3">3.0 APP 怎么播</h2>
+    <p>播放代码和真机完全一样，只改主机：</p>
+    <table class="data-table">
+        <thead><tr><th>环境</th><th>地址</th></tr></thead>
+        <tbody>
+            <tr><td>本测试包</td><td><code>rtsp://&lt;电脑局域网IP&gt;:8554/ch0</code></td></tr>
+            <tr><td>真机头盔</td><td><code>rtsp://192.168.176.1:8554/ch0</code></td></tr>
+        </tbody>
+    </table>
+    <ol>
+        <li>强制 <strong>RTSP over TCP</strong>。</li>
+        <li>H.264 硬解，铺到 16:9 画面。</li>
+        <li>进后台停播，回前台重新 PLAY。</li>
+    </ol>
+    <p>电脑 VLC 能出画、APP 不能：查 TCP、手机和电脑是否同一网段、Android 是否把流量绑到蜂窝网。电脑也不能：先把本包的流拉起来，不要先改协议。</p>
+
+    <h2 id="s4">4.0 和真机的差别</h2>
+    <table class="data-table">
+        <thead><tr><th>项</th><th>本测试包</th><th>真机头盔</th></tr></thead>
+        <tbody>
+            <tr><td>路径 / 端口 / 编码</td><td>相同</td><td>相同</td></tr>
+            <tr><td>画面内容</td><td>彩条 + 时间戳</td><td>摄像头彩色实景</td></tr>
+            <tr><td>网络</td><td>家里 Wi-Fi，电脑当源</td><td>热点 <code>X821cam</code> / <code>Aa123456</code></td></tr>
+            <tr><td>主机</td><td>电脑 IP</td><td>固定 <code>192.168.176.1</code></td></tr>
+            <tr><td>蓝牙</td><td>本包不模拟 GATT</td><td>按手册 v0.6</td></tr>
+        </tbody>
+    </table>
+    <p>真机热点没有互联网。预览页不要访问外网登录或地图。</p>
+
+    <h2 id="s5">5.0 BLE 怎么测</h2>
+    <p>本包<strong>不广播</strong> <code>Helmet-*</code>。没有头盔时，用 <code>BLE十六进制对照.txt</code> 做组包 / 解包 / ACK 的单元测试。字段以《AI智能头盔BLE通信协议手册》v0.6 为准。</p>
+    <p class="doc-footer">2026-09-23 · 发给 APP 的无硬件测试包 · 与真机协议一致</p>
+</div>
+</body>
+</html>

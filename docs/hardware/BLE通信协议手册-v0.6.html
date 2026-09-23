@@ -4,167 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI智能头盔通信协议手册 - 蓝牙BLE版本 (v0.6)</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
-            line-height: 1.6;
-            color: #222;
-            background-color: #f5f6f8;
-            margin: 0;
-            padding: 20px;
-        }
-        .container {
-            max-width: 960px;
-            margin: 0 auto;
-            background: #ffffff;
-            padding: 40px 50px;
-            border-radius: 4px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
-        }
-        h1 {
-            text-align: center;
-            font-size: 25px;
-            margin-bottom: 8px;
-            color: #111;
-            font-weight: 700;
-        }
-        .meta-info {
-            text-align: center;
-            font-size: 13.5px;
-            color: #555;
-            border-bottom: 1px solid #e2e8f0;
-            padding-bottom: 14px;
-            margin-bottom: 26px;
-        }
-        .meta-info span {
-            margin: 0 10px;
-        }
-        h2 {
-            font-size: 18px;
-            border-bottom: 2px solid #2d3748;
-            padding-bottom: 6px;
-            margin-top: 32px;
-            margin-bottom: 14px;
-            color: #1a202c;
-        }
-        h3 {
-            font-size: 15px;
-            margin-top: 22px;
-            margin-bottom: 10px;
-            color: #2b6cb0;
-        }
-        p {
-            margin: 7px 0;
-            font-size: 13.5px;
-        }
-        .prop-item {
-            margin: 4px 0;
-            font-size: 13.5px;
-        }
-        .prop-label {
-            display: inline-block;
-            width: 70px;
-            font-weight: bold;
-            color: #333;
-        }
-        .hex-frame {
-            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-            font-size: 13.5px;
-            margin: 8px 0 6px 0;
-            font-weight: 600;
-        }
-        .hex-text-red {
-            color: #c53030;
-        }
-        table.protocol-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 8px 0 16px 0;
-            font-size: 13px;
-            background-color: #fff;
-        }
-        table.protocol-table th {
-            background-color: #d1d5db;
-            color: #111827;
-            font-weight: bold;
-            border: 1px solid #4b5563;
-            padding: 7px 6px;
-            text-align: center;
-            vertical-align: middle;
-        }
-        table.protocol-table td {
-            border: 1px solid #4b5563;
-            padding: 7px 6px;
-            text-align: center;
-            vertical-align: middle;
-            font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-            font-size: 13px;
-        }
-        table.protocol-table td.val-red {
-            color: #c53030;
-            font-weight: 700;
-        }
-        table.data-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 12px 0 20px 0;
-            font-size: 13px;
-        }
-        table.data-table th {
-            background-color: #e2e8f0;
-            color: #2d3748;
-            font-weight: bold;
-            border: 1px solid #cbd5e0;
-            padding: 8px 7px;
-            text-align: center;
-        }
-        table.data-table td {
-            border: 1px solid #cbd5e0;
-            padding: 6px 7px;
-            font-size: 12.5px;
-        }
-        table.data-table tr:nth-child(even) {
-            background-color: #f8fafc;
-        }
-        .toc {
-            background-color: #f8fafc;
-            border: 1px solid #e2e8f0;
-            padding: 14px 20px;
-            margin-bottom: 24px;
-            border-radius: 4px;
-            font-size: 13.5px;
-        }
-        .toc ul {
-            list-style: none;
-            padding-left: 0;
-            margin: 0;
-        }
-        .toc li {
-            margin: 5px 0;
-        }
-        .toc a {
-            color: #2b6cb0;
-            text-decoration: none;
-        }
-        .toc a:hover {
-            text-decoration: underline;
-        }
-        .toc .sub-li {
-            padding-left: 18px;
-        }
-        .note-text {
-            color: #4a5568;
-            font-size: 12.5px;
-            margin: 3px 0;
-        }
-        .code-inline {
-            background-color: #edf2f7;
-            padding: 2px 5px;
-            border-radius: 3px;
-            font-family: monospace;
-            font-size: 12.5px;
-        }
-    </style>
+    <link rel="stylesheet" href="_style.css">
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
     <script>document.addEventListener("DOMContentLoaded", function() { if (window.mermaid) { mermaid.initialize({ startOnLoad: true, theme: 'neutral' }); } });</script>
 </head>
@@ -178,6 +18,7 @@
         <span><strong>生效日期</strong>：2026-09-08</span>
         <span><strong>协议对象</strong>：AI智能头盔 (GATT Server) ⟷ 手机 App (GATT Client)</span>
     </div>
+    <p class="doc-nav"><a href="../README.html">交付目录</a> · <a href="02-APP协议说明.html">APP 协议说明（含视频面）</a> · <a href="01-技术实现原理.html">技术实现原理</a></p>
 
     <div class="toc">
         <strong>目录</strong>
@@ -484,14 +325,15 @@
         </tbody>
     </table>
 
-    <p><strong>例 4 开启前照明大灯高亮模式 (0X02)，并设置蜂鸣器音量为 90% (0X5A) (首地址 0X26，流水号 0X04)</strong></p>
-    <div class="hex-frame">指令帧：<span class="hex-text-red">03 04 26 02 5A</span></div>
+    <p><strong>例 4 开启蜂鸣器提醒 (0X01)，并设置音量为 90% (0X5A) (首地址 0X23，流水号 0X04)</strong></p>
+    <p>在控制表里蜂鸣器开关首地址为 <code>0X23</code>，连续写入两个字节：开关 <code>0X01</code>（开启），音量 <code>0X5A</code>（90%）。连续地址分别落入 <code>0X23</code> 与 <code>0X24</code>。</p>
+    <div class="hex-frame">指令帧：<span class="hex-text-red">03 04 23 01 5A</span></div>
     <table class="protocol-table">
         <thead>
-            <tr><th>指令码</th><th>流水号</th><th>首地址</th><th>数据 1 (大灯)</th><th>数据 2 (音量)</th></tr>
+            <tr><th>指令码</th><th>流水号</th><th>首地址</th><th>数据 1 (开关)</th><th>数据 2 (音量)</th></tr>
         </thead>
         <tbody>
-            <tr><td class="val-red">0X03</td><td class="val-red">0X04</td><td class="val-red">0X26</td><td class="val-red">0X02</td><td class="val-red">0X5A</td></tr>
+            <tr><td class="val-red">0X03</td><td class="val-red">0X04</td><td class="val-red">0X23</td><td class="val-red">0X01</td><td class="val-red">0X5A</td></tr>
         </tbody>
     </table>
     <div class="hex-frame">返回的数据帧：<span class="hex-text-red">03 04 00</span></div>
@@ -1291,12 +1133,12 @@ sequenceDiagram
     participant Helmet as 头盔主控 V821
     participant Hardware as 外部硬件 (LED/蜂鸣器)
 
-    User->>App: 在设置页打开大灯高亮模式，音量设为 90%
-    App->>Helmet: Write 下发配置 [0x03][Seq=08][首地址 0x26][数据 0x02 0x5A]
+    User->>App: 在设置页打开蜂鸣器提醒，音量设为 90%
+    App->>Helmet: Write 下发配置 [0x03][Seq=08][首地址 0x23][数据 0x01 0x5A]
     
     Helmet->>Helmet: 校验地址与数值范围合法
-    Helmet->>Helmet: 更新内部内存控制表 0x26=0x02, 0x27=0x5A
-    Helmet->>Hardware: GPIO/PWM 输出驱动前 LED 大灯高亮，调节蜂鸣器 PWM
+    Helmet->>Helmet: 更新内部内存控制表 0x23=0x01, 0x24=0x5A
+    Helmet->>Hardware: 开启蜂鸣器使能引脚，调节蜂鸣器 PWM 音量
     
     Helmet-->>App: Notify 执行成功应答 [0x03][Seq=08][Status=0x00]
     App->>User: 界面提示“设置已生效”
