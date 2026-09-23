@@ -584,6 +584,12 @@ export default function DeviceDetailScreen() {
               value={s.sleeping ? t("device.sleeping") : t("device.active")}
             />
             <InfoRow
+              icon="construct-outline"
+              label={t("device.bleBench")}
+              value={t("device.bleBench.open")}
+              onPress={() => router.push(`/ble-bench?deviceId=${deviceId}`)}
+            />
+            <InfoRow
               icon="hardware-chip-outline"
               label={t("devices.firmware")}
               value={s.firmwareVersion ?? t("common.unknown")}

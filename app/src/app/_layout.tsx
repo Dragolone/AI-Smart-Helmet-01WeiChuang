@@ -125,6 +125,11 @@ function RootNavigator() {
         <Stack.Screen name="(auth)/register" />
         <Stack.Screen name="(auth)/reset-password" />
       </Stack.Protected>
+      {/* 蓝牙工程模式（硬件联调）：登录前后都可进，入口=登录页长按 App 名 3 秒 / 设备页信息区 */}
+      <Stack.Screen
+        name="ble-bench"
+        options={{ headerShown: true, title: t("nav.bleBench") }}
+      />
     </Stack>
   );
 }
