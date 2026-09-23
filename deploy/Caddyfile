@@ -14,9 +14,10 @@
 		respond 404
 	}
 
-	# 隐私政策与用户协议：静态页，不经后端。极光「隐私协议」字段、App 备案、双端商店上架都要一个公开 URL，
-	# 目录走 volume 挂载（改文案只需 git pull + restart gateway，不重建镜像）
-	handle /legal /legal/* {
+	# 隐私政策与用户协议：静态页，不经后端。极光「隐私协议」字段、App 备案、双端商店上架都要一个公开 URL。
+	# handle 只收一个匹配符，写两个会「wrong argument count」启动失败（2026-09-23 踩过，网关崩了 10 分钟）；
+	# 对外只发布 /legal/privacy 与 /legal/terms 两个地址，不支持不带子路径的 /legal
+	handle /legal/* {
 		root * /srv
 		try_files {path} {path}.html
 		file_server

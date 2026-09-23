@@ -155,21 +155,34 @@ docker compose -f docker-compose.prod.yml exec -T postgres pg_restore -U helmet 
 
 - 改了 `deploy/.env` 里的 `EMQX_INTERNAL_TOKEN`:重跑 `sh render-config.sh` 再 `up -d`(backend 与 emqx 都要重启)。
 - `.env` 里 `COMPOSE_PROFILES=demo` 打开后,§5 所有命令自动包含 mock 服务;`git pull` 后 `up -d --build` 会连 mock 一起重建。
-- 改了 `Caddyfile`:**先在运行中的容器里校验再重启**(Caddyfile 是 bind mount,`git pull` 后容器内已是新文件,校验不影响仍在跑的旧配置;配置写坏时 `restart` 会让网关起不来,API 与 Admin 一起断):
+- 改了 `Caddyfile`:**用一次性容器校验,再强制重建网关**。配置写坏会让网关起不来,API 与 Admin 一起断:
 
   ```bash
-  docker compose -f docker-compose.prod.yml exec gateway caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-  docker compose -f docker-compose.prod.yml restart gateway      # 校验通过再执行
+  docker run --rm -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2 \
+    caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+  docker compose -f docker-compose.prod.yml up -d --force-recreate gateway   # 校验通过再执行
   ```
+
+  ⚠️ **两个都是 2026-09-23 踩出来的,别改回去**:
+
+  1. **不要用 `exec gateway caddy validate` 校验**。compose 把 Caddyfile 按**单个文件**挂进容器,绑的是 inode;`git pull` 写临时文件再改名,inode 变了,**容器里看到的仍是旧内容**。当天 validate 报 `Valid configuration`、`up -d` 一重建就 `wrong argument count` 崩溃重启,网关挂了约 10 分钟。一次性容器挂的是当前主机文件,校验的才是真要跑的那份。
+  2. **同一个原因,`restart gateway` 不会加载 `git pull` 来的新配置**,必须 `up -d --force-recreate gateway`(容器内手改文件时 `restart` 才有效)。
+  3. Caddy 的 `handle` **只接受一个匹配符**,`handle /a /a/*` 会启动失败;要匹配多个路径就写多个 handle 块。
 
 - **隐私政策 / 用户协议静态页**(`deploy/legal/`,2026-09-23 新增):对外地址 `https://<API_DOMAIN>/legal/privacy`、`/legal/terms`,由网关直接提供,不经后端。目录走 volume 挂载,**首次生效要 `up -d gateway` 重建容器**(新增挂载点),之后改文案只需 `git pull` + `restart gateway`:
 
   ```bash
   git pull
-  docker compose -f docker-compose.prod.yml exec gateway caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-  docker compose -f docker-compose.prod.yml up -d gateway
+  docker run --rm -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2 \
+    caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+  docker compose -f docker-compose.prod.yml up -d --force-recreate gateway
+  sleep 5
+  docker compose -f docker-compose.prod.yml ps gateway               # STATUS 必须是 Up,不是 Restarting
   curl -sI https://dev-api.01weichuang.com/legal/privacy | head -1   # 期望 HTTP/2 200
+  curl -sI https://dev-api.01weichuang.com/api/v1/health | head -1   # 回归:路由改动没碰坏 API
   ```
+
+  只发布 `/legal/privacy` 与 `/legal/terms`;不带子路径的 `/legal` 不支持(走 API 的 404)。
 
   这两个 URL 是极光「隐私协议」字段、App 备案、双端应用商店上架的硬性材料;production 上线后同一路径换成 `api.01weichuang.com`,App 内链接同步改。
 - **production 环境**:按 §8 清单从本套复制——新服务器 + 新 `.env`(全部密钥重新生成)+ 域名去掉 `dev-` 前缀,步骤完全相同。
