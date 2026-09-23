@@ -32,7 +32,9 @@ export async function ensureSosAlertPermission(): Promise<void> {
       await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
         name: translate("sosAlert.channel"),
         importance: Notifications.AndroidImportance.MAX,
-        sound: "default",
+        // 不传 sound：Android 把字符串当成打包进 App 的自定义音频资源名，传 "default"
+        // 会在每次启动打一条 ERROR（华为 P30 Pro 实测）然后回落到系统默认铃声——
+        // 省掉这层报错，直接要系统默认。
         vibrationPattern: [0, 500, 250, 500],
         lockscreenVisibility:
           Notifications.AndroidNotificationVisibility.PUBLIC,

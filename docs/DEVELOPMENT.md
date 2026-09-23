@@ -160,6 +160,8 @@ printf %s "$HELMET_RELEASE_KEY_PASSWORD"   | gh secret set ANDROID_KEY_PASSWORD
 
 | 日期 | 平台 | 能力 | 实测限制 | 口径/结论 |
 |------|------|------|---------|----------|
+| 2026-09-23 | Android（华为 P30 Pro / EMUI） | 通知 · 勿扰 | SOS 通道建成后 `dumpsys notification` 实测 `mBypassDnd=false`——代码里请求的 `bypassDnd: true` **没生效**：Android 要求应用单独取得「勿扰权限」（Notification Policy Access），普通应用装上默认没有，只能引导用户去系统设置里开。另：`mLockscreenVisibility=-1000`（跟随系统），请求的 PUBLIC 同样未强制 | **手机开勿扰时，锁屏 SOS 提醒会被静音**；锁屏是否显示正文跟随系统「敏感通知」设置。不静默降级：① 已记本行；② 首连提示与蓝牙引导卡后续增加「开勿扰权限」引导（待负责人定是否要打扰用户）；③ 对外口径补「请勿在骑行时开启勿扰」。SOS 通道铃声本身正常（`mSound=系统默认通知音`） |
+| 2026-09-23 | Android（华为 P30 Pro） | 通知通道音效 | 给通道传 `sound: "default"` 时 expo-notifications 报 `Custom sound 'default' not found in native app`（每次启动一条 ERROR）——该字段期望的是打包进 App 的自定义音频资源名，不是「系统默认」的别名；实际回落到系统默认通知音，功能没坏但日志脏 | 通道不传 `sound` 即为系统默认（2026-09-23 已改）；要自定义铃声得把音频放进 expo-notifications 插件的 `sounds` 数组 |
 | 2026-08-15 | iOS | 签名/推送 | 个人免费开发团队无法签 `aps-environment`（远程推送）entitlement；同一 Bundle ID 无法注册到第二个个人团队（`com.dravenzhong.helmet` 已归属队友团队，另一台 Mac 开发期临时用 `com.zixim.helmet.spike`） | 开发期两人各用独立 Bundle ID；APNs 验证与签名统一等公司 Apple Developer 账号（负责人已确认 2026-08-15） |
 | 2026-08-15 | Android（华为无 GMS） | 定位 | 冷启动首次锁星需 1–2 分钟，一次性 `getCurrentPositionAsync` 长时间挂起无反馈；锁星后 watchPosition 每 2s 稳定更新、精度可到 5m | 定位功能一律用持续监听 + 中间状态展示，禁止一次性等待（负责人已确认口径 2026-08-15） |
 | 2026-08-15 | iOS + Android | RTC（TRTC） | 双机对讲互通、锁屏后台音频（iOS 已配 `UIBackgroundModes: audio`）、蓝牙耳机路由，双端真机全部通过 | 无限制发现；支撑 TRTC 选型定案（负责人已确认 2026-08-15） |

@@ -81,7 +81,15 @@ export function RideSummaryCard({ deviceId }: { deviceId: string }) {
               </ThemedText>
               <View style={styles.valueRow}>
                 <ValueTransition value={st.value}>
-                  <ThemedText type="display" style={styles.value}>
+                  {/* 中文标签比英文宽，窄屏上列宽吃紧：数字宁可缩小也不能折行
+                      （华为 P30 Pro 实测「186.1」被拆成「186.」+「1」两行） */}
+                  <ThemedText
+                    type="display"
+                    style={styles.value}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.7}
+                  >
                     {st.value}
                   </ThemedText>
                 </ValueTransition>
@@ -112,7 +120,12 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   label: { fontSize: 12, lineHeight: 16 },
-  valueRow: { flexDirection: "row", alignItems: "baseline", gap: 3 },
-  value: { fontSize: 22, lineHeight: 26, fontWeight: 600 },
-  unit: { fontSize: 12 },
+  valueRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 3,
+    minWidth: 0,
+  },
+  value: { fontSize: 22, lineHeight: 26, fontWeight: 600, flexShrink: 1 },
+  unit: { fontSize: 12, flexShrink: 0 },
 });
