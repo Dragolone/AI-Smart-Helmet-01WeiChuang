@@ -12,7 +12,6 @@
     "scheme": "app",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon",
       "bundleIdentifier": "com.lingyiweichuang.app",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "用于队友间的实时语音对讲。",
@@ -23,7 +22,7 @@
           "iosamap"
         ]
       },
-      "appleTeamId": "LZ3H94F5LC"
+      "appleTeamId": "B3NHB45FS7"
     },
     "android": {
       "permissions": [
