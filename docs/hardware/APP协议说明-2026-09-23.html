@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI智能头盔 APP 协议说明</title>
+<link rel="stylesheet" href="_style.css">
+</head>
+<body>
+<div class="container">
+    <h1>《AI智能头盔》APP 协议说明</h1>
+    <div class="meta-info">
+        <span><strong>给谁</strong>：手机 APP</span>
+        <span><strong>视频</strong>：Wi-Fi RTSP / H.264</span>
+        <span><strong>控制</strong>：BLE v0.6</span>
+        <span><strong>日期</strong>：2026-09-23</span>
+    </div>
+    <p class="doc-nav">
+        <a href="无硬件测试包-使用说明-2026-09-23.html">交付目录</a> ·
+        <a href="BLE通信协议手册-v0.6.html">BLE 协议手册 v0.6</a> ·
+        <a href="无硬件测试包-使用说明-2026-09-23.html">无硬件测试包</a>
+    </p>
+
+    <div class="toc">
+        <strong>目录</strong>
+        <ul>
+            <li><a href="#s1">1.0 协议概要</a></li>
+            <li><a href="#s2">2.0 视频协议</a></li>
+            <li class="sub-li"><a href="#s2-1">2.1 固定参数</a></li>
+            <li class="sub-li"><a href="#s2-2">2.2 拉流流程</a></li>
+            <li class="sub-li"><a href="#s2-3">2.3 APP 如何出画</a></li>
+            <li><a href="#s3">3.0 无硬件怎么测视频</a></li>
+            <li><a href="#s4">4.0 控制协议（BLE）</a></li>
+            <li><a href="#s5">5.0 APP 对接流程</a></li>
+            <li><a href="#s6">6.0 附录：开源参考</a></li>
+        </ul>
+    </div>
+
+    <h2 id="s1">1.0 协议概要</h2>
+    <p>APP 对接两条通道，互不替代：</p>
+    <table class="data-table">
+        <thead>
+            <tr><th>通道</th><th>干什么</th><th>APP 按什么做</th></tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Wi-Fi + RTSP</td>
+                <td>实时彩色视频</td>
+                <td>本文第 2、3 节</td>
+            </tr>
+            <tr>
+                <td>BLE GATT</td>
+                <td>握手、状态、配置、跌倒 / SOS / 雷达告警</td>
+                <td><a href="BLE通信协议手册-v0.6.html">BLE 手册 v0.6</a>，本文第 4 节只列入口</td>
+            </tr>
+        </tbody>
+    </table>
+    <p>蓝牙<strong>不传视频</strong>。不要用 HTTP 抓图、网页 MJPEG、HLS、WebView 播 RTSP，也不要自研一套拼帧协议。</p>
+
+    <h2 id="s2">2.0 视频协议</h2>
+    <h3 id="s2-1">2.1 固定参数</h3>
+    <p>真机时头盔是热点，手机连上去拉流。参数写死，不要做发现、不要加账号。</p>
+    <table class="data-table">
+        <thead>
+            <tr><th>项</th><th>值</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>热点 SSID</td><td><code>X821cam</code></td></tr>
+            <tr><td>热点密码</td><td><code>Aa123456</code>（WPA2，2.4 GHz）</td></tr>
+            <tr><td>头盔 IP</td><td><code>192.168.176.1</code></td></tr>
+            <tr><td>拉流地址</td><td><code>rtsp://192.168.176.1:8554/ch0</code></td></tr>
+            <tr><td>端口</td><td>8554（不是 554）</td></tr>
+            <tr><td>编码</td><td>H.264（AVC），彩色，无音频</td></tr>
+            <tr><td>分辨率 / 帧率</td><td>1280×720，目标 30 fps</td></tr>
+            <tr><td>传输</td><td><strong>RTSP over TCP</strong>（RTP 嵌在同一条连接里）</td></tr>
+            <tr><td>鉴权</td><td>无。不要写成 <code>rtsp://user:pass@...</code></td></tr>
+        </tbody>
+    </table>
+    <p class="note-text">无板子联调时，只把主机改成电脑 IP，路径和端口保持 <code>:8554/ch0</code>，见第 3 节。</p>
+
+    <h3 id="s2-2">2.2 拉流流程</h3>
+    <p>播放器会做下面这套会话。自研才需要手写；用现成播放器时，只要打开同一 URL，并<strong>强制 TCP</strong>。</p>
+    <div class="flow">OPTIONS    rtsp://&lt;host&gt;:8554/ch0
+DESCRIBE   Accept: application/sdp
+SETUP      Transport: RTP/AVP/TCP;unicast;interleaved=0-1
+PLAY
+           信道 0 收 H.264 RTP，信道 1 收 RTCP
+TEARDOWN   离开预览页必须发，不要空挂会话</div>
+    <p>SDP 里应有 H.264、<code>clockrate=90000</code>。SPS/PPS 可能在 SDP，也可能只在码流里，两种都要能出第一帧。</p>
+
+    <h3 id="s2-3">2.3 APP 如何出画</h3>
+    <ol>
+        <li>连上头盔热点后，把该 Wi-Fi <strong>绑到本进程</strong>（Android 必须 <code>bindProcessToNetwork</code>，否则会走 4G，表现为已连热点但黑屏超时）。</li>
+        <li>打开 <code>rtsp://192.168.176.1:8554/ch0</code>，transport 指定 TCP。</li>
+        <li>H.264 硬解，解码帧直接铺到 Surface / UIView，按 16:9 全屏或留黑边。</li>
+        <li>关掉播放器自带的进度条、文件名、音量条。本阶段无音频。</li>
+        <li>首帧前显示「正在连接」；约 5 秒无画面则提示检查 Wi-Fi。</li>
+        <li>进后台：停播并 TEARDOWN。回前台重新 PLAY。</li>
+        <li>截图从解码器取一帧，不要再向头盔要 JPEG。</li>
+    </ol>
+    <p>延迟按局域网 TCP RTSP 的 200～800 ms 来预期即可。</p>
+
+    <h2 id="s3">3.0 无硬件怎么测视频</h2>
+    <p>APP 组没有头盔时，用电脑起一个<strong>和真机相同</strong>的 RTSP：端口 8554、路径 <code>/ch0</code>、H.264、720p30、TCP。APP 只改主机 IP，播放逻辑不用改。</p>
+    <table class="data-table">
+        <thead>
+            <tr><th>环境</th><th>拉流地址</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>真机头盔</td><td><code>rtsp://192.168.176.1:8554/ch0</code></td></tr>
+            <tr><td>无硬件（电脑模拟）</td><td><code>rtsp://&lt;电脑局域网IP&gt;:8554/ch0</code></td></tr>
+        </tbody>
+    </table>
+    <p><strong>电脑上</strong>：解压 <code>AI头盔-APP无硬件测试包.zip</code>，先装 <a href="https://ffmpeg.org/download.html">ffmpeg</a>（<code>winget install Gyan.FFmpeg</code>），再双击 <code>启动测试流.bat</code>。</p>
+    <p>脚本会打印本机 IP 和完整 URL。先在同一台电脑用 VLC 打开该 URL，选项加 <code>:rtsp-tcp</code>，能看到彩条 / 时间戳测试图，再拿手机 APP 播。</p>
+    <p><strong>手机上</strong>：手机和电脑连同一个普通 Wi-Fi（家里路由即可，不必等头盔热点）。APP 里把主机改成脚本打印的 IP，其余参数不变，强制 TCP。</p>
+    <p>没有脚本时，等价命令：</p>
+    <pre><code>ffmpeg -re -f lavfi -i testsrc=size=1280x720:rate=30 -c:v libx264 -pix_fmt yuv420p -preset ultrafast -tune zerolatency -g 30 -bf 0 -f rtsp -rtsp_flags listen -rtsp_transport tcp rtsp://0.0.0.0:8554/ch0</code></pre>
+    <p class="note-text">ffmpeg 监听模式一次只接一个客户端。关掉 VLC 再开 APP。要多人同时看，改用 <a href="https://github.com/bluenviron/mediamtx">MediaMTX</a> 在 8554 收流。</p>
+    <p>电脑 VLC 能出画、APP 不能：查 TCP 是否打开、Android 是否绑错网、手机和电脑是否同一网段。电脑也不能：先把模拟器拉起来，不要先改 APP 协议。</p>
+
+    <h2 id="s4">4.0 控制协议（BLE）</h2>
+    <p>字段、寄存器、时序图以 <a href="BLE通信协议手册-v0.6.html">《AI智能头盔通信协议手册》v0.6</a> 为准，不要另写 JSON 或 Nordic UART。</p>
+    <table class="data-table">
+        <thead>
+            <tr><th>项</th><th>值</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>广播名</td><td><code>Helmet-&lt;deviceId 后 6 位&gt;</code>，如 <code>Helmet-94173f</code></td></tr>
+            <tr><td>服务</td><td><code>0000FEE0-0000-1000-8000-00805F9B34FB</code></td></tr>
+            <tr><td>上行 Notify</td><td><code>0000FEE1-0000-1000-8000-00805F9B34FB</code></td></tr>
+            <tr><td>下行 Write</td><td><code>0000FEE2-0000-1000-8000-00805F9B34FB</code></td></tr>
+            <tr><td>MTU</td><td>连上后协商 247</td></tr>
+            <tr><td>字节序</td><td>小端</td></tr>
+        </tbody>
+    </table>
+    <p>开机必须按这次序：<strong>MTU → 打开 FEE1 Notify → 读 deviceId → 对时 → 查离线</strong>。跌倒 / SOS / 碰撞 / 障碍必须在 1500 ms 内回 <code>0x06</code> ACK。位置和心跳只展示或上云，不 ACK。</p>
+    <p>无头盔时：按手册把组包、解包、ACK、控制表先写成代码，用单元测试对十六进制例子。不要用调试口 <code>aw-ble-test-007</code> / Nordic UART 当产品协议。</p>
+
+    <h2 id="s5">5.0 APP 对接流程</h2>
+    <ol>
+        <li>没有板子：先用第 3 节模拟器把播放页做完（出画、后台停播、重连）。</li>
+        <li>有板子：扫并连接 <code>Helmet-*</code>，按手册做完握手五步。</li>
+        <li>提示用户连 <code>X821cam</code> / <code>Aa123456</code>，进程绑定该网络。</li>
+        <li>播放 <code>rtsp://192.168.176.1:8554/ch0</code>，强制 TCP，硬解铺满。</li>
+        <li>预览时继续收 BLE Notify；高危事件立刻 ACK，告警叠在画面上。</li>
+    </ol>
+    <p>真机热点没有互联网，登录和地图不要在预览页访问外网。iOS 可能弹「无互联网是否仍用」，文案写明此时没有网是正常的。</p>
+
+    <h2 id="s6">6.0 附录：开源参考</h2>
+    <p>下面只是实现时可以用的库，<strong>不是协议的一部分</strong>。协议以本文第 2 节和 BLE 手册为准。</p>
+    <table class="data-table">
+        <thead>
+            <tr><th>用途</th><th>项目</th><th>说明</th></tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>先验证码流</td>
+                <td>桌面 VLC / ffplay</td>
+                <td>同一 URL，加 TCP。证明源是好的再查 APP</td>
+            </tr>
+            <tr>
+                <td>Android 播放</td>
+                <td><a href="https://github.com/androidx/media">Media3 ExoPlayer RTSP</a></td>
+                <td>Apache。<code>setForceUseRtpTcp(true)</code></td>
+            </tr>
+            <tr>
+                <td>Android / iOS 播放</td>
+                <td>LibVLC / MobileVLCKit</td>
+                <td>LGPL。options 加 <code>--rtsp-tcp</code></td>
+            </tr>
+            <tr>
+                <td>Android / iOS 播放</td>
+                <td><a href="https://github.com/bilibili/ijkplayer">ijkplayer</a></td>
+                <td>编译打开 RTSP/TCP 与 H.264 硬解</td>
+            </tr>
+            <tr>
+                <td>Flutter</td>
+                <td><a href="https://pub.dev/packages/flutter_vlc_player">flutter_vlc_player</a></td>
+                <td>底层 LibVLC，同样强制 TCP</td>
+            </tr>
+            <tr>
+                <td>BLE</td>
+                <td>系统 CoreBluetooth / Android BLE；Flutter 可用 flutter_blue_plus</td>
+                <td>自己按手册组二进制帧</td>
+            </tr>
+            <tr>
+                <td>无硬件 RTSP</td>
+                <td>本目录 <code>app-mock/start_rtsp.ps1</code>，或 ffmpeg / MediaMTX</td>
+                <td>模拟 <code>:8554/ch0</code></td>
+            </tr>
+        </tbody>
+    </table>
+    <p class="doc-footer">P0 / 2026-09-23 · 给 APP 的接口说明 · 字段歧义以 BLE 手册 v0.6 为准</p>
+</div>
+</body>
+</html>

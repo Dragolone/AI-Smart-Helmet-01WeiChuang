@@ -1,0 +1,3 @@
+# MediaMTX 启动时在工作目录自生成的自签名证书，不入库
+auto.crt
+auto.key

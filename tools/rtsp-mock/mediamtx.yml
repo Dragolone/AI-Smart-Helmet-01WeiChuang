@@ -1,0 +1,16 @@
+# 无硬件视频测试流用的最小 MediaMTX 配置：只开 RTSP :8554，其余协议全关。
+# 其它键用 MediaMTX 默认值（任意路径可推可拉，所以 ffmpeg 推到 /ch0 即可）。
+logLevel: info
+api: no
+metrics: no
+pprof: no
+playback: no
+rtsp: yes
+rtspAddress: :8554
+rtmp: no
+hls: no
+webrtc: no
+srt: no
+paths:
+  all_others:
+moq: no
