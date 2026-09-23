@@ -98,7 +98,9 @@
   - ⬜ iOS：**Apple 公司账号 2026-09-23 已到位** → 生成 APNs Auth Key（.p8，§5 清单第 3 条）→ 极光选「Token Authentication 配置」（不过期、生产/开发共用），填 .p8 + Key ID + Team ID
   - ⬜ 厂商通道：优先华为（AppGallery Connect，需登记正式签名 SHA256）+ 小米；OPPO/vivo 通常要求先上架（依赖第 10 项 App 备案）；荣耀单独注册
   - ⬜ 极光「隐私协议」字段：App 隐私政策有公开 URL 后补填；App 须在用户同意隐私政策后才初始化极光 SDK
-  - ⬜ 后端 `JPushProvider`（B 线，配齐 AppKey + Master Secret 即真发，否则 Console Mock）；App 端 SDK 接入（A 线，需 config plugin + 原生重建）
+  - ✅ **后端 `JPushProvider`（2026-09-23，B 线）**：`JPUSH_APP_KEY` + `JPUSH_MASTER_SECRET` 齐全即走极光 REST v3（`POST /v3/push`，Basic 鉴权），否则 Console Mock；可选 `JPUSH_APNS_PRODUCTION=true`（TestFlight/App Store 包用 APNs 生产环境，Xcode 直装开发包留空）、`PUSH_SEND_TIMEOUT_MS`（默认 10 s）。**定向口径：audience = alias，alias = 用户 ID**——服务端不存设备 token、不建表；极光返回非 2xx（含 1011「该 alias 无设备」）一律抛错，SOS 通知记 failed 并按既有规则重试。
+  - ⬜ App 端 SDK 接入（A 线，weekly-plan 09-23 通知第 5 条）：登录成功后 `setAlias(userId)`、退出 `deleteAlias`；**须在用户同意隐私政策后才初始化**。
+  - ⬜ 云端 `deploy/.env` 填 `JPUSH_APP_KEY` / `JPUSH_MASTER_SECRET`（Master Secret 在密码库）并重启 backend；日志出现「推送通道：极光」即切换成功
 
 ### 7. 高德地图 Key
 
