@@ -128,6 +128,32 @@ cd app/android
 
 ✅ **2026-09-21 已实跑验证**：`assembleRelease` 用上述注入方式构建成功（3 分 19 秒，产物 221 MB），`apksigner verify --print-certs` 确认签名主体为公司英文名、SHA-1 = `2e36b3c2…29d8`，与证书一致。
 
+
+### 让 CI 也出正式签名包（`.github/workflows/Android APK`）
+
+工作流没配 secret 时退回 debug.keystore（只能测试装机）。配齐这四个就自动用正式证书，签名方式与本机完全一致：
+
+| Secret | 值 |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | `base64 -i ~/.helmet/lingyiweichuang-release.keystore` 的输出 |
+| `ANDROID_KEYSTORE_PASSWORD` | 同 `~/.helmet/android-release-keystore.env` 的 `HELMET_RELEASE_STORE_PASSWORD` |
+| `ANDROID_KEY_ALIAS` | `lingyiweichuang` |
+| `ANDROID_KEY_PASSWORD` | 同上（store 与 key 口令相同） |
+
+用 `gh` 设置（值直接从文件管道进去，不经过屏幕也不进命令历史）：
+
+```bash
+set -a; . ~/.helmet/android-release-keystore.env; set +a
+base64 -i "$HELMET_RELEASE_STORE_FILE" | gh secret set ANDROID_KEYSTORE_BASE64
+printf %s "$HELMET_RELEASE_STORE_PASSWORD" | gh secret set ANDROID_KEYSTORE_PASSWORD
+printf %s "$HELMET_RELEASE_KEY_ALIAS"      | gh secret set ANDROID_KEY_ALIAS
+printf %s "$HELMET_RELEASE_KEY_PASSWORD"   | gh secret set ANDROID_KEY_PASSWORD
+```
+
+地图相关的 `EXPO_PUBLIC_AMAP_JS_KEY` / `EXPO_PUBLIC_AMAP_JS_SECURITY_CODE` 也要配成 secret，否则 CI 出的包地图是空白的（值在 `app/.env`）。
+
+拿到包后确认签名对：`apksigner verify --print-certs app-release.apk | grep SHA-1`，应为 `2e36b3c2…29d8`。
+
 ## 平台限制清单（持续维护）
 
 > 记录 Week 2 Spike 及后续开发中实测到的 iOS / Android 系统限制。禁止静默降级——任何限制先记录在此并与负责人确认口径。
