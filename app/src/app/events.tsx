@@ -2,7 +2,7 @@
 // (筛选 chips + 图标卡片 + 类型配色;地图缩略图留待后续迭代)。点击卡片查看原始 payload 详情。
 import { Ionicons } from "@expo/vector-icons";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import {
   Modal,
@@ -16,6 +16,7 @@ import Animated, { FadeInDown } from "react-native-reanimated";
 
 import { devicesApi } from "@/api/devices";
 import { eventsApi } from "@/api/events";
+import { SAFETY_EVENT_TYPE_PARAM } from "@/constants/event-types";
 import { toUserMessage } from "@/api/error-messages";
 import { PrimaryButton } from "@/components/form";
 import { Skeleton } from "@/components/skeleton";
@@ -83,10 +84,6 @@ const FILTERS: readonly { key: string; label: MessageKey }[] = [
   { key: "obstacle_risk", label: "events.type.obstacle_risk" },
   { key: "possible_fall,manual_sos", label: "events.filter.fallSos" },
 ];
-
-/** 默认视图聚合的危险相关类型(全部 ≠ 原始事件流,device_status/location 噪音不进本页) */
-const DEFAULT_TYPES =
-  "collision_risk,obstacle_risk,possible_fall,manual_sos,risk_cleared";
 
 const DIRECTION_LABEL: Record<string, MessageKey> = {
   front: "events.dir.front",
@@ -202,12 +199,14 @@ export default function EventsScreen() {
   const t = useT();
   const locale = useLocale();
   const [filter, setFilter] = useState<string>("");
-  const [detailId, setDetailId] = useState<string | null>(null);
+  // 从安全页某条事件点进来时带 eventId：直接展开那一条的详情，而不是让用户在整页里再找一遍
+  const { eventId } = useLocalSearchParams<{ eventId?: string }>();
+  const [detailId, setDetailId] = useState<string | null>(eventId ?? null);
 
   const devices = useQuery({ queryKey: ["devices"], queryFn: devicesApi.list });
   const deviceIds = (devices.data ?? []).map((d) => d.deviceId);
 
-  const typeParam = filter || DEFAULT_TYPES;
+  const typeParam = filter || SAFETY_EVENT_TYPE_PARAM;
   const perDevice = useQueries({
     queries: deviceIds.map((id) => ({
       queryKey: ["events", id, typeParam],

@@ -22,6 +22,7 @@ import { contactsApi } from "@/api/contacts";
 import { devicesApi } from "@/api/devices";
 import { toUserMessage } from "@/api/error-messages";
 import { eventsApi } from "@/api/events";
+import { SAFETY_EVENT_TYPE_PARAM } from "@/constants/event-types";
 import { relayApi } from "@/api/relay";
 import { sosApi } from "@/api/sos";
 import { Card, IconCircle, ListRow, SectionLabel } from "@/components/list";
@@ -37,7 +38,6 @@ import { shortDate, shortTime } from "@/i18n/format";
 import { AnimatedPressable } from "@/components/animated-pressable";
 
 const MAX_CONTACTS = 5; // API.md §3 定稿
-const RISK_TYPES = "collision_risk,obstacle_risk,possible_fall,risk_cleared";
 
 const RISK_META: Record<
   string,
@@ -46,6 +46,7 @@ const RISK_META: Record<
   collision_risk: { key: "safety.risk.collision", icon: "car-outline" },
   obstacle_risk: { key: "safety.risk.obstacle", icon: "warning-outline" },
   possible_fall: { key: "safety.risk.fall", icon: "body-outline" },
+  manual_sos: { key: "safety.manualSos", icon: "hand-left-outline" },
   risk_cleared: {
     key: "safety.risk.cleared",
     icon: "checkmark-circle-outline",
@@ -122,7 +123,9 @@ function EventRow({ event, last }: { event: EventListItem; last: boolean }) {
   return (
     <Tappable
       feedback="fill"
-      onPress={() => router.push("/events")}
+      onPress={() =>
+        router.push(`/events?eventId=${encodeURIComponent(event.eventId)}`)
+      }
       style={[
         styles.eventRow,
         !last && {
@@ -196,8 +199,9 @@ export default function SafetyScreen() {
 
   const events = useQueries({
     queries: deviceIds.map((id) => ({
-      queryKey: ["events", id, RISK_TYPES],
-      queryFn: () => eventsApi.list(id, { type: RISK_TYPES, pageSize: 5 }),
+      queryKey: ["events", id, SAFETY_EVENT_TYPE_PARAM],
+      queryFn: () =>
+        eventsApi.list(id, { type: SAFETY_EVENT_TYPE_PARAM, pageSize: 5 }),
       refetchInterval: 30_000,
     })),
   });
