@@ -17,6 +17,9 @@ jobs:
   apk:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      # secrets 不能直接用在 step 的 if 里，先在 job 级折成布尔字符串
+      HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -43,7 +46,7 @@ jobs:
 
       - name: Restore release keystore (optional)
         id: keystore
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        if: ${{ env.HAS_KEYSTORE == 'true' }}
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
