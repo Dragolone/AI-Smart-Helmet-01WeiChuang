@@ -43,7 +43,7 @@ jobs:
 
       - name: Restore release keystore (optional)
         id: keystore
-        if: ${{ env.KEYSTORE_B64 != '' }}
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
