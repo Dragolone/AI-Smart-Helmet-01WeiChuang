@@ -243,6 +243,34 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 >
 > **等硬件回复再动：** ~~视频四项到了开 RTSP Spike~~（✅ 09-23 到了，见下方 09-23 通知）；v0.6 修正确认后核对 protocol.ts 两处假设（obstacle_risk 与 collision_risk 载荷同布局、RESEND 是否只含四类高危）。
 
+> **📣 给 A 线的通知（2026-09-23 晚，B 线）——Apple 公司账号下来了，iOS 全线解锁；这是你手上全部可做项，按顺序**
+>
+> **账号现状**：公司 Apple Developer 组织账号已生效（Shenzhen Lingyi Weichuang Technology Co., Ltd.，至 2027-09-23）。已用你的 Apple ID `18926982623@163.com` 邀请你进 App Store Connect，角色 App Manager + 证书权限 + 建 App 权限。**去邮箱接受邀请**（用这个 Apple ID 登录；未开双重认证苹果会要求开）。密钥类东西（APNs .p8、极光 Master Secret、腾讯云密钥、keystore 口令）由负责人保管，你不需要也拿不到；其余全部你做。
+>
+> **一、接受邀请后立刻做（半小时）**
+> 1. Xcode → Settings → Accounts 登录你的 Apple ID，团队列表里会出现公司团队；**Team ID 在这里就能看到**（也在 developer.apple.com → Membership），把 `app/app.json` 的 `ios.appleTeamId` 从个人团队 `LZ3H94F5LC` 换成公司的，`npx expo prebuild --platform ios --clean`。
+> 2. 真机包改公司团队签名。**7 天过期问题从此消失**；DEVELOPMENT.md「prebuild 后删 `aps-environment`」那步**不再需要**，公司团队能签远程推送（你顺手把 DEVELOPMENT.md §真机调试和平台限制清单两处改掉）。
+> 3. developer.apple.com → Identifiers 确认 `com.lingyiweichuang.app` 已注册且勾了 Push Notifications（负责人建，你核对；没有就自己建，你有权限）。
+>
+> **二、主线功能（最大一块，优先）**
+> 4. **RTSP 视频预览 Spike → 预览页**（决策 #37）：参数见下方 09-23 通知与 DEVICE_PROTOCOL §1.3，Mac 测试流 `tools/rtsp-mock/`。双端真机定案写 DECISIONS，再做预览页。
+>
+> **三、推送接入（与 B 线并行）**
+> 5. **App 端接极光 SDK**（决策 #10，THIRD_PARTY §6）：AppKey `79cce150234ce38063213ccd` 是公开值可进包；Android 包名已在极光登记；iOS 的 APNs .p8 由负责人上传极光后台（不经你手）。**口径**：登录成功后 `setAlias(userId)`、退出登录 `deleteAlias`；**必须在用户同意隐私政策后才初始化 SDK**（极光合规要求）。新增原生依赖，按规矩 PR 里写清楚、prebuild 重建。B 线同步做后端 `JPushProvider`，按 alias=userId 推，Contract 不变（`PushProvider.send(userId, …)` 签名不动）。
+> 6. 推送点击落地：SOS 通知点开进安全页对应事故，按 Expo Router 路由设计（CLAUDE.md Push 验收项）；前台 / 后台 / 被杀三态双端各测一遍，记 REGRESSION.md。
+>
+> **四、TestFlight 给硬件（他们要 iPhone 包）**
+> 7. App Store Connect → My Apps 建 App 记录（名称「零一唯创」、Bundle ID 选已注册的、SKU `lingyiweichuang-app`、主要语言简体中文）——你有 Create Apps 权限；负责人若已建则跳过。
+> 8. Xcode Archive → Distribute → TestFlight 内部测试；把张森淼的 Apple ID 加为测试员，他装 TestFlight 即可。安卓包走 GitHub Actions「Android APK」workflow（见 09-23 通知）。
+>
+> **五、真机验收欠账（不等任何人）**
+> 9. **双端真机回归**：REGRESSION.md Android / iOS 两列 37 行填表，Week 11 出口标准。
+> 10. **华为复验扫码绑定**（决策 #42 待 Android 验收）。
+> 11. iOS 被系统回收后能否靠 BLE 状态恢复拉起（`restoreStateIdentifier` 从没触发过），内存压力测一次，结论记平台限制清单。
+> 12. **Android 正式签名证书**（上线前清单 #1）：你 keytool 生成、口令你先定，**文件和口令交负责人入密码管理器**，仓库不进；`build.gradle` release 签名改读 `~/.helmet/android-release-keystore.env`（已有约定，见 main 上 7005221）；生成后把发布版 SHA1 发负责人改高德 Key。
+>
+> **不用你管的**：APNs .p8 生成与上传极光、极光 Master Secret 与后端 `JPushProvider`、腾讯云短信、Critical Alerts entitlement 申请、软著、App 备案——负责人与 B 线。
+>
 > **📣 给 A 线的通知（2026-09-23，B 线）——硬件视频参数到了，RTSP Spike 可以开工**
 >
 > - 张森淼 09-23 在项目群发了「APP 协议说明 + 无硬件测试包」，已入库 `docs/hardware/APP协议说明-2026-09-23.html`（先读这份，硬件写给 App 的）；定稿摘要在 DEVICE_PROTOCOL §1.3：热点 `X821cam` / `Aa123456`，头盔 `192.168.176.1`，`rtsp://192.168.176.1:8554/ch0`，H.264 720p30 无音频，**RTSP over TCP 强制**，无鉴权。真机热点无互联网。
