@@ -160,6 +160,7 @@ printf %s "$HELMET_RELEASE_KEY_PASSWORD"   | gh secret set ANDROID_KEY_PASSWORD
 
 | 日期 | 平台 | 能力 | 实测限制 | 口径/结论 |
 |------|------|------|---------|----------|
+| 2026-09-23 | 双端 | 实时通道 WS | iPhone 真机 Release 实测：WS 每 8–30 秒被网关以 `4401 访问令牌已过期` 断开并重连，日志刷屏、耗电、推送有间隙。根因不在服务端（从 Mac 直连同一账号 30s+ 稳定收消息），而在客户端 4401 后的处理：原来只发一个普通请求指望它 401 才触发刷新，而同一 token 在 REST 这边尚未判过期 → 请求 200、不刷新 → 拿着同一个 token 无限重连 | 4401 改为主动换新 token（`forceRefreshTokens`，2026-09-23 修）。修后真机 3.5 分钟零断线；剩余 `code=1006 Socket is not connected` 是息屏后 iOS 挂起 App 的正常断开，回前台自动重连 |
 | 2026-09-23 | Android（华为 P30 Pro / EMUI） | 通知 · 勿扰 | SOS 通道建成后 `dumpsys notification` 实测 `mBypassDnd=false`——代码里请求的 `bypassDnd: true` **没生效**：Android 要求应用单独取得「勿扰权限」（Notification Policy Access），普通应用装上默认没有，只能引导用户去系统设置里开。另：`mLockscreenVisibility=-1000`（跟随系统），请求的 PUBLIC 同样未强制 | **手机开勿扰时，锁屏 SOS 提醒会被静音**；锁屏是否显示正文跟随系统「敏感通知」设置。不静默降级：① 已记本行；② 首连提示与蓝牙引导卡后续增加「开勿扰权限」引导（待负责人定是否要打扰用户）；③ 对外口径补「请勿在骑行时开启勿扰」。SOS 通道铃声本身正常（`mSound=系统默认通知音`） |
 | 2026-09-23 | Android（华为 P30 Pro） | 通知通道音效 | 给通道传 `sound: "default"` 时 expo-notifications 报 `Custom sound 'default' not found in native app`（每次启动一条 ERROR）——该字段期望的是打包进 App 的自定义音频资源名，不是「系统默认」的别名；实际回落到系统默认通知音，功能没坏但日志脏 | 通道不传 `sound` 即为系统默认（2026-09-23 已改）；要自定义铃声得把音频放进 expo-notifications 插件的 `sounds` 数组 |
 | 2026-08-15 | iOS | 签名/推送 | 个人免费开发团队无法签 `aps-environment`（远程推送）entitlement；同一 Bundle ID 无法注册到第二个个人团队（`com.dravenzhong.helmet` 已归属队友团队，另一台 Mac 开发期临时用 `com.zixim.helmet.spike`） | 开发期两人各用独立 Bundle ID；APNs 验证与签名统一等公司 Apple Developer 账号（负责人已确认 2026-08-15） |

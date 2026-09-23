@@ -97,6 +97,10 @@ class RealtimeClient {
 
     ws.onclose = (event) => {
       if (this.ws !== ws) return; // stop() 或新连接已接管
+      devLog(
+        "realtime",
+        `连接关闭 code=${event.code} reason=${event.reason || "(空)"}`,
+      );
       this.ws = null;
       this.setConnected(false);
       if (!this.running) return;

@@ -14,7 +14,7 @@ import type {
   WsSosData,
 } from "@helmet/shared";
 
-import { authApi } from "@/api/auth";
+import { forceRefreshTokens } from "@/api/client";
 import { devicesApi } from "@/api/devices";
 import { realtimeClient } from "@/api/realtime";
 import { sosApi } from "@/api/sos";
@@ -45,7 +45,8 @@ export function useRealtimeUpdates(): void {
 
     realtimeClient.start({
       getAccessToken: () => useAuthStore.getState().tokens?.accessToken ?? null,
-      triggerTokenRefresh: () => authApi.me(),
+      // 4401（token 过期）后必须真的换一把新 token 再重连，否则会拿着同一个过期 token 死循环
+      triggerTokenRefresh: () => forceRefreshTokens(),
     });
     // BLE 上行中转队列与登录态同生命周期(决策 #35:BLE 是唯一真机数据链路)；按账号分区，换账号不混用
     startRelayUplink(useAuthStore.getState().user?.id ?? undefined);

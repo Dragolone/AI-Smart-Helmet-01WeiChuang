@@ -1,9 +1,9 @@
 // 统一 API 客户端：Bearer 注入、401 静默刷新（排队防并发轮换冲突）、错误规范化。
 // Base URL 通过 EXPO_PUBLIC_API_URL 配置（默认本机后端）；Contract 见 docs/API.md。
-import type { ApiErrorBody, AuthTokens } from '@helmet/shared';
+import type { ApiErrorBody, AuthTokens } from "@helmet/shared";
 
 const BASE_URL =
-  process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000/api/v1';
+  process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
 
 /** 会话操作由 auth-store 注入，避免 api 层与 store 层循环依赖 */
 type SessionHooks = {
@@ -25,7 +25,7 @@ export class ApiRequestError extends Error {
 
   constructor(status: number, body: Partial<ApiErrorBody>) {
     super(body.message ?? `HTTP ${status}`);
-    this.code = body.code ?? 'INTERNAL_ERROR';
+    this.code = body.code ?? "INTERNAL_ERROR";
     this.status = status;
     this.requestId = body.requestId;
   }
@@ -49,40 +49,56 @@ function fetchWithTimeout(input: string, init: RequestInit): Promise<Response> {
  * - stale：刷新期间用户已登出/换了账号，或刷新遇到 429/5xx/断网——会话并未被否定，
  *   不能清会话、更不能把旧账号的新 token 写回。
  */
-type RefreshOutcome = 'ok' | 'invalid' | 'stale';
+type RefreshOutcome = "ok" | "invalid" | "stale";
 
 /** refresh 轮换制：并发 401 只允许一次刷新，其余请求等同一个 Promise，防止旧 token 复用被判盗用 */
 let refreshing: Promise<RefreshOutcome> | null = null;
 
+/**
+ * 主动换一次 access token（WS 被判过期时用）。
+ * 不能靠「随便发个请求等它 401」：WS 网关按 token 的 exp 主动断连，而同一个 token 在 REST 这边
+ * 可能还没到判过期的那一刻——那样 me() 返回 200、不触发刷新，客户端就会拿着同一个 token
+ * 反复重连（2026-09-23 iPhone 真机实测：每 8–30 秒断一次，reason=访问令牌已过期）。
+ */
+export async function forceRefreshTokens(): Promise<
+  "ok" | "invalid" | "stale"
+> {
+  const outcome = await refreshTokens();
+  // 与 api() 的 401 分支同口径：refresh 被明确否定=会话真的结束，清掉本地会话，
+  // 否则 WS 会拿着一副死牌一直重连下去。stale（断网/429/5xx）保留会话等下次。
+  if (outcome === "invalid") await session?.clearSession();
+  return outcome;
+}
+
 async function refreshTokens(): Promise<RefreshOutcome> {
   refreshing ??= (async (): Promise<RefreshOutcome> => {
     const tokens = session?.getTokens();
-    if (!tokens) return 'invalid';
+    if (!tokens) return "invalid";
     const startedWith = tokens.refreshToken;
     let res: Response;
     try {
       res = await fetchWithTimeout(`${BASE_URL}/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refreshToken: startedWith }),
       });
     } catch {
-      return 'stale';
+      return "stale";
     }
-    if (res.status === 401) return 'invalid';
-    if (!res.ok) return 'stale';
+    if (res.status === 401) return "invalid";
+    if (!res.ok) return "stale";
     const next = (await res.json()) as AuthTokens;
     // 刷新在途时用户已登出或换了账号：这份新 token 属于旧会话，丢弃并尽力在服务端作废
     if (session?.getTokens()?.refreshToken !== startedWith) {
       void fetch(`${BASE_URL}/auth/logout`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refreshToken: next.refreshToken }),
       }).catch(() => undefined);
-      return 'stale';
+      return "stale";
     }
     await session?.setTokens(next);
-    return 'ok';
+    return "ok";
   })().finally(() => {
     // 置空必须在 settle 后，让下一轮 401 能重新发起刷新
     refreshing = null;
@@ -103,11 +119,11 @@ export async function api<T>(
   path: string,
   options: { method?: string; body?: unknown; auth?: boolean } = {},
 ): Promise<T> {
-  const { method = 'GET', body, auth = true } = options;
+  const { method = "GET", body, auth = true } = options;
 
   const doFetch = async (): Promise<Response> => {
     const headers: Record<string, string> = {};
-    if (body !== undefined) headers['Content-Type'] = 'application/json';
+    if (body !== undefined) headers["Content-Type"] = "application/json";
     if (auth) {
       const tokens = session?.getTokens();
       if (tokens) headers.Authorization = `Bearer ${tokens.accessToken}`;
@@ -124,9 +140,9 @@ export async function api<T>(
   // access 过期（15min）→ 静默刷新一次并重试；只有服务端明确否定 refresh token 才算会话终结
   if (res.status === 401 && auth) {
     const outcome = await refreshTokens();
-    if (outcome === 'ok') {
+    if (outcome === "ok") {
       res = await doFetch();
-    } else if (outcome === 'invalid') {
+    } else if (outcome === "invalid") {
       await session?.clearSession();
     }
     // stale：保留会话，把原 401 交给调用方（下一次请求会再刷新）
