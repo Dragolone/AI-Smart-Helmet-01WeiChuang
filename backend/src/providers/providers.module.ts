@@ -1,5 +1,10 @@
 import { Logger, Module } from '@nestjs/common';
-import { ConsolePushProvider, PUSH_PROVIDER } from './push.provider';
+import { JPushProvider, jpushConfigFromEnv } from './jpush.provider';
+import {
+  ConsolePushProvider,
+  PUSH_PROVIDER,
+  type PushProvider,
+} from './push.provider';
 import {
   ConsoleSmsProvider,
   SMS_PROVIDER,
@@ -37,6 +42,21 @@ const smsProviderFactory = (): SmsProvider => {
   return new ConsoleSmsProvider();
 };
 
+/** 推送：JPUSH_APP_KEY + JPUSH_MASTER_SECRET 齐全即走极光（按 alias=userId 定向），否则 Console Mock */
+const pushProviderFactory = (): PushProvider => {
+  const config = jpushConfigFromEnv();
+  if (config) {
+    new Logger('ProvidersModule').log(
+      `推送通道：极光（APNs ${config.apnsProduction ? '生产' : '沙盒'}环境）`,
+    );
+    return new JPushProvider(config);
+  }
+  new Logger('ProvidersModule').log(
+    '推送通道：Console Mock（未配置 JPUSH_*，推送内容打印在日志）',
+  );
+  return new ConsolePushProvider();
+};
+
 /** 对象存储：TENCENT_COS_* 密钥与桶名齐全即走腾讯云 COS，否则 Mock（占位 URL，不可访问） */
 const storageProviderFactory = (): StorageProvider => {
   const config = tencentCosConfigFromEnv();
@@ -56,7 +76,7 @@ const storageProviderFactory = (): StorageProvider => {
 @Module({
   providers: [
     { provide: SMS_PROVIDER, useFactory: smsProviderFactory },
-    { provide: PUSH_PROVIDER, useClass: ConsolePushProvider },
+    { provide: PUSH_PROVIDER, useFactory: pushProviderFactory },
     { provide: STORAGE_PROVIDER, useFactory: storageProviderFactory },
   ],
   exports: [SMS_PROVIDER, PUSH_PROVIDER, STORAGE_PROVIDER],
