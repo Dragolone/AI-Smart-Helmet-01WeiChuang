@@ -1,8 +1,14 @@
 // 登录页（API.md §2 POST /auth/login）
-import { Link } from "expo-router";
+import { Link, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import { useEffect, useState } from "react";
-import { KeyboardAvoidingView, Platform, StyleSheet, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  StyleSheet,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { authApi } from "@/api/auth";
@@ -21,6 +27,7 @@ import { useAuthStore } from "@/stores/auth-store";
 
 export default function LoginScreen() {
   const t = useT();
+  const router = useRouter();
   const signIn = useAuthStore((s) => s.signIn);
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
@@ -69,7 +76,14 @@ export default function LoginScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <ThemedView style={styles.container}>
-          <ThemedText type="title">{t("auth.appName")}</ThemedText>
+          {/* 隐藏入口：长按 App 名 3 秒进蓝牙工程模式（硬件联调，不需要账号）；正式上线可删 */}
+          <Pressable
+            delayLongPress={3000}
+            onLongPress={() => router.push("/ble-bench")}
+            style={styles.brand}
+          >
+            <ThemedText type="title">{t("auth.appName")}</ThemedText>
+          </Pressable>
           <ThemedText type="small" themeColor="textSecondary">
             {t("auth.slogan")}
           </ThemedText>
@@ -122,6 +136,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: { flex: 1, justifyContent: "center", padding: 24, gap: 14 },
+  brand: { alignSelf: "flex-start" },
   linkRow: {
     flexDirection: "row",
     justifyContent: "space-between",

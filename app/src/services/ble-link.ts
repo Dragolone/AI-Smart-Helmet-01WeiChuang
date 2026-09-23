@@ -685,6 +685,9 @@ export function retryBleLink(deviceId?: string): void {
 export const isHelmetConnected = (deviceId: string): boolean =>
   sessions.has(deviceId);
 
+/** 当前链路目标（工程模式暂停生产链路前记下来，退出时按此恢复） */
+export const currentBleTargets = (): string[] => [...targets];
+
 export type RegisterWriteResult =
   | { delivered: false }
   | { delivered: true; executed: true }

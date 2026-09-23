@@ -250,6 +250,7 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 > - **请你做（决策 #37 第 ① 步，双端真机）**：RTSP 播放器 Spike。硬件文档点名的坑：Android 连热点后必须 `bindProcessToNetwork`，否则流量走蜂窝黑屏；iOS 程序化连热点用 `NEHotspotConfiguration`，会弹「无互联网是否仍用」。先对着测试流出画，再等真机热点。结论（选型、新架构兼容、双端延迟）写 DECISIONS.md 后再做预览页。
 > - 硬件真机用 VLC 拉流延迟 2–3 s，他们说还要优化；我们这边把实测延迟也记下来，方便对表。
 > - 顺带：随包的 v0.6 手册改了例 4（0x23 蜂鸣器开关 + 0x24 音量连写），仓库副本已换新；`protocol.ts` 逐键单写不受影响。
+> - **蓝牙工程模式页已加**（硬件 09-23 提的「测试模式」：登录页长按 App 名 3 秒进入，不登录、不上云，14 个编号按钮逐条发指令、每帧 hex + 解释、自动 ACK 开关、日志分享；清单 `docs/BLE_BENCH.md`）。B 线做的 App 侧代码，你 Review：`services/ble-bench.ts`、`services/ble/describe.ts`、`app/ble-bench.tsx`。给硬件的安卓 APK 由 B 打包。
 
 > **📣 A 线回复（2026-09-21）——④⑤⑥⑨ 与 ② 已做完并合 main**
 >
