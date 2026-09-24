@@ -24,6 +24,7 @@ const mockSetChannel = jest.fn(async (_id: string, _o: unknown) => undefined);
 const mockSetCategory = jest.fn(async (_id: string, _a: unknown) => undefined);
 const mockGetPerms = jest.fn(async () => ({ granted: true }));
 const mockRequestPerms = jest.fn(async () => ({ granted: true }));
+const mockSetHandler = jest.fn((_h: unknown) => undefined);
 /** addNotificationResponseReceivedListener 拿到的回调，用来模拟用户点通知按钮 */
 let responseHandler: ((r: unknown) => void) | null = null;
 
@@ -51,6 +52,9 @@ jest.mock("expo-notifications", () => ({
   addNotificationResponseReceivedListener: (cb: (r: unknown) => void) => {
     responseHandler = cb;
     return { remove: jest.fn() };
+  },
+  setNotificationHandler: (h: unknown) => {
+    mockSetHandler(h);
   },
   AndroidImportance: { MAX: 5 },
   AndroidNotificationVisibility: { PUBLIC: 1 },
@@ -251,6 +255,29 @@ describe("sos-alert", () => {
       mockSetCategory.mockRejectedValueOnce(new Error("no"));
       const m = load();
       await expect(m.ensureSosAlertPermission()).resolves.toBeUndefined();
+    });
+  });
+
+  describe("前台展示策略（SOS-11：锁屏瞬间 inactive 到达的通知不能被吞）", () => {
+    it("初始化时安装策略；SOS 类通知在 inactive/background 弹横幅+响，active 不弹，其他类别不管", async () => {
+      const m = load();
+      await m.ensureSosAlertPermission();
+      expect(mockSetHandler).toHaveBeenCalledTimes(1);
+      const handler = (mockSetHandler.mock.calls[0][0] as {
+        handleNotification: (n: unknown) => Promise<{ shouldShowBanner: boolean; shouldPlaySound: boolean }>;
+      }).handleNotification;
+      const sos = { request: { content: { categoryIdentifier: "sos" } } };
+      override(AppState, "currentState", "inactive");
+      expect((await handler(sos)).shouldShowBanner).toBe(true);
+      override(AppState, "currentState", "background");
+      expect((await handler(sos)).shouldPlaySound).toBe(true);
+      override(AppState, "currentState", "active");
+      expect((await handler(sos)).shouldShowBanner).toBe(false);
+      override(AppState, "currentState", "inactive");
+      expect(
+        (await handler({ request: { content: { categoryIdentifier: "device" } } })).shouldShowBanner,
+      ).toBe(false);
+      expect(m.sosPresentation(undefined, "background").show).toBe(false);
     });
   });
 

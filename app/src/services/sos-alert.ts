@@ -27,6 +27,7 @@ let responseSub: Notifications.EventSubscription | null = null;
 export async function ensureSosAlertPermission(): Promise<void> {
   if (permissionAsked) return;
   permissionAsked = true;
+  installPresentationPolicy();
   try {
     if (Platform.OS === "android") {
       await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
@@ -65,6 +66,44 @@ export async function ensureSosAlertPermission(): Promise<void> {
 }
 
 /** 通知按钮/点击：取消 → 直接调服务端取消（App 不必到前台）；打开/点横幅 → 进 SOS 页 */
+/**
+ * 前台展示策略：SOS 到达时 App 若处于 inactive（正在锁屏 / 拉下控制中心的瞬间），iOS 把它算作
+ * 前台投递、要问 App 要不要显示——不设策略默认是「不显示」，锁屏上就什么都没有
+ * （2026-09-24 iPhone 实测：WS 在 appState=inactive 时到达，通知已排但锁屏没弹）。
+ * 口径：SOS 类通知在非 active 状态一律弹横幅 + 响；active 时倒计时页本来就在屏上，不重复弹。
+ * 其他类别（低电量等）保持系统默认。
+ */
+export function sosPresentation(
+  categoryIdentifier: string | null | undefined,
+  appState: string,
+): { show: boolean } {
+  return { show: categoryIdentifier === CATEGORY_ID && appState !== "active" };
+}
+
+let presentationInstalled = false;
+function installPresentationPolicy(): void {
+  if (presentationInstalled) return;
+  presentationInstalled = true;
+  try {
+    Notifications.setNotificationHandler({
+      handleNotification: async (n) => {
+        const { show } = sosPresentation(
+          n.request.content.categoryIdentifier,
+          AppState.currentState,
+        );
+        return {
+          shouldShowBanner: show,
+          shouldShowList: show,
+          shouldPlaySound: show,
+          shouldSetBadge: false,
+        };
+      },
+    });
+  } catch (e) {
+    devLog("SOS-ALERT", "前台展示策略安装失败", e as Error);
+  }
+}
+
 function installResponseHandler(): void {
   if (responseSub) return;
   responseSub = Notifications.addNotificationResponseReceivedListener(

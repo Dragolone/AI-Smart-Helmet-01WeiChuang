@@ -11,3 +11,6 @@
 - `app/sos-active.tsx`：`act()` 收到 `SOS_ALREADY_FINALIZED` 不弹错，刷一次权威状态让页面自己切到结束态。
 - `error-messages.ts` + 三语字典：`SOS_ALREADY_FINALIZED` 补文案；审计清单 `KNOWN_UNMAPPED` 同步移出。
 - 测试：`api/__tests__/sos-snapshot.test.ts`。
+
+## SOS-11 锁屏瞬间到达的 SOS 通知不能被吞
+- `services/sos-alert.ts` 新增前台展示策略 `setNotificationHandler`：SOS 类（category=sos）通知在非 active 状态一律横幅 + 声音；active 时倒计时页在屏上不重复弹；其他类别（低电量等）维持默认。纯函数 `sosPresentation()` 单测钉住。
