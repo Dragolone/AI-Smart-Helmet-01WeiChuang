@@ -260,6 +260,7 @@ describe("sos-alert", () => {
 
   describe("前台展示策略（SOS-11：锁屏瞬间 inactive 到达的通知不能被吞）", () => {
     it("初始化时安装策略；SOS 类通知在 inactive/background 弹横幅+响，active 不弹，其他类别不管", async () => {
+      mockSetHandler.mockClear(); // 不在 beforeEach 的清零列表里，手动清
       const m = load();
       await m.ensureSosAlertPermission();
       expect(mockSetHandler).toHaveBeenCalledTimes(1);
