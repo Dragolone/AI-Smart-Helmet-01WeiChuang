@@ -18,6 +18,7 @@ const MESSAGE_KEYS: Record<string, MessageKey> = {
   DEVICE_ALREADY_BOUND: "error.deviceAlreadyBound",
   PASSWORD_INCORRECT: "error.passwordIncorrect",
   RATE_LIMITED: "error.rateLimited",
+  SOS_ALREADY_FINALIZED: "error.sosAlreadyFinalized",
   INTERNAL_ERROR: "error.internal",
 };
 

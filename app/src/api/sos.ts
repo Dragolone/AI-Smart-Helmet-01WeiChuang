@@ -30,4 +30,18 @@ export const sosApi = {
 
   accidentDetail: (accidentId: string) =>
     api<AccidentDetail>(`/accidents/${encodeURIComponent(accidentId)}`),
+
+  /**
+   * 某一单 SOS 此刻的权威状态：进行中 → /sos/active；不在进行中 → 事故记录（= 同一条 SOS 单，
+   * accidentId 就是 sosId）。**不回退到本地缓存**——2026-09-24 iPhone 实测：慢网下迟到的 pending
+   * 覆盖了 WS 推的 cancelled，之后 active 查不到这单、旧代码却信缓存，倒计时页永远停在 pending，
+   * 点取消一直报 SOS_ALREADY_FINALIZED。事故记录也拿不到（网络失败）才返回 null，由调用方决定兜底。
+   */
+  snapshot: async (sosId: string, deviceId: string): Promise<Sos | null> => {
+    const { sos } = await api<ActiveSosResponse>(
+      `/devices/${encodeURIComponent(deviceId)}/sos/active`,
+    );
+    if (sos && sos.sosId === sosId) return sos;
+    return api<AccidentDetail>(`/accidents/${encodeURIComponent(sosId)}`);
+  },
 };

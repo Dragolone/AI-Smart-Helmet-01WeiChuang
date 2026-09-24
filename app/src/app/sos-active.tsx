@@ -15,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { devLog } from "@/services/dev-log";
 import type { Sos } from "@helmet/shared";
 
+import { ApiRequestError } from "@/api/client";
 import { toUserMessage } from "@/api/error-messages";
 import { sosApi } from "@/api/sos";
 import { ThemedText } from "@/components/themed-text";
@@ -55,11 +56,14 @@ export default function SosActiveScreen() {
   const sosQuery = useQuery({
     queryKey: ["sos", sosId],
     queryFn: async () => {
-      const { sos } = await sosApi.active(deviceId);
-      return sos && sos.sosId === sosId
-        ? sos
-        : ((queryClient.getQueryData(["sos", sosId]) as Sos | undefined) ??
-            null);
+      try {
+        return await sosApi.snapshot(sosId, deviceId);
+      } catch {
+        // 两条 REST 都失败（离线）才信缓存；有网时缓存可能是迟到的 pending（2026-09-24 实测卡死）
+        return (
+          (queryClient.getQueryData(["sos", sosId]) as Sos | undefined) ?? null
+        );
+      }
     },
     refetchInterval: 10_000, // WS 断线时的兜底；正常时由推送更新缓存
     enabled: !isDrill,
@@ -150,7 +154,14 @@ export default function SosActiveScreen() {
       .then((updated) => {
         queryClient.setQueryData(["sos", sosId], updated);
       })
-      .catch((e) => Alert.alert(t("common.failed"), toUserMessage(e)))
+      .catch((e) => {
+        // 这单已经在别处结束（锁屏通知按钮 / 另一台手机 / 到期）：不弹错，拉一次权威状态让页面自己切到结束态
+        if (e instanceof ApiRequestError && e.code === "SOS_ALREADY_FINALIZED") {
+          void sosQuery.refetch();
+          return;
+        }
+        Alert.alert(t("common.failed"), toUserMessage(e));
+      })
       .finally(() => setBusy(null));
   };
 
