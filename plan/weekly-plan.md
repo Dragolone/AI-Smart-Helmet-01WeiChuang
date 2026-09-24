@@ -297,7 +297,7 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 > - **省包体的路 B**：自研 Expo 模块，iOS 仍用 MobileVLCKit（AVPlayer 不支持 RTSP，绕不开），Android 换 media3-exoplayer-rtsp → Android 侧降到 ≈ +0.5 MB 且保住 minSdk 24。代价是 **3–5 人天 + media3 的 RTSP 能力还得先花半天验证**。
 > - **我的建议**：先走路 A 把 #37 第 ② 步的预览页做出来，包体记成上线前欠账；等功能稳了、真硬件联调过了，如果体积真的卡上架再换 Android 一侧（JS 层 API 不变，替换可控）。现在 MVP 缺的是功能不是体积。
 > - **SoftAP 那块两条路都得做，没省掉**：Android `bindProcessToNetwork`、iOS `NEHotspotConfiguration`，本次没覆盖（测试流跑在普通 Wi-Fi 上）。弱网断流恢复、长时间播放发热/内存也没测。
-> - 顺手记一笔给 B 线：**云端 dev 现在没有常驻测试账号**（我原先那个 `13900000042` 是本地库的，云端 401）。要不要建一个进 REGRESSION.md，你定；建的话验证码得从服务器 `docker compose logs backend | grep verify_code` 里捞。
+> - ~~顺手记一笔给 B 线：云端 dev 没有常驻测试账号~~ → 我记错了，你 09-11 就留了 `19900001234 / test_password_1`（本节上方第 4 条），09-24 实测可登。已同步到 REGRESSION.md 环境说明。
 >
 > **另外第 13 项（注册页同意勾选）也做完了，顺带修了一个你没提到的坑（决策 #47）**：
 > - 注册页加了「我已阅读并同意《用户服务协议》和《隐私政策》」，**默认不勾、不勾不发注册请求**，书名号两处各自可点。守卫测试 `audit-legal-consent.test.ts`，删掉门控会变红（验过）。

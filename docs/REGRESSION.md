@@ -2,7 +2,7 @@
 
 > 用法:每轮回归在「结果」两列填 ✅/❌/➖(不适用),❌ 附一行现象。
 > **双端都过才算过**(CLAUDE.md Platform Policy)。「模拟器预检」列是 A 线开发期的快速回归记录,不替代真机。
-> 环境:本地(Mac LAN IP:3000)或云端 development(`https://dev-api.01weichuang.com/api/v1`,常驻 Mock `helmet_94173f` 绑定码 `94041564`)。
+> 环境:本地(Mac LAN IP:3000)或云端 development(`https://dev-api.01weichuang.com/api/v1`,常驻 Mock `helmet_94173f` 绑定码 `94041564`;**云端测试账号 `19900001234` / `test_password_1`**)。
 
 ## 1. 账号与会话
 
