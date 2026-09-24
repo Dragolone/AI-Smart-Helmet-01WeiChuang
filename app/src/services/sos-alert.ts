@@ -45,7 +45,10 @@ export async function ensureSosAlertPermission(): Promise<void> {
       {
         identifier: ACTION_CANCEL,
         buttonTitle: translate("sosAlert.cancelAction"),
-        options: { opensAppToForeground: false, isDestructive: false },
+        // 必须拉起 App：不拉起时取消请求在后台发出，iOS 随即挂起进程，请求被中断
+        // （2026-09-24 iPhone 实测 FetchRequestCanceledException），60 s 后照样通知联系人——
+        // 一个「按了却没生效」的取消键比没有更危险。拉起后页面会显示已取消。
+        options: { opensAppToForeground: true, isDestructive: false },
       },
       {
         identifier: ACTION_OPEN,
@@ -73,15 +76,44 @@ function installResponseHandler(): void {
       if (!data?.sosId) return;
       if (response.actionIdentifier === ACTION_CANCEL) {
         devLog("SOS-ALERT", "通知按钮取消", data.sosId);
-        sosApi.cancel(data.sosId).catch((e: Error) => {
-          devLog("SOS-ALERT", "通知取消失败", e);
-        });
+        void cancelFromNotification(data.sosId);
         void clearSosAlert(data.sosId);
         return;
       }
       router.push(`/sos-active?sosId=${data.sosId}&deviceId=${data.deviceId}`);
     },
   );
+}
+
+/** 等 App 回到前台后要补发的取消（后台请求被 iOS 挂起中断时兜底） */
+let retryCancelSosId: string | null = null;
+let retrySub: { remove: () => void } | null = null;
+
+/**
+ * 通知按钮「取消」→ 调服务端。失败（多半是进程在请求途中被挂起）就记下来，
+ * 回到前台立刻重试一次；服务端幂等，已取消的单会回 SOS_ALREADY_FINALIZED，当成功处理。
+ */
+export async function cancelFromNotification(sosId: string): Promise<boolean> {
+  try {
+    await sosApi.cancel(sosId);
+    retryCancelSosId = null;
+    return true;
+  } catch (e) {
+    const code = (e as { code?: string }).code;
+    if (code === "SOS_ALREADY_FINALIZED") return true;
+    devLog("SOS-ALERT", "通知取消失败，回前台重试", e as Error);
+    retryCancelSosId = sosId;
+    if (!retrySub) {
+      retrySub = AppState.addEventListener("change", (state) => {
+        if (state !== "active" || !retryCancelSosId) return;
+        const id = retryCancelSosId;
+        retryCancelSosId = null;
+        devLog("SOS-ALERT", "前台重试取消", id);
+        void cancelFromNotification(id);
+      });
+    }
+    return false;
+  }
 }
 
 function remainingSeconds(deadline: string): number {

@@ -255,9 +255,16 @@ describe("sos-alert", () => {
   });
 
   describe("通知按钮响应", () => {
-    it("「我没事」直接调服务端取消并撤掉通知，不用把 App 拉到前台", async () => {
+    it("「我没事」调服务端取消并撤掉通知；动作必须把 App 拉到前台（后台请求会被 iOS 挂起中断）", async () => {
       const m = load();
       await m.ensureSosAlertPermission();
+      const actions = mockSetCategory.mock.calls[0][1] as {
+        identifier: string;
+        options: { opensAppToForeground: boolean };
+      }[];
+      // 2026-09-24 iPhone 实测：opensAppToForeground=false 时取消请求 FetchRequestCanceledException，
+      // 60 s 后照样通知联系人——按了却没生效的取消键比没有更危险
+      expect(actions.find((a) => a.identifier === "cancel")?.options.opensAppToForeground).toBe(true);
       await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
       mockCancel.mockClear();
       responseHandler?.({
@@ -272,8 +279,14 @@ describe("sos-alert", () => {
       expect(mockCancelScheduled).toHaveBeenCalled();
     });
 
-    it("取消失败只记日志，不抛到通知回调外", async () => {
-      mockCancel.mockRejectedValueOnce(new Error("网络"));
+    it("取消失败只记日志、不抛到通知回调外，并在 App 回到前台时补发一次", async () => {
+      mockCancel.mockRejectedValueOnce(new Error("Fetch request has been canceled"));
+      // 用对象包一层：TS 会把闭包里赋值的 let 收窄成 null → never
+      const listener: { cb: ((s: string) => void) | null } = { cb: null };
+      override(AppState, "addEventListener", (_: string, cb: (s: string) => void) => {
+        listener.cb = cb;
+        return { remove: () => undefined };
+      });
       const m = load();
       await m.ensureSosAlertPermission();
       expect(() =>
@@ -282,7 +295,22 @@ describe("sos-alert", () => {
           notification: { request: { content: { data: { sosId: "s1" } } } },
         }),
       ).not.toThrow();
-      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(mockCancel).toHaveBeenCalledTimes(1);
+      // 回到前台 → 重试一次；再回前台不重复
+      listener.cb?.("active");
+      await new Promise((r) => setTimeout(r, 0));
+      expect(mockCancel).toHaveBeenCalledTimes(2);
+      listener.cb?.("active");
+      await new Promise((r) => setTimeout(r, 0));
+      expect(mockCancel).toHaveBeenCalledTimes(2);
+    });
+
+    it("边界：这单已在别处结束（另一台先取消 / 最后一秒到期）→ SOS_ALREADY_FINALIZED 视为成功，不重试", async () => {
+      mockCancel.mockRejectedValueOnce(Object.assign(new Error("409"), { code: "SOS_ALREADY_FINALIZED" }));
+      const m = load();
+      expect(await m.cancelFromNotification("s1")).toBe(true);
+      expect(mockCancel).toHaveBeenCalledTimes(1);
     });
 
     it("点横幅/「打开 App」进 SOS 页", async () => {
