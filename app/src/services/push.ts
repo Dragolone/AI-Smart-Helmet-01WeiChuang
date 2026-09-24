@@ -75,7 +75,9 @@ export async function landFromPush(extras: PushExtras): Promise<string | null> {
     active && active.status === "pending" && active.sosId === sosId
       ? `/sos-active?sosId=${sosId}&deviceId=${deviceId}`
       : `/accident/${sosId}`;
-  router.push(target as never);
+  // navigate 而不是 push：后台收到 WS 时倒计时页多半已经在栈上了（12:07 华为实测），
+  // 再 push 一份会叠两页倒计时；navigate 对同一路由只聚焦不新建
+  router.navigate(target as never);
   return target;
 }
 

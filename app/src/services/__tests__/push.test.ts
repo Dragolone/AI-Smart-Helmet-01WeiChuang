@@ -38,7 +38,9 @@ jest.mock("jpush-react-native", () => ({
       cb({ registerID: "rid" }),
   },
 }));
-jest.mock("expo-router", () => ({ router: { push: (h: string) => mockRouterPush(h) } }));
+jest.mock("expo-router", () => ({
+  router: { navigate: (h: string) => mockRouterPush(h) },
+}));
 jest.mock("@/api/sos", () => ({ sosApi: { active: (d: string) => mockActive(d) } }));
 jest.mock("@/services/dev-log", () => ({ devLog: jest.fn() }));
 jest.mock("expo-secure-store", () => ({
