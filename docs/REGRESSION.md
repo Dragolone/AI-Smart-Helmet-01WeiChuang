@@ -47,7 +47,7 @@
 | 4.6 | **推送·前台**：App 在前台，Mock `SCENARIO=fall` 触发 SOS | 极光通知到达（Metro 日志 `[PUSH]`），倒计时页已由 WS 拉起；通知不重复弹页 | | ✅ 09-24 华为(极光 onNotifyMessageArrived + 通知栏可见,倒计时页由 WS 拉起) | ⏳ 极光控制台 iOS 平台未配(Bundle ID + .p8),SDK FailedRegister,收不到远程推送 |
 | 4.7 | **推送·后台**：App 退后台再触发 SOS，点系统通知 | 进倒计时页（`/sos-active`）；若已过期/取消则进事故详情 | | ✅ 09-24 华为(onNotifyMessageOpened → 落地倒计时页;落地改 navigate 防叠页) | ⏳ 同上 |
 | 4.8 | **推送·被杀**：滑掉 App 再触发 SOS，点通知 | 冷启动后自动进倒计时页 / 事故详情；Android 靠 init 回放缓存点击，iOS 靠 RCTJPushEventQueue | | ❌ 09-24 华为(App 被杀后进程不存在,极光通道随之断,通知未到——**预期**,需厂商通道 THIRD_PARTY §6) | ⏳ 同上 |
-| 4.9 | **推送不破坏本地通知**：iOS 极光初始化后，SOS 锁屏本地通知的「取消 / 查看」按钮仍有效 | 取消 → 服务端 cancelled；查看 → 进倒计时页（delegate 转发，决策 #48） | | | |
+| 4.9 | **推送不破坏本地通知**：iOS 极光初始化后，SOS 锁屏本地通知的「取消 / 查看」按钮仍有效 | 取消 → 服务端 cancelled；查看 → 进倒计时页（delegate 转发，决策 #48） | | ➖ 不涉及(Android 极光不接管通知回调) | ✅ 09-24 iPhone(极光已 init 后锁屏本地通知长按→「取消」:日志「通知按钮取消」→ 服务端 cancelled;delegate 转发生效) |
 | 4.10 | **未同意隐私政策不初始化 SDK**：新装机 → 登录页勾选前 | Metro 日志出现「未同意隐私政策，推送 SDK 暂不初始化」，勾选登录后才 `setAlias` | | ✅ 09-24 华为(登录态日志「未同意隐私政策…」;登出→勾选→登录后 setAlias + registrationID) | ✅ 09-24 iPhone(同左;setAlias 成功,随后 FailedRegister 为平台未配所致) |
 
 ## 5. 危险事件与设置下发
