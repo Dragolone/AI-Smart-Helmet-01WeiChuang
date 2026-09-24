@@ -18,3 +18,6 @@
 ## SOS-12 WS 重连后补拉进行中的 SOS
 - `hooks/use-realtime.ts`：`realtimeClient.subscribeState` 每次由断转连都跑一次 `resumePendingSos`（原来只在冷启动跑）；找到 pending 时同时写 `['sos', sosId]` 缓存并调 `showSosAlertIfBackground`，App 在后台/锁屏时直接弹锁屏通知。
 - 局限：断线期间 iOS 若已把进程挂起，重连要等回前台才发生——这段窗口只有 APNs 能覆盖，等极光 iOS 平台配好（PUSH-01）。
+
+## SOS-13 倒计时进行中离开前台也要补弹锁屏通知
+- `hooks/use-realtime.ts`：AppState 变为 background/inactive 时，遍历已绑定设备的 `['sos-active', id]` 缓存，有 pending 就 `showSosAlertIfBackground`（按 sosId 去重）。不变式：**App 不在前台 && 有 pending SOS ⇒ 锁屏上一定有通知**。

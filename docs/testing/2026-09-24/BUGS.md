@@ -8,3 +8,4 @@
 | PUSH-02 | ⚪ 预期 | 华为杀掉 App 后收不到推送 | 无厂商通道，极光自有长连接随进程一起死 | ⏳ THIRD_PARTY §6 厂商通道注册 |
 | SOS-11 | 🔴 保命链路 | iPhone 刚按下锁屏的瞬间收到 SOS，锁屏上**没有**任何通知（上一秒锁屏就有） | WS 在 appState=inactive 到达，iOS 视为前台投递、要问 App 是否显示；App 从未设 `setNotificationHandler`，expo-notifications 默认不显示 → 通知被吞 | ✅ 已修（FIXES SOS-11） |
 | SOS-12 | 🔴 保命链路 | 按下电源键的同一秒另一台触发 SOS，iPhone 什么都没收到，直到 60 s 到期通知联系人 | 锁屏瞬间 iOS 掐断 socket（`1006 Socket is not connected`），WS 5 s 后才重连；SOS 恰在这几秒内创建，WS 不重推，而 REST 补拉只在冷启动跑 | ✅ 已修（FIXES SOS-12）；根治仍是 APNs 远程推送（PUSH-01） |
+| SOS-13 | 🔴 保命链路 | SOS 比锁屏早到一秒：倒计时页已弹出、随后用户锁屏，锁屏上什么都没有（也听不到声音，锁屏后音频会话激活失败） | 锁屏通知只在「SOS 到达时 App 不在前台」这一个时机弹；到达时在前台就再也没有机会 | ✅ 已修（FIXES SOS-13） |

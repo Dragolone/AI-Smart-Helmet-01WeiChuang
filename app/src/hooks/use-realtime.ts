@@ -196,6 +196,19 @@ export function useRealtimeUpdates(): void {
     const appState = AppState.addEventListener("change", (state) => {
       if (state === "active") {
         void queryClient.invalidateQueries({ queryKey: ["devices"] });
+        return;
+      }
+      // SOS-13：倒计时进行中用户把屏幕锁了（SOS 比锁屏早到一秒）——倒计时页被压在锁屏底下，
+      // 锁屏上什么都没有。不变式应是「App 不在前台 && 有 pending SOS ⇒ 锁屏上一定有通知」，
+      // 所以离开前台这一刻按缓存补弹；showSosAlertIfBackground 按 sosId 去重，已弹过的不重复。
+      for (const id of bleTargetsOf()) {
+        const active = queryClient.getQueryData<ActiveSosResponse>([
+          "sos-active",
+          id,
+        ])?.sos;
+        if (active && active.status === "pending") {
+          void showSosAlertIfBackground(active.sosId, id, active.deadline);
+        }
       }
     });
 
