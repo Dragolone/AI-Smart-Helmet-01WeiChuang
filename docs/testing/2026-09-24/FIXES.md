@@ -14,3 +14,7 @@
 
 ## SOS-11 锁屏瞬间到达的 SOS 通知不能被吞
 - `services/sos-alert.ts` 新增前台展示策略 `setNotificationHandler`：SOS 类（category=sos）通知在非 active 状态一律横幅 + 声音；active 时倒计时页在屏上不重复弹；其他类别（低电量等）维持默认。纯函数 `sosPresentation()` 单测钉住。
+
+## SOS-12 WS 重连后补拉进行中的 SOS
+- `hooks/use-realtime.ts`：`realtimeClient.subscribeState` 每次由断转连都跑一次 `resumePendingSos`（原来只在冷启动跑）；找到 pending 时同时写 `['sos', sosId]` 缓存并调 `showSosAlertIfBackground`，App 在后台/锁屏时直接弹锁屏通知。
+- 局限：断线期间 iOS 若已把进程挂起，重连要等回前台才发生——这段窗口只有 APNs 能覆盖，等极光 iOS 平台配好（PUSH-01）。

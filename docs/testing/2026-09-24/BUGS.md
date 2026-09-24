@@ -7,3 +7,4 @@
 | PUSH-01 | 🟡 配置 | iPhone 极光 SDK `setAlias` 后立刻 FailedRegister，拿不到 registrationID | 极光控制台该应用未配 iOS 平台（Bundle ID + APNs .p8） | ⏳ 负责人配置 |
 | PUSH-02 | ⚪ 预期 | 华为杀掉 App 后收不到推送 | 无厂商通道，极光自有长连接随进程一起死 | ⏳ THIRD_PARTY §6 厂商通道注册 |
 | SOS-11 | 🔴 保命链路 | iPhone 刚按下锁屏的瞬间收到 SOS，锁屏上**没有**任何通知（上一秒锁屏就有） | WS 在 appState=inactive 到达，iOS 视为前台投递、要问 App 是否显示；App 从未设 `setNotificationHandler`，expo-notifications 默认不显示 → 通知被吞 | ✅ 已修（FIXES SOS-11） |
+| SOS-12 | 🔴 保命链路 | 按下电源键的同一秒另一台触发 SOS，iPhone 什么都没收到，直到 60 s 到期通知联系人 | 锁屏瞬间 iOS 掐断 socket（`1006 Socket is not connected`），WS 5 s 后才重连；SOS 恰在这几秒内创建，WS 不重推，而 REST 补拉只在冷启动跑 | ✅ 已修（FIXES SOS-12）；根治仍是 APNs 远程推送（PUSH-01） |

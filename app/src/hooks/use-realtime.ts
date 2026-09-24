@@ -62,7 +62,9 @@ export function useRealtimeUpdates(): void {
       );
     // 冷启动补拉：App 被杀/重开期间若有 SOS 仍在倒计时（例如点了锁屏通知才打开 App），
     // WS 不会重推创建消息，主动查一次 active 并拉起倒计时页；服务端仍是权威
-    const resumePendingSos = async (ids: string[]) => {
+    // 也用于 WS 每次重连后（SOS-12）：iPhone 锁屏那一刻 socket 会掉（1006），SOS 恰好在这几秒
+    // 内创建的话 WS 不会重推，只有 REST 能把它找回来；找回来时 App 多半在后台/锁屏，顺手弹锁屏通知
+    const resumePendingSos = async (ids: string[], reason = "冷启动") => {
       for (const id of ids) {
         try {
           const { sos } = await sosApi.active(id);
@@ -70,15 +72,27 @@ export function useRealtimeUpdates(): void {
           queryClient.setQueryData<ActiveSosResponse>(["sos-active", id], {
             sos,
           });
+          queryClient.setQueryData(["sos", sos.sosId], sos);
+          void showSosAlertIfBackground(sos.sosId, id, sos.deadline);
           if (presentedSosId.current === sos.sosId) continue;
           presentedSosId.current = sos.sosId;
-          devLog("SOS", `冷启动发现进行中 SOS ${sos.sosId}`);
+          devLog("SOS", `${reason}发现进行中 SOS ${sos.sosId}`);
           router.push(`/sos-active?sosId=${sos.sosId}&deviceId=${id}`);
         } catch {
           // 网络失败不阻塞；安全页仍会按常规查询展示
         }
       }
     };
+    // 第一次 connected 是启动连接，冷启动补拉已经覆盖；之后每次由断转连都补拉一次
+    let everConnected = false;
+    const unsubscribeState = realtimeClient.subscribeState((connected) => {
+      if (!connected) return;
+      if (!everConnected) {
+        everConnected = true;
+        return;
+      }
+      void resumePendingSos(bleTargetsOf(), "重连补拉");
+    });
     void queryClient
       .fetchQuery({
         queryKey: ["devices"],
@@ -187,6 +201,7 @@ export function useRealtimeUpdates(): void {
 
     return () => {
       unsubscribe();
+      unsubscribeState();
       appState.remove();
       realtimeClient.stop();
       stopRelayUplink();
