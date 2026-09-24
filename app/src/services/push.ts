@@ -140,7 +140,13 @@ export function startPush(
     run();
     return;
   }
-  devLog("PUSH", "未同意隐私政策，推送 SDK 暂不初始化");
+  // 冷启动时同意标记可能还没从 SecureStore 读出来（hydrated=false）：那不是「未同意」，别误导看日志的人
+  devLog(
+    "PUSH",
+    useConsentStore.getState().hydrated
+      ? "未同意隐私政策，推送 SDK 暂不初始化"
+      : "等同意标记读取完再决定是否初始化",
+  );
   unsubscribeConsent = useConsentStore.subscribe((s) => {
     if (!s.privacyAccepted) return;
     unsubscribeConsent?.();
