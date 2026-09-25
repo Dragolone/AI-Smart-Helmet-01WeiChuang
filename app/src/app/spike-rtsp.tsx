@@ -12,7 +12,8 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { devLog } from "@/services/dev-log";
 
-const DEFAULT_URL = "rtsp://192.168.1.111:8554/ch0";
+// 硬件联调包：默认就是头盔 SoftAP 的拉流地址（DEVICE_PROTOCOL §1.3）
+const DEFAULT_URL = "rtsp://192.168.176.1:8554/ch0";
 
 export default function SpikeRtspScreen() {
   // 真机（尤其 iPhone）没法用命令行点按钮：带 ?auto=1&host=… 进来就自动开播，结果发到 devLog
@@ -37,6 +38,9 @@ export default function SpikeRtspScreen() {
 
   return (
     <ThemedView style={styles.wrap}>
+      <ThemedText type="small" themeColor="textSecondary">
+        先连头盔热点 X821cam，再关闭手机移动数据（否则流量会走 4G 黑屏），然后点播放。
+      </ThemedText>
       <FormInput
         label="RTSP 地址"
         icon="videocam-outline"

@@ -89,13 +89,12 @@ export default function LoginScreen() {
           </ThemedText>
           {/* RTSP Spike 入口（决策 #37）：仅开发构建可见，且不需要账号——Spike 只验证播放，
               登录后的「我的」页进不去（云端没有测试号）。定案后随 spike 页一起删 */}
-          {__DEV__ && (
-            <Pressable onPress={() => router.push("/spike-rtsp?auto=1")}>
-              <ThemedText type="small" themeColor="textSecondary">
-                · RTSP Spike ·
-              </ThemedText>
-            </Pressable>
-          )}
+          {/* 硬件联调包：release 构建里 __DEV__ 为 false，这里放开门控，让硬件同学装上就能进 */}
+          <Pressable onPress={() => router.push("/spike-rtsp")}>
+            <ThemedText type="small" themeColor="textSecondary">
+              · RTSP 视频预览测试 ·
+            </ThemedText>
+          </Pressable>
 
           <FormInput
             label={t("auth.phone")}
