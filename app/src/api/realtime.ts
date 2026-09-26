@@ -51,6 +51,24 @@ class RealtimeClient {
     this.ws = null;
   }
 
+  /**
+   * 立刻重连（清零退避）：断网期间退避会涨到 16–30 s，网络恢复后还得干等那一轮
+   * （2026-09-26 iPhone 飞行模式实测：提示条在恢复后拖了十几秒才消失）。
+   * 回前台 / 用户明显有动作时调用；已连上或没在运行时什么都不做。
+   */
+  kick(): void {
+    if (!this.running || this.connected) return;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.attempts = 0;
+    // 上一条连接可能还卡在握手阶段（断网时 onclose 迟迟不来）：直接放弃它，onclose 会被 `this.ws !== ws` 挡掉
+    const stale = this.ws;
+    this.ws = null;
+    stale?.close();
+    devLog("realtime", "立即重连（退避清零）");
+    this.connect();
+  }
+
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);

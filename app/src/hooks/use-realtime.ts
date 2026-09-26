@@ -176,6 +176,8 @@ export function useRealtimeUpdates(): void {
     // 回前台立即触发一次兜底刷新（WS 断线期间可能漏消息）
     const appState = AppState.addEventListener("change", (state) => {
       if (state === "active") {
+        // 断线中回前台：不等退避，立刻重连（关飞行模式/切回 Wi-Fi 后提示条秒消失）
+        realtimeClient.kick();
         void queryClient.invalidateQueries({ queryKey: ["devices"] });
         return;
       }
