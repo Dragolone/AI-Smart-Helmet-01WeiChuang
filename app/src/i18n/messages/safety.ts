@@ -6,6 +6,8 @@ export const safety = {
     "safety.statusSafeBody": "雷达与摔倒检测运行中 · {device}",
     "safety.statusNoDevice": "尚未连接头盔",
     "safety.statusNoDeviceBody": "绑定并连接头盔后开始防护",
+    "safety.statusNoNotify": "通知权限已关闭",
+    "safety.statusNoNotifyBody": "锁屏时收不到摔倒提醒，点此去系统设置打开通知",
     "safety.statusNoContacts": "还没有紧急联系人",
     "safety.statusNoContactsBody": "添加后 SOS 才有人能收到通知",
     "safety.statusSos": "有一条进行中的 SOS",
@@ -47,6 +49,9 @@ export const safety = {
     "safety.statusSafeBody": "雷達與跌倒偵測運作中 · {device}",
     "safety.statusNoDevice": "尚未連接頭盔",
     "safety.statusNoDeviceBody": "綁定並連接頭盔後開始防護",
+    "safety.statusNoNotify": "通知權限已關閉",
+    "safety.statusNoNotifyBody":
+      "鎖屏時收不到跌倒提醒，點此前往系統設定開啟通知",
     "safety.statusNoContacts": "還沒有緊急聯絡人",
     "safety.statusNoContactsBody": "新增後 SOS 才有人能收到通知",
     "safety.statusSos": "有一則進行中的 SOS",
@@ -89,6 +94,9 @@ export const safety = {
     "safety.statusNoDevice": "No helmet connected",
     "safety.statusNoDeviceBody":
       "Pair and connect a helmet to start protection",
+    "safety.statusNoNotify": "Notifications are off",
+    "safety.statusNoNotifyBody":
+      "Fall alerts can't reach the lock screen. Tap to enable notifications in Settings.",
     "safety.statusNoContacts": "No emergency contacts",
     "safety.statusNoContactsBody": "Add one so an SOS reaches someone",
     "safety.statusSos": "SOS in progress",

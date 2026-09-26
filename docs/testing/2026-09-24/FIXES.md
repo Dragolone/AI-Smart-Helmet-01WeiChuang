@@ -41,3 +41,7 @@
 ## APP-07 断网恢复后提示条拖十几秒（2026-09-26）
 - `api/realtime.ts` 新增 `kick()`：未连上时清掉退避定时器、放弃卡在握手的旧连接、立刻重连；`use-realtime.ts` 在 AppState 变 active 时调用（关飞行模式必经控制中心，必有一次 active）。没引 NetInfo（新增依赖需双人同意）——只靠前台切换已覆盖实测场景。
 - `api/__tests__/realtime.test.ts`：假 WebSocket 钉住指数退避、kick 清零、卡住的旧连接迟到的 onclose 不再触发重连。
+
+## APP-08 通知权限被拒要有提示（2026-09-26）
+- `services/sos-alert.ts` 新增 `isSosAlertPermissionDenied()`；`(tabs)/safety.tsx` 进页面与每次回前台各查一次，被拒时在页首放警示卡，点击跳系统设置。
+- 顺带确认：App 不申请手机定位（地图展示的是头盔上报位置），8.2 的定位半边不适用；`app.json` 里 expo-location 的权限说明目前无对应使用，上架前清理（上线前清单）。

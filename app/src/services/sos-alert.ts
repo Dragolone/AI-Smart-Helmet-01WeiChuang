@@ -163,7 +163,11 @@ export async function cancelFromNotification(
       devLog("SOS-ALERT", "通知取消重试用尽，通知保留在锁屏", e as Error);
       return false;
     }
-    devLog("SOS-ALERT", `通知取消失败，${delay} ms 后重试（第 ${attempt + 1} 次）`, e as Error);
+    devLog(
+      "SOS-ALERT",
+      `通知取消失败，${delay} ms 后重试（第 ${attempt + 1} 次）`,
+      e as Error,
+    );
     const retry = () => {
       clearCancelRetry();
       void cancelFromNotification(sosId, attempt + 1);
@@ -173,6 +177,16 @@ export async function cancelFromNotification(
       if (state === "active") retry();
     });
     return false;
+  }
+}
+
+/** 通知权限是否被拒：被拒时锁屏上的 SOS 提醒一条都发不出，安全页要明确告诉用户（REGRESSION 8.2） */
+export async function isSosAlertPermissionDenied(): Promise<boolean> {
+  try {
+    const p = await Notifications.getPermissionsAsync();
+    return !p.granted;
+  } catch {
+    return false; // 查不到权限状态时不吓唬用户
   }
 }
 

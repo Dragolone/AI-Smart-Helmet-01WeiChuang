@@ -264,9 +264,13 @@ describe("sos-alert", () => {
       const m = load();
       await m.ensureSosAlertPermission();
       expect(mockSetHandler).toHaveBeenCalledTimes(1);
-      const handler = (mockSetHandler.mock.calls[0][0] as {
-        handleNotification: (n: unknown) => Promise<{ shouldShowBanner: boolean; shouldPlaySound: boolean }>;
-      }).handleNotification;
+      const handler = (
+        mockSetHandler.mock.calls[0][0] as {
+          handleNotification: (
+            n: unknown,
+          ) => Promise<{ shouldShowBanner: boolean; shouldPlaySound: boolean }>;
+        }
+      ).handleNotification;
       const sos = { request: { content: { categoryIdentifier: "sos" } } };
       override(AppState, "currentState", "inactive");
       expect((await handler(sos)).shouldShowBanner).toBe(true);
@@ -277,10 +281,26 @@ describe("sos-alert", () => {
       // 极光远程推送没有 category：非 active 时同样要显示（评审 2026-09-26）
       override(AppState, "currentState", "inactive");
       expect(
-        (await handler({ request: { content: { categoryIdentifier: undefined } } })).shouldShowBanner,
+        (
+          await handler({
+            request: { content: { categoryIdentifier: undefined } },
+          })
+        ).shouldShowBanner,
       ).toBe(true);
       expect(m.sosPresentation(undefined, "background").show).toBe(true);
       expect(m.sosPresentation("device", "active").show).toBe(false);
+    });
+  });
+
+  describe("isSosAlertPermissionDenied（8.2：权限被拒要有提示）", () => {
+    it("未授权 → true；已授权 → false；查询抛错 → false（不吓唬用户）", async () => {
+      const m = load();
+      mockGetPerms.mockResolvedValueOnce({ granted: false });
+      expect(await m.isSosAlertPermissionDenied()).toBe(true);
+      mockGetPerms.mockResolvedValueOnce({ granted: true });
+      expect(await m.isSosAlertPermissionDenied()).toBe(false);
+      mockGetPerms.mockRejectedValueOnce(new Error("x"));
+      expect(await m.isSosAlertPermissionDenied()).toBe(false);
     });
   });
 
@@ -294,7 +314,10 @@ describe("sos-alert", () => {
       }[];
       // 2026-09-24 iPhone 实测：opensAppToForeground=false 时取消请求 FetchRequestCanceledException，
       // 60 s 后照样通知联系人——按了却没生效的取消键比没有更危险
-      expect(actions.find((a) => a.identifier === "cancel")?.options.opensAppToForeground).toBe(true);
+      expect(
+        actions.find((a) => a.identifier === "cancel")?.options
+          .opensAppToForeground,
+      ).toBe(true);
       await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
       mockCancel.mockClear();
       responseHandler?.({
@@ -316,7 +339,9 @@ describe("sos-alert", () => {
         .mockRejectedValueOnce(new Error("Fetch request has been canceled"))
         .mockRejectedValueOnce(new Error("still offline"))
         .mockResolvedValueOnce({} as never);
-      override(AppState, "addEventListener", () => ({ remove: () => undefined }));
+      override(AppState, "addEventListener", () => ({
+        remove: () => undefined,
+      }));
       const m = load();
       await m.ensureSosAlertPermission();
       await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
@@ -341,12 +366,18 @@ describe("sos-alert", () => {
 
     it("取消失败时 App 回到前台立刻重试（不等定时器）", async () => {
       jest.useFakeTimers();
-      mockCancel.mockRejectedValueOnce(new Error("canceled")).mockResolvedValueOnce({} as never);
+      mockCancel
+        .mockRejectedValueOnce(new Error("canceled"))
+        .mockResolvedValueOnce({} as never);
       const listener: { cb: ((s: string) => void) | null } = { cb: null };
-      override(AppState, "addEventListener", (_: string, cb: (s: string) => void) => {
-        listener.cb = cb;
-        return { remove: () => undefined };
-      });
+      override(
+        AppState,
+        "addEventListener",
+        (_: string, cb: (s: string) => void) => {
+          listener.cb = cb;
+          return { remove: () => undefined };
+        },
+      );
       const m = load();
       expect(await m.cancelFromNotification("s1")).toBe(false);
       listener.cb?.("active");
@@ -358,7 +389,9 @@ describe("sos-alert", () => {
     });
 
     it("边界：这单已在别处结束（另一台先取消 / 最后一秒到期）→ SOS_ALREADY_FINALIZED 视为成功，不重试", async () => {
-      mockCancel.mockRejectedValueOnce(Object.assign(new Error("409"), { code: "SOS_ALREADY_FINALIZED" }));
+      mockCancel.mockRejectedValueOnce(
+        Object.assign(new Error("409"), { code: "SOS_ALREADY_FINALIZED" }),
+      );
       const m = load();
       expect(await m.cancelFromNotification("s1")).toBe(true);
       expect(mockCancel).toHaveBeenCalledTimes(1);
