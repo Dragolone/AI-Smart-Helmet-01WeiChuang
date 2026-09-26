@@ -72,3 +72,17 @@
 变异验证 6 个全部被杀：删防迟到覆盖、SOS-13 改成 inactive 也补弹、SOS-13 整段去掉、重连去掉首连判断、去掉同单只拉一次、补拉不弹锁屏通知（SOS-12 核心）。
 
 仍未自动化：`use-realtime.ts` 本身的接线（订阅/退订顺序）、`sos-active.tsx` 页面、`privacy-consent-modal.tsx`——靠 REGRESSION 真机清单。
+
+## 6. 追加：真实进程 / 真实 Broker 测试（同日）
+
+jest 覆盖率测不到的三类，用 09-13 审计留下的脚本复跑（路径改为本机，输出放临时目录，**不覆盖 09-13 存档证据**）。
+
+| 测试 | 结果 | 说明 |
+|---|---|---|
+| **SOS 后端重启接管**（`evidence/sos/scripts/restart-recovery.mjs`，真实 `dist/main` 进程） | ✅ **17/17** | 倒计时中 `SIGKILL` → 单仍 pending（不靠内存 timer）→ 越过 deadline 无进程时不终态化 → 重启扫描接管转 notified，finalizedAt ≥ deadline → 短信、推送**各恰一次**；「已终态化但投递前崩溃」续投恰一次；「短信 failed」重试到 sent 且已 sent 的推送不重发。决策 #8 核心 |
+| **MQTT 认证 / ACL / 消息层矩阵**（`evidence/mqtt/scripts/auth-acl-matrix.mjs`，真 EMQX 5 + 真后端） | ✅ **26/26** | 含 AUTH-9 = **MQTT-01 回归**：合法设备密钥冒用后端 clientId → Not authorized |
+| **会话顶替**（`takeover-verify.mjs`） | ✅ | **MQTT-02 回归**：服务账号顶替后端会话 → 消费者重连（sessionPresent=true）且**真正重新订阅**，探针事件照常入库。EMQX 管理 API 本地 401，订阅数按脚本原设计以行为验证 |
+| **真实硬件路径端到端**：Mock 设备 `SCENARIO=fall` → 真 EMQX → 真后端 | ✅ | 真实注册流程（验证码取自 Console Mock 日志）→ 加联系人 → 绑定 → `possible_fall` 入库 → 建单并推「倒计时已开始」→ **恰 15 s** 后 notified → 联系人短信（脱敏 191****0031）+ 本人推送各 1 次 |
+| mock-device 单测 | ✅ 15/15 | CI 已在跑，此处单独确认 |
+
+环境备忘：EMQX 若先于后端启动，HTTP 认证回调资源会 `econnrefused` 后 fail-closed 全拒（连后端自己的服务账号也被拒）——`docker restart helmet-emqx` 清池即可（09-13 FIXES 已记，本次复现）。
