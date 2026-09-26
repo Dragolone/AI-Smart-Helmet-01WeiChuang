@@ -1182,10 +1182,13 @@ export default function MapScreen() {
                             </ThemedText>
                           </View>
                         </View>
-                        {replayIdx !== null && (
+                        {/* 这一格常驻、定宽：实时时是灰色状态字，回放时变成可点的「回到实时」。
+                            原来回放时才插入按钮，进度条会被挤短一截（2026-09-26 iPhone 实测），行宽必须稳定 */}
+                        {replayIdx !== null ? (
                           <Tappable
                             hitSlop={8}
-                            style={styles.exitBtn}
+                            accessibilityRole="button"
+                            style={styles.liveSlot}
                             onPress={exitReplay}
                           >
                             <ThemedText
@@ -1196,6 +1199,16 @@ export default function MapScreen() {
                               {t("map.backToLive")}
                             </ThemedText>
                           </Tappable>
+                        ) : (
+                          <View style={styles.liveSlot}>
+                            <ThemedText
+                              type="small"
+                              themeColor="textSecondary"
+                              style={styles.chipText}
+                            >
+                              {t("map.liveNow")}
+                            </ThemedText>
+                          </View>
                         )}
                       </View>
 
@@ -1400,7 +1413,12 @@ const styles = StyleSheet.create({
   seekColumn: { flex: 1, gap: 2 },
   seekLabels: { flexDirection: "row", justifyContent: "space-between" },
   seekLabel: { fontSize: 11, lineHeight: 14 },
-  exitBtn: { paddingHorizontal: 4, minHeight: 32, justifyContent: "center" },
+  liveSlot: {
+    minWidth: 64,
+    minHeight: 32,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   note: { fontSize: 12, lineHeight: 16 },
   seekTouch: { flex: 1, height: 28, justifyContent: "center" },
   // 轨道两端内缩点半径：点的可动范围 = 轨道范围，0%/100% 不出界
