@@ -6,6 +6,11 @@ export const safety = {
     "safety.statusSafeBody": "雷达与摔倒检测运行中 · {device}",
     "safety.statusNoDevice": "尚未连接头盔",
     "safety.statusNoDeviceBody": "绑定并连接头盔后开始防护",
+    "safety.notifyAlertTitle": "通知权限已关闭",
+    "safety.notifyAlertBody":
+      "关闭通知后，手机锁屏时将收不到摔倒和求救提醒，也无法在锁屏上一键取消误报。建议在系统设置里打开通知。",
+    "safety.notifyGoSettings": "去设置",
+    "safety.notifyLater": "暂不",
     "safety.statusNoNotify": "通知权限已关闭",
     "safety.statusNoNotifyBody": "锁屏时收不到摔倒提醒，点此去系统设置打开通知",
     "safety.statusNoContacts": "还没有紧急联系人",
@@ -49,6 +54,11 @@ export const safety = {
     "safety.statusSafeBody": "雷達與跌倒偵測運作中 · {device}",
     "safety.statusNoDevice": "尚未連接頭盔",
     "safety.statusNoDeviceBody": "綁定並連接頭盔後開始防護",
+    "safety.notifyAlertTitle": "通知權限已關閉",
+    "safety.notifyAlertBody":
+      "關閉通知後，手機鎖屏時將收不到跌倒和求救提醒，也無法在鎖屏上一鍵取消誤報。建議在系統設定裡開啟通知。",
+    "safety.notifyGoSettings": "去設定",
+    "safety.notifyLater": "暫不",
     "safety.statusNoNotify": "通知權限已關閉",
     "safety.statusNoNotifyBody":
       "鎖屏時收不到跌倒提醒，點此前往系統設定開啟通知",
@@ -94,6 +104,11 @@ export const safety = {
     "safety.statusNoDevice": "No helmet connected",
     "safety.statusNoDeviceBody":
       "Pair and connect a helmet to start protection",
+    "safety.notifyAlertTitle": "Notifications are off",
+    "safety.notifyAlertBody":
+      "With notifications off, fall and SOS alerts can't reach your lock screen, and you can't cancel a false alarm from there. Please enable notifications in Settings.",
+    "safety.notifyGoSettings": "Open Settings",
+    "safety.notifyLater": "Not now",
     "safety.statusNoNotify": "Notifications are off",
     "safety.statusNoNotifyBody":
       "Fall alerts can't reach the lock screen. Tap to enable notifications in Settings.",

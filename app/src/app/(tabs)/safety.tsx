@@ -166,23 +166,44 @@ function EventRow({ event, last }: { event: EventListItem; last: boolean }) {
   );
 }
 
+/** 通知权限被拒的说明弹窗每次进程只弹一次 */
+let notifyAlertShown = false;
+
 export default function SafetyScreen() {
+  const theme = useTheme();
+  const scheme = useColorScheme();
+  const t = useT();
   // 通知权限被拒 → 锁屏上收不到摔倒提醒，必须显式告知（REGRESSION 8.2「功能降级有提示」）。
   // 回前台再查一次：用户多半是刚从系统设置改完权限回来
   const [notifyDenied, setNotifyDenied] = useState(false);
   useEffect(() => {
     const check = () => {
-      void isSosAlertPermissionDenied().then(setNotifyDenied);
+      void isSosAlertPermissionDenied().then((denied) => {
+        setNotifyDenied(denied);
+        // 用户不知道「关通知 = 锁屏收不到摔倒提醒」（负责人 2026-09-26）：主动弹一次说清楚，
+        // 每次进程只弹一次，之后由页首警示卡持续提醒，不反复打扰
+        if (denied && !notifyAlertShown) {
+          notifyAlertShown = true;
+          Alert.alert(
+            t("safety.notifyAlertTitle"),
+            t("safety.notifyAlertBody"),
+            [
+              { text: t("safety.notifyLater"), style: "cancel" },
+              {
+                text: t("safety.notifyGoSettings"),
+                onPress: () => void Linking.openSettings(),
+              },
+            ],
+          );
+        }
+      });
     };
     check();
     const sub = AppState.addEventListener("change", (st) => {
       if (st === "active") check();
     });
     return () => sub.remove();
-  }, []);
-  const theme = useTheme();
-  const scheme = useColorScheme();
-  const t = useT();
+  }, [t]);
   const locale = useLocale();
 
   const devices = useQuery({ queryKey: ["devices"], queryFn: devicesApi.list });
