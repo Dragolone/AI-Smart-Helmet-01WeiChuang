@@ -62,3 +62,13 @@
 - App 页面层与 `use-realtime.ts` 的自动化（见上）。
 - `packages/shared` 无独立测试（被 App/后端测试间接使用，未单独计分母）。
 - 真实第三方：腾讯云短信真发、极光 iOS（PUSH-01 未配置）、TRTC 正式应用。
+
+## 5. 追加：`use-realtime.ts` 的 SOS 逻辑抽出并补单测（同日）
+
+§2 指出的最大缺口。把四段判断搬进 `app/src/services/sos-sync.ts`（不依赖 React，副作用从参数注入），hook 只负责接线，行为不变（离开前台补弹额外跳过缓存里已是终态的单）。
+
+`services/__tests__/sos-sync.test.ts` 15 条，用真 `QueryClient`：WS 推送四种情况、重连补拉（含 APP-03 同源的「REST 在路上时 WS 已推终态」竞态）、离开前台补弹（background 补 / inactive 不补 / 多设备）、重连触发时机。模块覆盖 **语句 98% / 分支 97%**。
+
+变异验证 6 个全部被杀：删防迟到覆盖、SOS-13 改成 inactive 也补弹、SOS-13 整段去掉、重连去掉首连判断、去掉同单只拉一次、补拉不弹锁屏通知（SOS-12 核心）。
+
+仍未自动化：`use-realtime.ts` 本身的接线（订阅/退订顺序）、`sos-active.tsx` 页面、`privacy-consent-modal.tsx`——靠 REGRESSION 真机清单。

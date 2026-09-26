@@ -5,8 +5,6 @@ import { router } from "expo-router";
 import { useEffect, useRef } from "react";
 import { AppState } from "react-native";
 import type {
-  Sos,
-  ActiveSosResponse,
   DevicePublic,
   DeviceStatus,
   WsDeviceCommandData,
@@ -33,6 +31,13 @@ import {
   ensureSosAlertPermission,
   showSosAlertIfBackground,
 } from "@/services/sos-alert";
+import {
+  alertPendingOnBackground,
+  applySosUpdate,
+  onReconnect,
+  resumePendingSos,
+  type SosSyncDeps,
+} from "@/services/sos-sync";
 import { useAuthStore } from "@/stores/auth-store";
 
 export function useRealtimeUpdates(): void {
@@ -61,43 +66,30 @@ export function useRealtimeUpdates(): void {
       (queryClient.getQueryData<DevicePublic[]>(["devices"]) ?? []).map(
         (d) => d.deviceId,
       );
-    // 冷启动补拉：App 被杀/重开期间若有 SOS 仍在倒计时（例如点了锁屏通知才打开 App），
-    // WS 不会重推创建消息，主动查一次 active 并拉起倒计时页；服务端仍是权威
-    // 也用于 WS 每次重连后（SOS-12）：iPhone 锁屏那一刻 socket 会掉（1006），SOS 恰好在这几秒
-    // 内创建的话 WS 不会重推，只有 REST 能把它找回来；找回来时 App 多半在后台/锁屏，顺手弹锁屏通知
-    const resumePendingSos = async (ids: string[], reason = "冷启动") => {
-      for (const id of ids) {
-        try {
-          const { sos } = await sosApi.active(id);
-          if (!sos || sos.status !== "pending") continue;
-          // REST 在路上时 WS 可能已推来这单的 cancelled/notified：迟到的 pending 不能盖掉它
-          // （评审 2026-09-26：否则重连补拉会把 APP-03 那个坑再挖回来）
-          const cached = queryClient.getQueryData<Sos>(["sos", sos.sosId]);
-          if (cached && cached.status !== "pending") continue;
-          queryClient.setQueryData<ActiveSosResponse>(["sos-active", id], {
-            sos,
-          });
-          queryClient.setQueryData(["sos", sos.sosId], sos);
-          void showSosAlertIfBackground(sos.sosId, id, sos.deadline);
-          if (presentedSosId.current === sos.sosId) continue;
-          presentedSosId.current = sos.sosId;
-          devLog("SOS", `${reason}发现进行中 SOS ${sos.sosId}`);
-          router.push(`/sos-active?sosId=${sos.sosId}&deviceId=${id}`);
-        } catch {
-          // 网络失败不阻塞；安全页仍会按常规查询展示
-        }
-      }
+    // SOS 同步的判断逻辑在 services/sos-sync.ts（纯函数 + 注入副作用，有单测）；这里只接线
+    const sosDeps: SosSyncDeps = {
+      fetchActive: (id) => sosApi.active(id),
+      openCountdown: (sosId, deviceId) =>
+        router.push(`/sos-active?sosId=${sosId}&deviceId=${deviceId}`),
+      showLockScreenAlert: (sosId, deviceId, deadline) =>
+        void showSosAlertIfBackground(sosId, deviceId, deadline),
+      clearLockScreenAlert: (sosId) => void clearSosAlert(sosId),
+      log: (m) => devLog("SOS", m),
     };
-    // 第一次 connected 是启动连接，冷启动补拉已经覆盖；之后每次由断转连都补拉一次
-    let everConnected = false;
-    const unsubscribeState = realtimeClient.subscribeState((connected) => {
-      if (!connected) return;
-      if (!everConnected) {
-        everConnected = true;
-        return;
-      }
-      void resumePendingSos(bleTargetsOf(), "重连补拉");
-    });
+    // 冷启动补拉：App 被杀/重开期间若有 SOS 仍在倒计时，WS 不会重推创建消息；
+    // WS 每次重连后同样补拉一次（SOS-12）
+    const unsubscribeState = realtimeClient.subscribeState(
+      onReconnect(
+        () =>
+          void resumePendingSos(
+            queryClient,
+            bleTargetsOf(),
+            presentedSosId,
+            sosDeps,
+            "重连补拉",
+          ),
+      ),
+    );
     void queryClient
       .fetchQuery({
         queryKey: ["devices"],
@@ -107,7 +99,12 @@ export function useRealtimeUpdates(): void {
       .catch(() => undefined)
       .then(() => {
         startBleLink(bleTargetsOf());
-        void resumePendingSos(bleTargetsOf());
+        void resumePendingSos(
+          queryClient,
+          bleTargetsOf(),
+          presentedSosId,
+          sosDeps,
+        );
       });
     const unsubscribeCache = queryClient.getQueryCache().subscribe((event) => {
       if (event.query.queryKey[0] === "devices" && event.type === "updated") {
@@ -151,33 +148,12 @@ export function useRealtimeUpdates(): void {
         case "sos_update": {
           // 服务端权威：创建/取消/确认/超时通知四个时机都推（shared WsSosData）
           const sos = message.data as WsSosData;
-          queryClient.setQueryData<ActiveSosResponse>(
-            ["sos-active", sos.deviceId],
-            {
-              sos: sos.status === "pending" ? sos : null,
-            },
-          );
-          queryClient.setQueryData(["sos", sos.sosId], sos);
-          void queryClient.invalidateQueries({ queryKey: ["accidents"] });
           devLog(
             "SOS",
             `推送 ${sos.status} ${sos.sosId} appState=${AppState.currentState}`,
           );
-          if (
-            sos.status === "pending" &&
-            presentedSosId.current !== sos.sosId
-          ) {
-            presentedSosId.current = sos.sosId;
-            router.push(
-              `/sos-active?sosId=${sos.sosId}&deviceId=${sos.deviceId}`,
-            );
-            void showSosAlertIfBackground(
-              sos.sosId,
-              sos.deviceId,
-              sos.deadline,
-            );
-          }
-          if (sos.status !== "pending") void clearSosAlert(sos.sosId);
+          applySosUpdate(queryClient, sos, presentedSosId, sosDeps);
+          void queryClient.invalidateQueries({ queryKey: ["accidents"] });
           break;
         }
         case "device_command": {
@@ -203,21 +179,8 @@ export function useRealtimeUpdates(): void {
         void queryClient.invalidateQueries({ queryKey: ["devices"] });
         return;
       }
-      // 只认 background：iOS 弹系统 Alert / 拉控制中心 / 来电时也会短暂 inactive，那时倒计时页
-      // 还在屏上，再弹一条会双重报警（评审 2026-09-26）。锁屏是 inactive → background，不会漏
-      if (state !== "background") return;
-      // SOS-13：倒计时进行中用户把屏幕锁了（SOS 比锁屏早到一秒）——倒计时页被压在锁屏底下，
-      // 锁屏上什么都没有。不变式应是「App 不在前台 && 有 pending SOS ⇒ 锁屏上一定有通知」，
-      // 所以离开前台这一刻按缓存补弹；showSosAlertIfBackground 按 sosId 去重，已弹过的不重复。
-      for (const id of bleTargetsOf()) {
-        const active = queryClient.getQueryData<ActiveSosResponse>([
-          "sos-active",
-          id,
-        ])?.sos;
-        if (active && active.status === "pending") {
-          void showSosAlertIfBackground(active.sosId, id, active.deadline);
-        }
-      }
+      // SOS-13：离开前台时按缓存补弹锁屏通知（只认 background，规则见 sos-sync）
+      alertPendingOnBackground(queryClient, state, bleTargetsOf(), sosDeps);
     });
 
     return () => {
