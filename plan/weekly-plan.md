@@ -312,6 +312,17 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 > - 极光 SDK 的 manifest 顺带申请 READ_PHONE_STATE / 外部存储 / GET_TASKS / 后台定位，全屏蔽了（`android.blockedPermissions`），不然商店合规那关过不去。
 > - **需要你**：① APNs .p8 上传极光（没这个 iOS 一条也收不到）；② 服务端 `JPUSH_APNS_PRODUCTION`——Xcode 直装的 Debug 包留空，TestFlight/Release 包设 true，不一致极光静默丢。
 > - 真机三态（前台/后台/被杀）双端明天测，REGRESSION 4.6–4.10。
+>
+> **📣 A 线回报（2026-09-24 白天）——推送真机三态 + SOS 锁屏链路挖出 5 个真机才暴露的缺陷，全部修完验过**（明细 `docs/testing/2026-09-24/BUGS.md` / `FIXES.md`，REGRESSION 4.6–4.13）：
+> - **推送·华为**：前台 ✅、后台点通知落地 ✅、被杀 ❌（预期，无厂商通道）。**iPhone**：同意门控与 setAlias ✅，但极光 SDK 立刻 FailedRegister——**极光控制台没配 iOS 平台**（Bundle ID + .p8），配好前 iPhone 一条远程推送也收不到（PUSH-01）。
+> - 🔴 **SOS-10**：锁屏通知点「取消」不拉起 App → 请求在后台被 iOS 挂起中断 → 60 s 后照样通知联系人。改为拉起 App + 前台补发一次。
+> - 🔴 **APP-03**：锁屏取消后打开 App，倒计时页被迟到的 pending 覆盖住卡死，点取消一直报 `SOS_ALREADY_FINALIZED`。不在进行中的单改查事故记录，不信缓存；该码补三语文案。
+> - 🔴 **SOS-11**：锁屏瞬间（inactive）到达的 SOS 通知被 iOS 前台策略吞掉。补 `setNotificationHandler`。
+> - 🔴 **SOS-12**：锁屏那一刻 socket 掉（1006），几秒内创建的 SOS 收不到。WS 每次重连补拉 `/sos/active`。**进程已挂起的窗口只有 APNs 能覆盖**——PUSH-01 是保命链路硬前置。
+> - 🔴 **SOS-13**：SOS 比锁屏早到一秒，倒计时页压在锁屏底下、锁屏无通知。离开前台那一刻按缓存补弹。**现在的不变式：App 不在前台 && 有进行中 SOS ⇒ 锁屏上一定有通知。**
+> - 边界口径（负责人问的「最后一秒取消 / 两台同时取消」）：服务端状态机唯一权威（决策 #8），409 视为已结束、页面如实显示 notified / cancelled，App 不做本地判定。
+> - 顺手：云端测试号是你 09-11 留的 `19900001234`，我之前说「没有」是记错，已撤回并写进 REGRESSION 环境说明。
+> - **需要你**：极光 iOS 平台配置 + .p8（PUSH-01）；`JPUSH_APNS_PRODUCTION` 与装机包对齐；厂商通道注册（PUSH-02）。
 
 > **📣 A 线回复（2026-09-21）——④⑤⑥⑨ 与 ② 已做完并合 main**
 >
