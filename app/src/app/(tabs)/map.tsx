@@ -40,6 +40,7 @@ import {
 } from "@/components/map/coords";
 import { openAmapNavigation } from "@/components/map/nav-links";
 import { AnimatedChip, ValueTransition } from "@/components/motion";
+import { PulseDot } from "@/components/motion";
 import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
 import { Radius } from "@/constants/theme";
@@ -1083,6 +1084,35 @@ export default function MapScreen() {
                             onPress={() => setRange(h)}
                           />
                         ))}
+                        {/* 实时/回放状态放在这一行最右（负责人 2026-09-26 定的样式）：
+                            不占进度条那一行的位置；实时 = 绿色呼吸点·实时，回放 = 红色「回到实时」可点 */}
+                        {replayIdx !== null ? (
+                          <Tappable
+                            hitSlop={8}
+                            accessibilityRole="button"
+                            style={styles.liveSlot}
+                            onPress={exitReplay}
+                          >
+                            <ThemedText
+                              type="smallBold"
+                              themeColor="danger"
+                              style={styles.chipText}
+                            >
+                              {t("map.backToLive")}
+                            </ThemedText>
+                          </Tappable>
+                        ) : (
+                          <View style={styles.liveSlot}>
+                            <PulseDot color={theme.success} size={7} active />
+                            <ThemedText
+                              type="small"
+                              themeColor="textSecondary"
+                              style={styles.chipText}
+                            >
+                              {t("map.liveNow")}
+                            </ThemedText>
+                          </View>
+                        )}
                       </View>
 
                       {dateOpen && (
@@ -1182,34 +1212,6 @@ export default function MapScreen() {
                             </ThemedText>
                           </View>
                         </View>
-                        {/* 这一格常驻、定宽：实时时是灰色状态字，回放时变成可点的「回到实时」。
-                            原来回放时才插入按钮，进度条会被挤短一截（2026-09-26 iPhone 实测），行宽必须稳定 */}
-                        {replayIdx !== null ? (
-                          <Tappable
-                            hitSlop={8}
-                            accessibilityRole="button"
-                            style={styles.liveSlot}
-                            onPress={exitReplay}
-                          >
-                            <ThemedText
-                              type="smallBold"
-                              themeColor="brand"
-                              style={styles.chipText}
-                            >
-                              {t("map.backToLive")}
-                            </ThemedText>
-                          </Tappable>
-                        ) : (
-                          <View style={styles.liveSlot}>
-                            <ThemedText
-                              type="small"
-                              themeColor="textSecondary"
-                              style={styles.chipText}
-                            >
-                              {t("map.liveNow")}
-                            </ThemedText>
-                          </View>
-                        )}
                       </View>
 
                       {track.data?.truncated && (
@@ -1414,10 +1416,12 @@ const styles = StyleSheet.create({
   seekLabels: { flexDirection: "row", justifyContent: "space-between" },
   seekLabel: { fontSize: 11, lineHeight: 14 },
   liveSlot: {
-    minWidth: 64,
-    minHeight: 32,
+    marginLeft: "auto",
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    gap: 5,
+    minHeight: 28,
+    paddingHorizontal: 4,
   },
   note: { fontSize: 12, lineHeight: 16 },
   seekTouch: { flex: 1, height: 28, justifyContent: "center" },
