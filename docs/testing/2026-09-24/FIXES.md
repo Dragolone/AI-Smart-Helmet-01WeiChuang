@@ -30,3 +30,7 @@
 - **SOS-12 补强**：重连补拉不得用迟到的 pending 覆盖 WS 已推的 cancelled/notified。
 - **SOS-13 收窄**：只认 background，避免系统 Alert/控制中心的 inactive 触发双重报警。
 - 登录页：同意标记未读出时按「需要」处理。插件：mergeContents 锚不到是抛错，兜底改为真正可达。倒计时页结束后停轮询。
+
+## APP-05 联系人空态双按钮 / 按钮文字贴边（2026-09-26）
+- `app/contacts.tsx`：空态只保留图标 + 标题 + 引导语，底部常驻按钮是唯一入口。
+- `components/form.tsx`：`PrimaryButton` 加 `paddingHorizontal: 20`——撑满宽度时无感，按内容收缩时（空态、行内）文字不再顶边。

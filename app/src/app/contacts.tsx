@@ -150,13 +150,11 @@ export default function ContactsScreen() {
           </Card>
         ) : (
           !contacts.isLoading && (
+            // 空态只做引导：底部常驻的「添加联系人」才是唯一入口，这里再放一个按钮会出现两个添加
             <EmptyState
               icon="people-outline"
               title={t("empty.contactsTitle")}
               body={t("empty.contactsBody")}
-              actionLabel={t("empty.contactsAction")}
-              actionIcon="add"
-              onAction={() => router.push("/add-contact")}
             />
           )
         )}

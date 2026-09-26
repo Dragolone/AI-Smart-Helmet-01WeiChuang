@@ -265,6 +265,8 @@ const styles = StyleSheet.create({
     height: 52,
     alignItems: "center",
     justifyContent: "center",
+    // 撑满宽度时无感；按内容收缩（空态里的按钮、行内按钮）时文字不能顶着药丸两端（2026-09-26 iPhone 实测）
+    paddingHorizontal: 20,
   },
   buttonCompact: { height: 46 },
   secondary: { borderWidth: 1 },
