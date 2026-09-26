@@ -1090,7 +1090,14 @@ export default function MapScreen() {
                           <Tappable
                             hitSlop={8}
                             accessibilityRole="button"
-                            style={styles.liveSlot}
+                            style={[
+                              styles.liveSlot,
+                              styles.backToLive,
+                              {
+                                backgroundColor: theme.dangerBg,
+                                borderColor: theme.danger,
+                              },
+                            ]}
                             onPress={exitReplay}
                           >
                             <ThemedText
@@ -1415,6 +1422,12 @@ const styles = StyleSheet.create({
   seekColumn: { flex: 1, gap: 2 },
   seekLabels: { flexDirection: "row", justifyContent: "space-between" },
   seekLabel: { fontSize: 11, lineHeight: 14 },
+  // 「回到实时」要像个按钮：红边 + 淡红底的药丸，用户一眼知道能点（负责人 2026-09-26）
+  backToLive: {
+    borderWidth: 1,
+    borderRadius: Radius.pill,
+    paddingHorizontal: 10,
+  },
   liveSlot: {
     marginLeft: "auto",
     flexDirection: "row",
