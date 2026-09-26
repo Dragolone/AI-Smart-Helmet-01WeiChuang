@@ -21,3 +21,12 @@
 
 ## SOS-13 倒计时进行中离开前台也要补弹锁屏通知
 - `hooks/use-realtime.ts`：AppState 变为 background/inactive 时，遍历已绑定设备的 `['sos-active', id]` 缓存，有 pending 就 `showSosAlertIfBackground`（按 sosId 去重）。不变式：**App 不在前台 && 有 pending SOS ⇒ 锁屏上一定有通知**。
+
+## 2026-09-26 代码评审（范围 c57f586..bf23e06）后的修正 —— commit 38f68f0
+真机日以「先堵住」为主，两天后按评审逐条复核，9 条里 6 条成立、2 条效率/边界、1 条部分成立，全部处理：
+- **SOS-10 补强**：取消失败不再撤通知；重试 2s/5s/10s 三次 + 回前台立即触发（原「等下一次 active」永远等不到，因为动作已把 App 拉到前台）。
+- **APP-04（新）**：升级前就登录着的用户永远不经过登录页 → 永远没机会同意 → 极光永远不初始化。新增 `components/privacy-consent-modal.tsx`：已登录且本机未同意时一次性弹窗；不同意只能退出登录。**测试人员不再需要登出重登**。
+- **SOS-11 补强**：前台展示策略不按类别过滤（极光远程推送没有 category）。
+- **SOS-12 补强**：重连补拉不得用迟到的 pending 覆盖 WS 已推的 cancelled/notified。
+- **SOS-13 收窄**：只认 background，避免系统 Alert/控制中心的 inactive 触发双重报警。
+- 登录页：同意标记未读出时按「需要」处理。插件：mergeContents 锚不到是抛错，兜底改为真正可达。倒计时页结束后停轮询。
