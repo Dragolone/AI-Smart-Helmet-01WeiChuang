@@ -385,6 +385,7 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 | 4 | Apple 公司账号 → TestFlight / APNs / Critical Alerts | 负责人 | ✅ **账号 2026-09-23 生效**（有效期至 2027-09-23）。后续 7 条见 THIRD_PARTY §5「账号到位后清单」：Team ID 换入 app.json、注册 App ID + Push、APNs .p8 进极光、邀请 Wesley、App Store Connect 建 App、申请 Critical Alerts、个人证书退役 |
 | 5 | App 备案（腾讯云） | 负责人 | 安卓、iOS 各一条，包名 `com.lingyiweichuang.app`，前置已满足 |
 | 6 | **生产环境运维三件套** | B 线 | ① ✅ PostgreSQL 每日自动 `pg_dump` 到 COS（`deploy/backup.sh` + `backend/src/scripts/backup-upload.ts`；**2026-09-18 云端已部署并跑通：首份 13.24 MB 已进桶 `backups/`，crontab 每日 03:00 已加**；⚠️ 2026-09-22 发现定时任务 4 天未执行——crontab 日志写 `/var/log` 无权限、整条命令不跑，已改到 `/home/ubuntu/helmet-backup.log` 并手动补备份 17.40 MB；**2026-09-23 复查通过：19:00:01Z（北京 03:00）自动触发，上传 18.09 MB，桶内 3 份**）；② ✅ compose 全部服务 `logging: 20m × 5`（2026-09-18 云端已生效）；③ ✅ 对外 `/health` 拨测告警（**2026-09-22 已开通**：UptimeRobot 免费版，账号 zhongqilong@01weichuang.com，监控「dev 后端健康检查」HTTP/S 每 5 分钟、失败邮件告警；免费版编辑时不能改 Keyword 类型，但 `/health` 数据库断开返回 503，HTTP 监控即可发现；production 上线时加 `api.01weichuang.com` 一条） |
+| 7 | **expo-location 申请了定位却没用** | A 线 + 负责人 | 2026-09-26 iOS 回归 8.2 发现：App 源码没有任何手机定位调用（地图显示的是头盔上报位置），但 `app.json` 仍配着 expo-location 插件与「用于在地图上显示您的位置…」权限说明，包里带着 `NSLocationWhenInUseUsageDescription`。商店审核会追问「申请了定位为何不用」。**二选一（负责人定）**：① 删插件与依赖、改 `audit-app-config.test.ts`；② 蓝牙版要用手机定位给头盔补位的话，真正接上再保留。清理前别删——它也是 08-16 决策 #33 地图 Spike 的遗留 |
 
 ---
 
