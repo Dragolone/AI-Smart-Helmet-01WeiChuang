@@ -74,10 +74,13 @@ export async function ensureSosAlertPermission(): Promise<void> {
  * 其他类别（低电量等）保持系统默认。
  */
 export function sosPresentation(
-  categoryIdentifier: string | null | undefined,
+  _categoryIdentifier: string | null | undefined,
   appState: string,
 ): { show: boolean } {
-  return { show: categoryIdentifier === CATEGORY_ID && appState !== "active" };
+  // 不按类别过滤：极光远程推送到 iOS 时没有 category，若只放行 sos 类，锁屏瞬间（inactive）到达的
+  // 远程 SOS 推送会被吞——评审 2026-09-26 指出的同一个 SOS-11 洞。App 不在前台就一律显示；
+  // 在前台时页面/Toast 自己负责，不弹系统横幅。
+  return { show: appState !== "active" };
 }
 
 let presentationInstalled = false;
@@ -114,9 +117,12 @@ function installResponseHandler(): void {
       };
       if (!data?.sosId) return;
       if (response.actionIdentifier === ACTION_CANCEL) {
-        devLog("SOS-ALERT", "通知按钮取消", data.sosId);
-        void cancelFromNotification(data.sosId);
-        void clearSosAlert(data.sosId);
+        const sosId = data.sosId;
+        devLog("SOS-ALERT", "通知按钮取消", sosId);
+        // 只有服务端确认取消才撤通知；失败时通知留在锁屏上，用户能看到「还在倒计时」并再点一次
+        void cancelFromNotification(sosId).then((ok) => {
+          if (ok) void clearSosAlert(sosId);
+        });
         return;
       }
       router.push(`/sos-active?sosId=${data.sosId}&deviceId=${data.deviceId}`);
@@ -124,33 +130,48 @@ function installResponseHandler(): void {
   );
 }
 
-/** 等 App 回到前台后要补发的取消（后台请求被 iOS 挂起中断时兜底） */
-let retryCancelSosId: string | null = null;
-let retrySub: { remove: () => void } | null = null;
+/** 失败后的重试节奏：请求被挂起中断多半几秒内就能恢复，三次之后放弃（通知仍留在锁屏上） */
+const CANCEL_RETRY_DELAYS_MS = [2_000, 5_000, 10_000] as const;
+let cancelRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let cancelRetrySub: { remove: () => void } | null = null;
+
+function clearCancelRetry(): void {
+  if (cancelRetryTimer) clearTimeout(cancelRetryTimer);
+  cancelRetryTimer = null;
+  cancelRetrySub?.remove();
+  cancelRetrySub = null;
+}
 
 /**
- * 通知按钮「取消」→ 调服务端。失败（多半是进程在请求途中被挂起）就记下来，
- * 回到前台立刻重试一次；服务端幂等，已取消的单会回 SOS_ALREADY_FINALIZED，当成功处理。
+ * 通知按钮「取消」→ 调服务端。失败（多半是进程在请求途中被挂起）按 2s/5s/10s 重试三次，
+ * 期间 App 回到前台也立刻触发一次；服务端幂等，已取消/已到期的单回 SOS_ALREADY_FINALIZED，当成功处理。
+ * 注意动作是 opensAppToForeground=true：回调跑起来时 App 通常已经 active，所以不能只等「下一次 active」。
  */
-export async function cancelFromNotification(sosId: string): Promise<boolean> {
+export async function cancelFromNotification(
+  sosId: string,
+  attempt = 0,
+): Promise<boolean> {
+  clearCancelRetry();
   try {
     await sosApi.cancel(sosId);
-    retryCancelSosId = null;
     return true;
   } catch (e) {
     const code = (e as { code?: string }).code;
     if (code === "SOS_ALREADY_FINALIZED") return true;
-    devLog("SOS-ALERT", "通知取消失败，回前台重试", e as Error);
-    retryCancelSosId = sosId;
-    if (!retrySub) {
-      retrySub = AppState.addEventListener("change", (state) => {
-        if (state !== "active" || !retryCancelSosId) return;
-        const id = retryCancelSosId;
-        retryCancelSosId = null;
-        devLog("SOS-ALERT", "前台重试取消", id);
-        void cancelFromNotification(id);
-      });
+    const delay = CANCEL_RETRY_DELAYS_MS[attempt];
+    if (delay === undefined) {
+      devLog("SOS-ALERT", "通知取消重试用尽，通知保留在锁屏", e as Error);
+      return false;
     }
+    devLog("SOS-ALERT", `通知取消失败，${delay} ms 后重试（第 ${attempt + 1} 次）`, e as Error);
+    const retry = () => {
+      clearCancelRetry();
+      void cancelFromNotification(sosId, attempt + 1);
+    };
+    cancelRetryTimer = setTimeout(retry, delay);
+    cancelRetrySub = AppState.addEventListener("change", (state) => {
+      if (state === "active") retry();
+    });
     return false;
   }
 }

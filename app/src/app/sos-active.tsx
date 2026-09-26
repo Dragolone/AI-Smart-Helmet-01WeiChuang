@@ -65,7 +65,9 @@ export default function SosActiveScreen() {
         );
       }
     },
-    refetchInterval: 10_000, // WS 断线时的兜底；正常时由推送更新缓存
+    // WS 断线时的兜底；正常时由推送更新缓存。单子结束后停止轮询——结束态不会再变，
+    // 而 snapshot 一次是两个请求（评审 2026-09-26）
+    refetchInterval: (q) => (q.state.data?.status === "pending" ? 10_000 : false),
     enabled: !isDrill,
   });
   const drillSos: Sos | null = isDrill

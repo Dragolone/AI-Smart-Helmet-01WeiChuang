@@ -162,6 +162,12 @@ describe("Android manifest / iOS plist / bridging header", () => {
     expect(plugin.applyInfoPlist(out).UIBackgroundModes).toEqual(["audio", "remote-notification"]);
   });
 
+  it("bridging header 为空文件时也能补（mergeContents 锚不到会抛，不能当兜底）", () => {
+    const out = plugin.applyBridgingHeader("");
+    expect(out).toContain("#import <JPUSHService.h>");
+    expect(plugin.applyBridgingHeader(out)).toBe(out);
+  });
+
   it("bridging header 两行 import 幂等", () => {
     const template = "//\n// Use this file to import your target's public headers that you would like to expose to Swift.\n//\n";
     const once = plugin.applyBridgingHeader(template);

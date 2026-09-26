@@ -48,19 +48,20 @@ function applyAppBuildGradle(contents, { appKey, channel }) {
     `            JPUSH_CHANNEL: "${channel}"`,
     `        ]`,
   ].join("\n");
-  const result = mergeContents({
-    src: contents,
-    newSrc: block,
-    tag: `${PLUGIN_NAME}-placeholders`,
-    // Expo 模板：defaultConfig { applicationId 'com.xxx' ... }，插在 applicationId 那行之后
-    anchor: /^\s*applicationId\s+['"]/m,
-    offset: 1,
-    comment: "//",
-  });
-  if (!result.didMerge && !result.didClear && !contents.includes(`${PLUGIN_NAME}-placeholders`)) {
-    throw new Error(`[${PLUGIN_NAME}] app/build.gradle 里找不到 applicationId 锚点`);
+  // mergeContents 锚不到会直接抛 ERR_NO_MATCH（不是静默跳过），这里换成一句看得懂的错误
+  try {
+    return mergeContents({
+      src: contents,
+      newSrc: block,
+      tag: `${PLUGIN_NAME}-placeholders`,
+      // Expo 模板：defaultConfig { applicationId 'com.xxx' ... }，插在 applicationId 那行之后
+      anchor: /^\s*applicationId\s+['"]/m,
+      offset: 1,
+      comment: "//",
+    }).contents;
+  } catch (e) {
+    throw new Error(`[${PLUGIN_NAME}] app/build.gradle 里找不到 applicationId 锚点（${e.message}）`);
   }
-  return result.contents;
 }
 
 function applyAndroidManifest(androidManifest) {
@@ -75,14 +76,22 @@ function applyAndroidManifest(androidManifest) {
 const BRIDGING_IMPORTS = ["#import <JPUSHService.h>", "#import <RCTJPushEventQueue.h>"];
 
 function applyBridgingHeader(contents) {
-  return mergeContents({
-    src: contents,
-    newSrc: BRIDGING_IMPORTS.join("\n"),
-    tag: `${PLUGIN_NAME}-imports`,
-    anchor: /^\/\/$/m, // 模板头两行是注释，锚不到就追加到末尾（下面兜底）
-    offset: 0,
-    comment: "//",
-  }).contents;
+  const tag = `${PLUGIN_NAME}-imports`;
+  if (contents.includes(`@generated begin ${tag}`)) return contents; // 幂等
+  try {
+    return mergeContents({
+      src: contents,
+      newSrc: BRIDGING_IMPORTS.join("\n"),
+      tag,
+      anchor: /^\/\/$/m, // 模板首行是一句 `//` 注释
+      offset: 0,
+      comment: "//",
+    }).contents;
+  } catch {
+    // 空文件或非模板：mergeContents 抛 ERR_NO_MATCH，追加到末尾即可（评审 2026-09-26：原「兜底」是死代码）
+    const base = contents.trimEnd();
+    return `${base ? `${base}\n` : ""}// @generated begin ${tag} - expo prebuild (DO NOT MODIFY)\n${BRIDGING_IMPORTS.join("\n")}\n// @generated end ${tag}\n`;
+  }
 }
 
 /** Swift：AppDelegate 类体内追加的方法（APNs token 交极光） */
@@ -260,11 +269,7 @@ const withJPush = (config) => {
       const name = c.modRequest.projectName;
       const header = path.join(c.modRequest.platformProjectRoot, name, `${name}-Bridging-Header.h`);
       const current = fs.existsSync(header) ? fs.readFileSync(header, "utf8") : "";
-      let next = applyBridgingHeader(current);
-      if (!next.includes(BRIDGING_IMPORTS[0])) {
-        next = `${current.trimEnd()}\n// @generated begin ${PLUGIN_NAME}-imports\n${BRIDGING_IMPORTS.join("\n")}\n// @generated end ${PLUGIN_NAME}-imports\n`;
-      }
-      fs.writeFileSync(header, next);
+      fs.writeFileSync(header, applyBridgingHeader(current));
       return c;
     },
   ]);

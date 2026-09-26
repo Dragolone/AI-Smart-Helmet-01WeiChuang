@@ -5,6 +5,7 @@ import { router } from "expo-router";
 import { useEffect, useRef } from "react";
 import { AppState } from "react-native";
 import type {
+  Sos,
   ActiveSosResponse,
   DevicePublic,
   DeviceStatus,
@@ -69,6 +70,10 @@ export function useRealtimeUpdates(): void {
         try {
           const { sos } = await sosApi.active(id);
           if (!sos || sos.status !== "pending") continue;
+          // REST 在路上时 WS 可能已推来这单的 cancelled/notified：迟到的 pending 不能盖掉它
+          // （评审 2026-09-26：否则重连补拉会把 APP-03 那个坑再挖回来）
+          const cached = queryClient.getQueryData<Sos>(["sos", sos.sosId]);
+          if (cached && cached.status !== "pending") continue;
           queryClient.setQueryData<ActiveSosResponse>(["sos-active", id], {
             sos,
           });
@@ -198,6 +203,9 @@ export function useRealtimeUpdates(): void {
         void queryClient.invalidateQueries({ queryKey: ["devices"] });
         return;
       }
+      // 只认 background：iOS 弹系统 Alert / 拉控制中心 / 来电时也会短暂 inactive，那时倒计时页
+      // 还在屏上，再弹一条会双重报警（评审 2026-09-26）。锁屏是 inactive → background，不会漏
+      if (state !== "background") return;
       // SOS-13：倒计时进行中用户把屏幕锁了（SOS 比锁屏早到一秒）——倒计时页被压在锁屏底下，
       // 锁屏上什么都没有。不变式应是「App 不在前台 && 有 pending SOS ⇒ 锁屏上一定有通知」，
       // 所以离开前台这一刻按缓存补弹；showSosAlertIfBackground 按 sosId 去重，已弹过的不重复。

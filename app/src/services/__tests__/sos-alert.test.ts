@@ -259,7 +259,7 @@ describe("sos-alert", () => {
   });
 
   describe("前台展示策略（SOS-11：锁屏瞬间 inactive 到达的通知不能被吞）", () => {
-    it("初始化时安装策略；SOS 类通知在 inactive/background 弹横幅+响，active 不弹，其他类别不管", async () => {
+    it("初始化时安装策略；App 不在前台时所有通知都弹横幅+响，active 不弹", async () => {
       mockSetHandler.mockClear(); // 不在 beforeEach 的清零列表里，手动清
       const m = load();
       await m.ensureSosAlertPermission();
@@ -274,11 +274,13 @@ describe("sos-alert", () => {
       expect((await handler(sos)).shouldPlaySound).toBe(true);
       override(AppState, "currentState", "active");
       expect((await handler(sos)).shouldShowBanner).toBe(false);
+      // 极光远程推送没有 category：非 active 时同样要显示（评审 2026-09-26）
       override(AppState, "currentState", "inactive");
       expect(
-        (await handler({ request: { content: { categoryIdentifier: "device" } } })).shouldShowBanner,
-      ).toBe(false);
-      expect(m.sosPresentation(undefined, "background").show).toBe(false);
+        (await handler({ request: { content: { categoryIdentifier: undefined } } })).shouldShowBanner,
+      ).toBe(true);
+      expect(m.sosPresentation(undefined, "background").show).toBe(true);
+      expect(m.sosPresentation("device", "active").show).toBe(false);
     });
   });
 
@@ -303,35 +305,56 @@ describe("sos-alert", () => {
       });
       expect(mockCancel).toHaveBeenCalledWith("s1");
       expect(mockPush).not.toHaveBeenCalled();
-      await Promise.resolve();
+      // 撤通知在服务端确认取消之后（异步一拍）
+      await new Promise((r) => setTimeout(r, 0));
       expect(mockCancelScheduled).toHaveBeenCalled();
     });
 
-    it("取消失败只记日志、不抛到通知回调外，并在 App 回到前台时补发一次", async () => {
-      mockCancel.mockRejectedValueOnce(new Error("Fetch request has been canceled"));
-      // 用对象包一层：TS 会把闭包里赋值的 let 收窄成 null → never
+    it("取消失败：通知不撤（用户能看到还在倒计时）、按 2s/5s/10s 重试、成功后才撤", async () => {
+      jest.useFakeTimers();
+      mockCancel
+        .mockRejectedValueOnce(new Error("Fetch request has been canceled"))
+        .mockRejectedValueOnce(new Error("still offline"))
+        .mockResolvedValueOnce({} as never);
+      override(AppState, "addEventListener", () => ({ remove: () => undefined }));
+      const m = load();
+      await m.ensureSosAlertPermission();
+      await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
+      mockCancelScheduled.mockClear();
+      mockDismiss.mockClear();
+      responseHandler?.({
+        actionIdentifier: "cancel",
+        notification: { request: { content: { data: { sosId: "s1" } } } },
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(mockCancel).toHaveBeenCalledTimes(1);
+      expect(mockDismiss).not.toHaveBeenCalled(); // 失败 → 通知留着
+      await jest.advanceTimersByTimeAsync(2_000);
+      expect(mockCancel).toHaveBeenCalledTimes(2);
+      await jest.advanceTimersByTimeAsync(5_000);
+      expect(mockCancel).toHaveBeenCalledTimes(3);
+      await jest.advanceTimersByTimeAsync(20_000);
+      expect(mockCancel).toHaveBeenCalledTimes(3); // 成功后不再重试
+      jest.useRealTimers();
+    });
+
+    it("取消失败时 App 回到前台立刻重试（不等定时器）", async () => {
+      jest.useFakeTimers();
+      mockCancel.mockRejectedValueOnce(new Error("canceled")).mockResolvedValueOnce({} as never);
       const listener: { cb: ((s: string) => void) | null } = { cb: null };
       override(AppState, "addEventListener", (_: string, cb: (s: string) => void) => {
         listener.cb = cb;
         return { remove: () => undefined };
       });
       const m = load();
-      await m.ensureSosAlertPermission();
-      expect(() =>
-        responseHandler?.({
-          actionIdentifier: "cancel",
-          notification: { request: { content: { data: { sosId: "s1" } } } },
-        }),
-      ).not.toThrow();
-      await new Promise((r) => setTimeout(r, 0));
-      expect(mockCancel).toHaveBeenCalledTimes(1);
-      // 回到前台 → 重试一次；再回前台不重复
+      expect(await m.cancelFromNotification("s1")).toBe(false);
       listener.cb?.("active");
-      await new Promise((r) => setTimeout(r, 0));
+      await jest.advanceTimersByTimeAsync(0);
       expect(mockCancel).toHaveBeenCalledTimes(2);
-      listener.cb?.("active");
-      await new Promise((r) => setTimeout(r, 0));
+      await jest.advanceTimersByTimeAsync(30_000);
       expect(mockCancel).toHaveBeenCalledTimes(2);
+      jest.useRealTimers();
     });
 
     it("边界：这单已在别处结束（另一台先取消 / 最后一秒到期）→ SOS_ALREADY_FINALIZED 视为成功，不重试", async () => {

@@ -11,6 +11,7 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useLocaleStore, useT } from "@/i18n";
 import { AppErrorBoundary } from "@/components/app-error-boundary";
 import { ConnectionBanner } from "@/components/connection-banner";
+import { PrivacyConsentModal } from "@/components/privacy-consent-modal";
 import { ThemeFade } from "@/components/theme-fade";
 import { installDevErrorTap } from "@/services/dev-log";
 import { useAuthStore } from "@/stores/auth-store";
@@ -170,6 +171,8 @@ export default function RootLayout() {
           )}
           <ToastHost />
           <ConnectionBanner />
+          {/* 已登录但本机未同意过隐私政策（升级前就登录着的用户）：一次性弹窗，同意前极光不初始化 */}
+          <PrivacyConsentModal />
         </ThemeProvider>
       </QueryClientProvider>
     </GestureHandlerRootView>

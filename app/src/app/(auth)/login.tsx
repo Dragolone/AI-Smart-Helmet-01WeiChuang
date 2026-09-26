@@ -38,7 +38,9 @@ export default function LoginScreen() {
   const privacyAccepted = useConsentStore((s) => s.privacyAccepted);
   const consentHydrated = useConsentStore((s) => s.hydrated);
   const acceptPrivacy = useConsentStore((s) => s.accept);
-  const needConsent = consentHydrated && !privacyAccepted;
+  // 标记还没从 SecureStore 读出来时也按「需要」处理：宁可多勾一次，不能让冷启动秒点登录绕过同意
+  // （评审 2026-09-26）——读出来通常只要几十毫秒，勾选框最多闪一下
+  const needConsent = !consentHydrated || !privacyAccepted;
   const [consented, setConsented] = useState(false);
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
