@@ -6,8 +6,15 @@ import { Ionicons } from "@expo/vector-icons";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import { useState, useRef } from "react";
-import { Alert, ScrollView, StyleSheet, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import {
+  Alert,
+  AppState,
+  Linking,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Animated, {
   Easing,
@@ -36,6 +43,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { translate, useLocale, useT, type MessageKey } from "@/i18n";
 import { shortDate, shortTime } from "@/i18n/format";
 import { AnimatedPressable } from "@/components/animated-pressable";
+import { isSosAlertPermissionDenied } from "@/services/sos-alert";
 
 const MAX_CONTACTS = 5; // API.md §3 定稿
 
@@ -159,6 +167,19 @@ function EventRow({ event, last }: { event: EventListItem; last: boolean }) {
 }
 
 export default function SafetyScreen() {
+  // 通知权限被拒 → 锁屏上收不到摔倒提醒，必须显式告知（REGRESSION 8.2「功能降级有提示」）。
+  // 回前台再查一次：用户多半是刚从系统设置改完权限回来
+  const [notifyDenied, setNotifyDenied] = useState(false);
+  useEffect(() => {
+    const check = () => {
+      void isSosAlertPermissionDenied().then(setNotifyDenied);
+    };
+    check();
+    const sub = AppState.addEventListener("change", (st) => {
+      if (st === "active") check();
+    });
+    return () => sub.remove();
+  }, []);
   const theme = useTheme();
   const scheme = useColorScheme();
   const t = useT();
@@ -260,6 +281,16 @@ export default function SafetyScreen() {
           <ThemedText type="title" style={styles.pageTitle}>
             {t("safety.title")}
           </ThemedText>
+
+          {notifyDenied && (
+            <StatusCard
+              tone="warning"
+              icon="notifications-off-outline"
+              title={t("safety.statusNoNotify")}
+              body={t("safety.statusNoNotifyBody")}
+              onPress={() => void Linking.openSettings()}
+            />
+          )}
 
           {pendingSos ? (
             <StatusCard
