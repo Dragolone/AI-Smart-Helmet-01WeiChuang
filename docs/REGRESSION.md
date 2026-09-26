@@ -58,7 +58,7 @@
 
 | # | 操作步骤 | 预期 | 模拟器预检 | Android | iOS |
 |---|---|---|---|---|---|
-| 5.1 | 安全事件页(触发 collision_risk) | WS 免刷新出现新事件;筛选/详情/riskLevel 正确 | ✅ 08-25 | | |
+| 5.1 | 安全事件页(触发 collision_risk) | WS 免刷新出现新事件;筛选/详情/riskLevel 正确 | ✅ 08-25 | ✅ 09-26 iPhone(app-relay 注入 collision_risk high/vehicle/rear 4.5m ttc1.2s,列表免刷新即现,详情字段齐) | |
 | 5.2 | 设备设置下发(音量/灯) | pending→delivered→已生效;离线设备显示未送达,**绝不假成功** | ✅ 09-08(BLE 下行链) | ✅ 09-23 华为(前照灯→爆闪:light:3 下发 success,生效设置更新) | ✅ 09-23 iPhone(前照灯→关:light:0 下发 success,生效设置更新) |
 | 5.3 | BLE 下行(决策 #36,__DEV__) | WS 收命令→relay-ack→设置页 success | ✅ 09-08 | | |
 | 5.4 | 设备设置全清单(决策 #43) | 14 项按 shared 清单显示;大灯 4 档/振动 4 档/灵敏度 3 档/雷达距离步进;下发后回执生效 | ✅ 09-21(大灯 高亮→light:2→Mock success→生效设置更新) | ✅ 09-23 华为(14 项清单排版正常;步进器/四档 chip 不挤;下发生效) | ✅ 09-23 iPhone(清单排版正常) |
