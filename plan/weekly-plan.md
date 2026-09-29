@@ -216,6 +216,13 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 
 ### A 线当前进度与待办（2026-09-06，B 线整理；A 线直接按此推进，有疑问群里问）
 
+> **📣 给 A 线的通知（2026-09-30，B 线）——RTSP 选型拍板了：两项都接受，预览页可以开工**
+>
+> - 负责人 09-30 拍板：**minSdk 24→26 接受、包体 +41 MB / +32 MB 接受，走路 A（`react-native-vlc-media-player`）**。DECISIONS 决策 #49 我已代记（按你 Spike 报告 §5 的内容），待定表那行已移除；包体欠账进本文件上线前清单 #8。你不用再写 DECISIONS。
+> - **请你做（决策 #37 第 ② 步）**：① `spike/rtsp-player` rebase 最新 main 后转正——Spike 页换成正式预览页，删登录页 `· RTSP Spike ·` 入口，`app.json` minSdk 26；② **热点绑定双端原生**（Spike 没覆盖，仓库里目前一行都没有）：Android `bindProcessToNetwork`、iOS `NEHotspotConfiguration`，可以放进现有 `app/modules/helmet-link-service`；③ DEVICE_PROTOCOL §1.3「App 侧硬要求」其余几条：连热点引导与「无互联网仍使用」文案、首帧前「正在连接」、约 5 s 无画面提示、截图从解码器取帧、预览页不发外网请求；④ 双端真机验收后在 REGRESSION.md 加视频预览行。
+> - **硬件真机数据在路上**：09-25 我从你的分支拉了个 `spike/rtsp-player-apk`（入口去掉 `__DEV__` 门控、默认地址改 `192.168.176.1`、页顶提示关移动数据，**不合 main，转正后可删**），打了安卓包发张森淼拿真头盔测。他回首帧、延迟、断流恢复的结果后我转你——热点绑定和重连的设计可以参考。
+> - 顺带：GitHub Actions 从 09-24 起因账单问题所有 run 都没起 job，你这几天直推的提交都没过 CI，负责人在处理；本地 `npm run typecheck && npm run lint && npm test` 先自己跑。
+>
 > **📣 给 A 线的通知（2026-09-19，B 线）——四个 PR 已合 main，先看这段**
 >
 > **这次改了什么，跟你有关的：**
@@ -393,6 +400,7 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 | 5 | App 备案（腾讯云） | 负责人 | 安卓、iOS 各一条，包名 `com.lingyiweichuang.app`，前置已满足 |
 | 6 | **生产环境运维三件套** | B 线 | ① ✅ PostgreSQL 每日自动 `pg_dump` 到 COS（`deploy/backup.sh` + `backend/src/scripts/backup-upload.ts`；**2026-09-18 云端已部署并跑通：首份 13.24 MB 已进桶 `backups/`，crontab 每日 03:00 已加**；⚠️ 2026-09-22 发现定时任务 4 天未执行——crontab 日志写 `/var/log` 无权限、整条命令不跑，已改到 `/home/ubuntu/helmet-backup.log` 并手动补备份 17.40 MB；**2026-09-23 复查通过：19:00:01Z（北京 03:00）自动触发，上传 18.09 MB，桶内 3 份**）；② ✅ compose 全部服务 `logging: 20m × 5`（2026-09-18 云端已生效）；③ ✅ 对外 `/health` 拨测告警（**2026-09-22 已开通**：UptimeRobot 免费版，账号 zhongqilong@01weichuang.com，监控「dev 后端健康检查」HTTP/S 每 5 分钟、失败邮件告警；免费版编辑时不能改 Keyword 类型，但 `/health` 数据库断开返回 503，HTTP 监控即可发现；production 上线时加 `api.01weichuang.com` 一条） |
 | 7 | **expo-location 申请了定位却没用** | A 线 + 负责人 | 2026-09-26 iOS 回归 8.2 发现：App 源码没有任何手机定位调用（地图显示的是头盔上报位置），但 `app.json` 仍配着 expo-location 插件与「用于在地图上显示您的位置…」权限说明，包里带着 `NSLocationWhenInUseUsageDescription`。商店审核会追问「申请了定位为何不用」。**二选一（负责人定）**：① 删插件与依赖、改 `audit-app-config.test.ts`；② 蓝牙版要用手机定位给头盔补位的话，真正接上再保留。清理前别删——它也是 08-16 决策 #33 地图 Spike 的遗留 |
+| 8 | **RTSP 播放器包体与 minSdk 欠账** | A 线 + 负责人 | 决策 #49 接受的代价：Android +40.9 MB（`libvlc.so`）、iOS +31.9 MB（MobileVLCKit），Android minSdk 26（放弃 7.0/7.1）。上架或渠道若卡包体，把 Android 侧换成 media3-rtsp 自研 Expo 模块（估 3–5 人天，先半天验证 media3 能否播 §1.3 的流），JS 接口不变；iOS 省不掉。不卡就不动 |
 
 ---
 
