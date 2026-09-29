@@ -4,7 +4,11 @@ import type { Mock } from 'jest-mock';
 import type { EventEnvelope, EventType } from '@helmet/shared';
 
 import { relayApi } from '@/api/relay';
-import { enqueueRelayEvent, flushRelayQueue } from '../ble-relay-uplink';
+import {
+  enqueueRelayEvent,
+  flushRelayQueue,
+  onSosRelayEvent,
+} from '../ble-relay-uplink';
 
 jest.mock('@/api/relay', () => ({
   relayApi: { push: jest.fn() },
@@ -82,5 +86,56 @@ describe('enqueueRelayEvent + flushRelayQueue', () => {
     for (let i = 0; i < 150; i += 1) enqueueRelayEvent(env('location_update'));
     await flushRelayQueue();
     expect(pushMock.mock.calls[0][0].envelopes).toHaveLength(100);
+  });
+});
+
+describe('onSosRelayEvent（视频预览让出网络，决策 #49）', () => {
+  it('摔倒 / 求救入队时通知，且在本次上传发起之前同步回调', async () => {
+    const order: string[] = [];
+    pushMock.mockImplementation(async () => {
+      order.push('push');
+      return { accepted: 1, duplicate: 0, invalid: 0 };
+    });
+    const off = onSosRelayEvent((type) => order.push(`listener:${type}`));
+    enqueueRelayEvent(env('possible_fall'));
+    enqueueRelayEvent(env('manual_sos'));
+    await new Promise((r) => setTimeout(r, 0));
+    off();
+    expect(order[0]).toBe('listener:possible_fall');
+    expect(order).toContain('listener:manual_sos');
+    expect(order.indexOf('listener:possible_fall')).toBeLessThan(order.indexOf('push'));
+  });
+
+  it('危险预警与周期事件不通知（不打断预览）', () => {
+    const seen: string[] = [];
+    const off = onSosRelayEvent((type) => seen.push(type));
+    enqueueRelayEvent(env('collision_risk'));
+    enqueueRelayEvent(env('obstacle_risk'));
+    enqueueRelayEvent(env('location_update'));
+    off();
+    expect(seen).toEqual([]);
+  });
+
+  it('订阅方抛错不影响入队与上传', async () => {
+    const off = onSosRelayEvent(() => {
+      throw new Error('boom');
+    });
+    expect(() => enqueueRelayEvent(env('possible_fall'))).not.toThrow();
+    await new Promise((r) => setTimeout(r, 0));
+    off();
+    expect(pushMock).toHaveBeenCalled();
+    expect(
+      pushMock.mock.calls[0][0].envelopes.map(
+        (e) => (e as EventEnvelope<EventType>).eventType,
+      ),
+    ).toContain('possible_fall');
+  });
+
+  it('退订后不再通知', () => {
+    const seen: string[] = [];
+    const off = onSosRelayEvent((type) => seen.push(type));
+    off();
+    enqueueRelayEvent(env('manual_sos'));
+    expect(seen).toEqual([]);
   });
 });

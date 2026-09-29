@@ -129,3 +129,38 @@ describe("app.json 推送接入（极光，决策 #10 / #48）", () => {
     }
   });
 });
+
+describe("app.json 实时视频预览（决策 #37 / #49，DEVICE_PROTOCOL §1.3）", () => {
+  const e = appJson.expo as unknown as {
+    plugins: PluginEntry[];
+    ios?: {
+      infoPlist?: Record<string, unknown>;
+      entitlements?: Record<string, unknown>;
+    };
+  };
+
+  it("Android minSdk 26：libvlc-all 3.6.3 的硬门槛（决策 #49 接受放弃 7.x）", () => {
+    const android = pluginConfig("expo-build-properties")?.android as
+      { minSdkVersion?: number } | undefined;
+    expect(android?.minSdkVersion).toBe(26);
+  });
+
+  it("iOS 程序化连头盔热点需要 Hotspot Configuration entitlement", () => {
+    expect(
+      e.ios?.entitlements?.[
+        "com.apple.developer.networking.HotspotConfiguration"
+      ],
+    ).toBe(true);
+  });
+
+  it("iOS 本地网络与存截图都有中文用途说明（缺了连头盔会被系统静默拒绝）", () => {
+    expectPurposeString(
+      "NSLocalNetworkUsageDescription",
+      e.ios?.infoPlist?.NSLocalNetworkUsageDescription,
+    );
+    expectPurposeString(
+      "NSPhotoLibraryAddUsageDescription",
+      e.ios?.infoPlist?.NSPhotoLibraryAddUsageDescription,
+    );
+  });
+});

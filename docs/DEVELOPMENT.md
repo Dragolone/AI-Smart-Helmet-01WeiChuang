@@ -96,7 +96,7 @@ cd backend && npx prisma migrate dev   # 建表（要求 docker 里的 postgres 
 
 - **iPhone**：设置 → 隐私与安全性 → 开发者模式 → 打开并重启；用数据线连 Mac，首次需在手机上信任此电脑。
 - **Android**：设置 → 关于手机 → 连点「版本号」7 次开启开发者选项 → 打开「USB 调试」；连线后允许调试授权。
-- **原生依赖变更后所有开发包都要重建**（CNG：`npx expo prebuild` → `pod install` → xcodebuild / `gradlew assembleDebug`；**2026-09-23 起 iOS 用公司团队 `B3NHB45FS7` 签名，不再需要手删 `aps-environment`**）。只连 Metro 不重建会在进入用到该模块的页面时红屏 `Cannot find native module`。最近一次：**2026-09-24 新增 `jpush-react-native` / `jcore-react-native`（极光推送，决策 #48）**，此后三处包都需要是 09-24 之后打的；上一次是 2026-09-17 新增 `expo-camera`（扫码绑定）。
+- **原生依赖变更后所有开发包都要重建**（CNG：`npx expo prebuild` → `pod install` → xcodebuild / `gradlew assembleDebug`；**2026-09-23 起 iOS 用公司团队 `B3NHB45FS7` 签名，不再需要手删 `aps-environment`**）。只连 Metro 不重建会在进入用到该模块的页面时红屏 `Cannot find native module`。最近一次：**2026-09-30 新增 `react-native-vlc-media-player`（libVLC）+ 本地模块 `app/modules/helmet-wifi`，并把 Android minSdk 升到 26（实时视频预览，决策 #49）**，此后所有开发包都需要是 09-30 之后打的；iOS 还多了 Hotspot Configuration entitlement，见下方「实时视频预览」。上一次是 2026-09-24 新增 `jpush-react-native` / `jcore-react-native`（极光推送，决策 #48）。
 
 ## Android 正式签名包（2026-09-21 起）
 
@@ -167,12 +167,41 @@ printf %s "$HELMET_RELEASE_KEY_PASSWORD"   | gh secret set ANDROID_KEY_PASSWORD
 - **本机怎么验**：dev 云端后端已切极光真发。登录后 Metro 日志看 `[PUSH] registrationID …` 与 `setAlias <userId>`；服务端触发 SOS（Mock `SCENARIO=fall`）→ 手机应收到「SOS 倒计时已开始」；分别在前台 / 后台 / 杀掉 App 三态各点一次通知，前两态应进倒计时页，被杀态应先冷启动再进（REGRESSION 4.6–4.8）。
 - **已知未验证（2026-09-24 夜，无真机）**：① `RCTJPushModule` 是老式 NativeModule，靠新架构 interop 跑（`RCTBridgeProxy` 有 `launchOptions` / `enqueueJSCall`，理论上够）；② ~~Swift 转发写法能否编译~~ → ✅ **2026-09-24 00:0x 本机结果**：`xcodebuild` Debug（iPhone 14 Pro Max，公司团队）**BUILD SUCCEEDED**，AppDelegate 补丁与 bridging header 编译通过；`gradlew assembleDebug`（arm64）**BUILD SUCCESSFUL in 59s**，APK 内 `JPUSH_APPKEY/CHANNEL` meta-data 已解析、五个屏蔽权限确认不在包里（`aapt2 dump permissions`）。iPhone 装新包冷启动：`[PUSH]` 读到 AppKey（首版用 `expo-constants` 读 `extra` 在 dev-client 上为空，改为直接 `import app.json`），登录态钩子按预期打出「未同意隐私政策，推送 SDK 暂不初始化」——**SDK 真正 init / setAlias / 收推送三态要等真机上勾一次同意（登出→登录页勾选），未测**；③ 华为不走厂商通道时被杀后的到达率（THIRD_PARTY §6 厂商通道待注册）。
 
+## 实时视频预览（2026-09-30 起，决策 #37/#49）
+
+入口：设备详情 →「实时画面」（路由 `/video-preview`）。约定见 DEVICE_PROTOCOL §1.3：热点 `X821cam` / `Aa123456`，`rtsp://192.168.176.1:8554/ch0`，H.264 720p30 无音频，强制 RTSP over TCP。
+
+- **组成**：播放器 `react-native-vlc-media-player`（libVLC，参数沿用 Spike）；连热点与存截图是本地 Expo 模块 `app/modules/helmet-wifi`（Kotlin + Swift）；页面状态机在 `app/src/services/video-preview.ts`，页面只接线。
+- **Android 连热点**：Android 10+ 用 `WifiNetworkSpecifier` 由系统弹窗确认连接，连上后 `bindProcessToNetwork`——不绑的话头盔热点没有互联网，系统把默认路由留在 4G，RTSP 走 4G 黑屏。Android 8/9 没有这个 API，页面转「手动连接」引导：去系统设置连好 → 点「已连接，继续」→ 绑定当前 Wi-Fi。
+- **绑定的代价**：绑定期间本进程所有连接都走头盔热点，**App 连不上云端**（BLE 中转上传、WS、REST 都会失败，事件留在上行队列）。所以只在预览页前台持有，三种情况同步释放并立即补传：离开页面、退后台、**摔倒 / 求救事件入队**（`ble-relay-uplink.ts` 的 `onSosRelayEvent`，在上传发起前回调）。危险预警不打断预览（留档，不赶时间）。
+- **iOS 连热点**：`NEHotspotConfiguration` + `joinOnce`，退后台约 15 s、锁屏或 App 退出时系统自动断开并删配置。不需要绑定。**需要 App ID 勾选「Hotspot」能力**（app.json 已加 entitlement `com.apple.developer.networking.HotspotConfiguration`；Xcode 自动签名会同步到描述文件，账号没权限时构建报 entitlement 不匹配，找负责人在 developer.apple.com → Identifiers 勾上）。首次拉流会弹「本地网络」授权，拒绝了永远连不上，只能去设置里开。
+- **截图**：从解码器取帧（VLC `snapshot`，PNG），不向头盔要 JPEG；再用模块存相册（iOS 只申请「添加照片」；Android 10+ 走 MediaStore 存到 `Pictures/零一唯创`，8/9 需要的存储权限被合规屏蔽，提示不支持）。
+- **本页不发外网请求**：页面不引用 `@/api` 与 react-query（`audit-video-preview.test.ts` 钉住）。
+
+### 无硬件怎么测（开发包，`__DEV__` 才生效）
+
+先在电脑上起测试流：`tools/rtsp-mock/start_rtsp.sh`（彩条 + 时间戳，同 §1.3 约定）。然后用深链打开预览页（App 已登录）：
+
+```bash
+# ① 只测播放器：手机和电脑在同一个普通 Wi-Fi 下，跳过连热点
+xcrun simctl openurl booted "app://video-preview?url=rtsp://<电脑IP>:8554/ch0&join=0"   # iOS 模拟器
+adb shell am start -a android.intent.action.VIEW -d "app://video-preview?url=rtsp://<电脑IP>:8554/ch0\&join=0"   # Android 真机
+# ② 连接 + 绑定整条路径（最接近真头盔）：用另一台手机开热点，名称 X821cam、密码 Aa123456，并关掉它的移动数据
+#    （模拟头盔热点没有互联网）；电脑连上这个热点后起测试流，被测手机打开：
+app://video-preview?url=rtsp://<电脑在该热点下的IP>:8554/ch0
+```
+
+iPhone 真机没有 adb：在备忘录里写下深链长按打开，或用 Safari 地址栏打开。不带 `url` 参数时就是正式行为（连 `X821cam`，拉 `192.168.176.1`）。
+
 ## 平台限制清单（持续维护）
 
 > 记录 Week 2 Spike 及后续开发中实测到的 iOS / Android 系统限制。禁止静默降级——任何限制先记录在此并与负责人确认口径。
 
 | 日期 | 平台 | 能力 | 实测限制 | 口径/结论 |
 |------|------|------|---------|----------|
+| 2026-09-30 | Android | 头盔热点绑定（视频预览） | `bindProcessToNetwork` 让本进程所有连接走头盔热点，绑定期间 App 连不上云端（BLE 中转上传、WS、REST） | 只在预览页前台持有；离开 / 退后台 / 摔倒求救入队时同步释放并立即补传；页面文案告知「此时手机无法上网」。**设计口径，待真机实测确认** |
+| 2026-09-30 | Android 8/9 | 程序化连 Wi-Fi、截图存相册 | `WifiNetworkSpecifier` 只有 Android 10+；存相册在 8/9 需要存储权限，而该权限因商店合规被 `blockedPermissions` 屏蔽 | 8/9 走「去系统设置手动连 → 已连接，继续」引导；截图提示不支持保存。决策 #49 已接受 minSdk 26 |
+| 2026-09-30 | iOS | 连头盔热点（NEHotspotConfiguration） | 需要 App ID 开 Hotspot 能力；`joinOnce` 下退后台约 15 s / 锁屏系统自动断开；首次拉流弹「本地网络」授权，拒绝后连不上；部分 iOS 版本热点不在范围内时 `apply` 也回调成功 | 预览只在前台；用途说明已配；「apply 成功但没连上」靠 5 s 无画面提示兜底，不做 SSID 校验（校验要再开 Access Wi-Fi Information 能力）。**待真机实测确认** |
 | 2026-09-23 | iOS | 换团队后装机 | 公司团队签名包无法覆盖安装个人团队签名的旧包：`application-identifier` 从 `LZ3H94F5LC.` 变 `B3NHB45FS7.`，系统 `rejecting upgrade` | 换签名主体必须先卸载旧 App 再装（App 数据与登录态会清空）。Android 换正式签名同理 |
 | 2026-09-23 | iOS | 公司团队首次签名 | 团队下没有已注册设备时构建报 `Your team has no devices`；指定真机构建又报 `Device isn't registered`，`-allowProvisioningUpdates` 不会自动登记设备 | 先在 developer.apple.com → Devices 手工登记 UDID（本机 iPhone 14 Pro Max = `00008120-001808C93468201E`），再构建即可自动签发描述文件 |
 | 2026-09-23 | 双端 | 实时通道 WS | iPhone 真机 Release 实测：WS 每 8–30 秒被网关以 `4401 访问令牌已过期` 断开并重连，日志刷屏、耗电、推送有间隙。根因不在服务端（从 Mac 直连同一账号 30s+ 稳定收消息），而在客户端 4401 后的处理：原来只发一个普通请求指望它 401 才触发刷新，而同一 token 在 REST 这边尚未判过期 → 请求 200、不刷新 → 拿着同一个 token 无限重连 | 4401 改为主动换新 token（`forceRefreshTokens`，2026-09-23 修）。修后真机复测：断线间隔从 8–30 秒拉到 **~10 分钟**（= access token 的 15 分钟有效期边界），每次 3–9 秒内自动恢复。**4401 不会完全消失**——网关按设计在 token 到期时断开，客户端换新 token 重连即可；真正修掉的是「拿着同一个过期 token 无限重连」。若要连边界上的几秒空窗也消掉，需要在 token 到期前主动刷新并重连（暂未做，SOS 侧另有冷启动补拉与 `/sos/active` 轮询兜底）。另一类 `code=1006 Socket is not connected` 是息屏后 iOS 挂起 App 的正常断开，回前台自动重连 |

@@ -496,6 +496,12 @@ export default function DeviceDetailScreen() {
                   : undefined
               }
             />
+            <InfoRow
+              icon="videocam-outline"
+              label={t("device.videoPreview")}
+              value={t("device.videoPreview.open")}
+              onPress={() => router.push("/video-preview")}
+            />
             {Platform.OS === "android" && HelmetLinkService.available && (
               <InfoRow
                 icon={

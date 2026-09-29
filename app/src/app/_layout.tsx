@@ -88,6 +88,10 @@ function RootNavigator() {
           options={{ headerShown: true, title: t("nav.events") }}
         />
         <Stack.Screen
+          name="video-preview"
+          options={{ headerShown: true, title: t("nav.videoPreview") }}
+        />
+        <Stack.Screen
           name="contacts"
           options={{ headerShown: true, title: t("nav.contacts") }}
         />
