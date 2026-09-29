@@ -222,7 +222,7 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 > - **代码在 PR #102（分支 `feat/video-preview`）**，负责人让 B 线直接写，你只负责真机测。内容：设备详情「实时画面」入口 → `/video-preview`；本地模块 `app/modules/helmet-wifi`（Android 10+ `WifiNetworkSpecifier` 连热点 + `bindProcessToNetwork`，8/9 引导手动连；iOS `NEHotspotConfiguration` joinOnce；截图存相册）；绑定期间 App 连不上云端，所以离开 / 退后台 / 摔倒求救入队时同步释放并补传（上行队列新增 `onSosRelayEvent`）。你的 `spike/rtsp-player` 分支可以删了。
 > - **本机已跑完**：全 workspace typecheck / lint / 单测 / build、空库 migration、Android `assembleRelease` 与 iOS 模拟器构建都通过（CI 账单问题期间按 `ci.yml` 本机跑）。**只剩真机**：
 >   1. 切到 `feat/video-preview`，原生依赖变了，双端 `npx expo prebuild --clean` 后重建开发包。
->   2. iOS 先确认 App ID 勾了 **Hotspot** 能力（app.json 已加 entitlement；Xcode 自动签名一般会同步，报 entitlement 不匹配就找负责人勾）。
+>   2. iOS 的 App ID **Hotspot** 能力负责人 09-30 已勾好，旧描述文件已失效：Xcode 自动签名构建会重新生成，命令行 xcodebuild 记得带 `-allowProvisioningUpdates`。
 >   3. 按 **REGRESSION.md 第 9 节**（11 行）双端各走一遍，结果直接填表。没有真头盔就按 DEVELOPMENT.md「实时视频预览 → 无硬件怎么测」第 ② 种：另一台手机开同名热点 `X821cam` / `Aa123456` 并关掉它的移动数据，电脑连上去跑 `tools/rtsp-mock/start_rtsp.sh`，被测手机用深链 `app://video-preview?url=rtsp://<电脑IP>:8554/ch0` 打开，这样连热点 + 绑定整条路径都能测到。
 >   4. 重点看三行：**9.3 不关移动数据也能出画**、**9.5 预览中发一条摔倒要立刻停播并上云建单**、**9.8 离开预览页后手机回到原网络**。❌ 附一行现象和 Metro 日志里的 `[VIDEO]` / `[BLE-RELAY]` 几行。
 > - 硬件那边：09-25 从你的 Spike 分支打过一个安卓包给张森淼拿真头盔测（分支 `spike/rtsp-player-apk`，不合 main），他回首帧、延迟、断流恢复的结果后我转你。
