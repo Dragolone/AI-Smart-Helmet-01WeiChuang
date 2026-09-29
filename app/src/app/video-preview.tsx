@@ -48,6 +48,7 @@ const { VLCPlayer } = require("react-native-vlc-media-player") as {
 };
 
 const SNAPSHOT_WAIT_MS = 2_000;
+const SNAPSHOT_CALLBACK_TIMEOUT_MS = 4_000;
 
 /** iOS 的 saveVideoSnapshotAt 异步落盘：回调先到、文件后到 */
 async function waitForFile(uri: string, ms: number): Promise<boolean> {
@@ -187,6 +188,13 @@ export default function VideoPreviewScreen() {
     const uri = new File(Paths.cache, `helmet-shot-${Date.now()}.png`).uri;
     pendingShot.current = uri;
     playerRef.current?.snapshot(toFsPath(uri));
+    // 原生侧没回调（播放器刚好卸载 / 引用为空）时别让按钮一直转圈
+    setTimeout(() => {
+      if (pendingShot.current !== uri) return;
+      pendingShot.current = null;
+      setSnapping(false);
+      showToast(t("video.snapshot.failed"));
+    }, SNAPSHOT_CALLBACK_TIMEOUT_MS);
   };
 
   const onSnapshot = async (e: { success: boolean; error?: string }) => {
