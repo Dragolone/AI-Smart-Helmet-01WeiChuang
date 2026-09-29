@@ -174,7 +174,7 @@ printf %s "$HELMET_RELEASE_KEY_PASSWORD"   | gh secret set ANDROID_KEY_PASSWORD
 - **组成**：播放器 `react-native-vlc-media-player`（libVLC，参数沿用 Spike）；连热点与存截图是本地 Expo 模块 `app/modules/helmet-wifi`（Kotlin + Swift）；页面状态机在 `app/src/services/video-preview.ts`，页面只接线。
 - **Android 连热点**：Android 10+ 用 `WifiNetworkSpecifier` 由系统弹窗确认连接，连上后 `bindProcessToNetwork`——不绑的话头盔热点没有互联网，系统把默认路由留在 4G，RTSP 走 4G 黑屏。Android 8/9 没有这个 API，页面转「手动连接」引导：去系统设置连好 → 点「已连接，继续」→ 绑定当前 Wi-Fi。
 - **绑定的代价**：绑定期间本进程所有连接都走头盔热点，**App 连不上云端**（BLE 中转上传、WS、REST 都会失败，事件留在上行队列）。所以只在预览页前台持有，三种情况同步释放并立即补传：离开页面、退后台、**摔倒 / 求救事件入队**（`ble-relay-uplink.ts` 的 `onSosRelayEvent`，在上传发起前回调）。危险预警不打断预览（留档，不赶时间）。
-- **iOS 连热点**：`NEHotspotConfiguration` + `joinOnce`，退后台约 15 s、锁屏或 App 退出时系统自动断开并删配置。不需要绑定。**需要 App ID 勾选「Hotspot」能力**（app.json 已加 entitlement `com.apple.developer.networking.HotspotConfiguration`；Xcode 自动签名会同步到描述文件，账号没权限时构建报 entitlement 不匹配，找负责人在 developer.apple.com → Identifiers 勾上）。首次拉流会弹「本地网络」授权，拒绝了永远连不上，只能去设置里开。
+- **iOS 连热点**：`NEHotspotConfiguration` + `joinOnce`，退后台约 15 s、锁屏或 App 退出时系统自动断开并删配置。不需要绑定。**需要 App ID 勾选「Hotspot」能力**（app.json 已加 entitlement `com.apple.developer.networking.HotspotConfiguration`；✅ 负责人 2026-09-30 已在 developer.apple.com → Identifiers → `com.lingyiweichuang.app` 勾上，旧描述文件随之失效，Xcode 自动签名下次构建会重新生成；命令行构建记得带 `-allowProvisioningUpdates`）。首次拉流会弹「本地网络」授权，拒绝了永远连不上，只能去设置里开。
 - **截图**：从解码器取帧（VLC `snapshot`，PNG），不向头盔要 JPEG；再用模块存相册（iOS 只申请「添加照片」；Android 10+ 走 MediaStore 存到 `Pictures/零一唯创`，8/9 需要的存储权限被合规屏蔽，提示不支持）。
 - **本页不发外网请求**：页面不引用 `@/api` 与 react-query（`audit-video-preview.test.ts` 钉住）。
 
