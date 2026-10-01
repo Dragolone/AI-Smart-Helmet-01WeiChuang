@@ -216,6 +216,17 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 
 ### A 线当前进度与待办（2026-09-06，B 线整理；A 线直接按此推进，有疑问群里问）
 
+> **📣 给 A 线的通知（2026-09-30，B 线）——RTSP 选型拍板了，预览页代码 B 线已写完，请你双端真机测**
+>
+> - 负责人 09-30 拍板：**minSdk 24→26 接受、包体 +41 MB / +32 MB 接受，走路 A（`react-native-vlc-media-player`）**。DECISIONS 决策 #49 已代记，待定表那行已移除；包体欠账进本文件上线前清单 #8。你不用再写 DECISIONS。
+> - **代码在 PR #102（分支 `feat/video-preview`）**，负责人让 B 线直接写，你只负责真机测。内容：设备详情「实时画面」入口 → `/video-preview`；本地模块 `app/modules/helmet-wifi`（Android 10+ `WifiNetworkSpecifier` 连热点 + `bindProcessToNetwork`，8/9 引导手动连；iOS `NEHotspotConfiguration` joinOnce；截图存相册）；绑定期间 App 连不上云端，所以离开 / 退后台 / 摔倒求救入队时同步释放并补传（上行队列新增 `onSosRelayEvent`）。你的 `spike/rtsp-player` 分支可以删了。
+> - **本机已跑完**：全 workspace typecheck / lint / 单测 / build、空库 migration、Android `assembleRelease` 与 iOS 模拟器构建都通过（CI 账单问题期间按 `ci.yml` 本机跑）。**只剩真机**：
+>   1. 切到 `feat/video-preview`，原生依赖变了，双端 `npx expo prebuild --clean` 后重建开发包。
+>   2. iOS 的 App ID **Hotspot** 能力负责人 09-30 已勾好，旧描述文件已失效：Xcode 自动签名构建会重新生成，命令行 xcodebuild 记得带 `-allowProvisioningUpdates`。
+>   3. 按 **REGRESSION.md 第 9 节**（11 行）双端各走一遍，结果直接填表。没有真头盔就按 DEVELOPMENT.md「实时视频预览 → 无硬件怎么测」第 ② 种：另一台手机开同名热点 `X821cam` / `Aa123456` 并关掉它的移动数据，电脑连上去跑 `tools/rtsp-mock/start_rtsp.sh`，被测手机用深链 `app://video-preview?url=rtsp://<电脑IP>:8554/ch0` 打开，这样连热点 + 绑定整条路径都能测到。
+>   4. 重点看三行：**9.3 不关移动数据也能出画**、**9.5 预览中发一条摔倒要立刻停播并上云建单**、**9.8 离开预览页后手机回到原网络**。❌ 附一行现象和 Metro 日志里的 `[VIDEO]` / `[BLE-RELAY]` 几行。
+> - 硬件那边：09-25 从你的 Spike 分支打过一个安卓包给张森淼拿真头盔测（分支 `spike/rtsp-player-apk`，不合 main），他回首帧、延迟、断流恢复的结果后我转你。
+>
 > **📣 给 A 线的通知（2026-09-19，B 线）——四个 PR 已合 main，先看这段**
 >
 > **这次改了什么，跟你有关的：**
@@ -393,6 +404,7 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 | 5 | App 备案（腾讯云） | 负责人 | 安卓、iOS 各一条，包名 `com.lingyiweichuang.app`，前置已满足 |
 | 6 | **生产环境运维三件套** | B 线 | ① ✅ PostgreSQL 每日自动 `pg_dump` 到 COS（`deploy/backup.sh` + `backend/src/scripts/backup-upload.ts`；**2026-09-18 云端已部署并跑通：首份 13.24 MB 已进桶 `backups/`，crontab 每日 03:00 已加**；⚠️ 2026-09-22 发现定时任务 4 天未执行——crontab 日志写 `/var/log` 无权限、整条命令不跑，已改到 `/home/ubuntu/helmet-backup.log` 并手动补备份 17.40 MB；**2026-09-23 复查通过：19:00:01Z（北京 03:00）自动触发，上传 18.09 MB，桶内 3 份**）；② ✅ compose 全部服务 `logging: 20m × 5`（2026-09-18 云端已生效）；③ ✅ 对外 `/health` 拨测告警（**2026-09-22 已开通**：UptimeRobot 免费版，账号 zhongqilong@01weichuang.com，监控「dev 后端健康检查」HTTP/S 每 5 分钟、失败邮件告警；免费版编辑时不能改 Keyword 类型，但 `/health` 数据库断开返回 503，HTTP 监控即可发现；production 上线时加 `api.01weichuang.com` 一条） |
 | 7 | **expo-location 申请了定位却没用** | A 线 + 负责人 | 2026-09-26 iOS 回归 8.2 发现：App 源码没有任何手机定位调用（地图显示的是头盔上报位置），但 `app.json` 仍配着 expo-location 插件与「用于在地图上显示您的位置…」权限说明，包里带着 `NSLocationWhenInUseUsageDescription`。商店审核会追问「申请了定位为何不用」。**二选一（负责人定）**：① 删插件与依赖、改 `audit-app-config.test.ts`；② 蓝牙版要用手机定位给头盔补位的话，真正接上再保留。清理前别删——它也是 08-16 决策 #33 地图 Spike 的遗留 |
+| 8 | **RTSP 播放器包体与 minSdk 欠账** | A 线 + 负责人 | 决策 #49 接受的代价：Android +40.9 MB（`libvlc.so`）、iOS +31.9 MB（MobileVLCKit），Android minSdk 26（放弃 7.0/7.1）。上架或渠道若卡包体，把 Android 侧换成 media3-rtsp 自研 Expo 模块（估 3–5 人天，先半天验证 media3 能否播 §1.3 的流），JS 接口不变；iOS 省不掉。不卡就不动 |
 
 ---
 
