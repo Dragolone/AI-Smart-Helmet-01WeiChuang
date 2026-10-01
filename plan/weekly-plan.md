@@ -221,6 +221,7 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 > - **PUSH-01 解除**：负责人今天在 Apple 后台生成 APNs Auth Key（`44RYD6QKJC`，Sandbox & Production）并配进极光 iOS「Token Authentication 配置」，状态「已上传」。请复测 **REGRESSION 4.6 / 4.7 / 4.8 的 iPhone 列**（前台 / 后台 / 被杀）。服务端 `JPUSH_APNS_PRODUCTION` 现在未设（= development），你用 Xcode 直装的 Debug 包对得上；发 TestFlight 包时告诉我，我切成 true。
 > - **App Store Connect 的 App 记录已建**（「零一唯创」，SKU `lingyiweichuang-app`），Xcode Archive → Distribute → TestFlight 现在有地方传了。第一个构建传上去后告诉负责人，他把张森淼加进内部测试组。
 > - **CI 恢复**（10-01 额度重置）：#101 已合 main；**#102（视频预览）CI 绿了，只等你的双端真机结果**，测完在 PR 里留一句我就合。
+> - **App 备案要用你手上的证书信息**：负责人准备在腾讯云提交 App 备案，Android 那条要正式签名证书的**公钥和 MD5**。请用 `keytool -list -v -keystore ~/.helmet/lingyiweichuang-release.keystore -alias lingyiweichuang` 导出，把「公钥」与「证书指纹 MD5」两项发负责人（不要发 keystore 文件和口令）。
 > - 顺带：9-26 那轮你把 21 行 iPhone 结果填进了 REGRESSION 的 Android 列（1.2、2.3、3.x、4.1–4.5、5.1、7.x、8.x）。按内容重算：iOS 39/54、**Android 只有 20/54，SOS 主流程 4.1–4.5 和地图 3.x 在华为上一行没测**。B 线会把错列挪正；Android 这 34 行是 Week 11 出口标准里最大的缺口，优先于其他事。
 >
 > **📣 给 A 线的通知（2026-09-30，B 线）——RTSP 选型拍板了，预览页代码 B 线已写完，请你双端真机测**
@@ -410,7 +411,7 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 | 4 | Apple 公司账号 → TestFlight / APNs / Critical Alerts | 负责人 | ✅ **账号 2026-09-23 生效**（有效期至 2027-09-23）。后续 7 条见 THIRD_PARTY §5「账号到位后清单」：Team ID 换入 app.json、注册 App ID + Push、APNs .p8 进极光、邀请 Wesley、App Store Connect 建 App、申请 Critical Alerts、个人证书退役 |
 | 5 | App 备案（腾讯云） | 负责人 | 安卓、iOS 各一条，包名 `com.lingyiweichuang.app`，前置已满足 |
 | 6 | **生产环境运维三件套** | B 线 | ① ✅ PostgreSQL 每日自动 `pg_dump` 到 COS（`deploy/backup.sh` + `backend/src/scripts/backup-upload.ts`；**2026-09-18 云端已部署并跑通：首份 13.24 MB 已进桶 `backups/`，crontab 每日 03:00 已加**；⚠️ 2026-09-22 发现定时任务 4 天未执行——crontab 日志写 `/var/log` 无权限、整条命令不跑，已改到 `/home/ubuntu/helmet-backup.log` 并手动补备份 17.40 MB；**2026-09-23 复查通过：19:00:01Z（北京 03:00）自动触发，上传 18.09 MB，桶内 3 份**）；② ✅ compose 全部服务 `logging: 20m × 5`（2026-09-18 云端已生效）；③ ✅ 对外 `/health` 拨测告警（**2026-09-22 已开通**：UptimeRobot 免费版，账号 zhongqilong@01weichuang.com，监控「dev 后端健康检查」HTTP/S 每 5 分钟、失败邮件告警；免费版编辑时不能改 Keyword 类型，但 `/health` 数据库断开返回 503，HTTP 监控即可发现；production 上线时加 `api.01weichuang.com` 一条） |
-| 7 | **expo-location 申请了定位却没用** | A 线 + 负责人 | 2026-09-26 iOS 回归 8.2 发现：App 源码没有任何手机定位调用（地图显示的是头盔上报位置），但 `app.json` 仍配着 expo-location 插件与「用于在地图上显示您的位置…」权限说明，包里带着 `NSLocationWhenInUseUsageDescription`。商店审核会追问「申请了定位为何不用」。**二选一（负责人定）**：① 删插件与依赖、改 `audit-app-config.test.ts`；② 蓝牙版要用手机定位给头盔补位的话，真正接上再保留。清理前别删——它也是 08-16 决策 #33 地图 Spike 的遗留 |
+| 7 | ~~expo-location 申请了定位却没用~~ **负责人 2026-10-01 决定保留不动**（以备将来用手机定位；送审若被追问再处理） | 负责人 | 2026-09-26 iOS 回归 8.2 发现：App 源码没有任何手机定位调用（地图显示的是头盔上报位置），但 `app.json` 仍配着 expo-location 插件与「用于在地图上显示您的位置…」权限说明，包里带着 `NSLocationWhenInUseUsageDescription`。商店审核会追问「申请了定位为何不用」。**二选一（负责人定）**：① 删插件与依赖、改 `audit-app-config.test.ts`；② 蓝牙版要用手机定位给头盔补位的话，真正接上再保留。清理前别删——它也是 08-16 决策 #33 地图 Spike 的遗留 |
 | 8 | **RTSP 播放器包体与 minSdk 欠账** | A 线 + 负责人 | 决策 #49 接受的代价：Android +40.9 MB（`libvlc.so`）、iOS +31.9 MB（MobileVLCKit），Android minSdk 26（放弃 7.0/7.1）。上架或渠道若卡包体，把 Android 侧换成 media3-rtsp 自研 Expo 模块（估 3–5 人天，先半天验证 media3 能否播 §1.3 的流），JS 接口不变；iOS 省不掉。不卡就不动 |
 
 ---
