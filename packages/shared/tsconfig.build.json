@@ -5,7 +5,10 @@
     "module": "CommonJS",
     "moduleResolution": "node10",
     "noEmit": false,
+    "allowImportingTsExtensions": false,
     "declaration": true,
     "outDir": "dist"
-  }
+  },
+  // 单测不进产物：dist 是四端引用的 Contract，只放运行时代码与类型
+  "exclude": ["src/**/*.test.ts"]
 }
