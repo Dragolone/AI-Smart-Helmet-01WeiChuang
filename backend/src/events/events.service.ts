@@ -59,7 +59,8 @@ export class EventsService {
       this.prisma.rawEvent.count({ where }),
       this.prisma.rawEvent.findMany({
         where,
-        orderBy: { timestamp: 'desc' },
+        // 同一时间戳可能有多条（头盔时间戳只到秒、补传整批到达）：加唯一次序键，翻页才不重不漏（同 DBOPS-01）
+        orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
         skip: (opts.page - 1) * opts.pageSize,
         take: opts.pageSize,
       }),

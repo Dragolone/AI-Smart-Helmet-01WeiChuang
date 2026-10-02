@@ -89,7 +89,7 @@ export class SosService {
       this.prisma.sosCase.count({ where }),
       this.prisma.sosCase.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),

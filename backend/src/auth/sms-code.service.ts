@@ -139,6 +139,8 @@ export class SmsCodeService {
 
   /**
    * 校验并消费。只认该号码该用途的最新一条；错误统一 SMS_CODE_INVALID（不区分不存在/过期/错误，不给探测信息）。
+   * 先占一次尝试名额再比对（条件自增，由行锁串行化）：「读 attempts → 比对 → 错了才 +1」在并发下
+   * 所有请求都读到未超限、各比对一次，N 路并发就能猜 N 次，上限形同虚设。
    * 消费用条件更新（consumedAt 仍为空才置位）：并发两次提交同一验证码只有一方成功。
    */
   async verifyAndConsume(
@@ -158,13 +160,16 @@ export class SmsCodeService {
     ) {
       throw invalid();
     }
-    if (hashCode(code, row.salt) !== row.codeHash) {
-      await this.prisma.smsCode.update({
-        where: { id: row.id },
-        data: { attempts: { increment: 1 } },
-      });
-      throw invalid();
-    }
+    const claimed = await this.prisma.smsCode.updateMany({
+      where: {
+        id: row.id,
+        consumedAt: null,
+        attempts: { lt: maxAttempts() },
+      },
+      data: { attempts: { increment: 1 } },
+    });
+    if (claimed.count !== 1) throw invalid();
+    if (hashCode(code, row.salt) !== row.codeHash) throw invalid();
     const consumed = await this.prisma.smsCode.updateMany({
       where: { id: row.id, consumedAt: null },
       data: { consumedAt: new Date() },
