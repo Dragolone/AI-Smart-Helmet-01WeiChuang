@@ -12,6 +12,7 @@
 | device_bindings | 每段绑定关系一行（device_id, user_id, bound_at, unbound_at）；不建外键；migration 回填现有绑定 | 决策 #39：事件/轨迹/媒体的用户可见范围 = 本人绑定区间（按服务端 receivedAt 判），换绑后前主数据对新主不可见、同一人解绑再绑回来历史仍在；raw_events/location_points 保持无 user 字段（留档原则不变） |
 | raw_events | event_id 全局唯一约束 = 幂等去重的兜底；**不建**到 devices 的外键 | 幂等必须由数据库保证（并发/重发场景应用层拦不住）；未注册设备/未知来源的事件也必须能原样落库（Ingest 规则） |
 | raw_events | `(device_id, timestamp)` 复合索引 | 高频表按设备+时间查询是唯一主路径（CLAUDE.md Database Rules） |
+| raw_events | `(received_at)` 索引（2026-10-03） | Admin 概览「今日事件数」、Admin 全量事件列表（按接收时间倒序）、SOS 对账窗口扫描都按接收时间查；200 万行实测无索引 77–143 ms（全表扫描，随行数线性涨），有索引 0.03–8 ms。代价：每条事件多写一个 B-tree 条目（接收时间单调递增，追加写），200 万行约 43 MB |
 | location_points | 类型化列而非复用 raw_events 的 JSON payload；event_id 唯一（与源事件 1:1）；不建外键；仅已注册设备写入 | 轨迹查询是高频主路径，JSON 提取查不动索引；event_id 唯一兜底并发重放幂等；未注册设备只留 raw；altitude 单列保留（滑雪场景核心维度） |
 
 ## 已知的后续演进点（审查发现，已排期）
