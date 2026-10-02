@@ -142,13 +142,8 @@ export class IngestService {
    * 只对已注册设备生效（未注册的仅 raw 留档）；推送只发给绑定用户。
    */
   private async dispatchStored(e: ValidEnvelope): Promise<void> {
-    const device = await this.prisma.device.findUnique({
-      where: { deviceId: e.deviceId },
-      select: { deviceId: true, bindUserId: true },
-    });
+    const device = await this.snapshot.applyEvent(e);
     if (!device) return;
-
-    await this.snapshot.applyEvent(e);
 
     // 位置表只收校验通过的 location_update；推送复用同一份校验结果（不推脏数据）
     const point =
@@ -240,6 +235,8 @@ export class IngestService {
           source,
           clockSkew,
         },
+        // 只要「写进去了」这个事实：不让数据库把整行（含 payload）再回传一遍
+        select: { id: true },
       });
       return true;
     } catch (err) {
