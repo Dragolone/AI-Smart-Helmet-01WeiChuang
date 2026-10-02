@@ -3,7 +3,8 @@ import type {
   LocationUpdatePayload,
   LocationPoint as WireLocationPoint,
 } from '@helmet/shared';
-import { Prisma } from '../generated/prisma/client';
+import { errorMessage } from '../common/error-text';
+import { isUniqueViolation } from '../common/prisma-errors';
 import type { ValidEnvelope } from '../ingest/envelope';
 import { PrismaService } from '../prisma/prisma.service';
 import { toWireLocation } from './location-wire';
@@ -76,15 +77,12 @@ export class LocationRecorderService {
       });
       return toWireLocation(point);
     } catch (err) {
-      if (
-        err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2002'
-      ) {
+      if (isUniqueViolation(err)) {
         // eventId 已入过位置表（并发/重放），幂等跳过
         return null;
       }
       this.logger.warn(
-        `位置点入库失败（raw 已留档）${e.eventId}：${err instanceof Error ? err.message : String(err)}`,
+        `位置点入库失败（raw 已留档）${e.eventId}：${errorMessage(err)}`,
       );
       return null;
     }

@@ -11,21 +11,19 @@ import type {
   VoiceChannelMemberPublic,
   VoiceTokenResponse,
 } from '@helmet/shared';
+import { envPositiveInt } from '../common/env';
+import { isUniqueViolation } from '../common/prisma-errors';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { maskPhone } from '../providers/sms.provider';
 import { genUserSig } from './trtc-sig';
 
 /** 成员上限（口径 #27⑤：20；env 可调，测试用小值验证满员路径） */
-const memberLimit = (): number => {
-  const n = Number(process.env.VOICE_CHANNEL_MEMBER_LIMIT);
-  return Number.isInteger(n) && n > 0 ? n : 20;
-};
+const memberLimit = (): number =>
+  envPositiveInt('VOICE_CHANNEL_MEMBER_LIMIT', 20);
 
-const sigExpireSeconds = (): number => {
-  const n = Number(process.env.TRTC_SIG_EXPIRE_SECONDS);
-  return Number.isInteger(n) && n > 0 ? n : 86400;
-};
+const sigExpireSeconds = (): number =>
+  envPositiveInt('TRTC_SIG_EXPIRE_SECONDS', 86400);
 
 const channelNotFound = () =>
   new NotFoundException({ code: 'NOT_FOUND', message: '频道不存在' });
@@ -55,10 +53,7 @@ export class VoiceService {
         });
         return this.toWire(channel);
       } catch (err) {
-        if (
-          err instanceof Prisma.PrismaClientKnownRequestError &&
-          err.code === 'P2002'
-        ) {
+        if (isUniqueViolation(err)) {
           continue; // 邀请码撞车，换一个重试
         }
         throw err;
@@ -115,10 +110,7 @@ export class VoiceService {
         });
       } catch (err) {
         // 并发重复加入：唯一约束兜底，幂等
-        if (!(
-          err instanceof Prisma.PrismaClientKnownRequestError &&
-          err.code === 'P2002'
-        )) {
+        if (!isUniqueViolation(err)) {
           throw err;
         }
       }

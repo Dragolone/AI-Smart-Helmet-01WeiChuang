@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CLOCK_SKEW_THRESHOLD_MS } from '../common/device-time';
+import { isUniqueViolation } from '../common/prisma-errors';
 import { DeviceSnapshotService } from '../devices/device-snapshot.service';
 import { LocationRecorderService } from '../locations/location-recorder.service';
 import { MediaRecorderService } from '../media/media-recorder.service';
@@ -242,10 +243,7 @@ export class IngestService {
       });
       return true;
     } catch (err) {
-      if (
-        err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2002'
-      ) {
+      if (isUniqueViolation(err)) {
         this.logger.debug(`重复 eventId 已跳过：${e.eventId}`);
         return false;
       }

@@ -4,6 +4,7 @@ import {
   type OnModuleDestroy,
   type OnModuleInit,
 } from '@nestjs/common';
+import { errorMessage, errorStack } from '../common/error-text';
 import type { RawEvent } from '../generated/prisma/client';
 import { SUPPORTED_SCHEMA_VERSIONS } from '../ingest/envelope';
 import type { ValidEnvelope } from '../ingest/envelope';
@@ -53,9 +54,7 @@ export class SosSchedulerService implements OnModuleInit, OnModuleDestroy {
     // 启动对账（审计 SOS-02）：上次进程在「raw 已落库、SOS 尚未建单」之间倒下的事件在这里补建。
     // 只在启动做一次全表窗口扫描（raw_events 没有 received_at 索引，不适合每轮都扫）
     void this.reconcileLostTriggers().catch((err: unknown) =>
-      this.logger.error(
-        `启动对账失败（不影响调度）：${err instanceof Error ? err.message : String(err)}`,
-      ),
+      this.logger.error(`启动对账失败（不影响调度）：${errorMessage(err)}`),
     );
     const interval = scanIntervalMs();
     this.timer = setInterval(() => void this.tick(), interval);
@@ -90,9 +89,7 @@ export class SosSchedulerService implements OnModuleInit, OnModuleDestroy {
         await this.notifier.finalizeNotified(id, { deliverInline: false });
       }
     } catch (err) {
-      this.logger.error(
-        `SOS 到期扫描失败（下一轮继续）：${err instanceof Error ? err.stack : String(err)}`,
-      );
+      this.logger.error(`SOS 到期扫描失败（下一轮继续）：${errorStack(err)}`);
     } finally {
       this.finalizing = false;
     }
@@ -105,7 +102,7 @@ export class SosSchedulerService implements OnModuleInit, OnModuleDestroy {
       await this.notifier.deliverPending();
     } catch (err) {
       this.logger.error(
-        `SOS 通知投递轮次失败（下一轮继续）：${err instanceof Error ? err.stack : String(err)}`,
+        `SOS 通知投递轮次失败（下一轮继续）：${errorStack(err)}`,
       );
     } finally {
       this.delivering = false;

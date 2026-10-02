@@ -2,11 +2,11 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
-  NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { BindingScopeService } from './binding-scope.service';
+import { deviceNotFound } from './device-access';
 
 /** 允许在调用方的事务里执行（注销账号时与其他清理原子提交） */
 type DbClient = PrismaService | Prisma.TransactionClient;
@@ -43,12 +43,6 @@ type DevicePublic = {
   createdAt: Date;
 };
 
-const notFound = () =>
-  new NotFoundException({
-    code: 'DEVICE_NOT_FOUND',
-    message: '设备不存在或未绑定到当前用户',
-  });
-
 @Injectable()
 export class DevicesService {
   constructor(
@@ -58,7 +52,7 @@ export class DevicesService {
 
   async bind(userId: string, deviceId: string, bindCode: string) {
     const device = await this.prisma.device.findUnique({ where: { deviceId } });
-    if (!device) throw notFound();
+    if (!device) throw deviceNotFound();
     if (!device.bindCode || device.bindCode !== bindCode) {
       throw new ForbiddenException({
         code: 'BIND_CODE_INVALID',
@@ -112,7 +106,7 @@ export class DevicesService {
       select: DEVICE_PUBLIC_SELECT,
     });
     // 不存在与无权访问同一响应，不泄露设备存在性
-    if (!device || device.bindUserId !== userId) throw notFound();
+    if (!device || device.bindUserId !== userId) throw deviceNotFound();
     return this.toPublic(device);
   }
 

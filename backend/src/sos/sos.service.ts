@@ -10,6 +10,7 @@ import type {
   Paginated,
   Sos,
 } from '@helmet/shared';
+import { ensureDeviceOwned } from '../devices/device-access';
 import type { SosCase } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimePushService } from '../realtime/realtime-push.service';
@@ -36,7 +37,7 @@ export class SosService {
 
   /** 当前进行中 SOS；无则 sos: null（200，与 locations/latest 同口径，定稿） */
   async active(userId: string, deviceId: string): Promise<ActiveSosResponse> {
-    await this.ensureDeviceOwned(userId, deviceId);
+    await ensureDeviceOwned(this.prisma, userId, deviceId);
     const active = await this.prisma.sosCase.findFirst({
       where: { deviceId, userId, status: SOS_STATUS.pending },
     });
@@ -83,7 +84,7 @@ export class SosService {
     page: number,
     pageSize: number,
   ): Promise<Paginated<AccidentListItem>> {
-    await this.ensureDeviceOwned(userId, deviceId);
+    await ensureDeviceOwned(this.prisma, userId, deviceId);
     const where = { deviceId, userId };
     const [total, cases] = await this.prisma.$transaction([
       this.prisma.sosCase.count({ where }),
@@ -127,23 +128,6 @@ export class SosService {
         (rawEvent?.payload as Record<string, unknown> | undefined) ?? null,
       notifications: notifications.map(toWireNotification),
     };
-  }
-
-  /** 设备归属校验（与 §4/§5 同口径）：非本人绑定设备一律 DEVICE_NOT_FOUND */
-  private async ensureDeviceOwned(
-    userId: string,
-    deviceId: string,
-  ): Promise<void> {
-    const device = await this.prisma.device.findUnique({
-      where: { deviceId },
-      select: { bindUserId: true },
-    });
-    if (!device || device.bindUserId !== userId) {
-      throw new NotFoundException({
-        code: 'DEVICE_NOT_FOUND',
-        message: '设备不存在或未绑定到当前用户',
-      });
-    }
   }
 
   /** 归属：取消/确认权限以建单时固化的 userId 为准（解绑不影响进行中 SOS 的处置权） */

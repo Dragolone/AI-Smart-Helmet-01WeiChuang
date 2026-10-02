@@ -21,7 +21,9 @@ import type {
   WsMessage,
 } from '@helmet/shared';
 import { checkDeviceSetting } from '@helmet/shared';
+import { errorMessage } from '../common/error-text';
 import { parseDeviceTime } from '../common/device-time';
+import { ensureDeviceOwned } from '../devices/device-access';
 import { Prisma } from '../generated/prisma/client';
 import type { DeviceCommand as DbCommand } from '../generated/prisma/client';
 import { MqttConsumerService } from '../ingest/mqtt-consumer.service';
@@ -33,12 +35,6 @@ import {
   REPORT_SETTINGS_MAX_KEYS,
 } from './commands.constants';
 import { toWireCommand } from './command-wire';
-
-const deviceNotFound = () =>
-  new NotFoundException({
-    code: 'DEVICE_NOT_FOUND',
-    message: '设备不存在或未绑定到当前用户',
-  });
 
 const validationFailed = (message: string) =>
   new BadRequestException({ code: 'VALIDATION_FAILED', message });
@@ -160,7 +156,7 @@ export class CommandsService implements OnModuleInit {
     deviceId: string,
     rawParams: unknown,
   ): Promise<{ commandId: string; status: 'pending' }> {
-    await this.ensureDeviceOwned(userId, deviceId);
+    await ensureDeviceOwned(this.prisma, userId, deviceId);
     const params = validateSettingsParams(rawParams);
 
     const command = await this.prisma.deviceCommand.create({
@@ -190,7 +186,7 @@ export class CommandsService implements OnModuleInit {
       });
     } catch (err) {
       this.logger.warn(
-        `命令发布失败（留 pending，超时后判 offline）${command.id}：${err instanceof Error ? err.message : String(err)}`,
+        `命令发布失败（留 pending，超时后判 offline）${command.id}：${errorMessage(err)}`,
       );
     }
     return { commandId: command.id, status: 'pending' };
@@ -207,7 +203,7 @@ export class CommandsService implements OnModuleInit {
     commandId: string,
     ack: RelayAckRequest,
   ): Promise<RelayAckResponse> {
-    await this.ensureDeviceOwned(userId, deviceId);
+    await ensureDeviceOwned(this.prisma, userId, deviceId);
     const command = await this.prisma.deviceCommand.findUnique({
       where: { id: commandId },
     });
@@ -370,7 +366,7 @@ export class CommandsService implements OnModuleInit {
     deviceId: string,
     raw: unknown,
   ): Promise<ReportSettingsResponse> {
-    await this.ensureDeviceOwned(userId, deviceId);
+    await ensureDeviceOwned(this.prisma, userId, deviceId);
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
       throw validationFailed('settings 必须是对象');
     }
@@ -460,7 +456,7 @@ export class CommandsService implements OnModuleInit {
     userId: string,
     deviceId: string,
   ): Promise<SettingsResponse> {
-    await this.ensureDeviceOwned(userId, deviceId);
+    await ensureDeviceOwned(this.prisma, userId, deviceId);
     const [device, lastCommand] = await this.prisma.$transaction([
       this.prisma.device.findUniqueOrThrow({
         where: { deviceId },
@@ -483,7 +479,7 @@ export class CommandsService implements OnModuleInit {
     page: number,
     pageSize: number,
   ): Promise<Paginated<CommandPublic>> {
-    await this.ensureDeviceOwned(userId, deviceId);
+    await ensureDeviceOwned(this.prisma, userId, deviceId);
     const where = { deviceId };
     const [total, commands] = await this.prisma.$transaction([
       this.prisma.deviceCommand.count({ where }),
@@ -510,16 +506,5 @@ export class CommandsService implements OnModuleInit {
       if (device?.bindUserId === userId) return toWireCommand(command);
     }
     throw new NotFoundException({ code: 'NOT_FOUND', message: '命令不存在' });
-  }
-
-  private async ensureDeviceOwned(
-    userId: string,
-    deviceId: string,
-  ): Promise<void> {
-    const device = await this.prisma.device.findUnique({
-      where: { deviceId },
-      select: { bindUserId: true },
-    });
-    if (!device || device.bindUserId !== userId) throw deviceNotFound();
   }
 }

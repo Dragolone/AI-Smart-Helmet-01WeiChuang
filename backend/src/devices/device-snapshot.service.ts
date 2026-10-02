@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { DeviceStatusPayload } from '@helmet/shared';
+import { errorMessage } from '../common/error-text';
 import { PrismaService } from '../prisma/prisma.service';
 import type { ValidEnvelope } from '../ingest/envelope';
 
@@ -57,9 +58,7 @@ export class DeviceSnapshotService {
       });
     } catch (err) {
       // 快照失败不影响事件落库主流程
-      this.logger.warn(
-        `设备快照更新失败 ${e.deviceId}：${err instanceof Error ? err.message : String(err)}`,
-      );
+      this.logger.warn(`设备快照更新失败 ${e.deviceId}：${errorMessage(err)}`);
     }
   }
 }

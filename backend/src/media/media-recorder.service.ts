@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Prisma } from '../generated/prisma/client';
+import { errorMessage } from '../common/error-text';
+import { isUniqueViolation } from '../common/prisma-errors';
 import type { ValidEnvelope } from '../ingest/envelope';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -77,15 +78,12 @@ export class MediaRecorderService {
         },
       });
     } catch (err) {
-      if (
-        err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2002'
-      ) {
+      if (isUniqueViolation(err)) {
         this.logger.debug(`重复媒体宣告已跳过：${e.eventId}`);
         return;
       }
       this.logger.warn(
-        `媒体元数据入库失败（raw 已留档）${e.eventId}：${err instanceof Error ? err.message : String(err)}`,
+        `媒体元数据入库失败（raw 已留档）${e.eventId}：${errorMessage(err)}`,
       );
     }
   }

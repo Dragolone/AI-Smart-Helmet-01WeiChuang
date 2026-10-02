@@ -7,25 +7,9 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
-import { Type } from 'class-transformer';
-import { IsInt, IsOptional, Max, Min } from 'class-validator';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
+import { PageQueryDto } from '../common/page-query.dto';
 import { SosService } from './sos.service';
-
-class PageQueryDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  page: number = 1;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  pageSize: number = 20;
-}
 
 /** API.md §7：active/accidents 挂设备资源下，cancel/confirm/事故详情按 id 操作 */
 @Controller()

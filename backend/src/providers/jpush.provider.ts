@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { envPositiveInt } from '../common/env';
 import type { PushProvider } from './push.provider';
 
 /**
@@ -21,13 +22,12 @@ export const jpushConfigFromEnv = (): JPushConfig | null => {
   const appKey = process.env.JPUSH_APP_KEY;
   const masterSecret = process.env.JPUSH_MASTER_SECRET;
   if (!appKey || !masterSecret) return null;
-  const timeout = Number(process.env.PUSH_SEND_TIMEOUT_MS);
   return {
     appKey,
     masterSecret,
     apnsProduction: process.env.JPUSH_APNS_PRODUCTION === 'true',
     apiUrl: process.env.JPUSH_API_URL || 'https://api.jpush.cn/v3/push',
-    timeoutMs: Number.isInteger(timeout) && timeout > 0 ? timeout : 10_000,
+    timeoutMs: envPositiveInt('PUSH_SEND_TIMEOUT_MS', 10_000),
   };
 };
 
