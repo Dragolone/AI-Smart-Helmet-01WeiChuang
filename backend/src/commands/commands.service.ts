@@ -21,6 +21,7 @@ import type {
   WsMessage,
 } from '@helmet/shared';
 import { checkDeviceSetting } from '@helmet/shared';
+import { parseDeviceTime } from '../common/device-time';
 import { Prisma } from '../generated/prisma/client';
 import type { DeviceCommand as DbCommand } from '../generated/prisma/client';
 import { MqttConsumerService } from '../ingest/mqtt-consumer.service';
@@ -86,14 +87,12 @@ function parseAck(raw: string): {
   const p = parsed as Record<string, unknown>;
   if (typeof p.commandId !== 'string' || p.commandId.length === 0) return null;
   if (p.result !== 'success' && p.result !== 'failed') return null;
-  const executedAt =
-    typeof p.executedAt === 'string' ? new Date(p.executedAt) : new Date(NaN);
   return {
     commandId: p.commandId,
     result: p.result,
     errorCode: typeof p.errorCode === 'string' ? p.errorCode : null,
-    // 设备时钟不可信：非法时间戳以服务器时间兜底（与 receivedAt 同哲学）
-    executedAt: Number.isNaN(executedAt.getTime()) ? new Date() : executedAt,
+    // 设备时钟不可信：非法或存不下的时间戳以服务器时间兜底（与 receivedAt 同哲学）
+    executedAt: parseDeviceTime(p.executedAt) ?? new Date(),
   };
 }
 
@@ -223,15 +222,11 @@ export class CommandsService implements OnModuleInit {
         data: { status: COMMAND_STATUS.delivered, deliveredAt: new Date() },
       });
     } else {
-      const executedAt =
-        ack.executedAt !== undefined ? new Date(ack.executedAt) : new Date();
       await this.applyAck(command, {
         result: ack.result,
         errorCode: ack.errorCode ?? null,
-        // App 转发的头盔时间戳同样不可信：非法值以服务器时间兜底
-        executedAt: Number.isNaN(executedAt.getTime())
-          ? new Date()
-          : executedAt,
+        // App 转发的头盔时间戳同样不可信：非法或存不下的值以服务器时间兜底
+        executedAt: parseDeviceTime(ack.executedAt) ?? new Date(),
       });
     }
     const updated = await this.prisma.deviceCommand.findUniqueOrThrow({
@@ -494,7 +489,7 @@ export class CommandsService implements OnModuleInit {
       this.prisma.deviceCommand.count({ where }),
       this.prisma.deviceCommand.findMany({
         where,
-        orderBy: { issuedAt: 'desc' },
+        orderBy: [{ issuedAt: 'desc' }, { id: 'desc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),

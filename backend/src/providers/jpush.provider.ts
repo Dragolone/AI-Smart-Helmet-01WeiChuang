@@ -134,9 +134,13 @@ export class JPushProvider implements PushProvider {
       }
       throw new JPushError(res.status, code, detail);
     }
-    const ok = (await res.json()) as { msg_id?: string };
+    // 2xx 即极光已受理：响应体读不出来（网关改写、连接中断）不能再当失败抛——上层会重试，用户就收到重复推送
+    const msgId = await res
+      .json()
+      .then((ok: { msg_id?: string }) => ok.msg_id)
+      .catch(() => undefined);
     this.logger.log(
-      `推送已提交 → user:${userId} [${title}] msg_id=${ok.msg_id ?? '-'}`,
+      `推送已提交 → user:${userId} [${title}] msg_id=${msgId ?? '-'}`,
     );
   }
 }

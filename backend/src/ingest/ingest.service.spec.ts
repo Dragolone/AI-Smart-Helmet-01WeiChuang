@@ -87,6 +87,149 @@ describe('validateEnvelope', () => {
     const r = validateEnvelope(huge, 'helmet_001');
     expect(r).toEqual({ ok: false, reason: 'payload_too_large' });
   });
+
+  const withField = (field: string, value: unknown): string => {
+    const msg = JSON.parse(validMessage) as Record<string, unknown>;
+    msg[field] = value;
+    return JSON.stringify(msg);
+  };
+
+  it('大小上限按 UTF-8 字节算：恰好 65536 字节通过，多 1 字节拒绝', () => {
+    const base = withField('payload', { x: '' });
+    const pad = 65_536 - Buffer.byteLength(base, 'utf-8');
+    const exact = withField('payload', { x: 'a'.repeat(pad) });
+    expect(Buffer.byteLength(exact, 'utf-8')).toBe(65_536);
+    expect(validateEnvelope(exact, 'helmet_001').ok).toBe(true);
+    const over = withField('payload', { x: 'a'.repeat(pad + 1) });
+    expect(validateEnvelope(over, 'helmet_001')).toEqual({
+      ok: false,
+      reason: 'payload_too_large',
+    });
+    // 3 字节的汉字按字节计：字符数没超、字节数超了同样拒绝
+    const cjk = withField('payload', { x: '盔'.repeat(22_000) });
+    expect(cjk.length).toBeLessThan(65_536);
+    expect(validateEnvelope(cjk, 'helmet_001')).toEqual({
+      ok: false,
+      reason: 'payload_too_large',
+    });
+  });
+
+  it('NUL 判定只认真正的 NUL 转义：成对反斜杠后的 u0000 是字面量', () => {
+    // JSON 文本里：\u0000 = NUL；\\u0000 = 反斜杠 + "u0000" 六个可见字符；\\\u0000 = 反斜杠 + NUL
+    const nul = withField('payload', { note: 'a\u0000b' });
+    const literal = withField('payload', { note: 'a\\u0000b' });
+    const backslashThenNul = withField('payload', { note: 'a\\\u0000b' });
+    expect(validateEnvelope(nul, 'helmet_001')).toEqual({
+      ok: false,
+      reason: 'contains_nul_character',
+    });
+    expect(validateEnvelope(literal, 'helmet_001').ok).toBe(true);
+    expect(validateEnvelope(backslashThenNul, 'helmet_001')).toEqual({
+      ok: false,
+      reason: 'contains_nul_character',
+    });
+    // 键名里的 NUL 同样拦
+    const nulKey = withField('payload', { 'k\u0000': 1 });
+    expect(validateEnvelope(nulKey, 'helmet_001')).toEqual({
+      ok: false,
+      reason: 'contains_nul_character',
+    });
+  });
+
+  it.each([
+    ['null', 'not_an_object'],
+    ['[]', 'not_an_object'],
+    ['"text"', 'not_an_object'],
+    ['123', 'not_an_object'],
+    ['', 'invalid_json'],
+    ['\ufeff' + validMessage, 'invalid_json'],
+  ])('顶层不是对象 / 空文本 / 带 BOM：%s → %s', (raw, reason) => {
+    expect(validateEnvelope(raw, 'helmet_001')).toEqual({ ok: false, reason });
+  });
+
+  it.each([
+    ['2024-02-29T00:00:00Z', true],
+    ['2025-02-29T00:00:00Z', false],
+    ['2100-02-29T00:00:00Z', false],
+    ['2000-02-29T00:00:00Z', true],
+    ['2026-04-31T00:00:00Z', false],
+    ['2026-00-10T00:00:00Z', false],
+    ['2026-01-00T00:00:00Z', false],
+    ['1969-12-31T23:59:59Z', false],
+    ['1970-01-01T00:00:00Z', true],
+  ])(
+    '日历严格校验（闰年 / 月末 / 0 月 0 日 / epoch 边界）：%s → %s',
+    (ts, ok) => {
+      const r = validateEnvelope(withField('timestamp', ts), 'helmet_001');
+      expect(r.ok).toBe(ok);
+      if (!r.ok) expect(r.reason).toBe('timestamp_out_of_range');
+    },
+  );
+
+  it.each([
+    ['2026-08-14T23:59:60Z'],
+    ['2026-08-14T25:00:00Z'],
+    ['2026-08-14T03:00:00+99:00'],
+  ])('时分秒 / 偏移量越界（含闰秒 60）：%s → timestamp_unparseable', (ts) => {
+    expect(validateEnvelope(withField('timestamp', ts), 'helmet_001')).toEqual({
+      ok: false,
+      reason: 'timestamp_unparseable',
+    });
+  });
+
+  it.each([
+    [-1, 'schema_version_out_of_range'],
+    [2_147_483_648, 'schema_version_out_of_range'],
+    [1.5, 'schema_version_missing_or_not_integer'],
+    ['1', 'schema_version_missing_or_not_integer'],
+    [null, 'schema_version_missing_or_not_integer'],
+  ])('schemaVersion=%p → %s', (value, reason) => {
+    expect(
+      validateEnvelope(withField('schemaVersion', value), 'helmet_001'),
+    ).toEqual({ ok: false, reason });
+  });
+
+  it('schemaVersion 上下界（0 与 int4 最大值）结构合法：是否进业务由版本白名单另判', () => {
+    expect(
+      validateEnvelope(withField('schemaVersion', 0), 'helmet_001').ok,
+    ).toBe(true);
+    expect(
+      validateEnvelope(withField('schemaVersion', 2_147_483_647), 'helmet_001')
+        .ok,
+    ).toBe(true);
+  });
+
+  it.each([
+    ['eventId', 123, 'event_id_missing'],
+    ['eventId', '', 'event_id_missing'],
+    ['deviceId', ['helmet_001'], 'device_id_missing'],
+    ['eventType', {}, 'event_type_missing'],
+    ['timestamp', 1_786_000_000, 'timestamp_missing'],
+    ['firmwareVersion', '', 'firmware_version_missing'],
+    ['payload', [], 'payload_missing_or_not_object'],
+    ['payload', null, 'payload_missing_or_not_object'],
+    ['payload', 'x', 'payload_missing_or_not_object'],
+  ])('字段类型不对：%s=%p → %s', (field, value, reason) => {
+    expect(validateEnvelope(withField(field, value), 'helmet_001')).toEqual({
+      ok: false,
+      reason,
+    });
+  });
+
+  it('payload 里的 __proto__ / constructor 键只是普通数据，不污染原型', () => {
+    const raw = validMessage.replace(
+      '"payload":{',
+      '"payload":{"__proto__":{"polluted":true},"constructor":1,',
+    );
+    const r = validateEnvelope(raw, 'helmet_001');
+    expect(r.ok).toBe(true);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    if (r.ok) {
+      expect(Object.keys(r.envelope.payload)).toEqual(
+        expect.arrayContaining(['__proto__', 'constructor']),
+      );
+    }
+  });
 });
 
 describe('IngestService', () => {

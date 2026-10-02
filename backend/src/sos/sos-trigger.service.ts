@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { LocationSnapshot } from '@helmet/shared';
+import { latestPlausibleTime } from '../common/device-time';
 import { Prisma } from '../generated/prisma/client';
 import type { ValidEnvelope } from '../ingest/envelope';
 import { PrismaService } from '../prisma/prisma.service';
@@ -219,7 +220,10 @@ export class SosTriggerService {
 
     try {
       const lastPoint = await this.prisma.locationPoint.findFirst({
-        where: { deviceId: e.deviceId },
+        where: {
+          deviceId: e.deviceId,
+          timestamp: { lte: latestPlausibleTime() },
+        },
         orderBy: { timestamp: 'desc' },
         select: {
           latitude: true,

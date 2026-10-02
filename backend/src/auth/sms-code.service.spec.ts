@@ -18,7 +18,6 @@ describe('SmsCodeService（单测，mock 数据层与短信通道）', () => {
       deleteMany: jest.fn(),
       create: jest.fn(),
       delete: jest.fn(),
-      update: jest.fn(),
       updateMany: jest.fn(),
     },
   };
@@ -149,30 +148,52 @@ describe('SmsCodeService（单测，mock 数据层与短信通道）', () => {
     ...over,
   });
 
-  it('verify：正确 → 条件更新消费；并发第二次消费失败', async () => {
+  const claimAttempt = {
+    where: { id: 'c1', consumedAt: null, attempts: { lt: 5 } },
+    data: { attempts: { increment: 1 } },
+  };
+
+  it('verify：正确 → 先占尝试名额、再条件更新消费；并发第二次消费失败', async () => {
     prismaMock.smsCode.findFirst.mockResolvedValue(row());
-    prismaMock.smsCode.updateMany.mockResolvedValueOnce({ count: 1 });
+    prismaMock.smsCode.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 1 });
     await expect(
       service.verifyAndConsume('13800138000', 'register', '123456'),
     ).resolves.toBeUndefined();
-    expect(prismaMock.smsCode.updateMany).toHaveBeenCalledWith(
+    expect(prismaMock.smsCode.updateMany).toHaveBeenNthCalledWith(
+      1,
+      claimAttempt,
+    );
+    expect(prismaMock.smsCode.updateMany).toHaveBeenNthCalledWith(
+      2,
       expect.objectContaining({ where: { id: 'c1', consumedAt: null } }),
     );
-    prismaMock.smsCode.updateMany.mockResolvedValueOnce({ count: 0 });
+    prismaMock.smsCode.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 });
     await expect(
       service.verifyAndConsume('13800138000', 'register', '123456'),
     ).rejects.toMatchObject({ response: { code: 'SMS_CODE_INVALID' } });
   });
 
-  it('verify：错误码 → attempts+1 并 SMS_CODE_INVALID', async () => {
+  it('verify：错误码 → 只占掉一次尝试名额，不进入消费', async () => {
     prismaMock.smsCode.findFirst.mockResolvedValue(row());
+    prismaMock.smsCode.updateMany.mockResolvedValueOnce({ count: 1 });
     await expect(
       service.verifyAndConsume('13800138000', 'register', '654321'),
     ).rejects.toMatchObject({ response: { code: 'SMS_CODE_INVALID' } });
-    expect(prismaMock.smsCode.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { attempts: { increment: 1 } } }),
-    );
-    expect(prismaMock.smsCode.updateMany).not.toHaveBeenCalled();
+    expect(prismaMock.smsCode.updateMany).toHaveBeenCalledTimes(1);
+    expect(prismaMock.smsCode.updateMany).toHaveBeenCalledWith(claimAttempt);
+  });
+
+  it('verify：名额被并发请求抢光（条件自增 0 行）→ 正确码也 SMS_CODE_INVALID，且不消费', async () => {
+    prismaMock.smsCode.findFirst.mockResolvedValue(row({ attempts: 4 }));
+    prismaMock.smsCode.updateMany.mockResolvedValueOnce({ count: 0 });
+    await expect(
+      service.verifyAndConsume('13800138000', 'register', '123456'),
+    ).rejects.toMatchObject({ response: { code: 'SMS_CODE_INVALID' } });
+    expect(prismaMock.smsCode.updateMany).toHaveBeenCalledTimes(1);
   });
 
   it.each([

@@ -128,6 +128,15 @@ describe('JPushProvider.send', () => {
     });
   });
 
+  it('2xx 但响应体不是 JSON：极光已受理，按成功处理（抛错会让上层重试成重复推送）', async () => {
+    globalThis.fetch = jest
+      .fn()
+      .mockResolvedValue(new Response('OK', { status: 200 }));
+    await expect(
+      new JPushProvider(config).send('u1', 't', 'b'),
+    ).resolves.toBeUndefined();
+  });
+
   it('超时：超过 timeoutMs 未返回 → 抛错，消息含 timeout', async () => {
     globalThis.fetch = jest.fn(
       (_url: string, init?: RequestInit) =>
