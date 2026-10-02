@@ -22,6 +22,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
+import { RateLimit } from '../common/rate-limit.guard';
 import { DevicesService } from './devices.service';
 
 class BindDeviceDto {
@@ -57,6 +58,9 @@ class BatteryHistoryQueryDto {
 export class DevicesController {
   constructor(private readonly devices: DevicesService) {}
 
+  // 绑定码是 8 位数字、deviceId 可枚举，且「码错 403 / 已被绑 409」能区分猜没猜中：
+  // 不限频时单个账号几小时就能穷举出一台库存头盔的绑定码并抢先绑走
+  @RateLimit({ name: 'device_bind', limit: 10, windowMs: 60_000 })
   @Post('bind')
   @HttpCode(200)
   bind(@Req() req: AuthenticatedRequest, @Body() dto: BindDeviceDto) {
