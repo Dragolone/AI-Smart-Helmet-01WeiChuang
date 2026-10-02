@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { DeviceStatusPayload } from '@helmet/shared';
 import { errorMessage } from '../common/error-text';
+import { isRecordNotFound } from '../common/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
 import type { ValidEnvelope } from '../ingest/envelope';
 
@@ -26,10 +27,14 @@ export function normalizeDeviceStatus(payload: Record<string, unknown>): {
   return out;
 }
 
+/** 快照更新后带回的绑定关系：Ingest 据此决定 SOS 归属与推送对象 */
+export interface DeviceBinding {
+  bindUserId: string | null;
+}
+
 /**
  * 设备状态快照：Ingest 每收到一条已注册设备的合法事件就更新 Device 表，
- * App 的"在线/电量/固件"从这里读。未注册设备（updateMany 命中 0 行）静默跳过——
- * 原始事件仍在 raw_events 留档，业务侧不为它建影子设备。
+ * App 的"在线/电量/固件"从这里读。未注册设备不建影子设备——原始事件仍在 raw_events 留档。
  */
 @Injectable()
 export class DeviceSnapshotService {
@@ -37,7 +42,13 @@ export class DeviceSnapshotService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async applyEvent(e: ValidEnvelope): Promise<void> {
+  /**
+   * 刷新快照并带回当前绑定用户；未注册设备返回 null。
+   * 一条 `UPDATE … RETURNING` 同时回答「注册了吗、绑给谁、快照已刷新」——原先是先查设备、
+   * 再 updateMany（Prisma 给它包一层事务，BEGIN/UPDATE/COMMIT），每条事件四次往返，现在一次。
+   * 快照写入失败不影响事件主流程，但绑定关系不能跟着丢（SOS 触发靠它），退回只读查询。
+   */
+  async applyEvent(e: ValidEnvelope): Promise<DeviceBinding | null> {
     const data: Record<string, unknown> = {
       lastSeenAt: new Date(),
       firmwareVersion: e.firmwareVersion,
@@ -52,13 +63,18 @@ export class DeviceSnapshotService {
     }
 
     try {
-      await this.prisma.device.updateMany({
+      return await this.prisma.device.update({
         where: { deviceId: e.deviceId },
         data,
+        select: { bindUserId: true },
       });
     } catch (err) {
-      // 快照失败不影响事件落库主流程
+      if (isRecordNotFound(err)) return null;
       this.logger.warn(`设备快照更新失败 ${e.deviceId}：${errorMessage(err)}`);
+      return this.prisma.device.findUnique({
+        where: { deviceId: e.deviceId },
+        select: { bindUserId: true },
+      });
     }
   }
 }

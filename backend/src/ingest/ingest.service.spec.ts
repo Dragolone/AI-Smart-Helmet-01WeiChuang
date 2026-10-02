@@ -235,7 +235,6 @@ describe('validateEnvelope', () => {
 describe('IngestService', () => {
   const create = jest.fn();
   const applyEvent = jest.fn();
-  const findUnique = jest.fn();
   const record = jest.fn();
   const pushLocation = jest.fn();
   const pushDeviceStatus = jest.fn();
@@ -245,8 +244,7 @@ describe('IngestService', () => {
 
   beforeEach(async () => {
     create.mockReset();
-    applyEvent.mockReset();
-    findUnique.mockReset().mockResolvedValue(null); // 默认未注册设备：仅 raw 留档
+    applyEvent.mockReset().mockResolvedValue(null); // 默认未注册设备：仅 raw 留档
     record.mockReset();
     pushLocation.mockReset();
     pushDeviceStatus.mockReset();
@@ -257,7 +255,7 @@ describe('IngestService', () => {
         IngestService,
         {
           provide: PrismaService,
-          useValue: { rawEvent: { create }, device: { findUnique } },
+          useValue: { rawEvent: { create } },
         },
         { provide: DeviceSnapshotService, useValue: { applyEvent } },
         { provide: LocationRecorderService, useValue: { record } },
@@ -335,20 +333,18 @@ describe('IngestService', () => {
     ).rejects.toThrow('db down');
   });
 
-  it('未注册设备：仅 raw 留档，不进快照/位置/推送', async () => {
+  it('未注册设备：仅 raw 留档，不进位置/推送', async () => {
     create.mockResolvedValue({});
     await service.ingestRaw(validMessage, 'helmet_001', 'mqtt');
-    expect(applyEvent).not.toHaveBeenCalled();
+    // 「注册了吗」由快照更新一并回答（未注册 → null），不再单独查一次设备
+    expect(applyEvent).toHaveBeenCalledTimes(1);
     expect(record).not.toHaveBeenCalled();
     expect(pushLocation).not.toHaveBeenCalled();
   });
 
   it('已注册且绑定的设备：location_update → 快照 + 位置表 + WS 推送', async () => {
     create.mockResolvedValue({});
-    findUnique.mockResolvedValue({
-      deviceId: 'helmet_001',
-      bindUserId: 'user_1',
-    });
+    applyEvent.mockResolvedValue({ bindUserId: 'user_1' });
     const point = { latitude: 31.2, longitude: 121.4 };
     record.mockResolvedValue(point);
     await service.ingestRaw(validMessage, 'helmet_001', 'mqtt');
@@ -359,7 +355,7 @@ describe('IngestService', () => {
 
   it('已注册但未绑定：入快照/位置表，不推送', async () => {
     create.mockResolvedValue({});
-    findUnique.mockResolvedValue({ deviceId: 'helmet_001', bindUserId: null });
+    applyEvent.mockResolvedValue({ bindUserId: null });
     record.mockResolvedValue({ latitude: 31.2 });
     await service.ingestRaw(validMessage, 'helmet_001', 'mqtt');
     expect(record).toHaveBeenCalledTimes(1);
@@ -369,10 +365,7 @@ describe('IngestService', () => {
 
   it('位置点 payload 不合法（record 返回 null）：不推送脏数据', async () => {
     create.mockResolvedValue({});
-    findUnique.mockResolvedValue({
-      deviceId: 'helmet_001',
-      bindUserId: 'user_1',
-    });
+    applyEvent.mockResolvedValue({ bindUserId: 'user_1' });
     record.mockResolvedValue(null);
     await service.ingestRaw(validMessage, 'helmet_001', 'mqtt');
     expect(pushLocation).not.toHaveBeenCalled();
@@ -380,10 +373,7 @@ describe('IngestService', () => {
 
   it('possible_fall / manual_sos → 分发 SOS 触发器（带绑定关系）；其余事件不分发', async () => {
     create.mockResolvedValue({});
-    findUnique.mockResolvedValue({
-      deviceId: 'helmet_001',
-      bindUserId: 'user_1',
-    });
+    applyEvent.mockResolvedValue({ bindUserId: 'user_1' });
     const fall = JSON.parse(validMessage) as Record<string, unknown>;
     fall.eventType = 'possible_fall';
     fall.payload = {};
@@ -394,6 +384,14 @@ describe('IngestService', () => {
     handleTrigger.mockClear();
     await service.ingestRaw(validMessage, 'helmet_001', 'mqtt'); // location_update
     expect(handleTrigger).not.toHaveBeenCalled();
+  });
+
+  it('raw 入库只取回 id，不把整行 payload 再回传一遍', async () => {
+    create.mockResolvedValue({ id: 'r1' });
+    await service.ingestRaw(validMessage, 'helmet_001', 'mqtt');
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ select: { id: true } }),
+    );
   });
 
   it('重复 eventId 的 possible_fall：连触发器都不进（幂等在 raw 层拦截）', async () => {
