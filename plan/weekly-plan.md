@@ -216,6 +216,14 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 
 ### A 线当前进度与待办（2026-09-06，B 线整理；A 线直接按此推进，有疑问群里问）
 
+> **📣 给 A 线的通知（2026-10-02，B 线）——上线前总清单出来了，你的部分在 `plan/LAUNCH_CHECKLIST.md` 第三节，按顺序做**
+>
+> - 一共 14 项。前 4 项不依赖任何人，现在就能做：① #102 视频预览双端真机测试；② **Android 回归补 34 行**（SOS 4.1–4.5、地图 3.x 华为没测，最大缺口）；③ iPhone 推送 4.6–4.8 复测；④ 导出正式签名证书的公钥和 MD5 发负责人（App 备案要用，不发 keystore 和口令）。
+> - 新增两项小改动：App 内「我的」加「个人信息收集清单」「第三方信息共享清单」两个入口（网页已上 main，`LegalDoc` 扩两种）；`app.json` 加 `ITSAppUsesNonExemptEncryption: false`。
+> - 隐私政策已改为 V1.1：位置写成「头盔经蓝牙上报、后台继续转发、App 不调用手机定位」，与实际一致。App 里的文案如果还写着「授权手机定位」，顺手对齐。
+> - 服务器不另购，现有 helmet-dev 转正式环境（DEPLOYMENT §8.1）。切换那天测试账号会清空，`19900001234` 要重新注册；正式包改指 `https://api.01weichuang.com/api/v1`。
+> - 每做完一项就在 LAUNCH_CHECKLIST 里打勾。
+
 > **📣 给 A 线的通知（2026-10-01，B 线）——iPhone 远程推送可以复测了；TestFlight 有落点了；CI 恢复**
 >
 > - **PUSH-01 解除**：负责人今天在 Apple 后台生成 APNs Auth Key（`44RYD6QKJC`，Sandbox & Production）并配进极光 iOS「Token Authentication 配置」，状态「已上传」。请复测 **REGRESSION 4.6 / 4.7 / 4.8 的 iPhone 列**（前台 / 后台 / 被杀）。服务端 `JPUSH_APNS_PRODUCTION` 现在未设（= development），你用 Xcode 直装的 Debug 包对得上；发 TestFlight 包时告诉我，我切成 true。
@@ -403,11 +411,13 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 
 ### 上线前提醒清单（2026-09-17 起累积；进入 Week 12 / 准备正式包时逐条过，Claude 负责主动提醒）
 
+> **2026-10-02 起，全员上线前待办统一看 `plan/LAUNCH_CHECKLIST.md`**（按人分组、带预计日期和上线门槛）；本表保留作历史记录。
+
 | # | 事项 | 谁 | 说明 |
 |---|------|----|------|
 | 1 | ~~生成公司 Android 正式签名证书~~ ✅ **2026-09-21 已生成** | A 线 | `~/.helmet/lingyiweichuang-release.keystore`，别名 `lingyiweichuang`，RSA 4096 / 10000 天（至 2054-02），主体 = 邓白氏登记英文名。**口令不进 Git**；本机存 `~/.helmet/android-release-keystore.env`（chmod 600，仓库外），密码管理器另留一份。`android/` 不进 Git 故不改 build.gradle，签名走命令行注入，命令见 DEVELOPMENT.md「Android 正式签名包」。🔴 **负责人待办：把 keystore 文件另外备份一份到公司长期保管处——文件丢了和口令丢了一样致命，补发不了** |
 | 2 | ~~高德「AI头盔-安卓端」Key 改「发布版 SHA1」~~ ✅ **2026-09-23 负责人已改** | 负责人 | 第 1 项已完成，新证书 SHA1 `2E:36:B3:C2:11:88:82:8F:1B:E2:F1:AC:90:1E:34:12:3A:B4:29:D8` 已填入控制台「发布版安全码SHA1」；调试版保留 `5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25`（开发包继续可用）。当前地图走 JS API Key 不校验签名，不急 |
-| 3 | **高德商用授权决策** | 汤总 | 企业 Key 未购许可前只是「短期、少量测试」额度：买基础版 ¥5 万/年，或换腾讯/百度（地图层独立组件，约一周）。见 THIRD_PARTY.md §7 |
+| 3 | ~~高德商用授权决策~~ **负责人 2026-10-02 从上线清单拿掉** | 汤总 | 企业 Key 未购许可前只是「短期、少量测试」额度：买基础版 ¥5 万/年，或换腾讯/百度（地图层独立组件，约一周）。见 THIRD_PARTY.md §7 |
 | 4 | Apple 公司账号 → TestFlight / APNs / Critical Alerts | 负责人 | ✅ **账号 2026-09-23 生效**（有效期至 2027-09-23）。后续 7 条见 THIRD_PARTY §5「账号到位后清单」：Team ID 换入 app.json、注册 App ID + Push、APNs .p8 进极光、邀请 Wesley、App Store Connect 建 App、申请 Critical Alerts、个人证书退役 |
 | 5 | App 备案（腾讯云） | 负责人 | 安卓、iOS 各一条，包名 `com.lingyiweichuang.app`，前置已满足 |
 | 6 | **生产环境运维三件套** | B 线 | ① ✅ PostgreSQL 每日自动 `pg_dump` 到 COS（`deploy/backup.sh` + `backend/src/scripts/backup-upload.ts`；**2026-09-18 云端已部署并跑通：首份 13.24 MB 已进桶 `backups/`，crontab 每日 03:00 已加**；⚠️ 2026-09-22 发现定时任务 4 天未执行——crontab 日志写 `/var/log` 无权限、整条命令不跑，已改到 `/home/ubuntu/helmet-backup.log` 并手动补备份 17.40 MB；**2026-09-23 复查通过：19:00:01Z（北京 03:00）自动触发，上传 18.09 MB，桶内 3 份**）；② ✅ compose 全部服务 `logging: 20m × 5`（2026-09-18 云端已生效）；③ ✅ 对外 `/health` 拨测告警（**2026-09-22 已开通**：UptimeRobot 免费版，账号 zhongqilong@01weichuang.com，监控「dev 后端健康检查」HTTP/S 每 5 分钟、失败邮件告警；免费版编辑时不能改 Keyword 类型，但 `/health` 数据库断开返回 503，HTTP 监控即可发现；production 上线时加 `api.01weichuang.com` 一条） |
