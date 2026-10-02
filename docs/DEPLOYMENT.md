@@ -222,7 +222,7 @@ docker compose -f docker-compose.prod.yml exec -T postgres pg_restore -U helmet 
 | 8 | 备份 cron | §5 那一行 crontab(日志写 `/home/ubuntu/`,不要 `/var/log`);**用 crontab 里一模一样的整条命令**手动跑一次,`~/helmet-backup.log` 末行「备份完成」,COS 里 `backups/` 有新对象;次日再看一次日志确认定时触发 |
 | 9 | 拨测 | §5 对外拨测加 `api.01weichuang.com` 一条 |
 | 10 | 验收 | §4 全部 10 条 + §6 安全基线逐条打勾;App 正式包 `EXPO_PUBLIC_API_URL=https://api.01weichuang.com/api/v1` |
-| 11 | 上线后 | THIRD_PARTY §3 提醒:给 `helmet-cos` 子账号换新密钥(旧密钥曾进过聊天),换后 `deploy/.env` 更新并 `up -d` |
+| 11 | ~~上线后~~ | ~~给 `helmet-cos` 子账号换新密钥~~ → 负责人 2026-10-02 决定不再轮换(09-22 已换过一次),COS 与极光沿用现有密钥 |
 
 ## 9. 待硬件确认后:MQTT over TLS(8883)
 
