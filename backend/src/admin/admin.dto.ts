@@ -1,15 +1,12 @@
-import { Type } from 'class-transformer';
 import {
   IsIn,
-  IsInt,
   IsISO8601,
   IsOptional,
   IsString,
-  Max,
   MaxLength,
-  Min,
   MinLength,
 } from 'class-validator';
+import { PageQueryDto } from '../common/page-query.dto';
 
 export class AdminLoginDto {
   @IsString()
@@ -23,20 +20,7 @@ export class AdminLoginDto {
   password!: string;
 }
 
-export class AdminListQueryDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  page: number = 1;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  pageSize: number = 20;
-
+export class AdminListQueryDto extends PageQueryDto {
   @IsOptional()
   @IsString()
   @MaxLength(64)

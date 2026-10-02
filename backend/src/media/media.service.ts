@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { MediaUrlResponse } from '@helmet/shared';
+import { envPositiveInt } from '../common/env';
 import { BindingScopeService } from '../devices/binding-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -13,10 +14,8 @@ import {
 } from '../providers/storage.provider';
 
 /** 预签名 URL 时效（API.md §9 ✅ 定稿 10 分钟）；测试用短时效验证过期窗口 */
-const urlTtlSeconds = (): number => {
-  const n = Number(process.env.MEDIA_URL_TTL_SECONDS);
-  return Number.isInteger(n) && n > 0 ? n : 600;
-};
+const urlTtlSeconds = (): number =>
+  envPositiveInt('MEDIA_URL_TTL_SECONDS', 600);
 
 @Injectable()
 export class MediaService {

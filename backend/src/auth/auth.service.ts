@@ -9,7 +9,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { createHash, randomBytes } from 'node:crypto';
 import * as bcrypt from 'bcrypt';
-import { Prisma } from '../generated/prisma/client';
+import { isUniqueViolation } from '../common/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
 import { SmsCodeService, type SmsCodePurpose } from './sms-code.service';
 
@@ -43,10 +43,6 @@ const phoneTaken = (): ConflictException =>
     code: 'PHONE_ALREADY_REGISTERED',
     message: '该手机号已注册',
   });
-
-/** users.phone 唯一约束：并发的注册/换号「先查后写」会撞上它，按契约 409 而不是 500（审计 AUTH-03） */
-const isPhoneConflict = (err: unknown): boolean =>
-  err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
 
 @Injectable()
 export class AuthService {
@@ -99,7 +95,8 @@ export class AuthService {
         data: { phone, passwordHash, nickname: nickname ?? null },
       });
     } catch (err) {
-      if (isPhoneConflict(err)) throw phoneTaken();
+      // users.phone 唯一约束：并发的注册/换号「先查后写」会撞上它，按契约 409 而不是 500（审计 AUTH-03）
+      if (isUniqueViolation(err)) throw phoneTaken();
       throw err;
     }
     const tokens = await this.issueTokens(user.id);
@@ -221,7 +218,7 @@ export class AuthService {
         data: { phone: newPhone },
       });
     } catch (err) {
-      if (isPhoneConflict(err)) throw phoneTaken();
+      if (isUniqueViolation(err)) throw phoneTaken();
       throw err;
     }
     this.logger.log(`用户 ${userId} 已换绑手机号`);

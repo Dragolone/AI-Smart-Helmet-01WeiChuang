@@ -1,16 +1,10 @@
-import {
-  Body,
-  Controller,
-  HttpCode,
-  NotFoundException,
-  Post,
-  Req,
-} from '@nestjs/common';
+import { Body, Controller, HttpCode, Post, Req } from '@nestjs/common';
 import { ArrayMaxSize, ArrayMinSize, IsArray, Matches } from 'class-validator';
 import { BLE_RELAY_EVENT_TYPES } from '@helmet/shared';
 import type { AppRelayResponse } from '@helmet/shared';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
 import { AllowNul } from '../common/nul.guard';
+import { ensureDeviceOwned } from '../devices/device-access';
 import { PrismaService } from '../prisma/prisma.service';
 import { IngestService } from './ingest.service';
 
@@ -47,16 +41,7 @@ export class AppRelayController {
     @Body() dto: AppRelayDto,
   ): Promise<AppRelayResponse> {
     // 归属校验与 §4 同口径：只有设备当前绑定用户的 App 有资格替它中转
-    const device = await this.prisma.device.findUnique({
-      where: { deviceId: dto.deviceId },
-      select: { bindUserId: true },
-    });
-    if (!device || device.bindUserId !== req.user.userId) {
-      throw new NotFoundException({
-        code: 'DEVICE_NOT_FOUND',
-        message: '设备不存在或未绑定到当前用户',
-      });
-    }
+    await ensureDeviceOwned(this.prisma, req.user.userId, dto.deviceId);
 
     const counts: AppRelayResponse = { accepted: 0, duplicate: 0, invalid: 0 };
     // 逐条顺序入库：保持事件时序（位置轨迹/SOS 依赖先后关系），批量上限 100 控制时延

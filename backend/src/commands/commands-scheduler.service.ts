@@ -4,6 +4,7 @@ import {
   type OnModuleDestroy,
   type OnModuleInit,
 } from '@nestjs/common';
+import { errorMessage } from '../common/error-text';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   COMMAND_STATUS,
@@ -55,9 +56,7 @@ export class CommandsSchedulerService implements OnModuleInit, OnModuleDestroy {
         );
       }
     } catch (err) {
-      this.logger.error(
-        `命令扫描轮次失败（下一轮继续）：${err instanceof Error ? err.message : String(err)}`,
-      );
+      this.logger.error(`命令扫描轮次失败（下一轮继续）：${errorMessage(err)}`);
     } finally {
       this.running = false;
     }

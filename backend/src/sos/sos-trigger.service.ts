@@ -1,21 +1,20 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { LocationSnapshot } from '@helmet/shared';
+import { errorMessage, errorStack } from '../common/error-text';
+import { isUniqueViolation } from '../common/prisma-errors';
 import { latestPlausibleTime } from '../common/device-time';
-import { Prisma } from '../generated/prisma/client';
+import { sleep } from '../common/sleep';
 import type { ValidEnvelope } from '../ingest/envelope';
 import { PrismaService } from '../prisma/prisma.service';
 import { PUSH_PROVIDER, type PushProvider } from '../providers/push.provider';
 import { RealtimePushService } from '../realtime/realtime-push.service';
 import { SOS_STATUS, countdownMs } from './sos.constants';
+import { SosNotifierService } from './sos-notifier.service';
+import { toWireSos } from './sos-wire';
 
 /** 建单遇到数据库瞬断时的进程内重试（次数 × 起始间隔，指数退避）；耗尽后交给启动对账兜底 */
 const TRIGGER_RETRIES = 2;
 const TRIGGER_RETRY_BASE_MS = 200;
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
-import { SosNotifierService } from './sos-notifier.service';
-import { toWireSos } from './sos-wire';
 
 const isFiniteNumber = (v: unknown): v is number =>
   typeof v === 'number' && Number.isFinite(v);
@@ -86,7 +85,7 @@ export class SosTriggerService {
     } catch (err) {
       // raw 已落库、eventId 幂等会挡住重投，这里的失败只能靠调度器的对账（reconcileLostTriggers）补建
       this.logger.error(
-        `SOS 触发处理失败（raw 已留档，等待对账补建）event=${e.eventId} device=${e.deviceId}：${err instanceof Error ? err.stack : String(err)}`,
+        `SOS 触发处理失败（raw 已留档，等待对账补建）event=${e.eventId} device=${e.deviceId}：${errorStack(err)}`,
       );
     }
   }
@@ -109,7 +108,7 @@ export class SosTriggerService {
         if (attempt < TRIGGER_RETRIES) {
           const delay = TRIGGER_RETRY_BASE_MS * 2 ** attempt;
           this.logger.warn(
-            `SOS 建单失败（第 ${attempt + 1} 次），${delay}ms 后重试：${err instanceof Error ? err.message : String(err)}`,
+            `SOS 建单失败（第 ${attempt + 1} 次），${delay}ms 后重试：${errorMessage(err)}`,
           );
           await sleep(delay);
         }
@@ -169,14 +168,11 @@ export class SosTriggerService {
         );
       } catch (err) {
         this.logger.warn(
-          `SOS 创建 Push 失败（不影响状态机）：${err instanceof Error ? err.message : String(err)}`,
+          `SOS 创建 Push 失败（不影响状态机）：${errorMessage(err)}`,
         );
       }
     } catch (err) {
-      if (
-        err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2002'
-      ) {
+      if (isUniqueViolation(err)) {
         // 并发兜底：同 triggerEventId 重放，或 partial unique index（每设备每用户至多一个 pending）拦下并发建单
         const nowActive = await this.prisma.sosCase.findFirst({
           where: { deviceId: e.deviceId, userId, status: SOS_STATUS.pending },
@@ -236,7 +232,7 @@ export class SosTriggerService {
     } catch (err) {
       // 快照只是附加信息：副表查询失败绝不能阻塞建单（决策 #26③「都无则空快照照建单」，审计 SOS-01）
       this.logger.warn(
-        `SOS 位置快照查询失败，按空快照建单 device=${e.deviceId}：${err instanceof Error ? err.message : String(err)}`,
+        `SOS 位置快照查询失败，按空快照建单 device=${e.deviceId}：${errorMessage(err)}`,
       );
       return null;
     }

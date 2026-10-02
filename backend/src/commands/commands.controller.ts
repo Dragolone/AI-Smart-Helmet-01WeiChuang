@@ -10,18 +10,10 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
-import { Type } from 'class-transformer';
-import {
-  IsIn,
-  IsInt,
-  IsObject,
-  IsOptional,
-  IsString,
-  Max,
-  Min,
-} from 'class-validator';
+import { IsIn, IsObject, IsOptional, IsString } from 'class-validator';
 import type { RelayAckRequest } from '@helmet/shared';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
+import { PageQueryDto } from '../common/page-query.dto';
 import { CommandsService } from './commands.service';
 
 class PutSettingsDto {
@@ -52,21 +44,6 @@ class RelayAckDto {
   @IsOptional()
   @IsString()
   executedAt?: string;
-}
-
-class PageQueryDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  page: number = 1;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  pageSize: number = 20;
 }
 
 /** API.md §8：设置/命令挂设备资源下，命令详情按 commandId 查 */

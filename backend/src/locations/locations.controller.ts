@@ -1,7 +1,7 @@
 import { Controller, Get, Param, Query, Req } from '@nestjs/common';
-import { Type } from 'class-transformer';
-import { IsInt, IsISO8601, IsOptional, Max, Min } from 'class-validator';
+import { IsISO8601 } from 'class-validator';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
+import { PageQueryDto } from '../common/page-query.dto';
 import { DevicesService } from '../devices/devices.service';
 import { LocationsService } from './locations.service';
 
@@ -13,26 +13,13 @@ class RangeQueryDto {
   to!: string;
 }
 
-class LocationsQueryDto {
+class LocationsQueryDto extends PageQueryDto {
   // 时间范围必填（API.md §5）；范围上限与先后关系在服务层校验
   @IsISO8601({ strict: true })
   from!: string;
 
   @IsISO8601({ strict: true })
   to!: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  page: number = 1;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  pageSize: number = 20;
 }
 
 @Controller('devices/:deviceId/locations')
