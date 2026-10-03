@@ -216,12 +216,32 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 
 ### A 线当前进度与待办（2026-09-06，B 线整理；A 线直接按此推进，有疑问群里问）
 
+> **📣 给 A 线的通知（2026-10-03 下午，B 线）——云端后端今天更新了，请双端真机回归一遍**
+>
+> 今天后端合了一批改动（SOS 触发 / 通知重试 / 漏单对账、设备绑定限频、最新位置、电量曲线），**云端 dev 已更新到 `ca42e31`**。接口字段都没变，App 不用改代码，但这些我只跑了自动化和接口验证，**手机上的实际表现要你双端真机过一遍**。按 `docs/REGRESSION.md` 走，结果填回表里：
+>
+> 1. **SOS 主流程 4.1–4.5，Android 优先**——这五行 Android 列至今是空的，而今天改的正是 SOS 的触发与通知逻辑。iPhone 也重过一遍。
+> 2. **推送 4.6–4.8**：iPhone 的 APNs 10-01 已配好（见下方 10-01 通知），复测一直欠着，这次一起做。
+> 3. **新增 4.14 补传的旧事件**（决策 #52）：几小时前的摔倒现在才传上来，后端照常倒计时并通知，只在推送正文里加一句「约 3 小时前的事件，刚补传到」。看倒计时是否照常 60 秒、通知上这句话有没有被截断。App 退后台后在 Mac 上跑（把账号密码换成你登录的那个，设备要绑在这个账号下）：
+>    ```bash
+>    API=https://dev-api.01weichuang.com/api/v1
+>    TOKEN=$(curl -s -X POST $API/auth/login -H 'content-type: application/json' \
+>      -d '{"phone":"<你的测试账号>","password":"<密码>"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["accessToken"])')
+>    curl -s -X POST $API/ingest/app-relay -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+>      -d "{\"deviceId\":\"helmet_94173f\",\"envelopes\":[{\"schemaVersion\":1,\"eventId\":\"$(uuidgen | tr 'A-Z' 'a-z')\",\"deviceId\":\"helmet_94173f\",\"eventType\":\"possible_fall\",\"timestamp\":\"$(date -u -v-3H +%Y-%m-%dT%H:%M:%SZ)\",\"firmwareVersion\":\"1.0.0\",\"payload\":{\"confidence\":0.9}}]}"
+>    ```
+>    返回 `{"accepted":1,…}` 即注入成功。把 `-v-3H` 去掉就是一条刚发生的事件，推送里不应出现「补传」。
+> 4. **新增 2.6 绑定限频**（决策 #53）：绑定码连续输错，第 11 次起后端回 429。确认绑定页的提示看得懂、页面不卡死，一分钟后恢复。
+> 5. **顺带 2.1 / 3.1 / 5.2**：绑定、地图实时追踪、设置下发各点一遍，确认没被今天的改动带坏。
+>
+> 发现问题：像后端的（接口报错、状态不对）直接群里发我；App 侧的你自己判断。下面那条通知里的 11 个可疑点仍然等你看，其中前四条和 SOS 相关，可以和这次回归一起过。
+>
 > **📣 给 A 线的通知（2026-10-03，B 线）——App 多了 222 个测试；跑出 11 个可疑点等你看**
 >
 > 1. **PR #114 已合 main，只加了测试文件，App 代码一行没动。** `app/src/**/__tests__/edge-*.test.ts` 共 12 个文件，`npm test -w app` 从 291 例变成 513 例。拉完 main 跑一遍确认你本机也是绿的。
 > 2. **写测试时跑出来 11 个可疑点**，每条有文件行号和复现输入，在 PR #114 的描述里（汇总在 `docs/testing/2026-10-03/REPORT.md` §7）。前四条都在 SOS 上（`services/sos-sync.ts`、`services/sos-alert.ts`）：两台头盔同时有进行中 SOS 时重复弹倒计时页、锁屏通知只有一个槽位、迟到的 pending 覆盖已取消状态、清除通知的竞态。**这些我没改**，你判断哪些要修；新测试只钉了正确行为，修它们不会让测试变红。
 > 3. **后端这轮的改动 App 不用跟**：接口字段没变。两处行为说明进了 API.md——`locations/latest` 不再返回时钟跑到未来（超过 5 分钟）的点；relay-ack 的 `executedAt` 年份不在 1970–9999 时取服务器时间（原先是 500）。
-> 4. **可能要动 App 的一条在等负责人拍板**：PR #117 给 `POST /devices/bind` 加限频（同 IP 10 次每分钟，超了回 429 `RATE_LIMITED`）。绑定页现在走的 `toUserMessage` 已经认得这个错误码，合了也不用改。
+> 4. ~~可能要动 App 的一条在等负责人拍板~~ **已合（同日下午，决策 #53）**：PR #117 给 `POST /devices/bind` 加限频（同 IP 10 次每分钟，超了回 429 `RATE_LIMITED`）。绑定页现在走的 `toUserMessage` 已经认得这个错误码，不用改代码；真机上的提示效果见上方下午通知第 4 条。
 >
 > **📣 给 A 线的通知（2026-10-02，B 线）——上线前总清单出来了，你的部分在 `plan/LAUNCH_CHECKLIST.md` 第三节，按顺序做**
 >
