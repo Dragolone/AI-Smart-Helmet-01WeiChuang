@@ -23,3 +23,13 @@ export function executeSetConfig(params: unknown): SetConfigOutcome {
   }
   return { result: 'success' };
 }
+
+/**
+ * 命令的「头盔执行」：目前只有 set_config。其余类型头盔不认识，按手册回 ERR_INSTRUCTION——
+ * 没执行过的命令不能回执成功（设置下发铁律），哪怕后端现在只会下发 set_config。
+ */
+export function executeCommand(type: string, params: unknown): SetConfigOutcome {
+  return type === 'set_config'
+    ? executeSetConfig(params)
+    : { result: 'failed', errorCode: 'ERR_INSTRUCTION' };
+}

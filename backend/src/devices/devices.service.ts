@@ -180,6 +180,10 @@ export class DevicesService {
    * 分桶在数据库里做：心跳周期可设到 1 秒（DEVICE_SETTINGS.heartbeatPeriod），7 天窗口的原始行数没有上界。
    * 原先取回前 5000 行再在内存分桶，60s 心跳下 7 天就有 10080 行——截掉的恰好是最近的一半。
    * 时间参数以 ISO 文本 + `::timestamp` 传入：列是不带时区的 UTC 时间，这样比较不受数据库会话时区影响。
+   *
+   * 电量只认 0–100 的整数，其余按缺失跳过——与设备快照（normalizeDeviceStatus）同口径。
+   * 原先是截断取整：固件拿 255 表示「未知」时曲线上会画出一个 100%。
+   * 判断写在 CASE 里：AND 两侧的求值顺序数据库不保证，直接转 numeric 遇到非数字会报错。
    */
   async batteryHistory(userId: string, deviceId: string, hours: number) {
     await this.getOwned(userId, deviceId);
@@ -212,7 +216,10 @@ export class DevicesService {
           AND event_type = 'device_status'
           AND "timestamp" >= ${window.from}::timestamp
           AND "timestamp" <= ${window.to}::timestamp
-          AND jsonb_typeof(payload->'battery') = 'number'
+          AND CASE WHEN jsonb_typeof(payload->'battery') = 'number'
+                   THEN (payload->'battery')::numeric BETWEEN 0 AND 100
+                    AND (payload->'battery')::numeric = trunc((payload->'battery')::numeric)
+                   ELSE false END
           AND (${inScope})
       ) heartbeats
       ORDER BY bucket, ts_ms DESC`;
@@ -220,7 +227,7 @@ export class DevicesService {
       ...window,
       points: rows.map((r) => ({
         timestamp: new Date(r.ts_ms).toISOString(),
-        battery: Math.max(0, Math.min(100, Math.round(r.battery))),
+        battery: r.battery,
         charging: typeof r.charging === 'boolean' ? r.charging : null,
       })),
     };

@@ -2,7 +2,7 @@
 // 含命令下行订阅与回执（§7）——这是 4G 链路独有的双向能力，app-relay 链路暂无对应通道。
 import { connect, type MqttClient } from 'mqtt';
 import type { EventEnvelope, EventType } from '@helmet/shared';
-import { executeSetConfig } from './settings-exec.ts';
+import { executeCommand } from './settings-exec.ts';
 import type { EventKind, Log, Transport } from './transport.ts';
 
 export type CmdResult = 'success' | 'failed' | 'silent';
@@ -64,9 +64,7 @@ export function createMqttTransport(cfg: {
           const outcome =
             cmdResult === 'failed'
               ? { result: 'failed' as const, errorCode: 'MOCK_REJECTED' }
-              : cmd.type === 'set_config'
-                ? executeSetConfig(cmd.params)
-                : { result: 'success' as const };
+              : executeCommand(cmd.type, cmd.params);
           const ack = {
             commandId: cmd.commandId,
             ...outcome,

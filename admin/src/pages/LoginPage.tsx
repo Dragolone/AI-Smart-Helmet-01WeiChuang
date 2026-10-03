@@ -22,7 +22,8 @@ export default function LoginPage() {
       }),
     onSuccess: (data) => {
       saveSession(data.accessToken, data.admin.username)
-      navigate('/users', { replace: true })
+      // 概览页是后台首页（与 App.tsx 的 index 路由一致）
+      navigate('/overview', { replace: true })
     },
     onError: (err: unknown) => {
       // 凭证错误统一提示，不区分账号不存在与密码错误（与后端口径一致）；
@@ -37,7 +38,7 @@ export default function LoginPage() {
     },
   })
 
-  if (getToken()) return <Navigate to="/users" replace />
+  if (getToken()) return <Navigate to="/overview" replace />
 
   return (
     <div

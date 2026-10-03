@@ -13,7 +13,7 @@ import type {
   WsDeviceCommandData,
   WsMessage,
 } from '@helmet/shared';
-import { executeSetConfig } from './settings-exec.ts';
+import { executeCommand } from './settings-exec.ts';
 import type { EventKind, Log, Transport } from './transport.ts';
 
 const RELAY_SCOPE = new Set<string>(BLE_RELAY_EVENT_TYPES);
@@ -186,9 +186,7 @@ export function createRelayTransport(cfg: RelayConfig): Transport {
     const outcome =
       cfg.cmdResult === 'failed'
         ? { result: 'failed' as const, errorCode: 'MOCK_REJECTED' }
-        : cmd.type === 'set_config'
-          ? executeSetConfig(cmd.params)
-          : { result: 'success' as const };
+        : executeCommand(cmd.type, cmd.params);
     setTimeout(() => {
       void postAck(cmd.commandId, {
         stage: 'executed',
