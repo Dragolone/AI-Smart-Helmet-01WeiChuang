@@ -136,7 +136,7 @@ PR #114 给 App 加了 12 个测试文件 222 例，**只加测试，没改 App 
 | #116 | `raw_events` 索引（migration） | **等确认** |
 | #117 | 绑定限频（改 API.md） | **等确认** |
 
-云端 dev 环境更新到 `5abc722` 不需要跑 migration（#116 没合）；合了 #116 之后再更新才需要 `prisma migrate deploy`。
+云端 dev 环境照常 `git pull && docker compose -f docker-compose.prod.yml up -d --build` 更新即可；migration 在 backend 容器启动时自动应用，不需要手动执行。
 
 ## 9. 复跑
 

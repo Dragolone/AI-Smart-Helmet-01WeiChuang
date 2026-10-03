@@ -2,7 +2,10 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { LocationSnapshot } from '@helmet/shared';
 import { errorMessage, errorStack } from '../common/error-text';
 import { isUniqueViolation } from '../common/prisma-errors';
-import { latestPlausibleTime } from '../common/device-time';
+import {
+  CLOCK_SKEW_THRESHOLD_MS,
+  latestPlausibleTime,
+} from '../common/device-time';
 import { sleep } from '../common/sleep';
 import type { ValidEnvelope } from '../ingest/envelope';
 import { PrismaService } from '../prisma/prisma.service';
@@ -51,6 +54,28 @@ export function extractSosLocation(
     coordinateSystem: p.coordinateSystem,
     accuracy: isFiniteNumber(p.accuracy) && p.accuracy >= 0 ? p.accuracy : null,
   };
+}
+
+/** 头盔离线缓存的保留上限是 48 小时（DEVICE_PROTOCOL §6）；留一点余量，再早的时间戳只可能是头盔时钟不对 */
+const MAX_PLAUSIBLE_BACKFILL_MS = 72 * 3_600_000;
+
+/**
+ * 补传事件发生在多久之前（决策 #52：旧事件照常倒计时并通知，只在给本人的推送里说明，方便他判断要不要取消）。
+ * 不到时钟偏移阈值的不说（就是刚发生的）；超出离线缓存能保留的范围也不说——那是时钟错了，
+ * 说「9000 天前」只会诱导本人把一次真摔倒当成旧记录取消掉。
+ */
+export function describeEventAge(
+  eventAt: Date,
+  now: number = Date.now(),
+): string | null {
+  const ageMs = now - eventAt.getTime();
+  if (ageMs < CLOCK_SKEW_THRESHOLD_MS || ageMs > MAX_PLAUSIBLE_BACKFILL_MS) {
+    return null;
+  }
+  const minutes = Math.round(ageMs / 60_000);
+  return minutes < 90
+    ? `约 ${minutes} 分钟前`
+    : `约 ${Math.round(minutes / 60)} 小时前`;
 }
 
 /**
@@ -129,7 +154,7 @@ export class SosTriggerService {
       where: { deviceId: e.deviceId, userId, status: SOS_STATUS.pending },
     });
     if (active) {
-      await this.applyMergeRule(e, active.id);
+      await this.applyMergeRule(e, active);
       return;
     }
 
@@ -160,10 +185,13 @@ export class SosTriggerService {
       this.realtime.pushSosUpdate(userId, toWireSos(created));
       // 本人倒计时 Push 为尽力而为（App 被杀时的兜底面）；失败不重试——WS + REST active 是权威展示面
       try {
+        const action =
+          e.eventType === 'manual_sos' ? '触发手动求救' : '检测到疑似摔倒';
+        const age = describeEventAge(e.timestamp);
         await this.push.send(
           userId,
           'SOS 倒计时已开始',
-          `头盔 ${e.deviceId} ${e.eventType === 'manual_sos' ? '触发手动求救' : '检测到疑似摔倒'}，未取消将于 ${created.deadline.toISOString()} 通知紧急联系人`,
+          `头盔 ${e.deviceId} ${action}${age ? `（${age}的事件，刚补传到）` : ''}，未取消将于 ${created.deadline.toISOString()} 通知紧急联系人`,
           { sosId: created.id, deviceId: e.deviceId },
         );
       } catch (err) {
@@ -178,7 +206,7 @@ export class SosTriggerService {
           where: { deviceId: e.deviceId, userId, status: SOS_STATUS.pending },
         });
         if (nowActive) {
-          await this.applyMergeRule(e, nowActive.id);
+          await this.applyMergeRule(e, nowActive);
         } else {
           this.logger.debug(`SOS 重复触发已跳过：${e.eventId}`);
         }
@@ -190,8 +218,15 @@ export class SosTriggerService {
 
   private async applyMergeRule(
     e: ValidEnvelope,
-    activeSosId: string,
+    active: { id: string; triggerEventId: string },
   ): Promise<void> {
+    const activeSosId = active.id;
+    // 进行中的这一单就是本事件自己建的：同一事件被处理了第二遍（建单成功但响应丢失后的进程内重试、
+    // 对账与在途分发撞车）。它不是「倒计时中又来一条」——否则一条 manual_sos 会把自己的倒计时跳过去
+    if (active.triggerEventId === e.eventId) {
+      this.logger.debug(`SOS 重复触发已跳过：${e.eventId}`);
+      return;
+    }
     if (e.eventType === 'manual_sos') {
       this.logger.warn(
         `倒计时中收到设备 manual_sos（${e.eventId}），按 SOS Now 升级立即通知：${activeSosId}`,
