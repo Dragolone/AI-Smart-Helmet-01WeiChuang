@@ -103,7 +103,7 @@ Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / 
 
 绑定历史与可见范围（✅ 2026-09-10 负责人拍板，决策 #39）：每次绑定/解绑记一段区间（`device_bindings`）。§5 轨迹、§6 事件、§9 媒体只返回**当前用户在该设备上的绑定区间内**到达（服务端 `receivedAt`）的数据——换绑后新主看不到前主期间的数据；同一用户解绑再绑回同一台头盔，之前的记录仍然可见。§7 事故记录按建单时的 userId 固化，不受影响；Admin 全量可见。
 | GET | /devices/{deviceId}/status | 设备状态：`{ online, lastSeenAt, battery, charging?, signalLevel?, sleeping, firmwareVersion }` |
-| GET | /devices/{deviceId}/battery-history?hours=24 | 电量历史（✅ 2026-09-10）：`{ from, to, points: [{ timestamp, battery, charging }] }`。数据源=raw_events 的 `device_status` 心跳，按 **10 分钟桶取桶内最后一条**（24h ≤ 144 点）；`hours` 1–168 默认 24；仅本人设备（否则 404）。App 设备详情页据此画 24h 电量曲线（替代原大电量条）；**只返回本人绑定区间内（服务端 receivedAt）到达的心跳**（决策 #39 同口径，2026-09-14 审计 AUTH-06 补） |
+| GET | /devices/{deviceId}/battery-history?hours=24 | 电量历史（✅ 2026-09-10）：`{ from, to, points: [{ timestamp, battery, charging }] }`。数据源=raw_events 的 `device_status` 心跳，按 **10 分钟桶取桶内最后一条**（24h ≤ 144 点）；`battery` 不是 0–100 整数的心跳按缺失跳过（与设备快照同口径，2026-10-03——不再把 255 这类越界值截成 100% 画出来）；`hours` 1–168 默认 24；仅本人设备（否则 404）。App 设备详情页据此画 24h 电量曲线（替代原大电量条）；**只返回本人绑定区间内（服务端 receivedAt）到达的心跳**（决策 #39 同口径，2026-09-14 审计 AUTH-06 补） |
 
 device 对象补充字段（2026-08-17，TS 类型见 `@helmet/shared` DevicePublic）：`name`（用户自定义名，null 时 App 显示 deviceId）、`bindCode`（仅经归属校验的端点返回——本人可见，供详情页展示）。
 

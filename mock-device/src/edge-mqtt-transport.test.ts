@@ -106,10 +106,11 @@ describe('mqtt-transport', () => {
     broker.publish('helmet/helmet_cmd_ok/cmd', cmd('c_range_0001', { volume: 50, radarDistance: 31 }));
     broker.publish('helmet/helmet_cmd_ok/cmd', cmd('c_unknown_01', { beepVolume: 50 }));
     broker.publish('helmet/helmet_cmd_ok/cmd', cmd('c_empty_0001', {}));
+    broker.publish('helmet/helmet_cmd_ok/cmd', cmd('c_reboot_001', { volume: 50 }, 'reboot'));
     broker.publish('helmet/helmet_cmd_failed/cmd', cmd('c_forced_001', { volume: 50 }));
     broker.publish('helmet/helmet_cmd_silent/cmd', cmd('c_silent_001', { volume: 50 }));
 
-    await waitFor(() => acksOf('helmet_cmd_ok').length === 4 && acksOf('helmet_cmd_failed').length === 1, '五条回执');
+    await waitFor(() => acksOf('helmet_cmd_ok').length === 5 && acksOf('helmet_cmd_failed').length === 1, '六条回执');
     assert.ok(Date.now() - sentAt >= 450, '回执前有模拟执行耗时（≈500ms），不是收到即回');
 
     const byId = new Map(acksOf('helmet_cmd_ok').map((a) => [a.commandId, a]));
@@ -121,6 +122,9 @@ describe('mqtt-transport', () => {
     assert.equal(byId.get('c_range_0001')?.errorCode, 'ERR_PARAM_VALUE:radarDistance');
     assert.equal(byId.get('c_unknown_01')?.errorCode, 'UNSUPPORTED_SETTING:beepVolume');
     assert.equal(byId.get('c_empty_0001')?.errorCode, 'EMPTY_PARAMS');
+    // 不认识的命令类型：参数再合法也不能回执成功
+    assert.equal(byId.get('c_reboot_001')?.result, 'failed');
+    assert.equal(byId.get('c_reboot_001')?.errorCode, 'ERR_INSTRUCTION');
     assert.equal(broker.publishesTo('helmet/helmet_cmd_ok/cmd_ack').every((p) => p.qos === 1), true);
 
     assert.deepEqual(
