@@ -10,11 +10,16 @@ import {
   type SmsProvider,
 } from '../providers/sms.provider';
 import { RealtimePushService } from '../realtime/realtime-push.service';
-import type { SosCase, SosNotification } from '../generated/prisma/client';
+import type {
+  Prisma,
+  SosCase,
+  SosNotification,
+} from '../generated/prisma/client';
 import {
   NOTIFICATION_STATUS,
   SOS_STATUS,
   maxNotifyAttempts,
+  notifyDueAfterMs,
   notifyTimeoutMs,
 } from './sos.constants';
 import { toWireSos } from './sos-wire';
@@ -106,18 +111,30 @@ export class SosNotifierService {
   }
 
   /**
-   * 投递可重试的通知行（pending/failed 且 attempts < 上限；仅限已 notified 的 SOS）。
-   * 扫描任务每轮也会调用——首投失败或进程崩溃后由这里续投。
+   * 投递到点的通知行（pending/failed、attempts < 上限、且已过该次重试的等待；仅限已 notified 的 SOS）。
+   * 扫描任务每轮也会调用——首投失败或进程崩溃后由这里续投；重试按退避节奏（决策 #50），不是每轮都投。
    * attempts 先占位再发送（条件更新防重叠扫描双发）：宁可少发一次，不可无限重发。
    */
   async deliverPending(sosId?: string): Promise<void> {
+    const now = Date.now();
+    // 每个 attempts 取值一条分支：首投无条件到点，第 n 次重试要等创建后累计等待已过
+    const due: Prisma.SosNotificationWhereInput[] = Array.from(
+      { length: maxNotifyAttempts() },
+      (_, attempts) =>
+        attempts === 0
+          ? { attempts }
+          : {
+              attempts,
+              createdAt: { lte: new Date(now - notifyDueAfterMs(attempts)) },
+            },
+    );
     const rows = await this.prisma.sosNotification.findMany({
       where: {
         ...(sosId ? { sosId } : {}),
         status: {
           in: [NOTIFICATION_STATUS.pending, NOTIFICATION_STATUS.failed],
         },
-        attempts: { lt: maxNotifyAttempts() },
+        OR: due,
         sos: { status: SOS_STATUS.notified },
       },
       include: { sos: true },

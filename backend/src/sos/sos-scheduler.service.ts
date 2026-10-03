@@ -12,6 +12,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   SOS_STATUS,
   reconcileGraceMs,
+  reconcileIntervalMs,
   reconcileWindowMs,
   scanIntervalMs,
 } from './sos.constants';
@@ -35,8 +36,10 @@ const TRIGGER_TYPES = ['possible_fall', 'manual_sos'];
 export class SosSchedulerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SosSchedulerService.name);
   private timer: NodeJS.Timeout | null = null;
+  private reconcileTimer: NodeJS.Timeout | null = null;
   private finalizing = false;
   private delivering = false;
+  private reconciling = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -51,20 +54,43 @@ export class SosSchedulerService implements OnModuleInit, OnModuleDestroy {
     if (pending > 0) {
       this.logger.warn(`启动接管：${pending} 个进行中 SOS 重新纳入调度`);
     }
-    // 启动对账（审计 SOS-02）：上次进程在「raw 已落库、SOS 尚未建单」之间倒下的事件在这里补建。
-    // 只在启动做一次全表窗口扫描（raw_events 没有 received_at 索引，不适合每轮都扫）
-    void this.reconcileLostTriggers().catch((err: unknown) =>
-      this.logger.error(`启动对账失败（不影响调度）：${errorMessage(err)}`),
+    // 对账（审计 SOS-02，决策 #51）：「raw 已落库、SOS 尚未建单」的事件在这里补建。
+    // 启动时跑一次接住上次进程倒下时丢的；之后周期跑接住运行中丢的——建单前那次查询瞬时失败时，
+    // 重投会被 eventId 幂等挡掉，原先要等到下次重启才补得回来。
+    // 窗口扫描走 raw_events(received_at) 索引（2026-10-03 加），周期跑不贵
+    void this.runReconcile('启动');
+    this.reconcileTimer = setInterval(
+      () => void this.runReconcile('周期'),
+      reconcileIntervalMs(),
     );
+    this.reconcileTimer.unref();
     const interval = scanIntervalMs();
     this.timer = setInterval(() => void this.tick(), interval);
     // 不阻止进程退出：HTTP 服务本身保活，测试结束不被定时器拖住
     this.timer.unref();
-    this.logger.log(`SOS 扫描任务已启动（间隔 ${interval}ms）`);
+    this.logger.log(
+      `SOS 扫描任务已启动（间隔 ${interval}ms，对账间隔 ${reconcileIntervalMs()}ms）`,
+    );
   }
 
   onModuleDestroy(): void {
     if (this.timer) clearInterval(this.timer);
+    if (this.reconcileTimer) clearInterval(this.reconcileTimer);
+  }
+
+  /** 对账一轮：独立防重入（上一轮还没跑完就跳过），失败只记日志——不影响到期扫描与通知投递 */
+  private async runReconcile(trigger: string): Promise<void> {
+    if (this.reconciling) return;
+    this.reconciling = true;
+    try {
+      await this.reconcileLostTriggers();
+    } catch (err) {
+      this.logger.error(
+        `${trigger}对账失败（不影响调度，下一轮继续）：${errorMessage(err)}`,
+      );
+    } finally {
+      this.reconciling = false;
+    }
   }
 
   /** 一轮扫描：到期 pending 终态化 + 续投未完成通知。公开可调，测试直接驱动不等真实间隔。 */

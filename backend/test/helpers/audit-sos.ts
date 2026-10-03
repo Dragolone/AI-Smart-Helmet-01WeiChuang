@@ -54,6 +54,8 @@ export const applySosEnv = (env: SosEnv): void => {
   else process.env.SOS_COUNTDOWN_SECONDS = env.countdownSeconds;
   process.env.SOS_SCAN_INTERVAL_MS = env.scanIntervalMs;
   if (env.maxAttempts) process.env.SOS_NOTIFY_MAX_ATTEMPTS = env.maxAttempts;
+  // 这些套件用手动 tick 逐轮驱动重试，不等真实退避（退避节奏本身在 sos-reliability 套件里测）
+  process.env.SOS_NOTIFY_RETRY_DELAYS_SECONDS = '0';
 };
 
 export async function buildSosApp(
