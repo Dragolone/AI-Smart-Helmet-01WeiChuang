@@ -42,7 +42,9 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     let body: { code?: string; message?: string } = {}
     try {
-      body = (await res.json()) as typeof body
+      // 合法 JSON 不一定是对象：体为 null 时直接取 .code 会抛 TypeError，绕过下面的统一错误格式
+      const parsed: unknown = await res.json()
+      if (parsed !== null && typeof parsed === 'object') body = parsed as typeof body
     } catch {
       // 非 JSON 错误响应（如网关 502）走兜底
     }

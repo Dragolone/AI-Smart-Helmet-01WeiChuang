@@ -289,5 +289,7 @@ model RawEvent {
   clockSkew       Boolean  @default(false) @map("clock_skew")
 
   @@index([deviceId, timestamp])
+  // Admin 概览/全量事件列表与 SOS 对账都按接收时间查；没有它就是全表扫描
+  @@index([receivedAt])
   @@map("raw_events")
 }

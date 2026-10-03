@@ -238,6 +238,45 @@ describe('边缘情况补测 (e2e)', () => {
     });
   });
 
+  describe('电量历史：越界值', () => {
+    it('电量不是 0–100 的整数（255 / -1 / 55.5 / 字符串）按缺失跳过，不截成 100% 画出来；同桶取最后一条合法的', async () => {
+      const now = Date.now();
+      // receivedAt 取当前（在绑定区间内）；timestamp 每条错开 11 分钟，各占一个 10 分钟桶
+      const heartbeat = (minutesAgo: number, battery: unknown) => ({
+        eventId: `edge-batv-${run}-${minutesAgo}-${String(battery)}`,
+        deviceId,
+        eventType: 'device_status',
+        timestamp: new Date(now - minutesAgo * 60_000),
+        receivedAt: new Date(now),
+        schemaVersion: 1,
+        payload: { battery, charging: false } as object,
+        source: 'app_relay',
+      });
+      await prisma.rawEvent.createMany({
+        data: [
+          heartbeat(55, 255),
+          heartbeat(44, -1),
+          heartbeat(33, 55.5),
+          heartbeat(22, '80'),
+          // 同一个桶：先一条合法的 60，后一条越界的 255 → 该桶取 60
+          heartbeat(12, 60),
+          heartbeat(11, 255),
+          heartbeat(1, 100),
+        ],
+      });
+      const res = await request(http)
+        .get(`/api/v1/devices/${deviceId}/battery-history?hours=1`)
+        .set(auth(owner.token))
+        .expect(200);
+      const batteries = (
+        res.body.points as { battery: number; timestamp: string }[]
+      )
+        .filter((p) => now - new Date(p.timestamp).getTime() <= 56 * 60_000)
+        .map((p) => p.battery);
+      expect(batteries).toEqual([60, 100]);
+    });
+  });
+
   describe('查询时间极值：年份 0000（ISO 合法、数据库存不下）', () => {
     it('事件 / 轨迹 / 轨迹统计 / Admin 事件：一律 400 VALIDATION_FAILED，不得 500', async () => {
       const responses = await Promise.all([
