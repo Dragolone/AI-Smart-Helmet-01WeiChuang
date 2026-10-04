@@ -20,7 +20,8 @@
         ],
         "LSApplicationQueriesSchemes": [
           "iosamap"
-        ]
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       },
       "appleTeamId": "B3NHB45FS7"
     },

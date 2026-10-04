@@ -9,7 +9,7 @@ import { WebView } from "react-native-webview";
 
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
-import { legalUrl, type LegalDoc } from "@/constants/legal";
+import { legalUrl, parseLegalDoc, type LegalDoc } from "@/constants/legal";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
 
@@ -17,7 +17,7 @@ export default function LegalDocScreen() {
   const t = useT();
   const theme = useTheme();
   const params = useLocalSearchParams<{ doc?: string }>();
-  const doc: LegalDoc = params.doc === "terms" ? "terms" : "privacy";
+  const doc: LegalDoc = parseLegalDoc(params.doc);
   const url = legalUrl(doc);
   // 重试靠换 key 强制重建 WebView：onError 之后单纯 reload() 在 Android 上不稳
   const [attempt, setAttempt] = useState(0);
@@ -60,6 +60,12 @@ export default function LegalDocScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 },
+  center: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    padding: 24,
+  },
   errorText: { textAlign: "center" },
 });

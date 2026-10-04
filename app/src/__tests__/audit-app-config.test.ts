@@ -129,3 +129,9 @@ describe("app.json 推送接入（极光，决策 #10 / #48）", () => {
     }
   });
 });
+
+describe("app.json 上架合规声明", () => {
+  it("声明不使用非豁免加密（只走系统 HTTPS），否则每次上传 TestFlight 都要手动回答", () => {
+    expect(expo.ios?.infoPlist?.ITSAppUsesNonExemptEncryption).toBe(false);
+  });
+});

@@ -40,7 +40,7 @@ let deps: {
 
 beforeEach(() => {
   qc = new QueryClient();
-  presented = { current: null };
+  presented = { current: new Set<string>() };
   deps = {
     fetchActive: jest.fn<SosSyncDeps["fetchActive"]>(async () => ({
       sos: null,
@@ -92,6 +92,48 @@ describe("applySosUpdate（WS sos_update）", () => {
     applySosUpdate(qc, sos({ status: "notified" }), presented, deps);
     applySosUpdate(qc, sos({ sosId: "s2" }), presented, deps);
     expect(deps.openCountdown).toHaveBeenLastCalledWith("s2", "d1");
+  });
+});
+
+describe("10-03 评审疑点 1 / 3：多设备并发与乱序", () => {
+  it("两台头盔同时有进行中的单：各拉起一次；之后每次重连补拉都不再重弹", async () => {
+    const a = sos({ sosId: "sA", deviceId: "dA" });
+    const b = sos({ sosId: "sB", deviceId: "dB" });
+    deps.fetchActive.mockImplementation(async (id) => ({
+      sos: id === "dA" ? a : b,
+    }));
+    await resumePendingSos(qc, ["dA", "dB"], presented, deps);
+    expect(deps.openCountdown).toHaveBeenCalledTimes(2);
+    // 重连三次：只记「最近一单」时，这里每次都会把两页来回重弹
+    for (let i = 0; i < 3; i++) {
+      await resumePendingSos(qc, ["dA", "dB"], presented, deps, "重连补拉");
+    }
+    expect(deps.openCountdown).toHaveBeenCalledTimes(2);
+  });
+
+  it("WS 乱序：cancelled 之后又来一条迟到的 pending → 忽略，不回退、不重弹、不再排通知", () => {
+    applySosUpdate(qc, sos(), presented, deps);
+    applySosUpdate(qc, sos({ status: "cancelled" }), presented, deps);
+    deps.showLockScreenAlert.mockClear();
+    deps.openCountdown.mockClear();
+    applySosUpdate(qc, sos(), presented, deps); // 迟到的 pending
+    expect(qc.getQueryData<Sos>(["sos", "s1"])?.status).toBe("cancelled");
+    expect(
+      qc.getQueryData<ActiveSosResponse>(["sos-active", "d1"])?.sos,
+    ).toBeNull();
+    expect(deps.showLockScreenAlert).not.toHaveBeenCalled();
+    expect(deps.openCountdown).not.toHaveBeenCalled();
+  });
+
+  it("notified 之后迟到的 pending 同样忽略；但同设备的新一单照常处理", () => {
+    applySosUpdate(qc, sos(), presented, deps);
+    applySosUpdate(qc, sos({ status: "notified" }), presented, deps);
+    applySosUpdate(qc, sos(), presented, deps);
+    expect(qc.getQueryData<Sos>(["sos", "s1"])?.status).toBe("notified");
+    applySosUpdate(qc, sos({ sosId: "s2" }), presented, deps);
+    expect(
+      qc.getQueryData<ActiveSosResponse>(["sos-active", "d1"])?.sos?.sosId,
+    ).toBe("s2");
   });
 });
 

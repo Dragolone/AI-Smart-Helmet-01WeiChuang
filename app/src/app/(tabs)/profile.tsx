@@ -335,6 +335,19 @@ export default function ProfileScreen() {
               title={t("profile.terms")}
               onPress={() => router.push("/legal/terms")}
             />
+            {/* 两份清单：华为 / 小米隐私检测与 App 备案都要求 App 内可查（LAUNCH_CHECKLIST A-6） */}
+            <ListRow
+              compact
+              icon="list-outline"
+              title={t("profile.collection")}
+              onPress={() => router.push("/legal/collection")}
+            />
+            <ListRow
+              compact
+              icon="share-social-outline"
+              title={t("profile.sharing")}
+              onPress={() => router.push("/legal/sharing")}
+            />
             <ListRow
               compact
               icon="information-circle-outline"
@@ -369,63 +382,63 @@ export default function ProfileScreen() {
             onPress={() => setEditOpen(false)}
           >
             <ReAnimated.View entering={FadeInDown.duration(200)}>
-            <Tappable
-              feedback={[]}
-              style={[
-                styles.modalCard,
-                {
-                  backgroundColor: theme.backgroundElement,
-                  borderColor: theme.border,
-                },
-              ]}
-              onPress={() => undefined}
-            >
-              <ThemedText type="smallBold" style={{ fontSize: 20 }}>
-                {t("profile.edit")}
-              </ThemedText>
               <Tappable
-                style={styles.avatarPick}
-                onPress={() => void pickAvatar()}
+                feedback={[]}
+                style={[
+                  styles.modalCard,
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: theme.border,
+                  },
+                ]}
+                onPress={() => undefined}
               >
-                {avatarDraft ? (
-                  <Image
-                    source={{ uri: avatarDraft }}
-                    style={styles.avatarBig}
-                  />
-                ) : (
-                  <View
-                    style={[
-                      styles.avatarBig,
-                      styles.center,
-                      { backgroundColor: theme.backgroundSelected },
-                    ]}
-                  >
-                    <ThemedText
-                      type="display"
-                      style={{ fontSize: 26, lineHeight: 32 }}
-                    >
-                      {initial}
-                    </ThemedText>
-                  </View>
-                )}
-                <ThemedText type="small" themeColor="textSecondary">
-                  {t("profile.changeAvatar")}
+                <ThemedText type="smallBold" style={{ fontSize: 20 }}>
+                  {t("profile.edit")}
                 </ThemedText>
+                <Tappable
+                  style={styles.avatarPick}
+                  onPress={() => void pickAvatar()}
+                >
+                  {avatarDraft ? (
+                    <Image
+                      source={{ uri: avatarDraft }}
+                      style={styles.avatarBig}
+                    />
+                  ) : (
+                    <View
+                      style={[
+                        styles.avatarBig,
+                        styles.center,
+                        { backgroundColor: theme.backgroundSelected },
+                      ]}
+                    >
+                      <ThemedText
+                        type="display"
+                        style={{ fontSize: 26, lineHeight: 32 }}
+                      >
+                        {initial}
+                      </ThemedText>
+                    </View>
+                  )}
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {t("profile.changeAvatar")}
+                  </ThemedText>
+                </Tappable>
+                <FormInput
+                  label={t("profile.nickname")}
+                  value={nickDraft}
+                  onChangeText={setNickDraft}
+                  placeholder={t("profile.nicknamePlaceholder")}
+                  maxLength={20}
+                />
+                <PrimaryButton
+                  title={t("common.save")}
+                  onPress={() => void saveProfile()}
+                  loading={saving}
+                />
               </Tappable>
-              <FormInput
-                label={t("profile.nickname")}
-                value={nickDraft}
-                onChangeText={setNickDraft}
-                placeholder={t("profile.nicknamePlaceholder")}
-                maxLength={20}
-              />
-              <PrimaryButton
-                title={t("common.save")}
-                onPress={() => void saveProfile()}
-                loading={saving}
-              />
-            </Tappable>
-          </ReAnimated.View>
+            </ReAnimated.View>
           </Tappable>
         </Modal>
 
@@ -442,52 +455,52 @@ export default function ProfileScreen() {
             onPress={() => setThemeOpen(false)}
           >
             <ReAnimated.View entering={FadeInDown.duration(200)}>
-            <Tappable
-              feedback={[]}
-              style={[
-                styles.modalCard,
-                {
-                  backgroundColor: theme.backgroundElement,
-                  borderColor: theme.border,
-                },
-              ]}
-              onPress={() => undefined}
-            >
-              <ThemedText type="smallBold" style={{ fontSize: 20 }}>
-                {t("profile.chooseAppearance")}
-              </ThemedText>
-              <View>
-                {THEME_MODES.map((m, i) => (
-                  <Tappable
-                    key={m}
-                    feedback="fill"
-                    onPress={() => {
-                      void setThemeMode(m);
-                      setThemeOpen(false);
-                    }}
-                    style={[
-                      styles.langRow,
-                      i < THEME_MODES.length - 1 && {
-                        borderBottomWidth: StyleSheet.hairlineWidth,
-                        borderBottomColor: theme.border,
-                      },
-                    ]}
-                  >
-                    <ThemedText type="default" style={{ flex: 1 }}>
-                      {themeLabel(m)}
-                    </ThemedText>
-                    {m === themeMode && (
-                      <Ionicons
-                        name="checkmark"
-                        size={20}
-                        color={theme.brand}
-                      />
-                    )}
-                  </Tappable>
-                ))}
-              </View>
-            </Tappable>
-          </ReAnimated.View>
+              <Tappable
+                feedback={[]}
+                style={[
+                  styles.modalCard,
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: theme.border,
+                  },
+                ]}
+                onPress={() => undefined}
+              >
+                <ThemedText type="smallBold" style={{ fontSize: 20 }}>
+                  {t("profile.chooseAppearance")}
+                </ThemedText>
+                <View>
+                  {THEME_MODES.map((m, i) => (
+                    <Tappable
+                      key={m}
+                      feedback="fill"
+                      onPress={() => {
+                        void setThemeMode(m);
+                        setThemeOpen(false);
+                      }}
+                      style={[
+                        styles.langRow,
+                        i < THEME_MODES.length - 1 && {
+                          borderBottomWidth: StyleSheet.hairlineWidth,
+                          borderBottomColor: theme.border,
+                        },
+                      ]}
+                    >
+                      <ThemedText type="default" style={{ flex: 1 }}>
+                        {themeLabel(m)}
+                      </ThemedText>
+                      {m === themeMode && (
+                        <Ionicons
+                          name="checkmark"
+                          size={20}
+                          color={theme.brand}
+                        />
+                      )}
+                    </Tappable>
+                  ))}
+                </View>
+              </Tappable>
+            </ReAnimated.View>
           </Tappable>
         </Modal>
 
@@ -504,52 +517,52 @@ export default function ProfileScreen() {
             onPress={() => setLangOpen(false)}
           >
             <ReAnimated.View entering={FadeInDown.duration(200)}>
-            <Tappable
-              feedback={[]}
-              style={[
-                styles.modalCard,
-                {
-                  backgroundColor: theme.backgroundElement,
-                  borderColor: theme.border,
-                },
-              ]}
-              onPress={() => undefined}
-            >
-              <ThemedText type="smallBold" style={{ fontSize: 20 }}>
-                {t("profile.chooseLanguage")}
-              </ThemedText>
-              <View>
-                {LOCALES.map((loc, i) => (
-                  <Tappable
-                    key={loc}
-                    feedback="fill"
-                    onPress={() => {
-                      void setLocale(loc);
-                      setLangOpen(false);
-                    }}
-                    style={[
-                      styles.langRow,
-                      i < LOCALES.length - 1 && {
-                        borderBottomWidth: StyleSheet.hairlineWidth,
-                        borderBottomColor: theme.border,
-                      },
-                    ]}
-                  >
-                    <ThemedText type="default" style={{ flex: 1 }}>
-                      {LOCALE_NAMES[loc]}
-                    </ThemedText>
-                    {loc === locale && (
-                      <Ionicons
-                        name="checkmark"
-                        size={20}
-                        color={theme.brand}
-                      />
-                    )}
-                  </Tappable>
-                ))}
-              </View>
-            </Tappable>
-          </ReAnimated.View>
+              <Tappable
+                feedback={[]}
+                style={[
+                  styles.modalCard,
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: theme.border,
+                  },
+                ]}
+                onPress={() => undefined}
+              >
+                <ThemedText type="smallBold" style={{ fontSize: 20 }}>
+                  {t("profile.chooseLanguage")}
+                </ThemedText>
+                <View>
+                  {LOCALES.map((loc, i) => (
+                    <Tappable
+                      key={loc}
+                      feedback="fill"
+                      onPress={() => {
+                        void setLocale(loc);
+                        setLangOpen(false);
+                      }}
+                      style={[
+                        styles.langRow,
+                        i < LOCALES.length - 1 && {
+                          borderBottomWidth: StyleSheet.hairlineWidth,
+                          borderBottomColor: theme.border,
+                        },
+                      ]}
+                    >
+                      <ThemedText type="default" style={{ flex: 1 }}>
+                        {LOCALE_NAMES[loc]}
+                      </ThemedText>
+                      {loc === locale && (
+                        <Ionicons
+                          name="checkmark"
+                          size={20}
+                          color={theme.brand}
+                        />
+                      )}
+                    </Tappable>
+                  ))}
+                </View>
+              </Tappable>
+            </ReAnimated.View>
           </Tappable>
         </Modal>
       </SafeAreaView>

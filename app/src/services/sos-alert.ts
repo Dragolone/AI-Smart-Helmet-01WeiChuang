@@ -19,8 +19,11 @@ const ACTION_OPEN = "open";
 const REFRESH_AT = [30, 10] as const;
 
 let permissionAsked = false;
-let shownForSosId: string | null = null;
-let notificationIds: string[] = [];
+/**
+ * 每一单各自的通知：sosId → 已投 / 待触发的通知 id。原来只有一个槽位，第二单会把第一单顶掉，
+ * 第一单结束时 clear 找不到它，通知永远留在锁屏上（10-03 评审疑点 2）。
+ */
+const alerts = new Map<string, { ids: string[] }>();
 let responseSub: Notifications.EventSubscription | null = null;
 
 /** 登录后调用一次：申请通知权限、建 Android 高优先级通道、注册通知动作（拒绝也不阻塞链路） */
@@ -201,8 +204,12 @@ export async function showSosAlertIfBackground(
   deadline: string,
 ): Promise<void> {
   if (AppState.currentState === "active") return;
-  if (shownForSosId === sosId) return;
-  shownForSosId = sosId;
+  if (alerts.has(sosId)) return;
+  const entry = { ids: [] as string[] };
+  alerts.set(sosId, entry);
+  // 排通知要 await 好几次：期间若这单已被取消（clearSosAlert 把它从表里摘掉），
+  // 后面的一条都不能再排，刚排上的也要撤——否则会留下一条「还剩 30 秒」的孤儿提醒（疑点 4）
+  const alive = () => alerts.get(sosId) === entry;
   const total = remainingSeconds(deadline);
   const content = (seconds: number, sound: boolean) => ({
     title: translate("sosAlert.title"),
@@ -215,14 +222,27 @@ export async function showSosAlertIfBackground(
     data: { sosId, deviceId },
     ...(Platform.OS === "android" ? { channelId: CHANNEL_ID } : {}),
   });
+  /** 排一条；排完发现这单已被清掉就立刻撤回，返回是否还该继续 */
+  const schedule = async (
+    id: string,
+    request: Parameters<typeof Notifications.scheduleNotificationAsync>[0],
+  ): Promise<boolean> => {
+    entry.ids.push(id);
+    await Notifications.scheduleNotificationAsync(request);
+    if (alive()) return true;
+    await removeNotification(id);
+    return false;
+  };
   try {
     const baseId = `sos-${sosId}`;
-    notificationIds = [baseId];
-    await Notifications.scheduleNotificationAsync({
-      identifier: baseId,
-      content: content(total, true),
-      trigger: null,
-    });
+    if (
+      !(await schedule(baseId, {
+        identifier: baseId,
+        content: content(total, true),
+        trigger: null,
+      }))
+    )
+      return;
     // 倒计时刷新：iOS 本地通知不能原地改字，只能到点再投一次同 id（横幅会再闪一下，但不响铃）；
     // Android 同 id 直接原位更新。只刷两次，避免锁屏被刷屏。
     for (const at of REFRESH_AT) {
@@ -230,16 +250,18 @@ export async function showSosAlertIfBackground(
       if (delay < 3) continue;
       // 第二次用另一个 id：同 id 的待触发请求会互相覆盖
       const id = at === REFRESH_AT[0] ? baseId : `${baseId}-${at}`;
-      notificationIds.push(id);
-      await Notifications.scheduleNotificationAsync({
-        identifier: id,
-        content: content(at, false),
-        trigger: {
-          type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-          seconds: delay,
-          ...(Platform.OS === "android" ? { channelId: CHANNEL_ID } : {}),
-        },
-      });
+      if (
+        !(await schedule(id, {
+          identifier: id,
+          content: content(at, false),
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+            seconds: delay,
+            ...(Platform.OS === "android" ? { channelId: CHANNEL_ID } : {}),
+          },
+        }))
+      )
+        return;
     }
     devLog("SOS-ALERT", `锁屏通知已弹 ${sosId} 剩余 ${total}s`);
   } catch (e) {
@@ -247,22 +269,23 @@ export async function showSosAlertIfBackground(
   }
 }
 
+async function removeNotification(id: string): Promise<void> {
+  try {
+    await Notifications.cancelScheduledNotificationAsync(id);
+  } catch {
+    // 已触发的没有待取消项
+  }
+  try {
+    await Notifications.dismissNotificationAsync(id);
+  } catch {
+    // 通知可能已被用户划掉
+  }
+}
+
 /** SOS 不再 pending（取消/确认/已通知）→ 撤掉已投的通知、取消还没到点的刷新 */
 export async function clearSosAlert(sosId: string): Promise<void> {
-  if (shownForSosId !== sosId) return;
-  shownForSosId = null;
-  const ids = notificationIds;
-  notificationIds = [];
-  for (const id of ids) {
-    try {
-      await Notifications.cancelScheduledNotificationAsync(id);
-    } catch {
-      // 已触发的没有待取消项
-    }
-    try {
-      await Notifications.dismissNotificationAsync(id);
-    } catch {
-      // 通知可能已被用户划掉
-    }
-  }
+  const entry = alerts.get(sosId);
+  if (!entry) return;
+  alerts.delete(sosId); // 先摘表：还在排通知的 show 循环看到后会自己停下并撤回
+  for (const id of [...entry.ids]) await removeNotification(id);
 }

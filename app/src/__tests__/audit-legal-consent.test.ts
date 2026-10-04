@@ -11,7 +11,12 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "@jest/globals";
 
-import { legalOrigin, legalUrl } from "../constants/legal";
+import {
+  LEGAL_DOCS,
+  legalOrigin,
+  legalUrl,
+  parseLegalDoc,
+} from "../constants/legal";
 
 const read = (p: string) => readFileSync(join(__dirname, "..", p), "utf8");
 
@@ -69,5 +74,31 @@ describe("法律文档单一来源", () => {
   it("API base 配坏时返回空串而不是抛异常", () => {
     expect(legalOrigin("这不是个 URL")).toBe("");
     expect(legalUrl("privacy", "")).toBe("");
+  });
+});
+
+describe("两份清单入口（LAUNCH_CHECKLIST A-6）", () => {
+  it("四份文档都有地址；路由参数认不出时回隐私政策", () => {
+    expect([...LEGAL_DOCS]).toEqual([
+      "privacy",
+      "terms",
+      "collection",
+      "sharing",
+    ]);
+    expect(legalUrl("collection", "https://api.01weichuang.com/api/v1")).toBe(
+      "https://api.01weichuang.com/legal/collection",
+    );
+    expect(parseLegalDoc("sharing")).toBe("sharing");
+    expect(parseLegalDoc("../../etc/passwd")).toBe("privacy");
+    expect(parseLegalDoc(undefined)).toBe("privacy");
+  });
+
+  it("「我的」页有两份清单的入口，三语都有文案", () => {
+    const profile = read("app/(tabs)/profile.tsx");
+    expect(profile).toContain('router.push("/legal/collection")');
+    expect(profile).toContain('router.push("/legal/sharing")');
+    const dict = read("i18n/messages/legal.ts");
+    expect(dict.match(/"legal\.collection\.title"/g)).toHaveLength(3);
+    expect(dict.match(/"legal\.sharing\.title"/g)).toHaveLength(3);
   });
 });

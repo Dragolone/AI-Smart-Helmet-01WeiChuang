@@ -7,6 +7,8 @@ export const legal = {
   "zh-CN": {
     "legal.privacy.title": "隐私政策",
     "legal.terms.title": "用户服务协议",
+    "legal.collection.title": "个人信息收集清单",
+    "legal.sharing.title": "第三方信息共享清单",
     "legal.loadError": "文档打不开，请检查网络后重试。",
     "legal.retry": "重试",
     "legal.openInBrowser": "用浏览器打开",
@@ -14,6 +16,8 @@ export const legal = {
   "zh-TW": {
     "legal.privacy.title": "隱私政策",
     "legal.terms.title": "使用者服務協議",
+    "legal.collection.title": "個人資訊收集清單",
+    "legal.sharing.title": "第三方資訊共享清單",
     "legal.loadError": "文件開不了，請檢查網路後重試。",
     "legal.retry": "重試",
     "legal.openInBrowser": "用瀏覽器開啟",
@@ -21,7 +25,10 @@ export const legal = {
   en: {
     "legal.privacy.title": "Privacy Policy",
     "legal.terms.title": "Terms of Service",
-    "legal.loadError": "Couldn't load the document. Check your connection and try again.",
+    "legal.collection.title": "Personal Data We Collect",
+    "legal.sharing.title": "Third-Party Data Sharing",
+    "legal.loadError":
+      "Couldn't load the document. Check your connection and try again.",
     "legal.retry": "Retry",
     "legal.openInBrowser": "Open in browser",
   },
