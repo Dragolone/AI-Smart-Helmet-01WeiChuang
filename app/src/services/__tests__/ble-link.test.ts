@@ -630,7 +630,7 @@ describe("2026-10-05 评审：扫描兜底必须回得来", () => {
     expect(mockScans).toEqual([FEE0, null, FEE0, null]);
   });
 
-  it("全量扫描中退后台 / 锁屏：立刻换回过滤扫描（后台只投递带服务 UUID 过滤的结果，不换就永远连不上）", async () => {
+  it("iOS · 全量扫描中退后台 / 锁屏：立刻换回过滤扫描（后台只投递带服务 UUID 过滤的结果，不换就永远连不上）", async () => {
     await start();
     await jest.advanceTimersByTimeAsync(20_000);
     expect(mockScans.at(-1)).toBeNull();
@@ -669,7 +669,30 @@ describe("2026-10-05 评审：扫描兜底必须回得来", () => {
     expect(mockScans).toEqual([FEE0, FEE0, null]);
   });
 
-  it("后台时过滤扫描 20 s 无命中：不切全量；回到前台重开一轮，兜底重新计时", async () => {
+  it("Android · 后台也要两种扫描交替：华为 P30 上过滤扫描扫不到仿真头盔，只做过滤的话退后台后永远连不上", async () => {
+    override(Platform, "OS", "android");
+    override(Platform, "Version", 29);
+    const { PermissionsAndroid } =
+      require("react-native") as typeof import("react-native");
+    jest
+      .spyOn(PermissionsAndroid, "request")
+      .mockResolvedValue(PermissionsAndroid.RESULTS.GRANTED);
+    await start();
+    await jest.advanceTimersByTimeAsync(20_000);
+    expect(mockScans).toEqual([FEE0, null]);
+    // 全量扫描中退后台：先从过滤重开一轮（息屏后全量会被系统暂停，定时器随后可能被冻住，不能冻在全量上）
+    override(AppState, "currentState", "background");
+    appStateCb?.("background");
+    await jest.advanceTimersByTimeAsync(0);
+    expect(mockScans).toEqual([FEE0, null, FEE0]);
+    // 之后在后台照常交替
+    await jest.advanceTimersByTimeAsync(20_000);
+    expect(mockScans).toEqual([FEE0, null, FEE0, null]);
+    await jest.advanceTimersByTimeAsync(20_000);
+    expect(mockScans).toEqual([FEE0, null, FEE0, null, FEE0]);
+  });
+
+  it("iOS · 后台时过滤扫描 20 s 无命中：不切全量；回到前台重开一轮，兜底重新计时", async () => {
     override(AppState, "currentState", "background");
     await start();
     await jest.advanceTimersByTimeAsync(60_000);

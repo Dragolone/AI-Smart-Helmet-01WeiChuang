@@ -413,15 +413,24 @@ function stopScanRound(): void {
 }
 
 /**
- * 前后台切换时把扫描拉回该有的模式（2026-10-05 评审）：
- * 全量扫描只在前台有意义——iOS 后台只投递带服务 UUID 过滤的扫描结果（2026-09-16 真机结论），
- * Android 息屏同样暂停无过滤扫描。原来过滤扫描 20 s 无命中切到全量后再也回不来：
+ * 不在前台时能不能做全量扫描。两端的真机结论相反（DEVELOPMENT.md 平台限制清单 2026-09-16 两行）：
+ *   - iOS：后台只投递带服务 UUID 过滤的扫描结果，全量扫描锁屏即停——后台切过去等于停扫；
+ *   - Android：按 FEE0 过滤在部分机型 / 广播包组合上匹配不上（华为 P30 对仿真头盔 20 s 扫不到，
+ *     全量 6 s 命中），后台也必须轮到全量，否则这类手机退后台后永远连不上；息屏时系统会暂停全量扫描，
+ *     那一轮白扫，下一轮过滤接上。
+ */
+const unfilteredAllowedNow = (): boolean =>
+  Platform.OS !== "ios" || AppState.currentState === "active";
+
+/**
+ * 前后台切换时把扫描拉回该有的模式（2026-10-05 评审）。原来过滤扫描 20 s 无命中切到全量后再也回不来：
  * 头盔没开机时 App 在前台多待一会儿，之后锁屏放口袋，到车边给头盔上电也连不上，摔倒只进 Flash。
+ * 离开前台时若正在全量扫描，立刻从过滤扫描重开一轮（iOS 后台只能过滤；Android 息屏后全量被系统暂停，
+ * 而 JS 定时器随后可能被冻住——不能冻在全量那一轮上）；回到前台也重开一轮，给兜底重新计时。
  */
 function onAppStateForScan(state: string): void {
   if (!running || !scanning) return;
-  if (state !== "active" && !unfiltered) return; // 后台 + 过滤扫描：正是该有的样子
-  // 离开前台且在全量扫描 → 换回过滤；回到前台 → 重开一轮（重新给全量兜底计时）
+  if (state !== "active" && !unfiltered) return; // 已经是过滤扫描：不打断
   stopScanRound();
   unfiltered = false;
   void ensureScanning();
@@ -478,12 +487,12 @@ async function ensureScanning(): Promise<void> {
   const seen = new Set<string>();
   let hit = false;
   // 过滤扫描 20 s 无一命中 → 下一轮改为全量扫描按名匹配（部分机型/广播包不带 FEE0 时的兜底）；
-  // 全量扫描同样只扫一轮，无命中就回到过滤扫描，两种交替。全量只在前台做——后台不投递结果
+  // 全量扫描同样只扫一轮，无命中就回到过滤扫描，两种交替。iOS 不在前台时不切全量（见 unfilteredAllowedNow）
   if (scanFallbackTimer) clearTimeout(scanFallbackTimer);
   const fallbackTimer = setTimeout(() => {
     scanFallbackTimer = null;
     if (!scanning || hit) return;
-    if (!unfiltered && AppState.currentState !== "active") return; // 后台：保持过滤扫描一直扫
+    if (!unfiltered && !unfilteredAllowedNow()) return; // iOS 后台：保持过滤扫描一直扫
     log(
       unfiltered
         ? "全量扫描 20 s 无命中，回到过滤扫描"
