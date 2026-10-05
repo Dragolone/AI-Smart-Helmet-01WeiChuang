@@ -216,6 +216,23 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 
 ### A 线当前进度与待办（2026-09-06，B 线整理；A 线直接按此推进，有疑问群里问）
 
+> **📣 给 A 线的通知（2026-10-05 深夜，B 线）——App 一个缓存缺陷 + 几处无效重画，B 线顺手改了；另有几条留给你**
+>
+> 负责人让 B 线把全仓能安全优化的地方过一遍。App 这边改了下面几处（PR `fix/app-events-cache-and-rerenders`），都不动原生、不动依赖：
+>
+> - 🔴 **事件页列表会在「每台 5 条」和「每台 50 条」之间跳**：安全页和事件页「全部」筛选共用 `["events", id, type]` 这个缓存键，一个每台取 5 条、一个取 50 条，各自 30 秒轮询互相覆盖。现在键和请求参数由 `api/events.ts` 的 `eventsListQuery()` 一处生成，条数进键。实时通道按 `["events"]` 前缀失效，不受影响。**下次回归顺带看一眼：从安全页进事件页，停 1 分钟，列表条数不该变少。**
+> - **设备详情页每来一帧 BLE 就整页重画两次**：原来订阅整条 `links[deviceId]`（`lastFrameAt` / `eventsReceived` 每帧都变），改成只订阅用到的 `phase` 和 `firmwareVersion`，显示内容不变。
+> - **对讲在房间里每 300 ms 整页重画**：音量回调只在「谁过了发言阈值」有变化时才换状态（`services/voice-volume.ts`），指示环表现不变。
+> - 删了 Expo 模板遗留的 3 个没人引用的组件和 9 张图、14 个没人用的文案 key（三种语言）。`sosAlert.body` 现在有人用，没删。
+>
+> **看到但没动、留给你判断的**（都需要真机或会改行为）：
+>
+> 1. `device/[deviceId].tsx` 的「显示绑定码」：连点时前一个 10 秒定时器会提前把码收起（定时器没清）。
+> 2. `(tabs)/intercom.tsx` 的 8 秒进房兜底定时器进房成功 / 退房后都不清，8 秒内再次进房可能误报「进入超时」。
+> 3. 短信重发倒计时在注册 / 找回密码 / 换手机号三页各写了一份，`RESEND_SECONDS`、`PHONE_PATTERN` 也各三份；API 地址兜底写了三份（`api/client.ts`、`api/realtime.ts`、`constants/legal.ts`）。
+> 4. `ble-relay.ts:55 / :70` 两条 console 没加 `__DEV__` 门控；`_layout.tsx` 里那行 `LogBox.ignoreLogs` 注明「公司账号恢复正式签名后删除」，条件 09-23 已满足。
+> 5. `packages/shared` 有三条注释过时（`MediaRef`「媒体模块落地前恒为空」、`AdminDeviceDetail.settings`「仅 success 回执写入」、`DeviceCommand.params`「待硬件定稿」），公共文件，下次一起改。
+>
 > **📣 给 A 线的通知（2026-10-05 晚，B 线）——PR #114 剩下的七个可疑点（5–11）B 线替你修了，#102 的冲突也解了**
 >
 > - **七条都在 `fix/app-audit-points-5-11` 这个 PR 里**，负责人同意由 B 线代修（你那边额度紧）。只动了 7 个文件：`stores/auth-store.ts`、`api/client.ts`、`api/realtime.ts`、`api/error-messages.ts`、`i18n/format.ts`、`services/ble/describe.ts`、`services/sos-alert.ts`，每处几行，逐条说明在 `docs/testing/2026-10-03/REPORT.md` 的「B 线处理」。你本地如果正好改着这几个文件，拉的时候留意一下。

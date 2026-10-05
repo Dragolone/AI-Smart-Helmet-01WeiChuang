@@ -28,7 +28,7 @@ import type { EventListItem } from "@helmet/shared";
 import { contactsApi } from "@/api/contacts";
 import { devicesApi } from "@/api/devices";
 import { toUserMessage } from "@/api/error-messages";
-import { eventsApi } from "@/api/events";
+import { eventsListQuery } from "@/api/events";
 import { SAFETY_EVENT_TYPE_PARAM } from "@/constants/event-types";
 import { relayApi } from "@/api/relay";
 import { sosApi } from "@/api/sos";
@@ -241,9 +241,7 @@ export default function SafetyScreen() {
 
   const events = useQueries({
     queries: deviceIds.map((id) => ({
-      queryKey: ["events", id, SAFETY_EVENT_TYPE_PARAM],
-      queryFn: () =>
-        eventsApi.list(id, { type: SAFETY_EVENT_TYPE_PARAM, pageSize: 5 }),
+      ...eventsListQuery(id, { type: SAFETY_EVENT_TYPE_PARAM, pageSize: 5 }),
       refetchInterval: 30_000,
     })),
   });
