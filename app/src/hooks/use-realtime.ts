@@ -1,4 +1,6 @@
-// 实时推送 → react-query 缓存：登录期间常驻挂载（(tabs) 布局）。
+// 实时推送 → react-query 缓存：登录期间常驻挂载。挂在根布局、错误边界之外（app/_layout.tsx 的 RealtimeBridge）：
+// 原来挂在 (tabs) 布局里，根栈上一旦多出第二个 (tabs)（扫码绑定成功后的跳转就会）或某一页渲染崩了，
+// 卸载时的清理会把 WS、BLE 中转、上行队列、推送别名一起停掉，而用户仍在登录态（2026-10-05 评审）。
 // WS 只负责"更快"；已有的 REST 轮询保持不变作为可靠性兜底（API.md §11）。
 import { useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
@@ -26,6 +28,12 @@ import { devLog } from "@/services/dev-log";
 import { setPushArrivalHandler, startPush, stopPush } from "@/services/push";
 import { handleDeviceCommand } from "@/services/ble-relay";
 import { startRelayUplink, stopRelayUplink } from "@/services/ble-relay-uplink";
+import {
+  liveTargets,
+  loadCachedTargets,
+  loadWithRetry,
+  saveCachedTargets,
+} from "@/services/ble-targets";
 import {
   clearSosAlert,
   ensureSosAlertPermission,
@@ -61,7 +69,10 @@ export function useRealtimeUpdates(): void {
     });
     // BLE 上行中转队列与登录态同生命周期(决策 #35:BLE 是唯一真机数据链路)；按账号分区，换账号不混用
     startRelayUplink(useAuthStore.getState().user?.id ?? undefined);
-    void ensureSosAlertPermission();
+    let cancelled = false;
+    // 通知权限的系统框要先有结果，再去要蓝牙权限：Android 一次只允许一个权限请求，两路并发时后到的
+    // 被立即取消，蓝牙权限框不出现、链路本次进程起不来（Android 13+ 全新安装首次登录，2026-10-05 评审）
+    const permissionReady = ensureSosAlertPermission();
     // 远程推送（极光）：alias = 用户 ID；内部会等隐私政策同意后才初始化 SDK。
     // 钥匙串里只有 token、档案没落上盘时，user 要等 /users/me 回来才有——那时再补，不能整个会话都不设别名
     let pushStarted = false;
@@ -73,11 +84,18 @@ export function useRealtimeUpdates(): void {
     };
     ensurePush();
     const unsubscribeUser = useAuthStore.subscribe(ensurePush);
-    // BLE 近场链路：目标 = 已绑定设备；绑定/解绑后随 ['devices'] 缓存变化同步目标
-    const bleTargetsOf = () =>
-      (queryClient.getQueryData<DevicePublic[]>(["devices"]) ?? []).map(
-        (d) => d.deviceId,
-      );
+    // BLE 近场链路：目标 = 已绑定设备；绑定/解绑后随 ['devices'] 缓存变化同步目标。
+    // 列表还没拉到（或拉失败）时用上次存下的那份，见 services/ble-targets.ts
+    let known: string[] = [];
+    const bleTargetsOf = () => liveTargets(queryClient) ?? known;
+    const cachedReady = loadCachedTargets(
+      useAuthStore.getState().user?.id,
+    ).then((ids) => {
+      if (!cancelled && liveTargets(queryClient) === null) known = ids;
+    });
+    void Promise.all([permissionReady, cachedReady]).then(() => {
+      if (!cancelled) void startBleLink(bleTargetsOf());
+    });
     // SOS 同步的判断逻辑在 services/sos-sync.ts（纯函数 + 注入副作用，有单测）；这里只接线
     const sosDeps: SosSyncDeps = {
       fetchActive: (id) => sosApi.active(id),
@@ -102,22 +120,23 @@ export function useRealtimeUpdates(): void {
           ),
       ),
     );
-    void queryClient
-      .fetchQuery({
+    // 设备列表：拉失败就退避重试到成功为止（后台也在跑，不靠首页轮询）；第一次尝试结束后做冷启动补拉
+    const devicesLoad = loadWithRetry(() =>
+      queryClient.fetchQuery({
         queryKey: ["devices"],
         queryFn: devicesApi.list,
         staleTime: 10_000,
-      })
-      .catch(() => undefined)
-      .then(() => {
-        startBleLink(bleTargetsOf());
-        void resumePendingSos(
-          queryClient,
-          bleTargetsOf(),
-          presentedSosId,
-          sosDeps,
-        );
-      });
+      }),
+    );
+    void Promise.all([devicesLoad.firstAttempt, cachedReady]).then(() => {
+      if (cancelled) return;
+      void resumePendingSos(
+        queryClient,
+        bleTargetsOf(),
+        presentedSosId,
+        sosDeps,
+      );
+    });
     // 远程 SOS 推送到达 → 以 REST 为准补拉一次（前台 + WS 没连上时唯一能把倒计时页拉起来的路径）
     setPushArrivalHandler((extras) => {
       void resumePendingSos(
@@ -135,7 +154,12 @@ export function useRealtimeUpdates(): void {
     });
     const unsubscribeCache = queryClient.getQueryCache().subscribe((event) => {
       if (event.query.queryKey[0] === "devices" && event.type === "updated") {
-        setBleTargets(bleTargetsOf());
+        // 没有数据（拉取失败）≠ 一台都没绑：这时不动目标，否则会把连着的头盔当成已解绑断开
+        const live = liveTargets(queryClient);
+        if (live === null) return;
+        known = live;
+        setBleTargets(live);
+        void saveCachedTargets(useAuthStore.getState().user?.id, live);
       }
     });
 
@@ -213,6 +237,8 @@ export function useRealtimeUpdates(): void {
     });
 
     return () => {
+      cancelled = true;
+      devicesLoad.cancel();
       unsubscribe();
       unsubscribeState();
       unsubscribeUser();

@@ -8,6 +8,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { ToastHost } from "@/components/toast";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useRealtimeUpdates } from "@/hooks/use-realtime";
 import { useLocaleStore, useT } from "@/i18n";
 import { AppErrorBoundary } from "@/components/app-error-boundary";
 import { ConnectionBanner } from "@/components/connection-banner";
@@ -146,6 +147,15 @@ function RootNavigator() {
   );
 }
 
+/**
+ * 登录期间常驻的实时通道 / BLE 中转 / 推送（内部按登录态自己起停）。
+ * 独立成一个不渲染任何东西的组件、放在错误边界之外：页面渲染崩溃或导航栈异常都不该让保命链路停掉。
+ */
+function RealtimeBridge() {
+  useRealtimeUpdates();
+  return null;
+}
+
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const hydrated = useAuthStore((s) => s.hydrated);
@@ -174,6 +184,8 @@ export default function RootLayout() {
         >
           <AnimatedSplashOverlay />
           {/* SecureStore 恢复完成前不挂路由，避免登录态闪变；空白由 SplashOverlay 兜住 */}
+          {/* 语言恢复完再起：通知通道名、前台服务文案都要翻译 */}
+          {hydrated && localeHydrated && themeHydrated && <RealtimeBridge />}
           {hydrated && localeHydrated && themeHydrated && (
             <AppErrorBoundary scheme={colorScheme}>
               <RootNavigator />

@@ -274,6 +274,30 @@ describe("sos-alert", () => {
       expect(mockSetCategory).toHaveBeenCalledTimes(1);
     });
 
+    it("并发调用拿到同一次初始化：调用方（蓝牙链路）要等系统权限框有结果才能去要别的权限", async () => {
+      mockGetPerms.mockResolvedValue({ granted: false });
+      let answer!: () => void;
+      mockRequestPerms.mockImplementationOnce(
+        () =>
+          new Promise<{ granted: boolean }>(
+            (r) => (answer = () => r({ granted: true })),
+          ),
+      );
+      const m = load();
+      const first = m.ensureSosAlertPermission();
+      const second = m.ensureSosAlertPermission();
+      let secondDone = false;
+      void second.then(() => (secondDone = true));
+      for (let i = 0; i < 20; i += 1) await Promise.resolve();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+      expect(secondDone).toBe(false); // 系统框还开着，第二个调用方不能先走
+      answer();
+      await first;
+      await second;
+      expect(secondDone).toBe(true);
+      expect(mockSetCategory).toHaveBeenCalledTimes(1);
+    });
+
     it("Android：建高优先级通道", async () => {
       override(Platform, "OS", "android");
       const m = load();

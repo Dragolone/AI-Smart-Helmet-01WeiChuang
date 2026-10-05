@@ -40,8 +40,11 @@ export default function BindDeviceScreen() {
       });
       await queryClient.invalidateQueries({ queryKey: ["devices"] });
       showToast(t("device.bindSuccess"));
-      // 关掉本 modal 后直接落地图页:立刻看到新设备在动(底部卡弹入)
-      router.back();
+      // 关掉绑定流程的全部页面后落地图页：立刻看到新设备在动（底部卡弹入）。
+      // 必须是 dismissAll 而不是 back：扫码进来时根栈是 [(tabs), 绑定页, 绑定页]（扫码页 replace 出第二张），
+      // back 只弹掉一张，焦点还在绑定页上，这时去 /map 会在根栈上新压一个 (tabs)——
+      // 用户返回时看到的是又一张绑定页，再往下是一套被卸载过清理函数的旧标签页（2026-10-05 评审）
+      router.dismissAll();
       router.push("/map");
     } catch (e) {
       setError(toUserMessage(e));

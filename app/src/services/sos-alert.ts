@@ -19,7 +19,8 @@ const ACTION_OPEN = "open";
 /** 剩余多少秒时再静默刷新一次通知正文（同一 identifier 原位替换，不再响铃） */
 const REFRESH_AT = [30, 10] as const;
 
-let permissionAsked = false;
+/** 初始化只做一次；并发 / 重复调用拿到同一个 Promise（调用方要等它结束再去要别的权限） */
+let permissionReady: Promise<void> | null = null;
 /**
  * 每一单各自的通知：sosId → 已投 / 待触发的通知 id。原来只有一个槽位，第二单会把第一单顶掉，
  * 第一单结束时 clear 找不到它，通知永远留在锁屏上（10-03 评审疑点 2）。
@@ -35,9 +36,12 @@ export function setSosCancelConfirmedListener(
 }
 
 /** 登录后调用一次：申请通知权限、建 Android 高优先级通道、注册通知动作（拒绝也不阻塞链路） */
-export async function ensureSosAlertPermission(): Promise<void> {
-  if (permissionAsked) return;
-  permissionAsked = true;
+export function ensureSosAlertPermission(): Promise<void> {
+  permissionReady ??= initSosAlert();
+  return permissionReady;
+}
+
+async function initSosAlert(): Promise<void> {
   installPresentationPolicy();
   try {
     if (Platform.OS === "android") {
