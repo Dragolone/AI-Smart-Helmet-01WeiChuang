@@ -59,7 +59,7 @@
 |---|---|---|---|
 | ☐ 1 | **#102 实时视频预览双端真机测试** | 10-09 | 按 REGRESSION.md 第 9 节（11 行），无硬件测法见 DEVELOPMENT.md「实时视频预览 → 无硬件怎么测」第 ② 种。重点 9.3 / 9.5 / 9.8。测完在 PR 里留一句「通过」，B 线合并 |
 | ☐ 2 | **Android 回归补 34 行**（华为） | 10-14 | REGRESSION.md Android 列只有 20/54，**SOS 主流程 4.1–4.5 和地图 3.x 一行没测**，是 Week 11 出口标准里最大的缺口 |
-| ☐ 3 | **iPhone 推送复测** 4.6 / 4.7 / 4.8（前台 / 后台 / 被杀） | 10-14 | APNs Key 10-01 已配进极光，PUSH-01 已解除；用 Xcode 直装的 Debug 包测（服务端现为 APNs 沙盒） |
+| ☑ 3 | **iPhone 推送复测** 4.6 / 4.7 / 4.8（前台 / 后台 / 被杀）（✅ 2026-10-05 三态全过；顺带修 PUSH-03 / PUSH-04） | 10-14 | APNs Key 10-01 已配进极光，PUSH-01 已解除；用 Xcode 直装的 Debug 包测（服务端现为 APNs 沙盒） |
 | ◐ 4 | **导出备案用的签名信息发负责人**（**Android ✅ 2026-10-04 已导出**：公钥模数 / MD5 / SHA1 / SHA256 写在负责人桌面 `零一唯创-Android备案证书信息.txt`，不含 keystore 与口令；**iOS 待办**：本机钥匙串只有 Development 证书，Distribution 证书要等第 5 项首次 Archive 分发时生成，再从 developer.apple.com 下载 .cer 导出）：Android `keytool -list -v -keystore ~/.helmet/lingyiweichuang-release.keystore -alias lingyiweichuang` 的「公钥」与「MD5」；iOS 按腾讯云备案页要求导出公司 Team Distribution 证书信息 | 10-08 前 | App 备案的前置；**不要发 keystore 文件和口令** |
 | ☐ 5 | 第一个 TestFlight 包（Archive → Distribute → TestFlight），传上去后告诉负责人加张森淼进内部测试组 | 10-12 | 发 TestFlight 包要告诉 B 线把服务端 `JPUSH_APNS_PRODUCTION` 设为 true，否则 iPhone 收不到远程推送 |
 | ☑ 6 | **App 内加两份清单的入口**（✅ 2026-10-04）：「我的」里能打开「个人信息收集清单」和「第三方信息共享清单」 | 10-16 | 华为、小米隐私检测常查。网页已有（`/legal/collection`、`/legal/sharing`），`constants/legal.ts` 的 `LegalDoc` 与 `legal/[doc].tsx` 目前只认 privacy / terms，扩两种即可 |

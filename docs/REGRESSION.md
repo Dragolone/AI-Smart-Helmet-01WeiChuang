@@ -46,9 +46,9 @@
 | 4.3 | 立即求救 SOS Now | 立即通知(Mock SMS/Push 后端日志可见),状态→已通知 | | | ✅ 09-26 iPhone(第 32 s 点立即求救 → 同秒 notified) |
 | 4.4 | 倒计时放到期 | 服务端到期自动通知;App 杀掉也不影响(重开可见结果) | | | ✅ 09-26 iPhone(不操作,约 63 s 后服务端 notified,WS 实时同步到结束态) |
 | 4.5 | 事故详情 | 小地图+导航按钮;通知记录列表正确 | ✅ 09-08 | | ✅ 09-26 iPhone(状态/位置(回落最近轨迹点)/通知记录:短信 189****2623 sent×1 + 推送 sent×1;无联系人时只有推送本人一条) |
-| 4.6 | **推送·前台**：App 在前台，Mock `SCENARIO=fall` 触发 SOS | 极光通知到达（Metro 日志 `[PUSH]`），倒计时页已由 WS 拉起；通知不重复弹页 | | ✅ 09-24 华为(极光 onNotifyMessageArrived + 通知栏可见,倒计时页由 WS 拉起) | ⏳ 极光控制台 iOS 平台未配(Bundle ID + .p8),SDK FailedRegister,收不到远程推送 |
-| 4.7 | **推送·后台**：App 退后台再触发 SOS，点系统通知 | 进倒计时页（`/sos-active`）；若已过期/取消则进事故详情 | | ✅ 09-24 华为(onNotifyMessageOpened → 落地倒计时页;落地改 navigate 防叠页) | ⏳ 同上 |
-| 4.8 | **推送·被杀**：滑掉 App 再触发 SOS，点通知 | 冷启动后自动进倒计时页 / 事故详情；Android 靠 init 回放缓存点击，iOS 靠 RCTJPushEventQueue | | ❌ 09-24 华为(App 被杀后进程不存在,极光通道随之断,通知未到——**预期**,需厂商通道 THIRD_PARTY §6) | ⏳ 同上 |
+| 4.6 | **推送·前台**：App 在前台，Mock `SCENARIO=fall` 触发 SOS | 极光通知到达（Metro 日志 `[PUSH]`），倒计时页已由 WS 拉起；通知不重复弹页 | | ✅ 09-24 华为(极光 onNotifyMessageArrived + 通知栏可见,倒计时页由 WS 拉起) | ✅ 10-05 iPhone(APNs 10-01 配好后复测:注入后 1 s 日志「[PUSH] 通知到达 {sosId,deviceId}」,倒计时页由 WS 拉起,未重复弹页) |
+| 4.7 | **推送·后台**：App 退后台再触发 SOS，点系统通知 | 进倒计时页（`/sos-active`）；若已过期/取消则进事故详情 | | ✅ 09-24 华为(onNotifyMessageOpened → 落地倒计时页;落地改 navigate 防叠页) | ✅ 10-05 iPhone(后台点「SOS 倒计时已开始」→ 日志「[PUSH] 通知被点开」→ 落地倒计时页,取消正常) |
+| 4.8 | **推送·被杀**：滑掉 App 再触发 SOS，点通知 | 冷启动后自动进倒计时页 / 事故详情；Android 靠 init 回放缓存点击；iOS 冷启动那一刻极光尚未初始化，点击被 expo-notifications 收走，App 在极光 init 后从它那里取回（PUSH-03） | | ❌ 09-24 华为(App 被杀后进程不存在,极光通道随之断,通知未到——**预期**,需厂商通道 THIRD_PARTY §6) | ✅ 10-05 iPhone(进程确认不在 → 「倒计时已开始」「已通知紧急联系人」两条远程推送都到;点后者冷启动 → 日志「[PUSH] 冷启动：由通知拉起」→ 落地事故详情。过程中修两处:PUSH-03 冷启动点击被 expo 收走、PUSH-04 别名丢失无确认无重试) |
 | 4.9 | **推送不破坏本地通知**：iOS 极光初始化后，SOS 锁屏本地通知的「取消 / 查看」按钮仍有效 | 取消 → **App 被拉起**并显示「已取消」、服务端 cancelled（SOS-10：不拉起时请求会被挂起中断）；查看 → 进倒计时页（delegate 转发，决策 #48） | | ➖ 不涉及(Android 极光不接管通知回调) | ✅ 09-24 iPhone(极光已 init 后锁屏本地通知长按→「取消」:日志「通知按钮取消」→ 服务端 cancelled;delegate 转发生效) |
 | 4.10 | **未同意隐私政策不初始化 SDK**：新装机 → 登录页勾选前 | Metro 日志出现「未同意隐私政策，推送 SDK 暂不初始化」，勾选登录后才 `setAlias` | | ✅ 09-24 华为(登录态日志「未同意隐私政策…」;登出→勾选→登录后 setAlias + registrationID) | ✅ 09-24 iPhone(同左;setAlias 成功,随后 FailedRegister 为平台未配所致) |
 | 4.11 | **锁屏瞬间到达**：按下电源键锁屏的同一秒另一台触发 SOS（appState=inactive） | 锁屏上仍弹出本地通知并响铃（SOS-11 前台展示策略） | | ➖ Android 通知由系统直接显示，不经前台策略 | ✅ 09-24 iPhone(inactive 到达仍弹锁屏通知) |
