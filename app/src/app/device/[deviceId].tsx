@@ -24,6 +24,8 @@ import ReAnimated, {
 import { devicesApi } from "@/api/devices";
 import { showToast } from "@/components/toast";
 import { helmetErrorText, toUserMessage } from "@/api/error-messages";
+import { devLog } from "@/services/dev-log";
+import type { DevicePublic } from "@helmet/shared";
 import { Badge } from "@/components/badge";
 import { BleOnboardingCard } from "@/components/ble-onboarding";
 import { DeviceSettingList } from "@/components/device-settings";
@@ -403,16 +405,25 @@ export default function DeviceDetailScreen() {
         style: "destructive",
         onPress: () => {
           setUnbinding(true);
+          devLog("DEVICE", "解绑：发请求");
           devicesApi
             .unbind(deviceId)
-            .then(async () => {
-              await queryClient.invalidateQueries({ queryKey: ["devices"] });
+            .then(() => {
+              devLog("DEVICE", "解绑：服务端成功，返回");
+              // 服务端一确认就收尾，不等列表重新拉取（2026-10-06 iPhone 实测：等待期间页面不动，
+              // 还能再点一次解绑，得到「设备不存在」）。先把这台从列表缓存里拿掉，再后台刷新。
+              queryClient.setQueryData<DevicePublic[]>(["devices"], (prev) =>
+                prev?.filter((d) => d.deviceId !== deviceId),
+              );
+              void queryClient.invalidateQueries({ queryKey: ["devices"] });
+              showToast(t("device.unbindDone"));
               router.back();
+              // unbinding 不复位：页面正在关闭，按钮保持不可点
             })
-            .catch((e) =>
-              Alert.alert(t("device.unbindFailed"), toUserMessage(e)),
-            )
-            .finally(() => setUnbinding(false));
+            .catch((e) => {
+              setUnbinding(false);
+              Alert.alert(t("device.unbindFailed"), toUserMessage(e));
+            });
         },
       },
     ]);

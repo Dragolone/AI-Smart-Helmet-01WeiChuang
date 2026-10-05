@@ -19,6 +19,8 @@ const mockCancel = jest.fn(async (_id: string) => ({}) as never);
 const mockPush = jest.fn((_href: string) => undefined);
 const mockNavigate = jest.fn((_href: string) => undefined);
 const mockGetLastResponse = jest.fn((): unknown => null);
+/** 通知中心里此刻挂着的通知（getPresentedNotificationsAsync） */
+const mockPresented = jest.fn(async (): Promise<unknown[]> => []);
 const mockClearLastResponse = jest.fn(() => undefined);
 const mockSchedule = jest.fn(async (_req: unknown) => "id");
 const mockCancelScheduled = jest.fn(async (_id: string) => undefined);
@@ -67,6 +69,7 @@ jest.mock("expo-notifications", () => ({
     mockSetHandler(h);
   },
   getLastNotificationResponse: () => mockGetLastResponse(),
+  getPresentedNotificationsAsync: () => mockPresented(),
   clearLastNotificationResponse: () => mockClearLastResponse(),
   AndroidImportance: { MAX: 5 },
   AndroidNotificationVisibility: { PUBLIC: 1 },
@@ -123,6 +126,8 @@ describe("sos-alert", () => {
     mockGetPerms.mockResolvedValue({ granted: true });
     mockGetLastResponse.mockReset();
     mockGetLastResponse.mockReturnValue(null);
+    mockPresented.mockReset();
+    mockPresented.mockResolvedValue([]);
     mockCancel.mockReset();
     mockCancel.mockImplementation(async () => ({}) as never);
     override(Platform, "OS", "ios");
@@ -660,6 +665,100 @@ describe("sos-alert", () => {
       await jest.advanceTimersByTimeAsync(30_000);
       expect(mockCancel).not.toHaveBeenCalled(); // 重试已停
       jest.useRealTimers();
+    });
+  });
+
+  describe("同一单的两条通知（2026-10-06 iPhone：叠成一摞，长按到的是没有按钮的远程推送）", () => {
+    const remote = (id: string, sosId: string) => ({
+      request: {
+        identifier: id,
+        trigger: { type: "push", payload: { sosId, deviceId: "d1" } },
+        content: { data: null },
+      },
+    });
+    const local = (sosId: string) => ({
+      request: {
+        identifier: `sos-${sosId}`,
+        trigger: null,
+        content: { data: { sosId, deviceId: "d1" } },
+      },
+    });
+
+    it("本地通知弹出后撤掉同一单的远程推送：只留带「取消」按钮的那条；别的单的、本地的都不动", async () => {
+      mockPresented.mockResolvedValue([
+        remote("apns-1", "s1"),
+        remote("apns-2", "s9"),
+        local("s1"),
+      ]);
+      const m = load();
+      await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(mockDismiss.mock.calls.map((c) => c[0])).toEqual(["apns-1"]);
+      await m.clearSosAlert("s1");
+    });
+
+    it("远程推送晚到：3 秒、10 秒各再扫一遍；这单结束后不再扫", async () => {
+      jest.useFakeTimers();
+      const m = load();
+      await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
+      await jest.advanceTimersByTimeAsync(0);
+      expect(mockDismiss).not.toHaveBeenCalled();
+      mockPresented.mockResolvedValue([remote("apns-late", "s1")]);
+      await jest.advanceTimersByTimeAsync(3_000);
+      expect(mockDismiss.mock.calls.map((c) => c[0])).toEqual(["apns-late"]);
+      mockDismiss.mockClear();
+      mockPresented.mockResolvedValue([remote("apns-later", "s1")]);
+      await jest.advanceTimersByTimeAsync(7_000);
+      expect(mockDismiss.mock.calls.map((c) => c[0])).toEqual(["apns-later"]);
+      // 结束后：定时器已清，不再碰通知中心
+      await m.showSosAlertIfBackground("s2", "d1", deadlineIn(60));
+      await m.clearSosAlert("s2");
+      mockPresented.mockClear();
+      await jest.advanceTimersByTimeAsync(20_000);
+      expect(mockPresented).not.toHaveBeenCalled();
+      jest.useRealTimers();
+    });
+
+    it("查通知中心抛错不影响提醒本身", async () => {
+      mockPresented.mockRejectedValue(new Error("native"));
+      const m = load();
+      await expect(
+        m.showSosAlertIfBackground("s1", "d1", deadlineIn(60)),
+      ).resolves.toBeUndefined();
+      expect(mockSchedule).toHaveBeenCalled();
+      await m.clearSosAlert("s1");
+    });
+
+    it("远程推送上的「取消」按钮（服务端给推送带上通知类别之后才会有）：照样调服务端取消", async () => {
+      const m = load();
+      await m.ensureSosAlertPermission();
+      responseHandler?.({
+        actionIdentifier: "cancel",
+        notification: { date: 1, ...remote("apns-1", "s1") },
+      });
+      expect(mockCancel).toHaveBeenCalledWith("s1");
+    });
+
+    it("远程推送上的普通点击不归这里管（push.ts 落地），不重复跳转", async () => {
+      const m = load();
+      await m.ensureSosAlertPermission();
+      responseHandler?.({
+        actionIdentifier: "expo.modules.notifications.actions.DEFAULT",
+        notification: { date: 1, ...remote("apns-1", "s1") },
+      });
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(mockCancel).not.toHaveBeenCalled();
+    });
+
+    it("冷启动由远程推送的「取消」按钮拉起：发取消；不清这条启动点击（落地跳转仍归 push.ts）", async () => {
+      mockGetLastResponse.mockReturnValue({
+        actionIdentifier: "cancel",
+        notification: { date: 1, ...remote("apns-1", "s1") },
+      });
+      const m = load();
+      await m.ensureSosAlertPermission();
+      expect(mockCancel).toHaveBeenCalledWith("s1");
+      expect(mockClearLastResponse).not.toHaveBeenCalled();
     });
   });
 });

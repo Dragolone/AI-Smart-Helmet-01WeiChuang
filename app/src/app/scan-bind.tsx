@@ -34,7 +34,10 @@ export default function ScanBindScreen() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
       () => undefined,
     );
-    router.replace({
+    // dismissTo：回到底下那张绑定页并把扫到的内容带回去。原来用 replace，是把扫码页换成一张新的
+    // 绑定页——视觉上又叠了一层，栈里也留下两张绑定页（2026-10-06 iPhone 实测）。
+    // 栈里没有绑定页时（直接打开扫码页）自动退化为替换当前页
+    router.dismissTo({
       pathname: "/bind-device",
       params: { deviceId: parsed.deviceId, bindCode: parsed.bindCode ?? "" },
     });

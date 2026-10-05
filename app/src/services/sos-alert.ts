@@ -25,7 +25,10 @@ let permissionReady: Promise<void> | null = null;
  * 每一单各自的通知：sosId → 已投 / 待触发的通知 id。原来只有一个槽位，第二单会把第一单顶掉，
  * 第一单结束时 clear 找不到它，通知永远留在锁屏上（10-03 评审疑点 2）。
  */
-const alerts = new Map<string, { ids: string[] }>();
+const alerts = new Map<
+  string,
+  { ids: string[]; timers: ReturnType<typeof setTimeout>[] }
+>();
 let responseSub: Notifications.EventSubscription | null = null;
 /** 通知按钮「取消」被服务端确认后回调（use-realtime 注册：让倒计时页立刻拉一次权威状态） */
 let onCancelConfirmed: ((sosId: string) => void) | null = null;
@@ -141,11 +144,47 @@ function handleResponse(response: Notifications.NotificationResponse): void {
   dispatchResponse(response);
 }
 
-function dispatchResponse(response: Notifications.NotificationResponse): void {
-  const data = response?.notification?.request?.content?.data as
+type SosRef = { sosId: string; deviceId?: string; remote: boolean };
+
+/**
+ * 通知指的是哪一单。本地通知的 sosId 在 content.data；极光远程推送的在 trigger.payload
+ * （content.data 是给 Expo 推送服务用的，极光的自定义字段不在那）。
+ */
+function sosRefOf(
+  n: Notifications.Notification | null | undefined,
+): SosRef | null {
+  const request = n?.request;
+  const data = request?.content?.data as
     { sosId?: unknown; deviceId?: unknown } | null | undefined;
-  if (typeof data?.sosId !== "string" || !data.sosId) return;
-  const sosId = data.sosId;
+  if (typeof data?.sosId === "string" && data.sosId) {
+    return {
+      sosId: data.sosId,
+      deviceId: typeof data.deviceId === "string" ? data.deviceId : undefined,
+      remote: false,
+    };
+  }
+  const trigger = request?.trigger as
+    { type?: string; payload?: Record<string, unknown> } | null | undefined;
+  const payload = trigger?.type === "push" ? trigger.payload : undefined;
+  if (typeof payload?.sosId === "string" && payload.sosId) {
+    return {
+      sosId: payload.sosId,
+      deviceId:
+        typeof payload.deviceId === "string" ? payload.deviceId : undefined,
+      remote: true,
+    };
+  }
+  return null;
+}
+
+function dispatchResponse(response: Notifications.NotificationResponse): void {
+  const ref = sosRefOf(response?.notification);
+  if (!ref) return;
+  // 远程推送上的普通点击由 push.ts 落地（极光自己有「被点开」事件）；这里只接它的「取消」按钮——
+  // 服务端给推送带上同一个通知类别之后，被杀状态下那条推送也有按钮（2026-10-06 iPhone 实测：
+  // 两条通知叠在一起，长按到的是没有按钮的远程推送）
+  if (ref.remote && response.actionIdentifier !== ACTION_CANCEL) return;
+  const sosId = ref.sosId;
   if (response.actionIdentifier === ACTION_CANCEL) {
     devLog("SOS-ALERT", "通知按钮取消", sosId);
     // 只有服务端确认取消才撤通知（cancelFromNotification 内部做，重试成功也算）；
@@ -153,11 +192,11 @@ function dispatchResponse(response: Notifications.NotificationResponse): void {
     void cancelFromNotification(sosId);
     return;
   }
-  if (typeof data.deviceId !== "string" || !data.deviceId) return;
+  if (!ref.deviceId) return;
   // navigate 而不是 push：倒计时页多半已在栈上，push 会叠两页；登记后 WS / 补拉也不再重复拉起
   presentedSos.current.add(sosId);
   router.navigate(
-    `/sos-active?sosId=${sosId}&deviceId=${data.deviceId}` as never,
+    `/sos-active?sosId=${sosId}&deviceId=${ref.deviceId}` as never,
   );
 }
 
@@ -170,11 +209,16 @@ function dispatchResponse(response: Notifications.NotificationResponse): void {
 function consumeLaunchResponse(): void {
   try {
     const last = Notifications.getLastNotificationResponse();
-    const data = last?.notification?.request?.content?.data as
-      { sosId?: unknown } | null | undefined;
-    if (!last || typeof data?.sosId !== "string" || !data.sosId) return;
-    devLog("SOS-ALERT", "冷启动：由本地通知拉起", last.actionIdentifier);
-    Notifications.clearLastNotificationResponse();
+    const ref = sosRefOf(last?.notification);
+    if (!last || !ref) return;
+    if (ref.remote) {
+      // 远程推送：只接「取消」按钮；不清——落地跳转仍归 push.ts（它读的是同一条）
+      if (last.actionIdentifier !== ACTION_CANCEL) return;
+      devLog("SOS-ALERT", "冷启动：由远程推送的取消按钮拉起");
+    } else {
+      devLog("SOS-ALERT", "冷启动：由本地通知拉起", last.actionIdentifier);
+      Notifications.clearLastNotificationResponse();
+    }
     launchReplay = { key: responseKey(last), at: Date.now() };
     dispatchResponse(last);
   } catch (e) {
@@ -280,7 +324,10 @@ export async function showSosAlertIfBackground(
 ): Promise<void> {
   if (AppState.currentState === "active") return;
   if (alerts.has(sosId)) return;
-  const entry = { ids: [] as string[] };
+  const entry = {
+    ids: [] as string[],
+    timers: [] as ReturnType<typeof setTimeout>[],
+  };
   alerts.set(sosId, entry);
   // 排通知要 await 好几次：期间若这单已被取消（clearSosAlert 把它从表里摘掉），
   // 后面的一条都不能再排，刚排上的也要撤——否则会留下一条「还剩 30 秒」的孤儿提醒（疑点 4）
@@ -312,6 +359,13 @@ export async function showSosAlertIfBackground(
   };
   try {
     const baseId = `sos-${sosId}`;
+    // 同一单的远程推送「倒计时已开始」没有按钮，和本地通知叠成一摞时用户长按到的常常是它
+    // （2026-10-06 iPhone 实测）。本地这条内容更全、带按钮，弹出后把那条远程的撤掉；
+    // 远程推送可能晚到，JS 醒着的话隔几秒再扫两遍
+    const sweep = () => {
+      if (alive()) void dismissRemoteTwins(sosId);
+    };
+    entry.timers.push(setTimeout(sweep, 3_000), setTimeout(sweep, 10_000));
     if (
       !(await schedule(baseId, {
         identifier: baseId,
@@ -344,9 +398,24 @@ export async function showSosAlertIfBackground(
       )
         return;
     }
+    sweep();
     devLog("SOS-ALERT", `锁屏通知已弹 ${sosId} 剩余 ${total ?? "?"}s`);
   } catch (e) {
     devLog("SOS-ALERT", "本地通知失败", e as Error);
+  }
+}
+
+/** 撤掉通知中心里同一单的远程推送（只在 iOS 上查得到；Android 的极光通知不经 expo，查不到也撤不了） */
+async function dismissRemoteTwins(sosId: string): Promise<void> {
+  try {
+    const shown = await Notifications.getPresentedNotificationsAsync();
+    for (const n of shown) {
+      const ref = sosRefOf(n);
+      if (ref?.remote && ref.sosId === sosId)
+        await Notifications.dismissNotificationAsync(n.request.identifier);
+    }
+  } catch (e) {
+    devLog("SOS-ALERT", "清理重复的远程通知失败", e as Error);
   }
 }
 
@@ -368,6 +437,7 @@ export async function clearSosAlert(sosId: string): Promise<void> {
   const entry = alerts.get(sosId);
   if (!entry) return;
   alerts.delete(sosId); // 先摘表：还在排通知的 show 循环看到后会自己停下并撤回
+  for (const t of entry.timers) clearTimeout(t);
   for (const id of [...entry.ids]) await removeNotification(id);
 }
 

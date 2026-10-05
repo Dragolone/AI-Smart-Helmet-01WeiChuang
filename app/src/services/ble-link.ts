@@ -705,6 +705,7 @@ export function setBleTargets(deviceIds: string[]): void {
   const unchanged =
     next.length === targets.length && next.every((id) => targets.includes(id));
   if (unchanged && running) return;
+  if (running) log("链路目标变更", next.join(",") || "(无)");
   for (const id of targets) {
     if (!next.includes(id)) {
       sessions.get(id)?.close("unbound");
