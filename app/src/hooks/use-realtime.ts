@@ -62,9 +62,17 @@ export function useRealtimeUpdates(): void {
     // BLE 上行中转队列与登录态同生命周期(决策 #35:BLE 是唯一真机数据链路)；按账号分区，换账号不混用
     startRelayUplink(useAuthStore.getState().user?.id ?? undefined);
     void ensureSosAlertPermission();
-    // 远程推送（极光）：alias = 用户 ID；内部会等隐私政策同意后才初始化 SDK
-    const uid = useAuthStore.getState().user?.id;
-    if (uid) startPush(uid);
+    // 远程推送（极光）：alias = 用户 ID；内部会等隐私政策同意后才初始化 SDK。
+    // 钥匙串里只有 token、档案没落上盘时，user 要等 /users/me 回来才有——那时再补，不能整个会话都不设别名
+    let pushStarted = false;
+    const ensurePush = () => {
+      const uid = useAuthStore.getState().user?.id;
+      if (!uid || pushStarted) return;
+      pushStarted = true;
+      startPush(uid);
+    };
+    ensurePush();
+    const unsubscribeUser = useAuthStore.subscribe(ensurePush);
     // BLE 近场链路：目标 = 已绑定设备；绑定/解绑后随 ['devices'] 缓存变化同步目标
     const bleTargetsOf = () =>
       (queryClient.getQueryData<DevicePublic[]>(["devices"]) ?? []).map(
@@ -207,6 +215,7 @@ export function useRealtimeUpdates(): void {
     return () => {
       unsubscribe();
       unsubscribeState();
+      unsubscribeUser();
       appState.remove();
       realtimeClient.stop();
       stopRelayUplink();

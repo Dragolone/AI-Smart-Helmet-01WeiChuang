@@ -18,6 +18,7 @@ class FakeWs {
   onmessage: ((e: { data: string }) => void) | null = null;
   onerror: (() => void) | null = null;
   closed = false;
+  dropped = false;
   constructor(public url: string) {
     FakeWs.instances.push(this);
   }
@@ -28,6 +29,7 @@ class FakeWs {
     this.onopen?.();
   }
   drop(code = 1006) {
+    this.dropped = true;
     this.onclose?.({ code, reason: "" });
   }
 }
@@ -88,12 +90,58 @@ describe("realtimeClient 退避与 kick", () => {
     expect(FakeWs.instances).toHaveLength(2);
     c.kick(); // 回前台
     expect(FakeWs.instances).toHaveLength(3); // 不等那 2 s
-    FakeWs.instances[2].open();
-    expect(states.at(-1)).toBe(true);
-    // 退避已清零：再断一次只等 1 s
+    // 退避已清零：这条没连上（不 open——onopen 自己也会清零，会把 kick 的清零盖住测不出来）就断，只等 1 s
     FakeWs.instances[2].drop();
-    jest.advanceTimersByTime(1000);
+    jest.advanceTimersByTime(999);
+    expect(FakeWs.instances).toHaveLength(3);
+    jest.advanceTimersByTime(1);
     expect(FakeWs.instances).toHaveLength(4);
+    FakeWs.instances[3].open();
+    expect(states.at(-1)).toBe(true);
+    c.stop();
+  });
+
+  it("4401 换 token 途中回前台 kick：只留一条连接，刷新回来不再另起一条（原来两路各建一条，先建的成了没人关的孤儿）", async () => {
+    const c = await load();
+    let finishRefresh!: () => void;
+    const refreshing = new Promise<void>((r) => (finishRefresh = r));
+    c.start({
+      getAccessToken: () => "tok",
+      triggerTokenRefresh: () => refreshing,
+    });
+    FakeWs.instances[0].open();
+    FakeWs.instances[0].drop(4401); // 服务端：token 过期
+    c.kick(); // 刷新还没回来，用户切回前台
+    expect(FakeWs.instances).toHaveLength(2);
+    FakeWs.instances[1].open();
+    finishRefresh();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    jest.advanceTimersByTime(60_000);
+    expect(FakeWs.instances).toHaveLength(2); // 没有第三条
+    expect(FakeWs.instances[1].closed).toBe(false);
+    c.stop();
+  });
+
+  it("kick 出来的新连接又被 4401（用的还是旧 token）：两轮刷新先后回来，最终只剩一条活连接", async () => {
+    const c = await load();
+    const refreshes: (() => void)[] = [];
+    c.start({
+      getAccessToken: () => "tok",
+      triggerTokenRefresh: () => new Promise<void>((r) => refreshes.push(r)),
+    });
+    FakeWs.instances[0].open();
+    FakeWs.instances[0].drop(4401);
+    c.kick(); // #1
+    FakeWs.instances[1].drop(4401); // 新连接用的还是旧 token，又被 4401
+    for (const r of refreshes) r();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    jest.advanceTimersByTime(60_000);
+    const alive = FakeWs.instances.filter((w) => !w.closed && !w.dropped);
+    expect(alive).toHaveLength(1); // 只剩最后一条，其余要么被 close 要么已断
     c.stop();
   });
 

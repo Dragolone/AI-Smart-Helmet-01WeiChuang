@@ -9,7 +9,7 @@ import type {
   UpdateMeRequest,
   UserProfile,
 } from "@helmet/shared";
-import { api } from "./client";
+import { api, currentRefreshToken } from "./client";
 
 export type SmsCodePurpose = "register" | "reset_password" | "change_phone";
 
@@ -58,9 +58,20 @@ export const authApi = {
   resetPassword: (body: ResetPasswordRequest) =>
     api<void>("/auth/reset-password", { method: "POST", body, auth: false }),
 
-  /** 修改密码（已登录）：旧密码错 → 400 PASSWORD_INCORRECT */
-  changePassword: (body: ChangePasswordRequest) =>
-    api<void>("/auth/change-password", { method: "POST", body }),
+  /**
+   * 修改密码（已登录）：旧密码错 → 400 PASSWORD_INCORRECT。
+   * refreshToken 在每次发请求时现取（服务端凭它「保留本机、撤销其余」）：提交那一刻 access token
+   * 若刚好过期，请求先 401 → 静默刷新把 refresh token 轮换掉 → 重试。重试带的要是新的那把，
+   * 否则服务端保留的是已作废的旧 token、把新的撤销——页面提示修改成功，15 分钟内本机被静默登出。
+   */
+  changePassword: (body: Omit<ChangePasswordRequest, "refreshToken">) =>
+    api<void>("/auth/change-password", {
+      method: "POST",
+      body: (): ChangePasswordRequest => ({
+        ...body,
+        refreshToken: currentRefreshToken(),
+      }),
+    }),
 
   /** 更换手机号（已登录）：返回更新后的用户档案；409 PHONE_ALREADY_REGISTERED / 400 SMS_CODE_INVALID */
   changePhone: (body: ChangePhoneRequest) =>

@@ -1,12 +1,25 @@
 // 边界补测（2026-10-03）：api 客户端。audit-auth-client 钉住了「并发 401 只刷新一次」与会话交错，
 // 这里补它没覆盖的：不该刷新的 401、刷新后仍 401、非 JSON / 空响应体、超时、刷新结果不合法、
 // 迟到的 401、以及错误 → 文案的兜底。
-import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+} from "@jest/globals";
 import type { Mock } from "jest-mock";
 import type { AuthTokens } from "@helmet/shared";
 
 import { translate } from "@/i18n";
-import { ApiRequestError, api, attachSession, forceRefreshTokens } from "../client";
+import { authApi } from "../auth";
+import {
+  ApiRequestError,
+  api,
+  attachSession,
+  forceRefreshTokens,
+} from "../client";
 import { toUserMessage } from "../error-messages";
 
 type Init = RequestInit & { headers?: Record<string, string> };
@@ -59,7 +72,9 @@ afterEach(() => {
 });
 
 /** 服务端：每次刷新发下一代 token（acc_n / ref_n）；业务接口只认 validAccess 里的 access token */
-function rotatingServer(validAccess: () => string): { refreshes: () => number } {
+function rotatingServer(validAccess: () => string): {
+  refreshes: () => number;
+} {
   let generation = 0;
   fetchMock.mockImplementation(async (url, init) => {
     if (url.endsWith("/auth/refresh")) {
@@ -79,13 +94,23 @@ function rotatingServer(validAccess: () => string): { refreshes: () => number } 
 describe("哪些 401 不该触发刷新", () => {
   it("auth:false 的请求（登录密码错）收到 401：不刷新、不清会话，错误码取自响应体", async () => {
     fetchMock.mockResolvedValue(
-      res(401, { code: "UNAUTHORIZED", message: "手机号或密码错误", requestId: "req-1" }),
+      res(401, {
+        code: "UNAUTHORIZED",
+        message: "手机号或密码错误",
+        requestId: "req-1",
+      }),
     );
-    const err = await api("/auth/login", { method: "POST", body: {}, auth: false }).catch(
-      (e: unknown) => e,
-    );
+    const err = await api("/auth/login", {
+      method: "POST",
+      body: {},
+      auth: false,
+    }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ApiRequestError);
-    expect(err).toMatchObject({ status: 401, code: "UNAUTHORIZED", requestId: "req-1" });
+    expect(err).toMatchObject({
+      status: 401,
+      code: "UNAUTHORIZED",
+      requestId: "req-1",
+    });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(authOf(fetchMock.mock.calls[0][1])).toBeUndefined();
     expect(clearSession).not.toHaveBeenCalled();
@@ -107,7 +132,10 @@ describe("哪些 401 不该触发刷新", () => {
 describe("刷新之后", () => {
   it("刷新成功但重试仍 401（账号被停用等）：把 401 抛给调用方，只刷新一次，不陷入循环", async () => {
     const server = rotatingServer(() => "never-valid");
-    await expect(api("/x")).rejects.toMatchObject({ status: 401, code: "UNAUTHORIZED" });
+    await expect(api("/x")).rejects.toMatchObject({
+      status: 401,
+      code: "UNAUTHORIZED",
+    });
     expect(server.refreshes()).toBe(1);
     expect(fetchMock).toHaveBeenCalledTimes(3);
     // 刷新本身是成功的：新 token 留着，会话不清
@@ -133,7 +161,10 @@ describe("刷新之后", () => {
       if (url.endsWith("/auth/refresh")) {
         refreshBodies.push(String(init?.body));
         generation += 1;
-        return res(200, { accessToken: `acc_${generation}`, refreshToken: `ref_${generation}` });
+        return res(200, {
+          accessToken: `acc_${generation}`,
+          refreshToken: `ref_${generation}`,
+        });
       }
       if (url.endsWith("/slow") && authOf(init) === "Bearer acc_0") {
         return new Promise((resolve) => {
@@ -147,11 +178,14 @@ describe("刷新之后", () => {
     const slow = api<{ url: string }>("/slow");
     await expect(api("/fast")).resolves.toBeDefined(); // 触发并完成第一次刷新
     releaseSlow(res(401, { code: "UNAUTHORIZED" }));
-    await expect(slow).resolves.toMatchObject({ url: expect.stringContaining("/slow") });
-    expect(refreshBodies.map((b) => (JSON.parse(b) as { refreshToken: string }).refreshToken)).toEqual([
-      "ref_0",
-      "ref_1",
-    ]);
+    await expect(slow).resolves.toMatchObject({
+      url: expect.stringContaining("/slow"),
+    });
+    expect(
+      refreshBodies.map(
+        (b) => (JSON.parse(b) as { refreshToken: string }).refreshToken,
+      ),
+    ).toEqual(["ref_0", "ref_1"]);
     expect(tokens?.refreshToken).toBe("ref_2");
   });
 
@@ -163,7 +197,9 @@ describe("刷新之后", () => {
           releaseRefresh = resolve;
         });
       }
-      return authOf(init) === "Bearer acc_1" ? res(200, { ok: true }) : res(401, {});
+      return authOf(init) === "Bearer acc_1"
+        ? res(200, { ok: true })
+        : res(401, {});
     });
     const pending = api("/x");
     const forced = forceRefreshTokens();
@@ -175,6 +211,31 @@ describe("刷新之后", () => {
     expect(setTokens).toHaveBeenCalledTimes(1);
   });
 
+  it("刷新在途时换了账号、旧会话的刷新回 401：被否定的是旧会话那把 token，不能把新账号的会话清掉", async () => {
+    let releaseRefresh: (r: unknown) => void = () => undefined;
+    fetchMock.mockImplementation(async (url) => {
+      if (url.endsWith("/auth/refresh")) {
+        return new Promise((resolve) => {
+          releaseRefresh = resolve;
+        });
+      }
+      return res(401, { code: "UNAUTHORIZED" });
+    });
+    const pending = api("/devices").catch((e: unknown) => e);
+    await new Promise((r) => setTimeout(r, 5));
+    tokens = { accessToken: "acc_B", refreshToken: "ref_B" }; // A 登出、B 登录
+    releaseRefresh(res(401, { code: "UNAUTHORIZED" }));
+    await expect(pending).resolves.toMatchObject({ status: 401 });
+    expect(clearSession).not.toHaveBeenCalled();
+    expect(tokens).toEqual({ accessToken: "acc_B", refreshToken: "ref_B" });
+    // 同一把 token 被否定仍然清会话（没有误伤正常路径）
+    fetchMock.mockImplementation(async () =>
+      res(401, { code: "UNAUTHORIZED" }),
+    );
+    await expect(api("/devices")).rejects.toMatchObject({ status: 401 });
+    expect(clearSession).toHaveBeenCalledTimes(1);
+  });
+
   it("刷新在途时换了账号：旧会话换到的新 refresh token 被送去 /auth/logout 作废；作废请求失败也不影响任何人", async () => {
     let releaseRefresh: (v: unknown) => void = () => undefined;
     fetchMock.mockImplementation(async (url) => {
@@ -183,17 +244,22 @@ describe("刷新之后", () => {
           releaseRefresh = resolve;
         });
       }
-      if (url.endsWith("/auth/logout")) throw new TypeError("Network request failed");
+      if (url.endsWith("/auth/logout"))
+        throw new TypeError("Network request failed");
       return res(401, { code: "UNAUTHORIZED" });
     });
     const pending = api("/x").catch((e: unknown) => e);
     await new Promise((r) => setTimeout(r, 5));
     tokens = { accessToken: "acc_B", refreshToken: "ref_B" };
-    releaseRefresh(res(200, { accessToken: "acc_orphan", refreshToken: "ref_orphan" }));
+    releaseRefresh(
+      res(200, { accessToken: "acc_orphan", refreshToken: "ref_orphan" }),
+    );
     await expect(pending).resolves.toMatchObject({ status: 401 });
     const logout = callsTo(fetchMock, "/auth/logout");
     expect(logout).toHaveLength(1);
-    expect(JSON.parse(String(logout[0][1]?.body))).toEqual({ refreshToken: "ref_orphan" });
+    expect(JSON.parse(String(logout[0][1]?.body))).toEqual({
+      refreshToken: "ref_orphan",
+    });
     expect(tokens).toEqual({ accessToken: "acc_B", refreshToken: "ref_B" });
     expect(clearSession).not.toHaveBeenCalled();
     await new Promise((r) => setTimeout(r, 0)); // 作废请求的失败已被吞掉，不留未处理拒绝
@@ -208,7 +274,9 @@ describe("刷新之后", () => {
           ? nonJson(200)
           : res(200, { accessToken: "acc_1", refreshToken: "ref_1" });
       }
-      return authOf(init) === "Bearer acc_1" ? res(200, { ok: true }) : res(401, {});
+      return authOf(init) === "Bearer acc_1"
+        ? res(200, { ok: true })
+        : res(401, {});
     });
     await expect(api("/x")).rejects.toBeInstanceOf(SyntaxError);
     expect(setTokens).not.toHaveBeenCalled();
@@ -236,7 +304,9 @@ describe("刷新之后", () => {
             ? res(200, body)
             : res(200, { accessToken: "acc_1", refreshToken: "ref_1" });
         }
-        return authOf(init) === "Bearer acc_1" ? res(200, { ok: true }) : res(401, {});
+        return authOf(init) === "Bearer acc_1"
+          ? res(200, { ok: true })
+          : res(401, {});
       });
       await expect(api("/x")).rejects.toMatchObject({ status: 401 });
       expect(setTokens).not.toHaveBeenCalled();
@@ -275,7 +345,9 @@ describe("响应体形态", () => {
   it("204：返回 undefined，不去解析响应体", async () => {
     const r = res(204);
     fetchMock.mockResolvedValue(r);
-    await expect(api<void>("/devices/x/binding", { method: "DELETE" })).resolves.toBeUndefined();
+    await expect(
+      api<void>("/devices/x/binding", { method: "DELETE" }),
+    ).resolves.toBeUndefined();
     expect(r.json).not.toHaveBeenCalled();
   });
 
@@ -283,18 +355,28 @@ describe("响应体形态", () => {
     ["网关错误页（非 JSON）", () => nonJson(502)],
     ["JSON null", () => res(502, null)],
     ["JSON 字符串", () => res(502, "Bad Gateway")],
-  ])("错误响应体是%s：兜底成 INTERNAL_ERROR + HTTP 状态，文案走「服务异常」而不是「未知错误」", async (_l, make) => {
-    fetchMock.mockResolvedValue(make());
-    const err = await api("/x", { auth: false }).catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(ApiRequestError);
-    expect(err).toMatchObject({ status: 502, code: "INTERNAL_ERROR", message: "HTTP 502" });
-    expect(toUserMessage(err)).toBe(translate("error.internal"));
-  });
+  ])(
+    "错误响应体是%s：兜底成 INTERNAL_ERROR + HTTP 状态，文案走「服务异常」而不是「未知错误」",
+    async (_l, make) => {
+      fetchMock.mockResolvedValue(make());
+      const err = await api("/x", { auth: false }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ApiRequestError);
+      expect(err).toMatchObject({
+        status: 502,
+        code: "INTERNAL_ERROR",
+        message: "HTTP 502",
+      });
+      expect(toUserMessage(err)).toBe(translate("error.internal"));
+    },
+  );
 
   it("请求体：未传 body 不带 Content-Type；0 / false / null / 空串是合法 JSON，照常序列化", async () => {
     fetchMock.mockImplementation(async () => res(200, {}));
     await api("/x", { auth: false });
-    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "GET", headers: {} });
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: "GET",
+      headers: {},
+    });
     expect(fetchMock.mock.calls[0][1]?.body).toBeUndefined();
     for (const body of [0, false, null, ""]) {
       fetchMock.mockClear();
@@ -341,7 +423,9 @@ describe("超时（15 s）", () => {
           ? hang(url, init)
           : res(200, { accessToken: "acc_1", refreshToken: "ref_1" });
       }
-      return authOf(init) === "Bearer acc_1" ? res(200, { ok: true }) : res(401, { code: "UNAUTHORIZED" });
+      return authOf(init) === "Bearer acc_1"
+        ? res(200, { ok: true })
+        : res(401, { code: "UNAUTHORIZED" });
     });
     const first = api("/x").catch((e: unknown) => e);
     await jest.advanceTimersByTimeAsync(15_000);
@@ -366,10 +450,66 @@ describe("toUserMessage 兜底", () => {
   });
 
   it("错误码恰好是 Object.prototype 的成员名：照样按未收录的码给文案，不返回 undefined", () => {
-    for (const code of ["constructor", "toString", "hasOwnProperty", "__proto__", "valueOf"]) {
+    for (const code of [
+      "constructor",
+      "toString",
+      "hasOwnProperty",
+      "__proto__",
+      "valueOf",
+    ]) {
       const m = toUserMessage(new ApiRequestError(400, { code }));
       expect(m).toBe(translate("error.unknown", { code }));
       expect(typeof m).toBe("string");
     }
+  });
+});
+
+describe("请求体里带 token 的接口：401 重试时要重取（2026-10-05 评审）", () => {
+  const bodyOf = (call: [string, Init?]) =>
+    JSON.parse(String(call[1]?.body)) as Record<string, unknown>;
+
+  it("body 传函数时每次发请求现算；传普通值时原样重发", async () => {
+    rotatingServer(() => "acc_1");
+    let n = 0;
+    await api("/x", { method: "POST", body: () => ({ n: (n += 1) }) });
+    const calls = callsTo(fetchMock, "/x") as [string, Init?][];
+    expect(calls.map(bodyOf)).toEqual([{ n: 1 }, { n: 2 }]);
+    fetchMock.mockClear();
+    tokens = { accessToken: "acc_0", refreshToken: "ref_1" };
+    rotatingServer(() => "acc_1");
+    await api("/y", { method: "POST", body: { fixed: true } });
+    expect((callsTo(fetchMock, "/y") as [string, Init?][]).map(bodyOf)).toEqual(
+      [{ fixed: true }, { fixed: true }],
+    );
+  });
+
+  it("改密恰好撞上 access token 过期：重试带的是轮换后的 refresh token——否则服务端保留的是已作废的那把，本机 15 分钟内被静默登出", async () => {
+    rotatingServer(() => "acc_1");
+    await authApi.changePassword({
+      oldPassword: "old-pass-1",
+      newPassword: "new-pass-1",
+    });
+    const calls = callsTo(fetchMock, "/auth/change-password") as [
+      string,
+      Init?,
+    ][];
+    expect(calls).toHaveLength(2);
+    expect(bodyOf(calls[0])).toEqual({
+      oldPassword: "old-pass-1",
+      newPassword: "new-pass-1",
+      refreshToken: "ref_0",
+    });
+    expect(bodyOf(calls[1]).refreshToken).toBe("ref_1");
+  });
+
+  it("没登录时改密（不该发生）：refreshToken 为空串，不抛", async () => {
+    tokens = null;
+    fetchMock.mockResolvedValue(res(204));
+    await authApi.changePassword({ oldPassword: "a", newPassword: "b" });
+    expect(
+      bodyOf(
+        (callsTo(fetchMock, "/auth/change-password") as [string, Init?][])[0],
+      ).refreshToken,
+    ).toBe("");
   });
 });

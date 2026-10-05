@@ -14,6 +14,10 @@ import { ConnectionBanner } from "@/components/connection-banner";
 import { PrivacyConsentModal } from "@/components/privacy-consent-modal";
 import { ThemeFade } from "@/components/theme-fade";
 import { installDevErrorTap } from "@/services/dev-log";
+import {
+  clearSessionExpiredNotice,
+  notifySessionExpired,
+} from "@/services/session-notice";
 import { useAuthStore } from "@/stores/auth-store";
 import { useConsentStore } from "@/stores/consent-store";
 import { useThemeStore } from "@/stores/theme-store";
@@ -40,6 +44,10 @@ useAuthStore.subscribe((state, prev) => {
   const switched = (state.user?.id ?? null) !== (prev.user?.id ?? null);
   const loggedOut = state.tokens === null && prev.tokens !== null;
   if (switched || loggedOut) queryClient.clear();
+  // 会话被服务端否定：BLE 中转 / 实时通道 / 推送随登录态一起停了，不能让用户蒙在鼓里
+  if (state.sessionExpired && !prev.sessionExpired) notifySessionExpired();
+  if (state.tokens !== null && prev.tokens === null)
+    clearSessionExpiredNotice();
 });
 
 /** 登录门控：导航器保持挂载，Stack.Protected 按会话状态切换可用路由组（guard 翻转自动重定向） */

@@ -24,6 +24,11 @@ type AuthState = {
   hydrated: boolean;
   tokens: AuthTokens | null;
   user: UserProfile | null;
+  /**
+   * 会话是被服务端否定而结束的（不是用户自己退出）：登录页据此说明原因，_layout 据此发本地通知。
+   * 只在内存里，重新登录即清。见 services/session-notice.ts。
+   */
+  sessionExpired: boolean;
   hydrate: () => Promise<void>;
   signIn: (auth: AuthResponse) => Promise<void>;
   signOut: () => Promise<void>;
@@ -36,6 +41,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   hydrated: false,
   tokens: null,
   user: null,
+  sessionExpired: false,
 
   hydrate: async () => {
     try {
@@ -76,6 +82,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         refreshToken: auth.refreshToken,
       },
       user: auth.user,
+      sessionExpired: false,
     });
     await Promise.all([
       SecureStore.setItemAsync(
@@ -108,7 +115,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   dropSession: async () => {
-    set({ tokens: null, user: null });
+    set({ tokens: null, user: null, sessionExpired: false });
     await Promise.all([
       SecureStore.deleteItemAsync(TOKEN_KEY),
       SecureStore.deleteItemAsync(USER_KEY),
@@ -133,7 +140,13 @@ attachSession({
     await SecureStore.setItemAsync(TOKEN_KEY, JSON.stringify(tokens), KEYCHAIN);
   },
   clearSession: async () => {
-    useAuthStore.setState({ tokens: null, user: null });
+    // 原本登录着才算「被动登出」；本来就没登录时收到的 401 不算
+    const wasSignedIn = useAuthStore.getState().tokens !== null;
+    useAuthStore.setState({
+      tokens: null,
+      user: null,
+      ...(wasSignedIn ? { sessionExpired: true } : {}),
+    });
     await Promise.all([
       SecureStore.deleteItemAsync(TOKEN_KEY),
       SecureStore.deleteItemAsync(USER_KEY),

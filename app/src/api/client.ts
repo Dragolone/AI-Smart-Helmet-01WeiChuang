@@ -95,7 +95,12 @@ async function refreshTokens(): Promise<RefreshOutcome> {
     } catch {
       return "stale";
     }
-    if (res.status === 401) return "invalid";
+    // 401 否定的是「发起时那把」refresh token。刷新在途时若已登出并换了账号，被否定的不是现在这个会话，
+    // 不能回 invalid 让调用方把新账号的会话清掉（200 分支早有这层核对，401 分支原来没有）
+    if (res.status === 401)
+      return session?.getTokens()?.refreshToken === startedWith
+        ? "invalid"
+        : "stale";
     if (!res.ok) return "stale";
     const next = (await res.json()) as unknown;
     // 200 却没带出一对 token（网关改写了响应体等）：当作这次没刷成。写进去的话后续请求会带着
@@ -135,13 +140,28 @@ async function parseError(res: Response): Promise<ApiRequestError> {
   }
 }
 
+/** 此刻的 refresh token（请求体里要带它的接口用，配合函数形式的 body 在重试时重取） */
+export function currentRefreshToken(): string {
+  return session?.getTokens()?.refreshToken ?? "";
+}
+
+/**
+ * `body` 可以是函数：每次真正发请求时现算。请求体里带着 token 的接口必须这样传——
+ * 401 静默刷新后的重试若原样重发提交时定死的 body，带出去的是已被轮换掉的旧 refresh token。
+ */
 export async function api<T>(
   path: string,
-  options: { method?: string; body?: unknown; auth?: boolean } = {},
+  options: {
+    method?: string;
+    body?: unknown | (() => unknown);
+    auth?: boolean;
+  } = {},
 ): Promise<T> {
-  const { method = "GET", body, auth = true } = options;
+  const { method = "GET", body: bodyOrFn, auth = true } = options;
 
   const doFetch = async (): Promise<Response> => {
+    const body =
+      typeof bodyOrFn === "function" ? (bodyOrFn as () => unknown)() : bodyOrFn;
     const headers: Record<string, string> = {};
     if (body !== undefined) headers["Content-Type"] = "application/json";
     if (auth) {

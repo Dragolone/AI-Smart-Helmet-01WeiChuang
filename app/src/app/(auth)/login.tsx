@@ -38,6 +38,7 @@ export default function LoginScreen() {
   const privacyAccepted = useConsentStore((s) => s.privacyAccepted);
   const consentHydrated = useConsentStore((s) => s.hydrated);
   const acceptPrivacy = useConsentStore((s) => s.accept);
+  const sessionExpired = useAuthStore((s) => s.sessionExpired);
   // 标记还没从 SecureStore 读出来时也按「需要」处理：宁可多勾一次，不能让冷启动秒点登录绕过同意
   // （评审 2026-09-26）——读出来通常只要几十毫秒，勾选框最多闪一下
   const needConsent = !consentHydrated || !privacyAccepted;
@@ -105,6 +106,19 @@ export default function LoginScreen() {
           <ThemedText type="small" themeColor="textSecondary">
             {t("auth.slogan")}
           </ThemedText>
+
+          {/* 被动登出要说清楚后果：头盔事件靠这台手机中转，没登录就没有摔倒通知（2026-10-05 评审） */}
+          {sessionExpired && (
+            <View
+              accessibilityRole="alert"
+              style={[styles.expiredNotice, { borderColor: theme.danger }]}
+            >
+              <Ionicons name="warning-outline" size={18} color={theme.danger} />
+              <ThemedText type="small" style={styles.consentText}>
+                {t("auth.sessionExpiredNotice")}
+              </ThemedText>
+            </View>
+          )}
 
           <FormInput
             label={t("auth.phone")}
@@ -192,6 +206,14 @@ const styles = StyleSheet.create({
   container: { flex: 1, justifyContent: "center", padding: 24, gap: 14 },
   brand: { alignSelf: "flex-start" },
   consentRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  expiredNotice: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+  },
   consentText: { flex: 1, lineHeight: 20 },
   linkRow: {
     flexDirection: "row",
