@@ -70,7 +70,7 @@ export class IngestService {
     private readonly mediaRecorder: MediaRecorderService,
   ) {}
 
-  /** 所有入口（MQTT / App 中转 / 未来的 Webhook / Mock）都汇聚到这里；返回值仅用于日志与测试。 */
+  /** 所有入口（MQTT / App 中转 / Webhook / Mock）都汇聚到这里；返回值仅用于日志与测试。 */
   async ingestRaw(
     raw: string,
     topicDeviceId: string,
@@ -138,7 +138,7 @@ export class IngestService {
   }
 
   /**
-   * 入库成功后的业务分发：快照 → 位置表 → WS 推送。
+   * 入库成功后的业务分发：快照 → 位置表 → SOS 触发 → 媒体表 → WS 推送。
    * 只对已注册设备生效（未注册的仅 raw 留档）；推送只发给绑定用户。
    */
   private async dispatchStored(e: ValidEnvelope): Promise<void> {

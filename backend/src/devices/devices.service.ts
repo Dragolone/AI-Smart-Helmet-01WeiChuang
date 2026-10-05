@@ -51,7 +51,10 @@ export class DevicesService {
   ) {}
 
   async bind(userId: string, deviceId: string, bindCode: string) {
-    const device = await this.prisma.device.findUnique({ where: { deviceId } });
+    const device = await this.prisma.device.findUnique({
+      where: { deviceId },
+      select: DEVICE_PUBLIC_SELECT,
+    });
     if (!device) throw deviceNotFound();
     if (!device.bindCode || device.bindCode !== bindCode) {
       throw new ForbiddenException({
@@ -86,7 +89,10 @@ export class DevicesService {
       await tx.deviceBinding.create({
         data: { deviceId, userId, boundAt: now },
       });
-      return tx.device.findUniqueOrThrow({ where: { deviceId } });
+      return tx.device.findUniqueOrThrow({
+        where: { deviceId },
+        select: DEVICE_PUBLIC_SELECT,
+      });
     });
     return this.toPublic(updated);
   }

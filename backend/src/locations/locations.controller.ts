@@ -39,7 +39,7 @@ export class LocationsController {
     return this.locations.latest(req.user.userId, deviceId);
   }
 
-  /** 区间统计（里程/移动时长/最高速）；路由声明在 :page 之类通配前，避免被当成参数 */
+  /** 区间统计（里程/移动时长/最高速） */
   @Get('summary')
   async summary(
     @Req() req: AuthenticatedRequest,

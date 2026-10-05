@@ -15,6 +15,10 @@ import {
   toWireEventItem,
 } from './event-wire';
 
+/** 不存在、不是本人的、不在本人绑定区间内：同一个 404，不泄露事件存在性 */
+const eventNotFound = (): NotFoundException =>
+  new NotFoundException({ code: 'NOT_FOUND', message: '事件不存在' });
+
 @Injectable()
 export class EventsService {
   constructor(
@@ -74,7 +78,7 @@ export class EventsService {
       where: { eventId },
     });
     if (!event || event.eventType === INVALID_EVENT_TYPE) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: '事件不存在' });
+      throw eventNotFound();
     }
     const device = await this.prisma.device.findUnique({
       where: { deviceId: event.deviceId },
@@ -82,11 +86,11 @@ export class EventsService {
     });
     // 与列表同口径：非本人绑定设备、或不在本人绑定区间内的事件一律 404，不泄露存在性
     if (!device || device.bindUserId !== userId) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: '事件不存在' });
+      throw eventNotFound();
     }
     const intervals = await this.scope.intervals(event.deviceId, userId);
     if (!this.scope.inScope(event.receivedAt, intervals)) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: '事件不存在' });
+      throw eventNotFound();
     }
     // 关联媒体（§6/§9）：危险/摔倒事件反查 relatedEventId；video_ready 事件带自己那条
     // 限定同一设备：relatedEventId 是设备自报的字符串，别的设备可以填任意值，不能据此把它的媒体挂到本事件上（审计 MEDIA-01）

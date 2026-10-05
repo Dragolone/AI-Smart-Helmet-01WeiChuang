@@ -1,5 +1,5 @@
 // App 中转传输（MVP 唯一真机链路，API.md §12.1 / DEVICE_PROTOCOL §1.1，决策 #31/#35）：
-// 模拟"手机 App 收到 BLE 事件后批量转交云端"，用来在硬件 BLE 协议与 A 线中转模块就绪前，
+// 模拟"手机 App 收到 BLE 事件后批量转交云端"：不需要头盔和手机，
 // 用同一套剧本把服务端侧这条链路跑通——批量提交、断线缓存、按原 eventId 补传、重复去重。
 //
 // 与真机 App 的一致性：envelope 内容、eventId 幂等规则、7 种事件范围完全按 Contract，
@@ -7,6 +7,7 @@
 import { BLE_RELAY_EVENT_TYPES } from '@helmet/shared';
 import type {
   AppRelayResponse,
+  AuthTokens,
   EventEnvelope,
   EventType,
   RelayAckResponse,
@@ -14,7 +15,7 @@ import type {
   WsMessage,
 } from '@helmet/shared';
 import { executeCommand } from './settings-exec.ts';
-import type { EventKind, Log, Transport } from './transport.ts';
+import type { CmdResult, EventKind, Log, Transport } from './transport.ts';
 
 const RELAY_SCOPE = new Set<string>(BLE_RELAY_EVENT_TYPES);
 
@@ -32,7 +33,7 @@ export interface RelayConfig {
   /** 是否把范围外事件也发出去（用于验证服务端的超范围留档行为）；默认 false = 像真 App 一样过滤 */
   sendOutOfScope: boolean;
   /** 命令回执行为（与 MQTT 模式的 MOCK_CMD_RESULT 同三态）：success | failed | silent（不回 executed，演示 offline） */
-  cmdResult: 'success' | 'failed' | 'silent';
+  cmdResult: CmdResult;
   log: Log;
 }
 
@@ -75,7 +76,7 @@ export function createRelayTransport(cfg: RelayConfig): Transport {
         `登录失败 ${status}：${JSON.stringify(json)}——检查 RELAY_PHONE / RELAY_PASSWORD，账号需先在 App 或 Admin 注册`,
       );
     }
-    const t = json as { accessToken: string; refreshToken: string };
+    const t = json as AuthTokens;
     accessToken = t.accessToken;
     refreshToken = t.refreshToken;
   };
@@ -85,7 +86,7 @@ export function createRelayTransport(cfg: RelayConfig): Transport {
     try {
       const { status, json } = await post('/api/v1/auth/refresh', { refreshToken }, false);
       if (status === 200 || status === 201) {
-        const t = json as { accessToken: string; refreshToken: string };
+        const t = json as AuthTokens;
         accessToken = t.accessToken;
         refreshToken = t.refreshToken;
         return;

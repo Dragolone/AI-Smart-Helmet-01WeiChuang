@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createHash, timingSafeEqual } from 'node:crypto';
+import { mqttBackendClientId, mqttBackendUsername } from '../common/env';
 import { PrismaService } from '../prisma/prisma.service';
 
 /** EMQX HTTP 认证/授权的应答格式 */
@@ -46,10 +47,9 @@ export class EmqxHookService {
   ): Promise<EmqxResult> {
     if (!username || !password) return DENY;
 
-    const serviceUser = process.env.MQTT_BACKEND_USERNAME ?? 'backend_ingest';
+    const serviceUser = mqttBackendUsername();
     const servicePass = process.env.MQTT_BACKEND_PASSWORD;
-    const backendClientId =
-      process.env.MQTT_BACKEND_CLIENT_ID ?? 'backend_ingest';
+    const backendClientId = mqttBackendClientId();
     if (username === serviceUser) {
       if (clientid !== undefined && clientid !== backendClientId) {
         this.logger.warn(
@@ -85,7 +85,7 @@ export class EmqxHookService {
   ): EmqxResult {
     if (!username || !topic || !action) return DENY;
 
-    const serviceUser = process.env.MQTT_BACKEND_USERNAME ?? 'backend_ingest';
+    const serviceUser = mqttBackendUsername();
     if (username === serviceUser) return ALLOW;
 
     const match = TOPIC_PATTERN.exec(topic);

@@ -19,6 +19,8 @@ import type { AdminEventRow, Paginated } from '@helmet/shared'
 
 const formatTime = (v: string): string => dayjs(v).format('YYYY-MM-DD HH:mm:ss')
 
+const EVENT_TYPE_OPTIONS = EVENT_TYPES.map((t) => ({ value: t, label: t }))
+
 /** 危险/求救类标红，休眠蓝牙类灰，其余默认 */
 const typeColor = (t: string): string | undefined => {
   if (['collision_risk', 'obstacle_risk'].includes(t)) return 'red'
@@ -94,7 +96,7 @@ export default function EventsPage() {
           allowClear
           disabled={invalidOnly}
           style={{ minWidth: 260 }}
-          options={EVENT_TYPES.map((t) => ({ value: t, label: t }))}
+          options={EVENT_TYPE_OPTIONS}
           onChange={(value: string[]) => {
             setPage(1)
             setTypes(value)
