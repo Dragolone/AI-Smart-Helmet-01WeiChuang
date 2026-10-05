@@ -15,7 +15,7 @@ import {
 import Animated, { FadeInDown } from "react-native-reanimated";
 
 import { devicesApi } from "@/api/devices";
-import { eventsApi } from "@/api/events";
+import { eventsApi, eventsListQuery } from "@/api/events";
 import { SAFETY_EVENT_TYPE_PARAM } from "@/constants/event-types";
 import { toUserMessage } from "@/api/error-messages";
 import { PrimaryButton } from "@/components/form";
@@ -209,8 +209,7 @@ export default function EventsScreen() {
   const typeParam = filter || SAFETY_EVENT_TYPE_PARAM;
   const perDevice = useQueries({
     queries: deviceIds.map((id) => ({
-      queryKey: ["events", id, typeParam],
-      queryFn: () => eventsApi.list(id, { type: typeParam, pageSize: 50 }),
+      ...eventsListQuery(id, { type: typeParam, pageSize: 50 }),
       refetchInterval: 30_000,
     })),
   });

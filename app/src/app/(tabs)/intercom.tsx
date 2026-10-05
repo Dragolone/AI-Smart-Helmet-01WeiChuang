@@ -33,6 +33,7 @@ import TRTCCloud, {
 import type { VoiceChannelMemberPublic } from "@helmet/shared";
 
 import { channelsApi } from "@/api/channels";
+import { sameSpeakers } from "@/services/voice-volume";
 import { toUserMessage } from "@/api/error-messages";
 import { FormInput, PrimaryButton, SecondaryButton } from "@/components/form";
 import { Card, GroupTitle } from "@/components/list";
@@ -231,7 +232,10 @@ export default function IntercomScreen() {
           for (const v of params.userVolumes ?? []) {
             next[v.userId === "" ? myId : v.userId] = v.volume;
           }
-          setVolumes(next);
+          // 音量数值每 300 ms 都在变，但指示环只看是否过阈值：没人开口或闭口就沿用旧状态，不重画
+          setVolumes((prev) =>
+            sameSpeakers(prev, next, SPEAKING_THRESHOLD) ? prev : next,
+          );
           break;
         }
       }
