@@ -4,7 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import type React from "react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Modal,
@@ -206,10 +206,31 @@ export default function DeviceDetailScreen() {
         (bleLink?.phase === "connected" && bleLink.firmwareVersion
           ? ` · v${bleLink.firmwareVersion}`
           : "");
-  const revealBindCode = () => {
-    setBindCodeShown(true);
-    setTimeout(() => setBindCodeShown(false), 10_000);
+  // 绑定码显示 10 秒后自动收起。定时器要记下来：手动收起再点开时，上一次的定时器还在走，
+  // 会在不到 10 秒的时候把刚点开的码收掉（B 线 10-05 指出）
+  const bindCodeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearBindCodeTimer = () => {
+    if (bindCodeTimer.current) clearTimeout(bindCodeTimer.current);
+    bindCodeTimer.current = null;
   };
+  const hideBindCode = () => {
+    clearBindCodeTimer();
+    setBindCodeShown(false);
+  };
+  const revealBindCode = () => {
+    clearBindCodeTimer();
+    setBindCodeShown(true);
+    bindCodeTimer.current = setTimeout(() => {
+      bindCodeTimer.current = null;
+      setBindCodeShown(false);
+    }, 10_000);
+  };
+  useEffect(
+    () => () => {
+      if (bindCodeTimer.current) clearTimeout(bindCodeTimer.current);
+    },
+    [],
+  );
 
   const serverVolume =
     typeof settings.data?.settings.volume === "number"
@@ -618,9 +639,7 @@ export default function DeviceDetailScreen() {
                 bindCodeShown ? (detail.data?.bindCode ?? "—") : "••••••••"
               }
               valueColor={bindCodeShown ? undefined : theme.textSecondary}
-              onPress={
-                bindCodeShown ? () => setBindCodeShown(false) : revealBindCode
-              }
+              onPress={bindCodeShown ? hideBindCode : revealBindCode}
             />
           </DeviceInfoSection>
         )}

@@ -2,7 +2,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { LogBox } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
@@ -25,10 +24,6 @@ import { useThemeStore } from "@/stores/theme-store";
 
 // 开发期：未捕获异常旁路上报（真机 Metro 日志通道断时仍能看到红屏原因）
 installDevErrorTap();
-
-// 已知无害：开发期 iOS 摘除了推送 entitlement（个人团队签不了 aps-environment），
-// expo-notifications 启动自检读不到钥匙串会报此错。公司账号恢复正式签名后删除本行。
-LogBox.ignoreLogs([/ERR_NOTIFICATIONS_KEYCHAIN_ACCESS/]);
 
 SplashScreen.preventAutoHideAsync();
 

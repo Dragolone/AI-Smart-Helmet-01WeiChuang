@@ -101,6 +101,33 @@ describe("iOS AppDelegate.swift 补丁", () => {
     expect(once).toContain("forward.userNotificationCenter(_:willPresent:withCompletionHandler:)");
   });
 
+  it("AppDelegate 实现了 networkDidReceiveMessage:（极光把它注册成自定义消息的观察者，没有这个方法收到自定义消息就崩）", () => {
+    // RCTJPushModule.m：addObserver:[[UIApplication sharedApplication] delegate] selector:@selector(networkDidReceiveMessage:)
+    expect(once).toMatch(/@objc public func networkDidReceiveMessage\(_ notification: Notification\)/);
+    expect(once).toContain('NSNotification.Name("J_CUSTOM_NOTIFICATION_EVENT")');
+    // 必须在 AppDelegate 类体里（观察者是 delegate 实例本身）
+    const classStart = once.indexOf("class AppDelegate");
+    const ext = once.indexOf("extension AppDelegate: JPUSHRegisterDelegate");
+    const at = once.indexOf("func networkDidReceiveMessage");
+    expect(at).toBeGreaterThan(classStart);
+    expect(at).toBeLessThan(ext);
+  });
+
+  it("库里确实还是把 AppDelegate 注册成这个 selector 的观察者（库升级后若改了名，这条会提醒同步）", () => {
+    const fs = require("node:fs") as typeof import("node:fs");
+    const path = require("node:path") as typeof import("node:path");
+    const lib = fs.readFileSync(
+      path.join(__dirname, "../../../node_modules/jpush-react-native/ios/RCTJPushModule/RCTJPushModule.m"),
+      "utf8",
+    );
+    expect(lib).toMatch(/addObserver:\[\[UIApplication sharedApplication\] delegate\]\s*selector:@selector\(networkDidReceiveMessage:\)/);
+    const header = fs.readFileSync(
+      path.join(__dirname, "../../../node_modules/jpush-react-native/ios/RCTJPushModule/RCTJPushModule.h"),
+      "utf8",
+    );
+    expect(header).toContain('#define J_CUSTOM_NOTIFICATION_EVENT        @"J_CUSTOM_NOTIFICATION_EVENT"');
+  });
+
   it("不在 AppDelegate 里初始化极光（必须等用户同意隐私政策后由 JS 触发）", () => {
     expect(once).not.toContain("JPUSHService.setup");
     expect(once).not.toContain("registerForRemoteNotificationConfig");

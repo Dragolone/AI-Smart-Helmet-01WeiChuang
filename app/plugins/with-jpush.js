@@ -108,6 +108,15 @@ const SWIFT_CLASS_BODY = `
     JPUSHService.registerDeviceToken(deviceToken)
     super.application(application, didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)
   }
+
+  /// 极光「自定义消息」（走长连接、不是 APNs）。RCTJPushModule 初始化时把 AppDelegate 注册成了
+  /// kJPFNetworkDidReceiveMessageNotification 的观察者，selector 就是这个方法名（RCTJPushModule.m）。
+  /// AppDelegate 上没有它的话，极光一旦下发自定义消息——控制台手滑点一下就够——所有在线的 iPhone
+  /// 客户端直接崩在 unrecognized selector 上，BLE 中转随进程中断（2026-10-05 评审）。
+  /// 后端目前只发通知不发自定义消息；这里照官方示例转给 JS 监听，没人监听就是空操作。
+  @objc public func networkDidReceiveMessage(_ notification: Notification) {
+    NotificationCenter.default.post(name: NSNotification.Name("J_CUSTOM_NOTIFICATION_EVENT"), object: notification.userInfo)
+  }
 `;
 
 /** Swift：文件末尾追加的 extension（极光回调 + 转发 expo） */
