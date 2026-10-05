@@ -187,7 +187,15 @@ export default function DeviceDetailScreen() {
   const [batteryOptOk, setBatteryOptOk] = useState(() =>
     HelmetLinkService.isIgnoringBatteryOptimizations(),
   );
-  const bleLink = useBleStore((st) => st.links[deviceId]);
+  // 只订阅本页用到的两个字段：整条 link 每来一帧都会变（lastFrameAt / eventsReceived），
+  // 订阅它等于每帧把整页重画一遍
+  const blePhase = useBleStore((st) => st.links[deviceId]?.phase);
+  const bleFirmwareVersion = useBleStore(
+    (st) => st.links[deviceId]?.firmwareVersion,
+  );
+  const bleLink = blePhase
+    ? { phase: blePhase, firmwareVersion: bleFirmwareVersion }
+    : undefined;
   const bleAdapter = useBleStore((st) => st.adapter);
   const bleStatusText =
     bleAdapter === "off" ||

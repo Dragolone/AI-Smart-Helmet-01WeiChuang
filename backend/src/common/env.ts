@@ -6,3 +6,12 @@ export const envPositiveInt = (name: string, fallback: number): number => {
   const n = Number(process.env[name]);
   return Number.isInteger(n) && n > 0 ? n : fallback;
 };
+
+/**
+ * 后端 MQTT 服务账号的用户名与保留 clientId：消费者用它们连 EMQX，emqx-hook 用它们认出自己人，
+ * 两边必须取到同一个值。同样在调用时读取。
+ */
+export const mqttBackendUsername = (): string =>
+  process.env.MQTT_BACKEND_USERNAME ?? 'backend_ingest';
+export const mqttBackendClientId = (): string =>
+  process.env.MQTT_BACKEND_CLIENT_ID ?? 'backend_ingest';

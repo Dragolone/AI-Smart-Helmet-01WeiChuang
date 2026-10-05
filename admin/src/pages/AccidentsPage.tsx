@@ -1,20 +1,21 @@
 import { useQuery } from '@tanstack/react-query'
 import { Card, Input, Select, Space, Table, Tag, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import dayjs from 'dayjs'
 import { useState } from 'react'
 import { api } from '../api/client'
 import QueryError from '../components/QueryError'
+import { formatTime, formatUserLabel } from '../utils/format'
 import type { AdminAccidentRow, Paginated, SosStatus } from '@helmet/shared'
-
-const formatTime = (v: string | null): string =>
-  v ? dayjs(v).format('YYYY-MM-DD HH:mm:ss') : '—'
 
 const STATUS_TAG: Record<SosStatus, { color: string; label: string }> = {
   pending: { color: 'orange', label: '倒计时中' },
   notified: { color: 'red', label: '已通知' },
   cancelled: { color: 'default', label: '已取消' },
 }
+
+const STATUS_OPTIONS = (Object.keys(STATUS_TAG) as SosStatus[]).map(
+  (value) => ({ value, label: STATUS_TAG[value].label }),
+)
 
 const columns: ColumnsType<AdminAccidentRow> = [
   { title: '时间', dataIndex: 'createdAt', width: 180, render: formatTime },
@@ -23,7 +24,7 @@ const columns: ColumnsType<AdminAccidentRow> = [
     title: '用户',
     dataIndex: 'user',
     render: (u: AdminAccidentRow['user']) =>
-      u ? `${u.phone}${u.nickname ? `（${u.nickname}）` : ''}` : '—',
+      u ? formatUserLabel(u) : '—',
   },
   {
     title: '触发方式',
@@ -85,11 +86,7 @@ export default function AccidentsPage() {
           placeholder="状态"
           allowClear
           style={{ width: 140 }}
-          options={[
-            { value: 'pending', label: '倒计时中' },
-            { value: 'notified', label: '已通知' },
-            { value: 'cancelled', label: '已取消' },
-          ]}
+          options={STATUS_OPTIONS}
           onChange={(value: SosStatus | undefined) => {
             setPage(1)
             setStatus(value)

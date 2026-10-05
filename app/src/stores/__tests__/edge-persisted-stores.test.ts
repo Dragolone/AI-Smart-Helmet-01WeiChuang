@@ -131,6 +131,68 @@ describe("auth-store.hydrate：存储损坏", () => {
     expect(mockMe).toHaveBeenCalledTimes(1);
     expect(store.getState()).toMatchObject({ hydrated: true, tokens, user: { id: "u1" } });
   });
+
+  it("/users/me 在途时登出并登录了另一个账号：迟到的旧档案不落到新会话上（token 是 B 的、user 也得是 B 的）", async () => {
+    mockKv.set(TOKEN_KEY, JSON.stringify(tokens));
+    mockKv.set(USER_KEY, JSON.stringify(user()));
+    let landMe!: (u: UserProfile) => void;
+    mockMe.mockImplementation(
+      () =>
+        new Promise<UserProfile>((resolve) => {
+          landMe = resolve;
+        }),
+    );
+    const { store } = loadAuth();
+    await store.getState().hydrate();
+    await store.getState().signOut();
+    const b: AuthResponse = {
+      accessToken: "acc_b",
+      refreshToken: "ref_b",
+      user: user({ id: "u2", phone: "13900005678" }),
+    };
+    await store.getState().signIn(b);
+    landMe(user({ avatarUrl: AVATAR }));
+    await flush();
+    expect(store.getState().tokens).toEqual({ accessToken: "acc_b", refreshToken: "ref_b" });
+    expect(store.getState().user).toMatchObject({ id: "u2", phone: "13900005678" });
+  });
+
+  it("/users/me 在途时登出：迟到的档案不会给已登出的状态凭空写出一个 user", async () => {
+    mockKv.set(TOKEN_KEY, JSON.stringify(tokens));
+    mockKv.set(USER_KEY, JSON.stringify(user()));
+    let landMe!: (u: UserProfile) => void;
+    mockMe.mockImplementation(
+      () =>
+        new Promise<UserProfile>((resolve) => {
+          landMe = resolve;
+        }),
+    );
+    const { store } = loadAuth();
+    await store.getState().hydrate();
+    await store.getState().signOut();
+    landMe(user({ avatarUrl: AVATAR }));
+    await flush();
+    expect(store.getState()).toMatchObject({ tokens: null, user: null });
+  });
+
+  it("/users/me 在途时同一账号重新登录：档案照常补上", async () => {
+    mockKv.set(TOKEN_KEY, JSON.stringify(tokens));
+    mockKv.set(USER_KEY, JSON.stringify(user()));
+    let landMe!: (u: UserProfile) => void;
+    mockMe.mockImplementation(
+      () =>
+        new Promise<UserProfile>((resolve) => {
+          landMe = resolve;
+        }),
+    );
+    const { store } = loadAuth();
+    await store.getState().hydrate();
+    await store.getState().signOut();
+    await store.getState().signIn({ accessToken: "acc_2", refreshToken: "ref_2", user: user() });
+    landMe(user({ avatarUrl: AVATAR }));
+    await flush();
+    expect(store.getState().user).toMatchObject({ id: "u1", avatarUrl: AVATAR });
+  });
 });
 
 describe("auth-store：落盘内容", () => {

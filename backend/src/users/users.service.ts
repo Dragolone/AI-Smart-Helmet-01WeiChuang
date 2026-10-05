@@ -3,10 +3,10 @@ import { AuthService } from '../auth/auth.service';
 import { ContactsService } from '../contacts/contacts.service';
 import { DevicesService } from '../devices/devices.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { RealtimeGateway } from '../realtime/realtime.gateway';
-
-/** 应用自定义关闭码：鉴权失效（与 realtime.gateway 握手失败同码，App 据此走重新登录） */
-const CLOSE_UNAUTHORIZED = 4401;
+import {
+  CLOSE_UNAUTHORIZED,
+  RealtimeGateway,
+} from '../realtime/realtime.gateway';
 
 @Injectable()
 export class UsersService {

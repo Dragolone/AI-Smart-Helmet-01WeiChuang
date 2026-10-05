@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request, Response } from 'express';
+import { PHONE_PATTERN } from './phone';
 
 /**
  * 限频规则：同一路由可叠多条（如「每 IP 每分钟」+「每 IP+手机号每分钟」），任一超限即 429。
@@ -32,7 +33,6 @@ const MAX_BUCKETS = 50_000;
 const PRUNE_INTERVAL_MS = 60_000;
 /** 淘汰时先清 1 分钟内无命中的桶，仍超限再按最久命中淘汰这一比例 */
 const EVICT_RATIO = 0.1;
-const PHONE_PATTERN = /^1[3-9]\d{9}$/;
 
 /**
  * 单实例内存滑动窗口限频（模块化单体 + 单实例部署，不引入 Redis）。

@@ -232,6 +232,43 @@ describe("start / stop 生命周期", () => {
     expect(count()).toBe(2);
   });
 
+  it("stop 之后旧连接迟到的 onopen / onmessage：状态不翻回已连接，消息不再分发", () => {
+    const c = load();
+    const states: boolean[] = [];
+    const received: unknown[] = [];
+    c.subscribeState((v) => states.push(v));
+    c.subscribe((m) => received.push(m));
+    c.start(depsWith(() => "tok"));
+    const first = last();
+    c.stop();
+    first.open(); // close() 之后握手才完成
+    first.message(JSON.stringify({ type: "device_status" }));
+    expect(states).toEqual([false]);
+    expect(received).toEqual([]);
+    expect(count()).toBe(1);
+  });
+
+  it("kick 放弃了握手中的旧连接：旧连接迟到的 onopen 不算数，新连接连上才算已连接", () => {
+    const c = load();
+    const states: boolean[] = [];
+    const received: unknown[] = [];
+    c.subscribeState((v) => states.push(v));
+    c.subscribe((m) => received.push(m));
+    c.start(depsWith(() => "tok"));
+    const first = last();
+    c.kick();
+    const second = last();
+    expect(second).not.toBe(first);
+    first.open();
+    first.message(JSON.stringify({ type: "device_status" }));
+    expect(states).toEqual([false]);
+    expect(received).toEqual([]);
+    second.open();
+    second.message(JSON.stringify({ type: "device_status" }));
+    expect(states).toEqual([false, true]);
+    expect(received).toEqual([{ type: "device_status" }]);
+  });
+
   it("运行中重复 start：不建第二条连接，但下次重连用的是新传入的取 token 方法", () => {
     const c = load();
     c.start(depsWith(() => "tok-A"));

@@ -71,9 +71,14 @@ export function describeOutbound(bytes: Uint8Array): string {
     case Ins.PING:
       return `PING seq=${seq}`;
     case Ins.READ:
+      // 短帧正是测头盔 ERR_LENGTH 要发的东西，描述不能先于头盔倒下
+      if (p.length < 2) return `READ seq=${seq}（参数不足 2 字节）`;
       return `READ ${hex2(p[0])} ${regName(p[0])} 长度 ${p[1]}`;
     case Ins.WRITE: {
+      if (p.length < 1) return `WRITE seq=${seq}（缺寄存器地址）`;
       const data = p.subarray(1);
+      if (data.length === 0)
+        return `WRITE ${hex2(p[0])} ${regName(p[0])}（无数据）`;
       const multi = data.length > 1 ? `（连写 ${data.length} 字节）` : "";
       return `WRITE ${hex2(p[0])} ${describeRegisters(p[0], data)}${multi}`;
     }

@@ -33,4 +33,10 @@ describe("helmetErrorText", () => {
       "SOMETHING_NEW:x",
     );
   });
+
+  it("码恰好是 Object.prototype 的成员名：按认不出的码原样返回，不把函数或原型对象交给翻译", () => {
+    for (const code of ["constructor", "toString:volume", "__proto__", "hasOwnProperty"]) {
+      expect(helmetErrorText(code, t as never)).toBe(code);
+    }
+  });
 });

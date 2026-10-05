@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { connect, type MqttClient } from 'mqtt';
 import type { Packet } from 'mqtt-packet';
+import { mqttBackendClientId, mqttBackendUsername } from '../common/env';
 import { errorMessage } from '../common/error-text';
 import { sleep } from '../common/sleep';
 import { IngestService } from './ingest.service';
@@ -73,10 +74,10 @@ export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
     // 注意：持久会话有 Broker 侧过期时间（EMQX 默认 2h），超长停机仍依赖设备补传兜底
     //（设备离线缓存能力见 DEVICE_PROTOCOL §6，⚠️ 待硬件确认）。单体单实例架构下 clientId 固定是安全的。
     this.client = connect(url, {
-      clientId: process.env.MQTT_BACKEND_CLIENT_ID ?? 'backend_ingest',
+      clientId: mqttBackendClientId(),
       clean: false,
       // 服务账号凭证：EMQX 开启认证后后端消费者也必须带证（emqx-hook 校验）
-      username: process.env.MQTT_BACKEND_USERNAME ?? 'backend_ingest',
+      username: mqttBackendUsername(),
       password: process.env.MQTT_BACKEND_PASSWORD,
       // 关掉 mqtt.js 的自动重订阅（审计 MQTT-02）：开着时它会把已订阅过的主题记在内存里，
       // 之后再调 subscribe() 会被去重、直接回调成功而不真发 SUBSCRIBE——会话被 Broker 清掉

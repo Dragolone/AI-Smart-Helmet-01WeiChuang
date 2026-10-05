@@ -195,7 +195,7 @@ export class SosNotifierService {
       return;
     }
     // push target 形如 user:<id>。标题/正文按此刻联系人短信的真实结果生成：
-    // 通知行按 createdAt 顺序投递，短信行在本人 Push 之前，所以这里读到的是本轮投递后的状态
+    // 通知行按 channel desc 排序投递（见扫描处 orderBy 的说明），短信行在本人 Push 之前，所以这里读到的是本轮投递后的状态
     const { title, body } = await this.pushText(sosCase);
     await this.push.send(row.target.replace(/^user:/, ''), title, body, {
       sosId: sosCase.id,

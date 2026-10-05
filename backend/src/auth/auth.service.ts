@@ -64,10 +64,7 @@ export class AuthService {
       select: { id: true },
     });
     if ((purpose === 'register' || purpose === 'change_phone') && existing) {
-      throw new ConflictException({
-        code: 'PHONE_ALREADY_REGISTERED',
-        message: '该手机号已注册',
-      });
+      throw phoneTaken();
     }
     if (purpose === 'reset_password' && !existing) {
       throw new NotFoundException({
@@ -84,7 +81,10 @@ export class AuthService {
     password: string,
     nickname?: string,
   ): Promise<{ user: SafeUser } & TokenPair> {
-    const existing = await this.prisma.user.findUnique({ where: { phone } });
+    const existing = await this.prisma.user.findUnique({
+      where: { phone },
+      select: { id: true },
+    });
     if (existing) throw phoneTaken();
     // 先校验并消费验证码，再建用户：验证码错误不留下半成品账号
     await this.smsCodes.verifyAndConsume(phone, 'register', code);
@@ -238,10 +238,7 @@ export class AuthService {
     if (record.revokedAt) {
       if (Date.now() - record.revokedAt.getTime() < REFRESH_REUSE_GRACE_MS) {
         // 并发刷新的输家：另一方刚刚轮换成功，本次拒绝即可，不能把赢家的新会话也撤销
-        throw new UnauthorizedException({
-          code: 'UNAUTHORIZED',
-          message: 'refresh token 已被使用，请用最新的 token',
-        });
+        throw unauthorized('refresh token 已被使用，请用最新的 token');
       }
       // 已轮换掉的 token 过了并发窗口再次出现 = 疑似被盗用，终止该用户所有会话
       this.logger.warn(
@@ -262,10 +259,7 @@ export class AuthService {
       data: { revokedAt: new Date() },
     });
     if (rotated.count === 0) {
-      throw new UnauthorizedException({
-        code: 'UNAUTHORIZED',
-        message: 'refresh token 已被使用，请用最新的 token',
-      });
+      throw unauthorized('refresh token 已被使用，请用最新的 token');
     }
     return this.issueTokens(record.userId);
   }
