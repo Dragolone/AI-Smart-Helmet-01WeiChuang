@@ -184,3 +184,24 @@ describe("通知按钮「取消」的重试收尾", () => {
     expect(appState.active()).toBe(0);
   });
 });
+
+describe("deadline 认不出来（不是合法时间）", () => {
+  it.each(["garbage", "", "2026-13-45T99:99:99Z"])(
+    "deadline=%j：提醒照弹且带响铃，正文不带读秒（不出现 NaN），不排任何刷新",
+    async (deadline) => {
+      jest.spyOn(Date, "now").mockReturnValue(NOW);
+      const m = load();
+      await m.showSosAlertIfBackground("s1", "d1", deadline);
+      expect(scheduled()).toEqual([["sos-s1", null]]);
+      const first = mockSchedule.mock.calls[0][0] as {
+        content: { body: string; sound: unknown };
+      };
+      expect(first.content.body).toBe("sosAlert.body");
+      expect(first.content.body).not.toContain("NaN");
+      expect(first.content.sound).toBe("default");
+      // 之后照常能清掉
+      await m.clearSosAlert("s1");
+      expect(mockCancelScheduled).toHaveBeenCalledWith("sos-s1");
+    },
+  );
+});

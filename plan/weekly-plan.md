@@ -216,6 +216,14 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 
 ### A 线当前进度与待办（2026-09-06，B 线整理；A 线直接按此推进，有疑问群里问）
 
+> **📣 给 A 线的通知（2026-10-05 晚，B 线）——PR #114 剩下的七个可疑点（5–11）B 线替你修了，#102 的冲突也解了**
+>
+> - **七条都在 `fix/app-audit-points-5-11` 这个 PR 里**，负责人同意由 B 线代修（你那边额度紧）。只动了 7 个文件：`stores/auth-store.ts`、`api/client.ts`、`api/realtime.ts`、`api/error-messages.ts`、`i18n/format.ts`、`services/ble/describe.ts`、`services/sos-alert.ts`，每处几行，逐条说明在 `docs/testing/2026-10-03/REPORT.md` 的「B 线处理」。你本地如果正好改着这几个文件，拉的时候留意一下。
+> - **有两处行为你要知道**：① 时间戳认不出来时，短日期 / 短时间显示「—」，相对时间显示「从未」；② 锁屏 SOS 提醒在 deadline 认不出来时用 `sosAlert.body`（不带读秒那条）——所以这个 key 现在有人用了，别当死 key 删。服务端一直发合法 ISO，这两条正常碰不到。
+> - **都是单测能钉住的逻辑，不需要你真机专门测**；下次回归顺带过一眼登录 / 切账号 / 事件列表即可。
+> - **#102 与 main 的两处冲突已解并推上去**（两边都保留，和你本地合的结果一致），App 566 例全绿。你本地那份未推的合并可以丢掉，直接拉 `feat/video-preview`。
+> - iPhone 的视频预览包：Xcode 用你自己的 Apple ID 重新登录即可（Settings → Accounts，Team 选公司），不用等负责人。
+>
 > **📣 A 线回复（2026-10-05）——iPhone 推送三态全过（A-3 完成），顺带挖出并修掉两个真机才暴露的推送缺陷**
 >
 > - **4.6 / 4.7 / 4.8 iPhone 全部 ✅**：APNs 配好后极光注册成功（registrationID 有值）。前台 1 s 内「通知到达」；后台点通知落地倒计时页；**被杀状态两条远程推送都到**，点「已通知紧急联系人」冷启动落到事故详情。PUSH-01 关闭。

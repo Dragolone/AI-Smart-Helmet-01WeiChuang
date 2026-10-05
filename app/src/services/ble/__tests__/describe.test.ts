@@ -53,6 +53,15 @@ describe("describeOutbound（对照表「常用帧」）", () => {
     expect(describeOutbound(h("7F 01"))).toBe("未知指令 0x7f seq=1");
     expect(describeOutbound(h("01"))).toBe("帧太短（1 字节）");
   });
+
+  it("截断的 READ / WRITE（测头盔 ERR_LENGTH 时要发的短帧）不抛", () => {
+    expect(describeOutbound(h("02 01"))).toBe("READ seq=1（参数不足 2 字节）");
+    expect(describeOutbound(h("02 01 20"))).toBe(
+      "READ seq=1（参数不足 2 字节）",
+    );
+    expect(describeOutbound(h("03 05"))).toBe("WRITE seq=5（缺寄存器地址）");
+    expect(describeOutbound(h("03 05 23"))).toBe("WRITE 0x23 buzzer（无数据）");
+  });
 });
 
 describe("describeInbound 应答帧", () => {

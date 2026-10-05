@@ -51,6 +51,16 @@ function fetchWithTimeout(input: string, init: RequestInit): Promise<Response> {
  */
 type RefreshOutcome = "ok" | "invalid" | "stale";
 
+const isTokenPair = (v: unknown): v is AuthTokens => {
+  const t = v as Partial<AuthTokens> | null;
+  return (
+    typeof t?.accessToken === "string" &&
+    t.accessToken !== "" &&
+    typeof t.refreshToken === "string" &&
+    t.refreshToken !== ""
+  );
+};
+
 /** refresh 轮换制：并发 401 只允许一次刷新，其余请求等同一个 Promise，防止旧 token 复用被判盗用 */
 let refreshing: Promise<RefreshOutcome> | null = null;
 
@@ -87,7 +97,10 @@ async function refreshTokens(): Promise<RefreshOutcome> {
     }
     if (res.status === 401) return "invalid";
     if (!res.ok) return "stale";
-    const next = (await res.json()) as AuthTokens;
+    const next = (await res.json()) as unknown;
+    // 200 却没带出一对 token（网关改写了响应体等）：当作这次没刷成。写进去的话后续请求会带着
+    // `Bearer undefined`，而且会话再也清不掉
+    if (!isTokenPair(next)) return "stale";
     // 刷新在途时用户已登出或换了账号：这份新 token 属于旧会话，丢弃并尽力在服务端作废
     if (session?.getTokens()?.refreshToken !== startedWith) {
       void fetch(`${BASE_URL}/auth/logout`, {
@@ -97,7 +110,14 @@ async function refreshTokens(): Promise<RefreshOutcome> {
       }).catch(() => undefined);
       return "stale";
     }
-    await session?.setTokens(next);
+    try {
+      await session?.setTokens(next);
+    } catch {
+      // 落盘失败（钥匙串暂不可用）但内存里已经换上新 token：这次刷新是成的，原请求照常重试；
+      // 内存里也没换上才算没刷成
+      if (session?.getTokens()?.refreshToken !== next.refreshToken)
+        return "stale";
+    }
     return "ok";
   })().finally(() => {
     // 置空必须在 settle 后，让下一轮 401 能重新发起刷新
