@@ -21,6 +21,9 @@ const mockInit = jest.fn();
 const mockSetAlias = jest.fn();
 const mockDeleteAlias = jest.fn();
 const mockAddNotificationListener = jest.fn((_cb: Listener) => undefined);
+type AliasResult = { code: number; sequence: number; alias?: string };
+let aliasListener: ((r: AliasResult) => void) | null = null;
+const mockQueryAlias = jest.fn((_p: { sequence: number }) => undefined);
 const mockRouterPush = jest.fn();
 const mockActive = jest.fn(async (_deviceId: string) => ({
   sos: null as unknown,
@@ -35,6 +38,10 @@ jest.mock("jpush-react-native", () => ({
     deleteAlias: (p: unknown) => mockDeleteAlias(p),
     addNotificationListener: (cb: Listener) => mockAddNotificationListener(cb),
     addConnectEventListener: () => undefined,
+    addTagAliasListener: (cb: (r: AliasResult) => void) => {
+      aliasListener = cb;
+    },
+    queryAlias: (p: { sequence: number }) => mockQueryAlias(p),
     setLoggerEnable: () => undefined,
     getRegistrationID: (cb: (r: { registerID: string }) => void) =>
       cb({ registerID: "rid" }),
@@ -260,5 +267,80 @@ describe("冷启动由通知拉起（4.8：极光还没初始化时点击被 exp
     await new Promise((r) => setTimeout(r, 0));
     expect(mockRouterPush).not.toHaveBeenCalled();
     expect(mockClearLastResponse).not.toHaveBeenCalled();
+  });
+});
+
+describe("别名确认与重试（10-05 iPhone：别名丢了，被杀后推送静默失效）", () => {
+  const lastSetSeq = () =>
+    (mockSetAlias.mock.calls.at(-1)?.[0] as { sequence: number }).sequence;
+  const lastQuerySeq = () =>
+    (mockQueryAlias.mock.calls.at(-1)?.[0] as { sequence: number }).sequence;
+  const boot = () => {
+    useConsentStore.setState({ privacyAccepted: true });
+    startPush("u1");
+  };
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    mockQueryAlias.mockClear();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it("设置成功 → 2 s 后向服务端查一次；查到的就是自己 → 确认，不再有动作", () => {
+    boot();
+    aliasListener?.({ code: 0, sequence: lastSetSeq(), alias: "u1" });
+    expect(mockQueryAlias).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(2_000);
+    expect(mockQueryAlias).toHaveBeenCalledTimes(1);
+    aliasListener?.({ code: 0, sequence: lastQuerySeq(), alias: "u1" });
+    jest.advanceTimersByTime(120_000);
+    expect(mockSetAlias).toHaveBeenCalledTimes(1);
+  });
+
+  it("极光拒绝（操作太频繁等）→ 3 s 后重设，再失败 10 s，用新的 sequence", () => {
+    boot();
+    const first = lastSetSeq();
+    aliasListener?.({ code: 6022, sequence: first });
+    jest.advanceTimersByTime(2_999);
+    expect(mockSetAlias).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(1);
+    expect(mockSetAlias).toHaveBeenCalledTimes(2);
+    expect(lastSetSeq()).not.toBe(first);
+    aliasListener?.({ code: 6002, sequence: lastSetSeq() });
+    jest.advanceTimersByTime(10_000);
+    expect(mockSetAlias).toHaveBeenCalledTimes(3);
+  });
+
+  it("设置成功但服务端查出来不是自己（被紧挨着的 deleteAlias 盖掉）→ 重设", () => {
+    boot();
+    aliasListener?.({ code: 0, sequence: lastSetSeq(), alias: "u1" });
+    jest.advanceTimersByTime(2_000);
+    aliasListener?.({ code: 0, sequence: lastQuerySeq(), alias: "" });
+    jest.advanceTimersByTime(3_000);
+    expect(mockSetAlias).toHaveBeenCalledTimes(2);
+  });
+
+  it("登出后迟到的结果与定时器都不再触发重设；旧 sequence 的结果被忽略", () => {
+    boot();
+    const seq = lastSetSeq();
+    aliasListener?.({ code: 6022, sequence: seq });
+    stopPush();
+    jest.advanceTimersByTime(120_000);
+    expect(mockSetAlias).toHaveBeenCalledTimes(1);
+    aliasListener?.({ code: 6022, sequence: seq });
+    aliasListener?.({ code: 0, sequence: 9999 });
+    jest.advanceTimersByTime(120_000);
+    expect(mockSetAlias).toHaveBeenCalledTimes(1);
+  });
+
+  it("重试有上限（3s/10s/30s/60s 后放弃），不会无限打极光", () => {
+    boot();
+    for (let i = 0; i < 10; i++) {
+      aliasListener?.({ code: 6022, sequence: lastSetSeq() });
+      jest.advanceTimersByTime(60_000);
+    }
+    expect(mockSetAlias).toHaveBeenCalledTimes(5);
   });
 });

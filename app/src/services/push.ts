@@ -54,8 +54,83 @@ let initialized = false;
 let listenerInstalled = false;
 let currentAlias: string | null = null;
 let unsubscribeConsent: (() => void) | null = null;
-/** setAlias / deleteAlias 的 sequence 只用来对应回调，单调递增即可 */
+/** 每次别名操作一个 sequence，结果回调靠它对应是哪一次（单调递增） */
 let sequence = 0;
+/**
+ * 别名确认（2026-10-05 iPhone 实测）：setAlias 是异步请求，极光可能拒绝（操作太频繁、超时），
+ * 也可能被紧挨着发出的 deleteAlias 在服务端后发先至盖掉——原来只管发不管结果，一旦失败，
+ * 这台手机就静默收不到任何推送直到下次登录。现在：等结果 → 失败按退避重发 → 成功后再查一次
+ * 服务端当前别名，对不上就重设。服务端按别名找设备，别名不在 = App 被杀后 SOS 通知不到人。
+ */
+const ALIAS_RETRY_DELAYS_MS = [3_000, 10_000, 30_000, 60_000] as const;
+const ALIAS_VERIFY_DELAY_MS = 2_000;
+type AliasOp = { kind: "set" | "query"; userId: string };
+const aliasOps = new Map<number, AliasOp>();
+let aliasAttempt = 0;
+let aliasTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearAliasTimer(): void {
+  if (aliasTimer) clearTimeout(aliasTimer);
+  aliasTimer = null;
+}
+
+function sendSetAlias(sdk: JPushStatic, userId: string): void {
+  sequence += 1;
+  aliasOps.set(sequence, { kind: "set", userId });
+  sdk.setAlias({ alias: userId, sequence });
+  devLog("PUSH", `setAlias ${userId}`);
+}
+
+function retrySetAlias(sdk: JPushStatic, userId: string, why: string): void {
+  const delay = ALIAS_RETRY_DELAYS_MS[aliasAttempt];
+  if (delay === undefined) {
+    devLog("PUSH", `别名设置放弃（${why}），下次启动或登录再试`);
+    return;
+  }
+  aliasAttempt += 1;
+  devLog(
+    "PUSH",
+    `别名未生效（${why}），${delay} ms 后重设（第 ${aliasAttempt} 次）`,
+  );
+  clearAliasTimer();
+  aliasTimer = setTimeout(() => {
+    aliasTimer = null;
+    if (currentAlias === userId) sendSetAlias(sdk, userId);
+  }, delay);
+}
+
+/** 极光的 tag/alias 结果回调：只处理「当前登录用户」的 set / query，其他（已登出、旧 sequence）一律忽略 */
+function onAliasResult(
+  sdk: JPushStatic,
+  result: { code: number; sequence: number; alias?: string },
+): void {
+  const op = aliasOps.get(result.sequence);
+  if (!op) return;
+  aliasOps.delete(result.sequence);
+  if (op.userId !== currentAlias) return;
+  if (result.code !== 0) {
+    retrySetAlias(sdk, op.userId, `${op.kind} code=${result.code}`);
+    return;
+  }
+  if (op.kind === "set") {
+    // 设成功不等于最终是它：紧挨着的 deleteAlias 可能在服务端排在后面。隔一会儿查一次
+    clearAliasTimer();
+    aliasTimer = setTimeout(() => {
+      aliasTimer = null;
+      if (currentAlias !== op.userId) return;
+      sequence += 1;
+      aliasOps.set(sequence, { kind: "query", userId: op.userId });
+      sdk.queryAlias({ sequence });
+    }, ALIAS_VERIFY_DELAY_MS);
+    return;
+  }
+  if (result.alias === op.userId) {
+    aliasAttempt = 0;
+    devLog("PUSH", "别名已确认");
+  } else {
+    retrySetAlias(sdk, op.userId, `服务端别名是「${result.alias ?? ""}」`);
+  }
+}
 
 /**
  * 通知被点开 → 落地页。extras 只有 sosId/deviceId，进行中就回倒计时页，否则进事故详情
@@ -138,6 +213,12 @@ function installListener(sdk: JPushStatic): void {
   sdk.addConnectEventListener((result) => {
     devLog("PUSH", `极光连接 ${result.connectEnable ? "上" : "断"}`);
   });
+  sdk.addTagAliasListener((result) => {
+    onAliasResult(
+      sdk,
+      result as { code: number; sequence: number; alias?: string },
+    );
+  });
 }
 
 function initOnce(sdk: JPushStatic, cfg: PushConfig): void {
@@ -157,9 +238,9 @@ function initOnce(sdk: JPushStatic, cfg: PushConfig): void {
 function applyAlias(sdk: JPushStatic, userId: string): void {
   if (currentAlias === userId) return;
   currentAlias = userId;
-  sequence += 1;
-  sdk.setAlias({ alias: userId, sequence });
-  devLog("PUSH", `setAlias ${userId}`);
+  aliasAttempt = 0;
+  clearAliasTimer();
+  sendSetAlias(sdk, userId);
 }
 
 /**
@@ -207,6 +288,8 @@ export function stopPush(): void {
   unsubscribeConsent = null;
   if (!initialized || currentAlias === null) return;
   currentAlias = null;
+  clearAliasTimer(); // 登出后不再重设 / 校验别名
+  aliasOps.clear();
   const sdk = loadJPush();
   if (!sdk) return;
   sequence += 1;
@@ -221,6 +304,9 @@ export function __resetPushForTests(): void {
   initialized = false;
   listenerInstalled = false;
   launchResponseHandled = false;
+  clearAliasTimer();
+  aliasOps.clear();
+  aliasAttempt = 0;
   currentAlias = null;
   sequence = 0;
   jpush = undefined;

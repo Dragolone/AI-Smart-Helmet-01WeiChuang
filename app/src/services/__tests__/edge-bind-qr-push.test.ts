@@ -20,6 +20,9 @@ jest.mock("jpush-react-native", () => ({
       mockListeners.push(cb);
     },
     addConnectEventListener: () => undefined,
+    // 2026-10-05 起 push.ts 监听别名结果并校验；这组用例不关心它
+    addTagAliasListener: () => undefined,
+    queryAlias: () => undefined,
     setLoggerEnable: () => undefined,
     getRegistrationID: () => undefined,
   },
