@@ -1,4 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { CLOCK_SKEW_THRESHOLD_MS } from '../common/device-time';
+import { isUniqueViolation } from '../common/prisma-errors';
 import { DeviceSnapshotService } from '../devices/device-snapshot.service';
 import { LocationRecorderService } from '../locations/location-recorder.service';
 import { MediaRecorderService } from '../media/media-recorder.service';
@@ -20,10 +22,6 @@ export interface IngestOptions {
   /** 入口级事件类型白名单（如蓝牙版中转的 7 种）：合法 envelope 但类型超范围 → 按校验失败留档告警 */
   allowedEventTypes?: ReadonlySet<string>;
 }
-
-/** 设备时钟偏移阈值（DEVICE_PROTOCOL §8，默认 5 分钟）。
- *  注：补传事件本应豁免此标记，但补传语义待设备离线缓存实装后才能识别（§6 ⚠️），当前一律按偏差判定。 */
-const CLOCK_SKEW_THRESHOLD_MS = 5 * 60_000;
 
 /** §11 WS 分流：risk_event（详情级）与 device_event（列表项级）各自的事件类型集合 */
 const RISK_EVENT_TYPES = new Set([
@@ -144,13 +142,8 @@ export class IngestService {
    * 只对已注册设备生效（未注册的仅 raw 留档）；推送只发给绑定用户。
    */
   private async dispatchStored(e: ValidEnvelope): Promise<void> {
-    const device = await this.prisma.device.findUnique({
-      where: { deviceId: e.deviceId },
-      select: { deviceId: true, bindUserId: true },
-    });
+    const device = await this.snapshot.applyEvent(e);
     if (!device) return;
-
-    await this.snapshot.applyEvent(e);
 
     // 位置表只收校验通过的 location_update；推送复用同一份校验结果（不推脏数据）
     const point =
@@ -219,6 +212,7 @@ export class IngestService {
     source: IngestSource,
   ): Promise<boolean> {
     const receivedAt = new Date();
+    // 补传事件本应豁免此标记，但补传语义待设备离线缓存实装后才能识别（DEVICE_PROTOCOL §6 ⚠️），当前一律按偏差判定
     const clockSkew =
       Math.abs(e.timestamp.getTime() - receivedAt.getTime()) >
       CLOCK_SKEW_THRESHOLD_MS;
@@ -241,13 +235,12 @@ export class IngestService {
           source,
           clockSkew,
         },
+        // 只要「写进去了」这个事实：不让数据库把整行（含 payload）再回传一遍
+        select: { id: true },
       });
       return true;
     } catch (err) {
-      if (
-        err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2002'
-      ) {
+      if (isUniqueViolation(err)) {
         this.logger.debug(`重复 eventId 已跳过：${e.eventId}`);
         return false;
       }

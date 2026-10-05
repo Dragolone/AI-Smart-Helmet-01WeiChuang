@@ -5,6 +5,8 @@
     "moduleResolution": "bundler",
     "strict": true,
     "noEmit": true,
+    // 单测由 Node 24 原生类型剥离直接跑 .ts，导入必须带扩展名（只在 noEmit 下允许，构建配置里关掉）
+    "allowImportingTsExtensions": true,
     "skipLibCheck": true
   },
   "include": ["src"]

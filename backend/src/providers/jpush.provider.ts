@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { envPositiveInt } from '../common/env';
 import type { PushProvider } from './push.provider';
 
 /**
@@ -21,13 +22,12 @@ export const jpushConfigFromEnv = (): JPushConfig | null => {
   const appKey = process.env.JPUSH_APP_KEY;
   const masterSecret = process.env.JPUSH_MASTER_SECRET;
   if (!appKey || !masterSecret) return null;
-  const timeout = Number(process.env.PUSH_SEND_TIMEOUT_MS);
   return {
     appKey,
     masterSecret,
     apnsProduction: process.env.JPUSH_APNS_PRODUCTION === 'true',
     apiUrl: process.env.JPUSH_API_URL || 'https://api.jpush.cn/v3/push',
-    timeoutMs: Number.isInteger(timeout) && timeout > 0 ? timeout : 10_000,
+    timeoutMs: envPositiveInt('PUSH_SEND_TIMEOUT_MS', 10_000),
   };
 };
 
@@ -134,9 +134,13 @@ export class JPushProvider implements PushProvider {
       }
       throw new JPushError(res.status, code, detail);
     }
-    const ok = (await res.json()) as { msg_id?: string };
+    // 2xx 即极光已受理：响应体读不出来（网关改写、连接中断）不能再当失败抛——上层会重试，用户就收到重复推送
+    const msgId = await res
+      .json()
+      .then((ok: { msg_id?: string }) => ok.msg_id)
+      .catch(() => undefined);
     this.logger.log(
-      `推送已提交 → user:${userId} [${title}] msg_id=${ok.msg_id ?? '-'}`,
+      `推送已提交 → user:${userId} [${title}] msg_id=${msgId ?? '-'}`,
     );
   }
 }

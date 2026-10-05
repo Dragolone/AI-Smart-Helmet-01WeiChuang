@@ -44,7 +44,7 @@ export function useRealtimeUpdates(): void {
   const queryClient = useQueryClient();
   const authed = useAuthStore((s) => s.tokens !== null);
   // 防止同一单的多次 pending 推送（重连补拉等）重复弹全屏页
-  const presentedSosId = useRef<string | null>(null);
+  const presentedSosId = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     devLog("realtime", "effect authed=", authed);

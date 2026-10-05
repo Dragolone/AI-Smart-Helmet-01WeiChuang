@@ -34,7 +34,7 @@
 | PASSWORD_INCORRECT | 400 | 已登录用户提交的当前密码不正确（修改密码 / 注销账号） |
 | BIND_CODE_INVALID | 403 | 设备绑定码不正确 |
 | PAYLOAD_TOO_LARGE | 413 | 请求体超过 100KB（body-parser 上限；头像 data URI 上限 90KB） |
-| RATE_LIMITED | 429 | 触发限流（公开认证接口按 IP / IP+手机号，响应带 `Retry-After` 秒数；规则见 §2） |
+| RATE_LIMITED | 429 | 触发限流（公开认证接口与设备绑定按 IP / IP+手机号，响应带 `Retry-After` 秒数；规则见 §2） |
 | INTERNAL_ERROR | 500 | 服务端异常（带 requestId 供排查） |
 | SERVICE_UNAVAILABLE | 503 | 统一过滤器对 503 类异常的兜底码；各业务 503 有自己的码（见下表） |
 
@@ -64,7 +64,7 @@
 | POST | /auth/login | 登录。body：`{ phone, password }` → `{ accessToken, refreshToken, user }`。密码 8–72 字符且 ≤ 72 字节（bcrypt 上限，超出 400） |
 | POST | /auth/refresh | body：`{ refreshToken }` → 新 `{ accessToken, refreshToken }`（refresh 轮换，旧 refreshToken 作废；同一 token 并发刷新只有一方成功，其余 401；已轮换的 token 在 10s 并发窗口后再次出现才视为盗用撤销全部会话） |
 
-限频（2026-09-10 加固，单实例内存滑动窗口，超限 429 `RATE_LIMITED` + `Retry-After`）：`/auth/login` 同 IP+手机号 10 次/分、同 IP 100 次/分；`/auth/sms-code` 同 IP 5 条/分、50 条/天（同号 60s/日限另计）；`/auth/register` 20 次/分；`/auth/reset-password` 同 IP+手机号 10 次/分；`/auth/refresh` 60 次/分；`/admin/auth/login` 10 次/分。
+限频（2026-09-10 加固，单实例内存滑动窗口，超限 429 `RATE_LIMITED` + `Retry-After`）：`/auth/login` 同 IP+手机号 10 次/分、同 IP 100 次/分；`/auth/sms-code` 同 IP 5 条/分、50 条/天（同号 60s/日限另计）；`/auth/register` 20 次/分；`/auth/reset-password` 同 IP+手机号 10 次/分；`/auth/refresh` 60 次/分；`/admin/auth/login` 10 次/分；`/devices/bind` 同 IP 10 次/分（2026-10-03：绑定码 8 位数字可被穷举，限的是尝试次数，窗口内猜中也返回 429）。
 | POST | /auth/logout | 作废当前 refreshToken |
 | POST | /auth/change-password | 修改密码（✅ 2026-09-11，**需登录**）。body：`{ oldPassword, newPassword, refreshToken? }` → 204。旧密码错误 → 400 `PASSWORD_INCORRECT`；`newPassword` 与注册同规则（8–72）。成功后**撤销该用户其他全部 refresh token**；带上当前设备的 `refreshToken`（须属于本人）则该会话保留，本设备免重新登录 |
 | POST | /auth/change-phone | 换绑手机号（✅ 2026-09-11，**需登录**）。body：`{ newPhone, code }`（`code` 为 `change_phone` 用途、发往 `newPhone` 的验证码）→ 200 返回更新后的 `user` 对象。校验顺序：`newPhone` 已注册 409 `PHONE_ALREADY_REGISTERED` → 验证码错误/过期/已用 400 `SMS_CODE_INVALID` → 改号。会话不受影响；原号即刻释放可供他人注册 |
@@ -103,7 +103,7 @@ Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / 
 
 绑定历史与可见范围（✅ 2026-09-10 负责人拍板，决策 #39）：每次绑定/解绑记一段区间（`device_bindings`）。§5 轨迹、§6 事件、§9 媒体只返回**当前用户在该设备上的绑定区间内**到达（服务端 `receivedAt`）的数据——换绑后新主看不到前主期间的数据；同一用户解绑再绑回同一台头盔，之前的记录仍然可见。§7 事故记录按建单时的 userId 固化，不受影响；Admin 全量可见。
 | GET | /devices/{deviceId}/status | 设备状态：`{ online, lastSeenAt, battery, charging?, signalLevel?, sleeping, firmwareVersion }` |
-| GET | /devices/{deviceId}/battery-history?hours=24 | 电量历史（✅ 2026-09-10）：`{ from, to, points: [{ timestamp, battery, charging }] }`。数据源=raw_events 的 `device_status` 心跳，按 **10 分钟桶取桶内最后一条**（24h ≤ 144 点）；`hours` 1–168 默认 24；仅本人设备（否则 404）。App 设备详情页据此画 24h 电量曲线（替代原大电量条）；**只返回本人绑定区间内（服务端 receivedAt）到达的心跳**（决策 #39 同口径，2026-09-14 审计 AUTH-06 补） |
+| GET | /devices/{deviceId}/battery-history?hours=24 | 电量历史（✅ 2026-09-10）：`{ from, to, points: [{ timestamp, battery, charging }] }`。数据源=raw_events 的 `device_status` 心跳，按 **10 分钟桶取桶内最后一条**（24h ≤ 144 点）；`battery` 不是 0–100 整数的心跳按缺失跳过（与设备快照同口径，2026-10-03——不再把 255 这类越界值截成 100% 画出来）；`hours` 1–168 默认 24；仅本人设备（否则 404）。App 设备详情页据此画 24h 电量曲线（替代原大电量条）；**只返回本人绑定区间内（服务端 receivedAt）到达的心跳**（决策 #39 同口径，2026-09-14 审计 AUTH-06 补） |
 
 device 对象补充字段（2026-08-17，TS 类型见 `@helmet/shared` DevicePublic）：`name`（用户自定义名，null 时 App 显示 deviceId）、`bindCode`（仅经归属校验的端点返回——本人可见，供详情页展示）。
 
@@ -115,7 +115,7 @@ device 对象补充字段（2026-08-17，TS 类型见 `@helmet/shared` DevicePub
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | /devices/{deviceId}/locations/latest | 最新位置：`200 { "location": <location 对象> \| null }`（设备存在但尚无数据时为 null，✅ 定稿） |
+| GET | /devices/{deviceId}/locations/latest | 最新位置：`200 { "location": <location 对象> \| null }`（设备存在但尚无数据时为 null，✅ 定稿）。设备时钟跑到未来的点（`timestamp` 超过服务器当前时间 5 分钟以上，DEVICE_PROTOCOL §8 的偏移阈值）不参与「最新」判定——否则一条错误时间的点会永久排在最前；该点照常留档，按时间范围仍可查到（2026-10-03） |
 | GET | /devices/{deviceId}/locations?from=&to=&page=&pageSize= | 历史轨迹（from/to 必填 ISO 8601；**单次范围上限 24h，✅ 定稿**；按 timestamp 升序；统一分页结构） |
 | GET | /devices/{deviceId}/locations/summary?from=&to= | 区间轨迹统计（2026-09-17 A 线新增，App 首页「今日骑行」）：`200 { distanceMeters, movingSeconds, maxSpeed, pointCount, firstAt, lastAt }`；from/to 规则同上（必填、≤24h）；服务端按相邻点大圆距离累加，间隔 >10 min 的段不桥接、隐含速度 >55 m/s 视为漂移不计；`movingSeconds` 只累计平均速度 ≥0.5 m/s 的段；`maxSpeed` 为设备上报速度最大值（m/s），无点时 maxSpeed/firstAt/lastAt 为 null。TS 类型 `LocationSummaryResponse` |
 
@@ -157,9 +157,10 @@ SOS 状态机为服务端权威（DECISIONS #8/#26）：`pending → notified | 
 - App 收到 WebSocket/Push 的 `sos` 对象后按 `deadline` 本地倒计时渲染，不自行计时判断超时。
 - 错误码：`SOS_ALREADY_FINALIZED`（409，取消/确认时状态机已终态）；取消/确认权限以**建单时固化的绑定用户**为准，他人操作一律 404（不泄露存在性）。进行中的单按「设备 + 用户」唯一（决策 #40）：换绑后新用户的求救另建新单，前用户的单不受影响。
 - **Push 定向口径（2026-09-23，极光）**：服务端按 `alias = 用户 ID` 推送，App 登录成功后向极光 `setAlias(userId)`、退出登录 `deleteAlias`；未登记别名的用户推送记 failed（极光 1011），不影响短信。
-- 通知：超时/确认后逐个紧急联系人发 SMS（同号去重）+ 本人 Push，逐条留档（成功/失败/通道/重试次数，失败重试上限 3 次；单次 Provider 调用超时 `SOS_NOTIFY_TIMEOUT_MS` 默认 10s，超时按失败记 `timeout` 走重试）；事故位置快照优先取触发事件内嵌位置，回落最新轨迹点（✅ 口径 2026-08-16 定稿）。
+- 通知：超时/确认后逐个紧急联系人发 SMS（同号去重）+ 本人 Push，逐条留档（成功/失败/通道/重试次数；**失败按退避重试，连首次最多 5 次，间隔 10 秒 / 1 分钟 / 5 分钟 / 15 分钟，前后约 21 分钟**——决策 #50，`SOS_NOTIFY_MAX_ATTEMPTS` / `SOS_NOTIFY_RETRY_DELAYS_SECONDS` 可调；单次 Provider 调用超时 `SOS_NOTIFY_TIMEOUT_MS` 默认 10s，超时按失败记 `timeout` 走重试）；事故位置快照优先取触发事件内嵌位置，回落最新轨迹点（✅ 口径 2026-08-16 定稿）。
 - **状态语义（2026-09-14 审计 SOS-04 定稿）**：`status=notified` 只表示「已到期/已确认并创建了通知任务」，**不等于联系人已收到**——实际投递结果以 `GET /accidents/{id}` 的 `notifications[]` 逐条状态为准（`sent` = 服务商已接收，无回执时不代表送达）。本人 Push 标题按此刻短信结果生成：全部/部分成功 →「SOS 已通知紧急联系人」；全部失败 →「SOS 紧急联系人通知发送失败」；未设置联系人 →「SOS 未设置紧急联系人」。App 文案统一为「已向紧急联系人发出通知」而非「已收到通知」。
-- **可靠性兜底（2026-09-14 审计 SOS-01/02/05 修复）**：位置快照查询失败不阻塞建单；建单遇数据库瞬断进程内重试；启动时对账最近 `SOS_RECONCILE_WINDOW_MINUTES`（默认 15）分钟内「raw 已落库但无 SOS 单」的摔倒/求救事件并按当时绑定用户补建。
+- **可靠性兜底（2026-09-14 审计 SOS-01/02/05 修复）**：位置快照查询失败不阻塞建单；建单遇数据库瞬断进程内重试；启动时、以及之后每 `SOS_RECONCILE_INTERVAL_SECONDS`（默认 60）秒，对账最近 `SOS_RECONCILE_WINDOW_MINUTES`（默认 15）分钟内「raw 已落库但无 SOS 单」的摔倒/求救事件并按当时绑定用户补建（周期对账为决策 #51，2026-10-03）。
+- **补传的旧事件（决策 #52，2026-10-03）**：摔倒/求救事件无论发生在多久之前，到达服务端时一律照常建单、从到达时刻起倒计时 60 秒并通知联系人；只在给本人的「SOS 倒计时已开始」推送正文里注明「约 X 分钟/小时前的事件，刚补传到」（事件时间早于当前 5 分钟以上、且不超过 72 小时才注明）。`sos` 对象字段不变。
 - ✅ 实现状态（2026-08-16）：本节全部端点已实现（active / cancel / confirm / accidents 列表与详情 + 状态机：触发/合并/倒计时/扫描/重启接管/通知重试）。
 
 ## 8. 设备设置下发（命令）
@@ -171,7 +172,7 @@ SOS 状态机为服务端权威（DECISIONS #8/#26）：`pending → notified | 
 | POST | /devices/{deviceId}/settings/reported | **头盔实际设置上报（✅ 2026-09-19，决策 #45）**：App 每次 BLE 握手后读回头盔 0x20–0x2D 上报，body `{ settings: { <key>: <值> } }`（≤ 32 键）→ `200 { settings, applied, skipped }`（TS 类型 ReportSettingsRequest / ReportSettingsResponse）。**逐键**校验：清单外、类型不符、越界只跳过该键（`reason: invalid`），不整批拒；**有未完成（pending/delivered）或 30 s 内刚 success 的命令碰过的键跳过**（`reason: recent_command`，以命令为准——App 读到的可能是写入前的旧值）；已判 offline 的命令不保护。不创建命令、不改 lastCommand。归属：非本人 404 DEVICE_NOT_FOUND；结构错误（非对象/空/超 32 键）400 VALIDATION_FAILED |
 | GET | /devices/{deviceId}/commands?page=&pageSize= | 命令历史（最新在前，TS 类型 CommandPublic） |
 | GET | /commands/{commandId} | 命令状态：`pending → delivered → success \| failed \| offline`（语义见 DEVICE_PROTOCOL §7，**未回执绝不显示成功**） |
-| POST | /devices/{deviceId}/commands/{commandId}/relay-ack | **BLE 下行链的回执入口（决策 #36）**：App 替头盔提交命令回执。body：`{ "stage": "delivered" }`（App 已收到命令并写入头盔——蓝牙版的 delivered 语义，对应 4G 版的 PUBACK）或 `{ "stage": "executed", "result": "success" \| "failed", "errorCode"?, "executedAt"? }`（头盔执行结果；executedAt 缺省或不是合法 ISO 8601 时一律取服务器时间——设备/App 时钟不可信）→ `200 { commandId, status }`（更新后状态）。**幂等不报错**：已终态命令再收 delivered/重复 executed 都返回当前状态；已判 offline 后迟到 executed 如实覆盖（同 MQTT cmd_ack 语义）。鉴权：用户 JWT + 设备归属（非本人 404 DEVICE_NOT_FOUND）+ 命令须属于该设备（否则 404 NOT_FOUND）。信任级与 §12.1 app-relay 一致（App 本就是蓝牙版设备的代理） |
+| POST | /devices/{deviceId}/commands/{commandId}/relay-ack | **BLE 下行链的回执入口（决策 #36）**：App 替头盔提交命令回执。body：`{ "stage": "delivered" }`（App 已收到命令并写入头盔——蓝牙版的 delivered 语义，对应 4G 版的 PUBACK）或 `{ "stage": "executed", "result": "success" \| "failed", "errorCode"?, "executedAt"? }`（头盔执行结果；executedAt 缺省、不是合法 ISO 8601、或年份不在 1970–9999 内时一律取服务器时间——设备/App 时钟不可信；MQTT cmd_ack 同口径）→ `200 { commandId, status }`（更新后状态）。**幂等不报错**：已终态命令再收 delivered/重复 executed 都返回当前状态；已判 offline 后迟到 executed 如实覆盖（同 MQTT cmd_ack 语义）。鉴权：用户 JWT + 设备归属（非本人 404 DEVICE_NOT_FOUND）+ 命令须属于该设备（否则 404 NOT_FOUND）。信任级与 §12.1 app-relay 一致（App 本就是蓝牙版设备的代理） |
 
 - **可下发参数（源 = BLE 协议 v0.6 内存控制表 0x20–0x2D，App 端寄存器映射见 `app/src/services/ble/protocol.ts`）**：
 

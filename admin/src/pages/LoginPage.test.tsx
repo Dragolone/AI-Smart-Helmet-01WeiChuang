@@ -15,6 +15,7 @@ const renderLogin = () =>
   renderWithProviders(
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/overview" element={<div>概览页</div>} />
       <Route path="/users" element={<div>用户列表页</div>} />
     </Routes>,
     '/login',
@@ -50,14 +51,15 @@ describe('LoginPage', () => {
     expect(await screen.findByText('登录失败：RATE_LIMITED（HTTP 429）')).toBeInTheDocument()
   })
 
-  it('登录成功 → 保存 token 与用户名并跳到用户列表', async () => {
+  it('登录成功 → 保存 token 与用户名并进概览页（后台首页），不是用户列表', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse(200, { admin: { id: 'a1', username: 'ops' }, accessToken: 'tok_ok' }),
     )
     vi.stubGlobal('fetch', fetchMock)
     renderLogin()
     submit('ops', 'secret_pw')
-    expect(await screen.findByText('用户列表页')).toBeInTheDocument()
+    expect(await screen.findByText('概览页')).toBeInTheDocument()
+    expect(screen.queryByText('用户列表页')).not.toBeInTheDocument()
     expect(getToken()).toBe('tok_ok')
     expect(getUsername()).toBe('ops')
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
@@ -68,6 +70,6 @@ describe('LoginPage', () => {
   it('已登录时访问 /login 直接进后台', async () => {
     localStorage.setItem('admin_token', 'tok_existing')
     renderLogin()
-    await waitFor(() => expect(screen.getByText('用户列表页')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('概览页')).toBeInTheDocument())
   })
 })

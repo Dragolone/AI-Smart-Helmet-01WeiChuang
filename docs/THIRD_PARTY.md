@@ -13,10 +13,10 @@
 | 3 | 对象存储 COS | ✅ **已开通并接入（2026-09-16）**：桶 `helmet-media-1415122735`（广州 / 单 AZ / 私有读写 / SSE-COS），子账号 `helmet-cos` 仅授 `QcloudCOSDataFullControl`；后端 `TencentCosProvider` 真桶自检 5 项通过；**2026-09-22 子账号密钥已轮换（旧密钥曾出现在对话中），新密钥填入云端 `deploy/.env`，容器内 verify:cos 5 项通过；旧密钥（09-16）已禁用并删除，负责人本机 `backend/.env` 已换新且本地 verify:cos 5 项通过** | 视频上传入口待硬件确认上传方式 | 负责人 |
 | 4 | 腾讯云短信（签名 + 模板） | 🔄 服务已开通（2026-09-09）；**资质 ID 1309643 已通过（2026-09-22）**；两个模板（验证码 2739084、SOS 通知 2739086）**已生效**；签名「零一唯创」被驳回（公司类型签名须为营业执照全称的连续片段，不得跳字），改为 **「深圳零一唯创」（ID 723610）腾讯云已过审，2026-09-23 起运营商报备中**（验证码/通知两类，7–10 工作日；营销类不报备）；报备成功前签名状态显示「不可用」，真发会失败；后端腾讯云实现已就绪等六项配置 | 注册验证码 + SOS 短信真发（现为 Console Mock，不阻塞） | 负责人 |
 | 5 | Apple Developer 公司账号 | ✅ **已开通（2026-09-23）**：Apple Developer Program 组织账号「Shenzhen Lingyi Weichuang Technology Co., Ltd.」，有效期至 2027-09-23（年付 ¥688，到期前续）。**后续动作见 §5「账号到位后清单」** | — | 负责人 |
-| 6 | 推送：极光 + 安卓厂商通道 | 🔄 **极光账号 + 应用已建（2026-09-22），云端后端已切极光通道（2026-09-23）**：登录邮箱 zhongqilong@01weichuang.com，企业开发者，应用「零一唯创」AppKey `79cce150234ce38063213ccd`，Android 包名已配；iOS（APNs .p8）等第 5 项，厂商通道待逐家注册 | App 被杀后收不到推送（现只有本地通知） | 负责人 |
+| 6 | 推送：极光 + 安卓厂商通道 | 🔄 **极光账号 + 应用已建（2026-09-22），云端后端已切极光通道（2026-09-23）**：登录邮箱 zhongqilong@01weichuang.com，企业开发者，应用「零一唯创」AppKey `79cce150234ce38063213ccd`，Android 包名已配；**✅ iOS 已配 Token Authentication（2026-10-01）**：APNs Auth Key `44RYD6QKJC`（Sandbox & Production，Team `B3NHB45FS7`，Bundle `com.lingyiweichuang.app`，.p8 在密码管理器）；隐私协议字段已填；厂商通道待逐家注册 | Android App 被杀后收不到推送（现只有本地通知） | 负责人 |
 | 7 | 高德地图 Key | ✅ 企业认证已完成（2026-09-06）；企业主体三把 Key 已建并换入（2026-09-17，测试额度）；**商用授权 = 付费年包 ¥5 万/年，上线前待汤总拍板（买 / 换图商）** | 不阻塞开发 | 负责人 → 汤总 |
 | 8 | 腾讯云 TRTC 应用 | ✅ **已完成（2026-09-10）**：应用在公司腾讯云账号下（SDKAppID 1600157223）；云端 `deploy/.env` 已填，进房凭证接口实测返回 userSig | — | 负责人 |
-| 9 | 软件著作权（App） | 🔄 **材料已备好（2026-09-10）；2026-09-22 版权中心登记网站境内外均 403（法人本地网络 + 手机流量、云服务器均打不开），改走代理机构加急（5–10 个工作日）**：软件名「零一唯创App V1.0」（汤总定名），源程序 60 页 + 说明书 14 页 + 填表信息在负责人桌面 `01/软著/`；待版权中心网站提交 + 申请表盖章 | 安卓商店上架硬性要求（30 个工作日，可加急） | 负责人 |
+| 9 | 软件著作权（App） | 🔄 **材料已备好（2026-09-10）；2026-09-22 版权中心登记网站境内外均 403（法人本地网络 + 手机流量、云服务器均打不开），改走代理机构加急（5–10 个工作日）**：软件名「零一唯创App V1.0」（汤总定名），源程序 60 页 + 说明书 14 页 + 填表信息在负责人桌面 `01/软著/`；待版权中心网站提交 + 申请表盖章 | 安卓商店上架硬性要求（30 个工作日，可加急） | **汤总**（2026-10-01 起由汤总申请） |
 | 10 | App 备案（工信部） | ⬜ 待办：腾讯云控制台「备案」→ 新增 App，主体沿用公司；**前置=正式包名定稿**（建议 `com.lingyiweichuang.app`，安卓包名段不能以数字开头故不能用 01weichuang） | 苹果 / 安卓商店上架均查备案号（1–2 周） | 负责人 |
 | — | ~~域名 + ICP 备案~~ | ✅ **已消除**（决策 #34） | — | — |
 
@@ -75,10 +75,10 @@
   - ✅ **2026-09-23 审核通过、已付费，账号生效（Valid through Sep 23, 2027）**。
 - **账号到位后清单（2026-09-23 起）**：
   1. ⬜ 记下 **Team ID**（developer.apple.com → Account → Membership details）→ 替换 `app/app.json` 的 `ios.appleTeamId`（现为开发期个人团队 `LZ3H94F5LC`），A 线 Xcode 改用公司 Team 签名
-  2. ⬜ Identifiers → 注册 App ID `com.lingyiweichuang.app`，Capabilities 勾 **Push Notifications**（Background Modes 不需在此登记）
-  3. ⬜ Keys → 新建 **APNs Auth Key**（勾 Apple Push Notifications service），下载 `.p8`（仅能下载一次，入密码库），记 Key ID → 极光控制台 iOS 推送设置选「Token Authentication」填 .p8 + Key ID + Team ID（§6）
+  2. ✅ Identifiers → App ID `com.lingyiweichuang.app` 已存在（Xcode 自动建，「XC com lingyiweichuang app」），Push Notifications 已勾；**2026-09-30 负责人加勾 Hotspot**（视频预览 NEHotspotConfiguration，决策 #49）
+  3. ✅ **2026-10-01 已完成**：APNs Auth Key「Lingyi JPush APNs」Key ID `44RYD6QKJC`（Sandbox & Production，Team Scoped），.p8 已入密码管理器；极光 iOS 推送设置已切 Token Authentication 并显示「已上传」（§6）
   4. ⬜ App Store Connect → Users and Access → 邀请 Wesley（App Manager 或 Developer）与 zhongqilong@01weichuang.com（Admin）
-  5. ⬜ App Store Connect → My Apps → 新建 App：名称「零一唯创」、Bundle ID 选上一步、SKU `lingyiweichuang-app`、主要语言简体中文 → TestFlight 才有落点；给硬件的 iPhone 测试包走 TestFlight 内部测试
+  5. ✅ **2026-10-01 已建**：App Store Connect App「零一唯创」（Company Name = 深圳零一唯创科技有限公司，账号级一次性设定；SKU `lingyiweichuang-app`，简体中文，Bundle `com.lingyiweichuang.app`）。TestFlight 有落点了：A 线 Archive 上传后，给硬件装机走内部测试（Users and Access 邀请张森淼的 Apple ID 最低权限 → 内部测试组加人）
   6. ⬜ 申请 **Critical Alerts entitlement**（<https://developer.apple.com/contact/request/notifications-critical-alerts-entitlement/>，用途：摔倒/求救 60 s 倒计时提醒需穿透静音与勿扰）
   7. ⬜ 个人开发证书退役：A/B 两台 Mac 的真机包改公司 Team 签名后，7 天过期问题消失
 - ~~**阻塞**：iOS 真机现用个人开发证书（7 天过期需重装）；TestFlight 分发、APNs 远程推送、Bundle ID 统一都等它~~ → 2026-09-23 解除
@@ -95,12 +95,12 @@
   - ✅ 极光账号：邮箱注册（`zhongqilong@01weichuang.com`；企业微信免费版不支持别名/公共邮箱，交接时在极光改绑邮箱），企业开发者主体「深圳零一唯创科技有限公司」；凭证入密码库
   - ✅ 应用「零一唯创」（类别 实用工具/其它工具）：AppKey `79cce150234ce38063213ccd`（公开值，会打进 App 包）；**Master Secret 仅在密码库 / 服务器 `.env`，不进 Git、不进 App**
   - ✅ Android 包名 `com.lingyiweichuang.app`
-  - ⬜ iOS：**Apple 公司账号 2026-09-23 已到位** → 生成 APNs Auth Key（.p8，§5 清单第 3 条）→ 极光选「Token Authentication 配置」（不过期、生产/开发共用），填 .p8 + Key ID + Team ID
+  - ✅ iOS（2026-10-01）：APNs Auth Key `44RYD6QKJC` 已配进极光「Token Authentication 配置」（Sandbox & Production 一把钥匙，不过期）。PUSH-01 解除，待 A 线复测 REGRESSION 4.6–4.8 iPhone
   - ⬜ 厂商通道：优先华为（AppGallery Connect，需登记正式签名 SHA256）+ 小米；OPPO/vivo 通常要求先上架（依赖第 10 项 App 备案）；荣耀单独注册
-  - ⬜ 极光「隐私协议」字段：填 `https://dev-api.01weichuang.com/legal/privacy`（**2026-09-23 已上线**，见下第 11 项；production 后换 `api.` 域名）；App 须在用户同意隐私政策后才初始化极光 SDK
+  - ✅ 极光「隐私协议」字段已填 `https://dev-api.01weichuang.com/legal/privacy`（2026-10-01；production 后换 `api.` 域名）；App 已在用户同意隐私政策后才初始化极光 SDK（决策 #48）
   - ✅ **后端 `JPushProvider`（2026-09-23，B 线）**：`JPUSH_APP_KEY` + `JPUSH_MASTER_SECRET` 齐全即走极光 REST v3（`POST /v3/push`，Basic 鉴权），否则 Console Mock；可选 `JPUSH_APNS_PRODUCTION=true`（TestFlight/App Store 包用 APNs 生产环境，Xcode 直装开发包留空）、`PUSH_SEND_TIMEOUT_MS`（默认 10 s）。**定向口径：audience = alias，alias = 用户 ID**——服务端不存设备 token、不建表；极光返回非 2xx（含 1011「该 alias 无设备」）一律抛错，SOS 通知记 failed 并按既有规则重试。
   - ✅ **App 端 SDK 接入（2026-09-24，A 线，决策 #48）**：`jpush-react-native@3.2.8` + `jcore-react-native@2.3.7`，原生配置由本地 config plugin `app/plugins/with-jpush.js` 生成（Android manifestPlaceholders + meta-data；iOS AppDelegate.swift 补 deviceToken 上报 / `JPUSHRegisterDelegate` / 回调转发 expo-notifications；bridging header 两行 import）。JS 侧 `app/src/services/push.ts`：登录后 `setAlias(userId)`、登出 `deleteAlias`；**SDK 只在用户同意隐私政策后初始化**（`stores/consent-store.ts`，注册页/登录页勾选一次，每台设备只问一次）；点通知落地：SOS 进行中 → 倒计时页，否则 → 事故详情。AppKey 放 `app.json extra.jpush`（公开值）。极光 SDK 带进来的 READ_PHONE_STATE / 外部存储 / GET_TASKS / 后台定位权限用 `android.blockedPermissions` 屏蔽。**⚠️ 状态：本机 prebuild + pod install 通过，双端原生编译见 DEVELOPMENT.md「极光推送」一节；真机三态（前台/后台/被杀）双端未测，REGRESSION 4.6–4.8。**还需负责人：① iOS 的 APNs .p8 上传极光（上一条）；② 服务端 `JPUSH_APNS_PRODUCTION` 与装机包一致——Xcode 直装 Debug 包留空，TestFlight/Release 包设 `true`（App 侧 `production: !__DEV__` 同口径）。
-  - ✅ **云端 development 已切极光（2026-09-23 11:01 UTC）**：`deploy/.env` 已填 `JPUSH_APP_KEY` / `JPUSH_MASTER_SECRET`，backend 重建后日志「推送通道：极光（APNs 沙盒环境）」（同批带上 #77/#78/#84/#95，main=9261ee6）。⚠️ Master Secret 曾出现在截图/聊天，**上线前在极光「应用信息」点「重置」换新并同步改 .env**。
+  - ✅ **云端 development 已切极光（2026-09-23 11:01 UTC）**：`deploy/.env` 已填 `JPUSH_APP_KEY` / `JPUSH_MASTER_SECRET`，backend 重建后日志「推送通道：极光（APNs 沙盒环境）」（同批带上 #77/#78/#84/#95，main=9261ee6）。~~Master Secret 曾出现在截图/聊天，上线前重置~~ → **负责人 2026-10-02 决定不重置**，沿用现值。
   - ⬜ 极光实名认证（工作台右上提示「未实名认证」，用公司资料）
 
 ### 7. 高德地图 Key

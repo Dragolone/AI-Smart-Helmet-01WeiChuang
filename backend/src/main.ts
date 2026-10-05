@@ -3,9 +3,11 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { WsAdapter } from '@nestjs/platform-ws';
 import { AppModule } from './app.module';
+import { errorMessage } from './common/error-text';
 import { UnifiedExceptionFilter } from './common/http-exception.filter';
 import { requestIdMiddleware } from './common/request-id.middleware';
 import { shutdownState } from './common/shutdown-state';
+import { sleep } from './common/sleep';
 import { resolveTrustProxy } from './common/trust-proxy';
 
 /** 收到 SIGTERM 后先让 /health 返回 503、再等这么久才关闭：给网关/拨测把流量摘走、在途请求跑完的时间（0 = 立即关） */
@@ -13,9 +15,6 @@ const shutdownDrainMs = (): number => {
   const n = Number.parseInt(process.env.SHUTDOWN_DRAIN_MS ?? '', 10);
   return Number.isFinite(n) && n >= 0 ? n : 3000;
 };
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -62,9 +61,7 @@ async function bootstrap() {
         logger.log('已关闭，进程退出');
         process.exit(0);
       } catch (err) {
-        logger.error(
-          `关闭过程出错：${err instanceof Error ? err.message : String(err)}`,
-        );
+        logger.error(`关闭过程出错：${errorMessage(err)}`);
         process.exit(1);
       }
     })();

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { executeSetConfig } from './settings-exec.ts';
+import { executeCommand, executeSetConfig } from './settings-exec.ts';
 
 describe('settings-exec（头盔侧参数校验的软件版）', () => {
   it('清单内合法值 → success', () => {
@@ -24,5 +24,21 @@ describe('settings-exec（头盔侧参数校验的软件版）', () => {
     assert.equal(executeSetConfig({}).result, 'failed');
     assert.equal(executeSetConfig(null).result, 'failed');
     assert.equal(executeSetConfig('x').result, 'failed');
+  });
+});
+
+describe('executeCommand（按命令类型分派）', () => {
+  it('set_config → 走逐键校验，结果与 executeSetConfig 一致', () => {
+    assert.deepEqual(executeCommand('set_config', { volume: 70 }), { result: 'success' });
+    assert.deepEqual(executeCommand('set_config', { volume: 101 }), {
+      result: 'failed',
+      errorCode: 'ERR_PARAM_VALUE:volume',
+    });
+  });
+
+  it('头盔不认识的命令类型 → failed ERR_INSTRUCTION：没执行过的命令不能回执成功', () => {
+    for (const type of ['reboot', 'ota_start', 'SET_CONFIG', '', 'set_config ']) {
+      assert.deepEqual(executeCommand(type, { volume: 70 }), { result: 'failed', errorCode: 'ERR_INSTRUCTION' }, type);
+    }
   });
 });

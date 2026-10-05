@@ -1,18 +1,10 @@
 import { Controller, Get, Param, Query, Req } from '@nestjs/common';
-import { Type } from 'class-transformer';
-import {
-  IsISO8601,
-  IsInt,
-  IsOptional,
-  IsString,
-  Max,
-  MaxLength,
-  Min,
-} from 'class-validator';
+import { IsISO8601, IsOptional, IsString, MaxLength } from 'class-validator';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
+import { PageQueryDto } from '../common/page-query.dto';
 import { EventsService } from './events.service';
 
-class EventsQueryDto {
+class EventsQueryDto extends PageQueryDto {
   /** 逗号分隔多值；取值 = EVENTS.md §3 eventType（服务层校验白名单） */
   @IsOptional()
   @IsString()
@@ -26,19 +18,6 @@ class EventsQueryDto {
   @IsOptional()
   @IsISO8601({ strict: true })
   to?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  page: number = 1;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  pageSize: number = 20;
 }
 
 /** API.md §6：事件历史挂设备资源下，详情按 eventId 查 */

@@ -5,6 +5,7 @@ import type {
   LocationSummaryResponse,
   Paginated,
 } from '@helmet/shared';
+import { latestPlausibleTime } from '../common/device-time';
 import { BindingScopeService } from '../devices/binding-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { toWireLocation } from './location-wire';
@@ -33,6 +34,7 @@ export class LocationsService {
     const point = await this.prisma.locationPoint.findFirst({
       where: {
         deviceId,
+        timestamp: { lte: latestPlausibleTime() },
         AND: [this.scope.scopeWhere('receivedAt', intervals)],
       },
       orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],

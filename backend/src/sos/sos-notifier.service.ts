@@ -1,4 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { errorMessage } from '../common/error-text';
+import { withTimeout } from '../common/with-timeout';
 import { PrismaService } from '../prisma/prisma.service';
 import { PUSH_PROVIDER, type PushProvider } from '../providers/push.provider';
 import {
@@ -8,11 +10,16 @@ import {
   type SmsProvider,
 } from '../providers/sms.provider';
 import { RealtimePushService } from '../realtime/realtime-push.service';
-import type { SosCase, SosNotification } from '../generated/prisma/client';
+import type {
+  Prisma,
+  SosCase,
+  SosNotification,
+} from '../generated/prisma/client';
 import {
   NOTIFICATION_STATUS,
   SOS_STATUS,
   maxNotifyAttempts,
+  notifyDueAfterMs,
   notifyTimeoutMs,
 } from './sos.constants';
 import { toWireSos } from './sos-wire';
@@ -23,23 +30,6 @@ export const PUSH_TITLE = {
   contactsFailed: 'SOS 紧急联系人通知发送失败',
   noContacts: 'SOS 未设置紧急联系人',
 } as const;
-
-class NotifyTimeoutError extends Error {
-  constructor(ms: number) {
-    super(`timeout after ${ms}ms`);
-    this.name = 'NotifyTimeoutError';
-  }
-}
-
-/** Provider 调用加超时：挂起的第三方调用按失败记 lastError=timeout，走既有重试，不占住扫描任务 */
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  let timer: NodeJS.Timeout | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new NotifyTimeoutError(ms)), ms);
-    timer.unref();
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
-}
 
 /**
  * SOS 终态化与通知投递。confirm（SOS Now）、deadline 到期、pending 中设备再发 manual_sos
@@ -113,7 +103,7 @@ export class SosNotifierService {
         await this.deliverPending(sosId);
       } catch (err) {
         this.logger.error(
-          `SOS ${sosId} 终态化后首轮投递异常（状态已 notified，由扫描续投）：${err instanceof Error ? err.message : String(err)}`,
+          `SOS ${sosId} 终态化后首轮投递异常（状态已 notified，由扫描续投）：${errorMessage(err)}`,
         );
       }
     }
@@ -121,18 +111,30 @@ export class SosNotifierService {
   }
 
   /**
-   * 投递可重试的通知行（pending/failed 且 attempts < 上限；仅限已 notified 的 SOS）。
-   * 扫描任务每轮也会调用——首投失败或进程崩溃后由这里续投。
+   * 投递到点的通知行（pending/failed、attempts < 上限、且已过该次重试的等待；仅限已 notified 的 SOS）。
+   * 扫描任务每轮也会调用——首投失败或进程崩溃后由这里续投；重试按退避节奏（决策 #50），不是每轮都投。
    * attempts 先占位再发送（条件更新防重叠扫描双发）：宁可少发一次，不可无限重发。
    */
   async deliverPending(sosId?: string): Promise<void> {
+    const now = Date.now();
+    // 每个 attempts 取值一条分支：首投无条件到点，第 n 次重试要等创建后累计等待已过
+    const due: Prisma.SosNotificationWhereInput[] = Array.from(
+      { length: maxNotifyAttempts() },
+      (_, attempts) =>
+        attempts === 0
+          ? { attempts }
+          : {
+              attempts,
+              createdAt: { lte: new Date(now - notifyDueAfterMs(attempts)) },
+            },
+    );
     const rows = await this.prisma.sosNotification.findMany({
       where: {
         ...(sosId ? { sosId } : {}),
         status: {
           in: [NOTIFICATION_STATUS.pending, NOTIFICATION_STATUS.failed],
         },
-        attempts: { lt: maxNotifyAttempts() },
+        OR: due,
         sos: { status: SOS_STATUS.notified },
       },
       include: { sos: true },
@@ -159,7 +161,12 @@ export class SosNotifierService {
       if (claimed.count === 0) continue; // 另一轮扫描已抢走这一次投递
 
       try {
-        await withTimeout(this.send(row, row.sos), notifyTimeoutMs());
+        // 挂起的第三方调用按失败记 lastError=…timeout，走既有重试，不占住扫描任务（审计 SOS-05）
+        await withTimeout(
+          this.send(row, row.sos),
+          notifyTimeoutMs(),
+          `sos.notify(${row.channel})`,
+        );
         await this.prisma.sosNotification.update({
           where: { id: row.id },
           // 重试成功后清掉上一次的错误：详情页不能同时显示「已发送」和旧错误文本（审计 SOS-08）
@@ -170,7 +177,7 @@ export class SosNotifierService {
           },
         });
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errorMessage(err);
         this.logger.error(
           `SOS 通知投递失败（第 ${row.attempts + 1} 次，channel=${row.channel}，target=${this.maskTarget(row)}）：${message}`,
         );

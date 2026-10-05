@@ -8,6 +8,8 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { createHash, randomBytes, randomInt } from 'node:crypto';
+import { envPositiveInt } from '../common/env';
+import { errorMessage } from '../common/error-text';
 import { withTimeout } from '../common/with-timeout';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -24,20 +26,15 @@ export const SMS_CODE_PURPOSES: readonly SmsCodePurpose[] = [
   'change_phone',
 ];
 
-const envInt = (name: string, fallback: number): number => {
-  const raw = process.env[name];
-  const n = raw ? Number.parseInt(raw, 10) : Number.NaN;
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-};
-
 /** 口径（API.md §2）：6 位数字、5 分钟有效、60s 内不重发、每号每天 10 条、连续错 5 次作废 */
-const ttlSeconds = (): number => envInt('SMS_CODE_TTL_SECONDS', 300);
+const ttlSeconds = (): number => envPositiveInt('SMS_CODE_TTL_SECONDS', 300);
 const resendInterval = (): number =>
-  envInt('SMS_CODE_RESEND_INTERVAL_SECONDS', 60);
-const dailyLimit = (): number => envInt('SMS_CODE_DAILY_LIMIT', 10);
-const maxAttempts = (): number => envInt('SMS_CODE_MAX_ATTEMPTS', 5);
+  envPositiveInt('SMS_CODE_RESEND_INTERVAL_SECONDS', 60);
+const dailyLimit = (): number => envPositiveInt('SMS_CODE_DAILY_LIMIT', 10);
+const maxAttempts = (): number => envPositiveInt('SMS_CODE_MAX_ATTEMPTS', 5);
 /** 单次短信通道调用的应用层超时（审计 AUTH-11）：挂起的 Provider 不能把发码请求一起挂住 */
-const sendTimeoutMs = (): number => envInt('SMS_SEND_TIMEOUT_MS', 10_000);
+const sendTimeoutMs = (): number =>
+  envPositiveInt('SMS_SEND_TIMEOUT_MS', 10_000);
 
 const hashCode = (code: string, salt: string): string =>
   createHash('sha256').update(`${salt}:${code}`).digest('hex');
@@ -128,7 +125,7 @@ export class SmsCodeService {
       );
     } catch (err) {
       await this.prisma.smsCode.delete({ where: { id: row.id } });
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errorMessage(err);
       this.logger.error(`验证码发送失败 → ${maskPhone(phone)}：${message}`);
       throw new ServiceUnavailableException({
         code: 'SMS_SEND_FAILED',
@@ -139,6 +136,8 @@ export class SmsCodeService {
 
   /**
    * 校验并消费。只认该号码该用途的最新一条；错误统一 SMS_CODE_INVALID（不区分不存在/过期/错误，不给探测信息）。
+   * 先占一次尝试名额再比对（条件自增，由行锁串行化）：「读 attempts → 比对 → 错了才 +1」在并发下
+   * 所有请求都读到未超限、各比对一次，N 路并发就能猜 N 次，上限形同虚设。
    * 消费用条件更新（consumedAt 仍为空才置位）：并发两次提交同一验证码只有一方成功。
    */
   async verifyAndConsume(
@@ -158,13 +157,16 @@ export class SmsCodeService {
     ) {
       throw invalid();
     }
-    if (hashCode(code, row.salt) !== row.codeHash) {
-      await this.prisma.smsCode.update({
-        where: { id: row.id },
-        data: { attempts: { increment: 1 } },
-      });
-      throw invalid();
-    }
+    const claimed = await this.prisma.smsCode.updateMany({
+      where: {
+        id: row.id,
+        consumedAt: null,
+        attempts: { lt: maxAttempts() },
+      },
+      data: { attempts: { increment: 1 } },
+    });
+    if (claimed.count !== 1) throw invalid();
+    if (hashCode(code, row.salt) !== row.codeHash) throw invalid();
     const consumed = await this.prisma.smsCode.updateMany({
       where: { id: row.id, consumedAt: null },
       data: { consumedAt: new Date() },

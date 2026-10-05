@@ -8,6 +8,7 @@ import {
   registerDecorator,
   type ValidationOptions,
 } from 'class-validator';
+import { SMS_CODE_PURPOSES, type SmsCodePurpose } from './sms-code.service';
 
 /** bcrypt 只看前 72 **字节**：MaxLength 按字符数算，72 个汉字 = 216 字节会被静默截断 */
 const MAX_PASSWORD_BYTES = 72;
@@ -25,7 +26,6 @@ function MaxBytes(max: number, options?: ValidationOptions) {
     });
   };
 }
-import { SMS_CODE_PURPOSES, type SmsCodePurpose } from './sms-code.service';
 
 const PHONE_PATTERN = /^1[3-9]\d{9}$/;
 const CODE_PATTERN = /^\d{6}$/;

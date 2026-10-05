@@ -66,6 +66,9 @@ export class RealtimeGateway
         client.close(CLOSE_UNAUTHORIZED, '账号已注销');
         return;
       }
+      // 上面两次 await 期间客户端可能已经断开：handleDisconnect 早已跑过（当时还没登记、无事可做），
+      // 此时再登记就是一条永远不会被清理的死连接（连同到期定时器一起泄漏）
+      if (client.readyState !== WebSocket.OPEN) return;
       if (typeof payload.exp === 'number') {
         const ttl = Math.max(payload.exp * 1000 - Date.now(), 0);
         const timer = setTimeout(

@@ -2,11 +2,11 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
-  NotFoundException,
 } from '@nestjs/common';
-import type { Prisma } from '../generated/prisma/client';
+import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { BindingScopeService } from './binding-scope.service';
+import { deviceNotFound } from './device-access';
 
 /** 允许在调用方的事务里执行（注销账号时与其他清理原子提交） */
 type DbClient = PrismaService | Prisma.TransactionClient;
@@ -43,12 +43,6 @@ type DevicePublic = {
   createdAt: Date;
 };
 
-const notFound = () =>
-  new NotFoundException({
-    code: 'DEVICE_NOT_FOUND',
-    message: '设备不存在或未绑定到当前用户',
-  });
-
 @Injectable()
 export class DevicesService {
   constructor(
@@ -58,7 +52,7 @@ export class DevicesService {
 
   async bind(userId: string, deviceId: string, bindCode: string) {
     const device = await this.prisma.device.findUnique({ where: { deviceId } });
-    if (!device) throw notFound();
+    if (!device) throw deviceNotFound();
     if (!device.bindCode || device.bindCode !== bindCode) {
       throw new ForbiddenException({
         code: 'BIND_CODE_INVALID',
@@ -112,7 +106,7 @@ export class DevicesService {
       select: DEVICE_PUBLIC_SELECT,
     });
     // 不存在与无权访问同一响应，不泄露设备存在性
-    if (!device || device.bindUserId !== userId) throw notFound();
+    if (!device || device.bindUserId !== userId) throw deviceNotFound();
     return this.toPublic(device);
   }
 
@@ -182,49 +176,60 @@ export class DevicesService {
    * 电量历史（API.md §4）：从 raw_events 的 device_status 心跳里取 battery/charging，
    * 按 10 分钟桶取每桶最后一条（60s 心跳 → 24h 最多 144 点，App 画图够用又不拖流量）。
    * 只读原始事件表、不建新表：MVP 阶段 raw_events 即事实来源（EVENTS.md §2 原始留档）。
+   *
+   * 分桶在数据库里做：心跳周期可设到 1 秒（DEVICE_SETTINGS.heartbeatPeriod），7 天窗口的原始行数没有上界。
+   * 原先取回前 5000 行再在内存分桶，60s 心跳下 7 天就有 10080 行——截掉的恰好是最近的一半。
+   * 时间参数以 ISO 文本 + `::timestamp` 传入：列是不带时区的 UTC 时间，这样比较不受数据库会话时区影响。
+   *
+   * 电量只认 0–100 的整数，其余按缺失跳过——与设备快照（normalizeDeviceStatus）同口径。
+   * 原先是截断取整：固件拿 255 表示「未知」时曲线上会画出一个 100%。
+   * 判断写在 CASE 里：AND 两侧的求值顺序数据库不保证，直接转 numeric 遇到非数字会报错。
    */
   async batteryHistory(userId: string, deviceId: string, hours: number) {
     await this.getOwned(userId, deviceId);
     const to = new Date();
     const from = new Date(to.getTime() - hours * 3_600_000);
+    const window = { from: from.toISOString(), to: to.toISOString() };
     // 与事件/轨迹同口径（决策 #39）：只返回本人绑定区间内到达的心跳，换绑后不泄露前主期间的电量（审计 AUTH-06）
     const intervals = await this.scope.intervals(deviceId, userId);
-    const rows = await this.prisma.rawEvent.findMany({
-      where: {
-        deviceId,
-        eventType: 'device_status',
-        timestamp: { gte: from, lte: to },
-        ...this.scope.scopeWhere('receivedAt', intervals),
-      },
-      orderBy: { timestamp: 'asc' },
-      select: { timestamp: true, payload: true },
-      take: 5000,
-    });
-    const BUCKET_MS = 10 * 60_000;
-    const buckets = new Map<
-      number,
-      { timestamp: string; battery: number; charging: boolean | null }
-    >();
-    for (const r of rows) {
-      const payload = r.payload as {
-        battery?: unknown;
-        charging?: unknown;
-      } | null;
-      const battery =
-        typeof payload?.battery === 'number' ? payload.battery : null;
-      if (battery === null) continue;
-      const key = Math.floor(r.timestamp.getTime() / BUCKET_MS);
-      buckets.set(key, {
-        timestamp: r.timestamp.toISOString(),
-        battery: Math.max(0, Math.min(100, Math.round(battery))),
-        charging:
-          typeof payload?.charging === 'boolean' ? payload.charging : null,
-      });
-    }
+    if (intervals.length === 0) return { ...window, points: [] };
+    const inScope = Prisma.join(
+      intervals.map((i) =>
+        i.unboundAt
+          ? Prisma.sql`(received_at >= ${i.boundAt.toISOString()}::timestamp AND received_at <= ${i.unboundAt.toISOString()}::timestamp)`
+          : Prisma.sql`received_at >= ${i.boundAt.toISOString()}::timestamp`,
+      ),
+      ' OR ',
+    );
+    const rows = await this.prisma.$queryRaw<
+      { ts_ms: number; battery: number; charging: unknown }[]
+    >`
+      SELECT DISTINCT ON (bucket) ts_ms, battery, charging
+      FROM (
+        SELECT
+          (extract(epoch FROM "timestamp") * 1000)::float8 AS ts_ms,
+          floor(extract(epoch FROM "timestamp") / 600) AS bucket,
+          payload->'battery' AS battery,
+          payload->'charging' AS charging
+        FROM raw_events
+        WHERE device_id = ${deviceId}
+          AND event_type = 'device_status'
+          AND "timestamp" >= ${window.from}::timestamp
+          AND "timestamp" <= ${window.to}::timestamp
+          AND CASE WHEN jsonb_typeof(payload->'battery') = 'number'
+                   THEN (payload->'battery')::numeric BETWEEN 0 AND 100
+                    AND (payload->'battery')::numeric = trunc((payload->'battery')::numeric)
+                   ELSE false END
+          AND (${inScope})
+      ) heartbeats
+      ORDER BY bucket, ts_ms DESC`;
     return {
-      from: from.toISOString(),
-      to: to.toISOString(),
-      points: [...buckets.values()],
+      ...window,
+      points: rows.map((r) => ({
+        timestamp: new Date(r.ts_ms).toISOString(),
+        battery: r.battery,
+        charging: typeof r.charging === 'boolean' ? r.charging : null,
+      })),
     };
   }
 

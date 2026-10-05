@@ -22,7 +22,8 @@
           "iosamap"
         ],
         "NSLocalNetworkUsageDescription": "用于连接智能头盔的 Wi-Fi 热点，查看头盔摄像头的实时画面。",
-        "NSPhotoLibraryAddUsageDescription": "用于把头盔实时画面的截图保存到您的相册。"
+        "NSPhotoLibraryAddUsageDescription": "用于把头盔实时画面的截图保存到您的相册。",
+        "ITSAppUsesNonExemptEncryption": false
       },
       "appleTeamId": "B3NHB45FS7",
       "entitlements": {

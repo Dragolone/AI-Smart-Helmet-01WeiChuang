@@ -46,3 +46,12 @@
 - `services/sos-alert.ts` 新增 `isSosAlertPermissionDenied()`；`(tabs)/safety.tsx` 进页面与每次回前台各查一次，被拒时在页首放警示卡，点击跳系统设置。
 - 顺带确认：App 不申请手机定位（地图展示的是头盔上报位置），8.2 的定位半边不适用；`app.json` 里 expo-location 的权限说明目前无对应使用，上架前清理（上线前清单）。
 - 追加（负责人反馈）：首次发现被拒时主动弹一次说明弹窗「去设置 / 暂不」（每次进程一次），警示卡持续提醒。
+
+## PUSH-03 冷启动由通知拉起时取回那次点击（2026-10-05，commit 5acf184）
+- `services/push.ts`：`initOnce` 里极光 init 之后调 `landFromLaunchResponse()`——读 `Notifications.getLastNotificationResponse()`，只认 `trigger.type === "push"` 且 `trigger.payload.sosId` 是字符串的启动响应（极光的自定义字段在 payload 里，不在 `content.data`），按 `landFromPush` 同一规则落地；用掉即 `clearLastNotificationResponse()`，同进程只处理一次。
+- 真机验证：被杀 → 注入 → 到期 → 点「SOS 已通知紧急联系人」→ 日志「[PUSH] 冷启动：由通知拉起」→ 事故详情页。
+- 另加「[PUSH] 通知到达」日志，回归 4.6 靠它确认前台也送到。
+
+## PUSH-04 别名设置要等结果（2026-10-05，commit 3af437a）
+- `services/push.ts`：`addTagAliasListener` 收别名操作结果；code 非 0 按 3 s / 10 s / 30 s / 60 s 退避重设（有上限）；设置成功 2 s 后 `queryAlias`，服务端别名不是当前用户就重设；登出清定时器与在途操作，旧 sequence、已登出用户的结果一律忽略。日志新增「别名已确认」。
+- 口径提醒（给 B 线）：服务端通知记录里的 push `sent` 只表示极光接受了这次推送、别名下**至少有一台**设备，不代表每台设备都在；排查「某台手机收不到」要看那台手机的「别名已确认」日志。

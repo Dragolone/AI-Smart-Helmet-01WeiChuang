@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { connect, type MqttClient } from 'mqtt';
 import type { Packet } from 'mqtt-packet';
+import { errorMessage } from '../common/error-text';
+import { sleep } from '../common/sleep';
 import { IngestService } from './ingest.service';
 
 /** 设备侧 Topic（DEVICE_PROTOCOL §4）：helmet/{deviceId}/{status|location|event|cmd_ack} */
@@ -26,9 +28,6 @@ const PERSIST_RETRY_DELAY_MS = 300;
 
 /** 订阅失败重试间隔：订阅失败 = 连着 Broker 却收不到任何消息，只告警不重试会静默失聪 */
 const SUBSCRIBE_RETRY_DELAY_MS = 5_000;
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
 
 /** 防日志伪造：外部输入进日志前去掉换行符 */
 const sanitize = (s: string): string => s.replace(/[\r\n]+/g, ' ');
@@ -100,7 +99,7 @@ export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
         .catch((err: unknown) => {
           // 重试耗尽：只告警不 done(err)——done(err) 会断开连接，反而丢更多消息
           this.logger.error(
-            `Ingest 最终失败，该消息放弃 [${sanitize(packet.topic)}]：${err instanceof Error ? err.message : String(err)}`,
+            `Ingest 最终失败，该消息放弃 [${sanitize(packet.topic)}]：${errorMessage(err)}`,
           );
         })
         .finally(() => done());
@@ -180,7 +179,7 @@ export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
         lastError = err;
         if (attempt < PERSIST_RETRIES) {
           this.logger.warn(
-            `入库失败（第 ${attempt + 1} 次），${PERSIST_RETRY_DELAY_MS}ms 后重试：${err instanceof Error ? err.message : String(err)}`,
+            `入库失败（第 ${attempt + 1} 次），${PERSIST_RETRY_DELAY_MS}ms 后重试：${errorMessage(err)}`,
           );
           await sleep(PERSIST_RETRY_DELAY_MS);
         }

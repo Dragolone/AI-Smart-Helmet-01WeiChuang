@@ -1,5 +1,40 @@
 import { maskPhone } from '../providers/sms.provider';
-import { extractSosLocation } from './sos-trigger.service';
+import { describeEventAge, extractSosLocation } from './sos-trigger.service';
+
+describe('describeEventAge（补传事件给本人的时间说明，决策 #52）', () => {
+  const now = Date.UTC(2026, 9, 3, 6, 0, 0);
+  const ago = (ms: number): Date => new Date(now - ms);
+  const MIN = 60_000;
+  const HOUR = 60 * MIN;
+
+  it.each([
+    ['刚发生', 0],
+    ['4 分 59 秒前（不到时钟偏移阈值）', 5 * MIN - 1000],
+    ['事件时间在未来（头盔时钟快了）', -10 * MIN],
+  ])('%s → 不加说明', (_name, ageMs) => {
+    expect(describeEventAge(ago(ageMs), now)).toBeNull();
+  });
+
+  it.each([
+    [5 * MIN, '约 5 分钟前'],
+    [12 * MIN, '约 12 分钟前'],
+    [89 * MIN, '约 89 分钟前'],
+    [90 * MIN, '约 2 小时前'],
+    [3 * HOUR, '约 3 小时前'],
+    [47.6 * HOUR, '约 48 小时前'],
+    [72 * HOUR, '约 72 小时前'],
+  ])('%d 毫秒前 → %s', (ageMs, text) => {
+    expect(describeEventAge(ago(ageMs), now)).toBe(text);
+  });
+
+  it.each([
+    ['超过离线缓存能保留的范围（72 小时多 1 秒）', 72 * HOUR + 1000],
+    ['头盔时钟回到 2000 年', now - Date.UTC(2000, 0, 1)],
+    ['时间戳是 epoch', now],
+  ])('%s → 不加说明（时钟不可信，不诱导本人取消）', (_name, ageMs) => {
+    expect(describeEventAge(ago(ageMs), now)).toBeNull();
+  });
+});
 
 describe('extractSosLocation（EVENTS.md 4.3/4.4 位置快照校验）', () => {
   const valid = {

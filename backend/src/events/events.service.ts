@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import type { EventDetail, EventListItem, Paginated } from '@helmet/shared';
 import { BindingScopeService } from '../devices/binding-scope.service';
+import { ensureDeviceOwned } from '../devices/device-access';
 import type { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -13,12 +14,6 @@ import {
   toWireEventDetail,
   toWireEventItem,
 } from './event-wire';
-
-const deviceNotFound = () =>
-  new NotFoundException({
-    code: 'DEVICE_NOT_FOUND',
-    message: '设备不存在或未绑定到当前用户',
-  });
 
 @Injectable()
 export class EventsService {
@@ -43,7 +38,7 @@ export class EventsService {
       pageSize: number;
     },
   ): Promise<Paginated<EventListItem>> {
-    await this.ensureDeviceOwned(userId, deviceId);
+    await ensureDeviceOwned(this.prisma, userId, deviceId);
 
     const types = this.parseTypes(opts.type);
     const timeRange = this.parseTimeRange(opts.from, opts.to);
@@ -59,7 +54,8 @@ export class EventsService {
       this.prisma.rawEvent.count({ where }),
       this.prisma.rawEvent.findMany({
         where,
-        orderBy: { timestamp: 'desc' },
+        // 同一时间戳可能有多条（头盔时间戳只到秒、补传整批到达）：加唯一次序键，翻页才不重不漏（同 DBOPS-01）
+        orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
         skip: (opts.page - 1) * opts.pageSize,
         take: opts.pageSize,
       }),
@@ -144,16 +140,5 @@ export class EventsService {
       });
     }
     return range;
-  }
-
-  private async ensureDeviceOwned(
-    userId: string,
-    deviceId: string,
-  ): Promise<void> {
-    const device = await this.prisma.device.findUnique({
-      where: { deviceId },
-      select: { bindUserId: true },
-    });
-    if (!device || device.bindUserId !== userId) throw deviceNotFound();
   }
 }

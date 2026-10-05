@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>零一唯创 App 第三方信息共享清单</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>零一唯创 App 第三方信息共享清单</h1>
+  <p class="meta"><span>版本 V1.0</span><span>更新日期 2026 年 10 月 2 日</span></p>
+</header>
+
+<p>为实现特定功能，「零一唯创」App（以下称「本应用」）接入了下列第三方服务，或在你使用某些功能时向他人提供信息。我们只提供实现功能所必需的最少信息。本清单是<a href="privacy.html">《隐私政策》</a>的组成部分，本应用自身收集的信息见<a href="collection.html">《个人信息收集清单》</a>。</p>
+
+<h2>一、第三方 SDK 与云服务</h2>
+
+<table>
+  <thead>
+    <tr><th>名称</th><th>提供方</th><th>使用场景与目的</th><th>共享的信息</th><th>接入方式</th><th>隐私政策</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>极光推送 SDK</td>
+      <td>深圳市和讯华谷信息技术有限公司</td>
+      <td>向你的手机发送求救倒计时、危险事件通知</td>
+      <td>设备标识（OAID、Android ID、推送注册 ID）、设备型号与系统版本、网络类型、你的账号 ID（作为推送别名）</td>
+      <td>App 内嵌 SDK；<strong>你同意隐私政策后才初始化</strong>；服务器调用其接口下发通知</td>
+      <td><a href="https://www.jiguang.cn/license/privacy">极光隐私政策</a></td>
+    </tr>
+    <tr>
+      <td>腾讯云实时音视频 TRTC SDK</td>
+      <td>腾讯云计算（北京）有限责任公司</td>
+      <td>语音对讲的实时传输</td>
+      <td>实时音频流、频道（房间）号与用户标识、网络信息与设备型号；通话内容不存储</td>
+      <td>App 内嵌 SDK；仅在你进入对讲频道时使用</td>
+      <td><a href="https://cloud.tencent.com/document/product/647/57574">TRTC 隐私保护指引</a></td>
+    </tr>
+    <tr>
+      <td>高德地图 JS API</td>
+      <td>高德软件有限公司</td>
+      <td>地图展示、轨迹绘制</td>
+      <td>地图显示区域内的头盔位置与轨迹坐标、网络信息、IP 地址</td>
+      <td>App 内网页组件加载；仅在打开地图、轨迹、事故详情页时使用</td>
+      <td><a href="https://lbs.amap.com/pages/privacy/">高德开放平台隐私政策</a></td>
+    </tr>
+    <tr>
+      <td>腾讯云短信</td>
+      <td>腾讯云计算（北京）有限责任公司</td>
+      <td>发送注册 / 找回密码验证码；向紧急联系人发送求救提示短信</td>
+      <td>接收短信的手机号码、短信内容（验证码或固定的求救提示文案，不含你的姓名与位置）</td>
+      <td>服务器调用接口，App 内无 SDK</td>
+      <td><a href="https://cloud.tencent.com/document/product/301/11470">腾讯云隐私政策</a></td>
+    </tr>
+    <tr>
+      <td>腾讯云对象存储 COS</td>
+      <td>腾讯云计算（北京）有限责任公司</td>
+      <td>存储与安全事件关联的媒体文件</td>
+      <td>媒体文件及其元数据</td>
+      <td>服务器调用接口，App 内无 SDK；文件通过有时效的临时链接访问</td>
+      <td><a href="https://cloud.tencent.com/document/product/301/11470">腾讯云隐私政策</a></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>我们的服务器部署在腾讯云广州地域，你的个人信息存储在中华人民共和国境内，不向境外提供。</p>
+
+<h2>二、你使用功能时向他人提供的信息</h2>
+
+<table>
+  <thead>
+    <tr><th>接收方</th><th>场景</th><th>提供的信息</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>你设置的紧急联系人</td>
+      <td>你触发紧急求救，或疑似摔倒倒计时结束你未取消</td>
+      <td>一条固定文案的求救提示短信（告知其被设为紧急联系人的骑行者发出了求救，请立即致电确认）</td>
+    </tr>
+    <tr>
+      <td>同一对讲频道的成员</td>
+      <td>你加入频道并发言</td>
+      <td>你的实时语音、昵称与头像</td>
+    </tr>
+    <tr>
+      <td>你选择的分享对象</td>
+      <td>你主动点击分享位置或导航</td>
+      <td>你选择分享的位置坐标，按你选择的应用（如微信、高德地图）发送</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>除上述情形及法律法规规定的情形外，我们不会向任何公司、组织和个人提供你的个人信息。第三方的具体处理规则以其自身发布的隐私政策为准；本清单随功能调整更新。</p>
+
+<footer>
+  <p>深圳零一唯创科技有限公司 · 零一唯创 App 第三方信息共享清单 V1.0 · 2026 年 10 月 2 日</p>
+  <p><a href="privacy.html">隐私政策</a> · <a href="collection.html">个人信息收集清单</a></p>
+</footer>
+
+</div>
+</body>
+</html>

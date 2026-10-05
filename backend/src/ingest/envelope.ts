@@ -62,8 +62,11 @@ const MIN_YEAR = 1970;
 const daysInMonth = (year: number, month: number): number =>
   new Date(Date.UTC(year, month, 0)).getUTCDate();
 
-/** JSON 文本里的 NUL（转义形式 \\u0000）：PostgreSQL text/jsonb 都不接受，入库必炸 */
-const hasNul = (raw: string): boolean => /\\u0000/i.test(raw);
+/**
+ * JSON 文本里的 NUL 转义（反斜杠 + u0000）：PostgreSQL text/jsonb 都不接受，入库必炸。
+ * 前面成对的反斜杠要先跳过——两个反斜杠 + u0000 是「字面量反斜杠后跟 u0000」六个可见字符，不是 NUL，不能误拒。
+ */
+const hasNul = (raw: string): boolean => /(?<!\\)(?:\\\\)*\\u0000/i.test(raw);
 
 export function validateEnvelope(
   raw: string,

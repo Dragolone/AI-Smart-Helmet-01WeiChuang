@@ -4,7 +4,7 @@
 |---|---|---|---|---|
 | SOS-10 | 🔴 保命链路 | iPhone 锁屏通知点「取消」后不进 App，60 s 后照样进入 notified（通知联系人）；日志 `[SOS-ALERT] 通知取消失败 FetchRequestCanceledException` | 取消动作 `opensAppToForeground: false`，请求在后台发出，iOS 随即挂起进程，fetch 被中断；没有任何重试 | ✅ 已修（FIXES SOS-10） |
 | APP-03 | 🟠 卡死 | 锁屏取消成功后打开 App，倒计时页仍在 pending，点取消一直弹 `Something went wrong SOS_ALREADY_FINALIZED`，只能杀 App | 慢网下迟到的 `/sos/active` pending 覆盖 WS 已写入的 cancelled；之后 active 查不到这单，queryFn 回退信本地缓存（就是那份 pending），永远出不来。错误码无文案 → 英文系统下显示回落文案 + 原始码 | ✅ 已修（FIXES APP-03） |
-| PUSH-01 | 🟡 配置 | iPhone 极光 SDK `setAlias` 后立刻 FailedRegister，拿不到 registrationID | 极光控制台该应用未配 iOS 平台（Bundle ID + APNs .p8） | ⏳ 负责人配置 |
+| PUSH-01 | 🟡 配置 | iPhone 极光 SDK `setAlias` 后立刻 FailedRegister，拿不到 registrationID | 极光控制台该应用未配 iOS 平台（Bundle ID + APNs .p8） | ✅ 负责人 2026-10-01 配好 APNs Auth Key；10-05 iPhone 复测注册成功（registrationID 有值），4.6–4.8 三态通过 |
 | PUSH-02 | ⚪ 预期 | 华为杀掉 App 后收不到推送 | 无厂商通道，极光自有长连接随进程一起死 | ⏳ THIRD_PARTY §6 厂商通道注册 |
 | SOS-11 | 🔴 保命链路 | iPhone 刚按下锁屏的瞬间收到 SOS，锁屏上**没有**任何通知（上一秒锁屏就有） | WS 在 appState=inactive 到达，iOS 视为前台投递、要问 App 是否显示；App 从未设 `setNotificationHandler`，expo-notifications 默认不显示 → 通知被吞 | ✅ 已修（FIXES SOS-11） |
 | SOS-12 | 🔴 保命链路 | 按下电源键的同一秒另一台触发 SOS，iPhone 什么都没收到，直到 60 s 到期通知联系人 | 锁屏瞬间 iOS 掐断 socket（`1006 Socket is not connected`），WS 5 s 后才重连；SOS 恰在这几秒内创建，WS 不重推，而 REST 补拉只在冷启动跑 | ✅ 已修（FIXES SOS-12）；根治仍是 APNs 远程推送（PUSH-01） |
@@ -14,3 +14,5 @@
 | APP-06 | 🟡 UI | 地图轨迹回放：一拖进度条/点播放就冒出「回实时」按钮，进度条被挤短一截；「回实时」不是人话 | 按钮是条件渲染插进同一行，行宽随之变化 | ✅ 已修（2026-09-26 iPhone）：该格常驻定宽，实时时显示灰字「实时」、回放时变「回到实时」 |
 | APP-07 | 🟡 体验 | 飞行模式关掉后，顶部断网提示条还要拖十几秒才消失（8.1） | 断线重连按 1→2→4→8→16 s 指数退避，网络恢复时下一轮重连早已排到十几秒后，只能干等 | ✅ 已修（2026-09-26）：回前台立刻重连并清零退避 |
 | APP-08 | 🟠 保命链路提示 | 通知权限被拒后，锁屏上一条 SOS 提醒都发不出，App 却没有任何提示（8.2「功能降级有提示」不满足） | `ensureSosAlertPermission` 只在登录后申请一次，被拒即静默 | ✅ 已修（2026-09-26）：安全页顶部警示卡「通知权限已关闭」，点击 `Linking.openSettings()`；回前台复查 |
+| PUSH-03 | 🔴 保命链路 | iPhone 被杀状态点远程推送冷启动后，JS 收不到「通知被点开」；倒计时中的单靠冷启动补拉兜住，**已到期的「已通知紧急联系人」那条只会停在首页**，进不了事故详情 | 冷启动那一刻极光尚未初始化（要等 JS 起来并确认过隐私同意），系统把点击交给当时的 delegate——expo-notifications；极光的 RCTJPushEventQueue 是空的 | ✅ 已修（2026-10-05）：极光 init 后从 expo-notifications 读启动响应并按同一规则落地 |
+| PUSH-04 | 🔴 保命链路 | iPhone 被杀后一条推送都没收到，服务端通知记录却显示 push sent | 一秒内连发 setAlias → deleteAlias → setAlias（开发期热更触发；正式环境里「登出后立刻登录」同理），极光对别名操作限频且异步，这台手机的别名最终不在了；**App 从不检查 setAlias 结果，失败不重试**。服务端显示 sent 是因为同账号另一台设备还挂在该别名下 | ✅ 已修（2026-10-05）：监听别名结果，失败退避重设，成功后 queryAlias 校验 |

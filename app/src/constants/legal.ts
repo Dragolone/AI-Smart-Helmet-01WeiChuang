@@ -16,7 +16,21 @@ export function legalOrigin(base: string = API_BASE): string {
   }
 }
 
-export type LegalDoc = "privacy" | "terms";
+/** 后端托管的四份文档（/legal/<doc>）。后两份是 2026-10 备案 / 厂商隐私检测要求的清单（LAUNCH_CHECKLIST A-6） */
+export const LEGAL_DOCS = [
+  "privacy",
+  "terms",
+  "collection",
+  "sharing",
+] as const;
+export type LegalDoc = (typeof LEGAL_DOCS)[number];
+
+/** 路由参数 → 文档；认不出的一律回隐私政策，不让页面打开一个不存在的地址 */
+export function parseLegalDoc(param: unknown): LegalDoc {
+  return (LEGAL_DOCS as readonly unknown[]).includes(param)
+    ? (param as LegalDoc)
+    : "privacy";
+}
 
 export function legalUrl(doc: LegalDoc, base?: string): string {
   const origin = legalOrigin(base);

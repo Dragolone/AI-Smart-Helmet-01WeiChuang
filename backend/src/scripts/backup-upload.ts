@@ -9,6 +9,7 @@
  * 退出码：0 成功；2 参数/输入不合法；3 未配置 COS；1 上传或清理失败（cron 据此告警）。
  */
 import COS from 'cos-nodejs-sdk-v5';
+import { errorMessage } from '../common/error-text';
 import { tencentCosConfigFromEnv } from '../providers/tencent-cos.provider';
 
 export const BACKUP_PREFIX = 'backups/';
@@ -190,7 +191,7 @@ async function main(): Promise<void> {
   try {
     args = parseArgs(process.argv.slice(2));
   } catch (err) {
-    console.error(`✕ ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`✕ ${errorMessage(err)}`);
     process.exit(2);
   }
   const config = tencentCosConfigFromEnv();
@@ -217,9 +218,7 @@ async function main(): Promise<void> {
     );
     for (const k of result.deleted) console.log(`  - 已删除 ${k}`);
   } catch (err) {
-    console.error(
-      `✕ 备份失败：${err instanceof Error ? err.message : String(err)}`,
-    );
+    console.error(`✕ 备份失败：${errorMessage(err)}`);
     process.exit(1);
   }
 }

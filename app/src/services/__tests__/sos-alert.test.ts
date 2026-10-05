@@ -304,6 +304,48 @@ describe("sos-alert", () => {
     });
   });
 
+  describe("10-03 评审疑点 2 / 4：多单槽位与排通知竞态", () => {
+    it("两单各有各的通知：第二单不顶掉第一单，各自结束时各自清干净", async () => {
+      const m = load();
+      await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
+      await m.showSosAlertIfBackground("s2", "d2", deadlineIn(60));
+      mockDismiss.mockClear();
+      await m.clearSosAlert("s1"); // 单槽位时这里直接 return，s1 的通知永远留在锁屏
+      const dismissed = mockDismiss.mock.calls.map((c) => c[0]);
+      expect(dismissed).toContain("sos-s1");
+      expect(dismissed.some((id) => id.startsWith("sos-s2"))).toBe(false);
+      mockDismiss.mockClear();
+      await m.clearSosAlert("s2");
+      expect(mockDismiss.mock.calls.map((c) => c[0])).toContain("sos-s2");
+    });
+
+    it("排通知途中这单被取消：后面的刷新一条都不再排，刚排上的撤回，不留孤儿提醒", async () => {
+      const m = load();
+      mockSchedule.mockClear();
+      mockCancelScheduled.mockClear();
+      // 第一条（立即弹的那条）卡在原生调用里
+      let release!: () => void;
+      mockSchedule.mockImplementationOnce(
+        () => new Promise<string>((r) => (release = () => r("id"))),
+      );
+      const showing = m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
+      await Promise.resolve();
+      await m.clearSosAlert("s1"); // 用户在这个瞬间取消了
+      release();
+      await showing;
+      // 只排过那一条，30 s / 10 s 的刷新没有再排
+      expect(mockSchedule).toHaveBeenCalledTimes(1);
+      // 那一条在排完后被撤回
+      expect(mockCancelScheduled.mock.calls.map((c) => c[0])).toContain(
+        "sos-s1",
+      );
+      // 同一单之后还能重新弹（没有残留状态）
+      mockSchedule.mockClear();
+      await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
+      expect(mockSchedule).toHaveBeenCalled();
+    });
+  });
+
   describe("通知按钮响应", () => {
     it("「我没事」调服务端取消并撤掉通知；动作必须把 App 拉到前台（后台请求会被 iOS 挂起中断）", async () => {
       const m = load();

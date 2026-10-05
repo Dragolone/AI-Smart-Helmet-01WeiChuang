@@ -22,8 +22,11 @@ export type SosSyncDeps = {
   log?: (message: string) => void;
 };
 
-/** 同一单只拉起一次倒计时页（跨 WS 推送与补拉共享） */
-export type PresentedRef = { current: string | null };
+/**
+ * 已拉起过倒计时页的 sosId（跨 WS 推送与补拉共享）。必须是集合：只记「最近一单」时，
+ * 两台头盔同时有进行中的单会互相覆盖，每次 WS 重连都把两页重新弹一遍（10-03 评审疑点 1）。
+ */
+export type PresentedRef = { current: Set<string> };
 
 const isFinal = (qc: QueryClient, sosId: string): boolean => {
   const cached = qc.getQueryData<Sos>(["sos", sosId]);
@@ -35,8 +38,8 @@ const present = (
   presented: PresentedRef,
   deps: SosSyncDeps,
 ): boolean => {
-  if (presented.current === sos.sosId) return false;
-  presented.current = sos.sosId;
+  if (presented.current.has(sos.sosId)) return false;
+  presented.current.add(sos.sosId);
   deps.openCountdown(sos.sosId, sos.deviceId);
   return true;
 };
@@ -48,6 +51,9 @@ export function applySosUpdate(
   presented: PresentedRef,
   deps: SosSyncDeps,
 ): void {
+  // 终态不回退：WS 乱序 / 重连补发时，迟到的 pending 不能把已取消、已通知的单盖回「进行中」
+  // （10-03 评审疑点 3，与 APP-03 同源——那次是 REST 迟到，这次是 WS 自己乱序）
+  if (sos.status === "pending" && isFinal(qc, sos.sosId)) return;
   qc.setQueryData<ActiveSosResponse>(["sos-active", sos.deviceId], {
     sos: sos.status === "pending" ? sos : null,
   });

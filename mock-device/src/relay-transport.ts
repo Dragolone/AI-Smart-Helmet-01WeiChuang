@@ -13,7 +13,7 @@ import type {
   WsDeviceCommandData,
   WsMessage,
 } from '@helmet/shared';
-import { executeSetConfig } from './settings-exec.ts';
+import { executeCommand } from './settings-exec.ts';
 import type { EventKind, Log, Transport } from './transport.ts';
 
 const RELAY_SCOPE = new Set<string>(BLE_RELAY_EVENT_TYPES);
@@ -148,17 +148,23 @@ export function createRelayTransport(cfg: RelayConfig): Transport {
     `/api/v1/devices/${deviceId}/commands/${commandId}/relay-ack`;
 
   const postAck = async (commandId: string, body: unknown): Promise<void> => {
-    let { status, json } = await post(relayAckPath(commandId), body, true);
-    if (status === 401) {
-      await reauth();
-      ({ status, json } = await post(relayAckPath(commandId), body, true));
+    // 调用方都是 void postAck(...)：网络错 / 重新鉴权失败必须在这里接住，
+    // 否则成了未处理的 rejection，Node 默认直接退出——常驻演示的 Mock 会被后端一次重启带崩
+    try {
+      let { status, json } = await post(relayAckPath(commandId), body, true);
+      if (status === 401) {
+        await reauth();
+        ({ status, json } = await post(relayAckPath(commandId), body, true));
+      }
+      if (status !== 200) {
+        log(`relay-ack 失败 ${status}：${JSON.stringify(json)}`);
+        return;
+      }
+      const r = json as RelayAckResponse;
+      log(`已回执 ${JSON.stringify(body)} → 服务端状态 ${r.status}（${commandId.slice(0, 8)}…）`);
+    } catch (err) {
+      log(`relay-ack 异常：${(err as Error).message}（不重试，服务端按超时口径处理）`);
     }
-    if (status !== 200) {
-      log(`relay-ack 失败 ${status}：${JSON.stringify(json)}`);
-      return;
-    }
-    const r = json as RelayAckResponse;
-    log(`已回执 ${JSON.stringify(body)} → 服务端状态 ${r.status}（${commandId.slice(0, 8)}…）`);
   };
 
   const handleCommand = (msg: WsMessage<WsDeviceCommandData>): void => {
@@ -180,9 +186,7 @@ export function createRelayTransport(cfg: RelayConfig): Transport {
     const outcome =
       cfg.cmdResult === 'failed'
         ? { result: 'failed' as const, errorCode: 'MOCK_REJECTED' }
-        : cmd.type === 'set_config'
-          ? executeSetConfig(cmd.params)
-          : { result: 'success' as const };
+        : executeCommand(cmd.type, cmd.params);
     setTimeout(() => {
       void postAck(cmd.commandId, {
         stage: 'executed',
@@ -209,7 +213,10 @@ export function createRelayTransport(cfg: RelayConfig): Transport {
       if (wsClosed) return;
       // 4401 = token 失效：刷新后重连；其他断开固定退避重连
       const fix = ev.code === 4401 ? reauth() : Promise.resolve();
-      void fix.finally(() => setTimeout(connectWs, 5000));
+      // 重新鉴权失败（后端不可达 / 登录被限频）不能让进程崩：照常退避重连，下次 4401 再试
+      void fix
+        .catch((err: Error) => log(`重新鉴权失败：${err.message}`))
+        .finally(() => setTimeout(connectWs, 5000));
       log(`WS 断开（code=${ev.code}），5s 后重连`);
     };
     ws.onerror = () => {

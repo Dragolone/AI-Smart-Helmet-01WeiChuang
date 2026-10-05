@@ -222,7 +222,27 @@ docker compose -f docker-compose.prod.yml exec -T postgres pg_restore -U helmet 
 | 8 | 备份 cron | §5 那一行 crontab(日志写 `/home/ubuntu/`,不要 `/var/log`);**用 crontab 里一模一样的整条命令**手动跑一次,`~/helmet-backup.log` 末行「备份完成」,COS 里 `backups/` 有新对象;次日再看一次日志确认定时触发 |
 | 9 | 拨测 | §5 对外拨测加 `api.01weichuang.com` 一条 |
 | 10 | 验收 | §4 全部 10 条 + §6 安全基线逐条打勾;App 正式包 `EXPO_PUBLIC_API_URL=https://api.01weichuang.com/api/v1` |
-| 11 | 上线后 | THIRD_PARTY §3 提醒:给 `helmet-cos` 子账号换新密钥(旧密钥曾进过聊天),换后 `deploy/.env` 更新并 `up -d` |
+| 11 | ~~上线后~~ | ~~给 `helmet-cos` 子账号换新密钥~~ → 负责人 2026-10-02 决定不再轮换(09-22 已换过一次),COS 与极光沿用现有密钥 |
+
+### 8.1 定案:现有服务器 helmet-dev 直接转正(负责人 2026-10-02)
+
+初期用户量小,**不另购服务器**:helmet-dev(111.230.157.151)转为 production,上面的「新服务器」清单暂不执行;用户量上来后再按上表另购、用 §5 备份迁移。代价:之后没有独立的联调环境——A 线测试用专门的测试账号连同一套环境,或连本机后端。
+
+**零代码改动**:`API_DOMAIN` / `ADMIN_DOMAIN` 可以一次填多个域名(Caddy 在解析前展开环境变量,2026-10-02 用 `caddy adapt` 验证:两个域名进同一站点),新旧域名同时可用,已经发出去的包(硬件手里的 APK、A 线开发包、极光后台登记的隐私协议地址)切换当天不会断。
+
+| # | 步骤 | 谁 | 说明 |
+|---|------|----|------|
+| 1 | DNS 加三条 A 记录 `api` / `admin` / `mqtt.01weichuang.com` → 111.230.157.151 | 负责人 | **现在就能加,不影响现网**;`dev-` 三条保留。App 备案填服务域名 `api.01weichuang.com` 也以此为准 |
+| 2 | 定切换日 | 负责人 | 建议在 A 线回归完成之后、首次提交商店审核之前 |
+| 3 | 切换前手动备份一次 | B 线 | `sh backup.sh`,确认 COS `backups/` 有新对象(§4 #9) |
+| 4 | 清空测试数据 | B 线 | 当前库里全是测试账号与 Mock 轨迹,正式用户不该看到。`docker compose -f docker-compose.prod.yml stop backend mock` → `exec postgres dropdb -U helmet helmet` → `exec postgres createdb -U helmet helmet` → `up -d`(backend 启动时自动 `prisma migrate deploy` 建表)。**只删库不删卷**,EMQX / Caddy 证书不受影响 |
+| 5 | 改 `deploy/.env` | B 线 | `API_DOMAIN="api.01weichuang.com, dev-api.01weichuang.com"`、`ADMIN_DOMAIN="admin.01weichuang.com, dev-admin.01weichuang.com"`;`up -d` 后 Caddy 自动给新域名签证书。第三方密钥沿用(负责人 2026-10-02 决定不轮换) |
+| 6 | `JPUSH_APNS_PRODUCTION` | B 线 | iPhone 装的是 TestFlight / App Store 包时设 `true`;设了以后 Xcode 直装的 Debug 包收不到远程推送(极光静默丢),A 线调推送需临时改回 |
+| 7 | 重建账号与演示设备 | B 线 | `create:admin` 新建管理员(密码入密码管理器);`provision:device` 开一台 Mock 填 `MOCK_DEVICE_*`,保留 `COMPOSE_PROFILES=demo`、`MOCK_SCENARIO=ski`,供商店审核演示账号绑定(THIRD_PARTY §12);A 线测试账号重新注册 |
+| 8 | 验收 | B 线 | §4 十条,域名换成 `api.` / `admin.`;旧 `dev-api` health 仍 200 |
+| 9 | 外部登记改新域名 | 负责人 | UptimeRobot 加 `https://api.01weichuang.com/api/v1/health`;极光「隐私协议」字段、商店后台隐私政策地址改 `https://api.01weichuang.com/legal/privacy` |
+| 10 | 正式包指新域名 | A 线 | Release / TestFlight 包 `EXPO_PUBLIC_API_URL=https://api.01weichuang.com/api/v1`(App 内协议链接随之自动切换,决策 #47);B 线把 `.github/workflows/android-apk.yml` 默认地址改成 `api.` |
+| 11 | 下线旧域名 | B 线 | 旧包都换掉之后(至少等硬件的测试包更新),`.env` 两项去掉 `dev-` 那个域名再 `up -d`,DNS 删 `dev-` 三条 |
 
 ## 9. 待硬件确认后:MQTT over TLS(8883)
 

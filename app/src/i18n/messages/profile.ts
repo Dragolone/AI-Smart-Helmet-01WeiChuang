@@ -45,6 +45,8 @@ export const profile = {
     "profile.help": "帮助与反馈",
     "profile.privacy": "隐私政策",
     "profile.terms": "用户协议",
+    "profile.collection": "个人信息收集清单",
+    "profile.sharing": "第三方信息共享清单",
   },
   "zh-TW": {
     "profile.title": "我的",
@@ -92,6 +94,8 @@ export const profile = {
     "profile.help": "說明與意見回饋",
     "profile.privacy": "隱私權政策",
     "profile.terms": "使用者條款",
+    "profile.collection": "個人資訊收集清單",
+    "profile.sharing": "第三方資訊共享清單",
   },
   en: {
     "profile.title": "Me",
@@ -140,5 +144,7 @@ export const profile = {
     "profile.help": "Help & feedback",
     "profile.privacy": "Privacy policy",
     "profile.terms": "Terms of service",
+    "profile.collection": "Personal data we collect",
+    "profile.sharing": "Third-party data sharing",
   },
 } as const;
