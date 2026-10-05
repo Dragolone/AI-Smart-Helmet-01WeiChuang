@@ -22,7 +22,9 @@ const mockSetAlias = jest.fn();
 const mockDeleteAlias = jest.fn();
 const mockAddNotificationListener = jest.fn((_cb: Listener) => undefined);
 const mockRouterPush = jest.fn();
-const mockActive = jest.fn(async (_deviceId: string) => ({ sos: null as unknown }));
+const mockActive = jest.fn(async (_deviceId: string) => ({
+  sos: null as unknown,
+}));
 const mockSecure = new Map<string, string>();
 
 jest.mock("jpush-react-native", () => ({
@@ -41,8 +43,16 @@ jest.mock("jpush-react-native", () => ({
 jest.mock("expo-router", () => ({
   router: { navigate: (h: string) => mockRouterPush(h) },
 }));
-jest.mock("@/api/sos", () => ({ sosApi: { active: (d: string) => mockActive(d) } }));
+jest.mock("@/api/sos", () => ({
+  sosApi: { active: (d: string) => mockActive(d) },
+}));
 jest.mock("@/services/dev-log", () => ({ devLog: jest.fn() }));
+const mockLastResponse = jest.fn((): unknown => null);
+const mockClearLastResponse = jest.fn();
+jest.mock("expo-notifications", () => ({
+  getLastNotificationResponse: () => mockLastResponse(),
+  clearLastNotificationResponse: () => mockClearLastResponse(),
+}));
 jest.mock("expo-secure-store", () => ({
   getItemAsync: async (k: string) => mockSecure.get(k) ?? null,
   setItemAsync: async (k: string, v: string) => {
@@ -58,6 +68,7 @@ import { useConsentStore } from "@/stores/consent-store";
 import {
   __resetPushForTests,
   landFromPush,
+  extrasFromLaunchResponse,
   readPushConfig,
   startPush,
   stopPush,
@@ -90,18 +101,23 @@ describe("推送初始化门控", () => {
     await useConsentStore.getState().accept();
     expect(mockInit).toHaveBeenCalledTimes(1);
     expect(mockInit).toHaveBeenCalledWith(
-      expect.objectContaining({ appKey: "79cce150234ce38063213ccd", channel: "official" }),
+      expect.objectContaining({
+        appKey: "79cce150234ce38063213ccd",
+        channel: "official",
+      }),
     );
-    expect(mockSetAlias).toHaveBeenCalledWith(expect.objectContaining({ alias: "u1" }));
+    expect(mockSetAlias).toHaveBeenCalledWith(
+      expect.objectContaining({ alias: "u1" }),
+    );
   });
 
   it("已同意：立即 init，且监听先于 init 挂上", () => {
     useConsentStore.setState({ privacyAccepted: true });
     startPush("u1");
     expect(mockAddNotificationListener).toHaveBeenCalledTimes(1);
-    expect(mockAddNotificationListener.mock.invocationCallOrder[0]).toBeLessThan(
-      mockInit.mock.invocationCallOrder[0],
-    );
+    expect(
+      mockAddNotificationListener.mock.invocationCallOrder[0],
+    ).toBeLessThan(mockInit.mock.invocationCallOrder[0]);
   });
 
   it("同一用户重复 start：init 与 setAlias 都只做一次；换用户只重设 alias", () => {
@@ -113,7 +129,9 @@ describe("推送初始化门控", () => {
     startPush("u2");
     expect(mockInit).toHaveBeenCalledTimes(1);
     expect(mockSetAlias).toHaveBeenCalledTimes(2);
-    expect(mockSetAlias).toHaveBeenLastCalledWith(expect.objectContaining({ alias: "u2" }));
+    expect(mockSetAlias).toHaveBeenLastCalledWith(
+      expect.objectContaining({ alias: "u2" }),
+    );
   });
 
   it("登出 deleteAlias；未初始化时登出不报错也不调 SDK", () => {
@@ -127,7 +145,9 @@ describe("推送初始化门控", () => {
 
   it("AppKey 直接来自 app.json extra.jpush（与原生插件同一份）", () => {
     expect(readPushConfig()).toEqual(
-      expect.objectContaining({ appKey: expect.stringMatching(/^[0-9a-f]{24}$/) }),
+      expect.objectContaining({
+        appKey: expect.stringMatching(/^[0-9a-f]{24}$/),
+      }),
     );
     // 传 undefined 会命中默认参数（读真 app.json），所以用空对象表示「没配」
     expect(readPushConfig({})).toBeNull();
@@ -155,14 +175,20 @@ describe("点通知落地", () => {
     mockActive.mockResolvedValueOnce({
       sos: { sosId: "other", deviceId: "d1", status: "pending" },
     });
-    expect(await landFromPush({ sosId: "s1", deviceId: "d1" })).toBe("/accident/s1");
+    expect(await landFromPush({ sosId: "s1", deviceId: "d1" })).toBe(
+      "/accident/s1",
+    );
     mockActive.mockResolvedValueOnce({ sos: null });
-    expect(await landFromPush({ sosId: "s2", deviceId: "d1" })).toBe("/accident/s2");
+    expect(await landFromPush({ sosId: "s2", deviceId: "d1" })).toBe(
+      "/accident/s2",
+    );
   });
 
   it("查询失败也能落地到详情；没有 sosId 不跳", async () => {
     mockActive.mockRejectedValueOnce(new Error("offline"));
-    expect(await landFromPush({ sosId: "s3", deviceId: "d1" })).toBe("/accident/s3");
+    expect(await landFromPush({ sosId: "s3", deviceId: "d1" })).toBe(
+      "/accident/s3",
+    );
     expect(await landFromPush({})).toBeNull();
   });
 
@@ -170,12 +196,69 @@ describe("点通知落地", () => {
     useConsentStore.setState({ privacyAccepted: true });
     startPush("u1");
     const cb = openedListener();
-    cb({ notificationEventType: "notificationArrived", extras: { sosId: "s1", deviceId: "d1" } });
+    cb({
+      notificationEventType: "notificationArrived",
+      extras: { sosId: "s1", deviceId: "d1" },
+    });
     await Promise.resolve();
     expect(mockRouterPush).not.toHaveBeenCalled();
     mockActive.mockResolvedValueOnce({ sos: null });
-    cb({ notificationEventType: "notificationOpened", extras: { sosId: "s1", deviceId: "d1" } });
+    cb({
+      notificationEventType: "notificationOpened",
+      extras: { sosId: "s1", deviceId: "d1" },
+    });
     await new Promise((r) => setTimeout(r, 0));
     expect(mockRouterPush).toHaveBeenCalledWith("/accident/s1");
+  });
+});
+
+describe("冷启动由通知拉起（4.8：极光还没初始化时点击被 expo 收走）", () => {
+  const launch = (payload: Record<string, unknown>, type = "push") => ({
+    notification: { request: { trigger: { type, payload } } },
+  });
+
+  it("只认远程推送且带 sosId 的启动点击；本地通知 / 无 sosId / 空 → null", () => {
+    expect(
+      extrasFromLaunchResponse(
+        launch({ sosId: "s1", deviceId: "d1" }) as never,
+      ),
+    ).toEqual({ sosId: "s1", deviceId: "d1" });
+    expect(extrasFromLaunchResponse(launch({ sosId: "s1" }) as never)).toEqual({
+      sosId: "s1",
+      deviceId: undefined,
+    });
+    expect(
+      extrasFromLaunchResponse(launch({ deviceId: "d1" }) as never),
+    ).toBeNull();
+    expect(
+      extrasFromLaunchResponse(
+        launch({ sosId: "s1" }, "timeInterval") as never,
+      ),
+    ).toBeNull();
+    expect(extrasFromLaunchResponse(null)).toBeNull();
+  });
+
+  it("初始化时取回这次点击并落地：已到期的单进事故详情；用掉即清；同进程只处理一次", async () => {
+    mockLastResponse.mockReturnValue(launch({ sosId: "s9", deviceId: "d1" }));
+    mockActive.mockResolvedValue({ sos: null });
+    useConsentStore.setState({ privacyAccepted: true });
+    startPush("u1");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mockRouterPush).toHaveBeenCalledWith("/accident/s9");
+    expect(mockClearLastResponse).toHaveBeenCalledTimes(1);
+    mockRouterPush.mockClear();
+    startPush("u2"); // 换账号重新 start 不再重复落地
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mockRouterPush).not.toHaveBeenCalled();
+    mockLastResponse.mockReturnValue(null);
+  });
+
+  it("不是由通知拉起（null）：什么都不做", async () => {
+    mockLastResponse.mockReturnValue(null);
+    useConsentStore.setState({ privacyAccepted: true });
+    startPush("u1");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mockRouterPush).not.toHaveBeenCalled();
+    expect(mockClearLastResponse).not.toHaveBeenCalled();
   });
 });
