@@ -23,6 +23,9 @@
         ],
         "ITSAppUsesNonExemptEncryption": false
       },
+      "entitlements": {
+        "com.apple.developer.usernotifications.time-sensitive": true
+      },
       "appleTeamId": "B3NHB45FS7"
     },
     "android": {

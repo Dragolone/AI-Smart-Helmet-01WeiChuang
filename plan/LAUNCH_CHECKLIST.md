@@ -43,7 +43,7 @@
 | ☐ 15 | 演示环境从头到尾走一遍全功能（Week 12 出口标准） | 10-30 前 | `docs/DEMO.md` |
 | ☐ 16 | 极光实名认证（用公司资料） | 随时 | 工作台右上角有提示 |
 | ☐ 17 | 申请 Apple Critical Alerts（让 SOS 提醒穿透静音和勿扰） | 随时 | **不卡上线**；审批周期不定，批下来 A 线再接代码 |
-| ☐ 18 | **Apple 开发者后台给 App ID 勾上 Time Sensitive Notifications 能力**（Identifiers → `com.lingyiweichuang.app` → Capabilities），勾完告诉 A 线 | 随时，5 分钟 | 10-06 评审 R-34：SOS 本地通知已声明为「时效性」，但 App ID 没开这个能力，iPhone 开着专注模式（勿扰 / 睡眠 / 驾驶）时会被静默收进通知中心，错过 60 秒取消窗口。**不需要苹果审批**（和第 17 项的 Critical Alerts 不是一回事），开了之后 A 线在 `app.json` 加一行 entitlement 重建即可；没开就加会导致签名失败，所以代码侧还没动 |
+| ☑ 18 | **Apple 开发者后台给 App ID 勾上 Time Sensitive Notifications 能力**（✅ 2026-10-06 负责人已开；A 线同日在 `app.json` 加 entitlement）（Identifiers → `com.lingyiweichuang.app` → Capabilities），勾完告诉 A 线 | 随时，5 分钟 | 10-06 评审 R-34：SOS 本地通知已声明为「时效性」，但 App ID 没开这个能力，iPhone 开着专注模式（勿扰 / 睡眠 / 驾驶）时会被静默收进通知中心，错过 60 秒取消窗口。**不需要苹果审批**（和第 17 项的 Critical Alerts 不是一回事），开了之后 A 线在 `app.json` 加一行 entitlement 重建即可；没开就加会导致签名失败，所以代码侧还没动 |
 
 ## 二、汤总
 

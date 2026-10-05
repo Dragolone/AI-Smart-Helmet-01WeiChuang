@@ -11,7 +11,11 @@ type PluginEntry = string | [string, Record<string, unknown>?];
 const expo = appJson.expo as unknown as {
   platforms?: string[];
   plugins: PluginEntry[];
-  ios?: { infoPlist?: Record<string, unknown>; bundleIdentifier?: string };
+  ios?: {
+    infoPlist?: Record<string, unknown>;
+    entitlements?: Record<string, unknown>;
+    bundleIdentifier?: string;
+  };
   android?: { permissions?: string[]; package?: string };
 };
 
@@ -133,5 +137,17 @@ describe("app.json 推送接入（极光，决策 #10 / #48）", () => {
 describe("app.json 上架合规声明", () => {
   it("声明不使用非豁免加密（只走系统 HTTPS），否则每次上传 TestFlight 都要手动回答", () => {
     expect(expo.ios?.infoPlist?.ITSAppUsesNonExemptEncryption).toBe(false);
+  });
+});
+
+describe("iOS 时效性通知（2026-10-06 评审 R-34）", () => {
+  it("声明了 time-sensitive entitlement：SOS 本地通知的 interruptionLevel 才真的生效，专注模式下不被静音", () => {
+    // App ID 已在 Apple 后台开了 Time Sensitive Notifications 能力（负责人 2026-10-06）；
+    // 没有这条 entitlement 时系统把 timeSensitive 降级成普通通知，勿扰 / 睡眠 / 驾驶模式下收进通知中心不响
+    expect(
+      expo.ios?.entitlements?.[
+        "com.apple.developer.usernotifications.time-sensitive"
+      ],
+    ).toBe(true);
   });
 });
