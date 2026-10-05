@@ -34,9 +34,7 @@ class FakeHelmet {
   }
 
   push(hex: string): void {
-    const bytes = Uint8Array.from(
-      hex.split(/\s+/).map((b) => parseInt(b, 16)),
-    );
+    const bytes = Uint8Array.from(hex.split(/\s+/).map((b) => parseInt(b, 16)));
     this.notify?.(null, { value: bytesToBase64(bytes) });
   }
 
@@ -52,7 +50,13 @@ class FakeHelmet {
         const len = frame[3];
         if (addr === 0x40) {
           const id = Array.from("helmet_94173f", (c) => c.charCodeAt(0));
-          this.reply([ins, seq, 0, ...id, ...new Array(len - id.length).fill(0)]);
+          this.reply([
+            ins,
+            seq,
+            0,
+            ...id,
+            ...new Array(len - id.length).fill(0),
+          ]);
         } else if (addr === 0x00) {
           this.reply([ins, seq, 0, 1, 0, 3]);
         } else if (addr === 0x20) {
@@ -86,6 +90,8 @@ const mockLink = {
   stopBleLink: jest.fn((..._a: unknown[]) => undefined),
   startBleLink: jest.fn(async (..._a: unknown[]) => undefined),
   targets: ["helmet_94173f"],
+  /** 生产链路 BleManager 的销毁（startBench 要等它） */
+  released: Promise.resolve() as Promise<void>,
 };
 
 const fakeDevice = {
@@ -141,10 +147,10 @@ const fakeDevice = {
 };
 
 const mockManager = {
-  onStateChange: (cb: (s: string) => void, emit: boolean) => {
+  onStateChange: jest.fn((cb: (s: string) => void, emit: boolean) => {
     if (emit) cb("PoweredOn");
     return { remove: () => undefined };
-  },
+  }),
   startDeviceScan: (
     _u: unknown,
     _o: unknown,
@@ -166,6 +172,7 @@ jest.mock("react-native-ble-plx", () => ({
 }));
 jest.mock("@/services/ble-link", () => ({
   getBleManager: () => mockManager,
+  bleStackReleased: () => mockLink.released,
   requestBlePermissions: async () => true,
   stopBleLink: (...a: unknown[]) => mockLink.stopBleLink(...a),
   startBleLink: (...a: unknown[]) => mockLink.startBleLink(...a),
@@ -199,6 +206,7 @@ beforeEach(() => {
   helmet.flash = 0;
   mockLink.stopBleLink.mockClear();
   mockLink.startBleLink.mockClear();
+  mockLink.released = Promise.resolve();
 });
 
 afterEach(async () => {
@@ -215,6 +223,94 @@ describe("生命周期", () => {
     expect(mockLink.startBleLink).toHaveBeenCalledWith(["helmet_94173f"]);
   });
 
+  it("进入时要等生产链路的 BleManager 销毁完再拿蓝牙栈（否则拿到的是正在销毁的实例：扫不到设备，退出后生产链路也起不来）", async () => {
+    let release!: () => void;
+    mockLink.released = new Promise<void>((r) => (release = r));
+    const starting = bench.startBench();
+    await tick();
+    await tick();
+    expect(state().phase).toBe("idle"); // 还没开始扫描
+    release();
+    await starting;
+    expect(state().phase).toBe("scanning");
+  });
+
+  it("等销毁期间就退出了页面：不再去拿蓝牙栈、不开扫描", async () => {
+    let release!: () => void;
+    mockLink.released = new Promise<void>((r) => (release = r));
+    mockManager.onStateChange.mockClear();
+    const starting = bench.startBench();
+    await tick();
+    await bench.stopBench();
+    release();
+    await starting;
+    expect(state().phase).toBe("idle");
+    expect(mockManager.onStateChange).not.toHaveBeenCalled(); // 没挂上一个再也没人摘的状态订阅
+  });
+
+  it("连接途中退出页面：连上后立刻断开，不留一条没人管、还在自动 ACK 的会话", async () => {
+    await bench.startBench();
+    scanCb?.(null, {
+      id: "periph-1",
+      localName: "Helmet-94173f",
+      rssi: -50,
+      serviceUUIDs: [SERVICE],
+    });
+    let finishConnect!: (d: typeof fakeDevice) => void;
+    mockManager.connectToDevice.mockImplementationOnce(
+      () => new Promise<typeof fakeDevice>((r) => (finishConnect = r)),
+    );
+    fakeDevice.cancelConnection.mockClear();
+    fakeDevice.monitorCharacteristicForService.mockClear();
+    fakeDevice.discoverAllServicesAndCharacteristics.mockClear();
+    const connecting = bench.connectTo("periph-1");
+    await tick();
+    await bench.stopBench(); // 用户等不及，返回了
+    finishConnect(fakeDevice);
+    await connecting;
+    expect(fakeDevice.cancelConnection).toHaveBeenCalledTimes(1);
+    expect(
+      fakeDevice.discoverAllServicesAndCharacteristics,
+    ).not.toHaveBeenCalled(); // 一连上就断，不再往下走
+    expect(fakeDevice.monitorCharacteristicForService).not.toHaveBeenCalled();
+    expect(state().phase).not.toBe("connected");
+    // 这条连接上之后来的高危帧不会被 ACK
+    helmet.acks = [];
+    helmet.notify?.(null, {
+      value: bytesToBase64(
+        Uint8Array.from([0x05, 0x01, 1, 0, 0, 0, 0, 0, 0, 0]),
+      ),
+    });
+    await tick();
+    expect(helmet.acks).toEqual([]);
+  });
+
+  it("已连上、正在读 GATT 表时退出页面：同样断开，不订阅 Notify", async () => {
+    await bench.startBench();
+    scanCb?.(null, {
+      id: "periph-1",
+      localName: "Helmet-94173f",
+      rssi: -50,
+      serviceUUIDs: [SERVICE],
+    });
+    let finishDiscover!: (d: typeof fakeDevice) => void;
+    fakeDevice.discoverAllServicesAndCharacteristics.mockImplementationOnce(
+      () => new Promise<typeof fakeDevice>((r) => (finishDiscover = r)),
+    );
+    fakeDevice.cancelConnection.mockClear();
+    fakeDevice.monitorCharacteristicForService.mockClear();
+    const connecting = bench.connectTo("periph-1");
+    await tick();
+    await tick();
+    const leaving = bench.stopBench();
+    finishDiscover(fakeDevice);
+    await leaving;
+    await connecting;
+    expect(fakeDevice.cancelConnection).toHaveBeenCalled();
+    expect(fakeDevice.monitorCharacteristicForService).not.toHaveBeenCalled();
+    expect(state().phase).not.toBe("connected");
+  });
+
   it("扫描结果按广播是否含 FEE0 标记", async () => {
     await bench.startBench();
     scanCb?.(null, {
@@ -223,9 +319,18 @@ describe("生命周期", () => {
       rssi: -50,
       serviceUUIDs: [SERVICE.toUpperCase()],
     });
-    scanCb?.(null, { id: "b", name: "ESP_TEST", rssi: -70, serviceUUIDs: null });
+    scanCb?.(null, {
+      id: "b",
+      name: "ESP_TEST",
+      rssi: -70,
+      serviceUUIDs: null,
+    });
     const p = state().peripherals;
-    expect(p.a).toMatchObject({ name: "Helmet-94173f", hasHelmetService: true, rssi: -50 });
+    expect(p.a).toMatchObject({
+      name: "Helmet-94173f",
+      hasHelmetService: true,
+      rssi: -50,
+    });
     expect(p.b).toMatchObject({ name: "ESP_TEST", hasHelmetService: false });
   });
 
@@ -238,7 +343,10 @@ describe("生命周期", () => {
       writeOk: true,
       connectedName: "Helmet-94173f",
     });
-    expect(state().services[0].characteristics.map((c) => c.uuid)).toEqual([NOTIFY, WRITE]);
+    expect(state().services[0].characteristics.map((c) => c.uuid)).toEqual([
+      NOTIFY,
+      WRITE,
+    ]);
     expect(mockManager.stopDeviceScan).toHaveBeenCalled();
   });
 });
@@ -252,22 +360,33 @@ describe("收发", () => {
     const t = texts();
     expect(t).toContain("tx:01 01|PING seq=1");
     const rx = state().log.find((e) => e.dir === "rx");
-    expect(rx).toMatchObject({ hex: "01 01 00", text: "应答 PING seq=1 · STATUS_OK", tone: "ok" });
+    expect(rx).toMatchObject({
+      hex: "01 01 00",
+      text: "应答 PING seq=1 · STATUS_OK",
+      tone: "ok",
+    });
     expect(typeof rx?.latencyMs).toBe("number");
   });
 
   it("读 deviceId 的应答按请求地址解释", async () => {
     await connectHelmet();
     await bench.readRegister(0x40, 16);
-    expect(texts().some((x) => x.includes('deviceId "helmet_94173f"'))).toBe(true);
+    expect(texts().some((x) => x.includes('deviceId "helmet_94173f"'))).toBe(
+      true,
+    );
   });
 
   it("写越界：应答 ERR_PARAM_VALUE 标红", async () => {
     await connectHelmet();
     const r = await bench.writeRegister(0x24, [200]);
     expect(r?.error).toBe(5);
-    const rx = state().log.filter((e) => e.dir === "rx").pop();
-    expect(rx).toMatchObject({ tone: "error", text: "应答 WRITE seq=1 · ERR_PARAM_VALUE" });
+    const rx = state()
+      .log.filter((e) => e.dir === "rx")
+      .pop();
+    expect(rx).toMatchObject({
+      tone: "error",
+      text: "应答 WRITE seq=1 · ERR_PARAM_VALUE",
+    });
   });
 
   it("3 s 无应答记一条错误并返回 null", async () => {
@@ -281,14 +400,25 @@ describe("收发", () => {
 
   it("高危事件自动 ACK（Write Without Response），关掉后不 ACK，手动 ACK 补发", async () => {
     await connectHelmet();
-    helmet.push("05 01 65 00 00 00 88 79 A2 6A 5F 2D 55 ED 4E CD 01 17 7C 29 07");
+    helmet.push(
+      "05 01 65 00 00 00 88 79 A2 6A 5F 2D 55 ED 4E CD 01 17 7C 29 07",
+    );
     await tick();
     expect(helmet.acks).toEqual(["06 01 65 00 00 00 00"]);
-    expect(texts().some((x) => x.startsWith("rx:05 01 65") && x.includes("possible_fall seq=101"))).toBe(true);
-    expect(texts().some((x) => x.includes("ACK possible_fall seq=101（自动）"))).toBe(true);
+    expect(
+      texts().some(
+        (x) =>
+          x.startsWith("rx:05 01 65") && x.includes("possible_fall seq=101"),
+      ),
+    ).toBe(true);
+    expect(
+      texts().some((x) => x.includes("ACK possible_fall seq=101（自动）")),
+    ).toBe(true);
 
     bench.setAutoAck(false);
-    helmet.push("05 03 66 00 00 00 88 79 A2 6A 03 01 02 7D 00 12 37 ED 4E CD 01 17 7C 29 07");
+    helmet.push(
+      "05 03 66 00 00 00 88 79 A2 6A 03 01 02 7D 00 12 37 ED 4E CD 01 17 7C 29 07",
+    );
     await tick();
     expect(helmet.acks).toHaveLength(1);
     await bench.ackLastEvent();
@@ -308,7 +438,14 @@ describe("收发", () => {
     await connectHelmet();
     helmet.flash = 2;
     await bench.handshake();
-    expect(helmet.writes.map((w) => w.slice(0, 2))).toEqual(["02", "02", "04", "07", "08", "02"]);
+    expect(helmet.writes.map((w) => w.slice(0, 2))).toEqual([
+      "02",
+      "02",
+      "04",
+      "07",
+      "08",
+      "02",
+    ]);
     expect(helmet.writes[0]).toBe("02 01 40 10");
     expect(helmet.writes[1]).toBe("02 02 00 03");
     expect(helmet.writes[4]).toBe("08 05 00 00 02");

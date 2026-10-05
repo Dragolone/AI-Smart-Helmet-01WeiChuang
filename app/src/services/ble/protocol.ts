@@ -225,21 +225,25 @@ export function translateEvent(
   let payload: Record<string, unknown> | null = null;
 
   switch (ev.code) {
-    case 0x01: // possible_fall 11B
-      if (p.length < 11) return null;
+    // 摔倒 / 求救（各 11B）：载荷不全也要上云，能解的字段照填、缺的省略（EVENTS.md 里这些字段都是选填，
+    // 服务端只凭事件类型建 SOS 单）。原来不足 11 字节就整条丢弃，而这两类帧连头 21 字节，
+    // MTU 没协商上去（Notify 最多带 20 字节）或固件少发一个字节时正好少一截——App 已经回了 ACK，
+    // 头盔据此擦除，这次摔倒就永远没人知道了（2026-10-05 评审）。
+    case 0x01: // possible_fall
       payload = {
-        confidence: p[0] / 100,
-        impactG: p[1] / 10,
-        tiltDeg: p[2],
-        location: coord(p, 3),
+        ...(p.length >= 1 ? { confidence: p[0] / 100 } : {}),
+        ...(p.length >= 2 ? { impactG: p[1] / 10 } : {}),
+        ...(p.length >= 3 ? { tiltDeg: p[2] } : {}),
+        ...(p.length >= 11 ? { location: coord(p, 3) } : {}),
       };
       break;
-    case 0x02: // manual_sos 11B
-      if (p.length < 11) return null;
+    case 0x02: // manual_sos
       payload = {
-        triggerMode: p[0] === 2 ? "double_click" : "long_press",
-        pressDurationMs: readU16(p, 1),
-        location: coord(p, 3),
+        ...(p.length >= 1
+          ? { triggerMode: p[0] === 2 ? "double_click" : "long_press" }
+          : {}),
+        ...(p.length >= 3 ? { pressDurationMs: readU16(p, 1) } : {}),
+        ...(p.length >= 11 ? { location: coord(p, 3) } : {}),
       };
       break;
     case 0x03: // collision_risk 15B

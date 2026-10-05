@@ -148,9 +148,11 @@ function describeEventPayload(
   raw: Uint8Array,
 ): string {
   if (!payload) return `载荷 ${bytesToHex(raw)}（未翻译：长度不符或无定位）`;
+  // 摔倒 / 求救的载荷不足 11 字节时 App 照样上报（缺的字段省略），但对固件来说这是个要修的问题，联调页说清楚
+  if ((code === 0x01 || code === 0x02) && raw.length < 11)
+    return `载荷 ${bytesToHex(raw)}（长度不足：应为 11 字节，实收 ${raw.length}；App 仍会上报该事件，缺的字段省略）`;
   const loc = payload.location as
-    | { latitude: number; longitude: number }
-    | undefined;
+    { latitude: number; longitude: number } | undefined;
   const at = loc ? ` 位置 ${loc.latitude},${loc.longitude}` : "";
   switch (code) {
     case 0x01:
@@ -195,12 +197,8 @@ export function describeInbound(
     firmwareVersion: "bench",
     receivedAt,
   });
-  const payload = (envelope?.payload ?? null) as Record<
-    string,
-    unknown
-  > | null;
-  const when =
-    frame.timestamp === 0 ? "未校时" : isoOf(frame.timestamp);
+  const payload = (envelope?.payload ?? null) as Record<string, unknown> | null;
+  const when = frame.timestamp === 0 ? "未校时" : isoOf(frame.timestamp);
   return {
     kind: "event",
     eventCode: frame.code,
