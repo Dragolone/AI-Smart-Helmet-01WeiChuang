@@ -8,10 +8,11 @@ import {
 import type { WsMessage } from '@helmet/shared';
 import type { IncomingMessage } from 'node:http';
 import { WebSocket } from 'ws';
+import { errorMessage } from '../common/error-text';
 import { PrismaService } from '../prisma/prisma.service';
 
-/** 应用自定义关闭码（4000–4999 区间）：鉴权失败 */
-const CLOSE_UNAUTHORIZED = 4401;
+/** 应用自定义关闭码（4000–4999 区间）：鉴权失败。账号注销时 users.service 也用它断开连接，App 据此走重新登录 */
+export const CLOSE_UNAUTHORIZED = 4401;
 
 /**
  * App 实时通道（API.md §11，原生 ws，决策 #25）：
@@ -88,8 +89,10 @@ export class RealtimeGateway
       // 连接建立钩子（决策 #36）：补推 pending/delivered 命令等"连接时状态同步"挂在这里；
       // 钩子失败不影响连接本身（加速通道哲学：推不到还有 REST 兜底）
       if (this.onUserConnected) {
-        this.onUserConnected(userId, client).catch((err: Error) =>
-          this.logger.warn(`连接建立钩子失败（不影响连接）：${err.message}`),
+        this.onUserConnected(userId, client).catch((err: unknown) =>
+          this.logger.warn(
+            `连接建立钩子失败（不影响连接）：${errorMessage(err)}`,
+          ),
         );
       }
     } catch {

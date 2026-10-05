@@ -169,10 +169,13 @@ export class AdminService {
       }),
     ]);
     const userIds = [...new Set(cases.map((c) => c.userId))];
-    const users = await this.prisma.user.findMany({
-      where: { id: { in: userIds } },
-      select: { id: true, phone: true, nickname: true },
-    });
+    const users =
+      userIds.length === 0
+        ? []
+        : await this.prisma.user.findMany({
+            where: { id: { in: userIds } },
+            select: { id: true, phone: true, nickname: true },
+          });
     const byId = new Map(users.map((u) => [u.id, u]));
     return {
       items: cases.map((c) => ({

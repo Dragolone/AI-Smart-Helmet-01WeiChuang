@@ -14,7 +14,7 @@ import { buildSummary } from '../events/event-wire';
 import type { ValidEnvelope } from '../ingest/envelope';
 import { RealtimeGateway } from './realtime.gateway';
 
-/** 事件 → §11 WS 消息的组装与投递；已实现 device_status / location_update / sos_update（其余随对应功能加） */
+/** 事件 → §11 WS 消息的组装与投递：device_status / location_update / sos_update / risk_event / device_event */
 @Injectable()
 export class RealtimePushService {
   constructor(private readonly gateway: RealtimeGateway) {}
