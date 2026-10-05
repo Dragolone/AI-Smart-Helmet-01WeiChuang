@@ -217,6 +217,58 @@ describe("刷新之后", () => {
     await expect(api("/x")).resolves.toEqual({ ok: true });
     expect(refreshCalls).toBe(2);
   });
+
+  it.each([
+    ["空对象", {}],
+    ["只有 accessToken", { accessToken: "acc_1" }],
+    ["只有 refreshToken", { refreshToken: "ref_1" }],
+    ["两个都是空串", { accessToken: "", refreshToken: "" }],
+    ["类型不对", { accessToken: 1, refreshToken: null }],
+    ["null", null],
+  ])(
+    "刷新接口回 200 但体里没有一对 token（%s）：不写 token、不清会话，把原 401 交给调用方，下一次还能刷新",
+    async (_name, body) => {
+      let refreshCalls = 0;
+      fetchMock.mockImplementation(async (url, init) => {
+        if (url.endsWith("/auth/refresh")) {
+          refreshCalls += 1;
+          return refreshCalls === 1
+            ? res(200, body)
+            : res(200, { accessToken: "acc_1", refreshToken: "ref_1" });
+        }
+        return authOf(init) === "Bearer acc_1" ? res(200, { ok: true }) : res(401, {});
+      });
+      await expect(api("/x")).rejects.toMatchObject({ status: 401 });
+      expect(setTokens).not.toHaveBeenCalled();
+      expect(clearSession).not.toHaveBeenCalled();
+      expect(tokens).toEqual({ accessToken: "acc_0", refreshToken: "ref_0" });
+      expect(callsTo(fetchMock, "/auth/logout")).toHaveLength(0);
+      await expect(api("/x")).resolves.toEqual({ ok: true });
+      expect(refreshCalls).toBe(2);
+    },
+  );
+
+  it("token 落盘失败（钥匙串暂不可用）但内存里已换上新 token：刷新算成功，原请求照常重试，不清会话", async () => {
+    const server = rotatingServer(() => "acc_1");
+    setTokens.mockImplementationOnce(async (t) => {
+      tokens = t;
+      throw new Error("User interaction is not allowed");
+    });
+    await expect(api("/x")).resolves.toEqual({ ok: true });
+    expect(server.refreshes()).toBe(1);
+    expect(tokens).toEqual({ accessToken: "acc_1", refreshToken: "ref_1" });
+    expect(clearSession).not.toHaveBeenCalled();
+  });
+
+  it("写 token 整个失败（内存里也没换上）：按「暂时刷不了」处理——把原 401 交给调用方，不清会话", async () => {
+    rotatingServer(() => "acc_1");
+    setTokens.mockImplementationOnce(async () => {
+      throw new Error("store unavailable");
+    });
+    await expect(api("/x")).rejects.toMatchObject({ status: 401 });
+    expect(tokens).toEqual({ accessToken: "acc_0", refreshToken: "ref_0" });
+    expect(clearSession).not.toHaveBeenCalled();
+  });
 });
 
 describe("响应体形态", () => {
@@ -311,5 +363,13 @@ describe("toUserMessage 兜底", () => {
     const m = toUserMessage(new ApiRequestError(409, { code: "CHANNEL_FULL" }));
     expect(m).toBe(translate("error.unknown", { code: "CHANNEL_FULL" }));
     expect(m).toContain("CHANNEL_FULL");
+  });
+
+  it("错误码恰好是 Object.prototype 的成员名：照样按未收录的码给文案，不返回 undefined", () => {
+    for (const code of ["constructor", "toString", "hasOwnProperty", "__proto__", "valueOf"]) {
+      const m = toUserMessage(new ApiRequestError(400, { code }));
+      expect(m).toBe(translate("error.unknown", { code }));
+      expect(typeof m).toBe("string");
+    }
   });
 });

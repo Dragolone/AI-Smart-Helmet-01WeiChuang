@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, jest } from "@jest/globals";
 
 import { maskPhone } from "@/api/auth";
 import { translate } from "../index";
-import { relativeTime, shortTime } from "../format";
+import { relativeTime, shortDate, shortTime } from "../format";
 
 const NOW = Date.UTC(2026, 9, 3, 12, 0, 0);
 const freeze = () => jest.spyOn(Date, "now").mockReturnValue(NOW);
@@ -59,6 +59,34 @@ describe("relativeTime 的输入形态", () => {
 
   it("空串与 null 同样按「从未」处理", () => {
     expect(relativeTime("", "zh-CN")).toBe(relativeTime(null, "zh-CN"));
+  });
+
+  it("认不出的时间戳按「从未」处理，不显示「NaN 天前」", () => {
+    freeze();
+    for (const bad of ["garbage", "2026-13-45T99:99:99Z", "Invalid Date"]) {
+      for (const loc of ["zh-CN", "zh-TW", "en"] as const) {
+        const text = relativeTime(bad, loc);
+        expect(text).toBe(relativeTime(null, loc));
+        expect(text).not.toContain("NaN");
+      }
+    }
+  });
+});
+
+describe("shortDate / shortTime 遇到认不出的时间戳", () => {
+  it("给占位符而不是抛 RangeError（Intl 对 Invalid Date 会直接抛，整页跟着崩）", () => {
+    for (const bad of ["garbage", "", "2026-13-45T99:99:99Z"]) {
+      for (const loc of ["zh-CN", "zh-TW", "en"] as const) {
+        expect(shortDate(bad, loc)).toBe("—");
+        expect(shortTime(bad, loc)).toBe("—");
+      }
+    }
+  });
+
+  it("合法时间戳不受影响：日期里有日、时间是 HH:mm", () => {
+    const iso = new Date(2026, 9, 3, 8, 31, 0).toISOString();
+    expect(shortDate(iso, "zh-CN")).toContain("3");
+    expect(shortTime(iso, "zh-CN")).toBe("08:31");
   });
 });
 

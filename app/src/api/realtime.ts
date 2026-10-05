@@ -99,12 +99,14 @@ class RealtimeClient {
     this.ws = ws;
 
     ws.onopen = () => {
+      if (this.ws !== ws) return; // stop() 或新连接已接管：迟到的 open 不能把状态翻回已连接
       this.attempts = 0;
       this.setConnected(true);
       devLog("realtime", "已连接");
     };
 
     ws.onmessage = (event) => {
+      if (this.ws !== ws) return; // 同上：被放弃的连接上迟到的消息不再分发
       try {
         const message = JSON.parse(String(event.data)) as WsMessage;
         for (const listener of this.listeners) listener(message);

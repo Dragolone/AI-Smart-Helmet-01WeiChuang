@@ -22,9 +22,13 @@ const MESSAGE_KEYS: Record<string, MessageKey> = {
   INTERNAL_ERROR: "error.internal",
 };
 
+/** 只认表里自己的键：code 恰好叫 constructor / toString / __proto__ 时，普通下标会取到 Object.prototype 上的东西 */
+const own = <T>(table: Record<string, T>, key: string): T | undefined =>
+  Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
+
 export function toUserMessage(err: unknown): string {
   if (err instanceof ApiRequestError) {
-    const key = MESSAGE_KEYS[err.code];
+    const key = own(MESSAGE_KEYS, err.code);
     return key
       ? translate(key)
       : translate("error.unknown", { code: err.code });
@@ -47,7 +51,7 @@ export function helmetErrorText(
   t: (key: MessageKey) => string,
 ): string {
   const [name] = code.split(":");
-  const key = HELMET_ERROR_TEXT[name];
+  const key = own(HELMET_ERROR_TEXT, name);
   return key ? t(key) : code;
 }
 

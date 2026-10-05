@@ -193,8 +193,11 @@ export async function isSosAlertPermissionDenied(): Promise<boolean> {
   }
 }
 
-function remainingSeconds(deadline: string): number {
-  return Math.max(0, Math.round((Date.parse(deadline) - Date.now()) / 1000));
+/** deadline 认不出来（不是合法时间）时返回 null：提醒照弹，但不显示读秒、不排刷新 */
+function remainingSeconds(deadline: string): number | null {
+  const at = Date.parse(deadline);
+  if (Number.isNaN(at)) return null;
+  return Math.max(0, Math.round((at - Date.now()) / 1000));
 }
 
 /** pending SOS 到达且 App 不在前台 → 立即弹本地通知（同一单只弹一次），并按剩余时间预排静默刷新 */
@@ -211,9 +214,12 @@ export async function showSosAlertIfBackground(
   // 后面的一条都不能再排，刚排上的也要撤——否则会留下一条「还剩 30 秒」的孤儿提醒（疑点 4）
   const alive = () => alerts.get(sosId) === entry;
   const total = remainingSeconds(deadline);
-  const content = (seconds: number, sound: boolean) => ({
+  const content = (seconds: number | null, sound: boolean) => ({
     title: translate("sosAlert.title"),
-    body: translate("sosAlert.bodyCountdown", { seconds }),
+    body:
+      seconds === null
+        ? translate("sosAlert.body")
+        : translate("sosAlert.bodyCountdown", { seconds }),
     // Android 上 "default" 会被当成自定义音频文件名报错；true = 通道默认铃声
     sound: sound ? (Platform.OS === "ios" ? "default" : true) : false,
     interruptionLevel: "timeSensitive" as const,
@@ -246,6 +252,7 @@ export async function showSosAlertIfBackground(
     // 倒计时刷新：iOS 本地通知不能原地改字，只能到点再投一次同 id（横幅会再闪一下，但不响铃）；
     // Android 同 id 直接原位更新。只刷两次，避免锁屏被刷屏。
     for (const at of REFRESH_AT) {
+      if (total === null) break;
       const delay = total - at;
       if (delay < 3) continue;
       // 第二次用另一个 id：同 id 的待触发请求会互相覆盖
@@ -263,7 +270,7 @@ export async function showSosAlertIfBackground(
       )
         return;
     }
-    devLog("SOS-ALERT", `锁屏通知已弹 ${sosId} 剩余 ${total}s`);
+    devLog("SOS-ALERT", `锁屏通知已弹 ${sosId} 剩余 ${total ?? "?"}s`);
   } catch (e) {
     devLog("SOS-ALERT", "本地通知失败", e as Error);
   }

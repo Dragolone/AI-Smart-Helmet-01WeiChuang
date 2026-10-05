@@ -53,7 +53,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (tokens) {
         authApi
           .me()
-          .then((full) => set({ user: full }))
+          .then((full) => {
+            // 请求在途时会话可能已经没了或换了人（登出、登出后登录另一个账号）：
+            // 这份档案属于发起请求时的那个会话，落下去就是 token 是 B 的、user 是 A 的
+            const now = get();
+            if (!now.tokens) return;
+            if (now.user && now.user.id !== full.id) return;
+            set({ user: full });
+          })
           .catch(() => undefined);
       }
     } catch {
