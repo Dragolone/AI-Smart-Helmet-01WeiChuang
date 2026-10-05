@@ -431,6 +431,7 @@ const unfilteredAllowedNow = (): boolean =>
 function onAppStateForScan(state: string): void {
   if (!running || !scanning) return;
   if (state !== "active" && !unfiltered) return; // 已经是过滤扫描：不打断
+  log(`前后台切换（${state}），从过滤扫描重开一轮`);
   stopScanRound();
   unfiltered = false;
   void ensureScanning();

@@ -2,9 +2,11 @@
 import { Link, router } from "expo-router";
 import { useEffect, useState } from "react";
 import {
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   View,
 } from "react-native";
@@ -133,138 +135,170 @@ export default function RegisterScreen() {
   const codeButtonDisabled = sending || cooldown > 0;
 
   return (
-    <SafeAreaView style={styles.flex}>
+    <SafeAreaView style={[styles.flex, { backgroundColor: theme.background }]}>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <ThemedView style={styles.container}>
-          <ThemedText type="title">{t("auth.register")}</ThemedText>
+        {/* 可滚动 + 点空白 / 拖动收键盘：原来是一个定高的居中容器，键盘弹出后既收不回去，
+            也够不到被挡住的按钮和底部链接（2026-10-06 iPhone 实测：注册页想回登录页回不去） */}
+        <ThemedView style={styles.flex}>
+          <ScrollView
+            contentContainerStyle={styles.container}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            showsVerticalScrollIndicator={false}
+            // 内容放得下时页面不该能拖动（iOS 默认会回弹，Android 默认有越界光晕）；
+            // 只有键盘把内容挤出屏幕时才滚得动
+            bounces={false}
+            alwaysBounceVertical={false}
+            overScrollMode="never"
+          >
+            <ThemedText type="title">{t("auth.register")}</ThemedText>
 
-          <FormInput
-            label={t("auth.phone")}
-            error={fe("phone")}
-            icon="phone-portrait-outline"
-            value={phone}
-            onChangeText={setPhone}
-            keyboardType="phone-pad"
-            maxLength={11}
-            placeholder={t("auth.phonePlaceholder")}
-          />
-          <View style={styles.codeRow}>
-            <View style={styles.flex}>
-              <FormInput
-                label={t("auth.smsCode")}
-                error={fe("code")}
-                icon="chatbox-ellipses-outline"
-                value={code}
-                onChangeText={setCode}
-                keyboardType="number-pad"
-                maxLength={6}
-                placeholder={t("auth.smsCodePlaceholder")}
-              />
-            </View>
-            <Pressable
-              disabled={codeButtonDisabled}
-              onPress={sendCode}
-              style={({ pressed }) => [
-                styles.codeButton,
-                {
-                  borderColor: codeButtonDisabled ? theme.border : theme.brand,
-                  opacity: pressed ? 0.7 : 1,
-                },
-              ]}
-            >
-              <ThemedText
-                type="smallBold"
-                style={{
-                  color: codeButtonDisabled ? theme.textSecondary : theme.brand,
-                }}
+            <FormInput
+              label={t("auth.phone")}
+              error={fe("phone")}
+              icon="phone-portrait-outline"
+              value={phone}
+              onChangeText={setPhone}
+              keyboardType="phone-pad"
+              maxLength={11}
+              placeholder={t("auth.phonePlaceholder")}
+            />
+            <View style={styles.codeRow}>
+              <View style={styles.flex}>
+                <FormInput
+                  label={t("auth.smsCode")}
+                  error={fe("code")}
+                  icon="chatbox-ellipses-outline"
+                  value={code}
+                  onChangeText={setCode}
+                  keyboardType="number-pad"
+                  maxLength={6}
+                  placeholder={t("auth.smsCodePlaceholder")}
+                />
+              </View>
+              <Pressable
+                disabled={codeButtonDisabled}
+                onPress={sendCode}
+                style={({ pressed }) => [
+                  styles.codeButton,
+                  {
+                    borderColor: codeButtonDisabled
+                      ? theme.border
+                      : theme.brand,
+                    opacity: pressed ? 0.7 : 1,
+                  },
+                ]}
               >
-                {sending
-                  ? t("auth.sending")
-                  : cooldown > 0
-                    ? t("auth.resend", { n: cooldown })
-                    : t("auth.getCode")}
-              </ThemedText>
-            </Pressable>
-          </View>
-          <FormInput
-            label={t("auth.password")}
-            error={fe("password")}
-            icon="lock-closed-outline"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            placeholder={t("auth.passwordPlaceholder")}
-          />
-          <FormInput
-            label={t("auth.confirmPassword")}
-            error={fe("confirm")}
-            icon="lock-closed-outline"
-            value={confirm}
-            onChangeText={setConfirm}
-            secureTextEntry
-            placeholder={t("auth.confirmPlaceholder")}
-          />
-          <FormInput
-            label={t("auth.nickname")}
-            error={fe("nickname")}
-            icon="person-outline"
-            value={nickname}
-            onChangeText={setNickname}
-            maxLength={30}
-            placeholder={t("auth.nicknamePlaceholder")}
-          />
+                <ThemedText
+                  type="smallBold"
+                  style={{
+                    color: codeButtonDisabled
+                      ? theme.textSecondary
+                      : theme.brand,
+                  }}
+                >
+                  {sending
+                    ? t("auth.sending")
+                    : cooldown > 0
+                      ? t("auth.resend", { n: cooldown })
+                      : t("auth.getCode")}
+                </ThemedText>
+              </Pressable>
+            </View>
+            <FormInput
+              label={t("auth.password")}
+              error={fe("password")}
+              icon="lock-closed-outline"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              placeholder={t("auth.passwordPlaceholder")}
+            />
+            <FormInput
+              label={t("auth.confirmPassword")}
+              error={fe("confirm")}
+              icon="lock-closed-outline"
+              value={confirm}
+              onChangeText={setConfirm}
+              secureTextEntry
+              placeholder={t("auth.confirmPlaceholder")}
+            />
+            <FormInput
+              label={t("auth.nickname")}
+              error={fe("nickname")}
+              icon="person-outline"
+              value={nickname}
+              onChangeText={setNickname}
+              maxLength={30}
+              placeholder={t("auth.nicknamePlaceholder")}
+            />
 
-          {/* 同意勾选：默认不勾、不勾不让提交（商店合规高频扣分项）。
+            {/* 同意勾选：默认不勾、不勾不让提交（商店合规高频扣分项）。
               书名号两处各自可点，跳 legal/[doc]（正文由后端托管，见 constants/legal.ts）。
               整行可点切换勾选；书名号是嵌套 Text 的 onPress，靠它先成为 touch responder
               来避免连带切换外层勾选——这条依赖 RN 的响应者链，双端真机各点一次确认（REGRESSION 1.1）。 */}
-          <Pressable
-            onPress={() => setConsented((v) => !v)}
-            style={styles.consentRow}
-            accessibilityRole="checkbox"
-            accessibilityState={{ checked: consented }}
-            accessibilityLabel={`${t("auth.consentPrefix")}${t("auth.consentTerms")}${t("auth.consentAnd")}${t("auth.consentPrivacy")}`}
-          >
-            <Ionicons
-              name={consented ? "checkbox" : "square-outline"}
-              size={20}
-              color={consented ? theme.brand : theme.textSecondary}
+            <Pressable
+              onPress={() => setConsented((v) => !v)}
+              style={styles.consentRow}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: consented }}
+              accessibilityLabel={`${t("auth.consentPrefix")}${t("auth.consentTerms")}${t("auth.consentAnd")}${t("auth.consentPrivacy")}`}
+            >
+              <Ionicons
+                name={consented ? "checkbox" : "square-outline"}
+                size={20}
+                color={consented ? theme.brand : theme.textSecondary}
+              />
+              <ThemedText type="small" style={styles.consentText}>
+                {t("auth.consentPrefix")}
+                <ThemedText
+                  type="small"
+                  style={{ color: theme.brand }}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    router.push("/legal/terms");
+                  }}
+                  suppressHighlighting
+                >
+                  {t("auth.consentTerms")}
+                </ThemedText>
+                {t("auth.consentAnd")}
+                <ThemedText
+                  type="small"
+                  style={{ color: theme.brand }}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    router.push("/legal/privacy");
+                  }}
+                  suppressHighlighting
+                >
+                  {t("auth.consentPrivacy")}
+                </ThemedText>
+              </ThemedText>
+            </Pressable>
+
+            <FormError message={error} />
+            <PrimaryButton
+              title={t("auth.registerAndLogin")}
+              onPress={submit}
+              loading={busy}
             />
-            <ThemedText type="small" style={styles.consentText}>
-              {t("auth.consentPrefix")}
-              <ThemedText
-                type="small"
-                style={{ color: theme.brand }}
-                onPress={() => router.push("/legal/terms")}
-                suppressHighlighting
-              >
-                {t("auth.consentTerms")}
-              </ThemedText>
-              {t("auth.consentAnd")}
-              <ThemedText
-                type="small"
-                style={{ color: theme.brand }}
-                onPress={() => router.push("/legal/privacy")}
-                suppressHighlighting
-              >
-                {t("auth.consentPrivacy")}
-              </ThemedText>
-            </ThemedText>
-          </Pressable>
 
-          <FormError message={error} />
-          <PrimaryButton
-            title={t("auth.registerAndLogin")}
-            onPress={submit}
-            loading={busy}
-          />
-
-          <Link href="/login" style={styles.link}>
-            <ThemedText type="link">{t("auth.haveAccount")}</ThemedText>
-          </Link>
+            {/* dismissTo：注册页是从登录页进来的子页面，「已有账号」应当是回去而不是再压一张登录页——
+                原来来回点几次，左滑要一张张退回最初的登录页（2026-10-06 iPhone 实测）。
+                栈里没有登录页时（直接打开注册页）自动改为替换当前页 */}
+            <Link
+              href="/login"
+              dismissTo
+              onPress={() => Keyboard.dismiss()}
+              style={styles.link}
+            >
+              <ThemedText type="link">{t("auth.haveAccount")}</ThemedText>
+            </Link>
+          </ScrollView>
         </ThemedView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -273,7 +307,12 @@ export default function RegisterScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  container: { flex: 1, justifyContent: "center", padding: 24, gap: 12 },
+  container: {
+    flexGrow: 1,
+    justifyContent: "center",
+    padding: 24,
+    gap: 12,
+  },
   codeRow: { flexDirection: "row", alignItems: "flex-end", gap: 10 },
   consentRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   consentText: { flex: 1, lineHeight: 20 },

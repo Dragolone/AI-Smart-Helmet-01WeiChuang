@@ -25,6 +25,7 @@ import { DotsLoader } from "@/components/motion";
 import { ThemedText } from "@/components/themed-text";
 import { Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
+import { useT } from "@/i18n";
 
 export function FormInput(
   props: TextInputProps & {
@@ -34,9 +35,14 @@ export function FormInput(
     error?: string | null;
   },
 ) {
-  const { label, icon, style, error, ...rest } = props;
+  const { label, icon, style, error, secureTextEntry, ...rest } = props;
   const theme = useTheme();
+  const t = useT();
   const [focused, setFocused] = useState(false);
+  // 密码框的「显示 / 隐藏」：iOS 的密文输入框重新聚焦后第一次按键会清空整段内容（系统行为，改不了），
+  // 输错一位就得整段重输。给个眼睛，显示成明文后就是普通输入框，可以把光标移到中间改
+  //（2026-10-06 iPhone 实测负责人反馈）。默认隐藏。
+  const [revealed, setRevealed] = useState(false);
   // 聚焦：边框从描边色渐变到品牌色 + 外发光轻起（180 ms），失焦反向；不再硬切
   const focus = useSharedValue(0);
   useEffect(() => {
@@ -83,8 +89,25 @@ export function FormInput(
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           style={[styles.input, { color: theme.text }, style]}
+          secureTextEntry={secureTextEntry ? !revealed : undefined}
           {...rest}
         />
+        {secureTextEntry && (
+          <Pressable
+            onPress={() => setRevealed((v) => !v)}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel={t(
+              revealed ? "common.hidePassword" : "common.showPassword",
+            )}
+          >
+            <Ionicons
+              name={revealed ? "eye-outline" : "eye-off-outline"}
+              size={20}
+              color={theme.textSecondary}
+            />
+          </Pressable>
+        )}
       </Animated.View>
       {error ? (
         <ThemedText

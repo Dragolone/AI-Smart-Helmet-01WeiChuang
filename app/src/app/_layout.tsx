@@ -122,9 +122,17 @@ function RootNavigator() {
         />
       </Stack.Protected>
       <Stack.Protected guard={!authed}>
-        <Stack.Screen name="(auth)/login" />
-        <Stack.Screen name="(auth)/register" />
-        <Stack.Screen name="(auth)/reset-password" />
+        {/* 这三页自己不显示 header，但 title 会成为下一页（协议阅读页）返回键旁的文字——
+            不给的话 iOS 上露出路由名「(auth)/register」（2026-10-06 iPhone 实测） */}
+        <Stack.Screen name="(auth)/login" options={{ title: t("nav.back") }} />
+        <Stack.Screen
+          name="(auth)/register"
+          options={{ title: t("nav.back") }}
+        />
+        <Stack.Screen
+          name="(auth)/reset-password"
+          options={{ title: t("nav.back") }}
+        />
       </Stack.Protected>
       {/* 隐私政策 / 用户协议共用一页，具体标题由页面按 doc 参数自行 setOptions。
           必须放在两个 Protected 之外：登录页 / 注册页的勾选框旁就是这两个链接，放在「已登录」组里时
