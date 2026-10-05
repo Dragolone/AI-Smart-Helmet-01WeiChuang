@@ -28,6 +28,13 @@ export type SosSyncDeps = {
  */
 export type PresentedRef = { current: Set<string> };
 
+/**
+ * 进程内唯一的一份「已拉起」集合。倒计时页不止 WS / 补拉一个入口——点锁屏通知、点远程推送也会开它；
+ * 那两条路径不登记的话，冷启动时「点通知进来」之后补拉又会 push 一份，叠出两页倒计时、两路警报音。
+ * 登出时清空（use-realtime 的 effect 清理）。
+ */
+export const presentedSos: PresentedRef = { current: new Set<string>() };
+
 const isFinal = (qc: QueryClient, sosId: string): boolean => {
   const cached = qc.getQueryData<Sos>(["sos", sosId]);
   return cached !== undefined && cached !== null && cached.status !== "pending";
@@ -139,4 +146,31 @@ export function onReconnect(trigger: () => void): (connected: boolean) => void {
     }
     trigger();
   };
+}
+
+/**
+ * 倒计时页的轮询间隔。只有「明确已结束」才停；状态未知（首次拉取失败，data 为 null）必须继续拉——
+ * 原来写成 `data?.status === "pending" ? 10_000 : false`，把 null 也当成了结束：弱网下点通知进来，
+ * 第一次两条 REST 都失败，页面就永远停在没有数字、没有警报音的空壳上（2026-10-05 评审）。
+ */
+export const COUNTDOWN_POLL_MS = 10_000;
+export function countdownPollInterval(
+  data: Sos | null | undefined,
+): number | false {
+  return data && data.status !== "pending" ? false : COUNTDOWN_POLL_MS;
+}
+
+/**
+ * 倒计时页自己那次 REST 的结果落缓存前过一遍不变式 ①：请求发出后用户点了「我没事」
+ * （或 WS 推来终态），迟到的 pending 应答不能把页面盖回倒计时——刚看到「已取消」又响起来。
+ */
+export function settleSnapshot(
+  qc: QueryClient,
+  sosId: string,
+  fresh: Sos | null,
+): Sos | null {
+  if (fresh?.status === "pending" && isFinal(qc, sosId)) {
+    return qc.getQueryData<Sos>(["sos", sosId]) ?? fresh;
+  }
+  return fresh;
 }

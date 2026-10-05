@@ -6,10 +6,11 @@ import { useState } from "react";
 import { Modal, Pressable, StyleSheet, View } from "react-native";
 import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { router } from "expo-router";
+import { router, usePathname } from "expo-router";
 
 import { PrimaryButton } from "@/components/form";
 import { ThemedText } from "@/components/themed-text";
+import { consentModalVisible } from "@/constants/legal";
 import { Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
@@ -25,9 +26,10 @@ export function PrivacyConsentModal() {
   const accepted = useConsentStore((s) => s.privacyAccepted);
   const accept = useConsentStore((s) => s.accept);
   const [checked, setChecked] = useState(false);
+  const pathname = usePathname();
 
-  // 可见性纯由状态推导；登录页/注册页勾过的这里永远不会出现
-  const visible = authed && hydrated && !accepted;
+  // 可见性纯由状态推导；登录页/注册页勾过的这里永远不会出现。协议页与倒计时页上让路（见 constants/legal）
+  const visible = consentModalVisible({ authed, hydrated, accepted, pathname });
   if (!visible) return null;
 
   return (
@@ -37,11 +39,18 @@ export function PrivacyConsentModal() {
           entering={FadeInDown.duration(240)}
           style={[
             styles.card,
-            { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+            {
+              backgroundColor: theme.backgroundElement,
+              borderColor: theme.border,
+            },
           ]}
         >
           <ThemedText type="subtitle">{t("consent.title")}</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" style={styles.body}>
+          <ThemedText
+            type="small"
+            themeColor="textSecondary"
+            style={styles.body}
+          >
             {t("consent.body")}
           </ThemedText>
           <Pressable
@@ -81,7 +90,11 @@ export function PrivacyConsentModal() {
             disabled={!checked}
             onPress={() => void accept()}
           />
-          <Pressable onPress={() => void signOut()} hitSlop={8} style={styles.signOut}>
+          <Pressable
+            onPress={() => void signOut()}
+            hitSlop={8}
+            style={styles.signOut}
+          >
             <ThemedText type="small" themeColor="textSecondary">
               {t("consent.signOut")}
             </ThemedText>

@@ -111,11 +111,6 @@ function RootNavigator() {
           name="help"
           options={{ headerShown: true, title: t("nav.help") }}
         />
-        {/* 隐私政策 / 用户协议共用一页，具体标题由页面按 doc 参数自行 setOptions */}
-        <Stack.Screen
-          name="legal/[doc]"
-          options={{ headerShown: true, title: t("nav.privacy") }}
-        />
         {/* SOS 全屏页：手势返回禁用——处理中的求救不允许误滑关闭 */}
         <Stack.Screen
           name="sos-active"
@@ -127,6 +122,13 @@ function RootNavigator() {
         <Stack.Screen name="(auth)/register" />
         <Stack.Screen name="(auth)/reset-password" />
       </Stack.Protected>
+      {/* 隐私政策 / 用户协议共用一页，具体标题由页面按 doc 参数自行 setOptions。
+          必须放在两个 Protected 之外：登录页 / 注册页的勾选框旁就是这两个链接，放在「已登录」组里时
+          未登录点了没有任何反应——用户只能在读不到正文的情况下勾同意（2026-10-05 评审） */}
+      <Stack.Screen
+        name="legal/[doc]"
+        options={{ headerShown: true, title: t("nav.privacy") }}
+      />
       {/* 蓝牙工程模式（硬件联调）：登录前后都可进，入口=登录页长按 App 名 3 秒 / 设备页信息区 */}
       <Stack.Screen
         name="ble-bench"

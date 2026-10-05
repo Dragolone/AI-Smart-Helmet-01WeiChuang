@@ -2,7 +2,7 @@
 // WS 只负责"更快"；已有的 REST 轮询保持不变作为可靠性兜底（API.md §11）。
 import { useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { AppState } from "react-native";
 import type {
   DevicePublic,
@@ -23,18 +23,21 @@ import {
   resetBatteryAlerts,
 } from "@/services/battery-alert";
 import { devLog } from "@/services/dev-log";
-import { startPush, stopPush } from "@/services/push";
+import { setPushArrivalHandler, startPush, stopPush } from "@/services/push";
 import { handleDeviceCommand } from "@/services/ble-relay";
 import { startRelayUplink, stopRelayUplink } from "@/services/ble-relay-uplink";
 import {
   clearSosAlert,
   ensureSosAlertPermission,
+  resetSosAlerts,
+  setSosCancelConfirmedListener,
   showSosAlertIfBackground,
 } from "@/services/sos-alert";
 import {
   alertPendingOnBackground,
   applySosUpdate,
   onReconnect,
+  presentedSos,
   resumePendingSos,
   type SosSyncDeps,
 } from "@/services/sos-sync";
@@ -43,8 +46,9 @@ import { useAuthStore } from "@/stores/auth-store";
 export function useRealtimeUpdates(): void {
   const queryClient = useQueryClient();
   const authed = useAuthStore((s) => s.tokens !== null);
-  // 防止同一单的多次 pending 推送（重连补拉等）重复弹全屏页
-  const presentedSosId = useRef<Set<string>>(new Set());
+  // 防止同一单的多次 pending 推送（重连补拉等）重复弹全屏页；进程内共用一份，
+  // 点通知进倒计时页的两条路径（sos-alert / push）也往里登记
+  const presentedSosId = presentedSos;
 
   useEffect(() => {
     devLog("realtime", "effect authed=", authed);
@@ -106,6 +110,21 @@ export function useRealtimeUpdates(): void {
           sosDeps,
         );
       });
+    // 远程 SOS 推送到达 → 以 REST 为准补拉一次（前台 + WS 没连上时唯一能把倒计时页拉起来的路径）
+    setPushArrivalHandler((extras) => {
+      void resumePendingSos(
+        queryClient,
+        extras.deviceId ? [extras.deviceId] : bleTargetsOf(),
+        presentedSosId,
+        sosDeps,
+        "远程推送到达，补拉",
+      );
+    });
+    // 锁屏通知「取消」被服务端确认（含重试成功）→ 倒计时页与安全页立刻拉权威状态，不等 WS / 10 s 轮询
+    setSosCancelConfirmedListener((sosId) => {
+      void queryClient.invalidateQueries({ queryKey: ["sos", sosId] });
+      void queryClient.invalidateQueries({ queryKey: ["sos-active"] });
+    });
     const unsubscribeCache = queryClient.getQueryCache().subscribe((event) => {
       if (event.query.queryKey[0] === "devices" && event.type === "updated") {
         setBleTargets(bleTargetsOf());
@@ -194,6 +213,10 @@ export function useRealtimeUpdates(): void {
       unsubscribeCache();
       stopBleLink();
       resetBatteryAlerts();
+      setPushArrivalHandler(null);
+      setSosCancelConfirmedListener(null);
+      void resetSosAlerts();
+      presentedSosId.current.clear();
       stopPush();
     };
   }, [authed, queryClient]);

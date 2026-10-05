@@ -53,9 +53,9 @@ export function checkBatteryAlert(
         title: translate("battery.lowTitle"),
         body,
         data: { deviceId },
-        ...(Platform.OS === "android" ? { channelId: CHANNEL_ID } : {}),
       },
-      trigger: null,
+      // Android 的通道只从 trigger 读，content.channelId 无效（同 sos-alert）
+      trigger: Platform.OS === "android" ? { channelId: CHANNEL_ID } : null,
     }).catch((e: Error) => devLog("BATTERY", "低电量通知失败", e)),
   );
 }

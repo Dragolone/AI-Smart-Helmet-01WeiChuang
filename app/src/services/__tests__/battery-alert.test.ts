@@ -117,6 +117,7 @@ describe("checkBatteryAlert", () => {
     expect(req.content.body).toBe("battery.lowBody:12");
     // iOS 不带 channelId，也不建通道
     expect(req.content.channelId).toBeUndefined();
+    expect((req as { trigger?: unknown }).trigger).toBeNull();
     expect(mockChannel).not.toHaveBeenCalled();
   });
 
@@ -132,8 +133,11 @@ describe("checkBatteryAlert", () => {
     expect(mockSchedule).toHaveBeenCalledTimes(2);
     const req = mockSchedule.mock.calls[0][0] as {
       content: Record<string, unknown>;
+      trigger: unknown;
     };
-    expect(req.content.channelId).toBe("device");
+    // 通道写在 trigger 里：Android 原生侧不读 content.channelId，trigger 为 null 会落到兜底通道
+    expect(req.trigger).toEqual({ channelId: "device" });
+    expect(req.content.channelId).toBeUndefined();
   });
 
   it("still notifies when the Android channel cannot be created", async () => {
