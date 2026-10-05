@@ -10,15 +10,12 @@ import {
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { ArrowLeftOutlined } from '@ant-design/icons'
-import dayjs from 'dayjs'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import DeviceSettingsView from '../components/DeviceSettingsView'
 import QueryError from '../components/QueryError'
+import { formatTime, formatUserLabel } from '../utils/format'
 import type { AdminDeviceDetail, AdminEventRow } from '@helmet/shared'
-
-const formatTime = (v: string | null): string =>
-  v ? dayjs(v).format('YYYY-MM-DD HH:mm:ss') : '—'
 
 const eventColumns: ColumnsType<AdminEventRow> = [
   { title: '接收时间', dataIndex: 'receivedAt', width: 180, render: formatTime },
@@ -75,9 +72,7 @@ export default function DeviceDetailPage() {
               {d.firmwareVersion ?? '—'}
             </Descriptions.Item>
             <Descriptions.Item label="绑定用户">
-              {d.bindUser
-                ? `${d.bindUser.phone}${d.bindUser.nickname ? `（${d.bindUser.nickname}）` : ''}`
-                : '未绑定'}
+              {d.bindUser ? formatUserLabel(d.bindUser) : '未绑定'}
             </Descriptions.Item>
             <Descriptions.Item label="最后在线">
               {formatTime(d.lastSeenAt)}
