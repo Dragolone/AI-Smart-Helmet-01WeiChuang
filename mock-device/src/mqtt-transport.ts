@@ -1,11 +1,11 @@
 // MQTT 传输（4G 链路，DEVICE_PROTOCOL §2–§7）：头盔直连 EMQX。
-// 含命令下行订阅与回执（§7）——这是 4G 链路独有的双向能力，app-relay 链路暂无对应通道。
+// 含命令下行订阅与回执（§7）；app-relay 链路的对应通道是 WS device_command + relay-ack（决策 #36，见 relay-transport.ts）。
 import { connect, type MqttClient } from 'mqtt';
 import type { EventEnvelope, EventType } from '@helmet/shared';
 import { executeCommand } from './settings-exec.ts';
-import type { EventKind, Log, Transport } from './transport.ts';
+import type { CmdResult, EventKind, Log, Transport } from './transport.ts';
 
-export type CmdResult = 'success' | 'failed' | 'silent';
+export type { CmdResult };
 
 export function createMqttTransport(cfg: {
   url: string;

@@ -15,3 +15,6 @@ export interface Transport {
 }
 
 export type Log = (msg: string) => void;
+
+/** 命令回执行为（MOCK_CMD_RESULT）：两条链路同三态——silent 不回执，演示服务端超时判 offline */
+export type CmdResult = 'success' | 'failed' | 'silent';
