@@ -66,6 +66,27 @@ export const reconcileWindowMs = (): number =>
 export const reconcileGraceMs = (): number =>
   envPositiveInt('SOS_RECONCILE_GRACE_MS', 3000);
 
+/**
+ * 启动那一次对账的回看窗口（小时，默认 48 = 头盔离线缓存上限，DEVICE_PROTOCOL §6）。
+ * 周期对账只看 15 分钟：进程在「raw 落库」与「建单」之间倒下、二十分钟后才起来，15 分钟窗口看不到那条摔倒。
+ */
+export const reconcileStartupWindowMs = (): number =>
+  envPositiveInt('SOS_RECONCILE_STARTUP_WINDOW_HOURS', 48) * 3_600_000;
+
+/**
+ * 建单时给本人的「SOS 倒计时已开始」推送：首投失败后再试几次的等待（秒，逗号分隔，默认 5,20）。
+ * 这条推送上有「我没事，取消」按钮，是 App 被杀 / 没连头盔时唯一能取消误报的入口，不能只发一次。
+ * 空串 = 不重试（测试用）。写错任何一项整体回落默认。
+ */
+export const createdPushRetryDelaysMs = (): number[] => {
+  const raw = process.env.SOS_CREATED_PUSH_RETRY_DELAYS_SECONDS;
+  if (raw === '') return [];
+  const parts = (raw ?? '5,20').split(',').map((part) => part.trim());
+  return (parts.every((part) => /^\d+$/.test(part)) ? parts : ['5', '20']).map(
+    (s) => Number(s) * 1000,
+  );
+};
+
 export const SOS_STATUS = {
   pending: 'pending',
   notified: 'notified',

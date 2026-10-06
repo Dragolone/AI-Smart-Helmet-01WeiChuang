@@ -10,11 +10,13 @@ import { SUPPORTED_SCHEMA_VERSIONS } from '../ingest/envelope';
 import type { ValidEnvelope } from '../ingest/envelope';
 import { PrismaService } from '../prisma/prisma.service';
 import {
-  SOS_STATUS,
+  notifyTimeoutMs,
   reconcileGraceMs,
   reconcileIntervalMs,
+  reconcileStartupWindowMs,
   reconcileWindowMs,
   scanIntervalMs,
+  SOS_STATUS,
 } from './sos.constants';
 import { SosNotifierService } from './sos-notifier.service';
 import { SosTriggerService } from './sos-trigger.service';
@@ -40,6 +42,8 @@ export class SosSchedulerService implements OnModuleInit, OnModuleDestroy {
   private finalizing = false;
   private delivering = false;
   private reconciling = false;
+  /** 正在跑的那一轮投递：关闭时等它写完结果（有上界）再断库 */
+  private deliveryInFlight: Promise<void> | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -58,7 +62,7 @@ export class SosSchedulerService implements OnModuleInit, OnModuleDestroy {
     // 启动时跑一次接住上次进程倒下时丢的；之后周期跑接住运行中丢的——建单前那次查询瞬时失败时，
     // 重投会被 eventId 幂等挡掉，原先要等到下次重启才补得回来。
     // 窗口扫描走 raw_events(received_at) 索引（2026-10-03 加），周期跑不贵
-    void this.runReconcile('启动');
+    void this.runReconcile('启动', reconcileStartupWindowMs());
     this.reconcileTimer = setInterval(
       () => void this.runReconcile('周期'),
       reconcileIntervalMs(),
@@ -73,17 +77,29 @@ export class SosSchedulerService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  onModuleDestroy(): void {
+  async onModuleDestroy(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
     if (this.reconcileTimer) clearInterval(this.reconcileTimer);
+    // 在飞的那一轮投递让它写完结果再断库：短信已被服务商受理却没来得及记 sent，重启后会再发一条
+    if (this.deliveryInFlight) {
+      await Promise.race([
+        this.deliveryInFlight,
+        new Promise((resolve) =>
+          setTimeout(resolve, notifyTimeoutMs()).unref(),
+        ),
+      ]);
+    }
   }
 
   /** 对账一轮：独立防重入（上一轮还没跑完就跳过），失败只记日志——不影响到期扫描与通知投递 */
-  private async runReconcile(trigger: string): Promise<void> {
+  private async runReconcile(
+    trigger: string,
+    windowMs = reconcileWindowMs(),
+  ): Promise<void> {
     if (this.reconciling) return;
     this.reconciling = true;
     try {
-      await this.reconcileLostTriggers();
+      await this.reconcileLostTriggers(windowMs);
     } catch (err) {
       this.logger.error(
         `${trigger}对账失败（不影响调度，下一轮继续）：${errorMessage(err)}`,
@@ -125,12 +141,15 @@ export class SosSchedulerService implements OnModuleInit, OnModuleDestroy {
     if (this.delivering) return;
     this.delivering = true;
     try {
-      await this.notifier.deliverPending();
+      await this.notifier.failInterrupted();
+      this.deliveryInFlight = this.notifier.deliverPending();
+      await this.deliveryInFlight;
     } catch (err) {
       this.logger.error(
         `SOS 通知投递轮次失败（下一轮继续）：${errorStack(err)}`,
       );
     } finally {
+      this.deliveryInFlight = null;
       this.delivering = false;
     }
   }
@@ -141,14 +160,14 @@ export class SosSchedulerService implements OnModuleInit, OnModuleDestroy {
    * 说明建单在分发阶段丢失（DB 瞬断重试耗尽 / 进程被杀），按当时的绑定用户重新触发。
    * 返回补建条数；公开供测试与运维手动调用。
    */
-  async reconcileLostTriggers(): Promise<number> {
+  async reconcileLostTriggers(windowMs = reconcileWindowMs()): Promise<number> {
     const now = Date.now();
     const candidates = await this.prisma.rawEvent.findMany({
       where: {
         eventType: { in: TRIGGER_TYPES },
         schemaVersion: { in: [...SUPPORTED_SCHEMA_VERSIONS] },
         receivedAt: {
-          gte: new Date(now - reconcileWindowMs()),
+          gte: new Date(now - windowMs),
           lte: new Date(now - reconcileGraceMs()),
         },
       },
@@ -177,13 +196,18 @@ export class SosSchedulerService implements OnModuleInit, OnModuleDestroy {
         select: { userId: true },
       });
       if (!binding) continue;
-      // 当时该用户在该设备上已有进行中的单 → 按合并规则（设备 + 用户，决策 #40）只留档不建单，属正常，不是丢失
+      // 当时该用户在该设备上已有进行中的单 → 按合并规则（设备 + 用户，决策 #40）只留档不建单，属正常，不是丢失。
+      // manual_sos 并入的单只会以 notified 收尾（升级即立即通知）：并入对象若是 cancelled，只可能是
+      // 「读到 pending 后、升级前被本人取消」那次竞态把求救吞掉了，这里要补建
       const mergedInto = await this.prisma.sosCase.findFirst({
         where: {
           deviceId: raw.deviceId,
           userId: binding.userId,
           createdAt: { lte: raw.receivedAt },
           OR: [{ finalizedAt: null }, { finalizedAt: { gte: raw.receivedAt } }],
+          ...(raw.eventType === 'manual_sos'
+            ? { status: { not: SOS_STATUS.cancelled } }
+            : {}),
         },
         select: { id: true },
       });

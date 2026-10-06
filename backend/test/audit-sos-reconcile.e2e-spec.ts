@@ -49,19 +49,29 @@ describe('审计 SOS-02 启动对账：不该补建的不补建 (e2e)', () => {
   const devFormer = `audit_rec_former_${run}`;
   const devMerged = `audit_rec_merged_${run}`;
   const devAfterFinal = `audit_rec_final_${run}`;
-  const devices = [devUnbound, devFormer, devMerged, devAfterFinal];
+  const devManualRace = `audit_rec_manual_${run}`;
+  const devOld = `audit_rec_old_${run}`;
+  const devices = [
+    devUnbound,
+    devFormer,
+    devMerged,
+    devAfterFinal,
+    devManualRace,
+    devOld,
+  ];
 
   /** 插一条「已落库但没建单」的 possible_fall（receivedAt 默认 2 s 前，落在对账窗口内） */
   const orphanFall = async (
     deviceId: string,
     receivedAt = new Date(Date.now() - 2_000),
+    eventType: 'possible_fall' | 'manual_sos' = 'possible_fall',
   ) => {
     const eventId = randomUUID();
     await prisma.rawEvent.create({
       data: {
         eventId,
         deviceId,
-        eventType: 'possible_fall',
+        eventType,
         timestamp: receivedAt,
         receivedAt,
         schemaVersion: 1,
@@ -80,7 +90,13 @@ describe('审计 SOS-02 启动对账：不该补建的不补建 (e2e)', () => {
     scheduler = app.get(SosSchedulerService);
     owner = await createUser(app, http);
     for (const d of devices) await provisionDevice(prisma, d);
-    for (const d of [devFormer, devMerged, devAfterFinal])
+    for (const d of [
+      devFormer,
+      devMerged,
+      devAfterFinal,
+      devManualRace,
+      devOld,
+    ])
       await bindDevice(http, owner.token, d);
     await addContact(http, owner.token, '家人', '19100000021');
     savedGrace = process.env.SOS_RECONCILE_GRACE_MS;
@@ -173,5 +189,39 @@ describe('审计 SOS-02 启动对账：不该补建的不补建 (e2e)', () => {
     expect(recovered).not.toBeNull();
     expect(recovered!.userId).toBe(owner.id);
     expect(recovered!.status).toBe('pending');
+  });
+
+  it('⑤ 10-06 并发评审 #1：manual_sos 并入的那一单是 cancelled（升级撞上本人取消）→ 这不是正常合并，补建', async () => {
+    const first = fallEnvelope(devManualRace);
+    await relay(http, owner.token, devManualRace, [first]).expect(202);
+    const ongoing = await sosByEvent(prisma, first.eventId as string);
+    expect(ongoing?.status).toBe('pending');
+    // 倒计时中按了实体键：raw 落库在取消之前（分发读到 pending → 升级落空 → 什么都没发生）
+    const eventId = await orphanFall(
+      devManualRace,
+      await after(ongoing!.createdAt),
+      'manual_sos',
+    );
+    await cancelSos(http, owner.token, ongoing!.id).expect(200);
+    resetMocks(mocks);
+    await scheduler.reconcileLostTriggers();
+    const recovered = await sosByEvent(prisma, eventId);
+    expect(recovered).not.toBeNull();
+    expect(recovered!.triggerType).toBe('manual_sos');
+    expect(recovered!.status).toBe('pending');
+    // 对照：possible_fall 并入随后被取消的单仍属正常（同一事故的重复判定），③ 已钉住
+  });
+
+  it('⑥ 启动对账回看 48 小时：进程倒在落库与建单之间、20 分钟后才起来的摔倒也能补；周期对账仍只看 15 分钟', async () => {
+    const eventId = await orphanFall(
+      devOld,
+      new Date(Date.now() - 20 * 60_000),
+    );
+    expect(await scheduler.reconcileLostTriggers()).toBe(0);
+    expect(await sosByEvent(prisma, eventId)).toBeNull();
+    expect(await scheduler.reconcileLostTriggers(48 * 3_600_000)).toBe(1);
+    const recovered = await sosByEvent(prisma, eventId);
+    expect(recovered?.status).toBe('pending');
+    expect(recovered?.userId).toBe(owner.id);
   });
 });
