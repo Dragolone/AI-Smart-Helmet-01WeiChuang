@@ -77,3 +77,10 @@ export const NOTIFICATION_STATUS = {
   sent: 'sent',
   failed: 'failed',
 } as const;
+
+/**
+ * 本人「SOS 倒计时已开始」推送的 iOS 通知类别，与 App 登录后向系统注册的类别同名
+ * （app/src/services/sos-alert.ts 的 CATEGORY_ID，挂「我没事，取消」「查看」两个按钮）。
+ * 只给倒计时推送用：到期 / 确认后的推送不带，免得已终态的单上还显示「取消」。
+ */
+export const SOS_PUSH_CATEGORY = 'sos';

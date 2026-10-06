@@ -8,7 +8,10 @@ import * as bcrypt from 'bcrypt';
 import type { AddressInfo } from 'node:net';
 import { WebSocket } from 'ws';
 import { PrismaService } from '../../src/prisma/prisma.service';
-import { PUSH_PROVIDER } from '../../src/providers/push.provider';
+import {
+  PUSH_PROVIDER,
+  type PushOptions,
+} from '../../src/providers/push.provider';
 import {
   SMS_PROVIDER,
   type SmsMessage,
@@ -18,7 +21,7 @@ import { buildApp, envelope, type Http } from './hardening';
 export type SmsSend = jest.Mock<Promise<void>, [string, SmsMessage]>;
 export type PushSend = jest.Mock<
   Promise<void>,
-  [string, string, string, Record<string, string>?]
+  [string, string, string, Record<string, string>?, PushOptions?]
 >;
 export interface ProviderMocks {
   sms: { send: SmsSend };
@@ -152,7 +155,7 @@ export const sosSmsCalls = (m: ProviderMocks): Array<[string, SmsMessage]> =>
 export const pushCallsTitled = (
   m: ProviderMocks,
   title: string,
-): Array<[string, string, string, Record<string, string>?]> =>
+): Array<[string, string, string, Record<string, string>?, PushOptions?]> =>
   m.push.send.mock.calls.filter(([, t]) => t === title);
 
 export const sleep = (ms: number): Promise<void> =>

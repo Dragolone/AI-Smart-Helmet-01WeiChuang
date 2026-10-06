@@ -187,6 +187,11 @@ describe('审计 §4 SOS 全链路与状态机 (e2e, 手动 tick)', () => {
     // 层 3：建单阶段无通知行；本人倒计时 Push 恰 1 次
     expect(await notificationsOf(prisma, c!.id)).toHaveLength(0);
     expect(pushCallsTitled(mocks, 'SOS 倒计时已开始')).toHaveLength(1);
+    // iOS：带 App 注册的 "sos" 类别（远程推送上才有「取消」按钮）与时效性（穿透专注模式）
+    expect(pushCallsTitled(mocks, 'SOS 倒计时已开始')[0][4]).toEqual({
+      category: 'sos',
+      timeSensitive: true,
+    });
     expect(sosSmsCalls(mocks)).toHaveLength(0);
     // 层 4：App 展示面——WS sos_update(pending) / REST active / accidents 列表；Admin 列表
     const wsPending = await ownerWs.waitForSos(c!.id, 'pending');
@@ -249,6 +254,10 @@ describe('审计 §4 SOS 全链路与状态机 (e2e, 手动 tick)', () => {
       params: { locationText: '30.50100,114.30100' },
     });
     expect(pushCallsTitled(mocks, 'SOS 已通知紧急联系人')).toHaveLength(1);
+    // 已终态：只要时效性，不带 "sos" 类别（那上面的「取消」对已通知的单没有意义）
+    expect(pushCallsTitled(mocks, 'SOS 已通知紧急联系人')[0][4]).toEqual({
+      timeSensitive: true,
+    });
     expect(mocks.push.send).toHaveBeenCalledTimes(2);
     // 层 7：App/Admin 终态展示——WS notified、active 为 null、详情通知记录脱敏、Admin 状态更新
     await ownerWs.waitForSos(notified.id, 'notified');

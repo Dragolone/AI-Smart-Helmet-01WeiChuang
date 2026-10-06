@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { envPositiveInt } from '../common/env';
-import type { PushProvider } from './push.provider';
+import type { PushOptions, PushProvider } from './push.provider';
 
 /**
  * 极光推送（决策 #10：极光统一接入层，安卓厂商通道与 iOS APNs 都挂在极光后台）。
@@ -56,6 +56,7 @@ export const buildJPushBody = (
   body: string,
   data: Record<string, string> | undefined,
   apnsProduction: boolean,
+  options?: PushOptions,
 ): Record<string, unknown> => ({
   platform: 'all',
   audience: { alias: [userId] },
@@ -67,6 +68,11 @@ export const buildJPushBody = (
       sound: 'default',
       badge: '+1',
       extras: data ?? {},
+      // 极光 Push API v3 的 iOS 字段：category 对应 APNs 的 category；interruption-level 对应 iOS 15 的中断等级
+      ...(options?.category ? { category: options.category } : {}),
+      ...(options?.timeSensitive
+        ? { 'interruption-level': 'time-sensitive' }
+        : {}),
     },
   },
   options: {
@@ -90,6 +96,7 @@ export class JPushProvider implements PushProvider {
     title: string,
     body: string,
     data?: Record<string, string>,
+    options?: PushOptions,
   ): Promise<void> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.config.timeoutMs);
@@ -103,7 +110,14 @@ export class JPushProvider implements PushProvider {
           authorization: this.authHeader,
         },
         body: JSON.stringify(
-          buildJPushBody(userId, title, body, data, this.config.apnsProduction),
+          buildJPushBody(
+            userId,
+            title,
+            body,
+            data,
+            this.config.apnsProduction,
+            options,
+          ),
         ),
         signal: controller.signal,
       });

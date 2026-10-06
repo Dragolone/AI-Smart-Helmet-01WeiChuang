@@ -197,10 +197,14 @@ export class SosNotifierService {
     // push target 形如 user:<id>。标题/正文按此刻联系人短信的真实结果生成：
     // 通知行按 channel desc 排序投递（见扫描处 orderBy 的说明），短信行在本人 Push 之前，所以这里读到的是本轮投递后的状态
     const { title, body } = await this.pushText(sosCase);
-    await this.push.send(row.target.replace(/^user:/, ''), title, body, {
-      sosId: sosCase.id,
-      deviceId: sosCase.deviceId,
-    });
+    // 已到终态：不带 "sos" 类别（那上面的「取消」按钮对已通知的单没有意义），只要时效性穿透专注模式
+    await this.push.send(
+      row.target.replace(/^user:/, ''),
+      title,
+      body,
+      { sosId: sosCase.id, deviceId: sosCase.deviceId },
+      { timeSensitive: true },
+    );
   }
 
   /** 四层语义区分（审计 SOS-04）：任务已创建 ≠ Provider 已接收 ≠ 联系人已收到；文案只承诺前两者 */
