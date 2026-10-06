@@ -137,6 +137,7 @@ describe('SOS 状态机 (e2e)', () => {
     process.env.SOS_NOTIFY_MAX_ATTEMPTS = '3';
     // 手动 tick 逐轮驱动重试，不等真实退避（退避节奏本身在 sos-reliability 套件里测）
     process.env.SOS_NOTIFY_RETRY_DELAYS_SECONDS = '0';
+    process.env.SOS_CREATED_PUSH_RETRY_DELAYS_SECONDS = '';
     smsMock.send.mockResolvedValue(undefined);
     pushMock.send.mockResolvedValue(undefined);
 
@@ -313,6 +314,8 @@ describe('SOS 状态机 (e2e)', () => {
       expect.any(String),
       expect.any(String),
       expect.objectContaining({ sosId: sosCase.id }),
+      // iOS：带 App 注册的 "sos" 类别（远程推送上才有「取消」按钮）与时效性
+      { category: 'sos', timeSensitive: true },
     );
 
     // active 返回进行中 SOS

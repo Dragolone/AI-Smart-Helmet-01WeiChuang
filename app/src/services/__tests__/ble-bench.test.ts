@@ -180,6 +180,7 @@ jest.mock("@/services/ble-link", () => ({
 }));
 
 import * as bench from "../ble-bench";
+import { useAuthStore } from "@/stores/auth-store";
 import { useBleBenchStore } from "@/stores/ble-bench-store";
 
 const state = () => useBleBenchStore.getState();
@@ -206,6 +207,8 @@ beforeEach(() => {
   helmet.flash = 0;
   mockLink.stopBleLink.mockClear();
   mockLink.startBleLink.mockClear();
+  // 工程模式的恢复只在登录态下做（10-06 并发评审 F7）：默认给一个登录态
+  useAuthStore.setState({ tokens: { accessToken: "t", refreshToken: "r" } });
   mockLink.released = Promise.resolve();
 });
 
@@ -221,6 +224,13 @@ describe("生命周期", () => {
     expect(state().phase).toBe("scanning");
     await bench.stopBench();
     expect(mockLink.startBleLink).toHaveBeenCalledWith(["helmet_94173f"]);
+  });
+
+  it("工程模式期间被动登出：退出时不把生产链路在未登录状态下跑起来（10-06 并发评审 F7）", async () => {
+    await bench.startBench();
+    useAuthStore.setState({ tokens: null, user: null });
+    await bench.stopBench();
+    expect(mockLink.startBleLink).not.toHaveBeenCalled();
   });
 
   it("进入时要等生产链路的 BleManager 销毁完再拿蓝牙栈（否则拿到的是正在销毁的实例：扫不到设备，退出后生产链路也起不来）", async () => {

@@ -11,7 +11,12 @@ import type { ValidEnvelope } from '../ingest/envelope';
 import { PrismaService } from '../prisma/prisma.service';
 import { PUSH_PROVIDER, type PushProvider } from '../providers/push.provider';
 import { RealtimePushService } from '../realtime/realtime-push.service';
-import { SOS_STATUS, countdownMs } from './sos.constants';
+import {
+  SOS_PUSH_CATEGORY,
+  SOS_STATUS,
+  countdownMs,
+  createdPushRetryDelaysMs,
+} from './sos.constants';
 import { SosNotifierService } from './sos-notifier.service';
 import { toWireSos } from './sos-wire';
 
@@ -48,6 +53,9 @@ export function extractSosLocation(
   if (p.coordinateSystem !== 'wgs84' && p.coordinateSystem !== 'gcj02') {
     return null;
   }
+  // 精确 (0,0) 是「没定到位」的典型哨兵（几内亚湾里没有我们的用户）：按缺失处理，回落最新轨迹点，
+  // 否则事故地点会被钉在赤道上（10-03 报告待硬件答复的一条，软件侧先兜住）
+  if (p.latitude === 0 && p.longitude === 0) return null;
   return {
     latitude: p.latitude,
     longitude: p.longitude,
@@ -183,22 +191,9 @@ export class SosTriggerService {
         `SOS 单已创建 ${created.id}（${e.eventType}，device=${e.deviceId}，deadline=${created.deadline.toISOString()}）`,
       );
       this.realtime.pushSosUpdate(userId, toWireSos(created));
-      // 本人倒计时 Push 为尽力而为（App 被杀时的兜底面）；失败不重试——WS + REST active 是权威展示面
-      try {
-        const action =
-          e.eventType === 'manual_sos' ? '触发手动求救' : '检测到疑似摔倒';
-        const age = describeEventAge(e.timestamp);
-        await this.push.send(
-          userId,
-          'SOS 倒计时已开始',
-          `头盔 ${e.deviceId} ${action}${age ? `（${age}的事件，刚补传到）` : ''}，未取消将于 ${created.deadline.toISOString()} 通知紧急联系人`,
-          { sosId: created.id, deviceId: e.deviceId },
-        );
-      } catch (err) {
-        this.logger.warn(
-          `SOS 创建 Push 失败（不影响状态机）：${errorMessage(err)}`,
-        );
-      }
+      // 本人倒计时 Push 是 App 被杀 / 没连头盔时唯一能取消误报的入口：不在 ingest 路径里等第三方
+      //（极光挂起时会拖住整条 MQTT / app-relay 队列 10 s），后台发、失败按节奏再试；WS + REST active 仍是权威展示面
+      void this.pushCreated(created, e, userId);
     } catch (err) {
       if (isUniqueViolation(err)) {
         // 并发兜底：同 triggerEventId 重放，或 partial unique index（每设备每用户至多一个 pending）拦下并发建单
@@ -216,9 +211,73 @@ export class SosTriggerService {
     }
   }
 
+  /**
+   * 「SOS 倒计时已开始」推送（类别 "sos"：远程推送上也带 App 注册的「我没事，取消」按钮；
+   * 时效性：专注模式下照样弹出，否则 60 秒取消窗口会被静默收进通知中心）。
+   * 首投失败按 createdPushRetryDelaysMs 再试，每次先确认这单还在倒计时——已取消 / 已到期就不再发。
+   * 这里的定时器只是尽力而为的重试，不是状态机的依赖（deadline 在库里，到期由扫描任务判）。
+   */
+  private async pushCreated(
+    created: { id: string; deadline: Date },
+    e: ValidEnvelope,
+    userId: string,
+  ): Promise<void> {
+    const action =
+      e.eventType === 'manual_sos' ? '触发手动求救' : '检测到疑似摔倒';
+    const age = describeEventAge(e.timestamp);
+    const body = `头盔 ${e.deviceId} ${action}${age ? `（${age}的事件，刚补传到）` : ''}，未取消将于 ${created.deadline.toISOString()} 通知紧急联系人`;
+    const delays = createdPushRetryDelaysMs();
+    try {
+      await this.pushCreatedWithRetry(
+        created.id,
+        userId,
+        body,
+        e.deviceId,
+        delays,
+      );
+    } catch (err) {
+      this.logger.warn(`SOS 创建 Push 重试中断：${errorMessage(err)}`);
+    }
+  }
+
+  private async pushCreatedWithRetry(
+    sosId: string,
+    userId: string,
+    body: string,
+    deviceId: string,
+    delays: number[],
+  ): Promise<void> {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await this.push.send(
+          userId,
+          'SOS 倒计时已开始',
+          body,
+          { sosId, deviceId },
+          { category: SOS_PUSH_CATEGORY, timeSensitive: true },
+        );
+        return;
+      } catch (err) {
+        const delay = delays[attempt];
+        this.logger.warn(
+          `SOS 创建 Push 失败（第 ${attempt + 1} 次，不影响状态机）${delay === undefined ? '，不再重试' : `，${delay / 1000}s 后再试`}：${errorMessage(err)}`,
+        );
+        if (delay === undefined) return;
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, delays[attempt]).unref(),
+      );
+      const still = await this.prisma.sosCase.findUnique({
+        where: { id: sosId },
+        select: { status: true },
+      });
+      if (still?.status !== SOS_STATUS.pending) return;
+    }
+  }
+
   private async applyMergeRule(
     e: ValidEnvelope,
-    active: { id: string; triggerEventId: string },
+    active: { id: string; triggerEventId: string; userId: string },
   ): Promise<void> {
     const activeSosId = active.id;
     // 进行中的这一单就是本事件自己建的：同一事件被处理了第二遍（建单成功但响应丢失后的进程内重试、
@@ -231,7 +290,26 @@ export class SosTriggerService {
       this.logger.warn(
         `倒计时中收到设备 manual_sos（${e.eventId}），按 SOS Now 升级立即通知：${activeSosId}`,
       );
-      await this.notifier.finalizeNotified(activeSosId);
+      const won = await this.notifier.finalizeNotified(activeSosId);
+      if (!won) {
+        // 读到 pending 与升级之间那一单被别人终态化了。被取消（本人刚点「我没事」）→ 这次实体键求救
+        // 是终态之后的新事件，必须建新单，否则一次明确的人为求救会被静默吞掉；
+        // 被到期扫描抢先 notified → 联系人已在通知，用户意图已达成，不再建第二单
+        const now = await this.prisma.sosCase.findUnique({
+          where: { id: activeSosId },
+          select: { status: true },
+        });
+        if (now?.status === SOS_STATUS.cancelled) {
+          this.logger.warn(
+            `升级时 ${activeSosId} 已被取消，manual_sos ${e.eventId} 按终态后的新事件建单`,
+          );
+          await this.createOrMerge(e, active.userId);
+          return;
+        }
+        this.logger.warn(
+          `升级时 ${activeSosId} 已是 ${now?.status ?? '未知'}，manual_sos ${e.eventId} 不再建单`,
+        );
+      }
     } else {
       this.logger.log(
         `倒计时中收到重复 ${e.eventType}（${e.eventId}），并入进行中 SOS ${activeSosId}（只留档不建单）`,

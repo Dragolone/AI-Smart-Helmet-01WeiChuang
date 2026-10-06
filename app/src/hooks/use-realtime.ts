@@ -27,7 +27,11 @@ import {
 import { devLog } from "@/services/dev-log";
 import { setPushArrivalHandler, startPush, stopPush } from "@/services/push";
 import { handleDeviceCommand } from "@/services/ble-relay";
-import { startRelayUplink, stopRelayUplink } from "@/services/ble-relay-uplink";
+import {
+  setCriticalAcceptedHandler,
+  startRelayUplink,
+  stopRelayUplink,
+} from "@/services/ble-relay-uplink";
 import {
   liveTargets,
   loadCachedTargets,
@@ -135,6 +139,18 @@ export function useRealtimeUpdates(): void {
         bleTargetsOf(),
         presentedSosId,
         sosDeps,
+      );
+    });
+    // 自己把摔倒 / 求救送上云且服务端接受了 → 立刻核对进行中的 SOS 并拉起倒计时页，顺手让 WS 立即重连。
+    // 手机深睡时 WS 早已断、极光长连接也被挂起，这是唯一不依赖它们的拉起路径（10-06 不变式评审 F-1）
+    setCriticalAcceptedHandler((deviceId) => {
+      realtimeClient.kick();
+      void resumePendingSos(
+        queryClient,
+        [deviceId],
+        presentedSosId,
+        sosDeps,
+        "中转成功后核对",
       );
     });
     // 远程 SOS 推送到达 → 以 REST 为准补拉一次（前台 + WS 没连上时唯一能把倒计时页拉起来的路径）
@@ -250,6 +266,7 @@ export function useRealtimeUpdates(): void {
       stopBleLink();
       resetBatteryAlerts();
       setPushArrivalHandler(null);
+      setCriticalAcceptedHandler(null);
       setSosCancelConfirmedListener(null);
       void resetSosAlerts();
       presentedSosId.current.clear();

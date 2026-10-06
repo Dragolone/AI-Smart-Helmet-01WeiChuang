@@ -8,7 +8,10 @@ import * as bcrypt from 'bcrypt';
 import type { AddressInfo } from 'node:net';
 import { WebSocket } from 'ws';
 import { PrismaService } from '../../src/prisma/prisma.service';
-import { PUSH_PROVIDER } from '../../src/providers/push.provider';
+import {
+  PUSH_PROVIDER,
+  type PushOptions,
+} from '../../src/providers/push.provider';
 import {
   SMS_PROVIDER,
   type SmsMessage,
@@ -18,7 +21,7 @@ import { buildApp, envelope, type Http } from './hardening';
 export type SmsSend = jest.Mock<Promise<void>, [string, SmsMessage]>;
 export type PushSend = jest.Mock<
   Promise<void>,
-  [string, string, string, Record<string, string>?]
+  [string, string, string, Record<string, string>?, PushOptions?]
 >;
 export interface ProviderMocks {
   sms: { send: SmsSend };
@@ -56,6 +59,8 @@ export const applySosEnv = (env: SosEnv): void => {
   if (env.maxAttempts) process.env.SOS_NOTIFY_MAX_ATTEMPTS = env.maxAttempts;
   // 这些套件用手动 tick 逐轮驱动重试，不等真实退避（退避节奏本身在 sos-reliability 套件里测）
   process.env.SOS_NOTIFY_RETRY_DELAYS_SECONDS = '0';
+  // 建单推送的重试节奏由单测钉，e2e 里不重试：否则 app 关闭后定时器醒来会撞上已断开的库
+  process.env.SOS_CREATED_PUSH_RETRY_DELAYS_SECONDS = '';
 };
 
 export async function buildSosApp(
@@ -152,7 +157,7 @@ export const sosSmsCalls = (m: ProviderMocks): Array<[string, SmsMessage]> =>
 export const pushCallsTitled = (
   m: ProviderMocks,
   title: string,
-): Array<[string, string, string, Record<string, string>?]> =>
+): Array<[string, string, string, Record<string, string>?, PushOptions?]> =>
   m.push.send.mock.calls.filter(([, t]) => t === title);
 
 export const sleep = (ms: number): Promise<void> =>

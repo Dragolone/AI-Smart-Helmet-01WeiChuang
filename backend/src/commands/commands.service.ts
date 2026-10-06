@@ -308,6 +308,9 @@ export class CommandsService implements OnModuleInit {
         nextStatus === COMMAND_STATUS.success &&
         command.type === 'set_config'
       ) {
+        // 先拿该设备的设置锁再查「更新的命令」：两条回执并发时，后下发那条若在本事务查询之后、拿锁之前
+        // 提交，这里就看不到它，拿到锁后会把旧值盖回去（10-06 并发评审 #4）。reportSettings 一直是先锁后查
+        await lockDeviceSettings(tx, command.deviceId);
         // 迟到回执不能把更新的命令已生效的键覆盖回旧值：剔除比本命令更晚下发且已 success 的命令触碰过的键
         const newer = await tx.deviceCommand.findMany({
           where: {
@@ -334,7 +337,6 @@ export class CommandsService implements OnModuleInit {
             `迟到回执 ${command.id}：键 ${[...shadowed].join(',')} 已被更新命令覆盖，不回写`,
           );
         }
-        await lockDeviceSettings(tx, command.deviceId);
         const device = await tx.device.findUnique({
           where: { deviceId: command.deviceId },
           select: { settings: true },

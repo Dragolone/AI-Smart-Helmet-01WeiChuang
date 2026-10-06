@@ -59,6 +59,7 @@ describe('SOS 可靠性：重试退避 / 周期对账 / 补传说明 (e2e)', () 
     // 退避与次数走产品默认；对账周期调到 1 秒，才能在用例里等到
     delete process.env.SOS_NOTIFY_MAX_ATTEMPTS;
     delete process.env.SOS_NOTIFY_RETRY_DELAYS_SECONDS;
+    process.env.SOS_CREATED_PUSH_RETRY_DELAYS_SECONDS = '';
     process.env.SOS_RECONCILE_INTERVAL_SECONDS = '1';
     process.env.SOS_RECONCILE_GRACE_MS = '1';
     resetMocks(mocks);

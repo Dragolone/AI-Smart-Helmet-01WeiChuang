@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CLOCK_SKEW_THRESHOLD_MS } from '../common/device-time';
+import { errorMessage } from '../common/error-text';
 import { isUniqueViolation } from '../common/prisma-errors';
 import { DeviceSnapshotService } from '../devices/device-snapshot.service';
 import { LocationRecorderService } from '../locations/location-recorder.service';
@@ -29,6 +30,20 @@ const RISK_EVENT_TYPES = new Set([
   'obstacle_risk',
   'risk_cleared',
 ]);
+/**
+ * eventId 重复本该是同一事件的重放（补传 / 重传），时间戳应当一致。下面这几类的 eventId 重复、
+ * 时间戳却相差很远，多半是头盔的 Event_Seq 回退了（换电池 / 恢复出厂，DEVICE_PROTOCOL §10 第 20 条）：
+ * eventId 由 deviceId + Event_Seq 派生，回退后新的摔倒会被当成旧事件静默丢弃（10-06 仿真头盔复现）。
+ */
+const SEQ_ROLLBACK_WATCH_TYPES = new Set([
+  'possible_fall',
+  'manual_sos',
+  'collision_risk',
+  'obstacle_risk',
+]);
+/** 未校时的头盔补传同一事件时 App 会填收到时刻，几分钟内的差异不算；超过它才像是两次不同的事件 */
+const SEQ_ROLLBACK_GAP_MS = 5 * 60_000;
+
 const DEVICE_EVENT_TYPES = new Set([
   'sleep_entered',
   'sleep_exited',
@@ -242,9 +257,31 @@ export class IngestService {
     } catch (err) {
       if (isUniqueViolation(err)) {
         this.logger.debug(`重复 eventId 已跳过：${e.eventId}`);
+        await this.warnIfSeqRolledBack(e);
         return false;
       }
       throw err;
+    }
+  }
+
+  /** 只能出声、不能建单：eventId 幂等是 Contract（EVENTS.md §2），这里是给运维和硬件对口径的信号 */
+  private async warnIfSeqRolledBack(e: ValidEnvelope): Promise<void> {
+    if (!SEQ_ROLLBACK_WATCH_TYPES.has(e.eventType)) return;
+    try {
+      const prior = await this.prisma.rawEvent.findUnique({
+        where: { eventId: e.eventId },
+        select: { timestamp: true },
+      });
+      if (!prior) return;
+      const gapMs = Math.abs(e.timestamp.getTime() - prior.timestamp.getTime());
+      if (gapMs < SEQ_ROLLBACK_GAP_MS) return;
+      this.logger.error(
+        `疑似 Event_Seq 回退：设备 ${e.deviceId} 的 ${e.eventType} ${e.eventId} 与库中同 eventId 的事件时间相差 ${Math.round(gapMs / 60_000)} 分钟，本次上报已按重复丢弃——请核查头盔序号是否在掉电 / 恢复出厂后回退（DEVICE_PROTOCOL §10 第 20 条）`,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Event_Seq 回退检查失败（不影响入库结果）：${errorMessage(err)}`,
+      );
     }
   }
 }

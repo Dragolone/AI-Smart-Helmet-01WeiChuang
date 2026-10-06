@@ -235,27 +235,32 @@ describe('加固：认证与令牌 (e2e)', () => {
         .expect(200);
     });
 
-    it('复用已轮换的 token：并发窗口内只拒绝本次；窗口外视为盗用，撤销全部会话（新 token 也失效）', async () => {
+    it('复用已轮换的 token：补发窗口内补发一次（没送到的那张作废）；窗口外视为盗用，撤销全部会话（新 token 也失效）', async () => {
       const u = await createUser(app, http);
       users.push(u);
       const r1 = await request(http)
         .post('/api/v1/auth/refresh')
         .send({ refreshToken: u.refreshToken })
         .expect(200);
-      const newRefresh = r1.body.refreshToken as string;
-      // 刚轮换完立刻复用：良性竞态，本次 401，赢家的新 token 仍有效
-      await request(http)
+      // 一秒后旧 token 又来（应答被连接重置吞掉的快速重试）：补发，r1 那张从没用过的作废
+      //（并发竞态窗口只剩半秒：App 单飞刷新，同一台手机不会真的并发，10 s 一律 401 只会让骑手在隧道里被动登出）
+      await new Promise((r) => setTimeout(r, 700));
+      const reissued = await request(http)
         .post('/api/v1/auth/refresh')
         .send({ refreshToken: u.refreshToken })
+        .expect(200);
+      await request(http)
+        .post('/api/v1/auth/refresh')
+        .send({ refreshToken: r1.body.refreshToken as string })
         .expect(401);
       const r2 = await request(http)
         .post('/api/v1/auth/refresh')
-        .send({ refreshToken: newRefresh })
+        .send({ refreshToken: reissued.body.refreshToken as string })
         .expect(200);
-      // 把旧 token 的撤销时间拨到 1 分钟前再复用：盗用信号，全部会话作废
+      // 把旧 token 的撤销时间拨到 20 分钟前（出了 15 min 补发窗口）再复用：盗用信号，全部会话作废
       await prisma.refreshToken.updateMany({
         where: { userId: u.id, revokedAt: { not: null } },
-        data: { revokedAt: new Date(Date.now() - 60_000) },
+        data: { revokedAt: new Date(Date.now() - 20 * 60_000) },
       });
       await request(http)
         .post('/api/v1/auth/refresh')
@@ -265,6 +270,69 @@ describe('加固：认证与令牌 (e2e)', () => {
         .post('/api/v1/auth/refresh')
         .send({ refreshToken: r2.body.refreshToken as string })
         .expect(401);
+    });
+
+    it('刷新应答丢失（评审 R-05）：旧 token 在 10 s 后、15 min 内再来 → 补发一对新 token，没用过的那张作废；同一张旧 token 第二次再来 → 401；其他会话不受影响', async () => {
+      const u = await createUser(app, http);
+      users.push(u);
+      // 同一账号的另一台手机
+      const other = await request(http)
+        .post('/api/v1/auth/login')
+        .send({ phone: u.phone, password: u.password })
+        .expect(200);
+      const r1 = await request(http)
+        .post('/api/v1/auth/refresh')
+        .send({ refreshToken: u.refreshToken })
+        .expect(200);
+      // 模拟「r1 的应答没回到手机」：把旧 token 的撤销时间拨到 30 秒前（出了并发窗口、在补发窗口内）
+      await prisma.refreshToken.updateMany({
+        where: { userId: u.id, revokedAt: { not: null } },
+        data: { revokedAt: new Date(Date.now() - 30_000) },
+      });
+      const retry = await request(http)
+        .post('/api/v1/auth/refresh')
+        .send({ refreshToken: u.refreshToken })
+        .expect(200);
+      expect(retry.body.refreshToken).not.toBe(r1.body.refreshToken);
+      // 没送到手机的那张作废
+      await request(http)
+        .post('/api/v1/auth/refresh')
+        .send({ refreshToken: r1.body.refreshToken as string })
+        .expect(401);
+      // 同一张旧 token 只补发一次
+      await request(http)
+        .post('/api/v1/auth/refresh')
+        .send({ refreshToken: u.refreshToken })
+        .expect(401);
+      // 补发的那张正常可用；另一台手机的会话没被连坐
+      await request(http)
+        .post('/api/v1/auth/refresh')
+        .send({ refreshToken: retry.body.refreshToken as string })
+        .expect(200);
+      await request(http)
+        .post('/api/v1/auth/refresh')
+        .send({ refreshToken: other.body.refreshToken as string })
+        .expect(200);
+    });
+
+    it('登出作废的 token 在补发窗口内再来：没有替代者，照常 401，不补发', async () => {
+      const u = await createUser(app, http);
+      users.push(u);
+      await request(http)
+        .post('/api/v1/auth/logout')
+        .send({ refreshToken: u.refreshToken })
+        .expect(204);
+      await prisma.refreshToken.updateMany({
+        where: { userId: u.id, revokedAt: { not: null } },
+        data: { revokedAt: new Date(Date.now() - 30_000) },
+      });
+      await request(http)
+        .post('/api/v1/auth/refresh')
+        .send({ refreshToken: u.refreshToken })
+        .expect(401);
+      expect(await prisma.refreshToken.count({ where: { userId: u.id } })).toBe(
+        1,
+      );
     });
 
     it('找回密码后：旧 refresh 失效；旧 access 在 15 分钟内仍有效（记录）', async () => {

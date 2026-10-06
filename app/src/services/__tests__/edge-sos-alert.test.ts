@@ -3,7 +3,7 @@
 // 这里补刚好卡在 3 秒门槛上的剩余时间、重试用尽、以及重试期间用户再点一次。
 // mock 口径同 sos-alert.test.ts（不整模块 mock react-native，按属性覆盖并还原）。
 import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
-import { AppState, Platform } from "react-native";
+import { Alert, AppState, Platform } from "react-native";
 
 type SosAlert = typeof import("../sos-alert");
 
@@ -15,7 +15,10 @@ const mockDismiss = jest.fn(async (_id: string) => undefined);
 jest.mock("@/api/sos", () => ({
   sosApi: { cancel: (id: string) => mockCancel(id) },
 }));
-jest.mock("expo-router", () => ({ router: { push: jest.fn() } }));
+const mockNavigate = jest.fn((_href: string) => undefined);
+jest.mock("expo-router", () => ({
+  router: { push: jest.fn(), navigate: (h: string) => mockNavigate(h) },
+}));
 jest.mock("@/i18n", () => ({
   translate: (k: string, p?: Record<string, unknown>) =>
     p ? `${k}:${JSON.stringify(p)}` : k,
@@ -70,6 +73,7 @@ function fakeAppStateListeners(): { fire: (s: string) => void; active: () => num
 
 beforeEach(() => {
   mockCancel.mockReset();
+  mockNavigate.mockClear();
   mockSchedule.mockClear();
   mockCancelScheduled.mockClear();
   mockDismiss.mockClear();
@@ -142,6 +146,43 @@ describe("通知按钮「取消」的重试收尾", () => {
     appState.fire("active");
     await jest.advanceTimersByTimeAsync(60_000);
     expect(mockCancel).toHaveBeenCalledTimes(4);
+  });
+
+  it("两单并存：点第二单的「取消」不会清掉第一单的重试（按单分槽，10-06 并发评审 F2）", async () => {
+    jest.useFakeTimers();
+    const appState = fakeAppStateListeners();
+    mockCancel.mockImplementation(async (id: string) => {
+      if (id === "s1" && mockCancel.mock.calls.filter((c) => c[0] === "s1").length === 1) {
+        throw new Error("suspended");
+      }
+      return {} as never;
+    });
+    const m = load();
+    expect(await m.cancelFromNotification("s1")).toBe(false); // 第一单失败，2 s 后重试
+    expect(await m.cancelFromNotification("s2")).toBe(true); // 第二单成功
+    expect(jest.getTimerCount()).toBe(1); // s1 的重试定时器还在
+    expect(appState.active()).toBe(1);
+    await jest.advanceTimersByTimeAsync(2_000);
+    expect(mockCancel.mock.calls.filter((c) => c[0] === "s1")).toHaveLength(2);
+    expect(jest.getTimerCount()).toBe(0);
+    expect(appState.active()).toBe(0);
+  });
+
+  it("重试用尽：带用户到倒计时页并弹「取消没有发出」，而不是悄悄留在首页（不变式 F-11）", async () => {
+    jest.useFakeTimers();
+    fakeAppStateListeners();
+    const alertSpy = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
+    mockCancel.mockRejectedValue(new Error("offline"));
+    const m = load();
+    await m.cancelFromNotification("s1", 0, "d1");
+    await jest.advanceTimersByTimeAsync(2_000);
+    await jest.advanceTimersByTimeAsync(5_000);
+    expect(mockNavigate).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(10_000);
+    expect(mockCancel).toHaveBeenCalledTimes(4);
+    expect(mockNavigate).toHaveBeenCalledWith("/sos-active?sosId=s1&deviceId=d1");
+    expect(alertSpy).toHaveBeenCalledWith("sosAlert.cancelFailedTitle", "sosAlert.cancelFailedBody");
+    alertSpy.mockRestore();
   });
 
   it("重试等待期间用户又点了一次「取消」：旧的重试链被顶掉，不会两条链各自重试", async () => {

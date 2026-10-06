@@ -324,6 +324,20 @@ describe("冷启动由通知拉起（4.8：极光还没初始化时点击被 exp
     mockLastResponse.mockReturnValue(null);
   });
 
+  it("点的是远程推送上的「我没事，取消」按钮：落地但不清这条启动点击——sos-alert 还要读它发取消", async () => {
+    mockLastResponse.mockReturnValue({
+      actionIdentifier: "cancel",
+      ...launch({ sosId: "s8", deviceId: "d1" }),
+    });
+    mockActive.mockResolvedValue({ sos: null });
+    useConsentStore.setState({ privacyAccepted: true });
+    startPush("u8");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mockRouterPush).toHaveBeenCalledWith("/accident/s8");
+    expect(mockClearLastResponse).not.toHaveBeenCalled();
+    mockLastResponse.mockReturnValue(null);
+  });
+
   it("不是由通知拉起（null）：什么都不做", async () => {
     mockLastResponse.mockReturnValue(null);
     useConsentStore.setState({ privacyAccepted: true });

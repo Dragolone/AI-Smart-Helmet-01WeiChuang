@@ -387,29 +387,34 @@ describe('审计 §6：账号全流程 / 验证码 / refresh / 撤销规则 (e2e
         .expect(200);
     });
 
-    it('宽限内复用只拒本次；超过宽限（SQL 把 revokedAt 拨早 20s）复用 → 撤销全部会话', async () => {
+    it('窗口内复用：补发一次、没送到的那张作废；超过补发窗口（SQL 把 revokedAt 拨早 20 分钟）复用 → 撤销全部会话', async () => {
       const u = await newUser();
       const r1 = await request(http)
         .post('/api/v1/auth/refresh')
         .send({ refreshToken: u.refreshToken })
         .expect(200);
-      // 10s 内复用旧 token：401，但 r1 的 token 仍有效
-      await request(http)
+      // 半秒并发窗口之后复用旧 token：当作应答丢失补发一对，r1 那张作废
+      await new Promise((r) => setTimeout(r, 700));
+      const reissued = await request(http)
         .post('/api/v1/auth/refresh')
         .send({ refreshToken: u.refreshToken })
+        .expect(200);
+      await request(http)
+        .post('/api/v1/auth/refresh')
+        .send({ refreshToken: r1.body.refreshToken })
         .expect(401);
       const r2 = await request(http)
         .post('/api/v1/auth/refresh')
-        .send({ refreshToken: r1.body.refreshToken })
+        .send({ refreshToken: reissued.body.refreshToken })
         .expect(200);
-      // 把 r1 那枚（已轮换）的 revokedAt 拨早 20s，再复用 → 视为盗用
+      // 把已轮换的那些 revokedAt 拨早 20 分钟（出了 15 min 补发窗口），再复用 → 视为盗用
       await prisma.refreshToken.updateMany({
         where: { userId: u.id, revokedAt: { not: null } },
-        data: { revokedAt: new Date(Date.now() - 20_000) },
+        data: { revokedAt: new Date(Date.now() - 20 * 60_000) },
       });
       const reuse = await request(http)
         .post('/api/v1/auth/refresh')
-        .send({ refreshToken: r1.body.refreshToken })
+        .send({ refreshToken: reissued.body.refreshToken })
         .expect(401);
       const latest = await request(http)
         .post('/api/v1/auth/refresh')

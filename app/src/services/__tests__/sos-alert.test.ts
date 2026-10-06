@@ -589,6 +589,17 @@ describe("sos-alert", () => {
       expect(mockNavigate).not.toHaveBeenCalled();
     });
 
+    it("通道 / 类别注册还挂着没返回时，启动点击已经同步读走：取消请求照样发出（根布局紧接着会同步跑 push.ts，它读的是同一条）", async () => {
+      mockGetLastResponse.mockReturnValue(launch("cancel"));
+      mockSetCategory.mockImplementation(
+        () => new Promise<undefined>(() => undefined),
+      );
+      const m = load();
+      void m.ensureSosAlertPermission(); // 不 await：模拟同一个 effect 里紧接着的同步代码
+      expect(mockCancel).toHaveBeenCalledWith("s1");
+      mockSetCategory.mockImplementation(async () => undefined);
+    });
+
     it("点的是横幅 / 「打开 App」：进倒计时页", async () => {
       mockGetLastResponse.mockReturnValue(launch("open"));
       const m = load();

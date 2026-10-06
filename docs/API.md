@@ -62,7 +62,7 @@
 | POST | /auth/register | 注册。body：`{ phone, code, password, nickname? }`——`code` 为上一步 `register` 用途的验证码；错误/过期/已用/超次统一 400 `SMS_CODE_INVALID`（不区分原因）。校验顺序：手机号已注册 409 → 验证码 400 → 建号并返回 `{ accessToken, refreshToken, user }` |
 | POST | /auth/reset-password | 找回密码。body：`{ phone, code, newPassword }`（`reset_password` 用途验证码）→ 204；成功后**该用户全部 refresh token 作废**，所有设备需重新登录。未注册 404 `PHONE_NOT_REGISTERED` |
 | POST | /auth/login | 登录。body：`{ phone, password }` → `{ accessToken, refreshToken, user }`。密码 8–72 字符且 ≤ 72 字节（bcrypt 上限，超出 400） |
-| POST | /auth/refresh | body：`{ refreshToken }` → 新 `{ accessToken, refreshToken }`（refresh 轮换，旧 refreshToken 作废；同一 token 并发刷新只有一方成功，其余 401；已轮换的 token 在 10s 并发窗口后再次出现才视为盗用撤销全部会话） |
+| POST | /auth/refresh | body：`{ refreshToken }` → 新 `{ accessToken, refreshToken }`（refresh 轮换，旧 refreshToken 作废；同一 token 并发刷新只有一方成功，其余 401。**已轮换的 token 再次出现**：0.5s 内（同一瞬间的并发竞态）401；0.5s–15min 内视为「上次应答没送到」——作废那张从没用过的新 token、补发一对新的，每张旧 token 只补发一次（2026-10-06，评审 R-05；同日并发评审 #2 把并发窗口从 10s 缩到 0.5s，App 单飞刷新，一秒后同 token 再现只可能是应答丢失）；超过 15min 才视为盗用、撤销全部会话。轮换的三步（作废旧、签发新、记替代）在一个事务里。登出 / 改密作废的 token 没有替代者，任何时候再出现都是 401） |
 
 限频（2026-09-10 加固，单实例内存滑动窗口，超限 429 `RATE_LIMITED` + `Retry-After`）：`/auth/login` 同 IP+手机号 10 次/分、同 IP 100 次/分；`/auth/sms-code` 同 IP 5 条/分、50 条/天（同号 60s/日限另计）；`/auth/register` 20 次/分；`/auth/reset-password` 同 IP+手机号 10 次/分；`/auth/refresh` 60 次/分；`/admin/auth/login` 10 次/分；`/devices/bind` 同 IP 10 次/分（2026-10-03：绑定码 8 位数字可被穷举，限的是尝试次数，窗口内猜中也返回 429）。
 | POST | /auth/logout | 作废当前 refreshToken |
@@ -74,7 +74,7 @@
 
 `user` 对象：`{ id, phone, nickname, avatarUrl?, createdAt }`。密码 bcrypt/argon2 存储，任何接口不回传。
 
-Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / refresh 30 天**；refresh 轮换制——每次刷新旧 token 作废，已作废 token 被复用视为盗用信号、撤销该用户全部会话。本节 register/login/refresh/logout 与 /users/me 均已实现；**短信验证码（sms-code / register.code / reset-password）2026-09-09 实现**；**账号与安全（change-password / change-phone / DELETE /users/me，✅ 2026-09-11 负责人拍板）已实现**，TS 类型见 `@helmet/shared` ChangePasswordRequest / ChangePhoneRequest / DeleteAccountRequest。本地与演示环境短信走 Console Mock，验证码打印在后端日志（`[MOCK SMS] … verify_code`），云端查看：`docker compose -f docker-compose.prod.yml logs backend | grep verify_code`；腾讯云通道配齐 `TENCENT_SMS_*` 六项环境变量即切换为真发（THIRD_PARTY.md §4）。
+Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / refresh 30 天**；refresh 轮换制——每次刷新旧 token 作废；已作废 token 再出现：0.5s 内并发竞态只拒本次、15min 内按应答丢失补发一次、之后视为盗用撤销该用户全部会话（§2 refresh 行）。本节 register/login/refresh/logout 与 /users/me 均已实现；**短信验证码（sms-code / register.code / reset-password）2026-09-09 实现**；**账号与安全（change-password / change-phone / DELETE /users/me，✅ 2026-09-11 负责人拍板）已实现**，TS 类型见 `@helmet/shared` ChangePasswordRequest / ChangePhoneRequest / DeleteAccountRequest。本地与演示环境短信走 Console Mock，验证码打印在后端日志（`[MOCK SMS] … verify_code`），云端查看：`docker compose -f docker-compose.prod.yml logs backend | grep verify_code`；腾讯云通道配齐 `TENCENT_SMS_*` 六项环境变量即切换为真发（THIRD_PARTY.md §4）。
 
 ## 3. 紧急联系人
 
@@ -157,6 +157,7 @@ SOS 状态机为服务端权威（DECISIONS #8/#26）：`pending → notified | 
 - App 收到 WebSocket/Push 的 `sos` 对象后按 `deadline` 本地倒计时渲染，不自行计时判断超时。
 - 错误码：`SOS_ALREADY_FINALIZED`（409，取消/确认时状态机已终态）；取消/确认权限以**建单时固化的绑定用户**为准，他人操作一律 404（不泄露存在性）。进行中的单按「设备 + 用户」唯一（决策 #40）：换绑后新用户的求救另建新单，前用户的单不受影响。
 - **Push 定向口径（2026-09-23，极光）**：服务端按 `alias = 用户 ID` 推送，App 登录成功后向极光 `setAlias(userId)`、退出登录 `deleteAlias`；未登记别名的用户推送记 failed（极光 1011），不影响短信。
+- **iOS 推送字段（2026-10-06，评审 R-34 / 真机 10-06）**：「SOS 倒计时已开始」带 `category: "sos"`（App 登录后注册的通知类别，远程推送上因此有「我没事，取消」「查看」按钮，App 被杀时仍有效）与 `interruption-level: time-sensitive`；到期 / 确认后的「SOS 已通知紧急联系人」等只带时效性、不带类别。App 需声明 time-sensitive entitlement（A 线 10-06 已加）。
 - 通知：超时/确认后逐个紧急联系人发 SMS（同号去重）+ 本人 Push，逐条留档（成功/失败/通道/重试次数；**失败按退避重试，连首次最多 5 次，间隔 10 秒 / 1 分钟 / 5 分钟 / 15 分钟，前后约 21 分钟**——决策 #50，`SOS_NOTIFY_MAX_ATTEMPTS` / `SOS_NOTIFY_RETRY_DELAYS_SECONDS` 可调；单次 Provider 调用超时 `SOS_NOTIFY_TIMEOUT_MS` 默认 10s，超时按失败记 `timeout` 走重试）；事故位置快照优先取触发事件内嵌位置，回落最新轨迹点（✅ 口径 2026-08-16 定稿）。
 - **状态语义（2026-09-14 审计 SOS-04 定稿）**：`status=notified` 只表示「已到期/已确认并创建了通知任务」，**不等于联系人已收到**——实际投递结果以 `GET /accidents/{id}` 的 `notifications[]` 逐条状态为准（`sent` = 服务商已接收，无回执时不代表送达）。本人 Push 标题按此刻短信结果生成：全部/部分成功 →「SOS 已通知紧急联系人」；全部失败 →「SOS 紧急联系人通知发送失败」；未设置联系人 →「SOS 未设置紧急联系人」。App 文案统一为「已向紧急联系人发出通知」而非「已收到通知」。
 - **可靠性兜底（2026-09-14 审计 SOS-01/02/05 修复）**：位置快照查询失败不阻塞建单；建单遇数据库瞬断进程内重试；启动时、以及之后每 `SOS_RECONCILE_INTERVAL_SECONDS`（默认 60）秒，对账最近 `SOS_RECONCILE_WINDOW_MINUTES`（默认 15）分钟内「raw 已落库但无 SOS 单」的摔倒/求救事件并按当时绑定用户补建（周期对账为决策 #51，2026-10-03）。

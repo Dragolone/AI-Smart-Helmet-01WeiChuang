@@ -8,7 +8,7 @@ import { connect, type MqttClient } from 'mqtt';
 import type { Packet } from 'mqtt-packet';
 import { mqttBackendClientId, mqttBackendUsername } from '../common/env';
 import { errorMessage } from '../common/error-text';
-import { sleep } from '../common/sleep';
+import { retrying } from '../common/retry';
 import { IngestService } from './ingest.service';
 
 /** 设备侧 Topic（DEVICE_PROTOCOL §4）：helmet/{deviceId}/{status|location|event|cmd_ack} */
@@ -165,28 +165,32 @@ export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
         this.logger.warn(`cmd_ack 处理器未注册，消息忽略：${sanitize(topic)}`);
         return;
       }
-      await this.cmdAckHandler(topicDeviceId, raw);
+      // 与事件入库同一套重试：回执的事务（咨询锁 + 5 s 事务超时）比普通 insert 更容易瞬时失败，
+      // 失败即签收会让已执行的命令 30 s 后显示 offline（10-06 并发评审 #9）
+      const handler = this.cmdAckHandler;
+      await retrying(
+        () => handler(topicDeviceId, raw),
+        PERSIST_RETRIES,
+        PERSIST_RETRY_DELAY_MS,
+        (err, attempt) =>
+          this.logger.warn(
+            `cmd_ack 处理失败（第 ${attempt} 次），${PERSIST_RETRY_DELAY_MS}ms 后重试：${errorMessage(err)}`,
+          ),
+      );
       this.logger.log(`[${sanitize(topic)}] → ack_processed`);
       return;
     }
 
-    let lastError: unknown;
-    for (let attempt = 0; attempt <= PERSIST_RETRIES; attempt++) {
-      try {
-        const outcome = await this.ingest.ingestRaw(raw, topicDeviceId, 'mqtt');
-        this.logger.log(`[${sanitize(topic)}] → ${outcome}`);
-        return;
-      } catch (err) {
-        lastError = err;
-        if (attempt < PERSIST_RETRIES) {
-          this.logger.warn(
-            `入库失败（第 ${attempt + 1} 次），${PERSIST_RETRY_DELAY_MS}ms 后重试：${errorMessage(err)}`,
-          );
-          await sleep(PERSIST_RETRY_DELAY_MS);
-        }
-      }
-    }
-    throw lastError;
+    const outcome = await retrying(
+      () => this.ingest.ingestRaw(raw, topicDeviceId, 'mqtt'),
+      PERSIST_RETRIES,
+      PERSIST_RETRY_DELAY_MS,
+      (err, attempt) =>
+        this.logger.warn(
+          `入库失败（第 ${attempt} 次），${PERSIST_RETRY_DELAY_MS}ms 后重试：${errorMessage(err)}`,
+        ),
+    );
+    this.logger.log(`[${sanitize(topic)}] → ${outcome}`);
   }
 
   async onModuleDestroy(): Promise<void> {

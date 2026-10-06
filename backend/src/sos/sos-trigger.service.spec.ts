@@ -48,6 +48,20 @@ describe('extractSosLocation（EVENTS.md 4.3/4.4 位置快照校验）', () => {
     expect(extractSosLocation({ location: valid })).toEqual(valid);
   });
 
+  it('精确 (0,0) 是「没定到位」的哨兵 → 按缺失处理（回落最新轨迹点），不钉在赤道上', () => {
+    expect(
+      extractSosLocation({
+        location: { latitude: 0, longitude: 0, coordinateSystem: 'wgs84' },
+      }),
+    ).toBeNull();
+    // 只有一个为 0 是合法坐标（赤道 / 本初子午线上确有陆地）
+    expect(
+      extractSosLocation({
+        location: { latitude: 0, longitude: 103.8, coordinateSystem: 'wgs84' },
+      }),
+    ).toMatchObject({ latitude: 0, longitude: 103.8 });
+  });
+
   it('最小快照（无 accuracy）→ accuracy 为 null', () => {
     const minimal = {
       latitude: valid.latitude,

@@ -148,6 +148,20 @@ export class SosNotifierService {
     });
 
     for (const row of rows) {
+      // 本人 Push 的正文按「此刻短信的真实结果」生成：同一单若还有短信行被另一路（内联首投 / 上一轮扫描）
+      // 占位在飞（pending 且 attempts>0），现在读到的就是半截结果——这轮先不占，等下一轮（≤ 5 s）再发。
+      // 否则 confirm 之后 0.5 s 内撞上扫描，用户会收到「短信全部失败，请直接拨打电话求助」，而短信随即就成功了
+      if (row.channel === 'push') {
+        const smsInFlight = await this.prisma.sosNotification.count({
+          where: {
+            sosId: row.sosId,
+            channel: 'sms',
+            status: NOTIFICATION_STATUS.pending,
+            attempts: { gt: 0 },
+          },
+        });
+        if (smsInFlight > 0) continue;
+      }
       const claimed = await this.prisma.sosNotification.updateMany({
         where: {
           id: row.id,
@@ -189,6 +203,30 @@ export class SosNotifierService {
     }
   }
 
+  /**
+   * 进程在「占位（attempts+1）」与「写结果」之间倒下、且那已是最后一次尝试的行，会永远停在 pending：
+   * due 条件只覆盖 attempts < 上限，详情页永远显示「待发送」。扫描时把它们收尾成 failed，让失败可见。
+   * 还有尝试次数的行不用管——它们到点会被 due 条件重新捞起。
+   */
+  async failInterrupted(): Promise<number> {
+    const { count } = await this.prisma.sosNotification.updateMany({
+      where: {
+        status: NOTIFICATION_STATUS.pending,
+        attempts: { gte: maxNotifyAttempts() },
+      },
+      data: {
+        status: NOTIFICATION_STATUS.failed,
+        lastError: 'interrupted: 最后一次投递中途进程退出，结果未知',
+      },
+    });
+    if (count > 0) {
+      this.logger.error(
+        `SOS 通知行 ${count} 条在最后一次投递中途被中断，已记为 failed`,
+      );
+    }
+    return count;
+  }
+
   private async send(row: SosNotification, sosCase: SosCase): Promise<void> {
     if (row.channel === 'sms') {
       await this.sms.send(row.target, await this.smsMessage(sosCase));
@@ -197,10 +235,14 @@ export class SosNotifierService {
     // push target 形如 user:<id>。标题/正文按此刻联系人短信的真实结果生成：
     // 通知行按 channel desc 排序投递（见扫描处 orderBy 的说明），短信行在本人 Push 之前，所以这里读到的是本轮投递后的状态
     const { title, body } = await this.pushText(sosCase);
-    await this.push.send(row.target.replace(/^user:/, ''), title, body, {
-      sosId: sosCase.id,
-      deviceId: sosCase.deviceId,
-    });
+    // 已到终态：不带 "sos" 类别（那上面的「取消」按钮对已通知的单没有意义），只要时效性穿透专注模式
+    await this.push.send(
+      row.target.replace(/^user:/, ''),
+      title,
+      body,
+      { sosId: sosCase.id, deviceId: sosCase.deviceId },
+      { timeSensitive: true },
+    );
   }
 
   /** 四层语义区分（审计 SOS-04）：任务已创建 ≠ Provider 已接收 ≠ 联系人已收到；文案只承诺前两者 */

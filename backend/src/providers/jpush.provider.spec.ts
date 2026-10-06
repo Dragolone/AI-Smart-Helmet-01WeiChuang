@@ -56,6 +56,28 @@ describe('jpushConfigFromEnv', () => {
 });
 
 describe('buildJPushBody', () => {
+  it('SOS 倒计时推送：iOS 载荷带类别 sos 与时效性等级；不传选项时两个字段都不出现', () => {
+    const withOptions = buildJPushBody('u', 't', 'b', undefined, false, {
+      category: 'sos',
+      timeSensitive: true,
+    }) as { notification: { ios: Record<string, unknown> } };
+    expect(withOptions.notification.ios).toMatchObject({
+      category: 'sos',
+      'interruption-level': 'time-sensitive',
+    });
+    const plain = buildJPushBody('u', 't', 'b', undefined, false) as {
+      notification: { ios: Record<string, unknown> };
+    };
+    expect(plain.notification.ios).not.toHaveProperty('category');
+    expect(plain.notification.ios).not.toHaveProperty('interruption-level');
+    // 只要时效性、不要按钮（到期后的推送）
+    const final = buildJPushBody('u', 't', 'b', undefined, false, {
+      timeSensitive: true,
+    }) as { notification: { ios: Record<string, unknown> } };
+    expect(final.notification.ios).not.toHaveProperty('category');
+    expect(final.notification.ios['interruption-level']).toBe('time-sensitive');
+  });
+
   it('按 alias=userId 定向，双平台都带标题正文与 extras，离线保留一天', () => {
     expect(
       buildJPushBody('user_1', 'SOS 已通知', '正文', { sosId: 's1' }, true),
