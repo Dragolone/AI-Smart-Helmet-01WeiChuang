@@ -62,7 +62,7 @@
 | POST | /auth/register | 注册。body：`{ phone, code, password, nickname? }`——`code` 为上一步 `register` 用途的验证码；错误/过期/已用/超次统一 400 `SMS_CODE_INVALID`（不区分原因）。校验顺序：手机号已注册 409 → 验证码 400 → 建号并返回 `{ accessToken, refreshToken, user }` |
 | POST | /auth/reset-password | 找回密码。body：`{ phone, code, newPassword }`（`reset_password` 用途验证码）→ 204；成功后**该用户全部 refresh token 作废**，所有设备需重新登录。未注册 404 `PHONE_NOT_REGISTERED` |
 | POST | /auth/login | 登录。body：`{ phone, password }` → `{ accessToken, refreshToken, user }`。密码 8–72 字符且 ≤ 72 字节（bcrypt 上限，超出 400） |
-| POST | /auth/refresh | body：`{ refreshToken }` → 新 `{ accessToken, refreshToken }`（refresh 轮换，旧 refreshToken 作废；同一 token 并发刷新只有一方成功，其余 401。**已轮换的 token 再次出现**：10s 并发窗口内 401；10s–15min 内视为「上次应答没送到」——作废那张从没用过的新 token、补发一对新的，每张旧 token 只补发一次（2026-10-06，评审 R-05）；超过 15min 才视为盗用、撤销全部会话。登出 / 改密作废的 token 没有替代者，任何时候再出现都是 401） |
+| POST | /auth/refresh | body：`{ refreshToken }` → 新 `{ accessToken, refreshToken }`（refresh 轮换，旧 refreshToken 作废；同一 token 并发刷新只有一方成功，其余 401。**已轮换的 token 再次出现**：15min 内视为「上次应答没送到」——作废那张从没用过的新 token、补发一对新的，每张旧 token 只补发一次（2026-10-06，评审 R-05；同日并发评审 #2 去掉了原来 0–10s 一律 401 的窗口，App 单飞刷新，同 token 再现只可能是应答丢失）；超过 15min 才视为盗用、撤销全部会话。轮换的三步（作废旧、签发新、记替代）在一个事务里。登出 / 改密作废的 token 没有替代者，任何时候再出现都是 401） |
 
 限频（2026-09-10 加固，单实例内存滑动窗口，超限 429 `RATE_LIMITED` + `Retry-After`）：`/auth/login` 同 IP+手机号 10 次/分、同 IP 100 次/分；`/auth/sms-code` 同 IP 5 条/分、50 条/天（同号 60s/日限另计）；`/auth/register` 20 次/分；`/auth/reset-password` 同 IP+手机号 10 次/分；`/auth/refresh` 60 次/分；`/admin/auth/login` 10 次/分；`/devices/bind` 同 IP 10 次/分（2026-10-03：绑定码 8 位数字可被穷举，限的是尝试次数，窗口内猜中也返回 429）。
 | POST | /auth/logout | 作废当前 refreshToken |
@@ -74,7 +74,7 @@
 
 `user` 对象：`{ id, phone, nickname, avatarUrl?, createdAt }`。密码 bcrypt/argon2 存储，任何接口不回传。
 
-Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / refresh 30 天**；refresh 轮换制——每次刷新旧 token 作废；已作废 token 再出现：10s 内并发竞态只拒本次、15min 内按应答丢失补发一次、之后视为盗用撤销该用户全部会话（§2 refresh 行）。本节 register/login/refresh/logout 与 /users/me 均已实现；**短信验证码（sms-code / register.code / reset-password）2026-09-09 实现**；**账号与安全（change-password / change-phone / DELETE /users/me，✅ 2026-09-11 负责人拍板）已实现**，TS 类型见 `@helmet/shared` ChangePasswordRequest / ChangePhoneRequest / DeleteAccountRequest。本地与演示环境短信走 Console Mock，验证码打印在后端日志（`[MOCK SMS] … verify_code`），云端查看：`docker compose -f docker-compose.prod.yml logs backend | grep verify_code`；腾讯云通道配齐 `TENCENT_SMS_*` 六项环境变量即切换为真发（THIRD_PARTY.md §4）。
+Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / refresh 30 天**；refresh 轮换制——每次刷新旧 token 作废；已作废 token 再出现：15min 内按应答丢失补发一次、之后视为盗用撤销该用户全部会话（§2 refresh 行）。本节 register/login/refresh/logout 与 /users/me 均已实现；**短信验证码（sms-code / register.code / reset-password）2026-09-09 实现**；**账号与安全（change-password / change-phone / DELETE /users/me，✅ 2026-09-11 负责人拍板）已实现**，TS 类型见 `@helmet/shared` ChangePasswordRequest / ChangePhoneRequest / DeleteAccountRequest。本地与演示环境短信走 Console Mock，验证码打印在后端日志（`[MOCK SMS] … verify_code`），云端查看：`docker compose -f docker-compose.prod.yml logs backend | grep verify_code`；腾讯云通道配齐 `TENCENT_SMS_*` 六项环境变量即切换为真发（THIRD_PARTY.md §4）。
 
 ## 3. 紧急联系人
 

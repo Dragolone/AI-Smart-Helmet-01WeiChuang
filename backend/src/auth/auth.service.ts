@@ -15,13 +15,14 @@ import { SmsCodeService, type SmsCodePurpose } from './sms-code.service';
 
 /** API.md §2 定稿：access 15 分钟 / refresh 30 天（轮换制） */
 const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-/** 刚轮换掉的 token 在此窗口内再次出现 = 同一 token 并发刷新的良性竞态：只拒绝本次，赢家的新 token 不受影响 */
-const REFRESH_REUSE_GRACE_MS = 10_000;
 /**
- * 刷新应答丢失的补发窗口（评审 R-05）：App 的刷新请求到了服务端、应答却没回去（隧道 / 地铁），
- * 它手里还是旧 token，下一次刷新带的仍是旧 token。旧 token 在并发窗口之后、本窗口之内再次出现，
- * 当作「上次的应答没送到」：作废那张从没用过的新 token、再发一张；每张旧 token 只补发一次。
- * 超过本窗口再出现才按盗用撤销全部会话。取 access 的寿命，断网几分钟后回来的第一次刷新落在窗口内。
+ * 刷新应答丢失的补发窗口（评审 R-05 / 10-06 并发评审 #2）：App 的刷新请求到了服务端、应答却没回去
+ * （隧道里被 RST、切网、或等满 15 s 超时），它手里还是旧 token，下一次刷新带的仍是旧 token——
+ * 连接被重置时这「下一次」可能就在一两秒内。旧 token 在本窗口内再次出现，当作「上次的应答没送到」：
+ * 作废那张从没用过的新 token、再发一张；每张旧 token 只补发一次。超过本窗口再出现才按盗用撤销全部会话。
+ * 取 access 的寿命，断网几分钟后回来的第一次刷新落在窗口内。
+ * 原先 0–10 s 内一律拒绝（防同一 token 并发刷新的输家）：App 对刷新做了单飞，同一台手机不会真的并发两次，
+ * 10 s 内同 token 再现现实里只剩「应答丢了的重试」这一种来源，拒绝它就是让骑手在隧道里被动登出。
  */
 const REFRESH_RETRY_WINDOW_MS = 15 * 60 * 1000;
 const BCRYPT_ROUNDS = 10;
@@ -244,10 +245,6 @@ export class AuthService {
     if (record.user.deletedAt) throw unauthorized('账号已注销');
     if (record.revokedAt) {
       const revokedAgo = Date.now() - record.revokedAt.getTime();
-      if (revokedAgo < REFRESH_REUSE_GRACE_MS) {
-        // 并发刷新的输家：另一方刚刚轮换成功，本次拒绝即可，不能把赢家的新会话也撤销
-        throw unauthorized('refresh token 已被使用，请用最新的 token');
-      }
       if (revokedAgo < REFRESH_RETRY_WINDOW_MS) {
         const reissued = await this.reissueAfterLostResponse(record);
         if (reissued) return reissued;
@@ -266,15 +263,19 @@ export class AuthService {
     if (record.expiresAt.getTime() < Date.now()) {
       throw unauthorized('refresh token 已过期，请重新登录');
     }
-    // 条件轮换：同一 token 并发刷新只有一方成功，输家拿 401 但不触发全局撤销（那是良性竞态，不是盗用）
-    const rotated = await this.prisma.refreshToken.updateMany({
-      where: { tokenHash, revokedAt: null },
-      data: { revokedAt: new Date() },
+    // 条件轮换：同一 token 并发刷新只有一方成功，输家拿 401 但不触发全局撤销（那是良性竞态，不是盗用）。
+    // 作废旧的、签发新的、记替代关系三步在一个事务里：进程倒在中间不会留下「旧的已作废、新的没发出、
+    // 也补发不了」的死会话（10-06 并发评审 #6）
+    const pair = await this.prisma.$transaction(async (tx) => {
+      const rotated = await tx.refreshToken.updateMany({
+        where: { tokenHash, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      if (rotated.count === 0) return null;
+      return this.issueTokens(record.userId, record.id, tx);
     });
-    if (rotated.count === 0) {
-      throw unauthorized('refresh token 已被使用，请用最新的 token');
-    }
-    return this.issueTokens(record.userId, record.id);
+    if (!pair) throw unauthorized('refresh token 已被使用，请用最新的 token');
+    return pair;
   }
 
   /**
@@ -288,16 +289,21 @@ export class AuthService {
     userId: string;
     replacedById: string | null;
   }): Promise<TokenPair | null> {
-    if (!record.replacedById) return null;
-    const taken = await this.prisma.refreshToken.updateMany({
-      where: { id: record.replacedById, revokedAt: null },
-      data: { revokedAt: new Date() },
+    const replacedById = record.replacedById;
+    if (!replacedById) return null;
+    const pair = await this.prisma.$transaction(async (tx) => {
+      const taken = await tx.refreshToken.updateMany({
+        where: { id: replacedById, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      if (taken.count === 0) return null;
+      return this.issueTokens(record.userId, undefined, tx);
     });
-    if (taken.count === 0) return null;
+    if (!pair) return null;
     this.logger.log(
       `refresh 应答疑似丢失：为用户 ${record.userId} 补发 token，作废未用过的 ${record.replacedById}`,
     );
-    return this.issueTokens(record.userId);
+    return pair;
   }
 
   /** 登出：作废指定 refresh token（幂等——不存在也返回成功）。 */
@@ -312,11 +318,12 @@ export class AuthService {
   private async issueTokens(
     userId: string,
     replacesId?: string,
+    db: Pick<PrismaService, 'refreshToken'> = this.prisma,
   ): Promise<TokenPair> {
     const accessToken = await this.jwt.signAsync({ sub: userId });
     // refresh 用不透明随机串（非 JWT）：可撤销、可轮换，库中只存哈希
     const refreshToken = randomBytes(48).toString('base64url');
-    const created = await this.prisma.refreshToken.create({
+    const created = await db.refreshToken.create({
       data: {
         userId,
         tokenHash: hashRefreshToken(refreshToken),
@@ -325,7 +332,7 @@ export class AuthService {
       select: { id: true },
     });
     if (replacesId) {
-      await this.prisma.refreshToken.update({
+      await db.refreshToken.update({
         where: { id: replacesId },
         data: { replacedById: created.id },
       });

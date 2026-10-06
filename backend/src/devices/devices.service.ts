@@ -138,8 +138,10 @@ export class DevicesService {
     // 两步必须同事务：外层已在事务里（注销账号）直接用 tx，否则自己开一个
     const now = new Date();
     const run = async (c: DbClient) => {
-      await c.device.update({
-        where: { deviceId },
+      // 带条件：归属检查到这里之间若自己的另一台手机已解绑、别人又绑上了，不能把别人的绑定抹掉；
+      // 命中 0 行 = 已经不是自己的了，按幂等成功（10-06 并发评审 #5）
+      await c.device.updateMany({
+        where: { deviceId, bindUserId: userId },
         data: { bindUserId: null, boundAt: null },
       });
       await c.deviceBinding.updateMany({

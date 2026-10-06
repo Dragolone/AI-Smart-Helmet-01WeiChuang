@@ -237,6 +237,7 @@ docker compose -f docker-compose.prod.yml exec -T postgres pg_restore -U helmet 
 | 3 | 切换前手动备份一次 | B 线 | `sh backup.sh`,确认 COS `backups/` 有新对象(§4 #9) |
 | 4 | 清空测试数据 | B 线 | 当前库里全是测试账号与 Mock 轨迹,正式用户不该看到。`docker compose -f docker-compose.prod.yml stop backend mock` → `exec postgres dropdb -U helmet helmet` → `exec postgres createdb -U helmet helmet` → `up -d`(backend 启动时自动 `prisma migrate deploy` 建表)。**只删库不删卷**,EMQX / Caddy 证书不受影响 |
 | 5 | 改 `deploy/.env` | B 线 | `API_DOMAIN="api.01weichuang.com, dev-api.01weichuang.com"`、`ADMIN_DOMAIN="admin.01weichuang.com, dev-admin.01weichuang.com"`;`up -d` 后 Caddy 自动给新域名签证书。第三方密钥沿用(负责人 2026-10-02 决定不轮换) |
+| 5b | `REQUIRE_REAL_PROVIDERS=1` | B 线 | 转正当天必设：短信 / 推送 / COS 任一配置不全时 backend 拒绝启动（日志点名缺哪项），不再静默回落 Mock——Mock 短信在通知记录与推送文案里与真发不可区分（10-06 评审 F-2）。设完 `up -d` 看 backend 日志三条通道都不是 Mock |
 | 6 | `JPUSH_APNS_PRODUCTION` | B 线 | iPhone 装的是 TestFlight / App Store 包时设 `true`;设了以后 Xcode 直装的 Debug 包收不到远程推送(极光静默丢),A 线调推送需临时改回 |
 | 7 | 重建账号与演示设备 | B 线 | `create:admin` 新建管理员(密码入密码管理器);`provision:device` 开一台 Mock 填 `MOCK_DEVICE_*`,保留 `COMPOSE_PROFILES=demo`、`MOCK_SCENARIO=ski`,供商店审核演示账号绑定(THIRD_PARTY §12);A 线测试账号重新注册 |
 | 8 | 验收 | B 线 | §4 十条,域名换成 `api.` / `admin.`;旧 `dev-api` health 仍 200 |
