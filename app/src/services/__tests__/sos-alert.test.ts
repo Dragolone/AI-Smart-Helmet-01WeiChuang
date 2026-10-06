@@ -524,6 +524,43 @@ describe("sos-alert", () => {
       expect(mockCancel).toHaveBeenCalledTimes(2);
       await jest.advanceTimersByTimeAsync(30_000);
       expect(mockCancel).toHaveBeenCalledTimes(2);
+    });
+
+    it("回前台触发的重试不消耗机会：飞行模式下点取消再拉起 App，三次机会不会在同一秒内打光，网络回来后定时重试成功", async () => {
+      jest.useFakeTimers();
+      const listener: { cb: ((s: string) => void) | null } = { cb: null };
+      override(
+        AppState,
+        "addEventListener",
+        (_: string, cb: (s: string) => void) => {
+          listener.cb = cb;
+          return { remove: () => undefined };
+        },
+      );
+      let online = false;
+      mockCancel.mockImplementation(async () => {
+        if (!online)
+          throw new Error("The Internet connection appears to be offline.");
+        return {} as never;
+      });
+      const m = load();
+      expect(await m.cancelFromNotification("s1")).toBe(false);
+      // 拉起 App：inactive → active 来回几次，每次都立刻重试一遍（仍离线），但不算用掉机会
+      for (let i = 0; i < 3; i += 1) {
+        listener.cb?.("active");
+        await jest.advanceTimersByTimeAsync(0);
+      }
+      expect(mockCancel.mock.calls.length).toBeGreaterThanOrEqual(4);
+      expect(mockNavigate).not.toHaveBeenCalled(); // 没有「用尽」
+      // 2 s 定时重试仍离线 → 第 2 档 5 s；期间网络回来 → 成功，不弹失败
+      await jest.advanceTimersByTimeAsync(2_000);
+      online = true;
+      await jest.advanceTimersByTimeAsync(5_000);
+      expect(
+        await Promise.resolve(mockCancel.mock.results.at(-1)?.value),
+      ).toEqual({});
+      expect(mockNavigate).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(60_000);
       jest.useRealTimers();
     });
 

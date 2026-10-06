@@ -310,14 +310,21 @@ export async function cancelFromNotification(
       `通知取消失败，${delay} ms 后重试（第 ${attempt + 1} 次）`,
       e as Error,
     );
-    const retry = () => {
+    // 定时器到点才算用掉一次机会；回前台触发的那次不计数——否则飞行模式下点「取消」，
+    // 拉起 App 的 inactive → active 过渡会在同一秒内把三次机会全部打光，网络还没回来就弹「失败，请再点一次」
+    //（2026-10-07 iPhone 实测）。按 2 / 5 / 10 s 的节奏等下去，飞行模式一关自然就成了
+    const retry = (advance: boolean) => {
       clearCancelRetry(sosId);
-      void cancelFromNotification(sosId, attempt + 1, deviceId);
+      void cancelFromNotification(
+        sosId,
+        advance ? attempt + 1 : attempt,
+        deviceId,
+      );
     };
     cancelRetries.set(sosId, {
-      timer: setTimeout(retry, delay),
+      timer: setTimeout(() => retry(true), delay),
       sub: AppState.addEventListener("change", (state) => {
-        if (state === "active") retry();
+        if (state === "active") retry(false);
       }),
     });
     return false;

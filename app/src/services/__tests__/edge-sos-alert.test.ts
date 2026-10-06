@@ -217,9 +217,9 @@ describe("通知按钮「取消」的重试收尾", () => {
     appState.fire("active");
     await jest.advanceTimersByTimeAsync(0);
     expect(mockCancel).toHaveBeenCalledTimes(2);
-    await jest.advanceTimersByTimeAsync(2_000); // 原 2 s 定时器已被清，此刻不应再打
+    await jest.advanceTimersByTimeAsync(1_999); // 原 2 s 定时器已被清；前台触发的那次不消耗机会（10-07），所以重排的仍是 2 s
     expect(mockCancel).toHaveBeenCalledTimes(2);
-    await jest.advanceTimersByTimeAsync(3_000); // 第二次失败后排的是 5 s
+    await jest.advanceTimersByTimeAsync(1);
     expect(mockCancel).toHaveBeenCalledTimes(3);
     expect(jest.getTimerCount()).toBe(0);
     expect(appState.active()).toBe(0);
