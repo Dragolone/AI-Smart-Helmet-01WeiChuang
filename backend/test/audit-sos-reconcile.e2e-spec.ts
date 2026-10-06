@@ -213,6 +213,11 @@ describe('审计 SOS-02 启动对账：不该补建的不补建 (e2e)', () => {
   });
 
   it('⑥ 启动对账回看 48 小时：进程倒在落库与建单之间、20 分钟后才起来的摔倒也能补；周期对账仍只看 15 分钟', async () => {
+    // 对账按「事件发生时谁绑着」判定：把这台的绑定时间拨到 30 分钟前，事件才算发生在绑定期间
+    await prisma.deviceBinding.updateMany({
+      where: { deviceId: devOld, userId: owner.id },
+      data: { boundAt: new Date(Date.now() - 30 * 60_000) },
+    });
     const eventId = await orphanFall(
       devOld,
       new Date(Date.now() - 20 * 60_000),
