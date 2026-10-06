@@ -59,6 +59,8 @@ export const applySosEnv = (env: SosEnv): void => {
   if (env.maxAttempts) process.env.SOS_NOTIFY_MAX_ATTEMPTS = env.maxAttempts;
   // 这些套件用手动 tick 逐轮驱动重试，不等真实退避（退避节奏本身在 sos-reliability 套件里测）
   process.env.SOS_NOTIFY_RETRY_DELAYS_SECONDS = '0';
+  // 建单推送的重试节奏由单测钉，e2e 里不重试：否则 app 关闭后定时器醒来会撞上已断开的库
+  process.env.SOS_CREATED_PUSH_RETRY_DELAYS_SECONDS = '';
 };
 
 export async function buildSosApp(

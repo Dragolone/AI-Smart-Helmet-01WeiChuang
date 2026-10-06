@@ -62,6 +62,7 @@ describe('加固：SOS 并发与竞态 (e2e)', () => {
     process.env.SOS_NOTIFY_MAX_ATTEMPTS = '3';
     // 手动 tick 逐轮驱动重试，不等真实退避（退避节奏本身在 sos-reliability 套件里测）
     process.env.SOS_NOTIFY_RETRY_DELAYS_SECONDS = '0';
+    process.env.SOS_CREATED_PUSH_RETRY_DELAYS_SECONDS = '';
     ({ app, http, prisma } = await buildApp((b) =>
       b
         .overrideProvider(SMS_PROVIDER)
