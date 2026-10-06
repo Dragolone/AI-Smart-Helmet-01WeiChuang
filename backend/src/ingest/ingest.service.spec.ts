@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { IngestService } from './ingest.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -234,6 +235,7 @@ describe('validateEnvelope', () => {
 
 describe('IngestService', () => {
   const create = jest.fn();
+  const findUnique = jest.fn();
   const applyEvent = jest.fn();
   const record = jest.fn();
   const pushLocation = jest.fn();
@@ -244,6 +246,7 @@ describe('IngestService', () => {
 
   beforeEach(async () => {
     create.mockReset();
+    findUnique.mockReset().mockResolvedValue(null);
     applyEvent.mockReset().mockResolvedValue(null); // 默认未注册设备：仅 raw 留档
     record.mockReset();
     pushLocation.mockReset();
@@ -255,7 +258,7 @@ describe('IngestService', () => {
         IngestService,
         {
           provide: PrismaService,
-          useValue: { rawEvent: { create } },
+          useValue: { rawEvent: { create, findUnique } },
         },
         { provide: DeviceSnapshotService, useValue: { applyEvent } },
         { provide: LocationRecorderService, useValue: { record } },
@@ -392,6 +395,72 @@ describe('IngestService', () => {
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({ select: { id: true } }),
     );
+  });
+
+  it('重复 eventId 的高危事件、时间戳却相差很远 → 疑似 Event_Seq 回退，记 error（仍按重复丢弃，不建单）', async () => {
+    create.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('duplicate', {
+        code: 'P2002',
+        clientVersion: 'test',
+      }),
+    );
+    // 库里那条是一天前的同 eventId 事件
+    findUnique.mockResolvedValue({
+      timestamp: new Date('2026-08-13T03:00:00Z'),
+    });
+    const errorSpy = jest
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+    const fall = JSON.parse(validMessage) as Record<string, unknown>;
+    fall.eventType = 'possible_fall';
+    await expect(
+      service.ingestRaw(JSON.stringify(fall), 'helmet_001', 'mqtt'),
+    ).resolves.toBe('duplicate');
+    expect(handleTrigger).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('疑似 Event_Seq 回退'),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('1440 分钟'));
+    errorSpy.mockRestore();
+  });
+
+  it('重复 eventId 的高危事件、时间戳一致（真正的补传 / 重传）→ 不告警；位置事件重复连库都不查', async () => {
+    create.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('duplicate', {
+        code: 'P2002',
+        clientVersion: 'test',
+      }),
+    );
+    findUnique.mockResolvedValue({
+      timestamp: new Date('2026-08-14T03:00:00Z'),
+    });
+    const errorSpy = jest
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+    const fall = JSON.parse(validMessage) as Record<string, unknown>;
+    fall.eventType = 'manual_sos';
+    await service.ingestRaw(JSON.stringify(fall), 'helmet_001', 'mqtt');
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(findUnique).toHaveBeenCalledTimes(1);
+    await service.ingestRaw(validMessage, 'helmet_001', 'mqtt'); // location_update
+    expect(findUnique).toHaveBeenCalledTimes(1);
+    expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it('回退检查本身查库失败：不影响 duplicate 结果', async () => {
+    create.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('duplicate', {
+        code: 'P2002',
+        clientVersion: 'test',
+      }),
+    );
+    findUnique.mockRejectedValue(new Error('db down'));
+    const fall = JSON.parse(validMessage) as Record<string, unknown>;
+    fall.eventType = 'possible_fall';
+    await expect(
+      service.ingestRaw(JSON.stringify(fall), 'helmet_001', 'mqtt'),
+    ).resolves.toBe('duplicate');
   });
 
   it('重复 eventId 的 possible_fall：连触发器都不进（幂等在 raw 层拦截）', async () => {

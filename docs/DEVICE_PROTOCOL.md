@@ -40,7 +40,7 @@
 | 服务 / 特征值 | 服务 `FEE0`；A `FEE1` Notify（上行：应答、事件、补传）；B `FEE2` Write / Write Without Response（下行：指令、ACK） |
 | MTU / 字节序 | App 协商 247；单帧 4–25 B 无分帧；多字节小端 |
 | 下行帧 | `[指令码 1B][Seq 1B][参数…]`；应答 `[指令码][Seq][ERROR 1B][数据…]` |
-| 事件帧 | `[0x05][Event_Code 1B][Event_Seq 4B uint32][Timestamp 4B UTC 秒，未校时 0][载荷]`；Event_Seq 掉电保持、永不回绕（开机预分配 +1000） |
+| 事件帧 | `[0x05][Event_Code 1B][Event_Seq 4B uint32][Timestamp 4B UTC 秒，未校时 0][载荷]`；Event_Seq 掉电保持、永不回绕（开机预分配 +1000）——**回退会让新事件被云端当成重复静默丢弃，待固件确认（§10 第 20 条）** |
 | 事件代码 | 0x01 possible_fall(11B) · 0x02 manual_sos(11B) · 0x03 collision_risk(15B) · 0x04 obstacle_risk(15B) · 0x05 risk_cleared(4B) · 0x06 location_update(15B) · 0x07 device_status(2B)——载荷布局见手册 1.4.5 |
 | ACK | 高危四类必 ACK：`[0x06][Event_Code][Event_Seq 4B][0x00]`；1.5 s 无 ACK 重发，3 次后入 Flash 保护队列；位置/心跳周期事件不 ACK |
 | 补传 | `0x07` 查条数 → `0x08 [偏移 2B][条数 1B]` → 逐条以实时事件帧 Notify → 结束帧 `[0x08][Seq][ERROR][实际条数]` → App 逐条 ACK 即擦除；缓存 ≥ 1000 条 / 48 h，高危永不覆盖 |
@@ -187,6 +187,8 @@ ACL 规则：设备 `helmet_001` 只允许 publish `helmet/helmet_001/{status,lo
 
 1. ~~🔴 实时视频预览四项~~ ✅ **已答（2026-09-23）**：热点 `X821cam` / `Aa123456`、IP `192.168.176.1`、`rtsp://192.168.176.1:8554/ch0`、H.264 720p30、RTSP over TCP、无鉴权——定稿见 §1.3。WebRTC 之问未答，先按 RTSP 做 Spike（决策 #37）。
 2. 🔴 **广播主包（ADV_IND）须携带 16-bit 服务 UUID `0xFEE0`**（2026-09-16 iPhone 真机实测：iOS 锁屏/退后台只允许按服务 UUID 过滤的扫描继续投递，否则断连后无法重连、事件堆在 Flash）。31 字节放得下：Flags 3 + UUID 4 + 名字 15。华为上按 FEE0 过滤扫不到 Mac 仿真器，真机到手复测。
+
+20. 🔴 **Event_Seq 在掉电 / 换电池 / 恢复出厂（0x09）后绝不能回退**（2026-10-06 新增，A 线真机复现）。v0.6 写了「掉电保持、开机预分配 +1000」，请确认固件已这样实现，并答复：① 序号存在哪、断电多久内不丢；② 恢复出厂是否也保留序号；③ 预分配的 +1000 在异常掉电时是否足够覆盖未落盘的区间。**后果**：App 的 `eventId` 由 `deviceId + Event_Seq` 派生，云端据此幂等去重——10-06 仿真头盔重启后序号回到旧值，一次新的摔倒被云端判成重复，**不建单、不报错、不通知任何人**。云端已加一道告警（高危事件 eventId 重复但时间相差 5 分钟以上记 error），但那只是出声，救不回那次摔倒。若固件无法保证，需在序号前加「启动纪元」计数，由软件改 eventId 派生规则（Contract 变更）。
 
 **B. v0.6 手册修正与补充（A 线已按字节流实现，等书面确认或 v0.7）**
 

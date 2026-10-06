@@ -11,7 +11,7 @@ import type { ValidEnvelope } from '../ingest/envelope';
 import { PrismaService } from '../prisma/prisma.service';
 import { PUSH_PROVIDER, type PushProvider } from '../providers/push.provider';
 import { RealtimePushService } from '../realtime/realtime-push.service';
-import { SOS_STATUS, countdownMs } from './sos.constants';
+import { SOS_PUSH_CATEGORY, SOS_STATUS, countdownMs } from './sos.constants';
 import { SosNotifierService } from './sos-notifier.service';
 import { toWireSos } from './sos-wire';
 
@@ -188,11 +188,14 @@ export class SosTriggerService {
         const action =
           e.eventType === 'manual_sos' ? '触发手动求救' : '检测到疑似摔倒';
         const age = describeEventAge(e.timestamp);
+        // 类别 "sos"：远程推送上也带 App 注册的「我没事，取消」按钮（App 被杀 / 没连头盔时只有这条推送）；
+        // 时效性：专注模式下照样弹出，否则 60 秒取消窗口会被静默收进通知中心
         await this.push.send(
           userId,
           'SOS 倒计时已开始',
           `头盔 ${e.deviceId} ${action}${age ? `（${age}的事件，刚补传到）` : ''}，未取消将于 ${created.deadline.toISOString()} 通知紧急联系人`,
           { sosId: created.id, deviceId: e.deviceId },
+          { category: SOS_PUSH_CATEGORY, timeSensitive: true },
         );
       } catch (err) {
         this.logger.warn(
