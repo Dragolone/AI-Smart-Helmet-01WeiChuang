@@ -263,11 +263,18 @@ describe("Event_Seq 与时间戳的 uint32 边界", () => {
 
 describe("translateEvent 载荷边界", () => {
   it.each(Object.entries(PAYLOAD_LEN))(
-    "事件码 %s：载荷少 1 字节 → null；多出的尾部字节（固件加字段）不影响翻译",
+    "事件码 %s：载荷少 1 字节 → null（摔倒 / 求救例外：降级上报）；多出的尾部字节（固件加字段）不影响翻译",
     (codeStr, len) => {
       const code = Number(codeStr);
       const exact = new Array<number>(len).fill(1);
-      expect(translate(code, exact.slice(0, len - 1))).toBeNull();
+      const short = translate(code, exact.slice(0, len - 1));
+      if (code === 0x01 || code === 0x02) {
+        // 摔倒 / 求救例外（2026-10-05）：少一截也上云，只是不带位置——App 已 ACK、头盔已擦除，不能丢
+        expect(short?.payload).not.toHaveProperty("location");
+        expect(short?.eventType).toBe(code === 0x01 ? "possible_fall" : "manual_sos");
+      } else {
+        expect(short).toBeNull();
+      }
       const base = translate(code, exact);
       expect(base).not.toBeNull();
       expect(translate(code, [...exact, 0xaa, 0xbb, 0xcc])?.payload).toEqual(base?.payload);
@@ -441,7 +448,11 @@ describe("工程模式描述的边角", () => {
   it("事件帧载荷长度不符：照样给出事件名与序号，载荷按 hex 原样列出", () => {
     const d = describeInbound(eventFrame(0x01, 5, 0, [0x5f, 0x2d]));
     expect(d).toMatchObject({ kind: "event", eventCode: 1, eventSeq: 5, highRisk: true });
-    expect(d.text).toBe("事件 possible_fall seq=5 · 未校时 · 载荷 5f 2d（未翻译：长度不符或无定位）");
+    expect(d.text).toBe(
+      "事件 possible_fall seq=5 · 未校时 · 载荷 5f 2d（长度不足：应为 11 字节，实收 2；App 仍会上报该事件，缺的字段省略）",
+    );
+    // 其他事件载荷不符仍是「未翻译」
+    expect(describeInbound(eventFrame(0x03, 6, 0, [1, 2])).text).toContain("未翻译：长度不符或无定位");
   });
 
   it("parseHexInput：大写 0X 前缀、连写无分隔、混合分隔符都认；空串与纯分隔符拒绝", () => {

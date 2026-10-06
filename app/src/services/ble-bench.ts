@@ -33,6 +33,7 @@ import {
 } from "@/services/ble/protocol";
 import type { InboundResponse } from "@/services/ble/protocol";
 import {
+  bleStackReleased,
   currentBleTargets,
   getBleManager,
   requestBlePermissions,
@@ -93,6 +94,10 @@ export async function startBench(): Promise<void> {
     info("蓝牙权限被拒，去系统设置打开后重进本页", "error");
     return;
   }
+  // 生产链路的 BleManager 销毁是异步的：等它完成再建新的，否则拿回的是正在销毁的那个实例
+  // （iOS 上权限函数同步返回，必现：页面扫不到设备，退出后生产链路也起不来）
+  await bleStackReleased();
+  if (!active) return;
   const mgr = getBleManager();
   stateSub?.remove();
   stateSub = mgr.onStateChange((s) => {
@@ -178,7 +183,11 @@ function onDisconnected(reason: string): void {
 }
 
 export async function connectTo(id: string): Promise<void> {
-  if (!active || store().phase === "connecting" || store().phase === "connected")
+  if (
+    !active ||
+    store().phase === "connecting" ||
+    store().phase === "connected"
+  )
     return;
   stopScan();
   const name = store().peripherals[id]?.name ?? id;
@@ -190,6 +199,11 @@ export async function connectTo(id: string): Promise<void> {
       requestMTU: REQUEST_MTU,
       timeout: 10_000,
     });
+    // 连接途中页面已退出：这条连接没人管了，放着会继续收帧并对高危事件自动 ACK（头盔擦除、不上云）
+    if (!active) {
+      void d.cancelConnection().catch(() => undefined);
+      return;
+    }
     device = d;
     disconnectSub = d.onDisconnected(() => onDisconnected("对端断开或超时"));
     if (Platform.OS === "android") {
@@ -213,6 +227,10 @@ export async function connectTo(id: string): Promise<void> {
           read: c.isReadable,
         })),
       });
+    }
+    if (!active) {
+      await disconnect();
+      return;
     }
     const helmet = services.find((s) => s.uuid === SERVICE_UUID);
     const notifyOk =
@@ -330,7 +348,11 @@ function onFrame(bytes: Uint8Array): void {
     text: d.text,
     tone: d.kind === "event" ? "event" : "error",
   });
-  if (d.kind !== "event" || d.eventCode === undefined || d.eventSeq === undefined)
+  if (
+    d.kind !== "event" ||
+    d.eventCode === undefined ||
+    d.eventSeq === undefined
+  )
     return;
   store().patch({ lastEvent: { code: d.eventCode, seq: d.eventSeq } });
   if (d.highRisk && store().autoAck) {
@@ -411,7 +433,11 @@ function hasWriteNoResp(): boolean {
     : false;
 }
 
-async function sendAck(code: number, eventSeq: number, how: string): Promise<void> {
+async function sendAck(
+  code: number,
+  eventSeq: number,
+  how: string,
+): Promise<void> {
   const frame = buildAck(code, eventSeq);
   const d = device;
   if (!d) return;
@@ -462,14 +488,21 @@ export async function ackLastEvent(): Promise<void> {
 
 export const setAutoAck = (on: boolean) => {
   store().patch({ autoAck: on });
-  info(on ? "自动 ACK 已打开" : "自动 ACK 已关闭：高危事件不再回 ACK，可验头盔 1.5 s 重发 ×3 后入 Flash");
+  info(
+    on
+      ? "自动 ACK 已打开"
+      : "自动 ACK 已关闭：高危事件不再回 ACK，可验头盔 1.5 s 重发 ×3 后入 Flash",
+  );
 };
 
 /** 自定义帧：hex 文本 → 发送；返回 false = 输入非法 */
 export async function sendHex(input: string): Promise<boolean> {
   const bytes = parseHexInput(input);
   if (!bytes) {
-    info("自定义帧格式不对：至少 2 字节，十六进制成对，如 03 07 24 32", "error");
+    info(
+      "自定义帧格式不对：至少 2 字节，十六进制成对，如 03 07 24 32",
+      "error",
+    );
     return false;
   }
   const isAck = bytes[0] === Ins.ACK;

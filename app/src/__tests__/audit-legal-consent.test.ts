@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "@jest/globals";
 
 import {
+  consentModalVisible,
   LEGAL_DOCS,
   legalOrigin,
   legalUrl,
@@ -100,5 +101,66 @@ describe("两份清单入口（LAUNCH_CHECKLIST A-6）", () => {
     const dict = read("i18n/messages/legal.ts");
     expect(dict.match(/"legal\.collection\.title"/g)).toHaveLength(3);
     expect(dict.match(/"legal\.sharing\.title"/g)).toHaveLength(3);
+  });
+});
+
+describe("协议页在同意之前必须读得到（2026-10-05 评审）", () => {
+  const layout = read("app/_layout.tsx");
+  /** 截出某个 `<Stack.Protected guard={...}>` 块的源码 */
+  const protectedBlock = (guard: string): string => {
+    const open = layout.indexOf(`<Stack.Protected guard={${guard}}>`);
+    expect(open).toBeGreaterThanOrEqual(0);
+    const close = layout.indexOf("</Stack.Protected>", open);
+    return layout.slice(open, close);
+  };
+
+  it("legal/[doc] 不在任何登录门控组里：未登录时登录页 / 注册页的链接点了要能打开", () => {
+    // expo-router 把 guard 为 false 的组内 screen 整个剔出导航器，push 过去没有任何反应——
+    // 用户只能在读不到正文的情况下勾「已阅读并同意」
+    expect(layout).toContain('name="legal/[doc]"');
+    expect(protectedBlock("authed")).not.toContain("legal/[doc]");
+    expect(protectedBlock("!authed")).not.toContain("legal/[doc]");
+  });
+
+  it("登录页也有两份文档的入口", () => {
+    const login = read("app/(auth)/login.tsx");
+    expect(login).toContain('router.push("/legal/terms")');
+    expect(login).toContain('router.push("/legal/privacy")');
+  });
+
+  const base = { authed: true, hydrated: true, accepted: false };
+
+  it("升级用户的同意弹窗：已登录、标记读完、未同意时显示", () => {
+    expect(consentModalVisible({ ...base, pathname: "/" })).toBe(true);
+    expect(consentModalVisible({ ...base, pathname: "/safety" })).toBe(true);
+    expect(consentModalVisible({ ...base, authed: false, pathname: "/" })).toBe(
+      false,
+    );
+    expect(
+      consentModalVisible({ ...base, hydrated: false, pathname: "/" }),
+    ).toBe(false);
+    expect(
+      consentModalVisible({ ...base, accepted: true, pathname: "/" }),
+    ).toBe(false);
+  });
+
+  it("弹窗在协议页上让路：它自己的链接打开的正文不能被它盖住", () => {
+    for (const doc of LEGAL_DOCS) {
+      expect(consentModalVisible({ ...base, pathname: `/legal/${doc}` })).toBe(
+        false,
+      );
+    }
+  });
+
+  it("弹窗在倒计时页上让路：「我没事」不能被一张同意卡片挡住", () => {
+    expect(consentModalVisible({ ...base, pathname: "/sos-active" })).toBe(
+      false,
+    );
+  });
+
+  it("弹窗组件用的就是这条规则，且让路时不卸载勾选状态所在的组件", () => {
+    const modal = read("components/privacy-consent-modal.tsx");
+    expect(modal).toContain("consentModalVisible({");
+    expect(modal).toContain("usePathname()");
   });
 });

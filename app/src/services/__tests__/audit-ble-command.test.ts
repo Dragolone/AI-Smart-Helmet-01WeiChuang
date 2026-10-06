@@ -61,7 +61,7 @@ describe('头盔未连接（真机蓝牙可用但头盔不在身边）', () => {
     const { relay, ack } = load('on');
     expect(await relay.handleDeviceCommand(cmd('cmd-nolink'))).toBe(false);
     expect(ack).not.toHaveBeenCalled();
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('cmd-nolink 未送达'));
+    expect(logSpy).toHaveBeenCalledWith('[BLE-RELAY]', expect.stringContaining('cmd-nolink 未送达'));
   });
 
   it('未送达的命令不占用去重集：服务端补推同一命令时会再次尝试（BLE-10 已收口）', async () => {
@@ -69,7 +69,7 @@ describe('头盔未连接（真机蓝牙可用但头盔不在身边）', () => {
     await relay.handleDeviceCommand(cmd('cmd-again'));
     await relay.handleDeviceCommand(cmd('cmd-again'));
     expect(ack).not.toHaveBeenCalled();
-    expect(logSpy.mock.calls.filter((c: unknown[]) => String(c[0]).includes('cmd-again 未送达'))).toHaveLength(2);
+    expect(logSpy.mock.calls.filter((c: unknown[]) => c.map(String).join(' ').includes('cmd-again 未送达'))).toHaveLength(2);
   });
 });
 

@@ -4,7 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import type React from "react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Modal,
@@ -24,6 +24,8 @@ import ReAnimated, {
 import { devicesApi } from "@/api/devices";
 import { showToast } from "@/components/toast";
 import { helmetErrorText, toUserMessage } from "@/api/error-messages";
+import { devLog } from "@/services/dev-log";
+import type { DevicePublic } from "@helmet/shared";
 import { Badge } from "@/components/badge";
 import { BleOnboardingCard } from "@/components/ble-onboarding";
 import { DeviceSettingList } from "@/components/device-settings";
@@ -206,10 +208,31 @@ export default function DeviceDetailScreen() {
         (bleLink?.phase === "connected" && bleLink.firmwareVersion
           ? ` · v${bleLink.firmwareVersion}`
           : "");
-  const revealBindCode = () => {
-    setBindCodeShown(true);
-    setTimeout(() => setBindCodeShown(false), 10_000);
+  // 绑定码显示 10 秒后自动收起。定时器要记下来：手动收起再点开时，上一次的定时器还在走，
+  // 会在不到 10 秒的时候把刚点开的码收掉（B 线 10-05 指出）
+  const bindCodeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearBindCodeTimer = () => {
+    if (bindCodeTimer.current) clearTimeout(bindCodeTimer.current);
+    bindCodeTimer.current = null;
   };
+  const hideBindCode = () => {
+    clearBindCodeTimer();
+    setBindCodeShown(false);
+  };
+  const revealBindCode = () => {
+    clearBindCodeTimer();
+    setBindCodeShown(true);
+    bindCodeTimer.current = setTimeout(() => {
+      bindCodeTimer.current = null;
+      setBindCodeShown(false);
+    }, 10_000);
+  };
+  useEffect(
+    () => () => {
+      if (bindCodeTimer.current) clearTimeout(bindCodeTimer.current);
+    },
+    [],
+  );
 
   const serverVolume =
     typeof settings.data?.settings.volume === "number"
@@ -382,16 +405,25 @@ export default function DeviceDetailScreen() {
         style: "destructive",
         onPress: () => {
           setUnbinding(true);
+          devLog("DEVICE", "解绑：发请求");
           devicesApi
             .unbind(deviceId)
-            .then(async () => {
-              await queryClient.invalidateQueries({ queryKey: ["devices"] });
+            .then(() => {
+              devLog("DEVICE", "解绑：服务端成功，返回");
+              // 服务端一确认就收尾，不等列表重新拉取（2026-10-06 iPhone 实测：等待期间页面不动，
+              // 还能再点一次解绑，得到「设备不存在」）。先把这台从列表缓存里拿掉，再后台刷新。
+              queryClient.setQueryData<DevicePublic[]>(["devices"], (prev) =>
+                prev?.filter((d) => d.deviceId !== deviceId),
+              );
+              void queryClient.invalidateQueries({ queryKey: ["devices"] });
+              showToast(t("device.unbindDone"));
               router.back();
+              // unbinding 不复位：页面正在关闭，按钮保持不可点
             })
-            .catch((e) =>
-              Alert.alert(t("device.unbindFailed"), toUserMessage(e)),
-            )
-            .finally(() => setUnbinding(false));
+            .catch((e) => {
+              setUnbinding(false);
+              Alert.alert(t("device.unbindFailed"), toUserMessage(e));
+            });
         },
       },
     ]);
@@ -624,9 +656,7 @@ export default function DeviceDetailScreen() {
                 bindCodeShown ? (detail.data?.bindCode ?? "—") : "••••••••"
               }
               valueColor={bindCodeShown ? undefined : theme.textSecondary}
-              onPress={
-                bindCodeShown ? () => setBindCodeShown(false) : revealBindCode
-              }
+              onPress={bindCodeShown ? hideBindCode : revealBindCode}
             />
           </DeviceInfoSection>
         )}

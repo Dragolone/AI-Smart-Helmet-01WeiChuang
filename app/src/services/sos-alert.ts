@@ -10,6 +10,7 @@ import { AppState, Platform } from "react-native";
 import { sosApi } from "@/api/sos";
 import { translate } from "@/i18n";
 import { devLog } from "@/services/dev-log";
+import { presentedSos } from "@/services/sos-sync";
 
 const CHANNEL_ID = "sos";
 const CATEGORY_ID = "sos";
@@ -18,18 +19,32 @@ const ACTION_OPEN = "open";
 /** 剩余多少秒时再静默刷新一次通知正文（同一 identifier 原位替换，不再响铃） */
 const REFRESH_AT = [30, 10] as const;
 
-let permissionAsked = false;
+/** 初始化只做一次；并发 / 重复调用拿到同一个 Promise（调用方要等它结束再去要别的权限） */
+let permissionReady: Promise<void> | null = null;
 /**
  * 每一单各自的通知：sosId → 已投 / 待触发的通知 id。原来只有一个槽位，第二单会把第一单顶掉，
  * 第一单结束时 clear 找不到它，通知永远留在锁屏上（10-03 评审疑点 2）。
  */
-const alerts = new Map<string, { ids: string[] }>();
+const alerts = new Map<
+  string,
+  { ids: string[]; timers: ReturnType<typeof setTimeout>[] }
+>();
 let responseSub: Notifications.EventSubscription | null = null;
+/** 通知按钮「取消」被服务端确认后回调（use-realtime 注册：让倒计时页立刻拉一次权威状态） */
+let onCancelConfirmed: ((sosId: string) => void) | null = null;
+export function setSosCancelConfirmedListener(
+  listener: ((sosId: string) => void) | null,
+): void {
+  onCancelConfirmed = listener;
+}
 
 /** 登录后调用一次：申请通知权限、建 Android 高优先级通道、注册通知动作（拒绝也不阻塞链路） */
-export async function ensureSosAlertPermission(): Promise<void> {
-  if (permissionAsked) return;
-  permissionAsked = true;
+export function ensureSosAlertPermission(): Promise<void> {
+  permissionReady ??= initSosAlert();
+  return permissionReady;
+}
+
+async function initSosAlert(): Promise<void> {
   installPresentationPolicy();
   try {
     if (Platform.OS === "android") {
@@ -110,27 +125,112 @@ function installPresentationPolicy(): void {
   }
 }
 
+/**
+ * 冷启动那次点击既从 getLastNotificationResponse 取到，也可能稍后再由监听送来一遍（平台 / 版本不一）：
+ * 记下它，几秒内监听送来同一条就跳过一次。不能做成「处理过的永久去重」——取消失败、通知还留在锁屏上时，
+ * 用户再点一次「取消」是同一条通知的同一个动作，必须照常处理。
+ */
+const LAUNCH_REPLAY_WINDOW_MS = 5_000;
+let launchReplay: { key: string; at: number } | null = null;
+const responseKey = (r: Notifications.NotificationResponse): string =>
+  `${r.notification?.request?.identifier}|${r.actionIdentifier}|${r.notification?.date}`;
+
+function handleResponse(response: Notifications.NotificationResponse): void {
+  const replay = launchReplay;
+  if (replay && responseKey(response) === replay.key) {
+    launchReplay = null;
+    if (Date.now() - replay.at < LAUNCH_REPLAY_WINDOW_MS) return;
+  }
+  dispatchResponse(response);
+}
+
+type SosRef = { sosId: string; deviceId?: string; remote: boolean };
+
+/**
+ * 通知指的是哪一单。本地通知的 sosId 在 content.data；极光远程推送的在 trigger.payload
+ * （content.data 是给 Expo 推送服务用的，极光的自定义字段不在那）。
+ */
+function sosRefOf(
+  n: Notifications.Notification | null | undefined,
+): SosRef | null {
+  const request = n?.request;
+  const data = request?.content?.data as
+    { sosId?: unknown; deviceId?: unknown } | null | undefined;
+  if (typeof data?.sosId === "string" && data.sosId) {
+    return {
+      sosId: data.sosId,
+      deviceId: typeof data.deviceId === "string" ? data.deviceId : undefined,
+      remote: false,
+    };
+  }
+  const trigger = request?.trigger as
+    { type?: string; payload?: Record<string, unknown> } | null | undefined;
+  const payload = trigger?.type === "push" ? trigger.payload : undefined;
+  if (typeof payload?.sosId === "string" && payload.sosId) {
+    return {
+      sosId: payload.sosId,
+      deviceId:
+        typeof payload.deviceId === "string" ? payload.deviceId : undefined,
+      remote: true,
+    };
+  }
+  return null;
+}
+
+function dispatchResponse(response: Notifications.NotificationResponse): void {
+  const ref = sosRefOf(response?.notification);
+  if (!ref) return;
+  // 远程推送上的普通点击由 push.ts 落地（极光自己有「被点开」事件）；这里只接它的「取消」按钮——
+  // 服务端给推送带上同一个通知类别之后，被杀状态下那条推送也有按钮（2026-10-06 iPhone 实测：
+  // 两条通知叠在一起，长按到的是没有按钮的远程推送）
+  if (ref.remote && response.actionIdentifier !== ACTION_CANCEL) return;
+  const sosId = ref.sosId;
+  if (response.actionIdentifier === ACTION_CANCEL) {
+    devLog("SOS-ALERT", "通知按钮取消", sosId);
+    // 只有服务端确认取消才撤通知（cancelFromNotification 内部做，重试成功也算）；
+    // 失败时通知留在锁屏上，用户能看到「还在倒计时」并再点一次
+    void cancelFromNotification(sosId);
+    return;
+  }
+  if (!ref.deviceId) return;
+  // navigate 而不是 push：倒计时页多半已在栈上，push 会叠两页；登记后 WS / 补拉也不再重复拉起
+  presentedSos.current.add(sosId);
+  router.navigate(
+    `/sos-active?sosId=${sosId}&deviceId=${ref.deviceId}` as never,
+  );
+}
+
+/**
+ * 进程被杀后点锁屏通知（包括「取消」按钮）拉起 App：那次点击在 JS 监听挂上之前就送达了，
+ * 监听不会回放，只能从 getLastNotificationResponse 取。PUSH-03 只取回了远程推送那一类；
+ * 本地 SOS 通知的不取回，「取消」就成了按了却没生效的键——60 s 后照样通知联系人（2026-10-05 评审）。
+ * 远程推送的 content.data 里没有 sosId（极光的自定义字段在 trigger.payload），留给 push.ts。
+ */
+function consumeLaunchResponse(): void {
+  try {
+    const last = Notifications.getLastNotificationResponse();
+    const ref = sosRefOf(last?.notification);
+    if (!last || !ref) return;
+    if (ref.remote) {
+      // 远程推送：只接「取消」按钮；不清——落地跳转仍归 push.ts（它读的是同一条）
+      if (last.actionIdentifier !== ACTION_CANCEL) return;
+      devLog("SOS-ALERT", "冷启动：由远程推送的取消按钮拉起");
+    } else {
+      devLog("SOS-ALERT", "冷启动：由本地通知拉起", last.actionIdentifier);
+      Notifications.clearLastNotificationResponse();
+    }
+    launchReplay = { key: responseKey(last), at: Date.now() };
+    dispatchResponse(last);
+  } catch (e) {
+    devLog("SOS-ALERT", "读取启动通知失败", e as Error);
+  }
+}
+
 function installResponseHandler(): void {
   if (responseSub) return;
-  responseSub = Notifications.addNotificationResponseReceivedListener(
-    (response) => {
-      const data = response.notification.request.content.data as {
-        sosId?: string;
-        deviceId?: string;
-      };
-      if (!data?.sosId) return;
-      if (response.actionIdentifier === ACTION_CANCEL) {
-        const sosId = data.sosId;
-        devLog("SOS-ALERT", "通知按钮取消", sosId);
-        // 只有服务端确认取消才撤通知；失败时通知留在锁屏上，用户能看到「还在倒计时」并再点一次
-        void cancelFromNotification(sosId).then((ok) => {
-          if (ok) void clearSosAlert(sosId);
-        });
-        return;
-      }
-      router.push(`/sos-active?sosId=${data.sosId}&deviceId=${data.deviceId}`);
-    },
-  );
+  responseSub =
+    Notifications.addNotificationResponseReceivedListener(handleResponse);
+  consumeLaunchResponse();
 }
 
 /** 失败后的重试节奏：请求被挂起中断多半几秒内就能恢复，三次之后放弃（通知仍留在锁屏上） */
@@ -155,12 +255,23 @@ export async function cancelFromNotification(
   attempt = 0,
 ): Promise<boolean> {
   clearCancelRetry();
+  // 成功的收尾放在这里而不是调用方的 .then：重试成功时调用方早就拿着第一次的 false 走了，
+  // 通知会一直留在锁屏上、预排的「还剩 30 秒」照常弹（2026-10-05 评审）
+  const settled = (): true => {
+    void clearSosAlert(sosId);
+    try {
+      onCancelConfirmed?.(sosId);
+    } catch (e) {
+      devLog("SOS-ALERT", "取消确认回调抛错", e as Error);
+    }
+    return true;
+  };
   try {
     await sosApi.cancel(sosId);
-    return true;
+    return settled();
   } catch (e) {
     const code = (e as { code?: string }).code;
-    if (code === "SOS_ALREADY_FINALIZED") return true;
+    if (code === "SOS_ALREADY_FINALIZED") return settled();
     const delay = CANCEL_RETRY_DELAYS_MS[attempt];
     if (delay === undefined) {
       devLog("SOS-ALERT", "通知取消重试用尽，通知保留在锁屏", e as Error);
@@ -183,11 +294,16 @@ export async function cancelFromNotification(
   }
 }
 
-/** 通知权限是否被拒：被拒时锁屏上的 SOS 提醒一条都发不出，安全页要明确告诉用户（REGRESSION 8.2） */
+/**
+ * 通知权限是否被拒：被拒时锁屏上的 SOS 提醒一条都发不出，安全页要明确告诉用户（REGRESSION 8.2）。
+ * 「还没问过」不算被拒——新用户首次登录时系统授权框还没弹完，安全页就先查到 undetermined，
+ * 原来 `!granted` 会立刻弹「通知权限已关闭」并和系统框叠在一起（2026-10-05 评审）。
+ */
 export async function isSosAlertPermissionDenied(): Promise<boolean> {
   try {
     const p = await Notifications.getPermissionsAsync();
-    return !p.granted;
+    if (p.granted) return false;
+    return (p as { status?: string }).status !== "undetermined";
   } catch {
     return false; // 查不到权限状态时不吓唬用户
   }
@@ -208,7 +324,10 @@ export async function showSosAlertIfBackground(
 ): Promise<void> {
   if (AppState.currentState === "active") return;
   if (alerts.has(sosId)) return;
-  const entry = { ids: [] as string[] };
+  const entry = {
+    ids: [] as string[],
+    timers: [] as ReturnType<typeof setTimeout>[],
+  };
   alerts.set(sosId, entry);
   // 排通知要 await 好几次：期间若这单已被取消（clearSosAlert 把它从表里摘掉），
   // 后面的一条都不能再排，刚排上的也要撤——否则会留下一条「还剩 30 秒」的孤儿提醒（疑点 4）
@@ -226,7 +345,6 @@ export async function showSosAlertIfBackground(
     priority: Notifications.AndroidNotificationPriority.MAX,
     categoryIdentifier: CATEGORY_ID,
     data: { sosId, deviceId },
-    ...(Platform.OS === "android" ? { channelId: CHANNEL_ID } : {}),
   });
   /** 排一条；排完发现这单已被清掉就立刻撤回，返回是否还该继续 */
   const schedule = async (
@@ -241,11 +359,21 @@ export async function showSosAlertIfBackground(
   };
   try {
     const baseId = `sos-${sosId}`;
+    // 同一单的远程推送「倒计时已开始」没有按钮，和本地通知叠成一摞时用户长按到的常常是它
+    // （2026-10-06 iPhone 实测）。本地这条内容更全、带按钮，弹出后把那条远程的撤掉；
+    // 远程推送可能晚到，JS 醒着的话隔几秒再扫两遍
+    const sweep = () => {
+      if (alive()) void dismissRemoteTwins(sosId);
+    };
+    entry.timers.push(setTimeout(sweep, 3_000), setTimeout(sweep, 10_000));
     if (
       !(await schedule(baseId, {
         identifier: baseId,
         content: content(total, true),
-        trigger: null,
+        // Android 的通道只从 trigger 里读（content.channelId 原生侧根本不看）：trigger 传 null 时
+        // 这条唯一响铃的通知落在 expo 的兜底通道 Miscellaneous，用户给「SOS」通道开的勿扰例外、
+        // 铃声都作用不到它（2026-10-05 评审，expo-notifications BaseNotificationBuilder.kt）
+        trigger: Platform.OS === "android" ? { channelId: CHANNEL_ID } : null,
       }))
     )
       return;
@@ -270,9 +398,24 @@ export async function showSosAlertIfBackground(
       )
         return;
     }
+    sweep();
     devLog("SOS-ALERT", `锁屏通知已弹 ${sosId} 剩余 ${total ?? "?"}s`);
   } catch (e) {
     devLog("SOS-ALERT", "本地通知失败", e as Error);
+  }
+}
+
+/** 撤掉通知中心里同一单的远程推送（只在 iOS 上查得到；Android 的极光通知不经 expo，查不到也撤不了） */
+async function dismissRemoteTwins(sosId: string): Promise<void> {
+  try {
+    const shown = await Notifications.getPresentedNotificationsAsync();
+    for (const n of shown) {
+      const ref = sosRefOf(n);
+      if (ref?.remote && ref.sosId === sosId)
+        await Notifications.dismissNotificationAsync(n.request.identifier);
+    }
+  } catch (e) {
+    devLog("SOS-ALERT", "清理重复的远程通知失败", e as Error);
   }
 }
 
@@ -294,5 +437,12 @@ export async function clearSosAlert(sosId: string): Promise<void> {
   const entry = alerts.get(sosId);
   if (!entry) return;
   alerts.delete(sosId); // 先摘表：还在排通知的 show 循环看到后会自己停下并撤回
+  for (const t of entry.timers) clearTimeout(t);
   for (const id of [...entry.ids]) await removeNotification(id);
+}
+
+/** 登出：上一个账号的 SOS 提醒不该留在这台手机上（留着也取消不了——没有 token，重试只会静默用尽） */
+export async function resetSosAlerts(): Promise<void> {
+  clearCancelRetry();
+  for (const sosId of [...alerts.keys()]) await clearSosAlert(sosId);
 }

@@ -16,11 +16,9 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { showToast } from "@/components/toast";
 import { useT } from "@/i18n";
-import { useAuthStore } from "@/stores/auth-store";
 
 export default function ChangePasswordScreen() {
   const t = useT();
-  const tokens = useAuthStore((s) => s.tokens);
   const [oldPassword, setOldPassword] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -47,11 +45,8 @@ export default function ChangePasswordScreen() {
     }
     setBusy(true);
     try {
-      await authApi.changePassword({
-        oldPassword,
-        newPassword: password,
-        refreshToken: tokens?.refreshToken ?? "",
-      });
+      // 本机的 refreshToken 由 authApi 在发请求时现取（401 重试时要带轮换后的那把）
+      await authApi.changePassword({ oldPassword, newPassword: password });
       showToast(t("auth.changePasswordDone"));
       router.back();
     } catch (e) {

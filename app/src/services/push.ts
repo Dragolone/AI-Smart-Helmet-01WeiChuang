@@ -14,6 +14,7 @@ import type { Sos } from "@helmet/shared";
 
 import { sosApi } from "@/api/sos";
 import { devLog } from "@/services/dev-log";
+import { presentedSos } from "@/services/sos-sync";
 import { useConsentStore } from "@/stores/consent-store";
 // 直接读 app.json 而不是 expo-constants：dev-client 下 Constants.expoConfig.extra 在 iPhone 上实测为空
 // （2026-09-24 00:07 真机日志「未配置 extra.jpush.appKey」），构建期常量没必要绕运行时 manifest 一圈
@@ -64,7 +65,7 @@ let sequence = 0;
  */
 const ALIAS_RETRY_DELAYS_MS = [3_000, 10_000, 30_000, 60_000] as const;
 const ALIAS_VERIFY_DELAY_MS = 2_000;
-type AliasOp = { kind: "set" | "query"; userId: string };
+type AliasOp = { kind: "set" | "query"; userId: string } | { kind: "delete" };
 const aliasOps = new Map<number, AliasOp>();
 let aliasAttempt = 0;
 let aliasTimer: ReturnType<typeof setTimeout> | null = null;
@@ -72,6 +73,44 @@ let aliasTimer: ReturnType<typeof setTimeout> | null = null;
 function clearAliasTimer(): void {
   if (aliasTimer) clearTimeout(aliasTimer);
   aliasTimer = null;
+}
+
+/**
+ * 登出解绑同样要等结果（2026-10-05 评审）：断网时退出登录、或刚 setAlias 就被动登出时 deleteAlias
+ * 会被极光拒绝（限频 / 超时），原来发一次就不管——这台已登出的手机会继续收到原账号的 SOS 推送。
+ * 失败按同一组退避重发，期间有人登录（currentAlias 不再是 null）就作罢：新账号的 setAlias 会覆盖它。
+ * 成功后不再 queryAlias 确认：别名不存在时 iOS 桥接层可能拿到 nil（RCTJPushModule.m 未判空），不去碰。
+ */
+let deleteAttempt = 0;
+function sendDeleteAlias(sdk: JPushStatic): void {
+  sequence += 1;
+  aliasOps.set(sequence, { kind: "delete" });
+  sdk.deleteAlias({ sequence });
+  devLog("PUSH", "deleteAlias");
+}
+
+function onDeleteResult(sdk: JPushStatic, code: number): void {
+  if (currentAlias !== null) return; // 已有新账号登录，它的 setAlias 说了算
+  if (code === 0) {
+    deleteAttempt = 0;
+    devLog("PUSH", "别名已解绑");
+    return;
+  }
+  const delay = ALIAS_RETRY_DELAYS_MS[deleteAttempt];
+  if (delay === undefined) {
+    devLog("PUSH", `别名解绑放弃（code=${code}），下次登录会被新别名覆盖`);
+    return;
+  }
+  deleteAttempt += 1;
+  devLog(
+    "PUSH",
+    `别名解绑失败（code=${code}），${delay} ms 后重试（第 ${deleteAttempt} 次）`,
+  );
+  clearAliasTimer();
+  aliasTimer = setTimeout(() => {
+    aliasTimer = null;
+    if (currentAlias === null) sendDeleteAlias(sdk);
+  }, delay);
 }
 
 function sendSetAlias(sdk: JPushStatic, userId: string): void {
@@ -99,7 +138,7 @@ function retrySetAlias(sdk: JPushStatic, userId: string, why: string): void {
   }, delay);
 }
 
-/** 极光的 tag/alias 结果回调：只处理「当前登录用户」的 set / query，其他（已登出、旧 sequence）一律忽略 */
+/** 极光的 tag/alias 结果回调：只处理「当前登录用户」的 set / query 与登出后的 delete，其他（旧 sequence）一律忽略 */
 function onAliasResult(
   sdk: JPushStatic,
   result: { code: number; sequence: number; alias?: string },
@@ -107,6 +146,10 @@ function onAliasResult(
   const op = aliasOps.get(result.sequence);
   if (!op) return;
   aliasOps.delete(result.sequence);
+  if (op.kind === "delete") {
+    onDeleteResult(sdk, result.code);
+    return;
+  }
   if (op.userId !== currentAlias) return;
   if (result.code !== 0) {
     retrySetAlias(sdk, op.userId, `${op.kind} code=${result.code}`);
@@ -138,21 +181,29 @@ function onAliasResult(
  */
 export async function landFromPush(extras: PushExtras): Promise<string | null> {
   const { sosId, deviceId } = extras;
-  if (!sosId) return null;
-  let active: Sos | null = null;
-  if (deviceId) {
+  if (typeof sosId !== "string" || !sosId) return null;
+  // 「请求失败」≠「服务端说没有进行中的单」（2026-10-05 评审）：用户点的是「倒计时已开始」那条推送，
+  // 刚唤醒的网络第一下常常不通，这时最可能的真实状态恰恰是 pending。原来两种情况都落事故详情，
+  // 而详情页没有取消键。查不到就进倒计时页——它自己会拉权威状态，已结束的单会显示结束态。
+  let countdown = false;
+  if (typeof deviceId === "string" && deviceId) {
     try {
-      active = (await sosApi.active(deviceId)).sos;
+      const active: Sos | null = (await sosApi.active(deviceId)).sos;
+      countdown =
+        active !== null &&
+        active !== undefined &&
+        active.status === "pending" &&
+        active.sosId === sosId;
     } catch {
-      // 查不到就按已结束处理，进详情页也能看到状态
+      countdown = true;
     }
   }
-  const target =
-    active && active.status === "pending" && active.sosId === sosId
-      ? `/sos-active?sosId=${sosId}&deviceId=${deviceId}`
-      : `/accident/${sosId}`;
+  const target = countdown
+    ? `/sos-active?sosId=${sosId}&deviceId=${deviceId}`
+    : `/accident/${sosId}`;
   // navigate 而不是 push：后台收到 WS 时倒计时页多半已经在栈上了（12:07 华为实测），
-  // 再 push 一份会叠两页倒计时；navigate 对同一路由只聚焦不新建
+  // 再 push 一份会叠两页倒计时；navigate 对同一路由只聚焦不新建。登记后 WS / 补拉也不再重复拉起
+  if (countdown) presentedSos.current.add(sosId);
   router.navigate(target as never);
   return target;
 }
@@ -179,6 +230,19 @@ export function extrasFromLaunchResponse(
   };
 }
 
+/**
+ * 远程 SOS 推送「到达」（不是被点开）时的回调，由 use-realtime 注册成一次补拉。
+ * App 在前台时系统横幅被前台策略压掉（倒计时页该自己出现），而倒计时页只由 WS 或补拉拉起——
+ * WS 正在退避重连、或半开假死时，前台用户整整 60 秒什么都看不到（2026-10-05 评审）。
+ * 推送到了就说明服务端有单，以 /sos/active 为准补拉一次，不依赖 WS。
+ */
+let arrivalHandler: ((extras: PushExtras) => void) | null = null;
+export function setPushArrivalHandler(
+  handler: ((extras: PushExtras) => void) | null,
+): void {
+  arrivalHandler = handler;
+}
+
 let launchResponseHandled = false;
 function landFromLaunchResponse(): void {
   if (launchResponseHandled) return;
@@ -203,8 +267,20 @@ function installListener(sdk: JPushStatic): void {
   // 必须先挂监听再 init：Android 被杀状态下点通知启动 App，init() 里会把缓存的那次点击立刻回放
   sdk.addNotificationListener((result) => {
     if (result.notificationEventType !== "notificationOpened") {
-      // 到达只留痕不动作：真机回归 4.6 要靠这行确认远程推送在前台也送到了
+      // 这行日志别删：真机回归 4.6 靠它确认远程推送在前台也送到了
       devLog("PUSH", "通知到达", result.extras);
+      const extras = (result.extras ?? {}) as PushExtras;
+      if (
+        result.notificationEventType === "notificationArrived" &&
+        typeof extras.sosId === "string" &&
+        extras.sosId
+      ) {
+        try {
+          arrivalHandler?.(extras);
+        } catch (e) {
+          devLog("PUSH", "到达回调抛错", e as Error);
+        }
+      }
       return;
     }
     devLog("PUSH", "通知被点开", result.extras);
@@ -292,9 +368,8 @@ export function stopPush(): void {
   aliasOps.clear();
   const sdk = loadJPush();
   if (!sdk) return;
-  sequence += 1;
-  sdk.deleteAlias({ sequence });
-  devLog("PUSH", "deleteAlias");
+  deleteAttempt = 0;
+  sendDeleteAlias(sdk);
 }
 
 /** 仅测试用：还原模块级状态 */
@@ -307,6 +382,8 @@ export function __resetPushForTests(): void {
   clearAliasTimer();
   aliasOps.clear();
   aliasAttempt = 0;
+  deleteAttempt = 0;
+  arrivalHandler = null;
   currentAlias = null;
   sequence = 0;
   jpush = undefined;

@@ -210,7 +210,7 @@ export interface LocationSummaryResponse {
 
 // —— §6 事件查询（已实现） ——
 
-/** 事件详情里的关联媒体（§9 媒体模块落地前恒为空数组） */
+/** 事件详情里的关联媒体（§9；该事件没有关联媒体时为空数组） */
 export interface MediaRef {
   mediaId: string;
   status: string;
@@ -525,7 +525,7 @@ export interface AdminEventRow extends EventListItem {
 
 /** GET /admin/devices/{id}：设备详情 + 最近事件（含 _invalid，排查用） */
 export interface AdminDeviceDetail extends AdminDeviceRow {
-  /** 当前生效设置（§8：仅 success 回执写入） */
+  /** 当前生效设置（§8：success 回执写入；另由头盔握手时读回上报纠正，决策 #45） */
   settings: Record<string, unknown>;
   recentEvents: AdminEventRow[];
 }

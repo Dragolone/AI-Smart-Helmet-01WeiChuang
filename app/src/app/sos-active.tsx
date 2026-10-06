@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { Alert, AppState, Pressable, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { devLog } from "@/services/dev-log";
+import { countdownPollInterval, settleSnapshot } from "@/services/sos-sync";
 import type { Sos } from "@helmet/shared";
 
 import { ApiRequestError } from "@/api/client";
@@ -57,7 +58,11 @@ export default function SosActiveScreen() {
     queryKey: ["sos", sosId],
     queryFn: async () => {
       try {
-        return await sosApi.snapshot(sosId, deviceId);
+        return settleSnapshot(
+          queryClient,
+          sosId,
+          await sosApi.snapshot(sosId, deviceId),
+        );
       } catch {
         // 两条 REST 都失败（离线）才信缓存；有网时缓存可能是迟到的 pending（2026-09-24 实测卡死）
         return (
@@ -66,8 +71,8 @@ export default function SosActiveScreen() {
       }
     },
     // WS 断线时的兜底；正常时由推送更新缓存。单子结束后停止轮询——结束态不会再变，
-    // 而 snapshot 一次是两个请求（评审 2026-09-26）
-    refetchInterval: (q) => (q.state.data?.status === "pending" ? 10_000 : false),
+    // 而 snapshot 一次是两个请求（评审 2026-09-26）。状态未知（null）不算结束，见 sos-sync
+    refetchInterval: (q) => countdownPollInterval(q.state.data),
     enabled: !isDrill,
   });
   const drillSos: Sos | null = isDrill
@@ -158,7 +163,10 @@ export default function SosActiveScreen() {
       })
       .catch((e) => {
         // 这单已经在别处结束（锁屏通知按钮 / 另一台手机 / 到期）：不弹错，拉一次权威状态让页面自己切到结束态
-        if (e instanceof ApiRequestError && e.code === "SOS_ALREADY_FINALIZED") {
+        if (
+          e instanceof ApiRequestError &&
+          e.code === "SOS_ALREADY_FINALIZED"
+        ) {
           void sosQuery.refetch();
           return;
         }

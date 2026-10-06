@@ -3,9 +3,11 @@
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import {
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   View,
 } from "react-native";
@@ -125,95 +127,119 @@ export default function ResetPasswordScreen() {
   const codeButtonDisabled = sending || cooldown > 0;
 
   return (
-    <SafeAreaView style={styles.flex}>
+    <SafeAreaView style={[styles.flex, { backgroundColor: theme.background }]}>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <ThemedView style={styles.container}>
-          <ThemedText type="title">{t("auth.resetTitle")}</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">
-            {t("auth.resetLead")}
-          </ThemedText>
+        {/* 可滚动 + 点空白 / 拖动收键盘：原来是一个定高的居中容器，键盘弹出后既收不回去，
+            也够不到被挡住的按钮和底部链接（2026-10-06 iPhone 实测：注册页想回登录页回不去） */}
+        <ThemedView style={styles.flex}>
+          <ScrollView
+            contentContainerStyle={styles.container}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            showsVerticalScrollIndicator={false}
+            // 内容放得下时页面不该能拖动（iOS 默认会回弹，Android 默认有越界光晕）；
+            // 只有键盘把内容挤出屏幕时才滚得动
+            bounces={false}
+            alwaysBounceVertical={false}
+            overScrollMode="never"
+          >
+            <ThemedText type="title">{t("auth.resetTitle")}</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              {t("auth.resetLead")}
+            </ThemedText>
 
-          <FormInput
-            label={t("auth.phone")}
-            error={fe("phone")}
-            icon="phone-portrait-outline"
-            value={phone}
-            onChangeText={setPhone}
-            keyboardType="phone-pad"
-            maxLength={11}
-            placeholder={t("auth.phonePlaceholder")}
-            autoComplete="tel"
-          />
-          <View style={styles.codeRow}>
-            <View style={styles.flex}>
-              <FormInput
-                label={t("auth.smsCode")}
-                error={fe("code")}
-                icon="chatbox-ellipses-outline"
-                value={code}
-                onChangeText={setCode}
-                keyboardType="number-pad"
-                maxLength={6}
-                placeholder={t("auth.smsCodePlaceholder")}
-              />
-            </View>
-            <Pressable
-              disabled={codeButtonDisabled}
-              onPress={sendCode}
-              style={({ pressed }) => [
-                styles.codeButton,
-                {
-                  borderColor: codeButtonDisabled ? theme.border : theme.brand,
-                  opacity: pressed ? 0.7 : 1,
-                },
-              ]}
-            >
-              <ThemedText
-                type="smallBold"
-                style={{
-                  color: codeButtonDisabled ? theme.textSecondary : theme.brand,
-                }}
+            <FormInput
+              label={t("auth.phone")}
+              error={fe("phone")}
+              icon="phone-portrait-outline"
+              value={phone}
+              onChangeText={setPhone}
+              keyboardType="phone-pad"
+              maxLength={11}
+              placeholder={t("auth.phonePlaceholder")}
+              autoComplete="tel"
+            />
+            <View style={styles.codeRow}>
+              <View style={styles.flex}>
+                <FormInput
+                  label={t("auth.smsCode")}
+                  error={fe("code")}
+                  icon="chatbox-ellipses-outline"
+                  value={code}
+                  onChangeText={setCode}
+                  keyboardType="number-pad"
+                  maxLength={6}
+                  placeholder={t("auth.smsCodePlaceholder")}
+                />
+              </View>
+              <Pressable
+                disabled={codeButtonDisabled}
+                onPress={sendCode}
+                style={({ pressed }) => [
+                  styles.codeButton,
+                  {
+                    borderColor: codeButtonDisabled
+                      ? theme.border
+                      : theme.brand,
+                    opacity: pressed ? 0.7 : 1,
+                  },
+                ]}
               >
-                {sending
-                  ? t("auth.sending")
-                  : cooldown > 0
-                    ? t("auth.resend", { n: cooldown })
-                    : t("auth.getCode")}
-              </ThemedText>
+                <ThemedText
+                  type="smallBold"
+                  style={{
+                    color: codeButtonDisabled
+                      ? theme.textSecondary
+                      : theme.brand,
+                  }}
+                >
+                  {sending
+                    ? t("auth.sending")
+                    : cooldown > 0
+                      ? t("auth.resend", { n: cooldown })
+                      : t("auth.getCode")}
+                </ThemedText>
+              </Pressable>
+            </View>
+            <FormInput
+              label={t("auth.newPassword")}
+              error={fe("password")}
+              icon="lock-closed-outline"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              placeholder={t("auth.passwordPlaceholder")}
+            />
+            <FormInput
+              label={t("auth.confirmNewPassword")}
+              error={fe("confirm")}
+              icon="lock-closed-outline"
+              value={confirm}
+              onChangeText={setConfirm}
+              secureTextEntry
+              placeholder={t("auth.confirmPlaceholder")}
+            />
+
+            <FormError message={error} />
+            <PrimaryButton
+              title={t("auth.resetPassword")}
+              onPress={submit}
+              loading={busy}
+            />
+
+            <Pressable
+              style={styles.link}
+              onPress={() => {
+                Keyboard.dismiss();
+                router.back();
+              }}
+            >
+              <ThemedText type="link">{t("auth.backToLogin")}</ThemedText>
             </Pressable>
-          </View>
-          <FormInput
-            label={t("auth.newPassword")}
-            error={fe("password")}
-            icon="lock-closed-outline"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            placeholder={t("auth.passwordPlaceholder")}
-          />
-          <FormInput
-            label={t("auth.confirmNewPassword")}
-            error={fe("confirm")}
-            icon="lock-closed-outline"
-            value={confirm}
-            onChangeText={setConfirm}
-            secureTextEntry
-            placeholder={t("auth.confirmPlaceholder")}
-          />
-
-          <FormError message={error} />
-          <PrimaryButton
-            title={t("auth.resetPassword")}
-            onPress={submit}
-            loading={busy}
-          />
-
-          <Pressable style={styles.link} onPress={() => router.back()}>
-            <ThemedText type="link">{t("auth.backToLogin")}</ThemedText>
-          </Pressable>
+          </ScrollView>
         </ThemedView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -222,7 +248,12 @@ export default function ResetPasswordScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  container: { flex: 1, justifyContent: "center", padding: 24, gap: 12 },
+  container: {
+    flexGrow: 1,
+    justifyContent: "center",
+    padding: 24,
+    gap: 12,
+  },
   codeRow: { flexDirection: "row", alignItems: "flex-end", gap: 10 },
   codeButton: {
     borderWidth: 1,

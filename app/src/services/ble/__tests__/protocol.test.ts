@@ -188,14 +188,39 @@ describe("上行解析", () => {
       clearedEventId: eventIdFor("helmet_94173f", 102),
     });
   });
-  it("未知事件码 / 载荷过短 → null；帧过短 → null", () => {
+  it("未知事件码 / 周期事件载荷过短 → null；帧过短 → null", () => {
     const unknown = parseInbound(hexToBytes("05 09 01 00 00 00 00 00 00 00"));
     if (unknown?.kind !== "event") throw new Error("not event");
     expect(translateEvent(unknown, ctx)).toBeNull();
-    const short = parseInbound(hexToBytes("05 01 01 00 00 00 00 00 00 00 5F"));
+    const short = parseInbound(hexToBytes("05 07 01 00 00 00 00 00 00 00 5F"));
     if (short?.kind !== "event") throw new Error("not event");
     expect(translateEvent(short, ctx)).toBeNull();
     expect(parseInbound(hexToBytes("05"))).toBeNull();
+  });
+  it("摔倒 / 求救的载荷不全也要上云：能解的字段照填、缺的省略——App 已 ACK、头盔已擦除，丢了就没人知道这次摔倒", () => {
+    // 21 字节的摔倒帧被 20 字节的 Notify 截掉最后 1 字节（MTU 没协商上去）：位置少一截，其余还在
+    const cut = parseInbound(
+      hexToBytes("05 01 65 00 00 00 00 00 00 00 5F 2D 55 ED 4E CD 01 17 7C 29"),
+    );
+    if (cut?.kind !== "event") throw new Error("not event");
+    const fall = translateEvent(cut, ctx);
+    expect(fall?.eventType).toBe("possible_fall");
+    expect(fall?.eventId).toBe(eventIdFor("helmet_94173f", 0x65));
+    expect(fall?.payload).toEqual({
+      confidence: 0.95,
+      impactG: 4.5,
+      tiltDeg: 85,
+    });
+    // 一个字节的载荷都没有：仍然是一条摔倒
+    const bare = parseInbound(hexToBytes("05 01 66 00 00 00 00 00 00 00"));
+    if (bare?.kind !== "event") throw new Error("not event");
+    expect(translateEvent(bare, ctx)?.payload).toEqual({});
+    // 求救：按压时长只收到一半 → 不拼出错的数
+    const sos = parseInbound(hexToBytes("05 02 67 00 00 00 00 00 00 00 02 10"));
+    if (sos?.kind !== "event") throw new Error("not event");
+    const env = translateEvent(sos, ctx);
+    expect(env?.eventType).toBe("manual_sos");
+    expect(env?.payload).toEqual({ triggerMode: "double_click" });
   });
   it("固件与 deviceId 解码", () => {
     expect(firmwareFromBytes(Uint8Array.from([1, 0, 3]))).toBe("1.0.3");

@@ -36,3 +36,21 @@ export function legalUrl(doc: LegalDoc, base?: string): string {
   const origin = legalOrigin(base);
   return origin ? `${origin}/legal/${doc}` : "";
 }
+
+/**
+ * 升级用户的隐私同意弹窗此刻该不该盖在屏幕上。弹窗是 RN Modal，永远压在导航栈之上，所以有两种页面
+ * 必须让路（2026-10-05 评审）：
+ *   - /legal/*：弹窗里的《隐私政策》链接打开的就是它，不让路的话正文被弹窗盖住，只能盲勾；
+ *   - /sos-active：倒计时页的「我没事」不能被一张同意卡片挡住。
+ * 让路期间弹窗组件保持挂载，勾选状态不丢；返回后弹窗重新出现。
+ */
+export function consentModalVisible(state: {
+  authed: boolean;
+  hydrated: boolean;
+  accepted: boolean;
+  pathname: string;
+}): boolean {
+  if (!state.authed || !state.hydrated || state.accepted) return false;
+  const path = state.pathname;
+  return !(path.startsWith("/legal/") || path.startsWith("/sos-active"));
+}

@@ -33,17 +33,25 @@ class RealtimeClient {
   private attempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private running = false;
+  /**
+   * 代次：start / stop / kick 各加一。4401 之后的换 token 是异步的，回来时若代次已变
+   * （期间回了前台 kick 过、或登出又登录），它那一轮重连就不该再排——否则两路各建一条连接，
+   * 先建的那条被 `this.ws` 覆盖后成了没人关的孤儿，一直挂到 token 过期（2026-10-05 评审）。
+   */
+  private epoch = 0;
 
   start(deps: Deps): void {
     this.deps = deps;
     if (this.running) return;
     this.running = true;
+    this.epoch += 1;
     this.attempts = 0;
     this.connect();
   }
 
   stop(): void {
     this.running = false;
+    this.epoch += 1;
     this.setConnected(false);
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
@@ -60,6 +68,7 @@ class RealtimeClient {
     if (!this.running || this.connected) return;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+    this.epoch += 1;
     this.attempts = 0;
     // 上一条连接可能还卡在握手阶段（断网时 onclose 迟迟不来）：直接放弃它，onclose 会被 `this.ws !== ws` 挡掉
     const stale = this.ws;
@@ -95,6 +104,10 @@ class RealtimeClient {
       this.running = false;
       return;
     }
+    // 任何时候只留一条连接：万一还有一条没收掉的，先放弃它（它的回调都会被 `this.ws !== ws` 挡掉）
+    const stale = this.ws;
+    this.ws = null;
+    stale?.close();
     const ws = new WebSocket(`${WS_URL}?token=${encodeURIComponent(token)}`);
     this.ws = ws;
 
@@ -125,11 +138,15 @@ class RealtimeClient {
       this.setConnected(false);
       if (!this.running) return;
       if (event.code === CLOSE_UNAUTHORIZED) {
-        // token 过期：借 api 层完成刷新后立刻重连（失败则走常规退避）
+        // token 过期：借 api 层完成刷新后立刻重连（失败则走常规退避）。
+        // 刷新期间若 kick / stop / start 过，那一方已经接管了重连，这里作罢
+        const epoch = this.epoch;
         void this.deps
           ?.triggerTokenRefresh()
           .catch(() => undefined)
-          .finally(() => this.scheduleReconnect());
+          .finally(() => {
+            if (this.epoch === epoch) this.scheduleReconnect();
+          });
         return;
       }
       this.scheduleReconnect();
@@ -148,7 +165,11 @@ class RealtimeClient {
     );
     this.attempts += 1;
     devLog("realtime", `${delay}ms 后重连（第 ${this.attempts} 次）`);
-    this.reconnectTimer = setTimeout(() => this.connect(), delay);
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect();
+    }, delay);
   }
 }
 

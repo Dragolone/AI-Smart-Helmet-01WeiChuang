@@ -189,7 +189,7 @@ export interface DeviceCommand {
   /** 服务端生成（UUID），回执按此关联 */
   commandId: string;
   type: DeviceCommandType;
-  /** set_config 的参数键值对；⚠️ 允许的参数清单与取值范围待硬件定稿 */
+  /** set_config 的参数键值对；允许的键与取值范围见 DEVICE_SETTINGS（决策 #43，服务端 PUT settings 用同一张表校验） */
   params: Record<string, unknown>;
   /** ISO 8601 UTC，服务端下发时间 */
   issuedAt: string;

@@ -70,6 +70,7 @@ jest.mock("expo-secure-store", () => ({
   },
 }));
 
+import { presentedSos } from "@/services/sos-sync";
 import { useConsentStore } from "@/stores/consent-store";
 
 import {
@@ -77,6 +78,7 @@ import {
   landFromPush,
   extrasFromLaunchResponse,
   readPushConfig,
+  setPushArrivalHandler,
   startPush,
   stopPush,
 } from "../push";
@@ -91,6 +93,7 @@ beforeEach(() => {
   __resetPushForTests();
   useConsentStore.setState({ privacyAccepted: false, hydrated: true });
   mockSecure.clear();
+  presentedSos.current.clear();
 });
 afterEach(() => {
   jest.clearAllMocks();
@@ -176,6 +179,8 @@ describe("点通知落地", () => {
     const target = await landFromPush({ sosId: "s1", deviceId: "d1" });
     expect(target).toBe("/sos-active?sosId=s1&deviceId=d1");
     expect(mockRouterPush).toHaveBeenCalledWith(target);
+    // 登记为已拉起：随后的 WS 推送 / 冷启动补拉不会再 push 一页
+    expect(presentedSos.current.has("s1")).toBe(true);
   });
 
   it("SOS 已结束（或进行中的是另一单）→ 事故详情", async () => {
@@ -191,12 +196,22 @@ describe("点通知落地", () => {
     );
   });
 
-  it("查询失败也能落地到详情；没有 sosId 不跳", async () => {
+  it("查询失败 ≠ 已结束：进倒计时页（它自己拉权威状态），不落到没有取消键的事故详情", async () => {
+    // 用户点的是「倒计时已开始」，刚唤醒的网络第一下不通——这时最可能的真实状态恰恰是 pending
     mockActive.mockRejectedValueOnce(new Error("offline"));
     expect(await landFromPush({ sosId: "s3", deviceId: "d1" })).toBe(
-      "/accident/s3",
+      "/sos-active?sosId=s3&deviceId=d1",
     );
+  });
+
+  it("extras 没带 deviceId：查不了 active，只能进事故详情（详情页对进行中的单有回倒计时页的按钮）；没有 sosId 不跳", async () => {
+    expect(await landFromPush({ sosId: "s4" })).toBe("/accident/s4");
+    expect(mockActive).not.toHaveBeenCalled();
+    expect(presentedSos.current.has("s4")).toBe(false);
     expect(await landFromPush({})).toBeNull();
+    expect(
+      await landFromPush({ sosId: 42 as unknown as string, deviceId: "d1" }),
+    ).toBeNull();
   });
 
   it("只响应 notificationOpened，到达事件不跳转", async () => {
@@ -216,6 +231,55 @@ describe("点通知落地", () => {
     });
     await new Promise((r) => setTimeout(r, 0));
     expect(mockRouterPush).toHaveBeenCalledWith("/accident/s1");
+  });
+});
+
+describe("远程推送到达（不是被点开）→ 触发一次补拉（前台 + WS 没连上时倒计时页的唯一来源）", () => {
+  const boot = () => {
+    useConsentStore.setState({ privacyAccepted: true });
+    startPush("u1");
+    return openedListener();
+  };
+
+  it("带 sosId 的到达事件交给注册的回调；不直接跳转（以 REST 为准，由补拉决定开不开页）", () => {
+    const arrived = jest.fn();
+    setPushArrivalHandler(arrived);
+    boot()({
+      notificationEventType: "notificationArrived",
+      extras: { sosId: "s1", deviceId: "d1" },
+    });
+    expect(arrived).toHaveBeenCalledWith({ sosId: "s1", deviceId: "d1" });
+    expect(mockRouterPush).not.toHaveBeenCalled();
+  });
+
+  it("没有 sosId 的到达事件（别的推送）/ extras 缺失：不回调", () => {
+    const arrived = jest.fn();
+    setPushArrivalHandler(arrived);
+    const cb = boot();
+    cb({ notificationEventType: "notificationArrived", extras: {} });
+    cb({ notificationEventType: "notificationArrived" });
+    expect(arrived).not.toHaveBeenCalled();
+  });
+
+  it("回调抛错不带崩监听；注销后不再回调", () => {
+    setPushArrivalHandler(() => {
+      throw new Error("boom");
+    });
+    const cb = boot();
+    expect(() =>
+      cb({
+        notificationEventType: "notificationArrived",
+        extras: { sosId: "s1" },
+      }),
+    ).not.toThrow();
+    const arrived = jest.fn();
+    setPushArrivalHandler(arrived);
+    setPushArrivalHandler(null);
+    cb({
+      notificationEventType: "notificationArrived",
+      extras: { sosId: "s1" },
+    });
+    expect(arrived).not.toHaveBeenCalled();
   });
 });
 
@@ -342,5 +406,85 @@ describe("别名确认与重试（10-05 iPhone：别名丢了，被杀后推送�
       jest.advanceTimersByTime(60_000);
     }
     expect(mockSetAlias).toHaveBeenCalledTimes(5);
+  });
+});
+
+describe("登出解绑别名也要等结果（断网登出 / 刚设完就被动登出时，已登出的手机不能继续收原账号的 SOS 推送）", () => {
+  const lastDeleteSeq = () =>
+    (mockDeleteAlias.mock.calls.at(-1)?.[0] as { sequence: number }).sequence;
+  const bootAndSignOut = () => {
+    useConsentStore.setState({ privacyAccepted: true });
+    startPush("u1");
+    stopPush();
+  };
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it("极光拒绝 → 3 s 后重发，再失败 10 s；成功后不再有动作", () => {
+    bootAndSignOut();
+    expect(mockDeleteAlias).toHaveBeenCalledTimes(1);
+    const first = lastDeleteSeq();
+    aliasListener?.({ code: 6002, sequence: first });
+    jest.advanceTimersByTime(2_999);
+    expect(mockDeleteAlias).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(1);
+    expect(mockDeleteAlias).toHaveBeenCalledTimes(2);
+    expect(lastDeleteSeq()).not.toBe(first);
+    aliasListener?.({ code: 6022, sequence: lastDeleteSeq() });
+    jest.advanceTimersByTime(10_000);
+    expect(mockDeleteAlias).toHaveBeenCalledTimes(3);
+    aliasListener?.({ code: 0, sequence: lastDeleteSeq() });
+    jest.advanceTimersByTime(300_000);
+    expect(mockDeleteAlias).toHaveBeenCalledTimes(3);
+  });
+
+  it("重试有上限，不会无限打极光", () => {
+    bootAndSignOut();
+    for (let i = 0; i < 10; i++) {
+      aliasListener?.({ code: 6002, sequence: lastDeleteSeq() });
+      jest.advanceTimersByTime(60_000);
+    }
+    expect(mockDeleteAlias).toHaveBeenCalledTimes(5);
+  });
+
+  it("重试等待期间有人登录：不再解绑（新账号的 setAlias 说了算），迟到的失败结果也不触发", () => {
+    bootAndSignOut();
+    const seq = lastDeleteSeq();
+    aliasListener?.({ code: 6002, sequence: seq });
+    startPush("u2"); // 3 s 的重试定时器还没到
+    jest.advanceTimersByTime(120_000);
+    expect(mockDeleteAlias).toHaveBeenCalledTimes(1);
+    expect(mockSetAlias).toHaveBeenLastCalledWith(
+      expect.objectContaining({ alias: "u2" }),
+    );
+  });
+
+  it("登出后立刻登录：解绑结果在登录之后才回来（失败）也不重发，别把新账号的别名删了", () => {
+    bootAndSignOut();
+    const seq = lastDeleteSeq();
+    startPush("u2");
+    const setSeq = (mockSetAlias.mock.calls.at(-1)?.[0] as { sequence: number })
+      .sequence;
+    aliasListener?.({ code: 0, sequence: setSeq, alias: "u2" }); // 排了 2 s 后的校验
+    mockQueryAlias.mockClear();
+    aliasListener?.({ code: 6002, sequence: seq }); // 迟到的解绑失败
+    jest.advanceTimersByTime(2_000);
+    // 新账号的别名校验不能被这条迟到的结果冲掉（两者共用一个定时器槽）
+    expect(mockQueryAlias).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(120_000);
+    expect(mockDeleteAlias).toHaveBeenCalledTimes(1);
+  });
+
+  it("解绑成功后不去 queryAlias 校验（别名不存在时 iOS 桥接层可能拿到 nil）", () => {
+    bootAndSignOut();
+    mockQueryAlias.mockClear();
+    aliasListener?.({ code: 0, sequence: lastDeleteSeq() });
+    jest.advanceTimersByTime(60_000);
+    expect(mockQueryAlias).not.toHaveBeenCalled();
   });
 });

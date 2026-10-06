@@ -14,8 +14,11 @@ import type { ActiveSosResponse, Sos } from "@helmet/shared";
 import {
   alertPendingOnBackground,
   applySosUpdate,
+  COUNTDOWN_POLL_MS,
+  countdownPollInterval,
   onReconnect,
   resumePendingSos,
+  settleSnapshot,
   type PresentedRef,
   type SosSyncDeps,
 } from "../sos-sync";
@@ -257,5 +260,34 @@ describe("onReconnect（WS 由断转连才补拉）", () => {
     listener(false);
     listener(true);
     expect(trigger).not.toHaveBeenCalled();
+  });
+});
+
+describe("倒计时页自己的轮询（2026-10-05 评审）", () => {
+  it("状态未知（首次拉取失败 → null / 还没数据）必须继续拉；只有明确结束才停", () => {
+    // 原来 `data?.status === "pending" ? 10_000 : false` 把 null 也当成结束：弱网点通知进来，
+    // 第一次失败后页面永远停在没有数字、没有警报音的空壳上
+    expect(countdownPollInterval(null)).toBe(COUNTDOWN_POLL_MS);
+    expect(countdownPollInterval(undefined)).toBe(COUNTDOWN_POLL_MS);
+    expect(countdownPollInterval(sos())).toBe(COUNTDOWN_POLL_MS);
+    expect(countdownPollInterval(sos({ status: "cancelled" }))).toBe(false);
+    expect(countdownPollInterval(sos({ status: "notified" }))).toBe(false);
+  });
+
+  it("迟到的 pending 应答不把已取消盖回倒计时（用户刚点完「我没事」，轮询的旧应答才回来）", () => {
+    const cancelled = sos({ status: "cancelled" });
+    qc.setQueryData(["sos", "s1"], cancelled); // act() 成功后写的
+    expect(settleSnapshot(qc, "s1", sos())).toEqual(cancelled);
+  });
+
+  it("其余情况原样采用服务端结果：缓存是 pending / 没缓存 / 应答本身是终态 / 应答为空", () => {
+    expect(settleSnapshot(qc, "s1", sos())?.status).toBe("pending");
+    qc.setQueryData(["sos", "s1"], sos());
+    expect(settleSnapshot(qc, "s1", sos())?.status).toBe("pending");
+    // APP-03 的方向：缓存里是迟到的 pending，服务端说已结束 → 信服务端
+    expect(settleSnapshot(qc, "s1", sos({ status: "notified" }))?.status).toBe(
+      "notified",
+    );
+    expect(settleSnapshot(qc, "s1", null)).toBeNull();
   });
 });

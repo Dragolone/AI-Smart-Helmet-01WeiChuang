@@ -25,10 +25,11 @@
         "NSPhotoLibraryAddUsageDescription": "用于把头盔实时画面的截图保存到您的相册。",
         "ITSAppUsesNonExemptEncryption": false
       },
-      "appleTeamId": "B3NHB45FS7",
       "entitlements": {
-        "com.apple.developer.networking.HotspotConfiguration": true
-      }
+        "com.apple.developer.networking.HotspotConfiguration": true,
+        "com.apple.developer.usernotifications.time-sensitive": true
+      },
+      "appleTeamId": "B3NHB45FS7"
     },
     "android": {
       "permissions": [

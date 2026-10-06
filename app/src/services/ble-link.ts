@@ -4,7 +4,7 @@
 // ble-relay-uplink 入队 → 掉线自动重连。下行设置写入由 ble-relay 通过 writeRegister 调用。
 // 纯字节翻译在 services/ble/protocol.ts（可单测）；本文件只碰 react-native-ble-plx 与状态 store。
 // 后台保活（iOS bluetooth-central / 华为杀后台）双端实测口径记入 DEVELOPMENT.md 平台限制清单。
-import { PermissionsAndroid, Platform } from "react-native";
+import { AppState, PermissionsAndroid, Platform } from "react-native";
 import type { Device, Subscription } from "react-native-ble-plx";
 import { BleErrorCode, BleManager, State } from "react-native-ble-plx";
 
@@ -46,6 +46,14 @@ import { useBleStore } from "@/stores/ble-store";
 import type { BleDeviceLink } from "@/stores/ble-store";
 
 let manager: BleManager | null = null;
+/**
+ * 上一个 BleManager 的销毁。destroy() 是异步的：原生销毁回来之后才清订阅、才把库里的单例置空；
+ * 在那之前 `new BleManager()` 拿回的仍是那个正在销毁的实例——刚挂上去的状态订阅随后被它自己移除，
+ * 之后 state() / startDeviceScan 全是空操作，链路再也起不来（iOS 上进工程模式必现：权限函数同步返回，
+ * 2026-10-05 评审）。所以重建之前必须等它。
+ */
+let releasing: Promise<void> = Promise.resolve();
+export const bleStackReleased = (): Promise<void> => releasing;
 
 /** 惰性单例:BleManager 构造即拉起原生栈,只在真正用 BLE 时创建 */
 export function getBleManager(): BleManager {
@@ -189,6 +197,13 @@ class HelmetSession {
       buildRead(this.nextSeq(), Reg.DEVICE_ID, 16),
     );
     const helmetId = deviceIdFromBytes(idResp.data);
+    // 读失败（错误码非 0 / 数据段为空）≠ 身份不符：按普通握手失败退避重连。
+    // 身份不符会把设备拉黑到用户手动重试为止，一次硬件故障码不该让头盔从此连不上
+    if (idResp.error !== 0 || helmetId === "") {
+      throw new Error(
+        `读 deviceId 失败：${ERROR_NAMES[idResp.error] ?? `error=0x${idResp.error.toString(16)}`}`,
+      );
+    }
     if (helmetId !== this.deviceId) {
       throw Object.assign(
         new Error(`头盔身份不匹配：广播名匹配但 deviceId=${helmetId}`),
@@ -325,9 +340,12 @@ class HelmetSession {
   }
 
   private async onEvent(ev: InboundEvent): Promise<void> {
-    // 高危先 ACK 再处理：ACK 只表示「App 已收到」，头盔据此停止 1.5s 重发（§1.3）
-    if (HIGH_RISK_CODES.has(ev.code)) await this.sendAck(ev.code, ev.eventSeq);
-    if (this.seenSeqs.includes(ev.eventSeq)) return; // 重发帧：已入队过
+    const highRisk = HIGH_RISK_CODES.has(ev.code);
+    if (this.seenSeqs.includes(ev.eventSeq)) {
+      // 重发帧：已入队过，只补一个 ACK（上一个 ACK 头盔没收到）
+      if (highRisk) await this.sendAck(ev.code, ev.eventSeq);
+      return;
+    }
     this.seenSeqs.push(ev.eventSeq);
     if (this.seenSeqs.length > SEEN_SEQ_LIMIT) this.seenSeqs.shift();
 
@@ -338,15 +356,19 @@ class HelmetSession {
     });
     const link = useBleStore.getState().links[this.deviceId];
     this.patch({ eventsReceived: (link?.eventsReceived ?? 0) + 1 });
+    if (envelope) enqueueRelayEvent(envelope);
+    // 先入队再 ACK：头盔收到 ACK 就擦除这条事件（§1.3），ACK 必须晚于「App 这边已经接住」。
+    // 翻译与入队都是同步的，不会拖过头盔 1.5 s 的重发窗口。翻译不了的高危帧（碰撞 / 障碍载荷不全）
+    // 仍然 ACK——留着只会被无限重发；摔倒 / 求救不会走到这里，protocol 对它们的短载荷做了降级
+    if (highRisk) await this.sendAck(ev.code, ev.eventSeq);
     if (!envelope) {
       log(
         `事件 0x${ev.code.toString(16)} seq=${ev.eventSeq} 未翻译（未知/无定位/载荷不符）`,
       );
       return;
     }
-    enqueueRelayEvent(envelope);
     // 保命链路不等 5s 周期：高危事件立即冲刷
-    if (HIGH_RISK_CODES.has(ev.code)) void flushRelayQueue();
+    if (highRisk) void flushRelayQueue();
   }
 
   /** 设置写入（ble-relay 调用）：返回头盔错误码，0 = 已执行 */
@@ -377,6 +399,43 @@ let scanning = false;
 /** 本轮是否全量扫描（过滤扫描无命中后的兜底） */
 let unfiltered = false;
 const SCAN_FALLBACK_MS = 20_000;
+/** 当前这一轮扫描的兜底定时器（每条停扫路径都会清它，所以不会有上一轮的定时器来搅下一轮） */
+let scanFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+let appStateSub: { remove: () => void } | null = null;
+
+/** 停掉当前这一轮扫描（连同它的兜底定时器） */
+function stopScanRound(): void {
+  if (scanFallbackTimer) clearTimeout(scanFallbackTimer);
+  scanFallbackTimer = null;
+  if (!scanning) return;
+  getBleManager().stopDeviceScan();
+  scanning = false;
+}
+
+/**
+ * 不在前台时能不能做全量扫描。两端的真机结论相反（DEVELOPMENT.md 平台限制清单 2026-09-16 两行）：
+ *   - iOS：后台只投递带服务 UUID 过滤的扫描结果，全量扫描锁屏即停——后台切过去等于停扫；
+ *   - Android：按 FEE0 过滤在部分机型 / 广播包组合上匹配不上（华为 P30 对仿真头盔 20 s 扫不到，
+ *     全量 6 s 命中），后台也必须轮到全量，否则这类手机退后台后永远连不上；息屏时系统会暂停全量扫描，
+ *     那一轮白扫，下一轮过滤接上。
+ */
+const unfilteredAllowedNow = (): boolean =>
+  Platform.OS !== "ios" || AppState.currentState === "active";
+
+/**
+ * 前后台切换时把扫描拉回该有的模式（2026-10-05 评审）。原来过滤扫描 20 s 无命中切到全量后再也回不来：
+ * 头盔没开机时 App 在前台多待一会儿，之后锁屏放口袋，到车边给头盔上电也连不上，摔倒只进 Flash。
+ * 离开前台时若正在全量扫描，立刻从过滤扫描重开一轮（iOS 后台只能过滤；Android 息屏后全量被系统暂停，
+ * 而 JS 定时器随后可能被冻住——不能冻在全量那一轮上）；回到前台也重开一轮，给兜底重新计时。
+ */
+function onAppStateForScan(state: string): void {
+  if (!running || !scanning) return;
+  if (state !== "active" && !unfiltered) return; // 已经是过滤扫描：不打断
+  log(`前后台切换（${state}），从过滤扫描重开一轮`);
+  stopScanRound();
+  unfiltered = false;
+  void ensureScanning();
+}
 let connecting: string | null = null;
 const sessions = new Map<string, HelmetSession>();
 /** 握手时 deviceId 与绑定不符的设备：不再自动重连，等用户在设备页手动重试 */
@@ -428,16 +487,24 @@ async function ensureScanning(): Promise<void> {
   );
   const seen = new Set<string>();
   let hit = false;
-  // 过滤扫描 20 s 无一命中 → 下一轮改为全量扫描按名匹配（部分机型/广播包不带 FEE0 时的兜底；
-  // iOS 后台仍需过滤扫描，所以只在前台可见的这一轮切换，重连周期回到过滤模式）
+  // 过滤扫描 20 s 无一命中 → 下一轮改为全量扫描按名匹配（部分机型/广播包不带 FEE0 时的兜底）；
+  // 全量扫描同样只扫一轮，无命中就回到过滤扫描，两种交替。iOS 不在前台时不切全量（见 unfilteredAllowedNow）
+  if (scanFallbackTimer) clearTimeout(scanFallbackTimer);
   const fallbackTimer = setTimeout(() => {
-    if (!scanning || hit || unfiltered) return;
-    log("过滤扫描 20 s 无命中，改为全量扫描");
+    scanFallbackTimer = null;
+    if (!scanning || hit) return;
+    if (!unfiltered && !unfilteredAllowedNow()) return; // iOS 后台：保持过滤扫描一直扫
+    log(
+      unfiltered
+        ? "全量扫描 20 s 无命中，回到过滤扫描"
+        : "过滤扫描 20 s 无命中，改为全量扫描",
+    );
     mgr.stopDeviceScan();
     scanning = false;
-    unfiltered = true;
+    unfiltered = !unfiltered;
     void ensureScanning();
   }, SCAN_FALLBACK_MS);
+  scanFallbackTimer = fallbackTimer;
   for (const id of want) store().patchLink(id, { phase: "scanning" });
   // 按服务 UUID FEE0 过滤扫描，再按广播名 `Helmet-<后6位>` 匹配到具体设备：
   // iOS 退后台后只有带服务 UUID 过滤的扫描才会继续投递（真机实测 2026-09-16，不过滤时锁屏即停），
@@ -550,19 +617,25 @@ async function connect(
  */
 function syncForegroundService(): void {
   if (Platform.OS !== "android" || !HelmetLinkService.available) return;
-  if (running && targets.length > 0) {
-    const names = targets.map((id) => id.slice(-6)).join(", ");
-    HelmetLinkService.start(
-      translate("device.ble.serviceTitle"),
-      translate(
-        sessions.size > 0
-          ? "device.ble.serviceConnected"
-          : "device.ble.serviceSearching",
-        { names },
-      ),
-    );
-  } else {
-    HelmetLinkService.stop();
+  // 原生调用可能抛（Android 12+ 在后台起前台服务会被拒）：服务起不来只是少一层保活，
+  // 不能让它把正在进行的连接 / 握手一起带崩
+  try {
+    if (running && targets.length > 0) {
+      const names = targets.map((id) => id.slice(-6)).join(", ");
+      HelmetLinkService.start(
+        translate("device.ble.serviceTitle"),
+        translate(
+          sessions.size > 0
+            ? "device.ble.serviceConnected"
+            : "device.ble.serviceSearching",
+          { names },
+        ),
+      );
+    } else {
+      HelmetLinkService.stop();
+    }
+  } catch (e) {
+    log("前台服务同步失败", (e as Error).message);
   }
 }
 
@@ -591,10 +664,7 @@ function applyAdapterState(state: State): void {
     void ensureScanning();
   } else {
     // 蓝牙关闭/权限收回：系统会断开所有连接；会话由 onDisconnected 自行清理
-    if (scanning) {
-      getBleManager().stopDeviceScan();
-      scanning = false;
-    }
+    stopScanRound();
     for (const id of targets) {
       if (!sessions.has(id))
         store().patchLink(id, { phase: running ? "disconnected" : "idle" });
@@ -612,13 +682,21 @@ export async function startBleLink(deviceIds: string[]): Promise<void> {
   running = true;
   log("链路启动，目标设备", deviceIds.join(",") || "(无)");
   const granted = await requestBlePermissions();
+  if (!running) return; // 等权限期间已 stop（登出 / 进工程模式）
   if (!granted) {
     store().setAdapter("unauthorized");
     return;
   }
+  // 「搜索中」也要有前台服务：头盔没开机时就退后台的话，没有服务的普通后台进程扫描会被系统掐掉、
+  // 进程可被回收，之后头盔上电也连不上（原来要等第一次连上才起服务，2026-10-05 评审）
+  syncForegroundService();
+  await releasing; // 上一个 BleManager 还在销毁：等它，否则拿回的是那个死实例
+  if (!running) return;
   const mgr = getBleManager();
   stateSub?.remove();
   stateSub = mgr.onStateChange((s) => applyAdapterState(s), true);
+  appStateSub?.remove();
+  appStateSub = AppState.addEventListener("change", onAppStateForScan);
 }
 
 /** 绑定/解绑后同步目标；被移除的设备立即断开 */
@@ -627,6 +705,7 @@ export function setBleTargets(deviceIds: string[]): void {
   const unchanged =
     next.length === targets.length && next.every((id) => targets.includes(id));
   if (unchanged && running) return;
+  if (running) log("链路目标变更", next.join(",") || "(无)");
   for (const id of targets) {
     if (!next.includes(id)) {
       sessions.get(id)?.close("unbound");
@@ -638,7 +717,10 @@ export function setBleTargets(deviceIds: string[]): void {
     if (!store().links[id])
       store().patchLink(id, { phase: running ? "scanning" : "idle" });
   }
-  if (running) void ensureScanning();
+  if (running) {
+    syncForegroundService(); // 目标从无到有 / 增减：常驻通知的文案与有无跟着变
+    void ensureScanning();
+  }
 }
 
 export function stopBleLink(): void {
@@ -649,10 +731,10 @@ export function stopBleLink(): void {
   }
   stateSub?.remove();
   stateSub = null;
-  if (scanning) {
-    getBleManager().stopDeviceScan();
-    scanning = false;
-  }
+  appStateSub?.remove();
+  appStateSub = null;
+  stopScanRound();
+  unfiltered = false;
   for (const s of sessions.values()) s.close("stopped");
   sessions.clear();
   syncForegroundService();
@@ -662,8 +744,18 @@ export function stopBleLink(): void {
   ignoredPeripherals.clear();
   store().reset();
   // 释放原生栈：否则 JS 重载/登出后系统仍握着外设连接，头盔不再广播、下次扫描找不到
-  manager?.destroy();
+  const dying = manager;
   manager = null;
+  if (dying) {
+    try {
+      releasing = Promise.resolve(dying.destroy()).then(
+        () => undefined,
+        () => undefined,
+      );
+    } catch {
+      releasing = Promise.resolve();
+    }
+  }
 }
 
 /** 手动重连（设备页 / 开发面板）：清退避立即重扫 */

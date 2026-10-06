@@ -34,8 +34,14 @@ export const auth = {
     "auth.consentAnd": "和",
     "auth.consentPrivacy": "《隐私政策》",
     "auth.consentRequired": "请先阅读并同意《用户服务协议》和《隐私政策》",
+    "auth.sessionExpiredTitle": "登录已失效，头盔保护已暂停",
+    "auth.sessionExpiredBody":
+      "重新登录前，头盔检测到摔倒不会通知紧急联系人。请打开 App 重新登录；如果不是你本人操作，登录后请尽快修改密码。",
+    "auth.sessionExpiredNotice":
+      "登录已失效（可能是在其他设备上修改了密码）。重新登录前，头盔检测到摔倒不会通知紧急联系人。如果不是你本人操作，请登录后尽快修改密码。",
     "consent.title": "请先确认协议",
-    "consent.body": "为了向你发送摔倒与紧急求救通知，我们需要你先阅读并同意用户服务协议与隐私政策。不同意将无法继续使用。",
+    "consent.body":
+      "为了向你发送摔倒与紧急求救通知，我们需要你先阅读并同意用户服务协议与隐私政策。不同意将无法继续使用。",
     "consent.agree": "同意并继续",
     "consent.signOut": "不同意，退出登录",
     "auth.invalidPhone": "请先输入正确的 11 位手机号",
@@ -119,8 +125,14 @@ export const auth = {
     "auth.consentAnd": "和",
     "auth.consentPrivacy": "《隱私政策》",
     "auth.consentRequired": "請先閱讀並同意《使用者服務協議》和《隱私政策》",
+    "auth.sessionExpiredTitle": "登入已失效，頭盔保護已暫停",
+    "auth.sessionExpiredBody":
+      "重新登入前，頭盔偵測到跌倒不會通知緊急聯絡人。請開啟 App 重新登入；如果不是你本人操作，登入後請盡快修改密碼。",
+    "auth.sessionExpiredNotice":
+      "登入已失效（可能是在其他裝置上修改了密碼）。重新登入前，頭盔偵測到跌倒不會通知緊急聯絡人。如果不是你本人操作，請登入後盡快修改密碼。",
     "consent.title": "請先確認協議",
-    "consent.body": "為了向你發送摔倒與緊急求救通知，我們需要你先閱讀並同意使用者服務協議與隱私政策。不同意將無法繼續使用。",
+    "consent.body":
+      "為了向你發送摔倒與緊急求救通知，我們需要你先閱讀並同意使用者服務協議與隱私政策。不同意將無法繼續使用。",
     "consent.agree": "同意並繼續",
     "consent.signOut": "不同意，退出登入",
     "auth.invalidPhone": "請先輸入正確的 11 位手機號碼",
@@ -202,9 +214,16 @@ export const auth = {
     "auth.consentTerms": "Terms of Service",
     "auth.consentAnd": "and",
     "auth.consentPrivacy": "Privacy Policy",
-    "auth.consentRequired": "Please read and agree to the Terms of Service and Privacy Policy first",
+    "auth.consentRequired":
+      "Please read and agree to the Terms of Service and Privacy Policy first",
+    "auth.sessionExpiredTitle": "Signed out — helmet protection paused",
+    "auth.sessionExpiredBody":
+      "Until you log in again, a detected fall will not notify your emergency contacts. Open the app to log in. If this wasn't you, change your password right after.",
+    "auth.sessionExpiredNotice":
+      "Your session has ended (your password may have been changed on another device). Until you log in again, a detected fall will not notify your emergency contacts. If this wasn't you, change your password right after logging in.",
     "consent.title": "Please review our terms",
-    "consent.body": "To send you fall and emergency alerts we need you to read and agree to the Terms of Service and Privacy Policy. You cannot continue without agreeing.",
+    "consent.body":
+      "To send you fall and emergency alerts we need you to read and agree to the Terms of Service and Privacy Policy. You cannot continue without agreeing.",
     "consent.agree": "Agree and continue",
     "consent.signOut": "Don't agree — log out",
     "auth.invalidPhone": "Enter a valid 11-digit phone number first",

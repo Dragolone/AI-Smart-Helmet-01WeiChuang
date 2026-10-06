@@ -1,7 +1,7 @@
 // 事故详情（API.md §7 GET /accidents/{id}）：状态流转 + 位置快照 + 通知发送记录（手机号已脱敏）
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
-import { useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 
@@ -90,6 +90,25 @@ export default function AccidentDetailScreen() {
                 }
               />
             </View>
+
+            {/* 还在倒计时的单：这一页只是记录，取消 / 立即求救在倒计时页。从推送、事故列表点进来时
+                给一条回去的路，否则用户看着「进行中」却找不到取消键（2026-10-05 评审） */}
+            {d.status === "pending" && (
+              <Pressable
+                accessibilityRole="button"
+                style={[styles.countdownBtn, { backgroundColor: theme.danger }]}
+                onPress={() =>
+                  router.navigate(
+                    `/sos-active?sosId=${d.sosId}&deviceId=${d.deviceId}` as never,
+                  )
+                }
+              >
+                <Ionicons name="warning-outline" size={16} color="#fff" />
+                <ThemedText type="smallBold" style={styles.navBtnText}>
+                  {t("accident.openCountdown")}
+                </ThemedText>
+              </Pressable>
+            )}
 
             <Row label={t("accident.device")} value={d.deviceId} />
             <Row
@@ -218,6 +237,15 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   navBtnText: { color: "#fff", fontSize: 14 },
+  countdownBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: Radius.card,
+  },
   flex: { flex: 1 },
   container: { padding: 20, gap: 10 },
   titleRow: {

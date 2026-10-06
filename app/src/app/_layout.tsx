@@ -2,28 +2,28 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { LogBox } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { ToastHost } from "@/components/toast";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useRealtimeUpdates } from "@/hooks/use-realtime";
 import { useLocaleStore, useT } from "@/i18n";
 import { AppErrorBoundary } from "@/components/app-error-boundary";
 import { ConnectionBanner } from "@/components/connection-banner";
 import { PrivacyConsentModal } from "@/components/privacy-consent-modal";
 import { ThemeFade } from "@/components/theme-fade";
 import { installDevErrorTap } from "@/services/dev-log";
+import {
+  clearSessionExpiredNotice,
+  notifySessionExpired,
+} from "@/services/session-notice";
 import { useAuthStore } from "@/stores/auth-store";
 import { useConsentStore } from "@/stores/consent-store";
 import { useThemeStore } from "@/stores/theme-store";
 
 // 开发期：未捕获异常旁路上报（真机 Metro 日志通道断时仍能看到红屏原因）
 installDevErrorTap();
-
-// 已知无害：开发期 iOS 摘除了推送 entitlement（个人团队签不了 aps-environment），
-// expo-notifications 启动自检读不到钥匙串会报此错。公司账号恢复正式签名后删除本行。
-LogBox.ignoreLogs([/ERR_NOTIFICATIONS_KEYCHAIN_ACCESS/]);
 
 SplashScreen.preventAutoHideAsync();
 
@@ -40,6 +40,10 @@ useAuthStore.subscribe((state, prev) => {
   const switched = (state.user?.id ?? null) !== (prev.user?.id ?? null);
   const loggedOut = state.tokens === null && prev.tokens !== null;
   if (switched || loggedOut) queryClient.clear();
+  // 会话被服务端否定：BLE 中转 / 实时通道 / 推送随登录态一起停了，不能让用户蒙在鼓里
+  if (state.sessionExpired && !prev.sessionExpired) notifySessionExpired();
+  if (state.tokens !== null && prev.tokens === null)
+    clearSessionExpiredNotice();
 });
 
 /** 登录门控：导航器保持挂载，Stack.Protected 按会话状态切换可用路由组（guard 翻转自动重定向） */
@@ -115,11 +119,6 @@ function RootNavigator() {
           name="help"
           options={{ headerShown: true, title: t("nav.help") }}
         />
-        {/* 隐私政策 / 用户协议共用一页，具体标题由页面按 doc 参数自行 setOptions */}
-        <Stack.Screen
-          name="legal/[doc]"
-          options={{ headerShown: true, title: t("nav.privacy") }}
-        />
         {/* SOS 全屏页：手势返回禁用——处理中的求救不允许误滑关闭 */}
         <Stack.Screen
           name="sos-active"
@@ -127,10 +126,25 @@ function RootNavigator() {
         />
       </Stack.Protected>
       <Stack.Protected guard={!authed}>
-        <Stack.Screen name="(auth)/login" />
-        <Stack.Screen name="(auth)/register" />
-        <Stack.Screen name="(auth)/reset-password" />
+        {/* 这三页自己不显示 header，但 title 会成为下一页（协议阅读页）返回键旁的文字——
+            不给的话 iOS 上露出路由名「(auth)/register」（2026-10-06 iPhone 实测） */}
+        <Stack.Screen name="(auth)/login" options={{ title: t("nav.back") }} />
+        <Stack.Screen
+          name="(auth)/register"
+          options={{ title: t("nav.back") }}
+        />
+        <Stack.Screen
+          name="(auth)/reset-password"
+          options={{ title: t("nav.back") }}
+        />
       </Stack.Protected>
+      {/* 隐私政策 / 用户协议共用一页，具体标题由页面按 doc 参数自行 setOptions。
+          必须放在两个 Protected 之外：登录页 / 注册页的勾选框旁就是这两个链接，放在「已登录」组里时
+          未登录点了没有任何反应——用户只能在读不到正文的情况下勾同意（2026-10-05 评审） */}
+      <Stack.Screen
+        name="legal/[doc]"
+        options={{ headerShown: true, title: t("nav.privacy") }}
+      />
       {/* 蓝牙工程模式（硬件联调）：登录前后都可进，入口=登录页长按 App 名 3 秒 / 设备页信息区 */}
       <Stack.Screen
         name="ble-bench"
@@ -138,6 +152,15 @@ function RootNavigator() {
       />
     </Stack>
   );
+}
+
+/**
+ * 登录期间常驻的实时通道 / BLE 中转 / 推送（内部按登录态自己起停）。
+ * 独立成一个不渲染任何东西的组件、放在错误边界之外：页面渲染崩溃或导航栈异常都不该让保命链路停掉。
+ */
+function RealtimeBridge() {
+  useRealtimeUpdates();
+  return null;
 }
 
 export default function RootLayout() {
@@ -168,6 +191,8 @@ export default function RootLayout() {
         >
           <AnimatedSplashOverlay />
           {/* SecureStore 恢复完成前不挂路由，避免登录态闪变；空白由 SplashOverlay 兜住 */}
+          {/* 语言恢复完再起：通知通道名、前台服务文案都要翻译 */}
+          {hydrated && localeHydrated && themeHydrated && <RealtimeBridge />}
           {hydrated && localeHydrated && themeHydrated && (
             <AppErrorBoundary scheme={colorScheme}>
               <RootNavigator />

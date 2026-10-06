@@ -43,6 +43,7 @@
 | ☐ 15 | 演示环境从头到尾走一遍全功能（Week 12 出口标准） | 10-30 前 | `docs/DEMO.md` |
 | ☐ 16 | 极光实名认证（用公司资料） | 随时 | 工作台右上角有提示 |
 | ☐ 17 | 申请 Apple Critical Alerts（让 SOS 提醒穿透静音和勿扰） | 随时 | **不卡上线**；审批周期不定，批下来 A 线再接代码 |
+| ☑ 18 | **Apple 开发者后台给 App ID 勾上 Time Sensitive Notifications 能力**（✅ 2026-10-06 负责人已开；A 线同日在 `app.json` 加 entitlement）（Identifiers → `com.lingyiweichuang.app` → Capabilities），勾完告诉 A 线 | 随时，5 分钟 | 10-06 评审 R-34：SOS 本地通知已声明为「时效性」，但 App ID 没开这个能力，iPhone 开着专注模式（勿扰 / 睡眠 / 驾驶）时会被静默收进通知中心，错过 60 秒取消窗口。**不需要苹果审批**（和第 17 项的 Critical Alerts 不是一回事），开了之后 A 线在 `app.json` 加一行 entitlement 重建即可；没开就加会导致签名失败，所以代码侧还没动 |
 
 ## 二、汤总
 
@@ -61,7 +62,7 @@
 | ☐ 2 | **Android 回归补 34 行**（华为） | 10-14 | REGRESSION.md Android 列只有 20/54，**SOS 主流程 4.1–4.5 和地图 3.x 一行没测**，是 Week 11 出口标准里最大的缺口 |
 | ☑ 3 | **iPhone 推送复测** 4.6 / 4.7 / 4.8（前台 / 后台 / 被杀）（✅ 2026-10-05 三态全过；顺带修 PUSH-03 / PUSH-04） | 10-14 | APNs Key 10-01 已配进极光，PUSH-01 已解除；用 Xcode 直装的 Debug 包测（服务端现为 APNs 沙盒） |
 | ◐ 4 | **导出备案用的签名信息发负责人**（**Android ✅ 2026-10-04 已导出**：公钥模数 / MD5 / SHA1 / SHA256 写在负责人桌面 `零一唯创-Android备案证书信息.txt`，不含 keystore 与口令；**iOS 待办**：本机钥匙串只有 Development 证书，Distribution 证书要等第 5 项首次 Archive 分发时生成，再从 developer.apple.com 下载 .cer 导出）：Android `keytool -list -v -keystore ~/.helmet/lingyiweichuang-release.keystore -alias lingyiweichuang` 的「公钥」与「MD5」；iOS 按腾讯云备案页要求导出公司 Team Distribution 证书信息 | 10-08 前 | App 备案的前置；**不要发 keystore 文件和口令** |
-| ☐ 5 | 第一个 TestFlight 包（Archive → Distribute → TestFlight），传上去后告诉负责人加张森淼进内部测试组 | 10-12 | 发 TestFlight 包要告诉 B 线把服务端 `JPUSH_APNS_PRODUCTION` 设为 true，否则 iPhone 收不到远程推送 |
+| ☐ 5 | 第一个 TestFlight 包（Archive → Distribute → TestFlight），传上去后告诉负责人加张森淼进内部测试组 | 10-12 | 发 TestFlight 包要告诉 B 线把服务端 `JPUSH_APNS_PRODUCTION` 设为 true，否则 iPhone 收不到远程推送。**打包前先 `expo prebuild` 重建 iOS 工程**：10-06 给极光插件补了自定义消息的处理（评审 R-18），不重建的包收到极光自定义消息会直接崩 |
 | ☑ 6 | **App 内加两份清单的入口**（✅ 2026-10-04）：「我的」里能打开「个人信息收集清单」和「第三方信息共享清单」 | 10-16 | 华为、小米隐私检测常查。网页已有（`/legal/collection`、`/legal/sharing`），`constants/legal.ts` 的 `LegalDoc` 与 `legal/[doc].tsx` 目前只认 privacy / terms，扩两种即可 |
 | ☑ 7 | `app.json` 的 `ios.infoPlist` 加 `ITSAppUsesNonExemptEncryption: false`（✅ 2026-10-04，下次原生重建生效） | 10-16 | 只用系统 HTTPS，属出口合规豁免；不加的话每次上传都要手动回答 |
 | ☐ 8 | 其余回归空行：对讲 6.1–6.3（双真机）、5.6 设置回读（dev-api 09-23 更新过，应已含 #45 的 `settings/reported` 接口；先确认它不再返回 404，仍是 404 就找 B 线更新服务器）、3.3 多设备切换（找 B 线要第二台云端设备） | 10-16 | — |

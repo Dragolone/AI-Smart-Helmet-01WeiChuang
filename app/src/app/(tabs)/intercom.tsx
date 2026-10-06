@@ -196,12 +196,22 @@ export default function IntercomScreen() {
   const avatarOf = (id: string) =>
     id === myId ? user?.avatarUrl : memberMap.get(id)?.avatarUrl;
 
+  // 进房兜底定时器：有了结果（成功 / 失败 / 抛错 / 离开页面）就要清掉。原来从不清：进房成功后马上退房，
+  // 8 秒内再点一次进入，上一次的定时器到点会把这一次的「进入中」解除并误报「进入超时」（B 线 10-05 指出）
+  const joinTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearJoinTimer = () => {
+    if (joinTimer.current) clearTimeout(joinTimer.current);
+    joinTimer.current = null;
+  };
+
   useEffect(() => {
     const cloud = trtc.current;
     // 监听器内用 translate 而非 t：避免语言切换时重注册监听并触发 cleanup 的 exitRoom
     const listener = (type: TRTCCloudListener, params: any) => {
       switch (type) {
         case TRTCCloudListener.onEnterRoom:
+          if (joinTimer.current) clearTimeout(joinTimer.current);
+          joinTimer.current = null;
           setInRoom(params.result >= 0);
           setJoining(false);
           setJoinError(
@@ -242,6 +252,8 @@ export default function IntercomScreen() {
     };
     cloud.registerListener(listener);
     return () => {
+      if (joinTimer.current) clearTimeout(joinTimer.current);
+      joinTimer.current = null;
       cloud.unRegisterListener(listener);
       cloud.exitRoom();
     };
@@ -262,7 +274,9 @@ export default function IntercomScreen() {
       await trtc.current.exitRoom();
     } catch {}
     // 进房兜底超时:回调丢失时 8s 后解除"进入中"
-    setTimeout(() => {
+    clearJoinTimer();
+    joinTimer.current = setTimeout(() => {
+      joinTimer.current = null;
       setJoining((j) => {
         if (j) setJoinError(translate("intercom.joinTimeout"));
         return false;
@@ -288,6 +302,7 @@ export default function IntercomScreen() {
       // 发言指示环所需：每 300ms 回调一次成员音量
       await trtc.current.enableAudioVolumeEvaluation(300);
     } catch (e) {
+      clearJoinTimer();
       setJoining(false);
       setJoinError(toUserMessage(e));
     }

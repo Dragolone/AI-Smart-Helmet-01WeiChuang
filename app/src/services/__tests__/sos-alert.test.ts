@@ -17,12 +17,21 @@ type SosAlert = typeof import("../sos-alert");
 
 const mockCancel = jest.fn(async (_id: string) => ({}) as never);
 const mockPush = jest.fn((_href: string) => undefined);
+const mockNavigate = jest.fn((_href: string) => undefined);
+const mockGetLastResponse = jest.fn((): unknown => null);
+/** 通知中心里此刻挂着的通知（getPresentedNotificationsAsync） */
+const mockPresented = jest.fn(async (): Promise<unknown[]> => []);
+const mockClearLastResponse = jest.fn(() => undefined);
 const mockSchedule = jest.fn(async (_req: unknown) => "id");
 const mockCancelScheduled = jest.fn(async (_id: string) => undefined);
 const mockDismiss = jest.fn(async (_id: string) => undefined);
 const mockSetChannel = jest.fn(async (_id: string, _o: unknown) => undefined);
 const mockSetCategory = jest.fn(async (_id: string, _a: unknown) => undefined);
-const mockGetPerms = jest.fn(async () => ({ granted: true }));
+const mockGetPerms = jest.fn(
+  async (): Promise<{ granted: boolean; status?: string }> => ({
+    granted: true,
+  }),
+);
 const mockRequestPerms = jest.fn(async () => ({ granted: true }));
 const mockSetHandler = jest.fn((_h: unknown) => undefined);
 /** addNotificationResponseReceivedListener 拿到的回调，用来模拟用户点通知按钮 */
@@ -32,7 +41,10 @@ jest.mock("@/api/sos", () => ({
   sosApi: { cancel: (id: string) => mockCancel(id) },
 }));
 jest.mock("expo-router", () => ({
-  router: { push: (h: string) => mockPush(h) },
+  router: {
+    push: (h: string) => mockPush(h),
+    navigate: (h: string) => mockNavigate(h),
+  },
 }));
 jest.mock("@/i18n", () => ({
   translate: (k: string, p?: Record<string, unknown>) =>
@@ -56,6 +68,9 @@ jest.mock("expo-notifications", () => ({
   setNotificationHandler: (h: unknown) => {
     mockSetHandler(h);
   },
+  getLastNotificationResponse: () => mockGetLastResponse(),
+  getPresentedNotificationsAsync: () => mockPresented(),
+  clearLastNotificationResponse: () => mockClearLastResponse(),
   AndroidImportance: { MAX: 5 },
   AndroidNotificationVisibility: { PUBLIC: 1 },
   AndroidNotificationPriority: { MAX: "max" },
@@ -96,6 +111,8 @@ describe("sos-alert", () => {
     for (const m of [
       mockCancel,
       mockPush,
+      mockNavigate,
+      mockClearLastResponse,
       mockSchedule,
       mockCancelScheduled,
       mockDismiss,
@@ -107,6 +124,12 @@ describe("sos-alert", () => {
       (m as unknown as Mock<() => unknown>).mockClear();
     }
     mockGetPerms.mockResolvedValue({ granted: true });
+    mockGetLastResponse.mockReset();
+    mockGetLastResponse.mockReturnValue(null);
+    mockPresented.mockReset();
+    mockPresented.mockResolvedValue([]);
+    mockCancel.mockReset();
+    mockCancel.mockImplementation(async () => ({}) as never);
     override(Platform, "OS", "ios");
     override(AppState, "currentState", "background");
   });
@@ -165,13 +188,25 @@ describe("sos-alert", () => {
       expect(r[0].content.body).toBe('sosAlert.bodyCountdown:{"seconds":0}');
     });
 
-    it("Android：带 channelId，且声音用 true 而非 'default'", async () => {
+    it("Android：通道写在 trigger 里（content.channelId 原生侧不读，写了等于落到兜底通道），声音用 true 而非 'default'", async () => {
       override(Platform, "OS", "android");
       const m = load();
       await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
       const r = reqs();
-      expect(r[0].content.channelId).toBe("sos");
+      // 首条是唯一响铃的那条：trigger 为 null 时 expo 用 Miscellaneous 兜底通道，「SOS」通道的勿扰例外管不到它
+      expect(r[0].trigger).toEqual({ channelId: "sos" });
+      expect(r[0].content.channelId).toBeUndefined();
       expect(r[0].content.sound).toBe(true);
+      // 两条刷新也都在 sos 通道
+      expect(
+        r.slice(1).map((x) => (x.trigger as { channelId?: string }).channelId),
+      ).toEqual(["sos", "sos"]);
+    });
+
+    it("iOS：首条 trigger 为 null（立即投递）", async () => {
+      const m = load();
+      await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
+      expect(reqs()[0].trigger).toBeNull();
     });
 
     it("调度失败不抛给调用方（保命链路不能被通知拖垮）", async () => {
@@ -244,6 +279,30 @@ describe("sos-alert", () => {
       expect(mockSetCategory).toHaveBeenCalledTimes(1);
     });
 
+    it("并发调用拿到同一次初始化：调用方（蓝牙链路）要等系统权限框有结果才能去要别的权限", async () => {
+      mockGetPerms.mockResolvedValue({ granted: false });
+      let answer!: () => void;
+      mockRequestPerms.mockImplementationOnce(
+        () =>
+          new Promise<{ granted: boolean }>(
+            (r) => (answer = () => r({ granted: true })),
+          ),
+      );
+      const m = load();
+      const first = m.ensureSosAlertPermission();
+      const second = m.ensureSosAlertPermission();
+      let secondDone = false;
+      void second.then(() => (secondDone = true));
+      for (let i = 0; i < 20; i += 1) await Promise.resolve();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+      expect(secondDone).toBe(false); // 系统框还开着，第二个调用方不能先走
+      answer();
+      await first;
+      await second;
+      expect(secondDone).toBe(true);
+      expect(mockSetCategory).toHaveBeenCalledTimes(1);
+    });
+
     it("Android：建高优先级通道", async () => {
       override(Platform, "OS", "android");
       const m = load();
@@ -302,6 +361,17 @@ describe("sos-alert", () => {
       mockGetPerms.mockRejectedValueOnce(new Error("x"));
       expect(await m.isSosAlertPermissionDenied()).toBe(false);
     });
+
+    it("还没问过（undetermined）不算被拒：新用户首次登录时系统授权框还没点，不能先弹「通知权限已关闭」", async () => {
+      const m = load();
+      mockGetPerms.mockResolvedValueOnce({
+        granted: false,
+        status: "undetermined",
+      });
+      expect(await m.isSosAlertPermissionDenied()).toBe(false);
+      mockGetPerms.mockResolvedValueOnce({ granted: false, status: "denied" });
+      expect(await m.isSosAlertPermissionDenied()).toBe(true);
+    });
   });
 
   describe("10-03 评审疑点 2 / 4：多单槽位与排通知竞态", () => {
@@ -331,6 +401,8 @@ describe("sos-alert", () => {
       const showing = m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
       await Promise.resolve();
       await m.clearSosAlert("s1"); // 用户在这个瞬间取消了
+      // clearSosAlert 自己那次撤回发生在原生排通知完成之前，是空操作；要钉的是排完之后的那一次
+      mockCancelScheduled.mockClear();
       release();
       await showing;
       // 只排过那一条，30 s / 10 s 的刷新没有再排
@@ -385,6 +457,8 @@ describe("sos-alert", () => {
         remove: () => undefined,
       }));
       const m = load();
+      const confirmed: string[] = [];
+      m.setSosCancelConfirmedListener((id) => confirmed.push(id));
       await m.ensureSosAlertPermission();
       await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
       mockCancelScheduled.mockClear();
@@ -397,10 +471,14 @@ describe("sos-alert", () => {
       await Promise.resolve();
       expect(mockCancel).toHaveBeenCalledTimes(1);
       expect(mockDismiss).not.toHaveBeenCalled(); // 失败 → 通知留着
+      expect(confirmed).toEqual([]);
       await jest.advanceTimersByTimeAsync(2_000);
       expect(mockCancel).toHaveBeenCalledTimes(2);
       await jest.advanceTimersByTimeAsync(5_000);
       expect(mockCancel).toHaveBeenCalledTimes(3);
+      // 第三次才成功：通知这时才撤，并通知页面去拉权威状态（原来重试的结果没人接，通知永远留着）
+      expect(mockDismiss.mock.calls.map((c) => c[0])).toContain("sos-s1");
+      expect(confirmed).toEqual(["s1"]);
       await jest.advanceTimersByTimeAsync(20_000);
       expect(mockCancel).toHaveBeenCalledTimes(3); // 成功后不再重试
       jest.useRealTimers();
@@ -435,11 +513,24 @@ describe("sos-alert", () => {
         Object.assign(new Error("409"), { code: "SOS_ALREADY_FINALIZED" }),
       );
       const m = load();
+      await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
+      mockDismiss.mockClear();
       expect(await m.cancelFromNotification("s1")).toBe(true);
       expect(mockCancel).toHaveBeenCalledTimes(1);
+      // 已在别处结束也要把锁屏通知撤掉
+      await new Promise((r) => setTimeout(r, 0));
+      expect(mockDismiss.mock.calls.map((c) => c[0])).toContain("sos-s1");
     });
 
-    it("点横幅/「打开 App」进 SOS 页", async () => {
+    it("确认回调抛错不影响取消结果（页面刷新失败不能让取消看起来没成功）", async () => {
+      const m = load();
+      m.setSosCancelConfirmedListener(() => {
+        throw new Error("boom");
+      });
+      expect(await m.cancelFromNotification("s1")).toBe(true);
+    });
+
+    it("点横幅/「打开 App」进 SOS 页：用 navigate（页面多半已在栈上，push 会叠两页）并登记为已拉起", async () => {
       const m = load();
       await m.ensureSosAlertPermission();
       responseHandler?.({
@@ -448,7 +539,21 @@ describe("sos-alert", () => {
           request: { content: { data: { sosId: "s1", deviceId: "d1" } } },
         },
       });
-      expect(mockPush).toHaveBeenCalledWith("/sos-active?sosId=s1&deviceId=d1");
+      expect(mockNavigate).toHaveBeenCalledWith(
+        "/sos-active?sosId=s1&deviceId=d1",
+      );
+      expect(mockPush).not.toHaveBeenCalled();
+    });
+
+    it("通知里没有 deviceId：不跳转（不把 undefined 拼进路由）", async () => {
+      const m = load();
+      await m.ensureSosAlertPermission();
+      responseHandler?.({
+        actionIdentifier: "open",
+        notification: { request: { content: { data: { sosId: "s1" } } } },
+      });
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(mockPush).not.toHaveBeenCalled();
     });
 
     it("没有 sosId 的通知忽略（别的通知走同一监听）", async () => {
@@ -460,6 +565,200 @@ describe("sos-alert", () => {
       });
       expect(mockPush).not.toHaveBeenCalled();
       expect(mockCancel).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("冷启动：进程被杀后点锁屏通知拉起（监听不回放那次点击，只能从 getLastNotificationResponse 取）", () => {
+    const launch = (
+      actionIdentifier: string,
+      data: unknown = { sosId: "s1", deviceId: "d1" },
+    ) => ({
+      actionIdentifier,
+      notification: {
+        date: 1_700_000_000,
+        request: { identifier: "sos-s1", trigger: null, content: { data } },
+      },
+    });
+
+    it("点的是「取消」：取消请求必须发出去（原来这次点击被丢掉，60 s 后照样通知联系人）", async () => {
+      mockGetLastResponse.mockReturnValue(launch("cancel"));
+      const m = load();
+      await m.ensureSosAlertPermission();
+      expect(mockCancel).toHaveBeenCalledWith("s1");
+      expect(mockClearLastResponse).toHaveBeenCalledTimes(1);
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    it("点的是横幅 / 「打开 App」：进倒计时页", async () => {
+      mockGetLastResponse.mockReturnValue(launch("open"));
+      const m = load();
+      await m.ensureSosAlertPermission();
+      expect(mockNavigate).toHaveBeenCalledWith(
+        "/sos-active?sosId=s1&deviceId=d1",
+      );
+      expect(mockCancel).not.toHaveBeenCalled();
+    });
+
+    it("监听随后又把同一次点击送来一遍：只处理一次", async () => {
+      mockGetLastResponse.mockReturnValue(launch("cancel"));
+      const m = load();
+      await m.ensureSosAlertPermission();
+      responseHandler?.(launch("cancel"));
+      expect(mockCancel).toHaveBeenCalledTimes(1);
+    });
+
+    it("但用户之后在同一条通知上再点一次「取消」必须照常处理（第一次失败、通知还留在锁屏上）", async () => {
+      mockGetLastResponse.mockReturnValue(launch("cancel"));
+      const m = load();
+      await m.ensureSosAlertPermission();
+      responseHandler?.(launch("cancel")); // 回放，跳过
+      responseHandler?.(launch("cancel")); // 用户真的又点了一次
+      expect(mockCancel).toHaveBeenCalledTimes(2);
+    });
+
+    it("远程推送的启动点击（content.data 里没有 sosId）不碰、不清——留给 push.ts 落地", async () => {
+      mockGetLastResponse.mockReturnValue({
+        actionIdentifier: "default",
+        notification: {
+          date: 1,
+          request: {
+            identifier: "x",
+            trigger: { type: "push", payload: { sosId: "s1" } },
+            content: { data: null },
+          },
+        },
+      });
+      const m = load();
+      await m.ensureSosAlertPermission();
+      expect(mockClearLastResponse).not.toHaveBeenCalled();
+      expect(mockCancel).not.toHaveBeenCalled();
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    it("没有启动点击 / 读取抛错：初始化照常完成", async () => {
+      mockGetLastResponse.mockImplementation(() => {
+        throw new Error("native missing");
+      });
+      const m = load();
+      await expect(m.ensureSosAlertPermission()).resolves.toBeUndefined();
+      expect(responseHandler).not.toBeNull();
+    });
+  });
+
+  describe("resetSosAlerts（登出）", () => {
+    it("撤掉所有还挂着的 SOS 通知并停掉取消重试：上一个账号的提醒不留在这台手机上", async () => {
+      jest.useFakeTimers();
+      override(AppState, "addEventListener", () => ({
+        remove: () => undefined,
+      }));
+      mockCancel.mockRejectedValue(new Error("401"));
+      const m = load();
+      await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
+      await m.showSosAlertIfBackground("s2", "d2", deadlineIn(60));
+      expect(await m.cancelFromNotification("s1")).toBe(false); // 排了 2 s 后的重试
+      mockDismiss.mockClear();
+      await m.resetSosAlerts();
+      const dismissed = mockDismiss.mock.calls.map((c) => c[0]);
+      expect(dismissed).toContain("sos-s1");
+      expect(dismissed).toContain("sos-s2");
+      mockCancel.mockClear();
+      await jest.advanceTimersByTimeAsync(30_000);
+      expect(mockCancel).not.toHaveBeenCalled(); // 重试已停
+      jest.useRealTimers();
+    });
+  });
+
+  describe("同一单的两条通知（2026-10-06 iPhone：叠成一摞，长按到的是没有按钮的远程推送）", () => {
+    const remote = (id: string, sosId: string) => ({
+      request: {
+        identifier: id,
+        trigger: { type: "push", payload: { sosId, deviceId: "d1" } },
+        content: { data: null },
+      },
+    });
+    const local = (sosId: string) => ({
+      request: {
+        identifier: `sos-${sosId}`,
+        trigger: null,
+        content: { data: { sosId, deviceId: "d1" } },
+      },
+    });
+
+    it("本地通知弹出后撤掉同一单的远程推送：只留带「取消」按钮的那条；别的单的、本地的都不动", async () => {
+      mockPresented.mockResolvedValue([
+        remote("apns-1", "s1"),
+        remote("apns-2", "s9"),
+        local("s1"),
+      ]);
+      const m = load();
+      await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(mockDismiss.mock.calls.map((c) => c[0])).toEqual(["apns-1"]);
+      await m.clearSosAlert("s1");
+    });
+
+    it("远程推送晚到：3 秒、10 秒各再扫一遍；这单结束后不再扫", async () => {
+      jest.useFakeTimers();
+      const m = load();
+      await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
+      await jest.advanceTimersByTimeAsync(0);
+      expect(mockDismiss).not.toHaveBeenCalled();
+      mockPresented.mockResolvedValue([remote("apns-late", "s1")]);
+      await jest.advanceTimersByTimeAsync(3_000);
+      expect(mockDismiss.mock.calls.map((c) => c[0])).toEqual(["apns-late"]);
+      mockDismiss.mockClear();
+      mockPresented.mockResolvedValue([remote("apns-later", "s1")]);
+      await jest.advanceTimersByTimeAsync(7_000);
+      expect(mockDismiss.mock.calls.map((c) => c[0])).toEqual(["apns-later"]);
+      // 结束后：定时器已清，不再碰通知中心
+      await m.showSosAlertIfBackground("s2", "d1", deadlineIn(60));
+      await m.clearSosAlert("s2");
+      mockPresented.mockClear();
+      await jest.advanceTimersByTimeAsync(20_000);
+      expect(mockPresented).not.toHaveBeenCalled();
+      jest.useRealTimers();
+    });
+
+    it("查通知中心抛错不影响提醒本身", async () => {
+      mockPresented.mockRejectedValue(new Error("native"));
+      const m = load();
+      await expect(
+        m.showSosAlertIfBackground("s1", "d1", deadlineIn(60)),
+      ).resolves.toBeUndefined();
+      expect(mockSchedule).toHaveBeenCalled();
+      await m.clearSosAlert("s1");
+    });
+
+    it("远程推送上的「取消」按钮（服务端给推送带上通知类别之后才会有）：照样调服务端取消", async () => {
+      const m = load();
+      await m.ensureSosAlertPermission();
+      responseHandler?.({
+        actionIdentifier: "cancel",
+        notification: { date: 1, ...remote("apns-1", "s1") },
+      });
+      expect(mockCancel).toHaveBeenCalledWith("s1");
+    });
+
+    it("远程推送上的普通点击不归这里管（push.ts 落地），不重复跳转", async () => {
+      const m = load();
+      await m.ensureSosAlertPermission();
+      responseHandler?.({
+        actionIdentifier: "expo.modules.notifications.actions.DEFAULT",
+        notification: { date: 1, ...remote("apns-1", "s1") },
+      });
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(mockCancel).not.toHaveBeenCalled();
+    });
+
+    it("冷启动由远程推送的「取消」按钮拉起：发取消；不清这条启动点击（落地跳转仍归 push.ts）", async () => {
+      mockGetLastResponse.mockReturnValue({
+        actionIdentifier: "cancel",
+        notification: { date: 1, ...remote("apns-1", "s1") },
+      });
+      const m = load();
+      await m.ensureSosAlertPermission();
+      expect(mockCancel).toHaveBeenCalledWith("s1");
+      expect(mockClearLastResponse).not.toHaveBeenCalled();
     });
   });
 });

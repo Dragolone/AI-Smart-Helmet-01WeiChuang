@@ -246,6 +246,48 @@ describe("auth-store：登出", () => {
   });
 });
 
+describe("auth-store：被动登出要留下原因（BLE 中转随登录态停掉，不能静默）", () => {
+  const res = (status: number, body: unknown = {}) => ({
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => body,
+  });
+  const originalFetch = (globalThis as { fetch: unknown }).fetch;
+  afterEach(() => {
+    (globalThis as { fetch: unknown }).fetch = originalFetch;
+  });
+
+  it("refresh 被服务端否定 → sessionExpired；重新登录即清", async () => {
+    const { store, client } = loadAuth();
+    await store.getState().signIn({ ...tokens, user: user() });
+    expect(store.getState().sessionExpired).toBe(false);
+    (globalThis as { fetch: unknown }).fetch = jest.fn(async () => res(401, { code: "UNAUTHORIZED" }));
+    await expect(client.api("/devices")).rejects.toMatchObject({ status: 401 });
+    expect(store.getState()).toMatchObject({ tokens: null, sessionExpired: true });
+    await store.getState().signIn({ ...tokens, user: user() });
+    expect(store.getState().sessionExpired).toBe(false);
+  });
+
+  it("用户自己退出 / 注销账号不算；本来就没登录时收到 401 也不算", async () => {
+    const { store, client } = loadAuth();
+    await store.getState().signIn({ ...tokens, user: user() });
+    await store.getState().signOut();
+    expect(store.getState().sessionExpired).toBe(false);
+    (globalThis as { fetch: unknown }).fetch = jest.fn(async () => res(401, { code: "UNAUTHORIZED" }));
+    await expect(client.api("/devices")).rejects.toMatchObject({ status: 401 });
+    expect(store.getState().sessionExpired).toBe(false);
+  });
+
+  it("被动登出后用户又点了一次退出（dropSession）：标记清掉", async () => {
+    const { store, client } = loadAuth();
+    await store.getState().signIn({ ...tokens, user: user() });
+    (globalThis as { fetch: unknown }).fetch = jest.fn(async () => res(401, { code: "UNAUTHORIZED" }));
+    await expect(client.api("/devices")).rejects.toMatchObject({ status: 401 });
+    await store.getState().dropSession();
+    expect(store.getState().sessionExpired).toBe(false);
+  });
+});
+
 describe("auth-store 与 api 客户端的接线", () => {
   const res = (status: number, body: unknown = {}) => ({
     ok: status >= 200 && status < 300,
@@ -289,7 +331,9 @@ describe("auth-store 与 api 客户端的接线", () => {
 });
 
 describe("consent-store：同意标记带版本", () => {
-  const KEY = "helmet.privacy.accepted";
+  /** 现行条目（首次解锁后可读）；旧条目没带可访问性选项，锁屏下读不到 */
+  const KEY = "helmet.privacy.accepted.v2";
+  const LEGACY_KEY = "helmet.privacy.accepted";
   const loadConsent = (): ConsentStore => {
     let mod!: ConsentStore;
     jest.isolateModules(() => {
@@ -314,15 +358,78 @@ describe("consent-store：同意标记带版本", () => {
     expect(mod.useConsentStore.getState().privacyAccepted).toBe(true);
   });
 
-  it("读取抛错按未同意（宁可多问一次）；accept 落盘失败不抛，本次会话内视为已同意", async () => {
-    mockFail.get = true;
+  it("accept 落盘失败不抛，本次会话内视为已同意", async () => {
     mockFail.set = true;
     const { useConsentStore } = loadConsent();
     await useConsentStore.getState().hydrate();
-    expect(useConsentStore.getState()).toMatchObject({ hydrated: true, privacyAccepted: false });
     await expect(useConsentStore.getState().accept()).resolves.toBeUndefined();
-    expect(useConsentStore.getState().privacyAccepted).toBe(true);
+    expect(useConsentStore.getState()).toMatchObject({ hydrated: true, privacyAccepted: true });
     expect(mockKv.has(KEY)).toBe(false);
+  });
+
+  it("accept 写的是锁屏可读的新条目（AFTER_FIRST_UNLOCK）：BLE 事件在锁屏下拉起进程时也读得到", async () => {
+    const mod = loadConsent();
+    await mod.useConsentStore.getState().accept();
+    expect(mockKv.get(KEY)).toBe(mod.PRIVACY_VERSION);
+    expect(mockSetOptions).toEqual([{ keychainAccessible: "AFTER_FIRST_UNLOCK" }]);
+  });
+
+  it("升级前同意过的（只有旧条目）：仍算已同意，并搬一份到新条目；旧版本号的旧条目不搬", async () => {
+    const mod = loadConsent();
+    mockKv.set(LEGACY_KEY, mod.PRIVACY_VERSION);
+    await mod.useConsentStore.getState().hydrate();
+    await flush();
+    expect(mod.useConsentStore.getState()).toMatchObject({ hydrated: true, privacyAccepted: true });
+    expect(mockKv.get(KEY)).toBe(mod.PRIVACY_VERSION);
+    expect(mockSetOptions).toEqual([{ keychainAccessible: "AFTER_FIRST_UNLOCK" }]);
+
+    mockKv.clear();
+    mockKv.set(LEGACY_KEY, "2026-09-11");
+    const again = loadConsent();
+    await again.useConsentStore.getState().hydrate();
+    await flush();
+    expect(again.useConsentStore.getState().privacyAccepted).toBe(false);
+    expect(mockKv.has(KEY)).toBe(false);
+  });
+
+  it("读取抛错（锁屏下被 BLE 拉起）≠ 没同意：保持「还没读完」，不弹「请同意否则退出登录」；回到前台重读", async () => {
+    const listeners: ((s: string) => void)[] = [];
+    const removed: boolean[] = [];
+    const { AppState } = require("react-native") as typeof import("react-native");
+    jest.spyOn(AppState, "addEventListener").mockImplementation(((_: string, cb: (s: string) => void) => {
+      listeners.push(cb);
+      return { remove: () => removed.push(true) };
+    }) as never);
+    const mod = loadConsent();
+    mockKv.set(KEY, mod.PRIVACY_VERSION);
+    mockFail.get = true;
+    await mod.useConsentStore.getState().hydrate();
+    // 原来这里是 hydrated: true + 未同意 → 已同意的用户被要求重新勾选，极光本进程不初始化
+    expect(mod.useConsentStore.getState()).toMatchObject({ hydrated: false, privacyAccepted: false });
+    expect(listeners).toHaveLength(1);
+    // 再失败一次不重复挂监听
+    await mod.useConsentStore.getState().hydrate();
+    expect(listeners).toHaveLength(1);
+    // 仍在后台：不重读
+    listeners[0]("background");
+    await flush();
+    expect(mod.useConsentStore.getState().hydrated).toBe(false);
+    // 用户解锁打开 App
+    mockFail.get = false;
+    listeners[0]("active");
+    await flush();
+    expect(mod.useConsentStore.getState()).toMatchObject({ hydrated: true, privacyAccepted: true });
+    expect(removed).toEqual([true]);
+  });
+
+  it("读取抛错期间用户在登录页勾选并同意了：迟到的重读失败不把它翻回去", async () => {
+    const { AppState } = require("react-native") as typeof import("react-native");
+    jest.spyOn(AppState, "addEventListener").mockImplementation((() => ({ remove: () => undefined })) as never);
+    mockFail.get = true;
+    const { useConsentStore } = loadConsent();
+    await useConsentStore.getState().accept();
+    await useConsentStore.getState().hydrate();
+    expect(useConsentStore.getState()).toMatchObject({ hydrated: true, privacyAccepted: true });
   });
 });
 

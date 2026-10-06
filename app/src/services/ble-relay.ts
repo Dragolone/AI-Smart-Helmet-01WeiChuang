@@ -8,6 +8,7 @@ import type { WsDeviceCommandData } from '@helmet/shared';
 import { relayApi } from '@/api/relay';
 import { settingToRegisterWrite } from '@/services/ble/protocol';
 import { isHelmetConnected, writeHelmetRegister } from '@/services/ble-link';
+import { devLog } from '@/services/dev-log';
 import { useBleStore } from '@/stores/ble-store';
 
 /** 连接建立时服务端会补推 pending/delivered 存量(API.md §11)——按 commandId 去重,
@@ -52,7 +53,7 @@ export async function handleDeviceCommand(cmd: WsDeviceCommandData): Promise<boo
     if (!outcome.delivered) {
       // 头盔不在身边：留给服务端补推/超时；下次连上若服务端再推会重新处理
       handled.delete(cmd.commandId);
-      console.log(`[BLE-RELAY] ${cmd.commandId} 未送达（头盔未连接）`);
+      devLog("BLE-RELAY", `${cmd.commandId} 未送达（头盔未连接）`);
       return false;
     }
     await relayApi.ack(cmd.deviceId, cmd.commandId, { stage: 'delivered' });
@@ -67,7 +68,7 @@ export async function handleDeviceCommand(cmd: WsDeviceCommandData): Promise<boo
   } catch (e) {
     // 回执失败(网络/401 等):移出去重集,等服务端补推或重连时重试
     handled.delete(cmd.commandId);
-    console.warn('[BLE-RELAY] 回执失败,等待补推重试', e);
+    devLog("BLE-RELAY", "回执失败,等待补推重试", e as Error);
     return false;
   }
 }

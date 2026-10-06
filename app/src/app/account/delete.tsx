@@ -1,6 +1,7 @@
 // 注销账号（已登录）：DELETE /users/me 带密码；成功后只清本地会话（服务端账号已不存在，不再调 logout），
 // 登录门控翻转自动回到登录页。
 import { Ionicons } from "@expo/vector-icons";
+import * as SecureStore from "expo-secure-store";
 import { useState } from "react";
 import {
   Alert,
@@ -45,6 +46,10 @@ export default function DeleteAccountScreen() {
     try {
       await authApi.deleteMe({ password });
       showToast(translate("auth.deleteDone"));
+      // 账号已不存在：登录页不再预填这个手机号（登出保留是为了方便，注销不该留）
+      await SecureStore.deleteItemAsync("last_login_phone").catch(
+        () => undefined,
+      );
       // 清会话即触发 Stack.Protected 切到登录组，无需手动导航
       await dropSession();
     } catch (e) {
