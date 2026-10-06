@@ -51,6 +51,9 @@ model RefreshToken {
   createdAt DateTime  @default(now()) @map("created_at")
   // 轮换/登出即置位；已置位的 token 再次出现视为盗用信号
   revokedAt DateTime? @map("revoked_at")
+  // 轮换时指向替代它的新 token（登出 / 改密作废的没有）：刷新应答在路上丢了、旧 token 再次出现时，
+  // 据此作废那张从没用过的新 token 并补发一次（评审 R-05）。不建外键：行只增不删，纯指针
+  replacedById String? @map("replaced_by_id")
 
   @@index([userId])
   @@map("refresh_tokens")

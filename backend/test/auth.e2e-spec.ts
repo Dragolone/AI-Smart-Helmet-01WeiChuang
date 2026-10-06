@@ -181,10 +181,11 @@ describe('Auth 全链路 (e2e)', () => {
   });
 
   it('旧 refresh token 复用 → 401，且触发全会话撤销（盗用防护）', async () => {
-    // 刚轮换的 10s 内复用视为 App 并发刷新的良性竞态（只拒本次）；把撤销时间拨到窗口外模拟真正的盗用复用
+    // 刚轮换的 10s 内复用是并发竞态（只拒本次），15 min 内是应答丢失的补发窗口；
+    // 把撤销时间拨到 20 分钟前，才是真正的盗用复用
     await app.get(PrismaService).refreshToken.updateMany({
       where: { revokedAt: { not: null }, user: { phone } },
-      data: { revokedAt: new Date(Date.now() - 60_000) },
+      data: { revokedAt: new Date(Date.now() - 20 * 60_000) },
     });
     await request(http)
       .post('/api/v1/auth/refresh')
