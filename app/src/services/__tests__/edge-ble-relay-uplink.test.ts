@@ -10,6 +10,8 @@ type RelayApi = typeof import("@/api/relay");
 type Counts = { accepted: number; duplicate: number; invalid: number };
 
 const mockFiles = new Map<string, string>();
+const mockFsFail = { move: false };
+const mockFsMoves: string[] = [];
 const mockHold = jest.fn((_ms: number) => undefined);
 const mockRelease = jest.fn(() => undefined);
 
@@ -28,6 +30,12 @@ jest.mock("expo-file-system", () => ({
     }
     write(s: string): void {
       mockFiles.set(this.name, s);
+    }
+    moveSync(dest: { name: string }, _o?: unknown): void {
+      if (mockFsFail.move) throw new Error("mock: rename failed");
+      mockFsMoves.push(`${this.name} -> ${dest.name}`);
+      mockFiles.set(dest.name, mockFiles.get(this.name) ?? "");
+      mockFiles.delete(this.name);
     }
   },
 }));
@@ -169,6 +177,109 @@ describe("按账号分区：文件名层面的隔离", () => {
     up.stopRelayUplink();
     expect(push).not.toHaveBeenCalled();
     expect(savedIds("anonymous")).toHaveLength(1);
+  });
+});
+
+describe("持久化：先写临时文件再原子改名（10-06 不变式评审 F-6）", () => {
+  beforeEach(() => {
+    mockFsFail.move = false;
+    mockFsMoves.length = 0;
+  });
+
+  it("每次落盘都是「写 .tmp → 改名覆盖正式文件」，正式文件从不被直接覆盖写", async () => {
+    const { up } = load();
+    up.startRelayUplink("user_A");
+    await tick();
+    up.enqueueRelayEvent(env("possible_fall"));
+    expect(mockFsMoves.at(-1)).toBe(`${fileOf("user_A")}.tmp -> ${fileOf("user_A")}`);
+    expect(mockFiles.has(`${fileOf("user_A")}.tmp`)).toBe(false);
+    expect(savedIds("user_A")).toHaveLength(1);
+  });
+
+  it("写完 .tmp、改名前进程被杀：下次启动从完整的 .tmp 恢复（它才是最近一次落盘）", async () => {
+    const fall = env("possible_fall");
+    mockFiles.set(
+      fileOf("user_A"),
+      JSON.stringify({ v: 2, owner: "user_A", events: [] }),
+    );
+    mockFiles.set(
+      `${fileOf("user_A")}.tmp`,
+      JSON.stringify({ v: 2, owner: "user_A", events: [fall] }),
+    );
+    const { up, push } = load();
+    push.mockResolvedValue({ accepted: 1, duplicate: 0, invalid: 0 });
+    up.startRelayUplink("user_A");
+    await tick();
+    await up.flushRelayQueue();
+    expect(push).toHaveBeenCalledTimes(1);
+    expect((push.mock.calls[0][0].envelopes as EventEnvelope[]).map((e) => e.eventId)).toEqual([fall.eventId]);
+  });
+
+  it(".tmp 写到一半被杀（残缺 JSON）：忽略它，从正式文件恢复", async () => {
+    const fall = env("possible_fall");
+    mockFiles.set(
+      fileOf("user_A"),
+      JSON.stringify({ v: 2, owner: "user_A", events: [fall] }),
+    );
+    mockFiles.set(`${fileOf("user_A")}.tmp`, '{"v":2,"owner":"user_A","events":[{"ev');
+    const { up, push } = load();
+    push.mockResolvedValue({ accepted: 1, duplicate: 0, invalid: 0 });
+    up.startRelayUplink("user_A");
+    await tick();
+    await up.flushRelayQueue();
+    expect((push.mock.calls[0][0].envelopes as EventEnvelope[]).map((e) => e.eventId)).toEqual([fall.eventId]);
+  });
+
+  it("改名失败：不抛、队列仍在内存里，下一次落盘再试", async () => {
+    mockFsFail.move = true;
+    const { up, push } = load();
+    push.mockResolvedValue({ accepted: 1, duplicate: 0, invalid: 0 });
+    up.startRelayUplink("user_A");
+    await tick();
+    const fall = env("possible_fall");
+    up.enqueueRelayEvent(fall);
+    mockFsFail.move = false;
+    await up.flushRelayQueue();
+    expect((push.mock.calls[0][0].envelopes as EventEnvelope[]).map((e) => e.eventId)).toEqual([fall.eventId]);
+  });
+});
+
+describe("高危事件被服务端接受后的回调（10-06 不变式评审 F-1）", () => {
+  it("批次含摔倒 / 求救且 accepted>0 → 回调一次并带设备号；全是 duplicate 或只有位置事件 → 不回调", async () => {
+    const { up, push } = load();
+    const onAccepted = jest.fn((_deviceId: string) => undefined);
+    up.setCriticalAcceptedHandler(onAccepted);
+    up.startRelayUplink("user_A");
+    await tick();
+    push.mockResolvedValueOnce({ accepted: 0, duplicate: 1, invalid: 0 });
+    up.enqueueRelayEvent(env("possible_fall", "helmet_x"));
+    await up.flushRelayQueue();
+    expect(onAccepted).not.toHaveBeenCalled();
+    push.mockResolvedValueOnce({ accepted: 1, duplicate: 0, invalid: 0 });
+    up.enqueueRelayEvent(env("location_update", "helmet_x"));
+    await up.flushRelayQueue();
+    expect(onAccepted).not.toHaveBeenCalled();
+    push.mockResolvedValueOnce({ accepted: 2, duplicate: 0, invalid: 0 });
+    up.enqueueRelayEvent(env("manual_sos", "helmet_x"));
+    up.enqueueRelayEvent(env("location_update", "helmet_x"));
+    await up.flushRelayQueue();
+    expect(onAccepted).toHaveBeenCalledTimes(1);
+    expect(onAccepted).toHaveBeenCalledWith("helmet_x");
+    up.setCriticalAcceptedHandler(null);
+  });
+
+  it("回调抛错不影响出队与落盘", async () => {
+    const { up, push } = load();
+    up.setCriticalAcceptedHandler(() => {
+      throw new Error("boom");
+    });
+    up.startRelayUplink("user_A");
+    await tick();
+    push.mockResolvedValueOnce({ accepted: 1, duplicate: 0, invalid: 0 });
+    up.enqueueRelayEvent(env("possible_fall"));
+    await expect(up.flushRelayQueue()).resolves.toBeUndefined();
+    expect(savedIds("user_A")).toEqual([]);
+    up.setCriticalAcceptedHandler(null);
   });
 });
 

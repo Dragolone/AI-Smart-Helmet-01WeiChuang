@@ -10,13 +10,21 @@ import * as Haptics from "expo-haptics";
 import { useKeepAwake } from "expo-keep-awake";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { Alert, AppState, Pressable, StyleSheet, View } from "react-native";
+import {
+  Alert,
+  AppState,
+  BackHandler,
+  Pressable,
+  StyleSheet,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { devLog } from "@/services/dev-log";
 import { countdownPollInterval, settleSnapshot } from "@/services/sos-sync";
 import type { Sos } from "@helmet/shared";
 
 import { ApiRequestError } from "@/api/client";
+import { clearSosAlert } from "@/services/sos-alert";
 import { toUserMessage } from "@/api/error-messages";
 import { sosApi } from "@/api/sos";
 import { ThemedText } from "@/components/themed-text";
@@ -177,6 +185,20 @@ export default function SosActiveScreen() {
 
   const left = sos ? secondsLeft(sos.deadline, now) : null;
   const finished = sos && sos.status !== "pending";
+
+  // Android 实体返回键：倒计时中不能把这页关进「什么都没有」——关掉后警报停、无提示，
+  // 而这单仍登记为「已拉起」，WS / 补拉都不会再弹（10-06 不变式评审 F-4）
+  useEffect(() => {
+    if (!counting) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => true);
+    return () => sub.remove();
+  }, [counting]);
+
+  // 本页取消 / 确认成功后立刻撤掉锁屏提醒和预排的「还剩 30 / 10 秒」，不等 WS 推终态
+  //（WS 没连上时那两条照样会响，10-06 并发评审 F6）
+  useEffect(() => {
+    if (finished && !isDrill) void clearSosAlert(sosId);
+  }, [finished, isDrill, sosId]);
 
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: theme.background }]}>

@@ -3,7 +3,7 @@
 // → 底部固定的红色「SOS · 按住呼救」（全页唯一红色，长按 2 秒经 app-relay 注入 manual_sos，
 //   与头盔实体键走同一服务端状态机，倒计时页由 WS 推送弹出）。
 import { Ionicons } from "@expo/vector-icons";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
@@ -23,15 +23,24 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
-import type { EventListItem } from "@helmet/shared";
+import type {
+  EventEnvelope,
+  EventListItem,
+  EventType,
+} from "@helmet/shared";
 
 import { contactsApi } from "@/api/contacts";
 import { devicesApi } from "@/api/devices";
 import { toUserMessage } from "@/api/error-messages";
 import { eventsListQuery } from "@/api/events";
 import { SAFETY_EVENT_TYPE_PARAM } from "@/constants/event-types";
-import { relayApi } from "@/api/relay";
+import { buildRelayEnvelope, relayApi } from "@/api/relay";
+import {
+  enqueueRelayEvent,
+  notifyCriticalAccepted,
+} from "@/services/ble-relay-uplink";
 import { sosApi } from "@/api/sos";
+import { guardActiveResult } from "@/services/sos-sync";
 import { Card, IconCircle, ListRow, SectionLabel } from "@/components/list";
 import { useJello } from "@/components/motion";
 import { Tappable } from "@/components/tappable";
@@ -170,6 +179,7 @@ function EventRow({ event, last }: { event: EventListItem; last: boolean }) {
 let notifyAlertShown = false;
 
 export default function SafetyScreen() {
+  const queryClient = useQueryClient();
   const theme = useTheme();
   const scheme = useColorScheme();
   const t = useT();
@@ -215,7 +225,7 @@ export default function SafetyScreen() {
   const activeSos = useQueries({
     queries: deviceIds.map((id) => ({
       queryKey: ["sos-active", id],
-      queryFn: () => sosApi.active(id),
+      queryFn: async () => guardActiveResult(queryClient, await sosApi.active(id)),
       refetchInterval: 30_000,
     })),
   });
@@ -267,11 +277,19 @@ export default function SafetyScreen() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(
       () => {},
     );
+    // 一次长按一个 eventId：失败后按原 eventId 进持久队列重试（服务端幂等，不会变成第二次求救）；
+    // 成功后立刻核对进行中的 SOS 拉起倒计时页，不等 WS（10-06 不变式评审 F-5）
+    const envelope = buildRelayEnvelope(sosTarget, "manual_sos", {});
     relayApi
-      .pushEvent(sosTarget, "manual_sos", {})
-      .catch((e) =>
-        Alert.alert(translate("safety.sosSendFailed"), toUserMessage(e)),
-      );
+      .push({ deviceId: sosTarget, envelopes: [envelope] })
+      .then(() => notifyCriticalAccepted(sosTarget))
+      .catch((e) => {
+        enqueueRelayEvent(envelope as EventEnvelope<EventType>);
+        Alert.alert(
+          translate("safety.sosSendFailed"),
+          `${toUserMessage(e)}\n${translate("safety.sosQueued")}`,
+        );
+      });
   };
 
   const [devOpen, setDevOpen] = useState(false);

@@ -10,6 +10,9 @@ export const accident = {
       "{seconds} 秒后将自动通知紧急联系人，误触请点「我没事」取消",
     "sosAlert.cancelAction": "我没事，取消",
     "sosAlert.openAction": "打开 App",
+    "sosAlert.cancelFailedTitle": "取消没有发出",
+    "sosAlert.cancelFailedBody":
+      "网络不稳定，取消请求没有送到服务器。请在倒计时页再按一次「我没事」。",
     "accident.triggeredAt": "触发时间",
     "accident.deadline": "倒计时截止",
     "accident.location": "事故位置",
@@ -35,6 +38,9 @@ export const accident = {
     "sosAlert.bodyCountdown":
       "{seconds} 秒後將自動通知緊急聯絡人，誤觸請點「我沒事」取消",
     "sosAlert.cancelAction": "我沒事，取消",
+    "sosAlert.cancelFailedTitle": "取消沒有送出",
+    "sosAlert.cancelFailedBody":
+      "網路不穩定，取消請求沒有送到伺服器。請在倒數頁再按一次「我沒事」。",
     "sosAlert.openAction": "開啟 App",
     "accident.triggeredAt": "觸發時間",
     "accident.deadline": "倒數截止",
@@ -62,6 +68,9 @@ export const accident = {
     "sosAlert.bodyCountdown":
       'Emergency contacts will be notified in {seconds} s. Tap "I\'m OK" if this was a mistake.',
     "sosAlert.cancelAction": "I'm OK, cancel",
+    "sosAlert.cancelFailedTitle": "Cancel not sent",
+    "sosAlert.cancelFailedBody":
+      "The network is unstable and the cancel request did not reach the server. Please tap \"I'm OK\" again on the countdown page.",
     "sosAlert.openAction": "Open app",
     "accident.triggeredAt": "Triggered",
     "accident.deadline": "Countdown ends",

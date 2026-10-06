@@ -35,7 +35,7 @@ export type PresentedRef = { current: Set<string> };
  */
 export const presentedSos: PresentedRef = { current: new Set<string>() };
 
-const isFinal = (qc: QueryClient, sosId: string): boolean => {
+export const isFinal = (qc: QueryClient, sosId: string): boolean => {
   const cached = qc.getQueryData<Sos>(["sos", sosId]);
   return cached !== undefined && cached !== null && cached.status !== "pending";
 };
@@ -173,4 +173,15 @@ export function settleSnapshot(
     return qc.getQueryData<Sos>(["sos", sosId]) ?? fresh;
   }
   return fresh;
+}
+
+/**
+ * 安全页 30 s 轮询拿到的 `/sos/active` 结果也要过终态守卫：请求在途时用户在倒计时页取消成功，
+ * 迟到的 pending 会把「求救进行中」卡片顶回来，和倒计时页（读 ["sos", id]）两处不一致（10-06 并发评审 F9）
+ */
+export function guardActiveResult<T extends { sos: Pick<Sos, "sosId"> | null }>(
+  qc: QueryClient,
+  result: T,
+): T | { sos: null } {
+  return result.sos && isFinal(qc, result.sos.sosId) ? { sos: null } : result;
 }
