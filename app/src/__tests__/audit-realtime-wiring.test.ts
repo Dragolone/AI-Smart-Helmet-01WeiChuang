@@ -105,3 +105,35 @@ describe("use-realtime 的启动顺序", () => {
     expect(cleanup).toContain("devicesLoad.cancel();");
   });
 });
+
+describe("B 线 10-06 评审 F8 / F-7 / F-10（接线断言）", () => {
+  const hook = read("hooks/use-realtime.ts");
+
+  it("F8：用户档案晚到时，上行队列换到该用户名下并重载他的缓存目标", () => {
+    const fn = hook.slice(
+      hook.indexOf("const onUserReady = () => {"),
+      hook.indexOf("onUserReady();"),
+    );
+    expect(fn).toContain("stopRelayUplink();");
+    expect(fn).toContain("startRelayUplink(uid);");
+    expect(fn).toContain("loadCachedTargets(uid)");
+    expect(fn).toContain("setBleTargets(ids);");
+    expect(hook).toContain("useAuthStore.subscribe(onUserReady)");
+  });
+
+  it("F-7：根布局只在「两边都有档案且 id 不同」时清缓存", () => {
+    const layout = read("app/_layout.tsx");
+    expect(layout).toContain("accountSwitched(prev.user?.id, state.user?.id)");
+    expect(layout).not.toMatch(
+      /switched = \(state\.user\?\.id \?\? null\) !== /,
+    );
+  });
+
+  it("F-10：冷启动补拉时一台目标都没有，列表到位后再补拉一次（只补一次）", () => {
+    expect(hook).toContain("coldResumeHadTargets = ids.length > 0;");
+    const sub = hook.slice(hook.indexOf("getQueryCache().subscribe"));
+    expect(sub).toContain("coldResumeHadTargets === false");
+    expect(sub).toContain("resumedAfterListArrived = true;");
+    expect(sub).toContain('"设备列表到位后补拉"');
+  });
+});

@@ -233,6 +233,15 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 > - **#102（视频预览）又合了一次 main**（你早上十个提交，`app.json` 两个 entitlement 都保留、REGRESSION 8.4–8.8 与第 9 节都在），705 例全过，CI 绿，等你真机。iPhone 打包用你自己的 Apple ID 登录 Xcode 即可。
 > - 你那条「测试误发了三条短信」：负责人已知道，以后紧急联系人统一填公司备用号。
 >
+> **📣 A 线回复（2026-10-06 深夜）——你留的五条（F3 / F4 / F8 / F-7 / F-3 / F-10）都做了，在 main**
+>
+> - **F3**：`connect()` 在 `found.connect()` 返回后核对 `running && targets.includes(id)`，不是目标就 `cancelConnection`；握手途中的解绑由 `setBleTargets` 直接 close 会话、让握手抛错，`catch` 里已解绑的不重连、也不在页面留「已断开」残留行。顺手修了 `command()` 里写入未返回就被 close 时的未处理拒绝。
+> - **F4**：`scanRound` 令牌——`ensureScanning` 两个 `await` 之后、扫描回调第一行比对；`stopScanRound` 换令牌；`connect()` 入口 `if (connecting) return`；`catch` 只删自己那条会话。`stopBleLink` 顺手清 `connecting`。
+> - **F8 / F-7**：`onUserReady` 订阅 auth store，`user.id` 出现时重启上行队列到他名下、重载他的缓存目标；`_layout` 的换人判定改成 `accountSwitched(prev, next)`（两边都有档案且不同才算）。
+> - **F-3**：新增 `services/server-clock.ts`，从每个响应的 `Date` 头学偏移；倒计时页、锁屏通知读秒、头盔对时都改用 `serverNow()`。
+> - **F-10**：冷启动补拉时一台目标都没有的话，列表到位后再补拉一次（只一次）。
+> - 测试：ble-link 新增 8 例、server-clock 5 例，接线用源码断言；变异校验 12 个变异 10 个被杀、2 个是两道令牌检查互为冗余。App 706 例全绿。**真机没验**（REGRESSION 新增 8.9–8.11，8.9 要头盔上电那一秒点解绑，8.10 要拨手机时钟）。
+>
 > **📣 A 线回复（2026-10-06 晚）——你今天的 7 个 PR 都看到了；云端更新后华为又过了 5 行；两件要我做的事明天做**
 >
 > - 你让我今天做的两件：① **被杀状态下远程推送上的「取消」按钮**——要负责人解锁 iPhone 配合，他已经睡了，明天第一件事；App 侧对这个动作的处理（含冷启动）10-06 上午已合（`7108510`），你那边带上类别后就是端到端。② **#102 双端真机**——同样明天，iPhone 的包要切到你的分支重打。

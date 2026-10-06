@@ -18,7 +18,7 @@ import {
   clearSessionExpiredNotice,
   notifySessionExpired,
 } from "@/services/session-notice";
-import { useAuthStore } from "@/stores/auth-store";
+import { accountSwitched, useAuthStore } from "@/stores/auth-store";
 import { useConsentStore } from "@/stores/consent-store";
 import { useThemeStore } from "@/stores/theme-store";
 
@@ -37,7 +37,9 @@ const queryClient = new QueryClient({
 // 登出或换账号时清空查询缓存：query key 不含用户 id，staleTime 内新账号会直接看到上一账号的
 // 设备/事件/事故（审计 APP-01）。同一账号改昵称等 user 变更不清（id 不变）。
 useAuthStore.subscribe((state, prev) => {
-  const switched = (state.user?.id ?? null) !== (prev.user?.id ?? null);
+  // 「换了人」= 两边都有档案且 id 不同。冷启动钥匙串里只有 token、/users/me 回来才有 user 的那一刻
+  // 不算换人，不能把刚拉好的整套缓存清掉（B 线 10-06 评审 F-7）；换账号一定先经过登出，那一步已清过
+  const switched = accountSwitched(prev.user?.id, state.user?.id);
   const loggedOut = state.tokens === null && prev.tokens !== null;
   if (switched || loggedOut) queryClient.clear();
   // 会话被服务端否定：BLE 中转 / 实时通道 / 推送随登录态一起停了，不能让用户蒙在鼓里

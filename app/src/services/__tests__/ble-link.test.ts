@@ -134,6 +134,8 @@ class FakeHelmet {
 
 const helmet = new FakeHelmet();
 let scanCb: ((e: null, d: unknown) => void) | null = null;
+/** 每次 startDeviceScan 挂上的回调都留着（ble-plx 只叠监听不摘旧的） */
+const mockScanCbs: ((e: null, d: unknown) => void)[] = [];
 let stateCb: ((s: string) => void) | null = null;
 const destroyed = { count: 0 };
 /** 每次 startDeviceScan 的服务 UUID 过滤（null = 全量扫描） */
@@ -141,6 +143,8 @@ const mockScans: (string[] | null)[] = [];
 /** 设了就让 destroy() 挂在这个 Promise 上（模拟原生销毁还没回来） */
 const mockDestroyGate: { promise: Promise<void> | null } = { promise: null };
 const mockSvcStart = jest.fn((_title: string, _text: string) => undefined);
+/** 适配器状态查询（可挂起，模拟 ensureScanning 的 await 窗口） */
+const mockState = jest.fn(async (): Promise<string> => "PoweredOn");
 const mockSvcStop = jest.fn(() => undefined);
 /** 这一轮测试顺序：入队 / ACK 谁先谁后 */
 const mockOrder: string[] = [];
@@ -193,7 +197,7 @@ jest.mock("react-native-ble-plx", () => ({
   },
   BleErrorCode: { OperationCancelled: 2 },
   BleManager: jest.fn().mockImplementation(() => ({
-    state: async () => "PoweredOn",
+    state: () => mockState(),
     onStateChange: (cb: (s: string) => void, emit: boolean) => {
       stateCb = cb;
       if (emit) cb("PoweredOn");
@@ -206,6 +210,7 @@ jest.mock("react-native-ble-plx", () => ({
       cb: (e: null, d: unknown) => void,
     ) => {
       mockScans.push(u as string[] | null);
+      mockScanCbs.push(cb);
       scanCb = cb;
     },
     stopDeviceScan: () => undefined,
@@ -249,6 +254,10 @@ import {
 import { useBleStore } from "@/stores/ble-store";
 import { AppState, Platform } from "react-native";
 import { BleManager } from "react-native-ble-plx";
+import {
+  __resetServerClockForTests,
+  noteServerDate,
+} from "@/services/server-clock";
 import {
   bleStackReleased,
   isHelmetConnected,
@@ -305,10 +314,15 @@ beforeEach(() => {
   enqueueMock.mockClear();
   flushMock.mockClear();
   mockScans.length = 0;
+  mockScanCbs.length = 0;
   mockOrder.length = 0;
   mockDestroyGate.promise = null;
   mockSvcStart.mockClear();
   mockSvcStop.mockClear();
+  mockState.mockReset();
+  mockState.mockResolvedValue("PoweredOn");
+  fakeDevice.connect.mockReset();
+  fakeDevice.connect.mockResolvedValue(fakeDevice);
   override(AppState, "currentState", "active");
   jest.spyOn(console, "log").mockImplementation(() => undefined);
 });
@@ -811,5 +825,178 @@ describe("2026-10-05 评审：重建 BleManager 要等上一个销毁完", () =>
     mockDestroyGate.promise = Promise.reject(new Error("native gone"));
     stopBleLink();
     await expect(bleStackReleased()).resolves.toBeUndefined();
+  });
+});
+
+describe("B 线 10-06 评审 F3：解绑 / 停链路撞上连接或握手在途", () => {
+  it("连接在途时解绑：连上后立刻断开，不建会话、不握手", async () => {
+    let finishConnect!: (d: typeof fakeDevice) => void;
+    fakeDevice.connect.mockImplementationOnce(
+      () => new Promise<typeof fakeDevice>((r) => (finishConnect = r)),
+    );
+    await startBleLink(["helmet_94173f"]);
+    await tick();
+    scanCb?.(null, fakeDevice);
+    await tick();
+    setBleTargets([]); // 用户在设备详情页点了解绑
+    finishConnect(fakeDevice);
+    await tick(20);
+    expect(helmet.cancelled).toBeGreaterThan(0);
+    expect(helmet.writes).toHaveLength(0); // 一条指令都没发
+    expect(isHelmetConnected("helmet_94173f")).toBe(false);
+    expect(useBleStore.getState().links["helmet_94173f"]).toBeUndefined();
+  });
+
+  it("握手在途（对时之后、补传之前）解绑：不补传离线事件——否则 ACK 擦除后在服务端按未绑定丢掉", async () => {
+    // 让对时指令（0x04）的写入挂起，这时解绑
+    let release!: () => void;
+    const origImpl =
+      fakeDevice.writeCharacteristicWithResponseForService.getMockImplementation();
+    fakeDevice.writeCharacteristicWithResponseForService.mockImplementation(
+      async (_s, _c, v) => {
+        const bytes = base64ToBytes(v);
+        if (bytes[0] === 0x04) {
+          await new Promise<void>((r) => (release = r));
+          setBleTargets([]);
+        }
+        helmet.writes.push(bytesToHex(bytes));
+        helmet.handle(bytes);
+        return {};
+      },
+    );
+    helmet.flash = [
+      hexToBytes(
+        "05 01 65 00 00 00 00 00 00 00 5F 2D 55 ED 4E CD 01 17 7C 29 07",
+      ),
+    ];
+    await startBleLink(["helmet_94173f"]);
+    await tick();
+    scanCb?.(null, fakeDevice);
+    for (let i = 0; i < 40 && !release; i += 1) await tick();
+    release();
+    await tick(40);
+    // 没有发补传查询（0x07），离线事件还在头盔 Flash 里，也没有 ACK
+    expect(helmet.writes.some((w) => w.startsWith("07 "))).toBe(false);
+    expect(helmet.flash).toHaveLength(1);
+    expect(helmet.acks).toHaveLength(0);
+    expect(enqueueMock).not.toHaveBeenCalled();
+    expect(isHelmetConnected("helmet_94173f")).toBe(false);
+    // 已解绑的设备不该在页面上留一行「已断开」
+    expect(useBleStore.getState().links["helmet_94173f"]).toBeUndefined();
+    fakeDevice.writeCharacteristicWithResponseForService.mockImplementation(
+      origImpl as never,
+    );
+  });
+});
+
+describe("B 线 10-06 评审 F4：扫描轮次令牌", () => {
+  it("查适配器状态期间停了链路：这一轮不再 startDeviceScan（ble-plx 只叠监听，泄漏的监听会劫持连接）", async () => {
+    let answer!: (s: string) => void;
+    mockState.mockImplementationOnce(
+      () => new Promise<string>((r) => (answer = r)),
+    );
+    await startBleLink(["helmet_94173f"]);
+    await tick();
+    expect(mockScans).toHaveLength(0);
+    stopBleLink();
+    answer("PoweredOn");
+    await tick();
+    expect(mockScans).toHaveLength(0);
+  });
+
+  it("查适配器状态期间前后台切换重开了一轮：旧的那一轮作废，只剩新的一轮在扫", async () => {
+    jest.useFakeTimers();
+    const holder: { cb: ((s: string) => void) | null } = { cb: null };
+    jest.spyOn(AppState, "addEventListener").mockImplementation(((
+      _: string,
+      cb: (s: string) => void,
+    ) => {
+      holder.cb = cb;
+      return { remove: () => undefined };
+    }) as never);
+    await startBleLink(["helmet_94173f"]);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(mockScans).toHaveLength(1);
+    await jest.advanceTimersByTimeAsync(20_000); // 切到全量
+    expect(mockScans).toHaveLength(2);
+    // 下一轮（回到过滤）的 state() 挂起时，退后台 → 又重开一轮
+    let answer!: (s: string) => void;
+    mockState.mockImplementationOnce(
+      () => new Promise<string>((r) => (answer = r)),
+    );
+    await jest.advanceTimersByTimeAsync(20_000);
+    expect(mockScans).toHaveLength(2); // 第三轮卡在 state()
+    override(AppState, "currentState", "background");
+    holder.cb?.("background");
+    await jest.advanceTimersByTimeAsync(0);
+    answer("PoweredOn"); // 旧的第三轮这时才返回
+    await jest.advanceTimersByTimeAsync(0);
+    // 只多了一轮（后台重开的那一轮），卡住的旧轮没有再起一次扫描
+    expect(mockScans).toHaveLength(3);
+  });
+
+  it("停掉的那一轮迟到的扫描回调不认：不会再去连接", async () => {
+    await startBleLink(["helmet_94173f"]);
+    await tick();
+    const staleCb = scanCb;
+    stopBleLink();
+    await bleStackReleased();
+    fakeDevice.connect.mockClear();
+    staleCb?.(null, fakeDevice);
+    await tick();
+    expect(fakeDevice.connect).not.toHaveBeenCalled();
+  });
+
+  it("被换掉的那一轮迟到的发现回调不认（新一轮还在扫、目标也还在）：不会由旧监听发起连接", async () => {
+    jest.useFakeTimers();
+    await startBleLink(["helmet_94173f"]);
+    await jest.advanceTimersByTimeAsync(0);
+    await jest.advanceTimersByTimeAsync(20_000); // 切全量：第二轮，旧监听仍挂在 ble-plx 上
+    expect(mockScanCbs).toHaveLength(2);
+    fakeDevice.connect.mockClear();
+    mockScanCbs[0](null, fakeDevice); // 旧监听迟到的回调
+    await jest.advanceTimersByTimeAsync(0);
+    expect(fakeDevice.connect).not.toHaveBeenCalled();
+    mockScanCbs[1](null, fakeDevice); // 当前这一轮的才算
+    await jest.advanceTimersByTimeAsync(0);
+    expect(fakeDevice.connect).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(50); // 让这次连接走完，别把 connecting 留给下一个用例
+  });
+
+  it("一次只连一台：连接在途时第二个发现回调不再发起连接", async () => {
+    let finishConnect!: (d: typeof fakeDevice) => void;
+    fakeDevice.connect.mockImplementationOnce(
+      () => new Promise<typeof fakeDevice>((r) => (finishConnect = r)),
+    );
+    await startBleLink(["helmet_94173f", "helmet_other2"]);
+    await tick();
+    scanCb?.(null, fakeDevice);
+    await tick();
+    scanCb?.(null, {
+      ...fakeDevice,
+      id: "periph-2",
+      name: "Helmet-other2",
+      localName: "Helmet-other2",
+    });
+    await tick();
+    expect(fakeDevice.connect).toHaveBeenCalledTimes(1);
+    finishConnect(fakeDevice);
+    await tick(40);
+    expect(isHelmetConnected("helmet_94173f")).toBe(true);
+  });
+});
+
+describe("B 线 10-06 评审 F-3：头盔对时用服务端时钟", () => {
+  it("手机快 90 秒时，TIME SYNC 帧里写的是服务端时间", async () => {
+    noteServerDate(new Date(Date.now() - 90_000).toUTCString(), Date.now());
+    await connectHelmet();
+    const sync = helmet.writes.find((w) => w.startsWith("04 "));
+    expect(sync).toBeDefined();
+    const ts = hexToBytes(sync!).slice(2, 6);
+    const utc = ts[0] | (ts[1] << 8) | (ts[2] << 16) | (ts[3] << 24);
+    const localSec = Math.floor(Date.now() / 1000);
+    expect(localSec - utc).toBeGreaterThanOrEqual(85);
+    expect(localSec - utc).toBeLessThanOrEqual(95);
+    __resetServerClockForTests();
   });
 });

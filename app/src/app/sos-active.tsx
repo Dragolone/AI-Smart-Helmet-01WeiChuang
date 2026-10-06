@@ -20,6 +20,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { devLog } from "@/services/dev-log";
+import { serverNow } from "@/services/server-clock";
 import { countdownPollInterval, settleSnapshot } from "@/services/sos-sync";
 import type { Sos } from "@helmet/shared";
 
@@ -51,13 +52,14 @@ export default function SosActiveScreen() {
   /** 当前时刻作为被读取的 state：剩余秒数在渲染期由它算出。
    *  不能用"空转 tick（值不读）强制重渲染"——React Compiler 判定无依赖变化会 memo 掉
    *  整个渲染，倒计时数字永远停在首帧（2026-08-17 真机实证）。 */
-  const [now, setNow] = useState(() => Date.now());
+  // 用服务端时钟：deadline 是服务端给的，手机时钟快 90 秒的话一打开就显示 0（B 线 10-06 评审 F-3）
+  const [now, setNow] = useState(() => serverNow());
   /** 演练：本地 60 s deadline + 本地状态；到期在渲染期推导为 notified（真实模式由服务端判定） */
   const [drillState, setDrillState] = useState<{
     deadline: string;
     status: "pending" | "cancelled" | "notified";
   }>(() => ({
-    deadline: new Date(Date.now() + 60_000).toISOString(),
+    deadline: new Date(serverNow() + 60_000).toISOString(),
     status: "pending",
   }));
 
@@ -103,7 +105,7 @@ export default function SosActiveScreen() {
 
   // 每秒推进"当前时刻"，渲染期据此重算剩余秒数（仅展示用途，超时判定在服务端）
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
+    const t = setInterval(() => setNow(serverNow()), 1000);
     return () => clearInterval(t);
   }, []);
 

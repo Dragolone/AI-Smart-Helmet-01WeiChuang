@@ -21,6 +21,10 @@ import {
   forceRefreshTokens,
 } from "../client";
 import { toUserMessage } from "../error-messages";
+import {
+  __resetServerClockForTests,
+  serverClockOffsetMs,
+} from "@/services/server-clock";
 
 type Init = RequestInit & { headers?: Record<string, string> };
 type FetchMock = Mock<(url: string, init?: Init) => Promise<unknown>>;
@@ -511,5 +515,23 @@ describe("请求体里带 token 的接口：401 重试时要重取（2026-10-05 
         (callsTo(fetchMock, "/auth/change-password") as [string, Init?][])[0],
       ).refreshToken,
     ).toBe("");
+  });
+});
+
+describe("服务端时钟（F-3）", () => {
+  it("每个响应的 Date 头都喂给 server-clock；没有 headers 的假响应不报错", async () => {
+    __resetServerClockForTests();
+    const serverDate = new Date(Date.now() - 90_000).toUTCString();
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true }),
+      headers: { get: (k: string) => (k === "date" ? serverDate : null) },
+    });
+    await api("/x");
+    expect(serverClockOffsetMs()).toBeLessThan(-80_000);
+    fetchMock.mockResolvedValue(res(200, { ok: true })); // 没有 headers
+    await expect(api("/x")).resolves.toEqual({ ok: true });
+    __resetServerClockForTests();
   });
 });

@@ -2,6 +2,8 @@
 // Base URL 通过 EXPO_PUBLIC_API_URL 配置（默认本机后端）；Contract 见 docs/API.md。
 import type { ApiErrorBody, AuthTokens } from "@helmet/shared";
 
+import { noteServerDate } from "@/services/server-clock";
+
 const BASE_URL =
   process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
 
@@ -37,9 +39,17 @@ const REQUEST_TIMEOUT_MS = 15_000;
 function fetchWithTimeout(input: string, init: RequestInit): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  return fetch(input, { ...init, signal: controller.signal }).finally(() =>
-    clearTimeout(timer),
-  );
+  return fetch(input, { ...init, signal: controller.signal })
+    .then((res) => {
+      // 顺手学服务端时钟（倒计时与头盔对时都用它，见 services/server-clock）
+      try {
+        noteServerDate(res.headers?.get?.("date"));
+      } catch {
+        // 测试里的假 Response 没有 headers；真机上 fetch 的 Response 一定有
+      }
+      return res;
+    })
+    .finally(() => clearTimeout(timer));
 }
 
 /**

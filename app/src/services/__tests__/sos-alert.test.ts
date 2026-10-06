@@ -90,9 +90,13 @@ const deadlineIn = (seconds: number) =>
   new Date(Date.now() + seconds * 1000).toISOString();
 
 /** 模块有模块级状态（shownForSosId / notificationIds / permissionAsked），每个用例拿一份新的 */
+type ServerClock = typeof import("@/services/server-clock");
+/** 与被测模块同一份隔离注册表里的 server-clock（isolateModules 让顶层 import 的那份与它不是同一个实例） */
+let clock!: ServerClock;
 const load = (): SosAlert => {
   let mod!: SosAlert;
   jest.isolateModules(() => {
+    clock = require("@/services/server-clock") as ServerClock;
     mod = require("../sos-alert") as SosAlert;
   });
   return mod;
@@ -178,6 +182,21 @@ describe("sos-alert", () => {
       await m.showSosAlertIfBackground("s1", "d1", deadlineIn(12));
       // 30s 档已过（delay 为负），10s 档 delay=2 <3 也跳过 → 只有首条
       expect(reqs()).toHaveLength(1);
+    });
+
+    it("手机快 90 秒：读秒按服务端时钟算，不会一弹出来就是 0（F-3）", async () => {
+      const m = load();
+      clock.noteServerDate(
+        new Date(Date.now() - 90_000).toUTCString(),
+        Date.now(),
+      );
+      await m.showSosAlertIfBackground("s1", "d1", deadlineIn(-30)); // 按手机时钟已过期 30 s，服务端看还剩 60 s
+      const r = reqs();
+      // Date 头只有秒级精度，偏移最多差 1 s
+      expect(r[0].content.body).toMatch(
+        /sosAlert\.bodyCountdown:\{"seconds":6[01]\}/,
+      );
+      expect(r).toHaveLength(3); // 30 s / 10 s 两档刷新也排上了
     });
 
     it("已过期的 deadline 不会排出负数延迟", async () => {

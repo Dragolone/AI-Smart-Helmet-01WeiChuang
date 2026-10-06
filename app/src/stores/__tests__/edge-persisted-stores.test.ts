@@ -497,3 +497,16 @@ describe("locale-store", () => {
     expect(useLocaleStore.getState()).toMatchObject({ locale: "zh-TW", hydrated: true });
   });
 });
+
+describe("accountSwitched（F-7：档案从无到有不算换人）", () => {
+  it("两边都有 id 且不同才算；null → 有值不算；同 id 不算；有值 → null（登出）不算，登出另有判定", async () => {
+    const { store } = loadAuth();
+    void store;
+    const { accountSwitched } = require("../auth-store") as AuthStore;
+    expect(accountSwitched("u1", "u2")).toBe(true);
+    expect(accountSwitched(undefined, "u1")).toBe(false);
+    expect(accountSwitched("u1", "u1")).toBe(false);
+    expect(accountSwitched("u1", undefined)).toBe(false);
+    expect(accountSwitched(undefined, undefined)).toBe(false);
+  });
+});

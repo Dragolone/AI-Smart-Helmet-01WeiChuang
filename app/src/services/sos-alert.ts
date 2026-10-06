@@ -10,6 +10,7 @@ import { Alert, AppState, Platform } from "react-native";
 import { sosApi } from "@/api/sos";
 import { translate } from "@/i18n";
 import { devLog } from "@/services/dev-log";
+import { serverNow } from "@/services/server-clock";
 import { presentedSos } from "@/services/sos-sync";
 
 const CHANNEL_ID = "sos";
@@ -335,7 +336,7 @@ export async function isSosAlertPermissionDenied(): Promise<boolean> {
 function remainingSeconds(deadline: string): number | null {
   const at = Date.parse(deadline);
   if (Number.isNaN(at)) return null;
-  return Math.max(0, Math.round((at - Date.now()) / 1000));
+  return Math.max(0, Math.round((at - serverNow()) / 1000)); // deadline 是服务端时间（F-3）
 }
 
 /** pending SOS 到达且 App 不在前台 → 立即弹本地通知（同一单只弹一次），并按剩余时间预排静默刷新 */

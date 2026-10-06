@@ -41,6 +41,7 @@ import {
 import { devicesApi } from "@/api/devices";
 import { translate } from "@/i18n";
 import { devLog } from "@/services/dev-log";
+import { serverNow } from "@/services/server-clock";
 import { HelmetLinkService } from "helmet-link-service";
 import { useBleStore } from "@/stores/ble-store";
 import type { BleDeviceLink } from "@/stores/ble-store";
@@ -219,7 +220,8 @@ class HelmetSession {
     this.patch({ firmwareVersion: this.firmwareVersion });
     // Step 4：对时（头盔 RTC 断电即失，每次连接都校）
     await this.command(
-      buildTimeSync(this.nextSeq(), Math.floor(Date.now() / 1000)),
+      // 对时用服务端时钟而不是手机时钟（F-3）：头盔上报的事件时间要和服务端对得上
+      buildTimeSync(this.nextSeq(), Math.floor(serverNow() / 1000)),
     );
     // Step 5：补传离线期间的高危事件（逐条 ACK 后头盔擦除）
     await this.resendOffline();
@@ -264,6 +266,9 @@ class HelmetSession {
   private async command(frame: Uint8Array): Promise<InboundResponse> {
     const seq = frame[1];
     const p = new PendingCommand(frame[0], seq, () => this.pending.delete(seq));
+    // 写入还没返回时会话就被关掉（解绑 / 停链路）的话，p.promise 会在下面 await 到它之前被 reject——
+    // 先挂一个空 catch，别留下未处理的拒绝（真正的结果仍由下面的 await 拿到）
+    p.promise.catch(() => undefined);
     this.pending.set(seq, p);
     try {
       await this.device.writeCharacteristicWithResponseForService(
@@ -402,9 +407,17 @@ const SCAN_FALLBACK_MS = 20_000;
 /** 当前这一轮扫描的兜底定时器（每条停扫路径都会清它，所以不会有上一轮的定时器来搅下一轮） */
 let scanFallbackTimer: ReturnType<typeof setTimeout> | null = null;
 let appStateSub: { remove: () => void } | null = null;
+/**
+ * 扫描轮次令牌（B 线 10-06 评审 F4）：ensureScanning 里有两个 await（查适配器状态、查系统已连接外设），
+ * 这期间前后台切换 / 停链路 / 另一次 ensureScanning 都可能把这一轮换掉。被换掉的那一轮不能再往下
+ * startDeviceScan——ble-plx 的 startDeviceScan 只是叠监听，泄漏的监听会在两台目标时演变成连接劫持。
+ * 每个 await 之后、扫描回调第一行都和当前令牌比对。
+ */
+let scanRound = 0;
 
-/** 停掉当前这一轮扫描（连同它的兜底定时器） */
+/** 停掉当前这一轮扫描（连同它的兜底定时器），并让在途的 ensureScanning 作废 */
 function stopScanRound(): void {
+  scanRound += 1;
   if (scanFallbackTimer) clearTimeout(scanFallbackTimer);
   scanFallbackTimer = null;
   if (!scanning) return;
@@ -460,13 +473,18 @@ async function ensureScanning(): Promise<void> {
   if (want.length === 0) return;
   const mgr = getBleManager();
   scanning = true; // 先占位再 await：并发调用（设备列表轮询触发）不能重复起扫描
-  if ((await mgr.state()) !== State.PoweredOn) {
+  const round = ++scanRound;
+  const stale = () => round !== scanRound;
+  const powered = (await mgr.state()) === State.PoweredOn;
+  if (stale()) return; // 这一轮已被换掉（停链路 / 前后台切换）：scanning 由接手的那一方负责
+  if (!powered) {
     scanning = false;
     return;
   }
   // 系统层可能仍保持着上次 JS 会话/上次进程的连接（iOS 常见）：直接复用，不再扫描
   try {
     const already = await mgr.connectedDevices([SERVICE_UUID]);
+    if (stale()) return;
     for (const d of already) {
       const name = d.localName ?? d.name;
       const target = want.find((id) => advName(id) === name);
@@ -478,6 +496,7 @@ async function ensureScanning(): Promise<void> {
       }
     }
   } catch (e) {
+    if (stale()) return;
     log("查询已连接外设失败", (e as Error).message);
   }
   log(
@@ -513,6 +532,7 @@ async function ensureScanning(): Promise<void> {
     unfiltered ? null : [SERVICE_UUID],
     { allowDuplicates: false },
     (error, device) => {
+      if (stale()) return; // 这一轮已停：ble-plx 不会替我们摘掉旧监听，迟到的回调一律不认
       if (error) {
         clearTimeout(fallbackTimer);
         log("扫描错误", error.message);
@@ -561,18 +581,30 @@ async function connect(
   found: Device,
   byName = true,
 ): Promise<void> {
+  if (connecting) return; // 一次只连一台；另一台由 finally 里的 ensureScanning 重新发现
   connecting = deviceId;
   store().patchLink(deviceId, { phase: "connecting", errorCode: undefined });
   let session: HelmetSession | null = null;
+  /** 连接 / 握手途中被解绑或停链路（B 线 10-06 评审 F3）：不能建成「已解绑设备」的会话，否则补传的
+   *  离线事件被 ACK 擦除后在服务端 404 丢掉。握手途中的解绑由 setBleTargets 直接 close 会话、让握手抛错；
+   *  这里兜的是「connect() 刚返回、会话还没登记」那一段 */
+  const stillWanted = () => running && targets.includes(deviceId);
   try {
     const device = await found.connect({
       requestMTU: REQUEST_MTU,
       timeout: 10_000,
     });
+    if (!stillWanted()) {
+      log(`${deviceId} 连接途中已解绑 / 链路已停，断开`);
+      void device.cancelConnection().catch(() => undefined);
+      return;
+    }
     store().patchLink(deviceId, { phase: "handshaking" });
     session = new HelmetSession(deviceId, device, (reason) => {
       sessions.delete(deviceId);
-      store().patchLink(deviceId, { phase: running ? "disconnected" : "idle" });
+      store().patchLink(deviceId, {
+        phase: running ? "disconnected" : "idle",
+      });
       log(`${deviceId} 断开：${reason}`);
       syncForegroundService();
       if (running) scheduleReconnect(deviceId);
@@ -590,9 +622,13 @@ async function connect(
   } catch (e) {
     const code = (e as { code?: string }).code;
     log(`${deviceId} 连接/握手失败`, (e as Error).message);
-    sessions.delete(deviceId);
+    // 只删自己这条：别把后来建好的另一条会话误删
+    if (sessions.get(deviceId) === session) sessions.delete(deviceId);
     session?.close("handshake-failed");
-    if (code === "DEVICE_ID_MISMATCH" && !byName) {
+    if (!stillWanted()) {
+      // 解绑 / 停链路撞上握手：不是故障，不重连，也别在页面上给已解绑的设备留一行
+      if (!targets.includes(deviceId)) store().removeLink(deviceId);
+    } else if (code === "DEVICE_ID_MISMATCH" && !byName) {
       // 兜底候选核身失败：只是别人的头盔，忽略这台外设继续扫
       ignoredPeripherals.add(found.id);
       store().patchLink(deviceId, { phase: "disconnected" });
@@ -725,6 +761,7 @@ export function setBleTargets(deviceIds: string[]): void {
 
 export function stopBleLink(): void {
   running = false;
+  connecting = null; // 在途的 connect() 自己会在 finally 里再清一次；别让它挡住下一次启动的第一次连接
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
