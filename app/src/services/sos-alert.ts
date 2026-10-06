@@ -272,6 +272,8 @@ export async function cancelFromNotification(
   const settled = (): true => {
     useSosCancelStore.getState().end(sosId);
     void clearSosAlert(sosId);
+    // 远程推送那条也撤掉：被杀状态下它是通知中心里唯一的一条，取消完还留着，用户会再去长按（10-07 实测）
+    void dismissRemoteTwins(sosId);
     try {
       onCancelConfirmed?.(sosId);
     } catch (e) {
