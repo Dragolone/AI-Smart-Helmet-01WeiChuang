@@ -15,8 +15,15 @@ import { SmsCodeService, type SmsCodePurpose } from './sms-code.service';
 
 /** API.md §2 定稿：access 15 分钟 / refresh 30 天（轮换制） */
 const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-/** 刚轮换掉的 token 在此窗口内再次出现 = App 并发刷新的良性竞态（只拒绝本次），超过窗口才按盗用撤销全部会话 */
+/** 刚轮换掉的 token 在此窗口内再次出现 = 同一 token 并发刷新的良性竞态：只拒绝本次，赢家的新 token 不受影响 */
 const REFRESH_REUSE_GRACE_MS = 10_000;
+/**
+ * 刷新应答丢失的补发窗口（评审 R-05）：App 的刷新请求到了服务端、应答却没回去（隧道 / 地铁），
+ * 它手里还是旧 token，下一次刷新带的仍是旧 token。旧 token 在并发窗口之后、本窗口之内再次出现，
+ * 当作「上次的应答没送到」：作废那张从没用过的新 token、再发一张；每张旧 token 只补发一次。
+ * 超过本窗口再出现才按盗用撤销全部会话。取 access 的寿命，断网几分钟后回来的第一次刷新落在窗口内。
+ */
+const REFRESH_RETRY_WINDOW_MS = 15 * 60 * 1000;
 const BCRYPT_ROUNDS = 10;
 
 export interface TokenPair {
@@ -225,7 +232,7 @@ export class AuthService {
     return this.toSafeUser(user);
   }
 
-  /** refresh 轮换：旧 token 立即作废；检测到已作废 token 被复用 → 撤销该用户全部会话。 */
+  /** refresh 轮换：旧 token 立即作废；已作废 token 再出现：并发窗口内拒绝、补发窗口内补发一次、之后视为盗用撤销全部会话。 */
   async refresh(refreshToken: string): Promise<TokenPair> {
     const tokenHash = hashRefreshToken(refreshToken);
     const record = await this.prisma.refreshToken.findUnique({
@@ -236,11 +243,17 @@ export class AuthService {
     // 注销时已撤销全部 token，这里是兜底：已注销用户不得续期
     if (record.user.deletedAt) throw unauthorized('账号已注销');
     if (record.revokedAt) {
-      if (Date.now() - record.revokedAt.getTime() < REFRESH_REUSE_GRACE_MS) {
+      const revokedAgo = Date.now() - record.revokedAt.getTime();
+      if (revokedAgo < REFRESH_REUSE_GRACE_MS) {
         // 并发刷新的输家：另一方刚刚轮换成功，本次拒绝即可，不能把赢家的新会话也撤销
         throw unauthorized('refresh token 已被使用，请用最新的 token');
       }
-      // 已轮换掉的 token 过了并发窗口再次出现 = 疑似被盗用，终止该用户所有会话
+      if (revokedAgo < REFRESH_RETRY_WINDOW_MS) {
+        const reissued = await this.reissueAfterLostResponse(record);
+        if (reissued) return reissued;
+        throw unauthorized('refresh token 已被使用，请用最新的 token');
+      }
+      // 已轮换掉的 token 过了补发窗口再次出现 = 疑似被盗用，终止该用户所有会话
       this.logger.warn(
         `refresh token 复用检测：撤销用户 ${record.userId} 全部会话`,
       );
@@ -261,6 +274,29 @@ export class AuthService {
     if (rotated.count === 0) {
       throw unauthorized('refresh token 已被使用，请用最新的 token');
     }
+    return this.issueTokens(record.userId, record.id);
+  }
+
+  /**
+   * 旧 token 在补发窗口内再次出现：只有「轮换出来、从没用过」的那张新 token 才能换——
+   * 登出 / 改密作废的 token 没有替代者，照常拒绝；新 token 已被用过（正常轮换走了）或这张旧 token
+   * 已补发过一次，再出现就是复用，也拒绝。能换则作废那张新 token、补发一张，不把它记成替代者，
+   * 所以同一张旧 token 第二次来时 updateMany 命中 0 行。
+   */
+  private async reissueAfterLostResponse(record: {
+    id: string;
+    userId: string;
+    replacedById: string | null;
+  }): Promise<TokenPair | null> {
+    if (!record.replacedById) return null;
+    const taken = await this.prisma.refreshToken.updateMany({
+      where: { id: record.replacedById, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    if (taken.count === 0) return null;
+    this.logger.log(
+      `refresh 应答疑似丢失：为用户 ${record.userId} 补发 token，作废未用过的 ${record.replacedById}`,
+    );
     return this.issueTokens(record.userId);
   }
 
@@ -272,17 +308,28 @@ export class AuthService {
     });
   }
 
-  private async issueTokens(userId: string): Promise<TokenPair> {
+  /** 签发一对新 token；replacesId = 本次轮换作废的旧 token，记下替代关系供应答丢失时补发 */
+  private async issueTokens(
+    userId: string,
+    replacesId?: string,
+  ): Promise<TokenPair> {
     const accessToken = await this.jwt.signAsync({ sub: userId });
     // refresh 用不透明随机串（非 JWT）：可撤销、可轮换，库中只存哈希
     const refreshToken = randomBytes(48).toString('base64url');
-    await this.prisma.refreshToken.create({
+    const created = await this.prisma.refreshToken.create({
       data: {
         userId,
         tokenHash: hashRefreshToken(refreshToken),
         expiresAt: new Date(Date.now() + REFRESH_TTL_MS),
       },
+      select: { id: true },
     });
+    if (replacesId) {
+      await this.prisma.refreshToken.update({
+        where: { id: replacesId },
+        data: { replacedById: created.id },
+      });
+    }
     return { accessToken, refreshToken };
   }
 
