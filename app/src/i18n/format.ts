@@ -34,3 +34,30 @@ export function shortTime(iso: string, locale: Locale): string {
     hour12: false,
   }).format(at);
 }
+
+/** 完整日期时间（记录详情用，带年份和秒）：2026年10月6日 08:42:15 / Oct 6, 2026, 08:42:15 */
+export function fullDateTime(iso: string, locale: Locale): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return INVALID_TIME;
+  return new Intl.DateTimeFormat(LOCALE_TAGS[locale], {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(at);
+}
+
+/** 当天的只给时间（08:31），不是当天的带上日期（9月17日 08:31）——留在界面上的旧时间不会被读成今天 */
+export function timeWithDateIfNotToday(iso: string, locale: Locale): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return INVALID_TIME;
+  const now = new Date(Date.now());
+  const sameDay =
+    at.getFullYear() === now.getFullYear() &&
+    at.getMonth() === now.getMonth() &&
+    at.getDate() === now.getDate();
+  return sameDay ? shortTime(iso, locale) : `${shortDate(iso, locale)} ${shortTime(iso, locale)}`;
+}

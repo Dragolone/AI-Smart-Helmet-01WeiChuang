@@ -77,6 +77,19 @@ function RootNavigator() {
           name="device/[deviceId]"
           options={{ headerShown: true, title: t("nav.deviceDetail") }}
         />
+        {/* 设备设置的三个分类页（从设备详情进入，带同一个 deviceId） */}
+        <Stack.Screen
+          name="device-safety/[deviceId]"
+          options={{ headerShown: true, title: t("device.cat.safety") }}
+        />
+        <Stack.Screen
+          name="device-alerts/[deviceId]"
+          options={{ headerShown: true, title: t("device.cat.alerts") }}
+        />
+        <Stack.Screen
+          name="device-about/[deviceId]"
+          options={{ headerShown: true, title: t("device.cat.about") }}
+        />
         <Stack.Screen
           name="add-contact"
           options={{
@@ -90,16 +103,16 @@ function RootNavigator() {
           options={{ headerShown: true, title: t("nav.accidentDetail") }}
         />
         <Stack.Screen
-          name="events"
-          options={{ headerShown: true, title: t("nav.events") }}
+          name="safety-records"
+          options={{ headerShown: true, title: t("nav.safetyRecords") }}
+        />
+        <Stack.Screen
+          name="safety-settings"
+          options={{ headerShown: true, title: t("nav.safetySettings") }}
         />
         <Stack.Screen
           name="contacts"
           options={{ headerShown: true, title: t("nav.contacts") }}
-        />
-        <Stack.Screen
-          name="accidents"
-          options={{ headerShown: true, title: t("nav.accidents") }}
         />
         <Stack.Screen
           name="account/change-password"

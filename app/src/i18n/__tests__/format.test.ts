@@ -2,7 +2,13 @@
 // 用固定时刻控制"现在"，避免跨秒抖动。
 import { afterEach, describe, expect, it, jest } from "@jest/globals";
 
-import { relativeTime, shortDate, shortTime } from "../format";
+import {
+  fullDateTime,
+  relativeTime,
+  shortDate,
+  shortTime,
+  timeWithDateIfNotToday,
+} from "../format";
 
 const NOW = Date.UTC(2026, 8, 17, 12, 0, 0);
 const agoIso = (seconds: number) =>
@@ -64,5 +70,40 @@ describe("shortDate / shortTime", () => {
     }
     // 只校验格式：分钟数随时区偏移（印度等半小时时区）会变，不做字面断言
     expect(shortTime("2026-09-17T00:05:00Z", "zh-CN")).toMatch(/^\d{2}:\d{2}$/);
+  });
+});
+
+describe("fullDateTime", () => {
+  const iso = "2026-09-17T08:31:05Z";
+  it("带年份和秒：一年前的记录不会和今年的同一天混淆", () => {
+    for (const loc of ["zh-CN", "zh-TW", "en"] as const) {
+      const out = fullDateTime(iso, loc);
+      expect(out).toContain("2026");
+      expect(out).toMatch(/\d{2}:\d{2}:05/);
+    }
+  });
+
+  it("认不出的时间戳给占位符，不把页面带崩", () => {
+    expect(fullDateTime("not-a-date", "zh-CN")).toBe("—");
+  });
+});
+
+describe("timeWithDateIfNotToday", () => {
+  it("当天的只给时间", () => {
+    freeze();
+    expect(timeWithDateIfNotToday(agoIso(60), "zh-CN")).toMatch(
+      /^\d{2}:\d{2}$/,
+    );
+  });
+
+  it("不是当天的带上日期：几周前的「已生效」不会被读成今天", () => {
+    freeze();
+    const old = timeWithDateIfNotToday(agoIso(86400 * 20), "zh-CN");
+    expect(old).toMatch(/\d{2}:\d{2}$/);
+    expect(old).toMatch(/8.*28/);
+  });
+
+  it("认不出的时间给占位符", () => {
+    expect(timeWithDateIfNotToday("nope", "en")).toBe("—");
   });
 });

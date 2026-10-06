@@ -247,15 +247,9 @@ export default function ProfileScreen() {
             />
             <ListRow
               compact
-              icon="medkit-outline"
-              title={t("profile.accidents")}
-              onPress={() => router.push("/accidents")}
-            />
-            <ListRow
-              compact
-              icon="warning-outline"
-              title={t("profile.events")}
-              onPress={() => router.push("/events")}
+              icon="time-outline"
+              title={t("profile.records")}
+              onPress={() => router.push("/safety-records")}
               last
             />
           </Card>

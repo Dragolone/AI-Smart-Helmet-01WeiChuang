@@ -81,7 +81,7 @@ export const auth = {
     "auth.deleteConfirmAction": "注销",
     "auth.deleteDone": "账号已注销",
     "sos.fall": "跌倒检测",
-    "sos.cancelledBody": "本次求救已取消，事故已留档。",
+    "sos.cancelledBody": "本次求救已取消，记录已保留。",
     "sos.notifiedBody":
       "已向紧急联系人发出通知（发送结果以通知记录为准），请保持手机畅通；若无人回应请直接拨打电话求助。",
     "sos.pendingBody":
@@ -172,7 +172,7 @@ export const auth = {
     "auth.deleteConfirmAction": "註銷",
     "auth.deleteDone": "帳號已註銷",
     "sos.fall": "跌倒偵測",
-    "sos.cancelledBody": "本次求救已取消，事故已留存記錄。",
+    "sos.cancelledBody": "本次求救已取消，記錄已保留。",
     "sos.notifiedBody":
       "已向緊急聯絡人發出通知（發送結果以通知記錄為準），請保持手機暢通；若無人回應請直接撥打電話求助。",
     "sos.pendingBody": "倒數結束後將自動通知您的緊急聯絡人，除非您取消此操作。",
@@ -267,8 +267,7 @@ export const auth = {
     "auth.deleteConfirmAction": "Delete",
     "auth.deleteDone": "Account deleted",
     "sos.fall": "Fall detected",
-    "sos.cancelledBody":
-      "This SOS was cancelled. The incident has been logged.",
+    "sos.cancelledBody": "This SOS was cancelled. A record has been kept.",
     "sos.notifiedBody":
       "Notifications have been sent to your emergency contacts (see the notification log for delivery results). Keep your phone reachable, and call for help directly if no one responds.",
     "sos.pendingBody":
