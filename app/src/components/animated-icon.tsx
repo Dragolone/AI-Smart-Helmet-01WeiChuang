@@ -1,10 +1,10 @@
 // 开屏动画(公司品牌定稿版):
 // 商标大水印居中作背景 → 「ZERO-ONE INNOVATION」压标居中,流光单次扫过 →
 // 中文「零一唯创」小字随后浮现 → 背景散布呼吸光点 → 整层淡出。
-import { Image } from 'expo-image';
-import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Image } from "expo-image";
+import * as SplashScreen from "expo-splash-screen";
+import { useEffect, useState } from "react";
+import { StyleSheet, Text, View } from "react-native";
 import Animated, {
   Easing,
   FadeIn,
@@ -13,26 +13,33 @@ import Animated, {
   useSharedValue,
   withDelay,
   withTiming,
-} from 'react-native-reanimated';
-import { scheduleOnRN } from 'react-native-worklets';
+} from "react-native-reanimated";
+import { scheduleOnRN } from "react-native-worklets";
 
-const BG = '#0E0F12';   // App 暗色底,与页面无缝
-const BRAND = '#5CF0FF';
-const SWEEP_STEP = 55;      // 每字流光间隔
-const SWEEP_DUR = 650;      // 单字提亮-回落
-const WORD = 'ZERO-ONE INNOVATION'.split('');
+import { launchedByNotificationAction } from "@/services/launch-intent";
+
+const BG = "#0E0F12"; // App 暗色底,与页面无缝
+const BRAND = "#5CF0FF";
+const SWEEP_STEP = 55; // 每字流光间隔
+const SWEEP_DUR = 650; // 单字提亮-回落
+const WORD = "ZERO-ONE INNOVATION".split("");
 const SWEEP_TOTAL = SWEEP_STEP * WORD.length + SWEEP_DUR;
 /** 环形扫光:一圈时长与起始延迟(从正上方顺时针一周) */
 const REV_MS = 1600;
 const REV_DELAY = 250;
-const HOLD = SWEEP_TOTAL + 900;   // 流光完+中文亮相后停留
+const HOLD = SWEEP_TOTAL + 900; // 流光完+中文亮相后停留
 const FADE = 460;
 
 /** 单字:流光经过时提亮+发光,过后落回常亮(只跑一次) */
 function ShineLetter({ ch, delay }: { ch: string; delay: number }) {
   const p = useSharedValue(0);
   useEffect(() => {
-    p.set(withDelay(delay, withTiming(1, { duration: SWEEP_DUR, easing: Easing.out(Easing.quad) })));
+    p.set(
+      withDelay(
+        delay,
+        withTiming(1, { duration: SWEEP_DUR, easing: Easing.out(Easing.quad) }),
+      ),
+    );
   }, [p, delay]);
   const st = useAnimatedStyle(() => {
     const t = p.get();
@@ -43,7 +50,9 @@ function ShineLetter({ ch, delay }: { ch: string; delay: number }) {
     };
   });
   return (
-    <Animated.Text style={[styles.en, { textShadowColor: BRAND }, st]}>{ch}</Animated.Text>
+    <Animated.Text style={[styles.en, { textShadowColor: BRAND }, st]}>
+      {ch}
+    </Animated.Text>
   );
 }
 
@@ -53,7 +62,7 @@ function Star({ x, y, size }: { x: number; y: number; size: number }) {
   const p = useSharedValue(0);
   useEffect(() => {
     // 屏幕坐标 atan2(y,x):270°=正上;光束自正上方顺时针一周
-    const theta = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+    const theta = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
     const frac = ((theta - 270 + 360) % 360) / 360;
     p.set(
       withDelay(
@@ -72,7 +81,11 @@ function Star({ x, y, size }: { x: number; y: number; size: number }) {
   }));
   return (
     <Animated.View
-      style={[styles.star, { width: size, height: size, borderRadius: size / 2 }, st]}
+      style={[
+        styles.star,
+        { width: size, height: size, borderRadius: size / 2 },
+        st,
+      ]}
     />
   );
 }
@@ -92,19 +105,25 @@ const STARS = [
 ];
 
 export function AnimatedSplashOverlay() {
-  const [phase, setPhase] = useState<'boot' | 'anim'>('boot');
+  const [phase, setPhase] = useState<"boot" | "anim">("boot");
   const [visible, setVisible] = useState(true);
   const fade = useSharedValue(1);
 
   useEffect(() => {
-    if (phase !== 'anim') return;
+    if (phase !== "anim") return;
+    // 由通知上的按钮拉起（刚在锁屏按了「我没事，取消」）：不停留，直接淡出，让人尽快看到结果
+    const quick = launchedByNotificationAction();
     fade.set(
       withDelay(
-        HOLD,
-        withTiming(0, { duration: FADE, easing: Easing.out(Easing.quad) }, (finished) => {
-          'worklet';
-          if (finished) scheduleOnRN(setVisible, false);
-        }),
+        quick ? 0 : HOLD,
+        withTiming(
+          0,
+          { duration: quick ? 200 : FADE, easing: Easing.out(Easing.quad) },
+          (finished) => {
+            "worklet";
+            if (finished) scheduleOnRN(setVisible, false);
+          },
+        ),
       ),
     );
   }, [phase, fade]);
@@ -118,20 +137,21 @@ export function AnimatedSplashOverlay() {
 
   const watermark = (
     <Image
-      source={require('@/assets/images/company-mark.webp')}
+      source={require("@/assets/images/company-mark.webp")}
       style={styles.watermark}
       contentFit="contain"
     />
   );
 
-  if (phase === 'boot') {
+  if (phase === "boot") {
     // 静帧与原生启动图一致:水印 + 常亮文字
     return (
       <View
         onLayout={() => {
-          SplashScreen.hideAsync().finally(() => setPhase('anim'));
+          SplashScreen.hideAsync().finally(() => setPhase("anim"));
         }}
-        style={styles.overlay}>
+        style={styles.overlay}
+      >
         {watermark}
         <View style={styles.textBlock}>
           <View style={styles.row}>
@@ -169,39 +189,39 @@ export function AnimatedSplashOverlay() {
 const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFill,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     zIndex: 1000,
     backgroundColor: BG,
     experimental_backgroundImage:
-      'radial-gradient(120% 100% at 70% 0%, #232A0E 0%, #15170C 55%, #0E0F12 100%)',
+      "radial-gradient(120% 100% at 70% 0%, #232A0E 0%, #15170C 55%, #0E0F12 100%)",
   },
   watermark: {
-    position: 'absolute',
+    position: "absolute",
     width: 188,
     height: 188,
     opacity: 0.14,
   },
-  textBlock: { alignItems: 'center', gap: 10 },
-  row: { flexDirection: 'row', alignItems: 'center' },
+  textBlock: { alignItems: "center", gap: 10 },
+  row: { flexDirection: "row", alignItems: "center" },
   en: {
-    color: '#F0F6FF',
+    color: "#F0F6FF",
     fontSize: 17,
-    fontWeight: '800',
+    fontWeight: "800",
     letterSpacing: 1.2,
     textShadowOffset: { width: 0, height: 0 },
   },
   zh: {
-    color: '#AEB4C0',
+    color: "#AEB4C0",
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: "600",
     letterSpacing: 4,
     opacity: 0.85,
   },
   star: {
-    position: 'absolute',
-    backgroundColor: '#D9F24A',
-    shadowColor: '#D9F24A',
+    position: "absolute",
+    backgroundColor: "#D9F24A",
+    shadowColor: "#D9F24A",
     shadowOpacity: 0.9,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 0 },

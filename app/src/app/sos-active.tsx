@@ -22,6 +22,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { devLog } from "@/services/dev-log";
 import { serverNow } from "@/services/server-clock";
 import { countdownPollInterval, settleSnapshot } from "@/services/sos-sync";
+import { useSosCancelStore } from "@/stores/sos-cancel-store";
 import type { Sos } from "@helmet/shared";
 
 import { ApiRequestError } from "@/api/client";
@@ -49,6 +50,12 @@ export default function SosActiveScreen() {
   const t = useT();
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState<"cancel" | "confirm" | null>(null);
+  // 通知按钮的取消还在路上（被杀状态下点「我没事，取消」拉起 App，页面要过启动动画才出来）：
+  // 按钮显示「取消中…」、不响警报，别让用户对着一个还在倒数的页面以为刚才那一下没算数
+  const cancellingFromNotification = useSosCancelStore(
+    (s) => !!s.inFlight[sosId],
+  );
+  const cancelBusy = busy === "cancel" || cancellingFromNotification;
   /** 当前时刻作为被读取的 state：剩余秒数在渲染期由它算出。
    *  不能用"空转 tick（值不读）强制重渲染"——React Compiler 判定无依赖变化会 memo 掉
    *  整个渲染，倒计时数字永远停在首帧（2026-08-17 真机实证）。 */
@@ -114,7 +121,8 @@ export default function SosActiveScreen() {
 
   // 警报音 + 振动:倒计时进行中每秒触发,取消/通知后停止
   const alarm = useAudioPlayer(require("@/assets/sos-alarm.wav"));
-  const counting = sos != null && sos.status === "pending";
+  const counting =
+    sos != null && sos.status === "pending" && !cancellingFromNotification;
   useEffect(() => {
     if (!counting) return;
     // 警报音绝不能把页面打崩：锁屏/后台时 AVAudioSession 激活可能失败（expo-audio 同步抛
@@ -285,11 +293,11 @@ export default function SosActiveScreen() {
                   styles.btn,
                   { backgroundColor: theme.backgroundSelected },
                 ]}
-                disabled={busy !== null}
+                disabled={busy !== null || cancellingFromNotification}
                 onPress={() => act("cancel")}
               >
                 <ThemedText type="smallBold" style={styles.btnText}>
-                  {busy === "cancel" ? t("sos.cancelling") : t("sos.imOk")}
+                  {cancelBusy ? t("sos.cancelling") : t("sos.imOk")}
                 </ThemedText>
               </Pressable>
               <Pressable

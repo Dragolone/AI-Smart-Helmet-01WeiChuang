@@ -12,6 +12,7 @@ import { translate } from "@/i18n";
 import { devLog } from "@/services/dev-log";
 import { serverNow } from "@/services/server-clock";
 import { presentedSos } from "@/services/sos-sync";
+import { useSosCancelStore } from "@/stores/sos-cancel-store";
 
 const CHANNEL_ID = "sos";
 const CATEGORY_ID = "sos";
@@ -264,9 +265,12 @@ export async function cancelFromNotification(
   deviceId?: string,
 ): Promise<boolean> {
   clearCancelRetry(sosId);
+  // 在途标记：倒计时页据此显示「取消中…」、不响警报（被杀状态下点通知按钮，页面要过启动动画才出来）
+  useSosCancelStore.getState().begin(sosId);
   // 成功的收尾放在这里而不是调用方的 .then：重试成功时调用方早就拿着第一次的 false 走了，
   // 通知会一直留在锁屏上、预排的「还剩 30 秒」照常弹（2026-10-05 评审）
   const settled = (): true => {
+    useSosCancelStore.getState().end(sosId);
     void clearSosAlert(sosId);
     try {
       onCancelConfirmed?.(sosId);
@@ -286,6 +290,7 @@ export async function cancelFromNotification(
       // 用尽后用户多半正盯着首页（动作是拉起 App 的），什么提示都没有就等于「按了没反应」。
       // 把人带到倒计时页并说明取消没送达，让他在页上再按一次（10-06 不变式评审 F-11）
       devLog("SOS-ALERT", "通知取消重试用尽，带用户到倒计时页重试", e as Error);
+      useSosCancelStore.getState().end(sosId); // 页面上的按钮恢复可点，让他再按一次
       if (deviceId) {
         presentedSos.current.add(sosId);
         router.navigate(

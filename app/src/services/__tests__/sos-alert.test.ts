@@ -675,6 +675,48 @@ describe("sos-alert", () => {
     });
   });
 
+  describe("取消在途标记（2026-10-07 iPhone：被杀后点通知按钮，倒计时页要显示「取消中」而不是继续倒数）", () => {
+    const loadWithStore = () => {
+      let mod!: SosAlert;
+      let store!: typeof import("@/stores/sos-cancel-store");
+      jest.isolateModules(() => {
+        store = require("@/stores/sos-cancel-store");
+        mod = require("../sos-alert") as SosAlert;
+      });
+      return { m: mod, store: store.useSosCancelStore };
+    };
+
+    it("请求发出即标记在途，服务端确认后清掉", async () => {
+      let finish!: () => void;
+      mockCancel.mockImplementationOnce(
+        () => new Promise<never>((r) => (finish = () => r({} as never))),
+      );
+      const { m, store } = loadWithStore();
+      const p = m.cancelFromNotification("s1");
+      expect(store.getState().inFlight.s1).toBe(true);
+      finish();
+      expect(await p).toBe(true);
+      expect(store.getState().inFlight.s1).toBeUndefined();
+    });
+
+    it("重试期间一直在途；重试用尽后清掉（页面上的按钮要能再按）", async () => {
+      jest.useFakeTimers();
+      override(AppState, "addEventListener", () => ({
+        remove: () => undefined,
+      }));
+      mockCancel.mockRejectedValue(new Error("offline"));
+      const { m, store } = loadWithStore();
+      expect(await m.cancelFromNotification("s1")).toBe(false);
+      expect(store.getState().inFlight.s1).toBe(true);
+      await jest.advanceTimersByTimeAsync(2_000);
+      expect(store.getState().inFlight.s1).toBe(true);
+      await jest.advanceTimersByTimeAsync(5_000);
+      await jest.advanceTimersByTimeAsync(10_000);
+      expect(store.getState().inFlight.s1).toBeUndefined();
+      jest.useRealTimers();
+    });
+  });
+
   describe("resetSosAlerts（登出）", () => {
     it("撤掉所有还挂着的 SOS 通知并停掉取消重试：上一个账号的提醒不留在这台手机上", async () => {
       jest.useFakeTimers();
