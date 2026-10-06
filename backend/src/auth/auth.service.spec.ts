@@ -28,8 +28,10 @@ describe('AuthService（单测，mock 数据层）', () => {
 
   beforeEach(async () => {
     jest.resetAllMocks();
-    prismaMock.$transaction.mockImplementation((ops: Promise<unknown>[]) =>
-      Promise.all(ops),
+    prismaMock.$transaction.mockImplementation(
+      (
+        arg: Promise<unknown>[] | ((tx: typeof prismaMock) => Promise<unknown>),
+      ) => (typeof arg === 'function' ? arg(prismaMock) : Promise.all(arg)),
     );
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -242,11 +244,11 @@ describe('AuthService（单测，mock 数据层）', () => {
     expect(prismaMock.refreshToken.create).not.toHaveBeenCalled();
   });
 
-  it('refresh：并发窗口（10 s）内再来 → UNAUTHORIZED，既不补发也不撤销', async () => {
+  it('refresh：同一瞬间（50 ms 内）同 token 再来 = 真正并发的输家 → UNAUTHORIZED，不补发也不撤销', async () => {
     prismaMock.refreshToken.findUnique.mockResolvedValue({
       id: 'old',
       userId: 'u1',
-      revokedAt: new Date(Date.now() - 2_000),
+      revokedAt: new Date(Date.now() - 50),
       replacedById: 'child',
       expiresAt: new Date(Date.now() + 1000),
       user: { deletedAt: null },
@@ -256,6 +258,39 @@ describe('AuthService（单测，mock 数据层）', () => {
     });
     expect(prismaMock.refreshToken.updateMany).not.toHaveBeenCalled();
     expect(prismaMock.refreshToken.create).not.toHaveBeenCalled();
+  });
+
+  it('refresh：轮换后 2 秒旧 token 又来（应答被连接重置吞掉的快速重试）→ 补发，不再有 10 s 一律拒绝的窗口', async () => {
+    prismaMock.refreshToken.findUnique.mockResolvedValue({
+      id: 'old',
+      userId: 'u1',
+      revokedAt: new Date(Date.now() - 2_000),
+      replacedById: 'child',
+      expiresAt: new Date(Date.now() + 1000),
+      user: { deletedAt: null },
+    });
+    prismaMock.refreshToken.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.refreshToken.create.mockResolvedValue({ id: 'new' });
+    const pair = await service.refresh('old-token');
+    expect(pair.accessToken).toBe('signed.jwt');
+    expect(prismaMock.refreshToken.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'child', revokedAt: null } }),
+    );
+  });
+
+  it('refresh：正常轮换的三步在一个事务里（回调式 $transaction）', async () => {
+    prismaMock.refreshToken.findUnique.mockResolvedValue({
+      id: 'old',
+      userId: 'u1',
+      revokedAt: null,
+      replacedById: null,
+      expiresAt: new Date(Date.now() + 1000),
+      user: { deletedAt: null },
+    });
+    prismaMock.refreshToken.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.refreshToken.create.mockResolvedValue({ id: 'new' });
+    await service.refresh('old-token');
+    expect(prismaMock.$transaction).toHaveBeenCalledWith(expect.any(Function));
   });
 
   it('refresh：过期 token → UNAUTHORIZED 且不轮换', async () => {

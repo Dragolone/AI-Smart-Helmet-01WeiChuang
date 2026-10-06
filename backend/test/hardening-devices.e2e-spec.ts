@@ -3,6 +3,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { CommandsSchedulerService } from '../src/commands/commands-scheduler.service';
 import { CommandsService } from '../src/commands/commands.service';
+import { DevicesService } from '../src/devices/devices.service';
 import { MqttConsumerService } from '../src/ingest/mqtt-consumer.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import {
@@ -35,7 +36,8 @@ describe('加固：设备 / 命令 / 查询边界 (e2e)', () => {
   const devBind = `hard_dev_bind_${run}`;
   const devMain = `hard_dev_main_${run}`;
   const devCmd = `hard_dev_cmd_${run}`;
-  const devices = [devBind, devMain, devCmd];
+  const devUnbindRace = `hard_dev_unbind_${run}`;
+  const devices = [devBind, devMain, devCmd, devUnbindRace];
   let owner: TestUser;
   let other: TestUser;
   let third: TestUser;
@@ -87,6 +89,44 @@ describe('加固：设备 / 命令 / 查询边界 (e2e)', () => {
       console.log('[concurrent bind by 2 users]', h);
       expect(h['200']).toBe(1);
       expect(h['409']).toBe(1);
+    });
+
+    it('解绑撞上「自己的另一台手机已解绑、别人随即绑上」：不把别人的绑定抹掉（10-06 并发评审 #5）', async () => {
+      await bindDevice(http, owner.token, devUnbindRace);
+      const devicesService = app.get(DevicesService);
+      const original = devicesService.getOwned.bind(devicesService);
+      // 归属检查通过之后、写库之前，插入「owner 的另一台手机解绑 + other 绑上」这一段
+      const spy = jest
+        .spyOn(devicesService, 'getOwned')
+        .mockImplementationOnce(async (...args) => {
+          const result = await original(...args);
+          spy.mockRestore();
+          await request(http)
+            .delete(`/api/v1/devices/${devUnbindRace}/binding`)
+            .set(auth(owner.token))
+            .expect(204);
+          await bindDevice(http, other.token, devUnbindRace);
+          return result;
+        });
+      await request(http)
+        .delete(`/api/v1/devices/${devUnbindRace}/binding`)
+        .set(auth(owner.token))
+        .expect(204); // 幂等成功：已经不是自己的了
+      const device = await prisma.device.findUniqueOrThrow({
+        where: { deviceId: devUnbindRace },
+        select: { bindUserId: true },
+      });
+      expect(device.bindUserId).toBe(other.id);
+      expect(
+        await prisma.deviceBinding.count({
+          where: { deviceId: devUnbindRace, unboundAt: null },
+        }),
+      ).toBe(1);
+      // 清理：换回 owner 以免影响后续（设备会在 afterAll 清掉，这里只解绑 other）
+      await request(http)
+        .delete(`/api/v1/devices/${devUnbindRace}/binding`)
+        .set(auth(other.token))
+        .expect(204);
     });
 
     it('绑定码大小写/首尾空格不容错（403）；deviceId 路径穿越 404；重命名 21 字 400，空白名清空', async () => {
