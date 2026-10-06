@@ -42,6 +42,7 @@ import {
 } from "@/services/ble-link";
 import { useBleBenchStore } from "@/stores/ble-bench-store";
 import type { BenchLogTone, BenchService } from "@/stores/ble-bench-store";
+import { useAuthStore } from "@/stores/auth-store";
 import type { BleAdapterState } from "@/stores/ble-store";
 
 const RESPONSE_TIMEOUT_MS = 3_000;
@@ -120,10 +121,12 @@ export async function stopBench(): Promise<void> {
   stateSub?.remove();
   stateSub = null;
   store().patch({ phase: "idle" });
-  if (savedTargets.length > 0) {
+  // 工程模式期间被动登出（他端改密 / 会话被否定）时不能把链路在未登录状态下跑起来：
+  // 连上后事件会被 ACK 擦除、进匿名分区，flush 每次 401（10-06 并发评审 F7）
+  if (savedTargets.length > 0 && useAuthStore.getState().tokens) {
     void startBleLink(savedTargets);
-    savedTargets = [];
   }
+  savedTargets = [];
 }
 
 // —— 扫描 / 连接 ——

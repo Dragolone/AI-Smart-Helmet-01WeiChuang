@@ -38,16 +38,35 @@ export const relayApi = {
   ) =>
     relayApi.push({
       deviceId,
-      envelopes: [
-        {
-          schemaVersion: 1,
-          eventId: uuid4(),
-          deviceId,
-          eventType,
-          timestamp: new Date().toISOString(),
-          firmwareVersion: 'app-relay-dev',
-          payload,
-        },
-      ],
+      envelopes: [buildRelayEnvelope(deviceId, eventType, payload)],
     }),
 };
+
+/**
+ * App 自己发起的事件（长按求救 / 开发注入）的 envelope。eventId 在这里定死：
+ * 同一次动作重试必须复用同一个 eventId——服务端按它幂等；换了 eventId，倒计时中再来一条 manual_sos
+ * 会被当成「倒计时中按实体键」直接跳过 60 秒通知联系人（10-06 不变式评审 F-5）
+ */
+export interface AppRelayEnvelope {
+  schemaVersion: 1;
+  eventId: string;
+  deviceId: string;
+  eventType: string;
+  timestamp: string;
+  firmwareVersion: string;
+  payload: Record<string, unknown>;
+}
+
+export const buildRelayEnvelope = (
+  deviceId: string,
+  eventType: string,
+  payload: Record<string, unknown> = {},
+): AppRelayEnvelope => ({
+  schemaVersion: 1,
+  eventId: uuid4(),
+  deviceId,
+  eventType,
+  timestamp: new Date().toISOString(),
+  firmwareVersion: 'app-relay-dev',
+  payload,
+});

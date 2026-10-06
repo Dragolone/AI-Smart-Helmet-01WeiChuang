@@ -54,8 +54,30 @@ interface RelayQueueStore {
   save(owner: string, queue: Envelope[]): Promise<void>;
 }
 
-const fileFor = (owner: string): File =>
-  new File(Paths.document, `ble-relay-queue.${encodeURIComponent(owner)}.json`);
+const fileFor = (owner: string, suffix = ""): File =>
+  new File(
+    Paths.document,
+    `ble-relay-queue.${encodeURIComponent(owner)}.json${suffix}`,
+  );
+/** 先写到它、再整文件改名覆盖正式文件：改名是原子的，写到一半被杀只会留下残缺的临时文件 */
+const TMP_SUFFIX = ".tmp";
+
+/** 解析一份队列文件；格式 / 归属不符或根本不是 JSON 都返回 null（调用方决定回落到哪一份） */
+function parseQueueFile(f: File, owner: string): Envelope[] | null {
+  if (!f.exists) return null;
+  const parsed: unknown = JSON.parse(f.textSync());
+  // 只接受带归属标记且归属一致的文件；裸数组/别人的分区一律不恢复（审计 BLE-06/BLE-08）
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    (parsed as RelayQueueFile).v !== STORE_VERSION ||
+    (parsed as RelayQueueFile).owner !== owner ||
+    !Array.isArray((parsed as RelayQueueFile).events)
+  ) {
+    return null;
+  }
+  return (parsed as RelayQueueFile).events.filter(isEnvelope);
+}
 
 const isEnvelope = (x: unknown): x is Envelope =>
   typeof x === "object" &&
@@ -66,31 +88,42 @@ const isEnvelope = (x: unknown): x is Envelope =>
 
 const fileStore: RelayQueueStore = {
   async load(owner) {
+    // 临时文件若完整，就是最近一次落盘（写完还没来得及改名就被杀）；残缺则回落正式文件。
+    // 正式文件本身也可能残缺（旧版本直接覆盖写）：那时只能从空队列开始，但要出声——
+    // 头盔侧这些事件已经因 ACK 擦除了（10-06 不变式评审 F-6）
+    try {
+      const fromTmp = parseQueueFile(fileFor(owner, TMP_SUFFIX), owner);
+      if (fromTmp) return fromTmp;
+    } catch {
+      // 写到一半的临时文件，忽略
+    }
     try {
       const f = fileFor(owner);
       if (!f.exists) return [];
-      const parsed: unknown = JSON.parse(f.textSync());
-      // 只接受带归属标记且归属一致的文件；裸数组/别人的分区一律不恢复（审计 BLE-06/BLE-08）
-      if (
-        typeof parsed !== "object" ||
-        parsed === null ||
-        (parsed as RelayQueueFile).v !== STORE_VERSION ||
-        (parsed as RelayQueueFile).owner !== owner ||
-        !Array.isArray((parsed as RelayQueueFile).events)
-      ) {
+      const parsed = parseQueueFile(f, owner);
+      if (!parsed) {
         devLog("BLE-RELAY", "队列文件格式/归属不符，不恢复");
         return [];
       }
-      return (parsed as RelayQueueFile).events.filter(isEnvelope);
+      return parsed;
     } catch (e) {
-      devLog("BLE-RELAY", "队列恢复失败(忽略,从空队列开始)", e);
+      console.error("[BLE-RELAY] 队列文件损坏，积压的中转事件无法恢复", e);
       return [];
     }
   },
   async save(owner, q) {
     try {
       const payload: RelayQueueFile = { v: STORE_VERSION, owner, events: q };
-      fileFor(owner).write(JSON.stringify(payload));
+      const text = JSON.stringify(payload);
+      const target = fileFor(owner);
+      const tmp = fileFor(owner, TMP_SUFFIX);
+      // 先写临时文件再原子改名；没有 moveSync 的环境（测试假件）退回直接覆盖写
+      if (typeof (tmp as { moveSync?: unknown }).moveSync === "function") {
+        tmp.write(text);
+        tmp.moveSync(target, { overwrite: true });
+      } else {
+        target.write(text);
+      }
     } catch (e) {
       devLog("BLE-RELAY", "队列持久化失败(忽略,仅内存)", e);
     }
@@ -152,9 +185,33 @@ const isUnrecoverable = (e: unknown): boolean => {
   return status === 404 || status === 403 || status === 400;
 };
 
+/** flush 进行中又被叫到（高危帧「立即冲刷」正撞上在途的位置包）：结束后立刻补跑一次，不等下个 5 s tick（10-06 并发评审 F5） */
+let rerunAfterFlush = false;
+
+/** 高危事件（摔倒 / 求救）被服务端接受后的回调：由 use-realtime 接到「核对进行中的 SOS 并拉起倒计时页」 */
+let criticalAcceptedHandler: ((deviceId: string) => void) | null = null;
+export function setCriticalAcceptedHandler(
+  handler: ((deviceId: string) => void) | null,
+): void {
+  criticalAcceptedHandler = handler;
+}
+const SOS_TRIGGER_TYPES = new Set(["possible_fall", "manual_sos"]);
+/** 页面直接提交（不经队列）的摔倒 / 求救被接受后也走同一条「核对并拉起倒计时页」的路 */
+export function notifyCriticalAccepted(deviceId: string): void {
+  try {
+    criticalAcceptedHandler?.(deviceId);
+  } catch (err) {
+    devLog("BLE-RELAY", "高危事件已接受回调抛错", err);
+  }
+}
+
 /** 批量提交：成功才出队；失败/断网原样保留，下轮按原 eventId 补传 */
 export async function flushRelayQueue(): Promise<void> {
-  if (flushing || queue.length === 0) return;
+  if (queue.length === 0) return;
+  if (flushing) {
+    rerunAfterFlush = true;
+    return;
+  }
   flushing = true;
   if (Date.now() - lastFlushOkAt > PERIODIC_HOLD_INTERVAL_MS) {
     HelmetLinkService.holdNetwork(PERIODIC_HOLD_MS);
@@ -177,6 +234,14 @@ export async function flushRelayQueue(): Promise<void> {
       const sent = new Set(batch);
       queue = queue.filter((e) => !sent.has(e));
       lastFlushOkAt = Date.now();
+      // 这一批里有摔倒 / 求救且服务端接受了：此刻 JS 在跑、网络刚被持锁打开——是唯一不依赖
+      // WS 存活或远程推送到达就能确认「云端已建单」并拉起倒计时页的时机（10-06 不变式评审 F-1）
+      if (
+        counts.accepted > 0 &&
+        batch.some((e) => SOS_TRIGGER_TYPES.has(e.eventType))
+      ) {
+        notifyCriticalAccepted(dev);
+      }
       if (!queue.some((e) => CRITICAL_TYPES.has(e.eventType)))
         HelmetLinkService.releaseNetwork();
       devLog(
@@ -204,6 +269,10 @@ export async function flushRelayQueue(): Promise<void> {
     if (owner === ownerAtStart) persist();
   } finally {
     flushing = false;
+    if (rerunAfterFlush) {
+      rerunAfterFlush = false;
+      void flushRelayQueue();
+    }
   }
 }
 

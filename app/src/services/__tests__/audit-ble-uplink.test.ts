@@ -209,7 +209,7 @@ describe('持久化：写失败 / 损坏文件 / 恢复顺序', () => {
 });
 
 describe('flush 与 enqueue 竞态 / start-stop 生命周期', () => {
-  it('flush 进行中入队的新事件不会被误出队，下一轮照常提交', async () => {
+  it('flush 进行中入队的新事件不会被误出队；在途结束后自动补跑一批，不用等下个 tick（10-06 并发评审 F5）', async () => {
     const { up, push } = load();
     let resolve!: (v: { accepted: number; duplicate: number; invalid: number }) => void;
     push.mockImplementationOnce(
@@ -227,7 +227,7 @@ describe('flush 与 enqueue 竞态 / start-stop 生命周期', () => {
     expect(push).toHaveBeenCalledTimes(1);
     resolve({ accepted: 1, duplicate: 0, invalid: 0 });
     await inflight;
-    await up.flushRelayQueue();
+    await new Promise((r) => setTimeout(r, 0)); // 补跑在 finally 里排队
     expect(push).toHaveBeenCalledTimes(2);
     expect(push.mock.calls[1][0].envelopes).toEqual([late]);
   });

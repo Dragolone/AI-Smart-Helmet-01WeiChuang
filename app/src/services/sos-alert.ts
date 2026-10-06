@@ -5,7 +5,7 @@
 // 服务端仍是 SOS 权威，这里只做提醒 + 把「误触取消」放到通知按钮上少一次解锁；不做任何判断。
 import { router } from "expo-router";
 import * as Notifications from "expo-notifications";
-import { AppState, Platform } from "react-native";
+import { Alert, AppState, Platform } from "react-native";
 
 import { sosApi } from "@/api/sos";
 import { translate } from "@/i18n";
@@ -46,6 +46,10 @@ export function ensureSosAlertPermission(): Promise<void> {
 
 async function initSosAlert(): Promise<void> {
   installPresentationPolicy();
+  // 先于任何 await：根布局同一个 effect 里紧接着就会同步跑 push.ts 的初始化，它读的是同一条启动点击。
+  // 这里一让出（建通道 / 注册类别），push.ts 就先读先清，远程推送上「我没事，取消」那次点击就丢了，
+  // 取消请求从未发出（10-06 并发评审 F1）
+  installResponseHandler();
   try {
     if (Platform.OS === "android") {
       await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
@@ -75,7 +79,6 @@ async function initSosAlert(): Promise<void> {
         options: { opensAppToForeground: true },
       },
     ]);
-    installResponseHandler();
     const current = await Notifications.getPermissionsAsync();
     if (!current.granted) await Notifications.requestPermissionsAsync();
   } catch (e) {
@@ -189,7 +192,7 @@ function dispatchResponse(response: Notifications.NotificationResponse): void {
     devLog("SOS-ALERT", "通知按钮取消", sosId);
     // 只有服务端确认取消才撤通知（cancelFromNotification 内部做，重试成功也算）；
     // 失败时通知留在锁屏上，用户能看到「还在倒计时」并再点一次
-    void cancelFromNotification(sosId);
+    void cancelFromNotification(sosId, 0, ref.deviceId);
     return;
   }
   if (!ref.deviceId) return;
@@ -235,14 +238,18 @@ function installResponseHandler(): void {
 
 /** 失败后的重试节奏：请求被挂起中断多半几秒内就能恢复，三次之后放弃（通知仍留在锁屏上） */
 const CANCEL_RETRY_DELAYS_MS = [2_000, 5_000, 10_000] as const;
-let cancelRetryTimer: ReturnType<typeof setTimeout> | null = null;
-let cancelRetrySub: { remove: () => void } | null = null;
+/** 按单分槽：两台头盔两单并存时，点第二单的「取消」不能把第一单的重试清掉（10-06 并发评审 F2） */
+const cancelRetries = new Map<
+  string,
+  { timer: ReturnType<typeof setTimeout>; sub: { remove: () => void } }
+>();
 
-function clearCancelRetry(): void {
-  if (cancelRetryTimer) clearTimeout(cancelRetryTimer);
-  cancelRetryTimer = null;
-  cancelRetrySub?.remove();
-  cancelRetrySub = null;
+function clearCancelRetry(sosId: string): void {
+  const entry = cancelRetries.get(sosId);
+  if (!entry) return;
+  clearTimeout(entry.timer);
+  entry.sub.remove();
+  cancelRetries.delete(sosId);
 }
 
 /**
@@ -253,8 +260,9 @@ function clearCancelRetry(): void {
 export async function cancelFromNotification(
   sosId: string,
   attempt = 0,
+  deviceId?: string,
 ): Promise<boolean> {
-  clearCancelRetry();
+  clearCancelRetry(sosId);
   // 成功的收尾放在这里而不是调用方的 .then：重试成功时调用方早就拿着第一次的 false 走了，
   // 通知会一直留在锁屏上、预排的「还剩 30 秒」照常弹（2026-10-05 评审）
   const settled = (): true => {
@@ -274,7 +282,19 @@ export async function cancelFromNotification(
     if (code === "SOS_ALREADY_FINALIZED") return settled();
     const delay = CANCEL_RETRY_DELAYS_MS[attempt];
     if (delay === undefined) {
-      devLog("SOS-ALERT", "通知取消重试用尽，通知保留在锁屏", e as Error);
+      // 用尽后用户多半正盯着首页（动作是拉起 App 的），什么提示都没有就等于「按了没反应」。
+      // 把人带到倒计时页并说明取消没送达，让他在页上再按一次（10-06 不变式评审 F-11）
+      devLog("SOS-ALERT", "通知取消重试用尽，带用户到倒计时页重试", e as Error);
+      if (deviceId) {
+        presentedSos.current.add(sosId);
+        router.navigate(
+          `/sos-active?sosId=${sosId}&deviceId=${deviceId}` as never,
+        );
+      }
+      Alert.alert(
+        translate("sosAlert.cancelFailedTitle"),
+        translate("sosAlert.cancelFailedBody"),
+      );
       return false;
     }
     devLog(
@@ -283,12 +303,14 @@ export async function cancelFromNotification(
       e as Error,
     );
     const retry = () => {
-      clearCancelRetry();
-      void cancelFromNotification(sosId, attempt + 1);
+      clearCancelRetry(sosId);
+      void cancelFromNotification(sosId, attempt + 1, deviceId);
     };
-    cancelRetryTimer = setTimeout(retry, delay);
-    cancelRetrySub = AppState.addEventListener("change", (state) => {
-      if (state === "active") retry();
+    cancelRetries.set(sosId, {
+      timer: setTimeout(retry, delay),
+      sub: AppState.addEventListener("change", (state) => {
+        if (state === "active") retry();
+      }),
     });
     return false;
   }
@@ -443,6 +465,6 @@ export async function clearSosAlert(sosId: string): Promise<void> {
 
 /** 登出：上一个账号的 SOS 提醒不该留在这台手机上（留着也取消不了——没有 token，重试只会静默用尽） */
 export async function resetSosAlerts(): Promise<void> {
-  clearCancelRetry();
+  for (const sosId of [...cancelRetries.keys()]) clearCancelRetry(sosId);
   for (const sosId of [...alerts.keys()]) await clearSosAlert(sosId);
 }

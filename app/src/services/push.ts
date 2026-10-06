@@ -243,18 +243,30 @@ export function setPushArrivalHandler(
   arrivalHandler = handler;
 }
 
+const DEFAULT_ACTION =
+  (Notifications as { DEFAULT_ACTION_IDENTIFIER?: string })
+    .DEFAULT_ACTION_IDENTIFIER ?? "expo.modules.notifications.actions.DEFAULT";
+
+/** 点的是横幅本身（不是某个按钮） */
+export function isDefaultTap(
+  response: { actionIdentifier?: string } | null | undefined,
+): boolean {
+  const action = response?.actionIdentifier;
+  return !action || action === DEFAULT_ACTION;
+}
+
 let launchResponseHandled = false;
 function landFromLaunchResponse(): void {
   if (launchResponseHandled) return;
   launchResponseHandled = true;
   try {
-    const extras = extrasFromLaunchResponse(
-      Notifications.getLastNotificationResponse(),
-    );
+    const response = Notifications.getLastNotificationResponse();
+    const extras = extrasFromLaunchResponse(response);
     if (!extras) return;
     devLog("PUSH", "冷启动：由通知拉起", extras);
-    // 用掉就清：否则下次进程内再读还是它
-    Notifications.clearLastNotificationResponse();
+    // 用掉就清：否则下次进程内再读还是它。但带按钮动作（「我没事，取消」）的那次点击归 sos-alert 处理，
+    // 这里只负责落地，不能替它清掉——否则取消请求从未发出（10-06 并发评审 F1）
+    if (isDefaultTap(response)) Notifications.clearLastNotificationResponse();
     void landFromPush(extras);
   } catch (e) {
     devLog("PUSH", "读取启动通知失败", e as Error);
