@@ -313,6 +313,8 @@ describe('SOS 状态机 (e2e)', () => {
       expect.any(String),
       expect.any(String),
       expect.objectContaining({ sosId: sosCase.id }),
+      // iOS：带 App 注册的 "sos" 类别（远程推送上才有「取消」按钮）与时效性
+      { category: 'sos', timeSensitive: true },
     );
 
     // active 返回进行中 SOS
