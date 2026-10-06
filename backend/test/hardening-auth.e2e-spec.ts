@@ -242,8 +242,9 @@ describe('加固：认证与令牌 (e2e)', () => {
         .post('/api/v1/auth/refresh')
         .send({ refreshToken: u.refreshToken })
         .expect(200);
-      // 刚轮换完旧 token 又来（应答被连接重置吞掉的快速重试）：补发，r1 那张从没用过的作废
-      //（原先 10 s 内一律 401：App 单飞刷新，同一台手机不会真的并发，拒绝它只会让骑手在隧道里被动登出）
+      // 一秒后旧 token 又来（应答被连接重置吞掉的快速重试）：补发，r1 那张从没用过的作废
+      //（并发竞态窗口只剩半秒：App 单飞刷新，同一台手机不会真的并发，10 s 一律 401 只会让骑手在隧道里被动登出）
+      await new Promise((r) => setTimeout(r, 700));
       const reissued = await request(http)
         .post('/api/v1/auth/refresh')
         .send({ refreshToken: u.refreshToken })

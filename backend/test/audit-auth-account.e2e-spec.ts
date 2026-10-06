@@ -393,7 +393,8 @@ describe('审计 §6：账号全流程 / 验证码 / refresh / 撤销规则 (e2e
         .post('/api/v1/auth/refresh')
         .send({ refreshToken: u.refreshToken })
         .expect(200);
-      // 窗口内复用旧 token：当作应答丢失补发一对，r1 那张作废
+      // 半秒并发窗口之后复用旧 token：当作应答丢失补发一对，r1 那张作废
+      await new Promise((r) => setTimeout(r, 700));
       const reissued = await request(http)
         .post('/api/v1/auth/refresh')
         .send({ refreshToken: u.refreshToken })

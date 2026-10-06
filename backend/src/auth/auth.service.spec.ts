@@ -244,7 +244,23 @@ describe('AuthService（单测，mock 数据层）', () => {
     expect(prismaMock.refreshToken.create).not.toHaveBeenCalled();
   });
 
-  it('refresh：轮换后 2 秒旧 token 又来（应答被连接重置吞掉的快速重试）→ 同样补发，不再有 10 s 一律拒绝的窗口', async () => {
+  it('refresh：同一瞬间（50 ms 内）同 token 再来 = 真正并发的输家 → UNAUTHORIZED，不补发也不撤销', async () => {
+    prismaMock.refreshToken.findUnique.mockResolvedValue({
+      id: 'old',
+      userId: 'u1',
+      revokedAt: new Date(Date.now() - 50),
+      replacedById: 'child',
+      expiresAt: new Date(Date.now() + 1000),
+      user: { deletedAt: null },
+    });
+    await expect(service.refresh('old-token')).rejects.toMatchObject({
+      response: { code: 'UNAUTHORIZED' },
+    });
+    expect(prismaMock.refreshToken.updateMany).not.toHaveBeenCalled();
+    expect(prismaMock.refreshToken.create).not.toHaveBeenCalled();
+  });
+
+  it('refresh：轮换后 2 秒旧 token 又来（应答被连接重置吞掉的快速重试）→ 补发，不再有 10 s 一律拒绝的窗口', async () => {
     prismaMock.refreshToken.findUnique.mockResolvedValue({
       id: 'old',
       userId: 'u1',

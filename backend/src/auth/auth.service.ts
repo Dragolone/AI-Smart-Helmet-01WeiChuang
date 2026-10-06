@@ -21,10 +21,15 @@ const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
  * 连接被重置时这「下一次」可能就在一两秒内。旧 token 在本窗口内再次出现，当作「上次的应答没送到」：
  * 作废那张从没用过的新 token、再发一张；每张旧 token 只补发一次。超过本窗口再出现才按盗用撤销全部会话。
  * 取 access 的寿命，断网几分钟后回来的第一次刷新落在窗口内。
- * 原先 0–10 s 内一律拒绝（防同一 token 并发刷新的输家）：App 对刷新做了单飞，同一台手机不会真的并发两次，
- * 10 s 内同 token 再现现实里只剩「应答丢了的重试」这一种来源，拒绝它就是让骑手在隧道里被动登出。
  */
 const REFRESH_RETRY_WINDOW_MS = 15 * 60 * 1000;
+/**
+ * 同一 token 真正并发的刷新（同一瞬间到达，相差几十毫秒）：输家只拒绝本次，赢家的新 token 不受影响。
+ * 原先这个窗口是 10 s——但 App 对刷新做了单飞，同一台手机不会真的并发两次；应答被连接重置吞掉后
+ * App 一两秒内就会带旧 token 重试，10 s 一律拒绝等于让骑手在隧道里被动登出（10-06 并发评审 #2）。
+ * 缩到半秒：并发竞态仍能挡住（同一 token 并发 ×8 恰好一个成功），一秒后的重试走补发。
+ */
+const REFRESH_CONCURRENT_GRACE_MS = 500;
 const BCRYPT_ROUNDS = 10;
 
 export interface TokenPair {
@@ -245,6 +250,9 @@ export class AuthService {
     if (record.user.deletedAt) throw unauthorized('账号已注销');
     if (record.revokedAt) {
       const revokedAgo = Date.now() - record.revokedAt.getTime();
+      if (revokedAgo < REFRESH_CONCURRENT_GRACE_MS) {
+        throw unauthorized('refresh token 已被使用，请用最新的 token');
+      }
       if (revokedAgo < REFRESH_RETRY_WINDOW_MS) {
         const reissued = await this.reissueAfterLostResponse(record);
         if (reissued) return reissued;
