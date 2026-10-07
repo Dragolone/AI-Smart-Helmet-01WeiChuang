@@ -2,9 +2,8 @@
 // 正文由后端托管（V1.0，深圳零一唯创科技有限公司），App 只负责展示——
 // 曾经在 messages/legal.ts 里维护过一份 09-11 的草案，与托管版内容已不一致；
 // 一个包里出现两份口径不同的隐私政策是上架审核的硬伤，故改为单一来源。
-// 地址跟着 EXPO_PUBLIC_API_URL 走：dev/prod 换后端时不用改代码。
-const API_BASE =
-  process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
+// 地址跟着 EXPO_PUBLIC_API_URL 走（constants/api 单一来源）：dev/prod 换后端时不用改代码。
+import { API_BASE_URL as API_BASE } from "@/constants/api";
 
 /** 从 API base 取站点根：https://host/api/v1 → https://host */
 export function legalOrigin(base: string = API_BASE): string {

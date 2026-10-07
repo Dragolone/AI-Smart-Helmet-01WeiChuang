@@ -2,10 +2,8 @@
 // Base URL 通过 EXPO_PUBLIC_API_URL 配置（默认本机后端）；Contract 见 docs/API.md。
 import type { ApiErrorBody, AuthTokens } from "@helmet/shared";
 
+import { API_BASE_URL as BASE_URL } from "@/constants/api";
 import { noteServerDate } from "@/services/server-clock";
-
-const BASE_URL =
-  process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
 
 /** 会话操作由 auth-store 注入，避免 api 层与 store 层循环依赖 */
 type SessionHooks = {

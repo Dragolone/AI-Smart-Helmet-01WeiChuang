@@ -4,12 +4,14 @@
 // - 4401（token 失效）→ 触发一次认证请求让 api 层静默刷新，再用新 token 重连。
 import type { WsMessage } from "@helmet/shared";
 
+import { API_BASE_URL } from "@/constants/api";
 import { devLog } from "@/services/dev-log";
 
-const API_URL =
-  process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
 /** http(s)://host[:port]/api/v1 → ws(s)://host[:port]/ws */
-const WS_URL = API_URL.replace(/^http/, "ws").replace(/\/api\/v1\/?$/, "/ws");
+const WS_URL = API_BASE_URL.replace(/^http/, "ws").replace(
+  /\/api\/v1\/?$/,
+  "/ws",
+);
 
 const CLOSE_UNAUTHORIZED = 4401;
 const BACKOFF_BASE_MS = 1000;
