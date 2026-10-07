@@ -309,6 +309,10 @@ describe('SOS 状态机 (e2e)', () => {
     );
     expect(msg.data.status).toBe('pending');
     expect(msg.data.deadline).toBe(sosCase.deadline.toISOString());
+    // 触发事件在头盔上发生的时间（设备时钟，早 1 小时）原样下发：App 据此写「约 1 小时前的事件，刚补传到」（10-07）
+    expect(msg.data.triggeredAt).toBe(
+      new Date(before - 3600_000).toISOString(),
+    );
     expect(pushMock.send).toHaveBeenCalledWith(
       ownerId,
       expect.any(String),

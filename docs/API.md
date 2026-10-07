@@ -152,7 +152,7 @@ SOS 状态机为服务端权威（DECISIONS #8/#26）：`pending → notified | 
 | GET | /devices/{deviceId}/accidents?page=&pageSize= | 事故记录列表（含已取消供留档，最新在前；TS 类型 AccidentListItem）。换绑后新主看不到旧主的事故（deviceId+userId 双过滤） |
 | GET | /accidents/{accidentId} | 事故详情（TS 类型 AccidentDetail）：sos 对象 + `location`（快照，source: event\|last_point）+ `triggerPayload`（触发事件原始 payload）+ `notifications`（通道/状态/重试次数/错误；**target 已脱敏**） |
 
-`sos` 对象（TS 类型见 `@helmet/shared` Sos）：`{ sosId, deviceId, triggerEventId, triggerType: "possible_fall"|"manual_sos", status: "pending"|"notified"|"cancelled", deadline, createdAt, updatedAt }`。
+`sos` 对象（TS 类型见 `@helmet/shared` Sos）：`{ sosId, deviceId, triggerEventId, triggerType: "possible_fall"|"manual_sos", status: "pending"|"notified"|"cancelled", deadline, createdAt, updatedAt, triggeredAt? }`。`triggeredAt`（2026-10-07 新增，可选）= 触发事件 envelope 的 `timestamp`（设备时钟），只供 App 写「约 N 小时前的事件，刚补传到」（决策 #52），不参与任何判定；10-07 之前建的单没有，App 缺省不显示。WS `sos_update`、`/sos/active`、事故列表 / 详情都带。
 
 - App 收到 WebSocket/Push 的 `sos` 对象后按 `deadline` 本地倒计时渲染，不自行计时判断超时。
 - 错误码：`SOS_ALREADY_FINALIZED`（409，取消/确认时状态机已终态）；取消/确认权限以**建单时固化的绑定用户**为准，他人操作一律 404（不泄露存在性）。进行中的单按「设备 + 用户」唯一（决策 #40）：换绑后新用户的求救另建新单，前用户的单不受影响。

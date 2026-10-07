@@ -174,6 +174,7 @@ export class SosTriggerService {
           userId,
           triggerEventId: e.eventId,
           triggerType: e.eventType,
+          triggeredAt: e.timestamp,
           // 服务器时间权威：设备时钟偏移（clock_skew）不影响保命链路
           deadline: new Date(Date.now() + countdownMs()),
           ...(snapshot
@@ -225,7 +226,8 @@ export class SosTriggerService {
     const action =
       e.eventType === 'manual_sos' ? '触发手动求救' : '检测到疑似摔倒';
     const age = describeEventAge(e.timestamp);
-    const body = `头盔 ${e.deviceId} ${action}${age ? `（${age}的事件，刚补传到）` : ''}，未取消将于 ${created.deadline.toISOString()} 通知紧急联系人`;
+    // 用户看不懂也不关心精确到毫秒的 UTC（10-07 A 线反馈）：写「N 秒后」，N = 服务端倒计时长度
+    const body = `头盔 ${e.deviceId} ${action}${age ? `（${age}的事件，刚补传到）` : ''}，未取消将于 ${Math.round(countdownMs() / 1000)} 秒后通知紧急联系人`;
     const delays = createdPushRetryDelaysMs();
     try {
       await this.pushCreatedWithRetry(
