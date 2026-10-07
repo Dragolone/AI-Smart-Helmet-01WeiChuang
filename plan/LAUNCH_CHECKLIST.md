@@ -84,6 +84,8 @@
 | ☐ 5 | `.github/workflows/android-apk.yml` 默认地址改为 `api.` | 切换日 | 第 4 项 |
 | ☐ 6 | 发 TestFlight / App Store 包时服务端设 `JPUSH_APNS_PRODUCTION=true` | 随 A 线第 5 项 | — |
 | ☐ 7 | 旧包都换掉后下线 `dev-` 域名 | 上线后 | DEPLOYMENT §8.1 第 11 步 |
+| ☐ 8 | **审地图「行程」的两个新接口（本 PR，分支 `feat/rides-api`），合并后更新 dev-api**（2026-10-07 负责人：后端这部分交 B 线）。A 线已写好实现和测试，要你做三件事：① Review——`GET /devices/{id}/rides?from=&to=`（行程列表）和 `GET /devices/{id}/locations/track?from=&to=&maxPoints=`（抽稀轨迹）；代码在 `backend/src/locations/`（`ride-split.ts` 是切分规则，`locations.service.ts` 的 `rides()` / `track()`，`RidesController`），类型在 `packages/shared`（`RideSummary` / `RidesResponse` / `TrackResponse`），契约是 `docs/API.md` §5 新增的两行；只读、**没有 migration**，归属校验和绑定区间过滤沿用现有轨迹接口那一套；测试 `ride-split.spec.ts` + `test/rides.e2e-spec.ts`。② 定一条 A 线自己加的规则要不要留：连续不停骑满 24 小时的行程在 `from + n×24h` 处切开（真头盔电量撑不到，是为常驻 Mock 加的——不切的话它是「一趟骑了好几天」，起点早在查询范围之外，当天的列表里反而没有它）。③ 合并后更新云端，用测试账号对 `helmet_94173f` 各调一次两个接口：`rides` 返回按天切开的行程、最上面一条 `ongoing: true`；`track` 返回的 `points` 不超过 1000 个且 `summary.pointCount` 等于 `total` | 10-10（估） | App 这边的地图改版（分支 `feat/home-redesign`，随后提 PR）要用这两个接口：云端没更新之前，App 的行程列表显示「行程没加载出来」，地图的真机验收做不了 |
+| ☐ 9 | **给云端测试账号 `19900001234` 再开一台设备**：服务器上 `provision:device` 开一台，把 deviceId 和绑定码发 A 线；不用给它挂常驻 Mock（A 线测的时候经 app-relay 喂数据） | 10-10（估） | 10-07 改版后要两顶头盔才能测的地方变多了：设备页「其他设备 / 设为当前」、安全页「求救关联」和更换头盔提醒、安全记录按头盔筛、地图「换一台看」（对应的回归行随 App 的 PR 一起进 REGRESSION.md）。就是 A 线第 8 项里一直卡着的「第二台云端设备」 |
 
 ## 五、硬件（先不追，留档）
 

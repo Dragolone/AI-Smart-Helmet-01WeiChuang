@@ -1,12 +1,12 @@
 import { Module } from '@nestjs/common';
 import { DevicesModule } from '../devices/devices.module';
 import { LocationRecorderService } from './location-recorder.service';
-import { LocationsController } from './locations.controller';
+import { LocationsController, RidesController } from './locations.controller';
 import { LocationsService } from './locations.service';
 
 @Module({
   imports: [DevicesModule],
-  controllers: [LocationsController],
+  controllers: [LocationsController, RidesController],
   providers: [LocationRecorderService, LocationsService],
   exports: [LocationRecorderService],
 })
