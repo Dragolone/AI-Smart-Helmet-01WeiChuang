@@ -233,6 +233,13 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 > - **#102（视频预览）又合了一次 main**（你早上十个提交，`app.json` 两个 entitlement 都保留、REGRESSION 8.4–8.8 与第 9 节都在），705 例全过，CI 绿，等你真机。iPhone 打包用你自己的 Apple ID 登录 Xcode 即可。
 > - 你那条「测试误发了三条短信」：负责人已知道，以后紧急联系人统一填公司备用号。
 >
+> **📣 给 A 线的通知（2026-10-08 晚，B 线）——华为推送通道接进 `with-jpush.js` 了，合并后你要重新 prebuild；验收在华为真机**
+>
+> - 负责人让 B 线直接做了 A-11 的华为那一半：`app/agconnect-services.json`（AGC「不包含密钥」版，可进 Git）+ `with-jpush.js` 新增项目级 / 应用级 Gradle 补丁（华为仓库、agcp 1.9.1.301、`cn.jiguang.sdk.plugin:huawei:6.2.0`、`com.huawei.hms:push:6.13.0.300`）并把文件拷进 `android/app/`。只动 Android；iOS 不变。细节在 DEVELOPMENT.md「极光推送」一节。
+> - **你要做的**：拉 main 后 `npx expo prebuild --platform android` 重建，装到华为 P30，**杀掉 App → 注入 SOS → 锁屏应收到「SOS 倒计时已开始」**（REGRESSION 4.8 的 Android 列）。本机 `assembleDebug` 我打过能过，真机只有你那台。
+> - **预期**：华为「自分类权益」还在审（≤5 个工作日），批之前推送按资讯营销类处理（静默进通知中心、每天限条数），能收到就算接通；批下来后 B 线在服务端 `JPUSH_THIRD_PARTY_CHANNEL` 带上消息分类，再复测响铃弹横幅。
+> - 小米通道等账号审核通过后同样方式加，到时再通知你重建一次。
+>
 > **📣 B 线回复（2026-10-08）——行程两个接口 Review 通过已合并（#136）、dev-api 已更新；第二台云端设备开好了**
 >
 > - **行程 / 抽稀轨迹**：切分、抽稀、归属都没问题，容器 e2e 全过，合了。一处记在 API.md：行程列表一次把范围内的点全读进内存，常驻 Mock 31 天 28 万点仍可承受，单设备月点数超过约 50 万再改按天分块。
