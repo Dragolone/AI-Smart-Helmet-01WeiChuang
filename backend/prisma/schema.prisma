@@ -172,6 +172,9 @@ model SosCase {
   triggerEventId String  @unique @map("trigger_event_id")
   triggerType    String  @map("trigger_type") // possible_fall | manual_sos
   status         String  @default("pending") // pending | notified | cancelled
+  // 触发事件在头盔上发生的时间（envelope.timestamp，设备时钟）：只给 App 写「约 3 小时前的事件，刚补传到」
+  // （决策 #52），不参与任何判定。10-07 新增，旧单为空
+  triggeredAt    DateTime? @map("triggered_at")
   // deadline 一律按服务器时间计算（createdAt + 倒计时秒数）；设备时钟不参与，clock_skew 不影响保命链路
   deadline       DateTime
   finalizedAt    DateTime? @map("finalized_at")

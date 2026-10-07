@@ -21,6 +21,8 @@ export function toWireSos(c: SosCase): Sos {
     deadline: c.deadline.toISOString(),
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
+    // 10-07 新增可选字段：旧单为空时不下发，App 不显示那句补传说明（Contract：缺省兼容）
+    ...(c.triggeredAt ? { triggeredAt: c.triggeredAt.toISOString() } : {}),
   };
 }
 
