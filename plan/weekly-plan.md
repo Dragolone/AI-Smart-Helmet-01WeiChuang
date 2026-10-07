@@ -233,6 +233,14 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 > - **#102（视频预览）又合了一次 main**（你早上十个提交，`app.json` 两个 entitlement 都保留、REGRESSION 8.4–8.8 与第 9 节都在），705 例全过，CI 绿，等你真机。iPhone 打包用你自己的 Apple ID 登录 Xcode 即可。
 > - 你那条「测试误发了三条短信」：负责人已知道，以后紧急联系人统一填公司备用号。
 >
+> **📣 A 线回复（2026-10-07）——被杀状态远程推送上的「取消」端到端通了；R-13 关了；负责人当场提的三条体验问题修完；设备页改版已提交；你留的第 ③ 条合并做了**
+>
+> - **被杀状态「取消」（你 10-06 让我做的第 ①）**：云端带 `category: "sos"` 后，iPhone 滑掉 App → 长按「SOS 倒计时已开始」直接出「我没事，取消」「查看」→ 点取消 → 冷启动日志「由远程推送的取消按钮拉起」→ 20 s 内服务端 `cancelled`（REGRESSION 4.8）。负责人当场指出两处并已修：① 冷启动要先看完两三秒启动动画、页面还在倒数才变「已取消」，很危险 → 这类拉起不停留启动动画，倒计时页按钮直接「取消中…」且不响警报（`43c9474`）；取消确认后把远程推送那条也从通知中心撤掉（`ee48a23`）。② 飞行模式下点取消、联网后提示失败要再点一次 → 回前台触发的重试原来也消耗重试次数，改成只有定时重试计次（`e31588f`）。
+> - **R-13 不成立**：iPhone 登出后 queryAlias 回调里 `alias` 是 `""` 不是 nil，桥接层不会崩，已在台账关掉。**8.10 手机时钟拨快 2 分钟**：倒计时从 55 开始（注入到渲染的正常延迟），不是 0。
+> - **设备详情页 / 安全页改版**（昨晚提到的另一会话那批未提交改动）：负责人今早确认，已作为 `49ee483` 提交。与你的 #133 撞了 `safety.tsx`：长按求救走你的 `buildRelayEnvelope / enqueueRelayEvent / notifyCriticalAccepted`，目标变量名是 `sosTargetId`；30 s 轮询 + `guardActiveResult` 收进 `hooks/use-safety.ts` 的 `usePendingSos`。你的源码断言测试 `audit-sos-screen-wiring.test.ts` 按此更新，没改语义。
+> - **你 10-05 留的第 ③ 条**：注册 / 找回密码 / 换手机号三页的短信读秒合成 `hooks/use-sms-code.ts`；`EXPO_PUBLIC_API_URL` 的兜底三处收成 `constants/api.ts`（`24b8ed6`）。App 760 例全绿。
+> - **真机还没验的**：4.16（点通知时无网，App 被杀）、8.9 / 8.11（你那五条里要头盔上电瞬间点解绑、档案晚到）、8.6（要 Android 13+）、#102 双端。另外按上线清单第 1 项，dev 服务器的腾讯云短信六项还没填、通道仍是 Console Mock，昨天那三条「误发短信」应该只是服务端记录、没真发到手机——如果你那边看到的不是这样，纠正我。
+>
 > **📣 A 线回复（2026-10-06 深夜）——你留的五条（F3 / F4 / F8 / F-7 / F-3 / F-10）都做了，在 main**
 >
 > - **F3**：`connect()` 在 `found.connect()` 返回后核对 `running && targets.includes(id)`，不是目标就 `cancelConnection`；握手途中的解绑由 `setBleTargets` 直接 close 会话、让握手抛错，`catch` 里已解绑的不重连、也不在页面留「已断开」残留行。顺手修了 `command()` 里写入未返回就被 close 时的未处理拒绝。
