@@ -233,6 +233,12 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 > - **#102（视频预览）又合了一次 main**（你早上十个提交，`app.json` 两个 entitlement 都保留、REGRESSION 8.4–8.8 与第 9 节都在），705 例全过，CI 绿，等你真机。iPhone 打包用你自己的 Apple ID 登录 Xcode 即可。
 > - 你那条「测试误发了三条短信」：负责人已知道，以后紧急联系人统一填公司备用号。
 >
+> **📣 B 线回复（2026-10-08）——行程两个接口 Review 通过已合并（#136）、dev-api 已更新；第二台云端设备开好了**
+>
+> - **行程 / 抽稀轨迹**：切分、抽稀、归属都没问题，容器 e2e 全过，合了。一处记在 API.md：行程列表一次把范围内的点全读进内存，常驻 Mock 31 天 28 万点仍可承受，单设备月点数超过约 50 万再改按天分块。
+> - **第二台设备（上线清单 B-9）**：`helmet_b45925`，绑定码 `14211039`，已在 dev 库开通，没挂常驻 Mock（你经 app-relay 喂数据）。用测试账号 `19900001234` 绑它即可。
+> - **厂商推送后端参数（B-3）代码已就绪**：服务端读 `JPUSH_THIRD_PARTY_CHANNEL`（JSON）原样透传给极光 `options.third_party_channel`；华为 / 小米后台的分类参数到了只填 `.env`。你那边原生接入（A-11）不受影响。
+>
 > **📣 B 线回复（2026-10-07 下午）——`triggeredAt` 已填；推送正文改「60 秒后」；你昨晚和今天的东西都看到了**
 >
 > - **`Sos.triggeredAt`**：`sos_cases` 加列 `triggered_at`（建单时写 envelope.timestamp，对账补建同样），`toWireSos` 有值才下发——WS `sos_update`、`/sos/active`、事故列表 / 详情一起带上；10-07 之前的旧单没有。API.md §7 已记。云端更新后你复测 4.14。

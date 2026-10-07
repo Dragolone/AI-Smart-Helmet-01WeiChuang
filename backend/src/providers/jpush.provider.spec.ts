@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 // 极光 Provider（THIRD_PARTY.md §6）：请求体字段、鉴权头、错误必须 throw（否则 SOS 通知会误记成功）。
 import {
   JPushError,
@@ -51,6 +52,69 @@ describe('jpushConfigFromEnv', () => {
     expect(jpushConfigFromEnv()).toMatchObject({
       apnsProduction: true,
       timeoutMs: 3000,
+    });
+  });
+
+  describe('厂商通道参数 JPUSH_THIRD_PARTY_CHANNEL', () => {
+    const saved = process.env.JPUSH_THIRD_PARTY_CHANNEL;
+    beforeEach(() => {
+      process.env.JPUSH_APP_KEY = 'ak';
+      process.env.JPUSH_MASTER_SECRET = 'ms';
+    });
+    afterEach(() => {
+      if (saved === undefined) delete process.env.JPUSH_THIRD_PARTY_CHANNEL;
+      else process.env.JPUSH_THIRD_PARTY_CHANNEL = saved;
+    });
+
+    it('合法 JSON 对象原样进 config，请求体 options.third_party_channel 原样透传', () => {
+      process.env.JPUSH_THIRD_PARTY_CHANNEL =
+        '{"huawei":{"distribution":"secondary_push","importance":"NORMAL","category":"DEVICE_REMINDER"},"xiaomi":{"distribution":"secondary_push","channel_id":"sos"}}';
+      const config = jpushConfigFromEnv()!;
+      expect(config.thirdPartyChannel).toEqual({
+        huawei: {
+          distribution: 'secondary_push',
+          importance: 'NORMAL',
+          category: 'DEVICE_REMINDER',
+        },
+        xiaomi: { distribution: 'secondary_push', channel_id: 'sos' },
+      });
+      const body = buildJPushBody(
+        'u',
+        't',
+        'b',
+        undefined,
+        false,
+        undefined,
+        config.thirdPartyChannel,
+      ) as {
+        options: Record<string, unknown>;
+      };
+      expect(body.options.third_party_channel).toEqual(
+        config.thirdPartyChannel,
+      );
+    });
+
+    it('未设 / 空串：config 里没有这一项，请求体也不带 third_party_channel', () => {
+      delete process.env.JPUSH_THIRD_PARTY_CHANNEL;
+      expect(jpushConfigFromEnv()).not.toHaveProperty('thirdPartyChannel');
+      process.env.JPUSH_THIRD_PARTY_CHANNEL = '  ';
+      expect(jpushConfigFromEnv()).not.toHaveProperty('thirdPartyChannel');
+      const body = buildJPushBody('u', 't', 'b', undefined, false) as {
+        options: Record<string, unknown>;
+      };
+      expect(body.options).not.toHaveProperty('third_party_channel');
+    });
+
+    it('不是合法 JSON 对象（坏 JSON / 数组 / 字符串）：忽略并记 error，推送本身不受影响', () => {
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+      for (const bad of ['{huawei:', '[1,2]', '"x"', 'null']) {
+        process.env.JPUSH_THIRD_PARTY_CHANNEL = bad;
+        expect(jpushConfigFromEnv()).not.toHaveProperty('thirdPartyChannel');
+      }
+      expect(errorSpy).toHaveBeenCalledTimes(4);
+      errorSpy.mockRestore();
     });
   });
 });
