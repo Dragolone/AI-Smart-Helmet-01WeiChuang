@@ -321,6 +321,13 @@ export interface Sos {
   deadline: string;
   createdAt: string;
   updatedAt: string;
+  /**
+   * 触发事件在头盔上发生的时间（事件 envelope 的 timestamp）。离线补传的旧事件它会明显早于 createdAt，
+   * App 据此在锁屏通知与倒计时页写明「约 3 小时前的事件，刚补传到」（决策 #52）——此前这句只在服务端的
+   * 远程推送正文里，iOS 为避免与本地通知叠在一起会撤掉远程那条，这句话就跟着没了（2026-10-07 iPhone 4.14 实测）。
+   * 服务端填；旧数据 / 旧服务端可缺省，缺省时不显示这句。
+   */
+  triggeredAt?: string;
 }
 
 /** GET /devices/{id}/sos/active：无进行中 SOS 时 sos 为 null（与 locations/latest 同口径，定稿） */

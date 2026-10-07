@@ -11,6 +11,7 @@ import { sosApi } from "@/api/sos";
 import { translate } from "@/i18n";
 import { devLog } from "@/services/dev-log";
 import { serverNow } from "@/services/server-clock";
+import { lateEventNote } from "@/services/sos-age";
 import { presentedSos } from "@/services/sos-sync";
 import { useSosCancelStore } from "@/stores/sos-cancel-store";
 
@@ -358,6 +359,7 @@ export async function showSosAlertIfBackground(
   sosId: string,
   deviceId: string,
   deadline: string,
+  triggeredAt?: string,
 ): Promise<void> {
   if (AppState.currentState === "active") return;
   if (alerts.has(sosId)) return;
@@ -370,12 +372,15 @@ export async function showSosAlertIfBackground(
   // 后面的一条都不能再排，刚排上的也要撤——否则会留下一条「还剩 30 秒」的孤儿提醒（疑点 4）
   const alive = () => alerts.get(sosId) === entry;
   const total = remainingSeconds(deadline);
+  // 补传的旧事件：正文点明「约 3 小时前的事件，刚补传到」（决策 #52；此前只在远程推送里，iOS 上那条会被撤掉）
+  const late = lateEventNote(triggeredAt, serverNow());
   const content = (seconds: number | null, sound: boolean) => ({
     title: translate("sosAlert.title"),
     body:
-      seconds === null
+      (seconds === null
         ? translate("sosAlert.body")
-        : translate("sosAlert.bodyCountdown", { seconds }),
+        : translate("sosAlert.bodyCountdown", { seconds })) +
+      (late ? `（${late}）` : ""),
     // Android 上 "default" 会被当成自定义音频文件名报错；true = 通道默认铃声
     sound: sound ? (Platform.OS === "ios" ? "default" : true) : false,
     interruptionLevel: "timeSensitive" as const,

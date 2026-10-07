@@ -120,8 +120,8 @@ export function useRealtimeUpdates(): void {
       fetchActive: (id) => sosApi.active(id),
       openCountdown: (sosId, deviceId) =>
         router.push(`/sos-active?sosId=${sosId}&deviceId=${deviceId}`),
-      showLockScreenAlert: (sosId, deviceId, deadline) =>
-        void showSosAlertIfBackground(sosId, deviceId, deadline),
+      showLockScreenAlert: (sosId, deviceId, deadline, triggeredAt) =>
+        void showSosAlertIfBackground(sosId, deviceId, deadline, triggeredAt),
       clearLockScreenAlert: (sosId) => void clearSosAlert(sosId),
       log: (m) => devLog("SOS", m),
     };

@@ -87,6 +87,8 @@ export const auth = {
     "sos.pendingBody":
       "倒计时结束后将自动通知您的紧急联系人，除非您取消此操作。",
     "sos.autoSendSuffix": "秒后自动发送 SOS",
+    "sos.lateEventMinutes": "约 {n} 分钟前的事件，刚补传到",
+    "sos.lateEventHours": "约 {n} 小时前的事件，刚补传到",
     "sos.cancelling": "取消中…",
     "sos.imOk": "我没事，取消",
     "sos.sendNow": "立即求救 SOS",
@@ -177,6 +179,8 @@ export const auth = {
       "已向緊急聯絡人發出通知（發送結果以通知記錄為準），請保持手機暢通；若無人回應請直接撥打電話求助。",
     "sos.pendingBody": "倒數結束後將自動通知您的緊急聯絡人，除非您取消此操作。",
     "sos.autoSendSuffix": "秒後自動傳送 SOS",
+    "sos.lateEventMinutes": "約 {n} 分鐘前的事件，剛補傳到",
+    "sos.lateEventHours": "約 {n} 小時前的事件，剛補傳到",
     "sos.cancelling": "取消中…",
     "sos.imOk": "我沒事，取消",
     "sos.sendNow": "立即求救 SOS",
@@ -273,6 +277,10 @@ export const auth = {
     "sos.pendingBody":
       "Your emergency contacts will be notified automatically when the countdown ends, unless you cancel.",
     "sos.autoSendSuffix": "seconds until SOS is sent",
+    "sos.lateEventMinutes":
+      "Event from about {n} min ago, just synced from the helmet",
+    "sos.lateEventHours":
+      "Event from about {n} h ago, just synced from the helmet",
     "sos.cancelling": "Cancelling…",
     "sos.imOk": "I'm OK, cancel",
     "sos.sendNow": "Send SOS now",

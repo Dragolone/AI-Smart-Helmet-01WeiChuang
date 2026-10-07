@@ -70,6 +70,22 @@ describe("applySosUpdate（WS sos_update）", () => {
       "s1",
       "d1",
       sos().deadline,
+      undefined, // triggeredAt：测试样本没带；带了要原样透传（见下）
+    );
+  });
+
+  it("triggeredAt（补传旧事件的事件时间）原样透传给锁屏通知，由它决定要不要点明「刚补传到」", () => {
+    applySosUpdate(
+      qc,
+      sos({ triggeredAt: "2026-10-06T22:00:00.000Z" }),
+      presented,
+      deps,
+    );
+    expect(deps.showLockScreenAlert).toHaveBeenCalledWith(
+      "s1",
+      "d1",
+      sos().deadline,
+      "2026-10-06T22:00:00.000Z",
     );
   });
 
@@ -151,6 +167,7 @@ describe("resumePendingSos（冷启动 / 重连补拉，SOS-12）", () => {
       "s1",
       "d1",
       sos().deadline,
+      undefined, // triggeredAt：测试样本没带；带了要原样透传（见下）
     );
     expect(deps.openCountdown).toHaveBeenCalledWith("s1", "d1");
     expect(deps.log).toHaveBeenCalledWith("重连补拉发现进行中 SOS s1");
@@ -209,6 +226,7 @@ describe("alertPendingOnBackground（离开前台补弹，SOS-13）", () => {
       "s1",
       "d1",
       sos().deadline,
+      undefined, // triggeredAt：测试样本没带；带了要原样透传（见下）
     );
   });
 

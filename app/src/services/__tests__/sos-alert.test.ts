@@ -150,6 +150,31 @@ describe("sos-alert", () => {
       expect(mockSchedule).not.toHaveBeenCalled();
     });
 
+    it("补传的 3 小时前的事件：正文末尾点明「约 3 小时前的事件，刚补传到」（决策 #52，2026-10-07 iPhone 4.14）", async () => {
+      const m = load();
+      const triggeredAt = new Date(Date.now() - 3 * 3_600_000).toISOString();
+      await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60), triggeredAt);
+      const r = reqs();
+      expect(r[0].content.body).toBe(
+        'sosAlert.bodyCountdown:{"seconds":60}（sos.lateEventHours:{"n":3}）',
+      );
+      // 静默刷新那两条也带
+      expect(r[1].content.body).toContain("sos.lateEventHours");
+    });
+
+    it("事件时间只早 2 分钟（时钟偏差）或缺省：正文不加说明", async () => {
+      const m = load();
+      await m.showSosAlertIfBackground(
+        "s1",
+        "d1",
+        deadlineIn(60),
+        new Date(Date.now() - 2 * 60_000).toISOString(),
+      );
+      expect(reqs()[0].content.body).toBe(
+        'sosAlert.bodyCountdown:{"seconds":60}',
+      );
+    });
+
     it("60s 倒计时：立即一条带声，30s/10s 各一条静默刷新", async () => {
       const m = load();
       await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));

@@ -34,6 +34,7 @@ import { ThemedView } from "@/components/themed-view";
 import { Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
+import { lateEventNote } from "@/services/sos-age";
 
 function secondsLeft(deadline: string, now: number): number {
   return Math.max(0, Math.ceil((new Date(deadline).getTime() - now) / 1000));
@@ -195,6 +196,8 @@ export default function SosActiveScreen() {
 
   const left = sos ? secondsLeft(sos.deadline, now) : null;
   const finished = sos && sos.status !== "pending";
+  // 补传的旧事件点明「约 3 小时前的事件，刚补传到」（决策 #52）；一分钟内不会变档，不用跟着 now 刷
+  const lateNote = lateEventNote(sos?.triggeredAt, now);
 
   // Android 实体返回键：倒计时中不能把这页关进「什么都没有」——关掉后警报停、无提示，
   // 而这单仍登记为「已拉起」，WS / 补拉都不会再弹（10-06 不变式评审 F-4）
@@ -244,6 +247,15 @@ export default function SosActiveScreen() {
                 : t(isDrill ? "sos.drillNotifiedBody" : "sos.notifiedBody")
               : t("sos.pendingBody")}
           </ThemedText>
+          {!finished && lateNote ? (
+            <ThemedText
+              type="small"
+              themeColor="textSecondary"
+              style={styles.subtitle}
+            >
+              {lateNote}
+            </ThemedText>
+          ) : null}
         </View>
 
         <View style={styles.countdownWrap}>
