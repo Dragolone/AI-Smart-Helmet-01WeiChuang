@@ -4,6 +4,10 @@ import { describe, expect, it } from "@jest/globals";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const plugin = require("../with-jpush.js") as {
+  applyProjectBuildGradleHuawei: (s: string, o: { agpVersion: string }) => string;
+  readAgpVersion: (root: string) => string;
+  applyAppBuildGradleHuawei: (s: string) => string;
+  JPUSH_HUAWEI_PLUGIN_VERSION: string;
   applyAppDelegate: (s: string) => string;
   applyAppBuildGradle: (s: string, cfg: { appKey: string; channel: string }) => string;
   applyAndroidManifest: (m: unknown) => unknown;
@@ -206,5 +210,98 @@ describe("Android manifest / iOS plist / bridging header", () => {
   it("app.json 缺 appKey 直接报错", () => {
     expect(() => plugin.readJPushExtra({ extra: {} })).toThrow(/appKey/);
     expect(plugin.readJPushExtra({ extra: { jpush: { appKey: "k" } } })).toEqual({ appKey: "k", channel: "official" });
+  });
+});
+
+// Expo SDK 57 prebuild 产物 android/build.gradle（2026-10-08 实际生成）
+const PROJECT_BUILD_GRADLE_SDK57 = `// Top-level build file where you can add configuration options common to all sub-projects/modules.
+
+buildscript {
+  repositories {
+    google()
+    mavenCentral()
+  }
+  dependencies {
+    classpath('com.android.tools.build:gradle')
+    classpath('com.facebook.react:react-native-gradle-plugin')
+    classpath('org.jetbrains.kotlin:kotlin-gradle-plugin')
+  }
+}
+
+allprojects {
+  repositories {
+    google()
+    mavenCentral()
+    maven { url 'https://www.jitpack.io' }
+  }
+}
+
+apply plugin: "expo-root-project"
+apply plugin: "com.facebook.react.rootproject"
+`;
+
+// 同一份产物 android/app/build.gradle 的头部与 dependencies 块（中间省略）
+const APP_BUILD_GRADLE_HEAD_SDK57 = `apply plugin: "com.android.application"
+apply plugin: "org.jetbrains.kotlin.android"
+apply plugin: "com.facebook.react"
+
+def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
+
+dependencies {
+    // The version of react-native is set by the React Native Gradle Plugin
+    implementation("com.facebook.react:react-android")
+
+    def isGifEnabled = (findProperty('expo.gif.enabled') ?: "") == "true";
+}
+`;
+
+describe("Android 华为厂商通道（上线清单 A-11）", () => {
+  const project = plugin.applyProjectBuildGradleHuawei(PROJECT_BUILD_GRADLE_SDK57, { agpVersion: "8.12.0" });
+  const app = plugin.applyAppBuildGradleHuawei(APP_BUILD_GRADLE_HEAD_SDK57);
+
+  it("项目级：buildscript 与 allprojects 都加华为仓库，buildscript 加 agcp classpath", () => {
+    const buildscript = project.slice(0, project.indexOf("allprojects"));
+    const allprojects = project.slice(project.indexOf("allprojects"));
+    expect(buildscript).toContain("maven { url 'https://developer.huawei.com/repo/' }");
+    expect(buildscript).toContain("classpath('com.huawei.agconnect:agcp:1.9.1.301')");
+    // agcp 碰到不带版本的 AGP 声明就报错：模板那行要改写成带版本的，且不能再留一行不带版本的
+    expect(buildscript).toContain("classpath('com.android.tools.build:gradle:8.12.0')");
+    expect(buildscript).not.toMatch(/classpath\(['"]com\.android\.tools\.build:gradle['"]\)/);
+    expect(allprojects).toContain("maven { url 'https://developer.huawei.com/repo/' }");
+    // 仓库要在 repositories 块里、classpath 要在 dependencies 块里
+    expect(buildscript.indexOf("developer.huawei.com")).toBeLessThan(buildscript.indexOf("dependencies {"));
+    expect(buildscript.indexOf("agcp")).toBeGreaterThan(buildscript.indexOf("dependencies {"));
+  });
+
+  it("应用级：AGC 插件紧跟 com.facebook.react 之后；极光华为插件与 HMS Push 进 dependencies", () => {
+    expect(app).toMatch(/apply plugin: "com\.facebook\.react"\n(?:\/\/.*\n)?apply plugin: "com\.huawei\.agconnect"/);
+    const deps = app.slice(app.indexOf("dependencies {"));
+    expect(deps).toContain(`implementation("cn.jiguang.sdk.plugin:huawei:${plugin.JPUSH_HUAWEI_PLUGIN_VERSION}")`);
+    expect(deps).toContain('implementation("com.huawei.hms:push:6.13.0.300")');
+  });
+
+  it("AGP 版本从 React Native 的 gradle 版本表读（与模板里不带版本的那行指向同一版本）", () => {
+    const path = require("node:path") as typeof import("node:path");
+    expect(plugin.readAgpVersion(path.join(__dirname, "../.."))).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+
+  it("幂等：再补一次结果不变", () => {
+    expect(plugin.applyProjectBuildGradleHuawei(project, { agpVersion: "8.12.0" })).toBe(project);
+    expect(plugin.applyAppBuildGradleHuawei(app)).toBe(app);
+  });
+
+  it("模板变了（锚点找不到）就报错，不静默漏接", () => {
+    expect(() => plugin.applyProjectBuildGradleHuawei("buildscript {}", { agpVersion: "8.12.0" })).toThrow(/android\/build\.gradle 锚点失效/);
+    expect(() => plugin.applyAppBuildGradleHuawei("android {}")).toThrow(/app\/build\.gradle 锚点失效/);
+  });
+
+  it("极光华为插件的版本与 jpush-react-native 自带的 JPush SDK 版本一致（库升级后这条会提醒同步）", () => {
+    const fs = require("node:fs") as typeof import("node:fs");
+    const path = require("node:path") as typeof import("node:path");
+    const gradle = fs.readFileSync(
+      path.join(__dirname, "../../../node_modules/jpush-react-native/android/build.gradle"),
+      "utf8",
+    );
+    expect(gradle).toContain(`cn.jiguang.sdk:jpush:${plugin.JPUSH_HUAWEI_PLUGIN_VERSION}`);
   });
 });
