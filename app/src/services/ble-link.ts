@@ -229,6 +229,9 @@ class HelmetSession {
     // 设置只是显示口径。头盔大灯掉电不保存、RECOVERY 恢复出厂、别的手机改过设置，
     // 云端「当前生效设置」都无从知道，只有连上的这台手机能纠正它。
     await this.reportHelmetSettings();
+    // 设置上报自己吞错，握手途中被 close（解绑 / 停链路 / 对端断开）的那次会在这里被吞掉；
+    // 不抛的话 connect() 会把一台已经关掉的会话标成「已连接」（2026-10-07 iPhone 8.9 实测）
+    if (this.closed) throw new Error("握手期间会话已关闭");
   }
 
   /** 读 0x20–0x2D 翻成键值上报；读失败或网络不通都不影响链路，下次握手再来 */
@@ -611,6 +614,11 @@ async function connect(
     });
     sessions.set(deviceId, session);
     await session.open();
+    if (sessions.get(deviceId) !== session) {
+      // open() 期间 onClosed 已经把这条会话摘掉并处理了页面状态，这里什么都别再标
+      log(`${deviceId} 握手期间会话已关闭，不登记`);
+      return;
+    }
     reconnectDelay.delete(deviceId);
     store().patchLink(deviceId, {
       phase: "connected",

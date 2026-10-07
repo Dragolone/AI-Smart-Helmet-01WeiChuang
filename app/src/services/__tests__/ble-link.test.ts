@@ -889,6 +889,40 @@ describe("B 线 10-06 评审 F3：解绑 / 停链路撞上连接或握手在途"
   });
 });
 
+describe("2026-10-07 iPhone 8.9 实测：解绑撞上握手最后一步（读回设置）", () => {
+  it("设置读回在途时解绑：会话已关、不能再被标成「已连接」，页面也不留行（上报步骤吞错，原来握手照样「成功」）", async () => {
+    const origImpl =
+      fakeDevice.writeCharacteristicWithResponseForService.getMockImplementation();
+    fakeDevice.writeCharacteristicWithResponseForService.mockImplementation(
+      async (_s, _c, v) => {
+        const bytes = base64ToBytes(v);
+        helmet.writes.push(bytesToHex(bytes));
+        // 读设置（0x02 读 0x20 起 14 字节）这一条：先解绑，再让头盔应答
+        if (bytes[0] === 0x02 && bytes[2] === 0x20) {
+          setBleTargets([]);
+          return {};
+        }
+        helmet.handle(bytes);
+        return {};
+      },
+    );
+    await startBleLink(["helmet_94173f"]);
+    await tick();
+    scanCb?.(null, fakeDevice);
+    await tick(60);
+    expect(helmet.writes.some((w) => w.startsWith("02 05 20"))).toBe(true);
+    expect(isHelmetConnected("helmet_94173f")).toBe(false);
+    expect(useBleStore.getState().links["helmet_94173f"]).toBeUndefined();
+    const { devLog } = jest.requireMock<{ devLog: Mock }>("@/services/dev-log");
+    expect(
+      devLog.mock.calls.some((c) => String(c[0]).includes("已连接，固件")),
+    ).toBe(false);
+    fakeDevice.writeCharacteristicWithResponseForService.mockImplementation(
+      origImpl as never,
+    );
+  });
+});
+
 describe("B 线 10-06 评审 F4：扫描轮次令牌", () => {
   it("查适配器状态期间停了链路：这一轮不再 startDeviceScan（ble-plx 只叠监听，泄漏的监听会劫持连接）", async () => {
     let answer!: (s: string) => void;
