@@ -374,6 +374,33 @@ describe("响应体形态", () => {
     },
   );
 
+  it("429 带 Retry-After：错误对象记下秒数，文案说「请 N 秒后再试」（决策 #53；负责人 2026-10-07 iPhone 2.6 实测只说「太频繁」不知要等多久）", async () => {
+    fetchMock.mockResolvedValue({
+      ...res(429, { code: "RATE_LIMITED", message: "请求过于频繁" }),
+      headers: { get: (k: string) => (k === "retry-after" ? "47" : null) },
+    });
+    const err = await api("/devices/bind", { method: "POST", body: {} }).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toMatchObject({ code: "RATE_LIMITED", retryAfterSec: 47 });
+    expect(toUserMessage(err)).toBe(
+      translate("error.rateLimitedRetry", { seconds: 47 }),
+    );
+  });
+
+  it("429 没有 Retry-After（或值不是秒数）：退回原来的「请稍后再试」", async () => {
+    fetchMock.mockResolvedValue({
+      ...res(429, { code: "RATE_LIMITED" }),
+      headers: { get: () => "Wed, 07 Oct 2026 01:00:00 GMT" },
+    });
+    const err = await api("/x", { auth: false }).catch((e: unknown) => e);
+    expect(err).toMatchObject({
+      code: "RATE_LIMITED",
+      retryAfterSec: undefined,
+    });
+    expect(toUserMessage(err)).toBe(translate("error.rateLimited"));
+  });
+
   it("请求体：未传 body 不带 Content-Type；0 / false / null / 空串是合法 JSON，照常序列化", async () => {
     fetchMock.mockImplementation(async () => res(200, {}));
     await api("/x", { auth: false });

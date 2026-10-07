@@ -22,13 +22,29 @@ export class ApiRequestError extends Error {
   readonly code: string;
   readonly status: number;
   readonly requestId?: string;
+  /** 429 的 `Retry-After`（秒）：限频还要等多久（决策 #53）；没有或解析不了为 undefined */
+  readonly retryAfterSec?: number;
 
-  constructor(status: number, body: Partial<ApiErrorBody>) {
+  constructor(
+    status: number,
+    body: Partial<ApiErrorBody>,
+    retryAfterSec?: number,
+  ) {
     super(body.message ?? `HTTP ${status}`);
     this.code = body.code ?? "INTERNAL_ERROR";
     this.status = status;
     this.requestId = body.requestId;
+    this.retryAfterSec = retryAfterSec;
   }
+}
+
+/** `Retry-After` 只认「秒数」写法（服务端限频守卫就这么发）；HTTP 日期写法与非法值都当没有 */
+export function parseRetryAfter(
+  header: string | null | undefined,
+): number | undefined {
+  if (!header) return undefined;
+  const n = Number(header.trim());
+  return Number.isInteger(n) && n > 0 ? n : undefined;
 }
 
 /** 单次请求超时：后端挂起/黑洞网络时不能让页面永远转圈（审计 APP-03）；超时按网络错误呈现 */
@@ -140,11 +156,12 @@ async function refreshTokens(): Promise<RefreshOutcome> {
 }
 
 async function parseError(res: Response): Promise<ApiRequestError> {
+  const retryAfter = parseRetryAfter(res.headers?.get?.("retry-after"));
   try {
     const body = (await res.json()) as Partial<ApiErrorBody>;
-    return new ApiRequestError(res.status, body);
+    return new ApiRequestError(res.status, body, retryAfter);
   } catch {
-    return new ApiRequestError(res.status, {});
+    return new ApiRequestError(res.status, {}, retryAfter);
   }
 }
 

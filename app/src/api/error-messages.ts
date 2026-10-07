@@ -28,6 +28,12 @@ const own = <T>(table: Record<string, T>, key: string): T | undefined =>
 
 export function toUserMessage(err: unknown): string {
   if (err instanceof ApiRequestError) {
+    // 限频：服务端说了还要等几秒就照说（负责人 2026-10-07 iPhone 2.6 实测：只说「太频繁」用户不知道要等多久）
+    if (err.code === "RATE_LIMITED" && err.retryAfterSec) {
+      return translate("error.rateLimitedRetry", {
+        seconds: err.retryAfterSec,
+      });
+    }
     const key = own(MESSAGE_KEYS, err.code);
     return key
       ? translate(key)
