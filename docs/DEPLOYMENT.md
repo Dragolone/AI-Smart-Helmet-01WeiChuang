@@ -89,6 +89,7 @@ docker compose -f docker-compose.prod.yml logs -f backend
 ```bash
 docker compose -f docker-compose.prod.yml exec backend npm run create:admin       # 密码只显示一次
 docker compose -f docker-compose.prod.yml exec backend npm run provision:device   # deviceSecret 只显示一次
+# 第二顶常驻 Mock（真机多设备回归，2026-10-08）：再开一台 → 填 MOCK2_DEVICE_* → COMPOSE_PROFILES=demo,demo2 → up -d --build mock2
 docker compose -f docker-compose.prod.yml exec backend npm run provision:batch -- --count 20   # 产线批量开通:CSV + 二维码,产物在容器 /repo/backend/provision-out/
 docker compose -f docker-compose.prod.yml cp backend:/repo/backend/provision-out ./provision-out   # 拷出后交接,两边都销毁
 ```

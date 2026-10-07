@@ -135,6 +135,27 @@ services:
       LOCATION_INTERVAL_MS: ${MOCK_LOCATION_INTERVAL_MS:-10000}
       MOCK_CMD_RESULT: ${MOCK_CMD_RESULT:-success}
 
+  # 第二顶常驻 Mock 头盔（profile demo2，2026-10-08 A 线要求）：真机回归 3.3 多设备切换、5.5.3 / 5.5.5 两顶头盔
+  # 的场景要云端同时有两顶在线。凭证同样来自 provision:device；COMPOSE_PROFILES=demo,demo2 一起打开。
+  # 默认剧本 riding（与第一顶的 ski 区分），位置间隔同样 10 s。
+  mock2:
+    build:
+      context: ..
+      dockerfile: mock-device/Dockerfile
+    restart: unless-stopped
+    logging: *default-logging
+    profiles: ["demo2"]
+    depends_on:
+      backend:
+        condition: service_started
+    environment:
+      MQTT_URL: mqtt://emqx:1883
+      DEVICE_ID: ${MOCK2_DEVICE_ID:-}
+      DEVICE_SECRET: ${MOCK2_DEVICE_SECRET:-}
+      SCENARIO: ${MOCK2_SCENARIO:-}
+      LOCATION_INTERVAL_MS: ${MOCK2_LOCATION_INTERVAL_MS:-10000}
+      MOCK_CMD_RESULT: ${MOCK2_CMD_RESULT:-success}
+
   gateway:
     build:
       context: ..
