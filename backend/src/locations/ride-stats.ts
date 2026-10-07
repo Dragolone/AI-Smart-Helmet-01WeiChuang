@@ -21,12 +21,12 @@ export interface RideStats {
 }
 
 const GAP_MS = 10 * 60 * 1000;
-const MOVING_MPS = 0.5;
+export const MOVING_MPS = 0.5;
 /** 相邻点隐含速度超过此值视为定位漂移，不计入里程（自行车/滑雪不会到 200 km/h） */
-const GLITCH_MPS = 55;
+export const GLITCH_MPS = 55;
 const EARTH_M = 6_371_000;
 
-function haversine(a: RideStatsPoint, b: RideStatsPoint): number {
+export function haversine(a: RideStatsPoint, b: RideStatsPoint): number {
   const toRad = (d: number) => (d * Math.PI) / 180;
   const dLat = toRad(b.latitude - a.latitude);
   const dLng = toRad(b.longitude - a.longitude);
