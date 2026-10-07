@@ -61,7 +61,7 @@ export const pushProviderFactory = (): PushProvider => {
   const config = jpushConfigFromEnv();
   if (config) {
     new Logger('ProvidersModule').log(
-      `推送通道：极光（APNs ${config.apnsProduction ? '生产' : '沙盒'}环境）`,
+      `推送通道：极光（APNs ${config.apnsProduction ? '生产' : '沙盒'}环境；厂商通道参数：${config.thirdPartyChannel ? Object.keys(config.thirdPartyChannel).join('/') : '未配置，Android 被杀状态下只走极光自有通道'}）`,
     );
     return new JPushProvider(config);
   }
