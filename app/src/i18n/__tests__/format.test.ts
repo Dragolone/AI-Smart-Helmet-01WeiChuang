@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it, jest } from "@jest/globals";
 
 import {
+  formatKm,
   fullDateTime,
   relativeTime,
   shortDate,
@@ -105,5 +106,15 @@ describe("timeWithDateIfNotToday", () => {
 
   it("认不出的时间给占位符", () => {
     expect(timeWithDateIfNotToday("nope", "en")).toBe("—");
+  });
+});
+
+describe("formatKm（里程数字，单位另显示）", () => {
+  it("1000 km 以下一位小数；以上取整，免得统计卡把「6547.4」截成「65…」（10-07 华为 3.1）", () => {
+    expect(formatKm(0)).toBe("0.0");
+    expect(formatKm(129_740)).toBe("129.7");
+    expect(formatKm(999_949)).toBe("999.9");
+    expect(formatKm(6_547_400)).toBe("6547");
+    expect(formatKm(Number.NaN)).toBe("0.0");
   });
 });

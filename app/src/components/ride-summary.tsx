@@ -10,6 +10,7 @@ import { ValueTransition } from "@/components/motion";
 import { ThemedText } from "@/components/themed-text";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
+import { formatKm } from "@/i18n/format";
 
 const MIN_DISTANCE_M = 50;
 
@@ -47,7 +48,7 @@ export function RideSummaryCard({ deviceId }: { deviceId: string }) {
   const stats: { label: string; value: string; unit: string }[] = [
     {
       label: t("ride.distance"),
-      value: (s.distanceMeters / 1000).toFixed(1),
+      value: formatKm(s.distanceMeters),
       unit: "km",
     },
     {

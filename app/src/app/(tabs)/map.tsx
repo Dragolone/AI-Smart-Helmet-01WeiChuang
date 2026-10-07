@@ -47,7 +47,7 @@ import { Radius } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
 import { translate, useLocale, useT } from "@/i18n";
-import { relativeTime } from "@/i18n/format";
+import { formatKm, relativeTime } from "@/i18n/format";
 
 const RANGE_OPTIONS = [1, 6, 24] as const;
 /** 底部抽屉过渡：点按/松手都用 220ms 缓出，不要弹簧的惯性（负责人 2026-09-17：点收起不要有惯性副作用） */
@@ -980,7 +980,7 @@ export default function MapScreen() {
                           />
                           <Stat
                             label={t("map.distance")}
-                            value={(distanceMeters / 1000).toFixed(1)}
+                            value={formatKm(distanceMeters)}
                             unit="km"
                           />
                           <Stat

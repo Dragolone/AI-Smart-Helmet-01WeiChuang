@@ -1,19 +1,33 @@
 // 相对时间 / 日期的本地化格式（各页共用，避免每页各写一套中文口径）
-import { translate, LOCALE_TAGS, type Locale } from './index';
+import { translate, LOCALE_TAGS, type Locale } from "./index";
 
 /** 认不出的时间戳在日期 / 时间位置上的占位（与 maskPhone 的空值占位同一个符号） */
-const INVALID_TIME = '—';
+const INVALID_TIME = "—";
 
 export function relativeTime(iso: string | null, locale?: Locale): string {
-  if (!iso) return translate('common.never', undefined, locale);
+  if (!iso) return translate("common.never", undefined, locale);
   const at = new Date(iso).getTime();
   // 认不出的时间按没有时间处理，不显示「NaN 天前」
-  if (Number.isNaN(at)) return translate('common.never', undefined, locale);
+  if (Number.isNaN(at)) return translate("common.never", undefined, locale);
   const diffSec = Math.max(0, Math.floor((Date.now() - at) / 1000));
-  if (diffSec < 45) return translate('common.justNow', undefined, locale);
-  if (diffSec < 3600) return translate('common.minutesAgo', { n: Math.max(1, Math.floor(diffSec / 60)) }, locale);
-  if (diffSec < 86400) return translate('common.hoursAgo', { n: Math.floor(diffSec / 3600) }, locale);
-  return translate('common.daysAgo', { n: Math.floor(diffSec / 86400) }, locale);
+  if (diffSec < 45) return translate("common.justNow", undefined, locale);
+  if (diffSec < 3600)
+    return translate(
+      "common.minutesAgo",
+      { n: Math.max(1, Math.floor(diffSec / 60)) },
+      locale,
+    );
+  if (diffSec < 86400)
+    return translate(
+      "common.hoursAgo",
+      { n: Math.floor(diffSec / 3600) },
+      locale,
+    );
+  return translate(
+    "common.daysAgo",
+    { n: Math.floor(diffSec / 86400) },
+    locale,
+  );
 }
 
 /** 短日期：09-10 / Sep 10 */
@@ -21,7 +35,10 @@ export function shortDate(iso: string, locale: Locale): string {
   const at = new Date(iso);
   // Intl 对 Invalid Date 直接抛 RangeError，会把整页带崩
   if (Number.isNaN(at.getTime())) return INVALID_TIME;
-  return new Intl.DateTimeFormat(LOCALE_TAGS[locale], { month: 'short', day: 'numeric' }).format(at);
+  return new Intl.DateTimeFormat(LOCALE_TAGS[locale], {
+    month: "short",
+    day: "numeric",
+  }).format(at);
 }
 
 /** 短时间：08:31 */
@@ -29,8 +46,8 @@ export function shortTime(iso: string, locale: Locale): string {
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return INVALID_TIME;
   return new Intl.DateTimeFormat(LOCALE_TAGS[locale], {
-    hour: '2-digit',
-    minute: '2-digit',
+    hour: "2-digit",
+    minute: "2-digit",
     hour12: false,
   }).format(at);
 }
@@ -40,12 +57,12 @@ export function fullDateTime(iso: string, locale: Locale): string {
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return INVALID_TIME;
   return new Intl.DateTimeFormat(LOCALE_TAGS[locale], {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
     hour12: false,
   }).format(at);
 }
@@ -59,5 +76,17 @@ export function timeWithDateIfNotToday(iso: string, locale: Locale): string {
     at.getFullYear() === now.getFullYear() &&
     at.getMonth() === now.getMonth() &&
     at.getDate() === now.getDate();
-  return sameDay ? shortTime(iso, locale) : `${shortDate(iso, locale)} ${shortTime(iso, locale)}`;
+  return sameDay
+    ? shortTime(iso, locale)
+    : `${shortDate(iso, locale)} ${shortTime(iso, locale)}`;
+}
+
+/**
+ * 里程数字（单位 km 另外显示）：1000 km 以下保留一位小数，1000 以上整数——
+ * 统计卡每格宽度只容四五个字符，「6547.4」会被截成「65…」（2026-10-07 华为 REGRESSION 3.1）
+ */
+export function formatKm(meters: number): string {
+  const km = meters / 1000;
+  if (!Number.isFinite(km) || km < 0) return "0.0";
+  return km >= 1000 ? Math.round(km).toString() : km.toFixed(1);
 }
