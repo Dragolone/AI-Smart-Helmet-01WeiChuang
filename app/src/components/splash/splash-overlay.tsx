@@ -13,6 +13,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { usePathname } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
+import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
@@ -652,6 +653,27 @@ function SplashPlayer({ onDone }: { onDone: () => void }) {
     },
   );
 
+  // 屏幕顶上还是开屏的深色画面时，系统状态栏（时间、电量、信号）用浅色字。根布局那一份跟着 App 的外观走，
+  // 浅色外观下是深色字，压在这几秒的深色画面上看不清（2026-10-08 华为实测后补的）。这一份后挂载、会盖过它；
+  // 页面在顶上露出来的那一刻撤掉，状态栏就回到根布局那一份
+  const [darkTop, setDarkTop] = useState(true);
+  useAnimatedReaction(
+    () => {
+      const l = land.get();
+      const t = splashStory.get();
+      // 深色画面淡到一半的时候换；从这里喊到状态栏真的换过来还要两三帧，所以喊得早一点
+      if (l === LAND_DEVICE) return t > DEVICE.hand + 20;
+      if (l === LAND_UNBOUND) return t > UNBOUND.start + 20;
+      if (l === LAND_PLAIN) return t > PLAIN_FADE_FROM + 90;
+      // 登录页是从下往上涌出来的：波浪的边快到屏幕顶才算
+      if (l === LAND_LOGIN) return loginReveal(t) > 0.93;
+      return false;
+    },
+    (now, before) => {
+      if (now && !before) scheduleOnRN(setDarkTop, false);
+    },
+  );
+
   // 设备页：表盘到位后，页面上真的那块大图渐渐接手（之前一直由 DeviceLanding 画着替身）
   const markTaken = useSharedValue(0);
   useAnimatedReaction(
@@ -862,6 +884,7 @@ function SplashPlayer({ onDone }: { onDone: () => void }) {
       onLayout={begin}
       onStartShouldSetResponder={blockTouches}
     >
+      {darkTop && <StatusBar style="light" />}
       <Animated.View
         pointerEvents="none"
         style={[styles.fill, styles.solid, backingStyle]}

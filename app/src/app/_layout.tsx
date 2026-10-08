@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
+import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { SplashOverlay } from "@/components/splash/splash-overlay";
@@ -185,6 +186,10 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
+      {/* 系统状态栏（时间 / 电量 / 信号）的深浅跟着 App 的外观走。Android 上不设就一直是白字，
+          浅色外观下压在浅色底上看不见（2026-10-08 华为实测）。放在最前面：之后挂上来的页面
+          （扫码页、倒计时最后 10 秒）自己那份会盖过它，页面关掉再还回来 */}
+      <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
       <QueryClientProvider client={queryClient}>
         <ThemeFade scheme={colorScheme} />
         <ThemeProvider
