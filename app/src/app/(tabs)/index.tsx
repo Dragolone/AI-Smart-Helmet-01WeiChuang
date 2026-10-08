@@ -9,7 +9,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { router, useFocusEffect } from "expo-router";
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   RefreshControl,
   ScrollView,
@@ -33,12 +33,26 @@ import { contactsApi } from "@/api/contacts";
 import { devicesApi } from "@/api/devices";
 import { toUserMessage } from "@/api/error-messages";
 import { BatteryArc } from "@/components/battery-arc";
+import { DeviceGuide } from "@/components/device-guide";
 import { EmptyState } from "@/components/empty-state";
 import { PrimaryButton } from "@/components/form";
 import { IntercomMiniBar } from "@/components/intercom-mini-bar";
 import { Card, IconCircle, type IconName } from "@/components/list";
 import { PulseDot, ValueTransition, listEntering } from "@/components/motion";
 import { Skeleton } from "@/components/skeleton";
+import {
+  BATTERY_TOP,
+  HELMET_BOX,
+  LOW_BATTERY,
+  heroSplashOf,
+} from "@/components/splash/hero-splash";
+import { useSplashHold } from "@/components/splash/bus";
+import { prepareGuideHandover } from "@/components/splash/guide-handover";
+import {
+  SplashAnchor,
+  SplashPageMark,
+} from "@/components/splash/splash-anchor";
+import { SplashArrive } from "@/components/splash/splash-arrive";
 import { SwitchHelmetPrompt } from "@/components/switch-helmet-prompt";
 import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
@@ -71,8 +85,9 @@ import {
   protectionStateOf,
   type HelmetLink,
 } from "@/services/safety-status";
+import { useAuthStore } from "@/stores/auth-store";
+import { useGuideStore } from "@/stores/guide-store";
 
-const LOW_BATTERY = 20;
 /** 标题栏占的高度（含上边距）：算大图光晕能铺多大时要用 */
 const HEADER_HEIGHT = 48;
 
@@ -133,6 +148,16 @@ function Hero({
     : low
       ? theme.warning
       : theme.text;
+  // 冷启动的开屏动画会先在屏幕中间画出这块大图的替身、再送到这里（components/splash/landing-device）。
+  // 替身照这份描述画，规则和下面是同一套（components/splash/hero-splash）：改了颜色 / 位置 / 文案，两边一起改
+  const splash = heroSplashOf({
+    device,
+    link,
+    theme,
+    dark,
+    t,
+    glowRadius,
+  });
 
   return (
     <Tappable
@@ -142,7 +167,11 @@ function Hero({
       onPress={() => router.navigate(`/device/${device.deviceId}`)}
       style={styles.hero}
     >
-      <View style={{ width: size, height: size }}>
+      <SplashAnchor
+        name="hero"
+        data={splash}
+        style={{ width: size, height: size }}
+      >
         {accent && (
           <Animated.View
             pointerEvents="none"
@@ -176,7 +205,7 @@ function Hero({
           size={size}
           value={battery}
           color={accent ?? theme.textSecondary}
-          track={mixHex(theme.background, theme.text, 0.1)}
+          track={splash.track}
           tick={theme.borderStrong}
           dimmed={!pill.linked}
         >
@@ -187,31 +216,19 @@ function Hero({
               styles.abs,
               {
                 // 图占环内 80%、水平居中，整体比环心略高一点（下面要给电量数字让位）
-                left: size * 0.1,
-                top: size * 0.075,
-                width: size * 0.8,
-                height: size * 0.8,
+                left: size * HELMET_BOX.left,
+                top: size * HELMET_BOX.top,
+                width: size * HELMET_BOX.size,
+                height: size * HELMET_BOX.size,
                 opacity: pill.linked ? 1 : 0.45,
               },
             ]}
           />
-          <View style={[styles.battery, { top: size * 0.85 }]}>
+          <View style={[styles.battery, { top: size * BATTERY_TOP }]}>
             <ThemedText
-              style={[
-                styles.batteryLabel,
-                {
-                  color:
-                    pill.linked && low ? theme.warning : theme.textSecondary,
-                },
-              ]}
+              style={[styles.batteryLabel, { color: splash.labelColor }]}
             >
-              {!pill.linked
-                ? t("devices.batteryLast")
-                : device.charging
-                  ? t("devices.charging")
-                  : low
-                    ? t("devices.batteryLow")
-                    : t("devices.battery")}
+              {splash.label}
             </ThemedText>
             <ValueTransition value={battery ?? "—"}>
               <ThemedText style={[styles.batteryValue, { color: valueColor }]}>
@@ -227,9 +244,9 @@ function Hero({
             </ValueTransition>
           </View>
         </BatteryArc>
-      </View>
+      </SplashAnchor>
 
-      <View style={styles.heroName}>
+      <SplashArrive cue="pill" lead={-40} kind="soft" style={styles.heroName}>
         <ThemedText numberOfLines={1} style={styles.heroNameText}>
           {name}
         </ThemedText>
@@ -238,32 +255,36 @@ function Hero({
           size={18}
           color={theme.textSecondary}
         />
-      </View>
+      </SplashArrive>
 
-      <View
-        style={[
-          styles.statusPill,
-          {
-            backgroundColor: pill.linked
-              ? theme.successBg
-              : theme.backgroundSelected,
-          },
-        ]}
-      >
-        <PulseDot
-          size={6}
-          active={pill.searching}
-          color={pill.linked ? theme.success : theme.textSecondary}
-        />
-        <ThemedText
+      <SplashAnchor name="heroPill">
+        <SplashArrive
+          cue="pill"
+          kind="pop"
           style={[
-            styles.statusText,
-            { color: pill.linked ? theme.success : theme.textSecondary },
+            styles.statusPill,
+            {
+              backgroundColor: pill.linked
+                ? theme.successBg
+                : theme.backgroundSelected,
+            },
           ]}
         >
-          {status}
-        </ThemedText>
-      </View>
+          <PulseDot
+            size={6}
+            active={pill.searching}
+            color={pill.linked ? theme.success : theme.textSecondary}
+          />
+          <ThemedText
+            style={[
+              styles.statusText,
+              { color: pill.linked ? theme.success : theme.textSecondary },
+            ]}
+          >
+            {status}
+          </ThemedText>
+        </SplashArrive>
+      </SplashAnchor>
     </Tappable>
   );
 }
@@ -602,12 +623,30 @@ export default function DevicesScreen() {
     HEADER_HEIGHT + spaceAbove + ringSize / 2,
   );
 
-  // 「设为当前」的选择还没从存储读出来时先不画大图：否则会先显示一台再跳到另一台
+  // 账号下一台头盔都没有（列表拿到了才算，加载中 / 失败不算）：这一页是三步指引，而不是空白。
+  // 头盔绑上之后指引接着做后两件，三件都处理完才变成下面的设备页（见 components/device-guide）
+  const userId = useAuthStore((s) => s.user?.id ?? null);
+  const guideRunning = useGuideStore((s) => s.active && s.userId === userId);
+  const beginGuide = useGuideStore((s) => s.begin);
+  const finishGuide = useGuideStore((s) => s.finish);
+  const noHelmet = devices.data !== undefined && list.length === 0;
+  useEffect(() => {
+    if (userId && noHelmet) beginGuide(userId);
+  }, [userId, noHelmet, beginGuide]);
+  const guideOn = guideRunning || noHelmet;
+
+  // 「设为当前」的选择还没从存储读出来时先不画大图：否则会先显示一台再跳到另一台。
+  // 冷启动的开屏动画还在播路线那一段时也先画骨架，等它放行再搭（见 useSplashHold）
+  const splashHold = useSplashHold();
   const loading =
-    devices.isLoading || viewport === 0 || (list.length > 0 && !choice.ready);
+    devices.isLoading ||
+    viewport === 0 ||
+    (list.length > 0 && !choice.ready) ||
+    splashHold;
 
   return (
     <ThemedView style={styles.flex}>
+      <SplashPageMark />
       <SafeAreaView style={styles.flex}>
         <ScrollView
           contentContainerStyle={styles.container}
@@ -623,24 +662,28 @@ export default function DevicesScreen() {
           }
         >
           <View style={styles.header}>
-            <ThemedText type="title" style={styles.pageTitle}>
-              {t("devices.title")}
-            </ThemedText>
-            <Tappable
-              feedback="opacity"
-              accessibilityRole="button"
-              accessibilityLabel={t("devices.bindNew")}
-              onPress={() => router.navigate("/bind-device")}
-              style={[
-                styles.addButton,
-                {
-                  borderColor: theme.borderStrong,
-                  backgroundColor: theme.backgroundElement,
-                },
-              ]}
-            >
-              <Ionicons name="add" size={24} color={theme.text} />
-            </Tappable>
+            <SplashArrive cue="header" from={-14}>
+              <ThemedText type="title" style={styles.pageTitle}>
+                {t("devices.title")}
+              </ThemedText>
+            </SplashArrive>
+            <SplashArrive cue="header" order={1} from={-14}>
+              <Tappable
+                feedback="opacity"
+                accessibilityRole="button"
+                accessibilityLabel={t("devices.bindNew")}
+                onPress={() => router.navigate("/bind-device")}
+                style={[
+                  styles.addButton,
+                  {
+                    borderColor: theme.borderStrong,
+                    backgroundColor: theme.backgroundElement,
+                  },
+                ]}
+              >
+                <Ionicons name="add" size={24} color={theme.text} />
+              </Tappable>
+            </SplashArrive>
           </View>
 
           {devices.isError && (
@@ -667,6 +710,17 @@ export default function DevicesScreen() {
               </View>
               <View style={styles.spaceBelow} />
             </View>
+          ) : guideOn ? (
+            <DeviceGuide
+              helmet={hero}
+              link={hero ? links[hero.deviceId] : undefined}
+              notify={notify}
+              contacts={contactCount}
+              onFinished={(from) => {
+                if (from) prepareGuideHandover(from);
+                finishGuide(from);
+              }}
+            />
           ) : hero ? (
             <View style={styles.body}>
               <View
@@ -687,15 +741,19 @@ export default function DevicesScreen() {
               </Animated.View>
               {/* 两格摘要紧跟在连接状态下面（负责人 2026-10-08：原先贴在页面底部，和大图之间空了一大截） */}
               <View style={styles.tiles}>
-                <SafetyTile
-                  link={links[hero.deviceId]}
-                  notify={notify}
-                  contacts={contactCount}
-                />
-                <RideTile deviceId={hero.deviceId} />
+                <SplashArrive order={2.5} style={styles.flex}>
+                  <SafetyTile
+                    link={links[hero.deviceId]}
+                    notify={notify}
+                    contacts={contactCount}
+                  />
+                </SplashArrive>
+                <SplashArrive order={3.5} style={styles.flex}>
+                  <RideTile deviceId={hero.deviceId} />
+                </SplashArrive>
               </View>
               {others.length > 0 && (
-                <View style={styles.others}>
+                <SplashArrive order={4.5} style={styles.others}>
                   <ThemedText
                     themeColor="textSecondary"
                     style={styles.othersTitle}
@@ -719,7 +777,7 @@ export default function DevicesScreen() {
                       </Animated.View>
                     ))}
                   </Card>
-                </View>
+                </SplashArrive>
               )}
               <View style={styles.spaceBelow} />
             </View>
@@ -736,7 +794,7 @@ export default function DevicesScreen() {
         <IntercomMiniBar style={styles.miniBar} />
 
         {/* 一台都没有时，绑定是这一页的主操作：除了右上角的「+」，底部再放一个品牌色按钮 */}
-        {list.length === 0 && (
+        {list.length === 0 && !guideOn && (
           <View style={styles.bottomCta}>
             <PrimaryButton
               title={t("devices.bindNew")}

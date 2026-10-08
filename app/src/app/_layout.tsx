@@ -4,7 +4,8 @@ import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
-import { AnimatedSplashOverlay } from "@/components/animated-icon";
+import { SplashOverlay } from "@/components/splash/splash-overlay";
+import { GuideHandover } from "@/components/splash/guide-handover";
 import { ToastHost } from "@/components/toast";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useRealtimeUpdates } from "@/hooks/use-realtime";
@@ -189,7 +190,9 @@ export default function RootLayout() {
         <ThemeProvider
           value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
         >
-          <AnimatedSplashOverlay />
+          <SplashOverlay />
+          {/* 设备页三步指引做完、变成设备页时的那一段衔接（平时不渲染任何东西） */}
+          <GuideHandover />
           {/* SecureStore 恢复完成前不挂路由，避免登录态闪变；空白由 SplashOverlay 兜住 */}
           {/* 语言恢复完再起：通知通道名、前台服务文案都要翻译 */}
           {hydrated && localeHydrated && themeHydrated && <RealtimeBridge />}

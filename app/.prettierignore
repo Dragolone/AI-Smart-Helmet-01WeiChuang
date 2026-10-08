@@ -1,0 +1,2 @@
+# 生成的数据文件（scripts/gen-splash-route.py 写出来的），一行一个长数组：格式化会把它撑成一千多行
+src/components/splash/route-data.ts
