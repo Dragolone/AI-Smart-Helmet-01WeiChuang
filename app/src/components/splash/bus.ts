@@ -119,31 +119,12 @@ export function useSplashHold(): boolean {
   return hold;
 }
 
-/** 开屏这一次落在哪种页面（JS 线程上用）；null = 没有开屏在播，或者还没定 */
-export type SplashLandingKind = "login" | "device" | "unbound" | "plain";
-let landingKind: SplashLandingKind | null = null;
-const landingListeners = new Set<() => void>();
-export function setSplashLanding(kind: SplashLandingKind | null): void {
-  if (landingKind === kind) return;
-  landingKind = kind;
-  for (const l of landingListeners) l();
-}
-function subscribeLanding(listener: () => void): () => void {
-  landingListeners.add(listener);
-  return () => landingListeners.delete(listener);
-}
-/** 页面用：开屏正落在哪种页面上（只在落位期间有值）。有些只为落位准备的东西按它决定搭不搭 */
-export function useSplashLanding(): SplashLandingKind | null {
-  return useSyncExternalStore(subscribeLanding, () => landingKind);
-}
-
 /**
  * 收场的第一步：页面上的东西全部放回「不参与」（该显示的显示出来、不再跟着故事时间动）。
  * 故事时间本身先不动：遮罩这时还在（要晚两帧才卸），把时间拨回去它会回到开头那一片底色的样子，
  * 整屏闪一下黑（2026-10-08 逐帧检查时见到）。时间由 endSplashStory 在遮罩卸掉之后归位。
  */
 export function releaseSplashPage(): void {
-  setSplashLanding(null);
   splashOn.set(0);
   arriveFrom.set(-1);
   headerFrom.set(-1);

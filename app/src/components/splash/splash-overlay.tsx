@@ -44,7 +44,6 @@ import {
   arriveFrom,
   guideFrom,
   headerFrom,
-  setSplashLanding,
   endSplashStory,
   releaseSplashHold,
   releaseSplashPage,
@@ -327,7 +326,6 @@ function SplashPlayer({ onDone }: { onDone: () => void }) {
       guideFrom.set(UNBOUND.start);
       headerFrom.set(UNBOUND.start + UNBOUND.header);
     }
-    setSplashLanding(landing);
     total.set(STORY_TOTAL[landing]);
     land.set(LAND_CODE[landing]);
   }, [landing, land, total]);
