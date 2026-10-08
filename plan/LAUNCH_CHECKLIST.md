@@ -65,13 +65,14 @@
 | ☐ 5 | 第一个 TestFlight 包（Archive → Distribute → TestFlight），传上去后告诉负责人加张森淼进内部测试组 | 10-12 | 发 TestFlight 包要告诉 B 线把服务端 `JPUSH_APNS_PRODUCTION` 设为 true，否则 iPhone 收不到远程推送。**打包前先 `expo prebuild` 重建 iOS 工程**：10-06 给极光插件补了自定义消息的处理（评审 R-18），不重建的包收到极光自定义消息会直接崩 |
 | ☑ 6 | **App 内加两份清单的入口**（✅ 2026-10-04）：「我的」里能打开「个人信息收集清单」和「第三方信息共享清单」 | 10-16 | 华为、小米隐私检测常查。网页已有（`/legal/collection`、`/legal/sharing`），`constants/legal.ts` 的 `LegalDoc` 与 `legal/[doc].tsx` 目前只认 privacy / terms，扩两种即可 |
 | ☑ 7 | `app.json` 的 `ios.infoPlist` 加 `ITSAppUsesNonExemptEncryption: false`（✅ 2026-10-04，下次原生重建生效） | 10-16 | 只用系统 HTTPS，属出口合规豁免；不加的话每次上传都要手动回答 |
-| ☐ 8 | 其余回归空行：对讲 6.1–6.3（双真机）、5.6 设置回读（dev-api 09-23 更新过，应已含 #45 的 `settings/reported` 接口；先确认它不再返回 404，仍是 404 就找 B 线更新服务器）、3.3 多设备切换（找 B 线要第二台云端设备） | 10-16 | — |
+| ☐ 8 | 其余回归空行：对讲 6.1–6.3（双真机）、5.6 设置回读（dev-api 09-23 更新过，应已含 #45 的 `settings/reported` 接口；先确认它不再返回 404，仍是 404 就找 B 线更新服务器）、多台头盔的几行（10-07 改版后地图那一行是 3.12，另有 2.8、5.5 里带「多台」的行；第二台云端设备见 B 线第 9 项） | 10-16 | — |
 | ☐ 9 | iOS 被系统回收后能否靠 BLE 状态恢复拉起（`restoreStateIdentifier` 从没触发过），内存压力测一次，结论记 DEVELOPMENT.md 平台限制清单 | 10-16 | — |
 | ☐ 10 | 回归里测出来的 bug 清零（与 B 线） | 10-21 | — |
 | ☐ 11 | **华为、小米厂商推送原生接入**：厂商依赖接进 `app/plugins/with-jpush.js`，prebuild 重建，真机测 App 被杀状态（**华为 2026-10-08 B 线已接进插件并本机打包通过，待 A 线 prebuild 后华为真机验被杀状态；小米等账号审核**） | 10-21 | 等负责人第 6 项的厂商账号；新原生依赖按规矩 PR 写清楚 |
 | ☐ 12 | **正式包改指正式环境**：Release / TestFlight 包 `EXPO_PUBLIC_API_URL=https://api.01weichuang.com/api/v1` | 切换日后，10-23 | App 内协议链接随之自动切换（决策 #47） |
 | ☐ 13 | 商店截图（与负责人），规格和顺序见 `docs/STORE_LISTING.md` §3 | 10-23 | 用演示账号 + 正式环境 Mock 数据截，SOS 页用「演练模式」 |
 | ☐ 14 | Critical Alerts 代码接入 | 负责人第 17 项批下来后 | 不卡上线 |
+| ☐ 15 | **10-07 改版的四组页面双端真机验收**：设备页（REGRESSION 2.8）、地图（第 3 节）、安全页 / 安全记录 / 更换头盔提醒（5.5）、对讲（第 6 节，要两台手机两个账号）。代码在分支 `feat/home-redesign`，只改了界面代码、没动原生部分，手机上现有的开发包不用重装 | 10-14 | 地图 3.4–3.10 等 B 线第 8 项更新云端；多台头盔的行等 B 线第 9 项。**不想等可以先用本地环境验**：Mac 上起这个分支的后端和两顶 Mock 头盔，手机的 API 地址指到 `http://<Mac 局域网 IP>:3000/api/v1`（REGRESSION.md 开头写的「本地」环境），用本地的双头盔账号，四组当天就能过一遍；云端更新后再在云端补一遍地图那几行 |
 
 ## 四、B 线
 
@@ -85,7 +86,7 @@
 | ☐ 6 | 发 TestFlight / App Store 包时服务端设 `JPUSH_APNS_PRODUCTION=true` | 随 A 线第 5 项 | — |
 | ☐ 7 | 旧包都换掉后下线 `dev-` 域名 | 上线后 | DEPLOYMENT §8.1 第 11 步 |
 | ☑ 8 | **审地图「行程」的两个新接口（本 PR，分支 `feat/rides-api`），合并后更新 dev-api**（✅ 2026-10-08 B 线 Review 通过并合并，dev-api 已更新）（2026-10-07 负责人：后端这部分交 B 线）。A 线已写好实现和测试，要你做三件事：① Review——`GET /devices/{id}/rides?from=&to=`（行程列表）和 `GET /devices/{id}/locations/track?from=&to=&maxPoints=`（抽稀轨迹）；代码在 `backend/src/locations/`（`ride-split.ts` 是切分规则，`locations.service.ts` 的 `rides()` / `track()`，`RidesController`），类型在 `packages/shared`（`RideSummary` / `RidesResponse` / `TrackResponse`），契约是 `docs/API.md` §5 新增的两行；只读、**没有 migration**，归属校验和绑定区间过滤沿用现有轨迹接口那一套；测试 `ride-split.spec.ts` + `test/rides.e2e-spec.ts`。② 定一条 A 线自己加的规则要不要留：连续不停骑满 24 小时的行程在 `from + n×24h` 处切开（真头盔电量撑不到，是为常驻 Mock 加的——不切的话它是「一趟骑了好几天」，起点早在查询范围之外，当天的列表里反而没有它）。③ 合并后更新云端，用测试账号对 `helmet_94173f` 各调一次两个接口：`rides` 返回按天切开的行程、最上面一条 `ongoing: true`；`track` 返回的 `points` 不超过 1000 个且 `summary.pointCount` 等于 `total` | 10-10（估） | App 这边的地图改版（分支 `feat/home-redesign`，随后提 PR）要用这两个接口：云端没更新之前，App 的行程列表显示「行程没加载出来」，地图的真机验收做不了 |
-| ☐ 9 | **给云端测试账号 `19900001234` 再开一台设备**：服务器上 `provision:device` 开一台，把 deviceId 和绑定码发 A 线；不用给它挂常驻 Mock（A 线测的时候经 app-relay 喂数据） | 10-10（估） | 10-07 改版后要两顶头盔才能测的地方变多了：设备页「其他设备 / 设为当前」、安全页「求救关联」和更换头盔提醒、安全记录按头盔筛、地图「换一台看」（对应的回归行随 App 的 PR 一起进 REGRESSION.md）。就是 A 线第 8 项里一直卡着的「第二台云端设备」 |
+| ☐ 9 | **给云端测试账号 `19900001234` 再开一台设备**：服务器上 `provision:device` 开一台，把 deviceId 和绑定码发 A 线；不用给它挂常驻 Mock（A 线测的时候经 app-relay 喂数据） | 10-10（估） | 10-07 改版后要两顶头盔才能测的地方变多了：设备页「其他设备 / 设为当前」、安全页「求救关联」和更换头盔提醒、安全记录按头盔筛、地图「换一台看」（REGRESSION 2.8、3.12、5.5）。就是 A 线第 8 项里一直卡着的「第二台云端设备」 |
 
 ## 五、硬件（先不追，留档）
 

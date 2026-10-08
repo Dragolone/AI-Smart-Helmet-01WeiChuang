@@ -2,7 +2,7 @@
 // 药丸主按钮（品牌荧光色 + 深色文字）、描边次按钮、深色描边输入框（可带前置图标）、危险操作红药丸
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   Pressable,
   StyleSheet,
@@ -127,6 +127,8 @@ type ButtonProps = {
   loading?: boolean;
   disabled?: boolean;
   icon?: keyof typeof Ionicons.glyphMap;
+  /** 图标不在 Ionicons 里时自己画（给了它就不看 icon）；尺寸和颜色由按钮决定 */
+  renderIcon?: (props: { size: number; color: string }) => ReactNode;
   style?: StyleProp<ViewStyle>;
   /** 紧凑档：46px 高、15px 字，用于卡片内并排的两个动作 */
   compact?: boolean;
@@ -140,6 +142,7 @@ export function PrimaryButton({
   disabled = false,
   danger = false,
   icon,
+  renderIcon,
   style,
   compact = false,
 }: ButtonProps & { danger?: boolean }) {
@@ -175,7 +178,11 @@ export function PrimaryButton({
         <DotsLoader color={fg} />
       ) : (
         <>
-          {icon && <Ionicons name={icon} size={compact ? 17 : 18} color={fg} />}
+          {renderIcon
+            ? renderIcon({ size: compact ? 17 : 18, color: fg })
+            : icon && (
+                <Ionicons name={icon} size={compact ? 17 : 18} color={fg} />
+              )}
           <ThemedText
             type="smallBold"
             style={{ color: fg, fontSize: compact ? 15 : 16 }}
@@ -215,6 +222,7 @@ export function SecondaryButton({
   loading = false,
   disabled = false,
   icon,
+  renderIcon,
   style,
   compact = false,
 }: ButtonProps) {
@@ -241,9 +249,15 @@ export function SecondaryButton({
         <DotsLoader color={theme.text} />
       ) : (
         <>
-          {icon && (
-            <Ionicons name={icon} size={compact ? 17 : 18} color={theme.text} />
-          )}
+          {renderIcon
+            ? renderIcon({ size: compact ? 17 : 18, color: theme.text })
+            : icon && (
+                <Ionicons
+                  name={icon}
+                  size={compact ? 17 : 18}
+                  color={theme.text}
+                />
+              )}
           <ThemedText
             type="smallBold"
             style={{ color: theme.text, fontSize: compact ? 15 : 16 }}

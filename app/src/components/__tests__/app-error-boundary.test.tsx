@@ -58,7 +58,8 @@ describe("AppErrorBoundary", () => {
             .Text,
         )
         .map((n) => String(n.props.children));
-    expect(texts()).toContain("Something went wrong");
+    // 标题文案 2026-10-08 文案审校时改过（app.crashTitle）
+    expect(texts()).toContain("Unable to display this page");
     shouldThrow = false;
     act(() => {
       tree.root

@@ -3,7 +3,12 @@
 // 这里只描述连接与配置，不描述道路环境——App 无从知道周围是否安全。
 import type { DevicePublic } from "@helmet/shared";
 
+import type { MessageKey } from "@/i18n";
 import type { BleAdapterState, BleLinkPhase } from "@/stores/ble-store";
+
+/** 头盔显示的名字：用户起过名就用它，否则是设备号 */
+export const helmetNameOf = (d: Pick<DevicePublic, "name" | "deviceId">) =>
+  d.name ?? d.deviceId;
 
 /** 这顶头盔与手机 / 云端的连接结论 */
 export type HelmetLink =
@@ -47,6 +52,10 @@ export function helmetLinkOf(
     return "searching";
   return "offline";
 }
+
+/** 连接结论对应的一句话（安全页状态卡的标题） */
+export const linkLabelKey = (link: HelmetLink): MessageKey =>
+  `safety.link.${link}`;
 
 export function linkLevelOf(link: HelmetLink): LinkLevel {
   if (link === "connected" || link === "online") return "ok";
@@ -120,12 +129,32 @@ export function protectionStateOf(input: {
 }
 
 /**
- * App 内 SOS 按钮把求救记在哪顶头盔名下：第一台在线的，都离线则第一台。
- * 这是 2026-09-10 起的既有规则，原样搬到这里；它**不随「正在查看的头盔」变化**——
- * 跟着查看走的话，翻看一顶放在家里的头盔时按下求救，求救单和位置快照会记到那顶头上。
+ * 「当前头盔」：设备页的大图、安全页默认查看的那顶、App 内求救记在谁名下，都是它。
+ * - 只有一台在线：就是它，不看用户选过谁（选的那顶没开机时，不能把求救记到它头上）；
+ * - 同时在线多台：用户在设备页「设为当前」的那台，没选过或那台不在线就取第一台在线的；
+ * - 都不在线：用户选过的那台，否则第一台。
+ * @param chosenId 设备页「设为当前」存下的选择（stores/current-helmet-store）；null = 没选过。
+ *   选过的头盔已解绑时不在列表里，自然落回默认规则。
+ */
+export function currentHelmetOf(
+  devices: readonly DevicePublic[],
+  chosenId: string | null,
+): DevicePublic | undefined {
+  const online = devices.filter((d) => d.online);
+  if (online.length > 0)
+    return online.find((d) => d.deviceId === chosenId) ?? online[0];
+  return devices.find((d) => d.deviceId === chosenId) ?? devices[0];
+}
+
+/**
+ * App 内 SOS 按钮把求救记在哪顶头盔名下：当前头盔（currentHelmetOf）。
+ * 2026-10-07 负责人定：在线多台时跟着设备页的「设为当前」走；此前（2026-09-10 起）固定取第一台在线的。
+ * 它仍然**不随安全页「正在查看的头盔」变化**——跟着查看走的话，翻看一顶放在家里的头盔时按下求救，
+ * 求救单和位置快照会记到那顶头上。
  */
 export function sosTargetOf(
   devices: readonly DevicePublic[],
+  chosenId: string | null,
 ): DevicePublic | undefined {
-  return devices.find((d) => d.online) ?? devices[0];
+  return currentHelmetOf(devices, chosenId);
 }

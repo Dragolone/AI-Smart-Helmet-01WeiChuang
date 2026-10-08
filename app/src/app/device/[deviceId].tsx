@@ -5,17 +5,13 @@
 //   设备在线与最近上报；异常就写在对应那一行，卡片外面不再另放提示条，同一件事不说第二遍。
 //   首次连接引导不再是常驻卡片，改成第一次进来时弹一次的底部面板（BleFirstConnectGuide）。
 //   蓝牙连接和设备在线是两件事，各占一行，不合并成一个「已连接」。
-// - 重命名、解除绑定收进右上角「更多」；解绑的确认流程没有变。
+// - 重命名：名字旁边的铅笔图标；解除绑定：页面最底部（负责人 2026-10-08 定，10-06 那版收在右上角「更多」里）。
+//   解绑的确认流程没有变。
 // - 其余设置分到 /device-safety、/device-alerts，设备信息与绑定码在 /device-about；
 //   各页用同一个 deviceId、同一份设置缓存（hooks/use-device-settings），进出页面不丢等待中的命令。
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  router,
-  Stack,
-  useLocalSearchParams,
-  useNavigation,
-} from "expo-router";
+import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -28,6 +24,7 @@ import {
   View,
 } from "react-native";
 import ReAnimated, { FadeInDown } from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { devicesApi } from "@/api/devices";
 import { showToast } from "@/components/toast";
@@ -165,11 +162,11 @@ function StatusRow({
 export default function DeviceDetailScreen() {
   const { deviceId } = useLocalSearchParams<{ deviceId: string }>();
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const t = useT();
   const locale = useLocale();
   const queryClient = useQueryClient();
   const [unbinding, setUnbinding] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
 
   const status = useQuery({
     queryKey: ["device-status", deviceId],
@@ -364,7 +361,7 @@ export default function DeviceDetailScreen() {
               void queryClient.invalidateQueries({ queryKey: ["devices"] });
               showToast(t("device.unbindDone"));
               router.back();
-              // unbinding 不复位：页面正在关闭，「更多」保持不可点
+              // unbinding 不复位：页面正在关闭，「解除绑定」保持不可点
             })
             .catch((e) => {
               setUnbinding(false);
@@ -409,40 +406,35 @@ export default function DeviceDetailScreen() {
 
   return (
     <ThemedView style={styles.flex}>
-      {/* 导航栏右上角「更多」：重命名、解除绑定。解绑请求在路上时换成转圈，不能再点 */}
-      <Stack.Screen
-        options={{
-          headerRight: () =>
-            unbinding ? (
-              <View style={styles.headerBtn}>
-                <ActivityIndicator color={theme.textSecondary} />
-              </View>
-            ) : (
-              <Tappable
-                feedback="opacity"
-                accessibilityRole="button"
-                accessibilityLabel={t("device.more")}
-                onPress={() => setMoreOpen((v) => !v)}
-                style={styles.headerBtn}
-              >
-                <Ionicons
-                  name="ellipsis-horizontal"
-                  size={22}
-                  color={theme.text}
-                />
-              </Tappable>
-            ),
-        }}
-      />
       {/* 内容会超出一屏,必须可滚动(Android 实证:小屏下半截不可见且无法下滑) */}
       <ScrollView
-        contentContainerStyle={styles.container}
+        // 最底下是「解除绑定」：让出 iPhone 底部横条，别让按钮贴着它
+        contentContainerStyle={[
+          styles.container,
+          { paddingBottom: 28 + insets.bottom },
+        ]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.identity}>
-          <ThemedText type="title" style={styles.title}>
-            {detail.data?.name ?? deviceId}
-          </ThemedText>
+          <View style={styles.titleRow}>
+            <ThemedText type="title" style={styles.title}>
+              {detail.data?.name ?? deviceId}
+            </ThemedText>
+            <Tappable
+              feedback="opacity"
+              accessibilityRole="button"
+              accessibilityLabel={t("device.renameTitle")}
+              hitSlop={8}
+              disabled={unbinding}
+              onPress={openRename}
+              style={[
+                styles.renameBtn,
+                { backgroundColor: theme.backgroundSelected },
+              ]}
+            >
+              <Ionicons name="pencil" size={16} color={theme.textSecondary} />
+            </Tappable>
+          </View>
           {detail.data?.name && (
             <ThemedText type="code" themeColor="textSecondary">
               {deviceId}
@@ -598,84 +590,44 @@ export default function DeviceDetailScreen() {
             icon="shield-checkmark-outline"
             title={t("device.cat.safety")}
             subtitle={safetySummary}
-            onPress={() => router.push(`/device-safety/${deviceId}`)}
+            onPress={() => router.navigate(`/device-safety/${deviceId}`)}
           />
           <ListRow
             icon="notifications-outline"
             title={t("device.cat.alerts")}
             subtitle={alertsSummary}
-            onPress={() => router.push(`/device-alerts/${deviceId}`)}
+            onPress={() => router.navigate(`/device-alerts/${deviceId}`)}
           />
           <ListRow
             icon="information-circle-outline"
             title={t("device.cat.about")}
             subtitle={t("device.cat.aboutSummary")}
-            onPress={() => router.push(`/device-about/${deviceId}`)}
+            onPress={() => router.navigate(`/device-about/${deviceId}`)}
             last
           />
         </Card>
-      </ScrollView>
 
-      {/* 「更多」菜单：贴在导航栏下方右侧的小浮层，不用 Modal——选完紧接着要弹解绑确认框或重命名弹层，
-          Modal 还没收完就再弹一个，iOS 上后一个会弹不出来 */}
-      {moreOpen && !unbinding && (
-        <View style={StyleSheet.absoluteFill}>
-          <Pressable
-            style={StyleSheet.absoluteFill}
+        {/* 解除绑定放在最底部（与「我的」页底部的退出登录同一种放法）；请求在路上时换成转圈，不能再点 */}
+        {unbinding ? (
+          <View style={styles.unbind}>
+            <ActivityIndicator color={theme.textSecondary} />
+          </View>
+        ) : (
+          <Tappable
+            feedback="opacity"
             accessibilityRole="button"
-            accessibilityLabel={t("common.close")}
-            onPress={() => setMoreOpen(false)}
-          />
-          <ReAnimated.View
-            entering={FadeInDown.duration(160)}
-            style={[
-              styles.menu,
-              {
-                backgroundColor: theme.backgroundElement,
-                borderColor: theme.borderStrong,
-              },
-            ]}
+            onPress={unbind}
+            style={styles.unbind}
           >
-            <Tappable
-              feedback="fill"
-              accessibilityRole="button"
-              onPress={() => {
-                setMoreOpen(false);
-                openRename();
-              }}
-              style={[
-                styles.menuRow,
-                {
-                  borderBottomWidth: StyleSheet.hairlineWidth,
-                  borderBottomColor: theme.border,
-                },
-              ]}
+            <ThemedText
+              type="small"
+              style={[styles.unbindText, { color: theme.danger }]}
             >
-              <Ionicons name="pencil-outline" size={18} color={theme.text} />
-              <ThemedText type="small" style={styles.menuText}>
-                {t("device.renameTitle")}
-              </ThemedText>
-            </Tappable>
-            <Tappable
-              feedback="fill"
-              accessibilityRole="button"
-              onPress={() => {
-                setMoreOpen(false);
-                unbind();
-              }}
-              style={styles.menuRow}
-            >
-              <Ionicons name="unlink-outline" size={18} color={theme.danger} />
-              <ThemedText
-                type="small"
-                style={[styles.menuText, { color: theme.danger }]}
-              >
-                {t("device.unbind")}
-              </ThemedText>
-            </Tappable>
-          </ReAnimated.View>
-        </View>
-      )}
+              {t("device.unbind")}
+            </ThemedText>
+          </Tappable>
+        )}
+      </ScrollView>
 
       {/* 首次连接引导：第一次进来、三步还没做完时弹一次；之后的状态由上面状态卡里的行负责 */}
       <BleFirstConnectGuide />
@@ -727,14 +679,24 @@ export default function DeviceDetailScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: { padding: 20, gap: 12, paddingBottom: 28 },
-  headerBtn: {
-    width: 44,
-    height: 44,
+  identity: { gap: 4, marginBottom: 4 },
+  titleRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  title: { fontSize: 28, lineHeight: 36, flexShrink: 1 },
+  renameBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
   },
-  identity: { gap: 4, marginBottom: 4 },
-  title: { fontSize: 28, lineHeight: 36 },
+  unbind: {
+    alignSelf: "center",
+    minHeight: 44,
+    justifyContent: "center",
+    paddingHorizontal: 16,
+    marginTop: 8,
+  },
+  unbindText: { fontSize: 15 },
   statusCard: { padding: 16, gap: 12 },
   skeletonHead: { flexDirection: "row", alignItems: "center", gap: 12 },
   inlineNote: { flexDirection: "row", alignItems: "center", gap: 6 },
@@ -765,28 +727,6 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     gap: 8,
   },
-  menu: {
-    position: "absolute",
-    top: 6,
-    right: 12,
-    minWidth: 180,
-    borderRadius: Radius.control,
-    borderWidth: 1,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 8,
-  },
-  menuRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    minHeight: 50,
-    paddingHorizontal: 16,
-  },
-  menuText: { fontSize: 15 },
   modalMask: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.55)",

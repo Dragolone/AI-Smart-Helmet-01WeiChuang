@@ -1,0 +1,54 @@
+// 求救倒计时页结束之后「通知发出去没有」的几个推导（纯函数）。
+// 数据是事故详情里的通知记录（API.md §7）：每位联系人一条短信，另有一条发给本人的推送。
+// 这里只看短信那几条——页面上列的是「谁收到了」，本人的推送不算。
+import type { SosNotificationPublic } from "@helmet/shared";
+
+type Row = Pick<SosNotificationPublic, "channel" | "status">;
+
+/** 发给紧急联系人的那几条（短信） */
+export function smsRows<T extends Row>(
+  notifications: readonly T[] | undefined,
+): T[] {
+  return (notifications ?? []).filter((n) => n.channel === "sms");
+}
+
+/**
+ * 页面标题写哪一句：
+ * - unknown：记录还没拿到（加载中或失败），不下结论；
+ * - none：一条短信都没有 = 没有紧急联系人；
+ * - sent：至少一位已经发出去了；
+ * - sending：还没有发出去的，但有在发的；
+ * - failed：全都没发出去。
+ */
+export type DeliveryState = "unknown" | "none" | "sent" | "sending" | "failed";
+
+export function deliveryStateOf(
+  notifications: readonly Row[] | undefined,
+): DeliveryState {
+  if (notifications === undefined) return "unknown";
+  const sms = smsRows(notifications);
+  if (sms.length === 0) return "none";
+  if (sms.some((n) => n.status === "sent")) return "sent";
+  if (sms.some((n) => n.status === "pending")) return "sending";
+  return "failed";
+}
+
+/**
+ * 多久再看一次记录：没拿到、还有在发的 → 3 秒；有失败的（服务端会按退避重发）→ 10 秒；
+ * 都发出去了、或本来就没有联系人 → 不再看。
+ */
+export function deliveryPollInterval(
+  notifications: readonly Row[] | undefined,
+): number | false {
+  if (notifications === undefined) return 3_000;
+  const sms = smsRows(notifications);
+  if (sms.some((n) => n.status === "pending")) return 3_000;
+  if (sms.some((n) => n.status === "failed")) return 10_000;
+  return false;
+}
+
+/** 头像圆里写的那一个字：名字的第一个字符（按码点取，不会把表情切成半个） */
+export function initialOf(name: string | null | undefined): string {
+  const first = Array.from((name ?? "").trim())[0];
+  return first ? first.toUpperCase() : "?";
+}

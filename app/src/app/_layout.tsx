@@ -57,21 +57,10 @@ function RootNavigator() {
       <Stack.Protected guard={authed}>
         {/* 标签页自身不显示 header，但它的 title 会成为下级页面返回键的文字（默认会露出路由组名 "(tabs)"） */}
         <Stack.Screen name="(tabs)" options={{ title: t("nav.back") }} />
+        {/* 绑定头盔：一进来就是取景框，页头自己画在相机画面上（扫码页已并进这一页） */}
         <Stack.Screen
           name="bind-device"
-          options={{
-            presentation: "modal",
-            headerShown: true,
-            title: t("nav.bindDevice"),
-          }}
-        />
-        <Stack.Screen
-          name="scan-bind"
-          options={{
-            presentation: "fullScreenModal",
-            headerShown: true,
-            title: t("scan.title"),
-          }}
+          options={{ presentation: "fullScreenModal" }}
         />
         <Stack.Screen
           name="device/[deviceId]"

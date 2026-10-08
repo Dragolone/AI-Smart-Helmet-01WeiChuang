@@ -1,8 +1,12 @@
 // 安全首页状态卡的推导：守住「确认不了的不算正常」与 SOS 关联规则不被顺手改掉。
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "@jest/globals";
 import type { DevicePublic } from "@helmet/shared";
 
 import {
+  currentHelmetOf,
   helmetLinkOf,
   isLinkFault,
   linkCheckLevelOf,
@@ -10,7 +14,6 @@ import {
   protectionStateOf,
   sosTargetOf,
 } from "../safety-status";
-import { viewedHelmetOf } from "../../stores/helmet-view-store";
 
 const dev = (deviceId: string, online: boolean): DevicePublic => ({
   deviceId,
@@ -185,25 +188,57 @@ describe("protectionStateOf", () => {
   });
 });
 
-describe("查看哪顶头盔 与 求救记在哪顶头盔名下 是两件事", () => {
+describe("当前头盔：设备页大图、安全页、App 内求救记在谁名下，是同一顶", () => {
   const a = dev("helmet_a", false);
   const b = dev("helmet_b", true);
+  const c = dev("helmet_c", true);
 
-  it("查看：用户选过的优先；没选过或那顶已解绑时，第一台在线的，否则第一台", () => {
-    expect(viewedHelmetOf([a, b], "helmet_a")?.deviceId).toBe("helmet_a");
-    expect(viewedHelmetOf([a, b], null)?.deviceId).toBe("helmet_b");
-    expect(viewedHelmetOf([a, b], "helmet_gone")?.deviceId).toBe("helmet_b");
-    expect(viewedHelmetOf([a, dev("helmet_c", false)], null)?.deviceId).toBe(
+  it("求救：没在设备页选过时，第一台在线的，都离线则第一台", () => {
+    expect(sosTargetOf([a, b], null)?.deviceId).toBe("helmet_b");
+    expect(sosTargetOf([a, dev("helmet_d", false)], null)?.deviceId).toBe(
       "helmet_a",
     );
-    expect(viewedHelmetOf([], "helmet_a")).toBeUndefined();
+    expect(sosTargetOf([], null)).toBeUndefined();
   });
 
-  it("求救：始终是第一台在线的，都离线则第一台——不看用户正在查看哪顶", () => {
-    expect(sosTargetOf([a, b])?.deviceId).toBe("helmet_b");
-    expect(sosTargetOf([a, dev("helmet_c", false)])?.deviceId).toBe("helmet_a");
-    expect(sosTargetOf([])).toBeUndefined();
-    // 签名里就没有「查看中的头盔」这个入参：想让求救跟着查看走，得先改这里并过评审
-    expect(sosTargetOf.length).toBe(1);
+  it("求救：同时在线多台时，记在设备页「设为当前」的那台名下（2026-10-07 负责人定）", () => {
+    expect(sosTargetOf([a, b, c], "helmet_c")?.deviceId).toBe("helmet_c");
+    expect(sosTargetOf([a, b, c], "helmet_b")?.deviceId).toBe("helmet_b");
+  });
+
+  it("求救：选过的那台不在线时不记到它名下——只要有在线的，就记在线的", () => {
+    // 选的是 a（离线），在线的有 b、c：第一台在线的
+    expect(sosTargetOf([a, b, c], "helmet_a")?.deviceId).toBe("helmet_b");
+    // 只有一台在线：就是它
+    expect(sosTargetOf([a, b], "helmet_a")?.deviceId).toBe("helmet_b");
+  });
+
+  it("求救：都不在线时取选过的那台；选过的已解绑则回到第一台", () => {
+    const d = dev("helmet_d", false);
+    expect(sosTargetOf([a, d], "helmet_d")?.deviceId).toBe("helmet_d");
+    expect(sosTargetOf([a, d], "helmet_gone")?.deviceId).toBe("helmet_a");
+  });
+
+  it("安全页传给求救的只能是设备页「设为当前」的选择；这一页自己不再切换头盔", () => {
+    // 第二个入参是设备页的选择。想让求救跟着别的东西走（比如某一页上临时看的头盔），得先改这里并过评审
+    expect(sosTargetOf.length).toBe(2);
+    const page = readFileSync(
+      join(__dirname, "../../app/(tabs)/safety.tsx"),
+      "utf8",
+    );
+    expect(page).toContain("sosTargetOf(list, helmets.chosenId)");
+    expect(page).not.toMatch(/sosTargetOf\([^)]*(viewed|selectedId|picked)/);
+    expect(page).not.toContain("HelmetSwitcher");
+  });
+
+  it("设备页大图与求救关联是同一条规则", () => {
+    expect(currentHelmetOf([a, b, c], "helmet_c")).toBe(
+      sosTargetOf([a, b, c], "helmet_c"),
+    );
+    const home = readFileSync(
+      join(__dirname, "../../app/(tabs)/index.tsx"),
+      "utf8",
+    );
+    expect(home).toContain("currentHelmetOf(list, choice.chosenId)");
   });
 });

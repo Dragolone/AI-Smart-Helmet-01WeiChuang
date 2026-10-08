@@ -44,8 +44,8 @@ describe("注册页同意勾选", () => {
   });
 
   it("两份文档各有一个入口", () => {
-    expect(src).toContain('router.push("/legal/terms")');
-    expect(src).toContain('router.push("/legal/privacy")');
+    expect(src).toContain('router.navigate("/legal/terms")');
+    expect(src).toContain('router.navigate("/legal/privacy")');
   });
 });
 
@@ -96,8 +96,8 @@ describe("两份清单入口（LAUNCH_CHECKLIST A-6）", () => {
 
   it("「我的」页有两份清单的入口，三语都有文案", () => {
     const profile = read("app/(tabs)/profile.tsx");
-    expect(profile).toContain('router.push("/legal/collection")');
-    expect(profile).toContain('router.push("/legal/sharing")');
+    expect(profile).toContain('router.navigate("/legal/collection")');
+    expect(profile).toContain('router.navigate("/legal/sharing")');
     const dict = read("i18n/messages/legal.ts");
     expect(dict.match(/"legal\.collection\.title"/g)).toHaveLength(3);
     expect(dict.match(/"legal\.sharing\.title"/g)).toHaveLength(3);
@@ -124,8 +124,8 @@ describe("协议页在同意之前必须读得到（2026-10-05 评审）", () =>
 
   it("登录页也有两份文档的入口", () => {
     const login = read("app/(auth)/login.tsx");
-    expect(login).toContain('router.push("/legal/terms")');
-    expect(login).toContain('router.push("/legal/privacy")');
+    expect(login).toContain('router.navigate("/legal/terms")');
+    expect(login).toContain('router.navigate("/legal/privacy")');
   });
 
   const base = { authed: true, hydrated: true, accepted: false };

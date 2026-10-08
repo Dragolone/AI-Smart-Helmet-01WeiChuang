@@ -12,7 +12,9 @@ import type {
   PutSettingsRequest,
   ReportSettingsRequest,
   ReportSettingsResponse,
+  RidesResponse,
   SettingsResponse,
+  TrackResponse,
   UpdateDeviceRequest,
 } from "@helmet/shared";
 import { api } from "./client";
@@ -75,6 +77,21 @@ export const devicesApi = {
   locationSummary: (deviceId: string, from: string, to: string) =>
     api<LocationSummaryResponse>(
       `/devices/${encodeURIComponent(deviceId)}/locations/summary?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    ),
+
+  /**
+   * 行程列表（API.md §5）：起点落在 [from, to) 内的行程，最新在前；范围 ≤32 天。
+   * from 一律传本地零点——超长行程的切点以它为基准，各处查到的同一趟才对得上。
+   */
+  rides: (deviceId: string, from: string, to: string) =>
+    api<RidesResponse>(
+      `/devices/${encodeURIComponent(deviceId)}/rides?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    ),
+
+  /** 抽稀轨迹（API.md §5）：画线和回放用；范围 ≤24h，点数超过 maxPoints 时等间隔抽稀、首尾保留 */
+  track: (deviceId: string, from: string, to: string, maxPoints = 1000) =>
+    api<TrackResponse>(
+      `/devices/${encodeURIComponent(deviceId)}/locations/track?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&maxPoints=${maxPoints}`,
     ),
 
   /** 历史轨迹（API.md §5：from/to 必填、范围 ≤24h、timestamp 升序、pageSize ≤100） */

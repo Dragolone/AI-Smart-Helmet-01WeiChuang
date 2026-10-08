@@ -113,7 +113,7 @@ export default function LoginScreen() {
             {/* 隐藏入口：长按 App 名 3 秒进蓝牙工程模式（硬件联调，不需要账号）；正式上线可删 */}
             <Pressable
               delayLongPress={3000}
-              onLongPress={() => router.push("/ble-bench")}
+              onLongPress={() => router.navigate("/ble-bench")}
               style={styles.brand}
             >
               <ThemedText type="title">{t("auth.appName")}</ThemedText>
@@ -181,7 +181,7 @@ export default function LoginScreen() {
                     style={{ color: theme.brand }}
                     onPress={() => {
                       Keyboard.dismiss();
-                      router.push("/legal/terms");
+                      router.navigate("/legal/terms");
                     }}
                     suppressHighlighting
                   >
@@ -193,7 +193,7 @@ export default function LoginScreen() {
                     style={{ color: theme.brand }}
                     onPress={() => {
                       Keyboard.dismiss();
-                      router.push("/legal/privacy");
+                      router.navigate("/legal/privacy");
                     }}
                     suppressHighlighting
                   >

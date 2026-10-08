@@ -1,9 +1,20 @@
 // 对讲（底部标签）：后端频道体系（API.md §13,#43）+ TRTC 语音（决策 #22/#27⑤⑥）。
 // 频道创建/邀请码加入/成员档案(昵称头像)走后端;UserSig 由服务端签发,App 不持有 TRTC 密钥。
-// 2026-09-10 重设计：三态（无频道 / 有频道未进房 / 房内），房内为 4 列成员网格 + 底部固定 PTT 行。
+// 2026-10-07 按定稿重排：
+// - 三态：还没有频道（保持 2026-09-10 的样子）/ 频道列表 / 房间里；
+// - 能看到自己加入的所有频道，同一时间只在一个里面通话；房间里点频道名切换（先离开当前房间）；
+// - 说话方式可切：按住说话 / 一直开麦（第一次用一直开麦先看一段说明）。每次进房都从按住说话开始，
+//   不会一进房麦克风就开着；
+// - 提示音（services/intercom-cues）、掉线提示、头盔断开时一直开麦自动静音；
+// - 别的标签页上的「对讲中」小条看的是 stores/intercom-store 里的 session；
+// - 屏幕常亮只在「按住说话」且停在这一页时开（随时要按）；一直开麦可以锁屏。
+// 照原样保留的（负责人 2026-10-07 点名）：按住说话的按压回弹与震动、成员说话时的波纹和亮圈、
+// 邀请码走系统分享面板、点成员头像对我静音、退出频道前的确认、音频输出切换、新建频道 / 输入邀请码两个弹层。
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Image } from "expo-image";
+import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
+import { useIsFocused } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -17,7 +28,10 @@ import {
   View,
 } from "react-native";
 import * as Haptics from "expo-haptics";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import Animated, {
   FadeInDown,
   interpolate,
@@ -30,24 +44,41 @@ import TRTCCloud, {
   TRTCCloudListener,
   TRTCParams,
 } from "trtc-react-native";
-import type { VoiceChannelMemberPublic } from "@helmet/shared";
+import type { VoiceChannel, VoiceChannelMemberPublic } from "@helmet/shared";
 
 import { channelsApi } from "@/api/channels";
 import { sameSpeakers } from "@/services/voice-volume";
 import { toUserMessage } from "@/api/error-messages";
 import { FormInput, PrimaryButton, SecondaryButton } from "@/components/form";
-import { Card, GroupTitle } from "@/components/list";
+import { DotsLoader } from "@/components/motion";
 import { PulseRing } from "@/components/pulse-ring";
+import { Skeleton } from "@/components/skeleton";
 import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { showToast } from "@/components/toast";
 import { Fonts, Radius } from "@/constants/theme";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
 import { translate, useT } from "@/i18n";
+import { playCue, prepareCues } from "@/services/intercom-cues";
 import { useAuthStore } from "@/stores/auth-store";
+import { useBleStore } from "@/stores/ble-store";
+import { useIntercomStore } from "@/stores/intercom-store";
 
 const SPEAKING_THRESHOLD = 10; // onUserVoiceVolume 0–100
+/** 屏幕常亮的标记：只管对讲页自己开的这一份，不影响地图页开的 */
+const KEEP_AWAKE_TAG = "intercom";
+
+type TalkMode = "hold" | "open";
+type Sheet =
+  | { kind: "switch" }
+  | { kind: "add" }
+  | { kind: "more"; channelId: string }
+  | { kind: "openMic" };
+
+const anyHelmetConnected = (links: Record<string, { phase: string }>) =>
+  Object.values(links).some((l) => l.phase === "connected");
 
 /** 房内成员网格单元：56 头像 + 发言环/波纹 + 名字 + 22px 状态槽 */
 function MemberCell({
@@ -55,6 +86,7 @@ function MemberCell({
   speaking,
   self = false,
   muted = false,
+  micOpen = false,
   avatarUrl,
   onPress,
 }: {
@@ -62,6 +94,8 @@ function MemberCell({
   speaking: boolean;
   self?: boolean;
   muted?: boolean;
+  /** 自己一直开着麦（没在说话时也标出来：别人随时听得到） */
+  micOpen?: boolean;
   avatarUrl?: string | null;
   onPress?: () => void;
 }) {
@@ -114,7 +148,7 @@ function MemberCell({
         )}
       </ThemedText>
       <View style={styles.cellSlot}>
-        {speaking && (
+        {speaking ? (
           <View style={[styles.speakPill, { backgroundColor: theme.brand }]}>
             <ThemedText
               style={[styles.speakPillText, { color: theme.onBrand }]}
@@ -122,6 +156,19 @@ function MemberCell({
               {t("intercom.speaking")}
             </ThemedText>
           </View>
+        ) : (
+          micOpen && (
+            <View
+              style={[
+                styles.speakPill,
+                { backgroundColor: theme.backgroundSelected },
+              ]}
+            >
+              <ThemedText style={styles.speakPillText}>
+                {t("intercom.micOpen")}
+              </ThemedText>
+            </View>
+          )
         )}
       </View>
     </>
@@ -137,12 +184,25 @@ function MemberCell({
 
 export default function IntercomScreen() {
   const theme = useTheme();
+  const dark = useColorScheme() === "dark";
   const t = useT();
+  const insets = useSafeAreaInsets();
+  const focused = useIsFocused();
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const trtc = useRef(TRTCCloud.sharedInstance());
+  /** 正在进 / 已经在里面的那个频道 */
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [inRoom, setInRoom] = useState(false);
   const [talking, setTalking] = useState(false);
+  /** 说话方式。每次进房都从「按住说话」开始 */
+  const [mode, setMode] = useState<TalkMode>("hold");
+  /** 一直开麦时麦克风开没开（可以点大按钮临时静音） */
+  const [micOn, setMicOn] = useState(false);
+  const [netDown, setNetDown] = useState(false);
+  /** 进房期间头盔的蓝牙断了 */
+  const [helmetDown, setHelmetDown] = useState(false);
+  const [sheet, setSheet] = useState<Sheet | null>(null);
   /** PTT 按压动效:下陷缩放 + 辉光增强 */
   const pttScale = useSharedValue(1);
   const pttPressStyle = useAnimatedStyle(() => ({
@@ -168,16 +228,37 @@ export default function IntercomScreen() {
   // TRTC userId = 后端用户 id（token 接口签发口径）
   const myId = user?.id ?? "";
 
+  // TRTC 监听器和蓝牙订阅里要读这几样的最新值，又不能因为它们变了就重注册——重注册的清理会退房
+  const live = useRef({ inRoom, mode, micOn, talking });
+  useEffect(() => {
+    live.current = { inRoom, mode, micOn, talking };
+  });
+
+  const openMicSeen = useIntercomStore((s) =>
+    myId ? s.openMicSeen[myId] : undefined,
+  );
+  const loadOpenMicSeen = useIntercomStore((s) => s.loadOpenMicSeen);
+  useEffect(() => {
+    if (myId) void loadOpenMicSeen(myId);
+  }, [myId, loadOpenMicSeen]);
+
   const channels = useQuery({
     queryKey: ["voice-channels"],
     queryFn: channelsApi.list,
   });
-  const channel = channels.data?.[0] ?? null;
+  const list = channels.data ?? [];
+  const channel = list.find((c) => c.channelId === activeId) ?? null;
+  const moreChannel =
+    sheet?.kind === "more"
+      ? (list.find((c) => c.channelId === sheet.channelId) ?? null)
+      : null;
 
+  // 成员档案：房间里看当前频道的；频道列表里点开某个频道的「更多」时看它的
+  const membersOf = inRoom ? activeId : (moreChannel?.channelId ?? null);
   const members = useQuery({
-    queryKey: ["voice-members", channel?.channelId],
-    queryFn: () => channelsApi.members(channel!.channelId),
-    enabled: !!channel,
+    queryKey: ["voice-members", membersOf],
+    queryFn: () => channelsApi.members(membersOf!),
+    enabled: !!membersOf,
     // 新成员的档案(昵称/头像)15s 内出现;实时"在房"由 TRTC 事件驱动
     refetchInterval: 15_000,
   });
@@ -219,17 +300,31 @@ export default function IntercomScreen() {
               ? null
               : translate("intercom.joinFailed", { code: params.result }),
           );
+          if (params.result >= 0) {
+            prepareCues();
+            playCue("enter");
+            Haptics.notificationAsync(
+              Haptics.NotificationFeedbackType.Success,
+            ).catch(() => {});
+          }
           break;
         case TRTCCloudListener.onExitRoom:
           setInRoom(false);
           setOnlineIds([]);
           setVolumes({});
           setMuted({});
+          // 下次进房从头来：按住说话、麦克风关着
+          setMode("hold");
+          setMicOn(false);
+          setTalking(false);
+          setNetDown(false);
+          setHelmetDown(false);
           break;
         case TRTCCloudListener.onRemoteUserEnterRoom:
           setOnlineIds((prev) =>
             prev.includes(params.userId) ? prev : [...prev, params.userId],
           );
+          playCue("join");
           // 有人进房但档案可能还没拉到 → 立刻刷新成员列表
           void queryClient.invalidateQueries({ queryKey: ["voice-members"] });
           break;
@@ -248,6 +343,27 @@ export default function IntercomScreen() {
           );
           break;
         }
+        case TRTCCloudListener.onConnectionLost:
+          setNetDown(true);
+          playCue("lost");
+          Haptics.notificationAsync(
+            Haptics.NotificationFeedbackType.Warning,
+          ).catch(() => {});
+          // 正按着说话时掉线：当作松手。一直开麦的不动——连上后照常开着
+          if (live.current.mode === "hold" && live.current.talking) {
+            void cloud.muteLocalAudio(true);
+            setTalking(false);
+            pttScale.set(withSpring(1, { damping: 12, stiffness: 200 }));
+          }
+          break;
+        case TRTCCloudListener.onTryToReconnect:
+          setNetDown(true);
+          break;
+        case TRTCCloudListener.onConnectionRecovery:
+          setNetDown(false);
+          playCue("back");
+          showToast(translate("intercom.reconnected"));
+          break;
       }
     };
     cloud.registerListener(listener);
@@ -257,19 +373,73 @@ export default function IntercomScreen() {
       cloud.unRegisterListener(listener);
       cloud.exitRoom();
     };
-  }, [myId, queryClient]);
+  }, [myId, queryClient, pttScale]);
 
-  const join = async () => {
-    if (!channel) return;
+  // 头盔的蓝牙在通话中断了：声音会改从手机出。一直开麦的话把麦克风关掉——
+  // 用户以为还在用头盔说话，实际收声的是口袋里的手机
+  useEffect(
+    () =>
+      useBleStore.subscribe((s, prev) => {
+        const now = anyHelmetConnected(s.links);
+        if (now === anyHelmetConnected(prev.links) || !live.current.inRoom)
+          return;
+        if (now) {
+          setHelmetDown(false);
+          return;
+        }
+        setHelmetDown(true);
+        playCue("helmet");
+        Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Warning,
+        ).catch(() => {});
+        if (live.current.mode === "open" && live.current.micOn) {
+          setMicOn(false);
+          void trtc.current.muteLocalAudio(true);
+        }
+      }),
+    [],
+  );
+
+  // 给别的标签页上的「对讲中」小条看的摘要
+  const micOpen = inRoom && mode === "open" && micOn;
+  const sessionName = channel?.name;
+  useEffect(() => {
+    useIntercomStore.getState().setSession(
+      inRoom && activeId && sessionName
+        ? {
+            channelId: activeId,
+            channelName: sessionName,
+            micOpen,
+            reconnecting: netDown,
+          }
+        : null,
+    );
+  }, [inRoom, activeId, sessionName, micOpen, netDown]);
+  useEffect(() => () => useIntercomStore.getState().setSession(null), []);
+
+  // 按住说话时要随时够得着按钮：停在这一页就不让屏幕熄。一直开麦不需要看屏幕，可以锁屏
+  const keepAwake = inRoom && mode === "hold" && focused;
+  useEffect(() => {
+    if (!keepAwake) return;
+    activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {});
+    return () => {
+      deactivateKeepAwake(KEEP_AWAKE_TAG).catch(() => {});
+    };
+  }, [keepAwake]);
+
+  const join = async (channelId: string) => {
+    if (joining) return;
     if (Platform.OS === "android") {
       const res = await PermissionsAndroid.request(
         PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
       );
       if (res !== PermissionsAndroid.RESULTS.GRANTED) return;
     }
+    setActiveId(channelId);
     setJoining(true);
     setJoinError(null);
-    // 原生 TRTC 单例跨 JS 重载存活:先幂等退房清场,避免 -3340 already in room
+    // 原生 TRTC 单例跨 JS 重载存活:先幂等退房清场,避免 -3340 already in room。
+    // 从另一个频道切过来也靠这一步先离开原来的房间
     try {
       await trtc.current.exitRoom();
     } catch {}
@@ -284,7 +454,7 @@ export default function IntercomScreen() {
     }, 8000);
     try {
       // UserSig 服务端签发（决策 #27⑥）,App 端不再持有 TRTC SecretKey
-      const tk = await channelsApi.token(channel.channelId);
+      const tk = await channelsApi.token(channelId);
       const params = new TRTCParams({
         sdkAppId: tk.sdkAppId,
         userId: tk.userId,
@@ -308,22 +478,42 @@ export default function IntercomScreen() {
     }
   };
 
-  const leaveRoom = () => void trtc.current.exitRoom();
+  const leaving = useRef(false);
+  const leaveRoom = () => {
+    if (leaving.current) return;
+    leaving.current = true;
+    trtc.current.muteLocalAudio(true).catch(() => {});
+    playCue("leave");
+    // 留一点时间让提示音响完：退房会把 TRTC 的音频引擎一起停掉
+    setTimeout(() => {
+      leaving.current = false;
+      void trtc.current.exitRoom();
+    }, 260);
+  };
 
-  const leaveChannel = () => {
-    if (!channel) return;
+  /** 房间里换频道：先离开当前房间（join 里的退房），再进新的 */
+  const switchTo = (next: VoiceChannel) => {
+    setSheet(null);
+    if (next.channelId === activeId) return;
+    if (channel) showToast(t("intercom.leftRoom", { name: channel.name }));
+    void join(next.channelId);
+  };
+
+  const leaveChannel = (c: VoiceChannel) => {
     Alert.alert(
       t("intercom.leaveChannel"),
-      t("intercom.leaveChannelBody", { name: channel.name }),
+      t("intercom.leaveChannelBody", { name: c.name }),
       [
         { text: t("common.cancel"), style: "cancel" },
         {
           text: t("intercom.leaveConfirm"),
           style: "destructive",
           onPress: () => {
-            leaveRoom();
+            setSheet(null);
+            if (inRoom && activeId === c.channelId)
+              void trtc.current.exitRoom();
             channelsApi
-              .leave(channel.channelId)
+              .leave(c.channelId)
               .then(() =>
                 queryClient.invalidateQueries({ queryKey: ["voice-channels"] }),
               )
@@ -336,12 +526,11 @@ export default function IntercomScreen() {
     );
   };
 
-  const shareInvite = () => {
-    if (!channel) return;
+  const shareInvite = (c: VoiceChannel) => {
     void Share.share({
       message: t("intercom.shareMessage", {
-        name: channel.name,
-        code: channel.inviteCode,
+        name: c.name,
+        code: c.inviteCode,
       }),
     });
   };
@@ -379,16 +568,60 @@ export default function IntercomScreen() {
 
   // 按下/松开都给触觉确认:骑行戴手套看不清屏幕,靠震动知道开没开麦
   const pttDown = async () => {
+    // 掉线时按了也发不出去：不给「正在说话」的假象
+    if (netDown) return;
     pttScale.set(withSpring(0.92, { damping: 14, stiffness: 260 }));
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    playCue("talkOn");
     await trtc.current.muteLocalAudio(false);
     setTalking(true);
   };
   const pttUp = async () => {
+    if (!live.current.talking && netDown) return;
     pttScale.set(withSpring(1, { damping: 12, stiffness: 200 }));
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    playCue("talkOff");
     await trtc.current.muteLocalAudio(true);
     setTalking(false);
+  };
+
+  /** 一直开麦：点大按钮开 / 关麦克风 */
+  const toggleMic = async () => {
+    if (netDown) return;
+    const next = !micOn;
+    Haptics.impactAsync(
+      next
+        ? Haptics.ImpactFeedbackStyle.Medium
+        : Haptics.ImpactFeedbackStyle.Light,
+    ).catch(() => {});
+    playCue(next ? "micOn" : "micOff");
+    await trtc.current.muteLocalAudio(!next);
+    setMicOn(next);
+  };
+
+  const switchToHold = async () => {
+    if (mode === "hold") return;
+    setMode("hold");
+    setMicOn(false);
+    if (micOn) playCue("micOff");
+    await trtc.current.muteLocalAudio(true);
+  };
+  const enableOpen = async () => {
+    if (myId) useIntercomStore.getState().markOpenMicSeen(myId);
+    setSheet(null);
+    setTalking(false);
+    setMode("open");
+    // 头盔断着的时候不替用户把手机的麦克风打开，等他自己点
+    const on = !helmetDown;
+    setMicOn(on);
+    if (on) playCue("micOn");
+    await trtc.current.muteLocalAudio(!on);
+  };
+  const switchToOpen = () => {
+    if (mode === "open") return;
+    // 第一次：先说清楚麦克风会一直开着（还没读到看没看过时也先说一遍）
+    if (openMicSeen === true) void enableOpen();
+    else setSheet({ kind: "openMic" });
   };
 
   const toggleRoute = async () => {
@@ -417,108 +650,427 @@ export default function IntercomScreen() {
   const isSpeaking = (id: string) =>
     (volumes[id] ?? 0) >= SPEAKING_THRESHOLD && !muted[id];
 
-  // 成员列表 = 频道全体(含离线);网格 = 房间在线(自己在首位)
-  const allMembers = members.data ?? [];
-  const memberRows: VoiceChannelMemberPublic[] = allMembers.length
-    ? allMembers
-    : [
-        {
-          userId: myId,
-          nickname: user?.nickname ?? null,
-          avatarUrl: user?.avatarUrl ?? null,
-          phone: user?.phone ?? "",
-          joinedAt: "",
-        },
-      ];
   const onlineCount = (inRoom ? 1 : 0) + onlineIds.length;
-  const memberTotal = Math.max(allMembers.length, channel?.memberCount ?? 0);
   const gridIds = [myId, ...onlineIds.filter((id) => id !== myId)];
+  const hold = mode === "hold";
+  // 大按钮「亮着」= 此刻别人听得到我
+  const liveMic = hold ? talking : micOn;
 
-  const channelCard = channel && (
-    <Card>
-      <View style={styles.channelHead}>
-        <View
-          style={[
-            styles.channelTile,
-            { backgroundColor: theme.backgroundSelected },
-          ]}
-        >
-          <Ionicons name="radio-outline" size={22} color={theme.brand} />
-        </View>
-        <View style={styles.channelBody}>
+  const title = (
+    <ThemedText type="title" style={styles.pageTitle}>
+      {t("intercom.title")}
+    </ThemedText>
+  );
+
+  const banner = netDown
+    ? t("intercom.banner.net")
+    : helmetDown
+      ? t(hold ? "intercom.banner.helmet" : "intercom.banner.helmetMuted")
+      : null;
+
+  const sheetTitle =
+    sheet?.kind === "switch"
+      ? t("intercom.switch.title")
+      : sheet?.kind === "add"
+        ? t("intercom.add.title")
+        : sheet?.kind === "openMic"
+          ? t("intercom.mode.open")
+          : (moreChannel?.name ?? "");
+  const sheetLead =
+    sheet?.kind === "switch"
+      ? t("intercom.switch.lead")
+      : sheet?.kind === "add"
+        ? ""
+        : sheet?.kind === "openMic"
+          ? t("intercom.openMic.lead")
+          : moreChannel
+            ? t("intercom.more.lead", { n: moreChannel.memberCount })
+            : "";
+
+  const roomHeadBody = (
+    <>
+      <View
+        style={[styles.roomTile, { backgroundColor: theme.backgroundSelected }]}
+      >
+        <Ionicons name="radio-outline" size={20} color={theme.brand} />
+      </View>
+      <View style={styles.channelBody}>
+        <View style={styles.roomNameRow}>
           <ThemedText numberOfLines={1} style={styles.channelName}>
-            {channel.name}
+            {channel?.name ?? ""}
           </ThemedText>
-          {inRoom ? (
-            <View style={styles.onlineRow}>
-              <View
-                style={[styles.onlineDot, { backgroundColor: theme.success }]}
-              />
-              <ThemedText
-                type="small"
-                themeColor="textSecondary"
-                style={styles.caption}
-              >
-                {t("intercom.onlineCount", { n: onlineCount })}
-              </ThemedText>
-            </View>
-          ) : (
-            <ThemedText
-              type="small"
-              themeColor="textSecondary"
-              style={styles.caption}
-            >
-              {t("intercom.membersCount", { n: memberTotal })} ·{" "}
-              {t("intercom.memberLimit")}
-            </ThemedText>
+          {list.length > 1 && (
+            <Ionicons
+              name="chevron-down"
+              size={16}
+              color={theme.textSecondary}
+            />
           )}
         </View>
-        {!inRoom && (
-          <Tappable onPress={leaveChannel} hitSlop={8} style={styles.headLink}>
-            <ThemedText
-              type="small"
-              themeColor="textSecondary"
-              style={styles.caption}
-            >
-              {t("intercom.leaveChannel")}
-            </ThemedText>
-          </Tappable>
-        )}
-      </View>
-      <View style={[styles.divider, { backgroundColor: theme.border }]} />
-      <View style={styles.inviteRow}>
-        <View style={styles.inviteLeft}>
+        <View style={styles.onlineRow}>
+          <View
+            style={[
+              styles.onlineDot,
+              {
+                backgroundColor: netDown ? theme.warning : theme.success,
+              },
+            ]}
+          />
           <ThemedText
             type="small"
             themeColor="textSecondary"
             style={styles.caption}
           >
-            {t("intercom.inviteCode")}
-          </ThemedText>
-          <ThemedText style={styles.inviteCode}>
-            {channel.inviteCode}
+            {netDown
+              ? t("intercom.reconnecting")
+              : t("intercom.onlineCount", { n: onlineCount })}
           </ThemedText>
         </View>
-        <Tappable onPress={shareInvite} style={styles.shareBtn}>
-          <Ionicons name="share-outline" size={18} color={theme.brand} />
-          <ThemedText type="smallBold" themeColor="brand">
-            {t("intercom.shareInvite")}
-          </ThemedText>
-        </Tappable>
       </View>
-    </Card>
+    </>
   );
 
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.flex}>
-        <ThemedText type="title" style={styles.pageTitle}>
-          {t("intercom.title")}
-        </ThemedText>
+        {inRoom ? (
+          /* C. 房间里：频道名（可切换）+ 邀请 → 提示条 → 在线成员 → 说话方式 + 大按钮 */
+          <>
+            <View style={styles.roomHead}>
+              {list.length > 1 ? (
+                <Tappable
+                  feedback="opacity"
+                  accessibilityRole="button"
+                  accessibilityLabel={t("intercom.switch.a11y", {
+                    name: channel?.name ?? "",
+                  })}
+                  onPress={() => setSheet({ kind: "switch" })}
+                  style={styles.roomHeadMain}
+                >
+                  {roomHeadBody}
+                </Tappable>
+              ) : (
+                // 只有一个频道时没有可换的：不是按钮，也没有下拉箭头
+                <View style={styles.roomHeadMain}>{roomHeadBody}</View>
+              )}
+              {channel && (
+                <Tappable
+                  accessibilityRole="button"
+                  accessibilityLabel={t("intercom.shareInvite")}
+                  onPress={() => shareInvite(channel)}
+                  style={styles.shareBtn}
+                >
+                  <Ionicons
+                    name="share-outline"
+                    size={18}
+                    color={theme.brand}
+                  />
+                  <ThemedText type="smallBold" themeColor="brand">
+                    {t("intercom.invite")}
+                  </ThemedText>
+                </Tappable>
+              )}
+            </View>
 
-        {!channel ? (
+            {banner && (
+              <Animated.View
+                entering={FadeInDown.duration(200)}
+                accessibilityRole="alert"
+                style={[
+                  styles.banner,
+                  {
+                    backgroundColor: theme.warningBg,
+                    borderColor: theme.warning,
+                  },
+                ]}
+              >
+                <Ionicons name="alert-circle" size={20} color={theme.warning} />
+                <ThemedText style={styles.bannerText}>{banner}</ThemedText>
+              </Animated.View>
+            )}
+
+            <ScrollView
+              style={styles.flex}
+              contentContainerStyle={styles.grid}
+              showsVerticalScrollIndicator={false}
+            >
+              {gridIds.map((id) => {
+                const self = id === myId;
+                return (
+                  <MemberCell
+                    key={id}
+                    name={nameOf(id)}
+                    speaking={self ? isSpeaking(id) || talking : isSpeaking(id)}
+                    self={self}
+                    muted={!!muted[id]}
+                    micOpen={self && micOpen}
+                    avatarUrl={avatarOf(id)}
+                    onPress={self ? undefined : () => void toggleMuteMember(id)}
+                  />
+                );
+              })}
+            </ScrollView>
+
+            {/* 说话方式：按住说话 / 一直开麦 */}
+            <View
+              accessibilityRole="radiogroup"
+              accessibilityLabel={t("intercom.mode.a11y")}
+              style={[
+                styles.modeSwitch,
+                { backgroundColor: theme.backgroundSelected },
+              ]}
+            >
+              {(["hold", "open"] as const).map((m) => {
+                const on = mode === m;
+                return (
+                  <Pressable
+                    key={m}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: on }}
+                    onPress={() =>
+                      m === "hold" ? void switchToHold() : switchToOpen()
+                    }
+                    style={[
+                      styles.modeSeg,
+                      on && {
+                        backgroundColor: dark
+                          ? theme.borderStrong
+                          : theme.backgroundElement,
+                      },
+                    ]}
+                  >
+                    <ThemedText
+                      style={[
+                        styles.modeText,
+                        { color: on ? theme.text : theme.textSecondary },
+                      ]}
+                    >
+                      {t(
+                        m === "hold"
+                          ? "intercom.holdToTalk"
+                          : "intercom.mode.open",
+                      )}
+                    </ThemedText>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <View style={styles.bottomRow}>
+              {/* 左：离开房间 */}
+              <View style={styles.sideCol}>
+                <Tappable
+                  haptic
+                  accessibilityRole="button"
+                  accessibilityLabel={t("intercom.leaveRoom")}
+                  onPress={leaveRoom}
+                  style={[
+                    styles.roundBtn,
+                    { backgroundColor: theme.backgroundSelected },
+                  ]}
+                >
+                  <Ionicons name="exit-outline" size={20} color={theme.text} />
+                </Tappable>
+                <ThemedText themeColor="textSecondary" style={styles.sideLabel}>
+                  {t("intercom.leave")}
+                </ThemedText>
+              </View>
+
+              {/* 中：大按钮。按住说话 = 按着才开麦；一直开麦 = 点一下开 / 关。掉线时变淡、按了没反应 */}
+              <View style={[styles.pttCol, netDown && styles.dimmed]}>
+                <View style={styles.pttClip}>
+                  <PulseRing
+                    active={liveMic}
+                    size={112}
+                    color={theme.danger}
+                    count={3}
+                    duration={1400}
+                    maxScale={1.4}
+                  />
+                  <Animated.View
+                    style={[
+                      styles.pttGlow,
+                      {
+                        backgroundColor: liveMic ? theme.danger : theme.brand,
+                      },
+                      pttGlowStyle,
+                    ]}
+                  />
+                  <Animated.View style={pttPressStyle}>
+                    {hold ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={t("intercom.holdToTalk")}
+                        onPressIn={() => void pttDown()}
+                        onPressOut={() => void pttUp()}
+                        style={[
+                          styles.ptt,
+                          {
+                            backgroundColor: talking
+                              ? theme.danger
+                              : theme.brand,
+                            shadowColor: talking ? theme.danger : theme.brand,
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name="mic"
+                          size={44}
+                          color={talking ? "#fff" : theme.onBrand}
+                        />
+                      </Pressable>
+                    ) : (
+                      <Pressable
+                        accessibilityRole="switch"
+                        accessibilityState={{ checked: micOn }}
+                        accessibilityLabel={t(
+                          micOn
+                            ? "intercom.micOn.a11y"
+                            : "intercom.micOff.a11y",
+                        )}
+                        onPressIn={() =>
+                          pttScale.set(
+                            withSpring(0.92, { damping: 14, stiffness: 260 }),
+                          )
+                        }
+                        onPressOut={() =>
+                          pttScale.set(
+                            withSpring(1, { damping: 12, stiffness: 200 }),
+                          )
+                        }
+                        onPress={() => void toggleMic()}
+                        style={[
+                          styles.ptt,
+                          micOn
+                            ? {
+                                backgroundColor: theme.danger,
+                                shadowColor: theme.danger,
+                              }
+                            : {
+                                backgroundColor: theme.backgroundSelected,
+                                shadowColor: "transparent",
+                              },
+                        ]}
+                      >
+                        <Ionicons
+                          name={micOn ? "mic" : "mic-off"}
+                          size={44}
+                          color={micOn ? "#fff" : theme.textSecondary}
+                        />
+                      </Pressable>
+                    )}
+                  </Animated.View>
+                </View>
+                <ThemedText
+                  style={[
+                    styles.pttLabel,
+                    { color: liveMic ? theme.danger : theme.text },
+                  ]}
+                >
+                  {netDown
+                    ? t("intercom.reconnecting")
+                    : hold
+                      ? talking
+                        ? t("intercom.talking")
+                        : t("intercom.holdToTalk")
+                      : t(micOn ? "intercom.micOn" : "intercom.micOff")}
+                </ThemedText>
+              </View>
+
+              {/* 右：音频路由 */}
+              <View style={styles.sideCol}>
+                <Tappable
+                  haptic
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    speakerOn ? t("intercom.speaker") : t("intercom.headset")
+                  }
+                  onPress={() => void toggleRoute()}
+                  style={[
+                    styles.roundBtn,
+                    { backgroundColor: theme.backgroundSelected },
+                  ]}
+                >
+                  <Ionicons
+                    name={speakerOn ? "volume-high-outline" : "headset-outline"}
+                    size={20}
+                    color={theme.text}
+                  />
+                </Tappable>
+                <ThemedText themeColor="textSecondary" style={styles.sideLabel}>
+                  {speakerOn ? t("intercom.speaker") : t("intercom.headset")}
+                </ThemedText>
+              </View>
+            </View>
+            <ThemedText
+              themeColor="textSecondary"
+              numberOfLines={1}
+              style={styles.talkCaption}
+            >
+              {netDown
+                ? t("intercom.caption.net")
+                : hold
+                  ? t("intercom.caption.hold")
+                  : t(
+                      micOn
+                        ? "intercom.caption.micOn"
+                        : "intercom.caption.micOff",
+                    )}
+            </ThemedText>
+          </>
+        ) : channels.data === undefined ? (
+          channels.isError ? (
+            /* 频道列表没拉到：不能显示成「还没有频道」 */
+            <>
+              {title}
+              <View style={styles.emptyWrap}>
+                <View
+                  style={[
+                    styles.emptyIcon,
+                    {
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: theme.border,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name="cloud-offline-outline"
+                    size={40}
+                    color={theme.textSecondary}
+                  />
+                </View>
+                <ThemedText style={styles.emptyTitle}>
+                  {t("intercom.loadFailed")}
+                </ThemedText>
+                <ThemedText
+                  type="small"
+                  themeColor="textSecondary"
+                  style={styles.emptyBody}
+                >
+                  {t("intercom.loadFailedBody")}
+                </ThemedText>
+              </View>
+              <View style={styles.bottomActions}>
+                <SecondaryButton
+                  title={t("intercom.retry")}
+                  onPress={() => void channels.refetch()}
+                />
+              </View>
+            </>
+          ) : (
+            <>
+              {title}
+              <View style={styles.lobbyList}>
+                {[0, 1].map((i) => (
+                  <Skeleton key={i} height={76} radius={Radius.card} />
+                ))}
+              </View>
+            </>
+          )
+        ) : list.length === 0 ? (
           /* A. 无频道:空态 + 底部创建/加入 */
           <>
+            {title}
             <View style={styles.emptyWrap}>
               <View
                 style={[
@@ -555,214 +1107,404 @@ export default function IntercomScreen() {
               />
             </View>
           </>
-        ) : !inRoom ? (
-          /* B. 有频道未进房:频道卡 + 全体成员列表 + 底部进入 */
-          <>
-            <ScrollView
-              style={styles.flex}
-              contentContainerStyle={styles.lobbyContent}
-              showsVerticalScrollIndicator={false}
-            >
-              {channelCard}
-              <GroupTitle
-                title={t("intercom.membersCount", { n: memberTotal })}
-              />
-              <Card>
-                {memberRows.map((m, i) => {
-                  const self = m.userId === myId;
-                  const online = self || onlineIds.includes(m.userId);
-                  const display = self ? nameOf(myId) : (m.nickname ?? m.phone);
-                  return (
-                    <View
-                      key={m.userId}
-                      style={[
-                        styles.memberRow,
-                        !online && styles.memberOffline,
-                        i < memberRows.length - 1 && {
-                          borderBottomWidth: StyleSheet.hairlineWidth,
-                          borderBottomColor: theme.border,
-                        },
-                      ]}
-                    >
-                      {m.avatarUrl ? (
-                        <Image
-                          source={{ uri: m.avatarUrl }}
-                          style={styles.memberAvatar}
-                        />
-                      ) : (
-                        <View
-                          style={[
-                            styles.memberAvatar,
-                            { backgroundColor: theme.backgroundSelected },
-                          ]}
-                        >
-                          <ThemedText type="smallBold">
-                            {display.slice(0, 1).toUpperCase()}
-                          </ThemedText>
-                        </View>
-                      )}
-                      <ThemedText numberOfLines={1} style={styles.memberName}>
-                        {display}
-                        {self && (
-                          <ThemedText
-                            themeColor="textSecondary"
-                            style={styles.memberName}
-                          >
-                            {` (${t("intercom.me")})`}
-                          </ThemedText>
-                        )}
-                      </ThemedText>
-                    </View>
-                  );
-                })}
-              </Card>
-            </ScrollView>
-            <View style={styles.bottomActions}>
-              {joinError && (
-                <ThemedText
-                  type="small"
-                  themeColor="danger"
-                  style={styles.centerText}
-                >
-                  {joinError}
-                </ThemedText>
-              )}
-              <PrimaryButton
-                title={
-                  joining ? t("intercom.entering") : t("intercom.enterRoom")
-                }
-                onPress={() => void join()}
-                loading={joining}
-              />
-            </View>
-          </>
         ) : (
-          /* C. 房内:频道卡 + 在线成员网格 + 底部固定 PTT 行 */
+          /* B. 频道列表：我加入的所有频道，同一时间只进一个 */
           <>
-            <View style={styles.roomTop}>
-              {channelCard}
-              <GroupTitle
-                title={t("intercom.membersCount", { n: memberTotal })}
-              />
+            <View style={styles.lobbyHead}>
+              {title}
+              <Tappable
+                feedback="opacity"
+                accessibilityRole="button"
+                accessibilityLabel={t("intercom.add.a11y")}
+                onPress={() => setSheet({ kind: "add" })}
+                style={[
+                  styles.addButton,
+                  {
+                    borderColor: theme.borderStrong,
+                    backgroundColor: theme.backgroundElement,
+                  },
+                ]}
+              >
+                <Ionicons name="add" size={24} color={theme.text} />
+              </Tappable>
             </View>
             <ScrollView
               style={styles.flex}
-              contentContainerStyle={styles.grid}
+              contentContainerStyle={styles.lobbyList}
               showsVerticalScrollIndicator={false}
             >
-              {gridIds.map((id) => {
-                const self = id === myId;
+              {list.map((c, i) => {
+                const busy = joining && activeId === c.channelId;
                 return (
-                  <MemberCell
-                    key={id}
-                    name={nameOf(id)}
-                    speaking={self ? isSpeaking(id) || talking : isSpeaking(id)}
-                    self={self}
-                    muted={!!muted[id]}
-                    avatarUrl={avatarOf(id)}
-                    onPress={self ? undefined : () => void toggleMuteMember(id)}
-                  />
-                );
-              })}
-            </ScrollView>
-
-            <View style={styles.bottomRow}>
-              {/* 左：离开房间 */}
-              <View style={styles.sideCol}>
-                <Tappable
-                  haptic
-                  accessibilityRole="button"
-                  accessibilityLabel={t("intercom.leaveRoom")}
-                  onPress={leaveRoom}
-                  style={[
-                    styles.roundBtn,
-                    { backgroundColor: theme.backgroundSelected },
-                  ]}
-                >
-                  <Ionicons name="exit-outline" size={20} color={theme.text} />
-                </Tappable>
-                <ThemedText themeColor="textSecondary" style={styles.sideLabel}>
-                  {t("intercom.leave")}
-                </ThemedText>
-              </View>
-
-              {/* 中：PTT */}
-              <View style={styles.pttCol}>
-                <View style={styles.pttClip}>
-                  <PulseRing
-                    active={talking}
-                    size={112}
-                    color={theme.danger}
-                    count={3}
-                    duration={1400}
-                    maxScale={1.4}
-                  />
-                  <Animated.View
+                  <View
+                    key={c.channelId}
                     style={[
-                      styles.pttGlow,
-                      { backgroundColor: talking ? theme.danger : theme.brand },
-                      pttGlowStyle,
+                      styles.chanCard,
+                      {
+                        backgroundColor: theme.backgroundElement,
+                        borderColor: theme.border,
+                      },
                     ]}
-                  />
-                  <Animated.View style={pttPressStyle}>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={t("intercom.holdToTalk")}
-                      onPressIn={() => void pttDown()}
-                      onPressOut={() => void pttUp()}
+                  >
+                    <View
                       style={[
-                        styles.ptt,
-                        {
-                          backgroundColor: talking ? theme.danger : theme.brand,
-                          shadowColor: talking ? theme.danger : theme.brand,
-                        },
+                        styles.channelTile,
+                        { backgroundColor: theme.backgroundSelected },
                       ]}
                     >
                       <Ionicons
-                        name="mic"
-                        size={44}
-                        color={talking ? "#fff" : theme.onBrand}
+                        name="radio-outline"
+                        size={22}
+                        color={theme.text}
                       />
-                    </Pressable>
-                  </Animated.View>
-                </View>
-                <ThemedText
-                  style={[
-                    styles.pttLabel,
-                    { color: talking ? theme.danger : theme.text },
-                  ]}
-                >
-                  {talking ? t("intercom.talking") : t("intercom.holdToTalk")}
-                </ThemedText>
-              </View>
+                    </View>
+                    <View style={styles.channelBody}>
+                      <ThemedText numberOfLines={1} style={styles.chanName}>
+                        {c.name}
+                      </ThemedText>
+                      <ThemedText
+                        type="small"
+                        themeColor="textSecondary"
+                        numberOfLines={1}
+                        style={styles.caption}
+                      >
+                        {t("intercom.memberTotal", { n: c.memberCount })}
+                      </ThemedText>
+                    </View>
+                    <Tappable
+                      feedback="opacity"
+                      accessibilityRole="button"
+                      accessibilityLabel={t("intercom.more.a11y", {
+                        name: c.name,
+                      })}
+                      onPress={() =>
+                        setSheet({ kind: "more", channelId: c.channelId })
+                      }
+                      style={styles.moreBtn}
+                    >
+                      <Ionicons
+                        name="ellipsis-horizontal"
+                        size={20}
+                        color={theme.textSecondary}
+                      />
+                    </Tappable>
+                    <Tappable
+                      feedback="scale"
+                      haptic
+                      accessibilityRole="button"
+                      accessibilityLabel={t("intercom.enter.a11y", {
+                        name: c.name,
+                      })}
+                      disabled={joining && !busy}
+                      onPress={() => void join(c.channelId)}
+                      // 只有第一个是品牌色：一页一个主操作
+                      style={[
+                        styles.enterBtn,
+                        i === 0
+                          ? {
+                              backgroundColor: theme.brand,
+                              borderColor: theme.brand,
+                            }
+                          : { borderColor: theme.borderStrong },
+                      ]}
+                    >
+                      {busy ? (
+                        <DotsLoader
+                          color={i === 0 ? theme.onBrand : theme.text}
+                        />
+                      ) : (
+                        <ThemedText
+                          style={[
+                            styles.enterText,
+                            { color: i === 0 ? theme.onBrand : theme.text },
+                          ]}
+                        >
+                          {t("intercom.enter")}
+                        </ThemedText>
+                      )}
+                    </Tappable>
+                  </View>
+                );
+              })}
+            </ScrollView>
+            {joinError && (
+              <ThemedText
+                type="small"
+                themeColor="danger"
+                style={[styles.centerText, styles.joinError]}
+              >
+                {joinError}
+              </ThemedText>
+            )}
+          </>
+        )}
 
-              {/* 右：音频路由 */}
-              <View style={styles.sideCol}>
+        {/* 底部面板：切换频道 / 新建或加入 / 某个频道的更多 / 一直开麦的说明 */}
+        <Modal
+          visible={sheet !== null}
+          transparent
+          statusBarTranslucent
+          animationType="fade"
+          onRequestClose={() => setSheet(null)}
+        >
+          <View style={styles.sheetMask}>
+            <Pressable
+              accessibilityLabel={t("intercom.sheet.close")}
+              style={StyleSheet.absoluteFill}
+              onPress={() => setSheet(null)}
+            />
+            <Animated.View
+              entering={FadeInDown.duration(220)}
+              accessibilityViewIsModal
+              style={[
+                styles.sheet,
+                {
+                  backgroundColor: theme.backgroundElement,
+                  borderColor: theme.border,
+                  paddingBottom: Math.max(insets.bottom, 12) + 8,
+                },
+              ]}
+            >
+              <View style={styles.sheetHead}>
+                <ThemedText
+                  numberOfLines={1}
+                  accessibilityRole="header"
+                  style={styles.sheetTitle}
+                >
+                  {sheetTitle}
+                </ThemedText>
                 <Tappable
-                  haptic
+                  feedback="opacity"
                   accessibilityRole="button"
-                  accessibilityLabel={
-                    speakerOn ? t("intercom.speaker") : t("intercom.headset")
-                  }
-                  onPress={() => void toggleRoute()}
+                  accessibilityLabel={t("intercom.sheet.close")}
+                  onPress={() => setSheet(null)}
                   style={[
-                    styles.roundBtn,
+                    styles.sheetClose,
                     { backgroundColor: theme.backgroundSelected },
                   ]}
                 >
-                  <Ionicons
-                    name={speakerOn ? "volume-high-outline" : "headset-outline"}
-                    size={20}
-                    color={theme.text}
-                  />
+                  <Ionicons name="close" size={20} color={theme.text} />
                 </Tappable>
-                <ThemedText themeColor="textSecondary" style={styles.sideLabel}>
-                  {speakerOn ? t("intercom.speaker") : t("intercom.headset")}
-                </ThemedText>
               </View>
-            </View>
-          </>
-        )}
+              {sheetLead ? (
+                <ThemedText
+                  type="small"
+                  themeColor="textSecondary"
+                  style={styles.sheetLead}
+                >
+                  {sheetLead}
+                </ThemedText>
+              ) : (
+                <View style={styles.sheetLeadGap} />
+              )}
+
+              {sheet?.kind === "switch" && (
+                <>
+                  {list.map((c) => {
+                    const here = c.channelId === activeId;
+                    return (
+                      <Tappable
+                        key={c.channelId}
+                        feedback="fill"
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: here }}
+                        onPress={() => switchTo(c)}
+                        style={[
+                          styles.sheetRow,
+                          {
+                            borderColor: here
+                              ? theme.borderStrong
+                              : theme.border,
+                          },
+                          here && {
+                            backgroundColor: theme.backgroundSelected,
+                          },
+                        ]}
+                      >
+                        <View style={styles.channelBody}>
+                          <ThemedText
+                            numberOfLines={1}
+                            style={styles.sheetRowTitle}
+                          >
+                            {c.name}
+                          </ThemedText>
+                          <ThemedText
+                            type="small"
+                            themeColor="textSecondary"
+                            style={styles.caption}
+                          >
+                            {here
+                              ? t("intercom.switch.here")
+                              : t("intercom.memberTotal", { n: c.memberCount })}
+                          </ThemedText>
+                        </View>
+                        {here && (
+                          <Ionicons
+                            name="checkmark"
+                            size={22}
+                            color={theme.text}
+                          />
+                        )}
+                      </Tappable>
+                    );
+                  })}
+                  <SecondaryButton
+                    title={t("intercom.add.a11y")}
+                    onPress={() => setSheet({ kind: "add" })}
+                  />
+                </>
+              )}
+
+              {sheet?.kind === "add" && (
+                <>
+                  <Tappable
+                    feedback="fill"
+                    accessibilityRole="button"
+                    onPress={() => {
+                      setSheet(null);
+                      setCreateOpen(true);
+                    }}
+                    style={[styles.sheetRow, { borderColor: theme.border }]}
+                  >
+                    <View
+                      style={[
+                        styles.sheetRowIcon,
+                        { backgroundColor: theme.backgroundSelected },
+                      ]}
+                    >
+                      <Ionicons name="add" size={20} color={theme.text} />
+                    </View>
+                    <View style={styles.channelBody}>
+                      <ThemedText style={styles.sheetRowTitle}>
+                        {t("intercom.add.create")}
+                      </ThemedText>
+                    </View>
+                  </Tappable>
+                  <Tappable
+                    feedback="fill"
+                    accessibilityRole="button"
+                    onPress={() => {
+                      setSheet(null);
+                      setJoinOpen(true);
+                    }}
+                    style={[styles.sheetRow, { borderColor: theme.border }]}
+                  >
+                    <View
+                      style={[
+                        styles.sheetRowIcon,
+                        { backgroundColor: theme.backgroundSelected },
+                      ]}
+                    >
+                      <Ionicons
+                        name="key-outline"
+                        size={20}
+                        color={theme.text}
+                      />
+                    </View>
+                    <View style={styles.channelBody}>
+                      <ThemedText style={styles.sheetRowTitle}>
+                        {t("intercom.add.join")}
+                      </ThemedText>
+                    </View>
+                  </Tappable>
+                </>
+              )}
+
+              {sheet?.kind === "more" && moreChannel && (
+                <>
+                  {/* 这个频道里都有谁（含不在线的）：原先在进房前的页面上，现在收在这里 */}
+                  <ScrollView
+                    style={styles.sheetMembers}
+                    showsVerticalScrollIndicator={false}
+                  >
+                    {(members.data ?? []).map((m) => {
+                      const self = m.userId === myId;
+                      const display = self
+                        ? nameOf(myId)
+                        : (m.nickname ?? m.phone);
+                      return (
+                        <View key={m.userId} style={styles.memberRow}>
+                          {m.avatarUrl ? (
+                            <Image
+                              source={{ uri: m.avatarUrl }}
+                              style={styles.memberAvatar}
+                            />
+                          ) : (
+                            <View
+                              style={[
+                                styles.memberAvatar,
+                                { backgroundColor: theme.backgroundSelected },
+                              ]}
+                            >
+                              <ThemedText type="smallBold">
+                                {display.slice(0, 1).toUpperCase()}
+                              </ThemedText>
+                            </View>
+                          )}
+                          <ThemedText
+                            numberOfLines={1}
+                            style={styles.memberName}
+                          >
+                            {display}
+                            {self && (
+                              <ThemedText
+                                themeColor="textSecondary"
+                                style={styles.memberName}
+                              >
+                                {` (${t("intercom.me")})`}
+                              </ThemedText>
+                            )}
+                          </ThemedText>
+                        </View>
+                      );
+                    })}
+                  </ScrollView>
+                  <Tappable
+                    feedback="fill"
+                    accessibilityRole="button"
+                    onPress={() => shareInvite(moreChannel)}
+                    style={[styles.sheetRow, { borderColor: theme.border }]}
+                  >
+                    <ThemedText style={[styles.sheetRowTitle, styles.flex]}>
+                      {t("intercom.shareInvite")}
+                    </ThemedText>
+                    <ThemedText
+                      themeColor="textSecondary"
+                      style={styles.inviteCode}
+                    >
+                      {moreChannel.inviteCode}
+                    </ThemedText>
+                  </Tappable>
+                  <Tappable
+                    feedback="fill"
+                    accessibilityRole="button"
+                    onPress={() => leaveChannel(moreChannel)}
+                    style={[styles.sheetRow, { borderColor: theme.border }]}
+                  >
+                    <ThemedText
+                      style={[styles.sheetRowTitle, { color: theme.warning }]}
+                    >
+                      {t("intercom.more.quit")}
+                    </ThemedText>
+                  </Tappable>
+                </>
+              )}
+
+              {sheet?.kind === "openMic" && (
+                <View style={styles.sheetActions}>
+                  <PrimaryButton
+                    title={t("intercom.openMic.confirm")}
+                    onPress={() => void enableOpen()}
+                  />
+                  <SecondaryButton
+                    title={t("intercom.openMic.later")}
+                    onPress={() => setSheet(null)}
+                  />
+                </View>
+              )}
+            </Animated.View>
+          </View>
+        </Modal>
 
         {/* 创建频道弹层 */}
         <Modal
@@ -882,34 +1624,103 @@ const styles = StyleSheet.create({
   emptyBody: { textAlign: "center" },
   bottomActions: { paddingTop: 8, paddingBottom: 22, gap: 10 },
 
-  // 频道卡
-  channelHead: {
+  // B. 频道列表
+  lobbyHead: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+  },
+  addButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  lobbyList: { gap: 10, paddingTop: 14, paddingBottom: 8 },
+  chanCard: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    padding: 14,
+    minHeight: 76,
+    paddingVertical: 12,
+    paddingLeft: 14,
+    paddingRight: 12,
+    borderRadius: Radius.card,
+    borderWidth: 1,
   },
   channelTile: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     borderRadius: Radius.control,
     alignItems: "center",
     justifyContent: "center",
   },
   channelBody: { flex: 1, gap: 2, minWidth: 0 },
-  channelName: { fontSize: 17, lineHeight: 22, fontWeight: 600 },
-  onlineRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-  onlineDot: { width: 7, height: 7, borderRadius: 4 },
-  headLink: { minHeight: 44, justifyContent: "center", paddingLeft: 8 },
-  divider: { height: StyleSheet.hairlineWidth, marginHorizontal: 14 },
-  inviteRow: {
+  chanName: { fontSize: 16, lineHeight: 22, fontWeight: 700 },
+  moreBtn: {
+    width: 40,
+    height: 44,
+    marginHorizontal: -6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  enterBtn: {
+    width: 76,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  enterText: { fontSize: 15, lineHeight: 20, fontWeight: 700 },
+  joinError: { paddingBottom: 12 },
+
+  // C. 房间里：头部
+  roomHead: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 14,
-    paddingVertical: 6,
+    gap: 8,
+    minHeight: 48,
+    marginTop: 8,
   },
-  inviteLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
+  roomHeadMain: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 48,
+  },
+  roomTile: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  roomNameRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  channelName: {
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: 700,
+    flexShrink: 1,
+  },
+  onlineRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  onlineDot: { width: 7, height: 7, borderRadius: 4 },
+  banner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 52,
+    marginTop: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: Radius.control,
+    borderWidth: 1,
+  },
+  bannerText: { flex: 1, fontSize: 13, lineHeight: 18, fontWeight: 500 },
   inviteCode: {
     fontFamily: Fonts.mono,
     fontSize: 16,
@@ -925,16 +1736,13 @@ const styles = StyleSheet.create({
     paddingLeft: 8,
   },
 
-  // B. 未进房
-  lobbyContent: { gap: 12, paddingTop: 12, paddingBottom: 8 },
+  // 「更多」面板里的成员列表
   memberRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    paddingHorizontal: 14,
-    height: 52,
+    height: 48,
   },
-  memberOffline: { opacity: 0.45 },
   memberAvatar: {
     width: 36,
     height: 36,
@@ -944,13 +1752,12 @@ const styles = StyleSheet.create({
   },
   memberName: { flex: 1, fontSize: 15, lineHeight: 20, fontWeight: 500 },
 
-  // C. 房内
-  roomTop: { gap: 12, paddingTop: 12 },
+  // C. 房间里：成员网格
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
     rowGap: 12,
-    paddingTop: 12,
+    paddingTop: 18,
     paddingBottom: 8,
   },
   cell: { width: "25%", alignItems: "center", gap: 6 },
@@ -1000,12 +1807,34 @@ const styles = StyleSheet.create({
   },
   speakPillText: { fontSize: 11, lineHeight: 14, fontWeight: 600 },
 
+  // 说话方式切换
+  modeSwitch: {
+    flexDirection: "row",
+    alignSelf: "center",
+    width: 264,
+    padding: 3,
+    borderRadius: 25,
+  },
+  modeSeg: {
+    flex: 1,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modeText: { fontSize: 14, lineHeight: 20, fontWeight: 700 },
   bottomRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingTop: 8,
-    paddingBottom: 14,
+    paddingTop: 6,
+  },
+  dimmed: { opacity: 0.4 },
+  talkCaption: {
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: "center",
+    paddingBottom: 12,
   },
   sideCol: { width: 72, alignItems: "center", gap: 6 },
   roundBtn: {
@@ -1043,6 +1872,64 @@ const styles = StyleSheet.create({
     elevation: 12,
   },
   pttLabel: { fontSize: 13, lineHeight: 18, fontWeight: 600 },
+
+  // 底部面板
+  sheetMask: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "flex-end",
+    padding: 10,
+  },
+  sheet: {
+    borderRadius: 24,
+    borderWidth: 1,
+    paddingTop: 18,
+    paddingHorizontal: 20,
+    maxHeight: "80%",
+  },
+  sheetHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  sheetTitle: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: 700,
+  },
+  sheetClose: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sheetLead: { fontSize: 13, lineHeight: 19, marginTop: 6, marginBottom: 14 },
+  sheetLeadGap: { height: 14 },
+  sheetRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    minHeight: 60,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  sheetRowIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sheetRowTitle: { fontSize: 15, lineHeight: 20, fontWeight: 700 },
+  sheetMembers: { maxHeight: 200, flexGrow: 0, marginBottom: 12 },
+  sheetActions: { gap: 10 },
 
   // 弹层
   modalMask: {

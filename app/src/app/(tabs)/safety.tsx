@@ -1,17 +1,17 @@
-// 安全（底部标签，2026-10-06 按确认的原型重排）：
-// 标题 + 右上角「设置」→ 正在查看的头盔 → 状态卡（连接 / 通知 / 联系人，只说能核实的）
-// → 最近一次 SOS 记录 + 全页唯一的「查看记录」入口 → 底部固定的红色 SOS。
-// 联系人、通知权限、后台运行说明、演练集中在「设置」（/safety-settings）；记录在 /safety-records。
-// 首页放的是 SOS 记录而不是风险提醒：求救之后用户要能在这一页找回那条记录（风险提醒在记录页里看）。
+// 安全（底部标签，2026-10-06 按确认的原型重排；2026-10-07 精简）：
+// 标题 + 右上角「设置」→ 状态卡（连接 / 通知 / 联系人，只说能核实的）→「安全记录」一行 → 底部固定的红色 SOS。
+// 这一页不再切换头盔：看的始终是设备页的当前头盔（currentHelmetOf），要换去设备页「设为当前」。
+// 状态卡正常时只有一句结论和三项核对；出了问题才多一句说明和一个按钮。
+// 联系人、通知权限、后台运行说明、演练集中在「设置」（/safety-settings）；记录在 /safety-records（所有头盔排在一起）。
 // 红色只用在两处：进行中的 SOS，和头盔身份不符。头盔没连上是不骑车时的常态，用提醒色。
 // 没打开过演练的账号，SOS 按钮下面多一行演练入口，打开过一次就收起。
 //
-// 这次只动编排，下面几件事原样保留：
+// 下面几件事原样保留：
 // - SOS：长按 2 秒经 app-relay 注入 manual_sos，与头盔实体键走同一服务端状态机，倒计时页由 WS 推送弹出；
-// - 求救记在哪顶头盔名下：第一台在线的，否则第一台（sosTargetOf）——不跟着「正在查看的头盔」变；
-// - 进行中的 SOS 看的是全部头盔，不受上面选了哪顶影响。
+// - 求救记在当前头盔名下（sosTargetOf）；绑了两顶以上时按钮上方写明是哪一顶；
+// - 进行中的 SOS 看的是全部头盔。
 import { Ionicons } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
@@ -39,17 +39,13 @@ import {
 } from "@/services/ble-relay-uplink";
 import { sosApi } from "@/api/sos";
 import { AnimatedPressable } from "@/components/animated-pressable";
-import { Badge } from "@/components/badge";
-import { PrimaryButton } from "@/components/form";
-import {
-  HelmetSwitcher,
-  helmetNameOf,
-  linkLabelKey,
-} from "@/components/helmet-switcher";
+import { PrimaryButton, SecondaryButton } from "@/components/form";
+import { IntercomMiniBar } from "@/components/intercom-mini-bar";
 import { Card, IconCircle, type IconName } from "@/components/list";
 import { useJello } from "@/components/motion";
 import { Skeleton } from "@/components/skeleton";
 import { StatusChip, type ChipLevel } from "@/components/status-chip";
+import { SwitchHelmetPrompt } from "@/components/switch-helmet-prompt";
 import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
@@ -64,10 +60,13 @@ import {
 } from "@/hooks/use-safety";
 import { useTheme } from "@/hooks/use-theme";
 import { translate, useLocale, useT } from "@/i18n";
-import { relativeTime, shortDate, shortTime } from "@/i18n/format";
+import { shortDate } from "@/i18n/format";
+import { whenForegroundSettled } from "@/services/foreground-settled";
 import {
+  helmetNameOf,
   isLinkFault,
   linkCheckLevelOf,
+  linkLabelKey,
   protectionStateOf,
   sosTargetOf,
   type HelmetLink,
@@ -75,7 +74,10 @@ import {
 
 type Tone = "success" | "warning" | "danger";
 
-/** 状态卡：结论（图标 + 标题 + 说明）→ 三个核对项 → 一个动作。结论不只靠颜色：每档都有各自的图标和文字 */
+/**
+ * 状态卡：结论（图标 + 标题）→ 三个核对项；出了问题才有一句说明和一个动作。
+ * 结论不只靠颜色：每档都有各自的图标和文字。
+ */
 function StatusCard({
   tone,
   icon,
@@ -84,17 +86,14 @@ function StatusCard({
   checks,
   actionLabel,
   onAction,
-  emphasized = false,
 }: {
   tone: Tone;
   icon: IconName;
   title: string;
-  body: string[];
-  checks?: { level: ChipLevel; label: string }[];
+  body?: string;
+  checks?: { level: ChipLevel; label: string; a11y: string }[];
   actionLabel?: string;
   onAction?: () => void;
-  /** 需要用户处理的状态：动作行加底色，和「一切正常」时的普通链接区分开 */
-  emphasized?: boolean;
 }) {
   const theme = useTheme();
   const bg =
@@ -105,7 +104,13 @@ function StatusCard({
         : theme.dangerBg;
   return (
     <Card style={styles.statusCard}>
-      <View style={styles.statusHead}>
+      {/* 只有一句结论时和图标居中对齐；带说明时标题与图标顶端对齐 */}
+      <View
+        style={[
+          styles.statusHead,
+          body === undefined && { alignItems: "center" },
+        ]}
+      >
         <IconCircle
           icon={icon}
           size={44}
@@ -117,98 +122,93 @@ function StatusCard({
           <ThemedText type="smallBold" style={styles.statusTitle}>
             {title}
           </ThemedText>
-          {body.map((line) => (
+          {body !== undefined && (
             <ThemedText
-              key={line}
               type="small"
               themeColor="textSecondary"
               style={styles.statusBody}
             >
-              {line}
+              {body}
             </ThemedText>
-          ))}
+          )}
         </View>
       </View>
       {checks && (
         <View style={[styles.checks, { borderTopColor: theme.border }]}>
           {checks.map((c) => (
-            <StatusChip key={c.label} level={c.level} label={c.label} />
+            // 核对项的字很短（正常时只写头盔名 / 「通知」）：读屏念完整的那一句
+            <View key={c.a11y} accessible accessibilityLabel={c.a11y}>
+              <StatusChip level={c.level} label={c.label} />
+            </View>
           ))}
         </View>
       )}
       {actionLabel && onAction && (
-        <Tappable
-          feedback="opacity"
-          accessibilityRole="button"
-          onPress={onAction}
-          style={[
-            styles.statusAction,
-            emphasized && {
-              backgroundColor: theme.backgroundSelected,
-              paddingHorizontal: 12,
-            },
-          ]}
-        >
-          <ThemedText type="small" style={styles.statusActionText}>
-            {actionLabel}
-          </ThemedText>
-          <Ionicons
-            name="chevron-forward"
-            size={16}
-            color={theme.textSecondary}
-          />
-        </Tappable>
+        <SecondaryButton compact title={actionLabel} onPress={onAction} />
       )}
     </Card>
   );
 }
 
-/** 首页那一条最近的 SOS 记录：图标用中性色，轻重由右侧状态标表达（进行中才是红的） */
-function SosRecordRow({ record }: { record: AccidentListItem }) {
+/**
+ * 「安全记录」一行：副标题写所有头盔里最近的一条 SOS，点了进记录页的 SOS 那一栏。
+ * 这一页放的是 SOS 而不是风险提醒：求救之后用户要能在这里找回那条记录。
+ */
+function RecordsRow({
+  latest,
+  state,
+}: {
+  latest: AccidentListItem | undefined;
+  /** 没有 latest 时：还在拉 / 拉失败 / 确实没有。拉失败不能说成「暂无」 */
+  state: "loading" | "failed" | "empty";
+}) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const status =
-    record.status === "pending"
-      ? { variant: "danger" as const, label: t("safety.status.pending") }
-      : record.status === "notified"
-        ? { variant: "warning" as const, label: t("safety.status.notified") }
-        : { variant: "neutral" as const, label: t("safety.status.cancelled") };
+  const line = latest
+    ? t("safety.recordsLatest", {
+        date: shortDate(latest.createdAt, locale),
+        type: t(
+          latest.triggerType === "manual_sos"
+            ? "safety.manualSos"
+            : "safety.risk.fall",
+        ),
+        status: t(`safety.status.${latest.status}`),
+      })
+    : state === "loading"
+      ? "…"
+      : t(
+          state === "failed" ? "safety.latestSosFailed" : "records.sosEmptyAll",
+        );
   return (
-    <Tappable
-      feedback="fill"
-      accessibilityRole="button"
-      onPress={() => router.push(`/accident/${record.sosId}`)}
-      style={styles.recordRow}
-    >
-      <IconCircle
-        icon={
-          record.triggerType === "manual_sos"
-            ? "hand-left-outline"
-            : "body-outline"
-        }
-        size={36}
-      />
-      <View style={styles.recordBody}>
-        <ThemedText type="small" style={styles.recordTitle} numberOfLines={1}>
-          {t(
-            record.triggerType === "manual_sos"
-              ? "records.sos.manual"
-              : "records.sos.fall",
-          )}
-        </ThemedText>
-        <ThemedText
-          type="small"
-          themeColor="textSecondary"
-          style={styles.recordTime}
-        >
-          {shortDate(record.createdAt, locale)}{" "}
-          {shortTime(record.createdAt, locale)}
-        </ThemedText>
-      </View>
-      <Badge variant={status.variant} label={status.label} />
-      <Ionicons name="chevron-forward" size={16} color={theme.textSecondary} />
-    </Tappable>
+    <Card>
+      <Tappable
+        feedback="fill"
+        accessibilityRole="button"
+        onPress={() => router.navigate("/safety-records?tab=sos")}
+        style={styles.recordsRow}
+      >
+        <IconCircle icon="time-outline" size={36} />
+        <View style={styles.recordsBody}>
+          <ThemedText type="smallBold" style={styles.recordsTitle}>
+            {t("safety.records")}
+          </ThemedText>
+          <ThemedText
+            type="small"
+            themeColor="textSecondary"
+            numberOfLines={1}
+            style={styles.recordsLine}
+          >
+            {line}
+          </ThemedText>
+        </View>
+        <Ionicons
+          name="chevron-forward"
+          size={18}
+          color={theme.textSecondary}
+        />
+      </Tappable>
+    </Card>
   );
 }
 
@@ -219,29 +219,37 @@ export default function SafetyScreen() {
   const theme = useTheme();
   const scheme = useColorScheme();
   const t = useT();
-  const locale = useLocale();
 
   const helmets = useHelmets();
-  const { list, viewed } = helmets;
+  const { list } = helmets;
   const links = useHelmetLinks(list, !helmets.stale);
-  const link: HelmetLink | null = viewed ? links[viewed.deviceId] : null;
-  // 进行中的 SOS 看全部头盔：正在查看别的头盔时，这一条也必须在
+  // 这一页说的是设备页的当前头盔，也就是 App 内求救记在谁名下的那一顶
+  const sosTarget = sosTargetOf(list, helmets.chosenId);
+  const sosTargetId = sosTarget?.deviceId;
+  const link: HelmetLink | null = sosTarget ? links[sosTarget.deviceId] : null;
+  // 进行中的 SOS 看全部头盔：不是当前头盔上的那一条也必须在
   const pending = usePendingSos(list.map((d) => d.deviceId));
 
   // 通知权限被拒 → 锁屏上收不到摔倒提醒，必须显式告知（REGRESSION 8.2「功能降级有提示」）。
   // 用户不知道「关通知 = 锁屏收不到摔倒提醒」（负责人 2026-09-26）：主动弹一次说清楚，
   // 每次进程只弹一次，之后由状态卡持续提醒，不反复打扰
+  // 等系统的权限框都走完再弹：第一次登录时它们一个接一个出，被拒一次后系统还会紧接着再问一次，
+  // 那几秒里的「被拒」还不是定论，而且夹在两个系统框中间弹的说明框 Android 上会丢
+  //（services/foreground-settled.ts）
   const notify = useNotifyPermission();
   useEffect(() => {
     if (notify !== "denied" || notifyAlertShown) return;
-    notifyAlertShown = true;
-    Alert.alert(t("safety.notifyAlertTitle"), t("safety.notifyAlertBody"), [
-      { text: t("safety.notifyLater"), style: "cancel" },
-      {
-        text: t("safety.notifyGoSettings"),
-        onPress: () => void Linking.openSettings(),
-      },
-    ]);
+    return whenForegroundSettled(() => {
+      if (notifyAlertShown) return;
+      notifyAlertShown = true;
+      Alert.alert(t("safety.notifyAlertTitle"), t("safety.notifyAlertBody"), [
+        { text: t("safety.notifyLater"), style: "cancel" },
+        {
+          text: t("safety.notifyGoSettings"),
+          onPress: () => void Linking.openSettings(),
+        },
+      ]);
+    });
   }, [notify, t]);
 
   const contacts = useQuery({
@@ -253,15 +261,25 @@ export default function SafetyScreen() {
   // 没拿到列表（加载中 / 失败）≠ 0 位联系人
   const contactCount = contacts.data ? contacts.data.length : null;
 
-  const viewedId = viewed?.deviceId;
-  // 与安全记录页「SOS 记录」同一份缓存（最新在前）：实时通道收到 sos_update 时按前缀失效，30 秒轮询兜底
-  const sosRecords = useQuery({
-    queryKey: ["accidents", viewedId],
-    queryFn: () => sosApi.accidents(viewedId!),
-    enabled: !!viewedId,
-    refetchInterval: 30_000,
+  // 与安全记录页「SOS 记录」同一份缓存（每台一份，最新在前）：实时通道收到 sos_update 时按前缀失效，
+  // 30 秒轮询兜底。这里只取所有头盔里最近的一条
+  const sosRecords = useQueries({
+    queries: list.map((d) => ({
+      queryKey: ["accidents", d.deviceId],
+      queryFn: () => sosApi.accidents(d.deviceId),
+      refetchInterval: 30_000,
+    })),
   });
-  const latestSos = sosRecords.data?.items[0];
+  const latestSos = sosRecords
+    .map((q) => q.data?.items[0])
+    .filter((a): a is AccidentListItem => a !== undefined)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  // 有一台没拿到就不能下「没有记录」的结论
+  const recordsState = sosRecords.some((q) => q.isError)
+    ? "failed"
+    : sosRecords.some((q) => q.data === undefined)
+      ? "loading"
+      : "empty";
   const drill = useSosDrill();
 
   /** 长按 2 秒触发（防误触）：进度从左到右填满按钮 */
@@ -272,8 +290,6 @@ export default function SafetyScreen() {
   const sosScaleStyle = useAnimatedStyle(() => ({
     transform: [{ scale: interpolate(sosP.get(), [0, 1], [1, 0.97]) }],
   }));
-  const sosTarget = sosTargetOf(list);
-  const sosTargetId = sosTarget?.deviceId;
   // 长按未满 2 s 就松手：按钮果冻抖一下，提示"要按住"（可用性提示，不是装饰）
   const jello = useJello();
   const sosFired = useRef(false);
@@ -312,38 +328,48 @@ export default function SafetyScreen() {
         Alert.alert(translate("safety.dev.failed"), toUserMessage(e)),
       );
 
-  const lastSeenLine = viewed
-    ? viewed.lastSeenAt
-      ? t("safety.state.lastSeen", {
-          ago: relativeTime(viewed.lastSeenAt, locale),
-        })
-      : t("safety.state.neverSeen")
-    : "";
+  // 三项核对：正常时字尽量少（头盔只写名字、通知只写「通知」），不正常的那一项写明是什么问题
   const checks =
-    viewed && link
+    sosTarget && link
       ? [
-          { level: linkCheckLevelOf(link), label: t(linkLabelKey(link)) },
+          {
+            level: linkCheckLevelOf(link),
+            label: helmetNameOf(sosTarget),
+            a11y: `${helmetNameOf(sosTarget)}，${t(linkLabelKey(link))}`,
+          },
           notify === "granted"
-            ? { level: "ok" as const, label: t("safety.check.notifyOn") }
+            ? {
+                level: "ok" as const,
+                label: t("safety.check.notify"),
+                a11y: t("safety.check.notifyOn"),
+              }
             : notify === "denied"
-              ? { level: "bad" as const, label: t("safety.check.notifyOff") }
+              ? {
+                  level: "bad" as const,
+                  label: t("safety.check.notifyOff"),
+                  a11y: t("safety.check.notifyOff"),
+                }
               : {
                   level: "unknown" as const,
                   label: t("safety.check.notifyUnknown"),
+                  a11y: t("safety.check.notifyUnknown"),
                 },
           contactCount === null
             ? {
                 level: "unknown" as const,
                 label: t("safety.check.contactsUnknown"),
+                a11y: t("safety.check.contactsUnknown"),
               }
             : contactCount === 0
               ? {
                   level: "bad" as const,
                   label: t("safety.check.contactsNone"),
+                  a11y: t("safety.check.contactsNone"),
                 }
               : {
                   level: "ok" as const,
                   label: t("safety.check.contacts", { n: contactCount }),
+                  a11y: t("safety.check.contacts", { n: contactCount }),
                 },
         ]
       : undefined;
@@ -368,27 +394,25 @@ export default function SafetyScreen() {
           tone="warning"
           icon="cloud-offline-outline"
           title={t("safety.state.loadFailed")}
-          body={[t("safety.state.loadFailedBody")]}
+          body={t("safety.state.loadFailedBody")}
           actionLabel={t("safety.action.retry")}
           onAction={() => void helmets.refetch()}
-          emphasized
         />
       );
     }
     const state = protectionStateOf({ link, notify, contacts: contactCount });
-    if (state === "noHelmet" || !viewed || !link)
+    if (state === "noHelmet" || !sosTarget || !link)
       return (
         <StatusCard
           tone="warning"
           icon="shield-half-outline"
           title={t("safety.state.noHelmet")}
-          body={[t("safety.state.noHelmetBody")]}
+          body={t("safety.state.noHelmetBody")}
           actionLabel={t("safety.action.bind")}
-          onAction={() => router.push("/bind-device")}
-          emphasized
+          onAction={() => router.navigate("/bind-device")}
         />
       );
-    const openDetail = () => router.push(`/device/${viewed.deviceId}`);
+    const openDetail = () => router.navigate(`/device/${sosTarget.deviceId}`);
     switch (state) {
       case "linkDown":
         return (
@@ -397,20 +421,16 @@ export default function SafetyScreen() {
             tone={isLinkFault(link) ? "danger" : "warning"}
             icon="bluetooth-outline"
             title={t(linkLabelKey(link))}
-            body={[
-              t(
-                link === "bluetoothOff" || link === "bluetoothDenied"
-                  ? "safety.state.bluetoothBody"
-                  : link === "mismatch"
-                    ? "safety.state.mismatchBody"
-                    : "safety.state.linkDownBody",
-              ),
-              lastSeenLine,
-            ]}
+            body={t(
+              link === "bluetoothOff" || link === "bluetoothDenied"
+                ? "safety.state.bluetoothBody"
+                : link === "mismatch"
+                  ? "safety.state.mismatchBody"
+                  : "safety.state.linkDownBody",
+            )}
             checks={checks}
             actionLabel={t("safety.action.checkLink")}
             onAction={openDetail}
-            emphasized
           />
         );
       case "unknown":
@@ -419,18 +439,14 @@ export default function SafetyScreen() {
             tone="warning"
             icon="help-circle-outline"
             title={t("safety.state.unknown")}
-            body={[
-              t(
-                helmets.stale
-                  ? "safety.state.staleBody"
-                  : "safety.state.unknownBody",
-              ),
-              lastSeenLine,
-            ]}
+            body={t(
+              helmets.stale
+                ? "safety.state.staleBody"
+                : "safety.state.unknownBody",
+            )}
             checks={checks}
             actionLabel={t("safety.action.helmetDetail")}
             onAction={openDetail}
-            emphasized
           />
         );
       case "notifyOff":
@@ -439,11 +455,10 @@ export default function SafetyScreen() {
             tone="warning"
             icon="notifications-off-outline"
             title={t("safety.state.notifyOff")}
-            body={[t("safety.state.notifyOffBody")]}
+            body={t("safety.state.notifyOffBody")}
             checks={checks}
             actionLabel={t("safety.action.notifySettings")}
             onAction={() => void Linking.openSettings()}
-            emphasized
           />
         );
       case "noContacts":
@@ -452,23 +467,20 @@ export default function SafetyScreen() {
             tone="warning"
             icon="person-add-outline"
             title={t("safety.state.noContacts")}
-            body={[t("safety.state.noContactsBody")]}
+            body={t("safety.state.noContactsBody")}
             checks={checks}
             actionLabel={t("safety.action.addContact")}
-            onAction={() => router.push("/add-contact")}
-            emphasized
+            onAction={() => router.navigate("/add-contact")}
           />
         );
       default:
+        // 一切正常：只留结论和三项核对，不放说明也不放按钮
         return (
           <StatusCard
             tone="success"
             icon="shield-checkmark-outline"
             title={t("safety.state.ready")}
-            body={[lastSeenLine]}
             checks={checks}
-            actionLabel={t("safety.action.helmetDetail")}
-            onAction={openDetail}
           />
         );
     }
@@ -493,7 +505,7 @@ export default function SafetyScreen() {
               feedback="opacity"
               accessibilityRole="button"
               accessibilityLabel={t("safety.settingsA11y")}
-              onPress={() => router.push("/safety-settings")}
+              onPress={() => router.navigate("/safety-settings")}
               hitSlop={8}
               style={styles.settingsBtn}
             >
@@ -508,17 +520,7 @@ export default function SafetyScreen() {
             </Tappable>
           </View>
 
-          {viewed && (
-            <HelmetSwitcher
-              devices={list}
-              viewed={viewed}
-              links={links}
-              locked={pending.length > 0}
-              onSelect={helmets.select}
-            />
-          )}
-
-          {/* 有进行中的 SOS 时，状态卡的位置让给它：不管正在查看哪顶头盔，每一条都列出来并写明来源 */}
+          {/* 有进行中的 SOS 时，状态卡的位置让给它：哪顶头盔上的都列出来并写明来源 */}
           {pending.length > 0
             ? pending.map((sos) => (
                 <Card
@@ -559,7 +561,7 @@ export default function SafetyScreen() {
                     icon="warning-outline"
                     title={t("safety.action.openCountdown")}
                     onPress={() =>
-                      router.push(
+                      router.navigate(
                         `/sos-active?sosId=${sos.sosId}&deviceId=${sos.deviceId}`,
                       )
                     }
@@ -568,70 +570,10 @@ export default function SafetyScreen() {
               ))
             : statusCard()}
 
-          {viewed && (
-            <>
-              <View style={styles.sectionHead}>
-                <ThemedText
-                  type="smallBold"
-                  accessibilityRole="header"
-                  style={styles.sectionTitle}
-                >
-                  {t("safety.latestSos")}
-                </ThemedText>
-                <Tappable
-                  feedback="opacity"
-                  accessibilityRole="button"
-                  onPress={() => router.push("/safety-records?tab=sos")}
-                  hitSlop={8}
-                  style={styles.sectionAction}
-                >
-                  <ThemedText type="small" style={styles.sectionActionText}>
-                    {t("safety.viewRecords")}
-                  </ThemedText>
-                  <Ionicons
-                    name="chevron-forward"
-                    size={14}
-                    color={theme.textSecondary}
-                  />
-                </Tappable>
-              </View>
-              <Card>
-                {latestSos ? (
-                  <SosRecordRow record={latestSos} />
-                ) : sosRecords.isLoading ? (
-                  <View style={styles.recordRow}>
-                    <Skeleton width={36} height={36} radius={18} />
-                    <View style={styles.recordBody}>
-                      <Skeleton width="40%" height={15} />
-                      <Skeleton width="55%" height={12} />
-                    </View>
-                  </View>
-                ) : (
-                  <View style={styles.emptyRow}>
-                    <ThemedText type="small" themeColor="textSecondary">
-                      {/* 拉取失败不能说成「暂无」 */}
-                      {t(
-                        sosRecords.isError
-                          ? "safety.latestSosFailed"
-                          : "records.sosEmpty",
-                      )}
-                    </ThemedText>
-                  </View>
-                )}
-              </Card>
-            </>
-          )}
+          {sosTarget && <RecordsRow latest={latestSos} state={recordsState} />}
 
-          <ThemedText
-            type="small"
-            themeColor="textSecondary"
-            style={styles.footnote}
-          >
-            {t("safety.footnote")}
-          </ThemedText>
-
-          {/* 开发测试：经 app-relay 真实链路注入事件（仅 DEV 构建可见），注入到正在查看的头盔 */}
-          {__DEV__ && viewedId && (
+          {/* 开发测试：经 app-relay 真实链路注入事件（仅 DEV 构建可见），注入到当前头盔 */}
+          {__DEV__ && sosTargetId && (
             <View style={[styles.devBox, { borderColor: theme.border }]}>
               <Tappable
                 onPress={() => setDevOpen((v) => !v)}
@@ -650,7 +592,7 @@ export default function SafetyScreen() {
                 <View style={styles.devRow}>
                   <Tappable
                     style={[styles.devBtn, { backgroundColor: theme.dangerBg }]}
-                    onPress={() => void inject(viewedId, "possible_fall")}
+                    onPress={() => void inject(sosTargetId, "possible_fall")}
                   >
                     <ThemedText
                       type="smallBold"
@@ -664,7 +606,7 @@ export default function SafetyScreen() {
                       styles.devBtn,
                       { backgroundColor: theme.warningBg },
                     ]}
-                    onPress={() => void inject(viewedId, "collision_risk")}
+                    onPress={() => void inject(sosTargetId, "collision_risk")}
                   >
                     <ThemedText
                       type="smallBold"
@@ -679,31 +621,28 @@ export default function SafetyScreen() {
           )}
         </ScrollView>
 
+        {/* 「对讲中」小条放在 SOS 上方：不能挡住 SOS，也不能把它挤走 */}
+        <IntercomMiniBar style={styles.miniBar} />
+
         {/* 拇指区固定。有进行中的 SOS 时这里收起：处理入口是上面那张红框卡片 */}
         {sosTarget && pending.length === 0 && (
           <View style={[styles.bottomSos, { borderTopColor: theme.border }]}>
-            <View style={styles.sosTargetRow}>
-              <Ionicons
-                name="shield-half-outline"
-                size={14}
-                color={theme.textSecondary}
-              />
-              <ThemedText
-                type="small"
-                themeColor="textSecondary"
-                style={styles.sosTargetText}
-              >
-                {t("safety.sosTarget", { device: helmetNameOf(sosTarget) })}
-              </ThemedText>
-            </View>
-            {viewedId !== sosTargetId && (
-              <ThemedText
-                type="small"
-                themeColor="textSecondary"
-                style={styles.sosTargetNote}
-              >
-                {t("safety.sosTargetDiffers")}
-              </ThemedText>
+            {/* 只有一顶头盔时没有「记在谁名下」的疑问，这一行不出现 */}
+            {list.length > 1 && (
+              <View style={styles.sosTargetRow}>
+                <Ionicons
+                  name="shield-half-outline"
+                  size={14}
+                  color={theme.textSecondary}
+                />
+                <ThemedText
+                  type="small"
+                  themeColor="textSecondary"
+                  style={styles.sosTargetText}
+                >
+                  {t("safety.sosTarget", { device: helmetNameOf(sosTarget) })}
+                </ThemedText>
+              </View>
             )}
             <AnimatedPressable
               accessibilityRole="button"
@@ -776,6 +715,7 @@ export default function SafetyScreen() {
           </View>
         )}
       </SafeAreaView>
+      <SwitchHelmetPrompt />
     </ThemedView>
   );
 }
@@ -811,51 +751,18 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
-  statusAction: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-    minHeight: 44,
-    borderRadius: 10,
-    marginVertical: -4,
-  },
-  statusActionText: { fontSize: 14, flexShrink: 1 },
-  sectionHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-    paddingHorizontal: 4,
-    marginTop: 6,
-    marginBottom: -8,
-  },
-  sectionTitle: { fontSize: 16, flexShrink: 1 },
-  sectionAction: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-    minHeight: 44,
-    paddingLeft: 8,
-  },
-  sectionActionText: { fontSize: 14 },
-  recordRow: {
+  recordsRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    minHeight: 72,
+    paddingLeft: 16,
+    paddingRight: 12,
+    minHeight: 68,
   },
-  recordBody: { flex: 1, gap: 3, minWidth: 0 },
-  recordTitle: { fontSize: 15 },
-  recordTime: { fontSize: 13, lineHeight: 18 },
-  emptyRow: {
-    paddingHorizontal: 16,
-    paddingVertical: 22,
-    alignItems: "center",
-  },
-  footnote: { fontSize: 12, lineHeight: 19, paddingHorizontal: 2 },
+  recordsBody: { flex: 1, minWidth: 0 },
+  recordsTitle: { fontSize: 15, lineHeight: 20 },
+  recordsLine: { fontSize: 13, lineHeight: 18 },
+  miniBar: { paddingHorizontal: 12, paddingBottom: 10 },
   bottomSos: {
     paddingHorizontal: 20,
     paddingTop: 12,
@@ -870,7 +777,6 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   sosTargetText: { fontSize: 13, lineHeight: 18, flexShrink: 1 },
-  sosTargetNote: { fontSize: 12, lineHeight: 17, textAlign: "center" },
   drillLink: {
     alignSelf: "center",
     minHeight: 44,

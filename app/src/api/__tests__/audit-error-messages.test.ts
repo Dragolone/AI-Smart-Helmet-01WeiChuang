@@ -2,7 +2,7 @@
 // API.md §1.1「客户端只依赖 code」；未映射的码走 error.unknown 回落（显示「未知错误（CODE）」），
 // 不会露 key，但对用户无指导意义——本测试把当前缺口钉死，新增码时必须同步补文案。
 import { describe, expect, it } from '@jest/globals';
-import { toUserMessage } from '../error-messages';
+import { isTransientFailure, toUserMessage } from '../error-messages';
 import { ApiRequestError } from '../client';
 
 /** 由 `grep -rhoE "code: '[A-Z_]+'" backend/src` 得到（2026-09-13，HEAD 2295eef） */
@@ -48,5 +48,28 @@ describe('后端错误码 → App 文案', () => {
     const m = toUserMessage(new TypeError('Network request failed'));
     expect(m).not.toMatch(/未知|unknown/i);
     expect(m.length).toBeGreaterThan(1);
+  });
+});
+
+// 绑定页「重新扫码」要不要认同一个码，看的就是这个：码本身没问题的失败才值得原样再来一次。
+describe('失败是不是「原样再来一次可能就行」', () => {
+  it('没连上服务器（断网、超时）：是', () => {
+    expect(isTransientFailure(new TypeError('Network request failed'))).toBe(true);
+    const timeout = new Error('Aborted');
+    timeout.name = 'AbortError';
+    expect(isTransientFailure(timeout)).toBe(true);
+  });
+
+  it('被限频、服务器自己出错：是', () => {
+    expect(isTransientFailure(new ApiRequestError(429, { code: 'RATE_LIMITED' }, 40))).toBe(true);
+    expect(isTransientFailure(new ApiRequestError(500, { code: 'INTERNAL_ERROR' }))).toBe(true);
+    expect(isTransientFailure(new ApiRequestError(503, {}))).toBe(true);
+  });
+
+  it('服务端明确说不行（绑定码不对、已被绑定、设备不存在、登录失效）：不是', () => {
+    expect(isTransientFailure(new ApiRequestError(400, { code: 'BIND_CODE_INVALID' }))).toBe(false);
+    expect(isTransientFailure(new ApiRequestError(409, { code: 'DEVICE_ALREADY_BOUND' }))).toBe(false);
+    expect(isTransientFailure(new ApiRequestError(404, { code: 'DEVICE_NOT_FOUND' }))).toBe(false);
+    expect(isTransientFailure(new ApiRequestError(401, { code: 'UNAUTHORIZED' }))).toBe(false);
   });
 });

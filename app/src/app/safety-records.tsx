@@ -1,11 +1,12 @@
-// 安全记录（独立页，2026-10-06）：从安全首页「查看记录」进入，看的是「正在查看的头盔」的记录。
+// 安全记录（独立页，2026-10-06；2026-10-07 改为所有头盔排在一起）：从安全首页「安全记录」进入。
 // 两类记录分开展示、各走各的数据源，不统一叫「事故」：
 // - 风险提醒 = 头盔雷达类提醒及其解除（API.md §6）；
 // - SOS 记录 = 求救单及处理结果（API.md §7，含已取消的）。
-// 前身是「安全事件」页（事件列表 + 详情弹层）和「事故记录」列表页，合并到这里。
+// 所有头盔的记录按时间排成一份，绑了两顶以上时每条写明是哪一顶，分类下面有一排头盔名可以只看一顶。
+// 接口是按头盔取的：各取一遍后合并（services/safety-records.ts），没拿到的不当成「没有」。
 // 进行中的 SOS 不受头盔筛选影响：别的头盔上有一条正在倒计时，这一页顶部照样显示。
 import { Ionicons } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState, type ReactNode } from "react";
 import {
@@ -25,8 +26,8 @@ import { sosApi } from "@/api/sos";
 import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
 import { PrimaryButton } from "@/components/form";
-import { HelmetSwitcher, helmetNameOf } from "@/components/helmet-switcher";
 import { Card, IconCircle, type IconName } from "@/components/list";
+import { AnimatedChip } from "@/components/motion";
 import { Skeleton } from "@/components/skeleton";
 import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
@@ -44,7 +45,8 @@ import {
 } from "@/i18n";
 import { fullDateTime, shortDate, shortTime } from "@/i18n/format";
 import { readableEventFields } from "@/services/event-fields";
-import { linkLevelOf } from "@/services/safety-status";
+import { mergeRecords, type MergedRecords } from "@/services/safety-records";
+import { helmetNameOf, linkLevelOf } from "@/services/safety-status";
 
 type Translate = ReturnType<typeof useT>;
 type Tone = "danger" | "warning" | "success" | "neutral";
@@ -165,7 +167,7 @@ export default function SafetyRecordsScreen() {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  // 首页的「查看记录」带 tab=sos 进来（首页那一格放的是 SOS 记录）；不带参数时落在「风险提醒」
+  // 安全首页的「安全记录」带 tab=sos 进来（那一行写的是最近一条 SOS）；不带参数时落在「风险提醒」
   const params = useLocalSearchParams<{ tab?: string }>();
   const [tab, setTab] = useState<RecordTab>(
     params.tab === "sos" ? "sos" : "alerts",
@@ -173,38 +175,62 @@ export default function SafetyRecordsScreen() {
   const [detailId, setDetailId] = useState<string | null>(null);
 
   const helmets = useHelmets();
-  const { list, viewed } = helmets;
+  const { list } = helmets;
   const links = useHelmetLinks(list, !helmets.stale);
   const pending = usePendingSos(list.map((d) => d.deviceId));
-  const viewedId = viewed?.deviceId;
   const several = list.length > 1;
   const nameOfDevice = (deviceId: string) =>
     helmetNameOf(
       list.find((d) => d.deviceId === deviceId) ?? { name: null, deviceId },
     );
+  // 只看哪一顶：null = 全部。选过的那顶已经解绑时回到全部
+  const [picked, setPicked] = useState<string | null>(null);
+  const only = several
+    ? (list.find((d) => d.deviceId === picked) ?? null)
+    : (list[0] ?? null);
 
-  const alerts = useQuery({
-    ...eventsListQuery(viewedId ?? "", {
-      type: RISK_ALERT_TYPE_PARAM,
-      pageSize: 50,
-    }),
-    enabled: !!viewedId,
-    refetchInterval: 30_000,
+  // 每顶头盔各取一份（缓存键与此前相同：实时通道按前缀失效，use-realtime）；筛选只决定显示哪几份
+  const alertQueries = useQueries({
+    queries: list.map((d) => ({
+      ...eventsListQuery(d.deviceId, {
+        type: RISK_ALERT_TYPE_PARAM,
+        pageSize: 50,
+      }),
+      refetchInterval: 30_000,
+    })),
   });
-  // 与此前事故列表同一个缓存键：实时通道收到 sos_update 时按前缀失效（use-realtime）
-  const sosRecords = useQuery({
-    queryKey: ["accidents", viewedId],
-    queryFn: () => sosApi.accidents(viewedId!),
-    enabled: !!viewedId,
+  const sosQueries = useQueries({
+    queries: list.map((d) => ({
+      queryKey: ["accidents", d.deviceId],
+      queryFn: () => sosApi.accidents(d.deviceId),
+    })),
   });
-  const current = tab === "alerts" ? alerts : sosRecords;
+  const shown = (i: number) => !only || list[i].deviceId === only.deviceId;
+  const alerts = mergeRecords(
+    alertQueries
+      .map((q, i) => ({ ...q, deviceId: list[i].deviceId }))
+      .filter((_, i) => shown(i)),
+    (e: EventListItem) => e.timestamp,
+  );
+  const sosRecords = mergeRecords(
+    sosQueries
+      .map((q, i) => ({ ...q, deviceId: list[i].deviceId }))
+      .filter((_, i) => shown(i)),
+    (a: AccidentListItem) => a.createdAt,
+  );
+  const refetchRecords = () =>
+    Promise.all(
+      (tab === "alerts" ? alertQueries : sosQueries)
+        .filter((_, i) => shown(i))
+        .map((q) => q.refetch()),
+    );
 
   // 只由手势驱动：绑到 isRefetching 的话，30 秒轮询也会拉出转圈（设备页同一口径）
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = async () => {
     setRefreshing(true);
     try {
-      await Promise.all([helmets.refetch(), current.refetch()]);
+      await Promise.all([helmets.refetch(), refetchRecords()]);
     } finally {
       setRefreshing(false);
     }
@@ -250,7 +276,13 @@ export default function SafetyRecordsScreen() {
       borderBottomColor: theme.border,
     };
 
-  const alertRow = (e: EventListItem, last: boolean) => {
+  // 绑了两顶以上时每条写明是哪一顶，名字放在时间前面：竖着扫一眼就能分出是谁的
+  const subOf = (deviceId: string, iso: string) =>
+    several
+      ? `${nameOfDevice(deviceId)} · ${shortTime(iso, locale)}`
+      : shortTime(iso, locale);
+
+  const alertRow = (e: EventListItem, deviceId: string, last: boolean) => {
     const meta = EVENT_META[e.eventType];
     const c = toneColor(meta?.tone ?? "neutral");
     return (
@@ -275,8 +307,9 @@ export default function SafetyRecordsScreen() {
             type="small"
             themeColor="textSecondary"
             style={styles.rowSub}
+            numberOfLines={1}
           >
-            {shortTime(e.timestamp, locale)}
+            {subOf(deviceId, e.timestamp)}
           </ThemedText>
         </View>
         <Ionicons
@@ -288,7 +321,7 @@ export default function SafetyRecordsScreen() {
     );
   };
 
-  const sosRow = (a: AccidentListItem, last: boolean) => {
+  const sosRow = (a: AccidentListItem, deviceId: string, last: boolean) => {
     const status =
       a.status === "pending"
         ? { variant: "danger" as const, label: t("safety.status.pending") }
@@ -303,7 +336,7 @@ export default function SafetyRecordsScreen() {
         key={a.sosId}
         feedback="fill"
         accessibilityRole="button"
-        onPress={() => router.push(`/accident/${a.sosId}`)}
+        onPress={() => router.navigate(`/accident/${a.sosId}`)}
         style={[styles.row, rowBorder(last)]}
       >
         <IconCircle
@@ -328,8 +361,9 @@ export default function SafetyRecordsScreen() {
             type="small"
             themeColor="textSecondary"
             style={styles.rowSub}
+            numberOfLines={1}
           >
-            {shortTime(a.createdAt, locale)}
+            {subOf(deviceId, a.createdAt)}
           </ThemedText>
         </View>
         <Badge variant={status.variant} label={status.label} />
@@ -353,48 +387,41 @@ export default function SafetyRecordsScreen() {
     </ThemedText>
   );
 
-  /** 一类记录的列表：加载中 / 加载失败 / 空 / 按天分组。加载失败不显示成「暂无记录」 */
+  /** 一类记录的列表：加载中 / 加载失败 / 空 / 按天分组。没拿全的不显示成「暂无记录」 */
   function recordList<T>(opts: {
-    query: {
-      data?: { items: T[]; total: number };
-      isError: boolean;
-      error: unknown;
-      refetch: () => unknown;
-    };
+    merged: MergedRecords<T>;
     timeOf: (x: T) => string;
-    renderRow: (x: T, last: boolean) => ReactNode;
+    renderRow: (x: T, deviceId: string, last: boolean) => ReactNode;
     emptyTitle: MessageKey;
     notes: string[];
   }) {
-    const { query } = opts;
-    const data = query.data;
-    if (!data) {
-      if (query.isError)
-        return (
-          <EmptyState
-            icon="cloud-offline-outline"
-            title={t("records.loadFailed")}
-            body={toUserMessage(query.error)}
-            actionLabel={t("safety.action.retry")}
-            onAction={() => void query.refetch()}
-          />
-        );
-      return <ListSkeleton />;
+    const { merged } = opts;
+    const failedState = (
+      <EmptyState
+        icon="cloud-offline-outline"
+        title={t("records.loadFailed")}
+        body={toUserMessage(merged.error)}
+        actionLabel={t("safety.action.retry")}
+        onAction={() => void refetchRecords()}
+      />
+    );
+    if (merged.status === "loading") return <ListSkeleton />;
+    if (merged.status === "failed") return failedState;
+    if (merged.rows.length === 0) {
+      // 还有头盔的列表没拿到：先别说「暂无」
+      if (merged.incomplete)
+        return merged.error ? failedState : <ListSkeleton />;
+      return <EmptyState icon="file-tray-outline" title={t(opts.emptyTitle)} />;
     }
-    if (data.items.length === 0)
-      return (
-        <EmptyState
-          icon="file-tray-outline"
-          title={t(opts.emptyTitle)}
-          // 只说这顶头盔：绑了多顶时补一句，免得被读成「所有头盔都没有记录」
-          body={several ? t("records.emptyOtherHelmets") : undefined}
-        />
-      );
     return (
       <>
-        {query.isError &&
-          note(`${t("records.loadFailed")}：${toUserMessage(query.error)}`)}
-        {groupByDay(data.items, opts.timeOf).map((g) => (
+        {merged.error != null &&
+          note(
+            t("records.partialFailed", {
+              reason: toUserMessage(merged.error),
+            }),
+          )}
+        {groupByDay(merged.rows, (r) => opts.timeOf(r.item)).map((g) => (
           <View key={g.key} style={styles.group}>
             <ThemedText
               type="small"
@@ -404,17 +431,17 @@ export default function SafetyRecordsScreen() {
               {dayHeaderOf(g.iso, locale, t)}
             </ThemedText>
             <Card>
-              {g.items.map((x, i) =>
-                opts.renderRow(x, i === g.items.length - 1),
+              {g.items.map((r, i) =>
+                opts.renderRow(r.item, r.deviceId, i === g.items.length - 1),
               )}
             </Card>
           </View>
         ))}
-        {data.total > data.items.length &&
+        {merged.total > merged.rows.length &&
           note(
             t("records.truncated", {
-              n: data.items.length,
-              total: data.total,
+              n: merged.rows.length,
+              total: merged.total,
             }),
           )}
         {opts.notes.map(note)}
@@ -437,7 +464,7 @@ export default function SafetyRecordsScreen() {
         );
       return <ListSkeleton />;
     }
-    if (!viewed)
+    if (list.length === 0)
       return (
         <EmptyState
           icon="shield-half-outline"
@@ -445,16 +472,17 @@ export default function SafetyRecordsScreen() {
           body={t("records.noHelmetBody")}
         />
       );
-    const linkDown = linkLevelOf(links[viewed.deviceId]) === "down";
+    // 「连接断开期间收不到新事件」只在看单独一顶、且它没连着时说
+    const linkDown = !!only && linkLevelOf(links[only.deviceId]) === "down";
+    const chips = [
+      { id: null as string | null, label: t("records.allHelmets") },
+      ...list.map((d) => ({
+        id: d.deviceId as string | null,
+        label: helmetNameOf(d),
+      })),
+    ];
     return (
       <>
-        <HelmetSwitcher
-          devices={list}
-          viewed={viewed}
-          links={links}
-          locked={pending.length > 0}
-          onSelect={helmets.select}
-        />
         <View
           accessibilityRole="tablist"
           style={[styles.tabs, { borderBottomColor: theme.border }]}
@@ -483,26 +511,48 @@ export default function SafetyRecordsScreen() {
             );
           })}
         </View>
+        {/* 只有一顶头盔时没有可筛的，这一排不出现 */}
+        {several && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            accessibilityLabel={t("records.filterA11y")}
+            style={styles.chipsScroll}
+            contentContainerStyle={styles.chips}
+          >
+            {chips.map((c) => (
+              <AnimatedChip
+                key={c.id ?? "all"}
+                active={(only?.deviceId ?? null) === c.id}
+                onPress={() => setPicked(c.id)}
+                label={c.label}
+                activeBg={theme.text}
+                inactiveBg={theme.background}
+                activeFg={theme.background}
+                inactiveFg={theme.text}
+                borderActive={theme.text}
+                borderInactive={theme.borderStrong}
+                style={styles.chip}
+              />
+            ))}
+          </ScrollView>
+        )}
         {tab === "alerts"
           ? recordList({
-              query: alerts,
+              merged: alerts,
               timeOf: (e) => e.timestamp,
               renderRow: alertRow,
-              emptyTitle: "records.alertsEmpty",
-              notes: [
-                ...(several ? [t("records.onlyThisHelmet")] : []),
-                ...(linkDown ? [t("records.linkDownNote")] : []),
-              ],
+              emptyTitle: only
+                ? "records.alertsEmpty"
+                : "records.alertsEmptyAll",
+              notes: linkDown ? [t("records.linkDownNote")] : [],
             })
           : recordList({
-              query: sosRecords,
+              merged: sosRecords,
               timeOf: (a) => a.createdAt,
               renderRow: sosRow,
-              emptyTitle: "records.sosEmpty",
-              notes: [
-                ...(several ? [t("records.onlyThisHelmet")] : []),
-                t("records.sosNote"),
-              ],
+              emptyTitle: only ? "records.sosEmpty" : "records.sosEmptyAll",
+              notes: [t("records.sosNote")],
             })}
       </>
     );
@@ -528,7 +578,7 @@ export default function SafetyRecordsScreen() {
             feedback="opacity"
             accessibilityRole="button"
             onPress={() =>
-              router.push(
+              router.navigate(
                 `/sos-active?sosId=${sos.sosId}&deviceId=${sos.deviceId}`,
               )
             }
@@ -656,7 +706,7 @@ export default function SafetyRecordsScreen() {
                       const at = d.timestamp;
                       const dev = d.deviceId;
                       setDetailId(null);
-                      router.push({
+                      router.navigate({
                         pathname: "/map",
                         params: { deviceId: dev, at },
                       });
@@ -700,6 +750,16 @@ const styles = StyleSheet.create({
     minHeight: 46,
     justifyContent: "center",
     borderBottomWidth: 2,
+  },
+  // 左右各伸出 20 到屏幕边：头盔多了横向滑动时不被页面内边距切一刀
+  chipsScroll: { marginHorizontal: -20, flexGrow: 0 },
+  chips: { paddingHorizontal: 20, gap: 8, alignItems: "center", minHeight: 44 },
+  chip: {
+    height: 34,
+    paddingHorizontal: 14,
+    borderRadius: 17,
+    borderWidth: 1,
+    justifyContent: "center",
   },
   group: { gap: 8 },
   dayHeader: { fontSize: 12, lineHeight: 16, paddingHorizontal: 4 },

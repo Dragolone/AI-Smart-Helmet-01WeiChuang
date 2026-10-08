@@ -15,15 +15,33 @@ const SECURITY_CODE = process.env.EXPO_PUBLIC_AMAP_JS_SECURITY_CODE ?? "";
 const ACCENT = Colors.dark.brand;
 const ACCENT_LIGHT = Colors.light.brand;
 
+/** 轨迹上的标记：一趟的起点、终点，和途中的安全事件 */
+export interface MapMark extends LngLat {
+  kind: "start" | "end" | "event";
+  /** 事件标记里写什么：并了几个事件时写条数；不给就是一个感叹号 */
+  label?: string;
+}
+
+export interface TrackOptions {
+  /** 把视野收进轨迹范围；默认 true。实时模式下定时刷新当前这一趟的线时传 false，不跟「跟随」抢镜头 */
+  fit?: boolean;
+  /** 收视野时四边各让出多少（上、下、左、右，dp）：底部抽屉和顶部药丸盖住的地方不算可见 */
+  pad?: [number, number, number, number];
+}
+
 export interface AmapViewHandle {
   /** 移动头盔 Marker（实时位置或回放位置共用）；follow 时镜头平滑跟随 */
   setHelmet(pos: LngLat, opts?: { follow?: boolean }): void;
-  /** 画整条轨迹（荧光双层线）并把视野收进轨迹范围 */
-  setTrack(path: LngLat[]): void;
+  /** 画整条轨迹（荧光双层线），默认把视野收进轨迹范围 */
+  setTrack(path: LngLat[], opts?: TrackOptions): void;
   clearTrack(): void;
   setCenter(pos: LngLat, zoom?: number): void;
   /** 离线：Marker 变灰、停波纹；上线恢复 */
   setHelmetOnline(online: boolean): void;
+  /** 回放中：Marker 不放波纹（波纹只表示「这是实时位置」） */
+  setHelmetReplay(replay: boolean): void;
+  /** 换掉轨迹上的全部标记；传空数组 = 清空 */
+  setMarks(marks: MapMark[]): void;
 }
 
 interface Props {
@@ -43,10 +61,20 @@ interface Props {
 
 type Cmd =
   | { type: "helmet"; lng: number; lat: number; follow: boolean }
-  | { type: "track"; path: [number, number][] }
+  | {
+      type: "track";
+      path: [number, number][];
+      fit: boolean;
+      pad: [number, number, number, number];
+    }
   | { type: "clearTrack" }
   | { type: "center"; lng: number; lat: number; zoom?: number }
   | { type: "helmetState"; online: boolean }
+  | { type: "helmetReplay"; replay: boolean }
+  | {
+      type: "marks";
+      items: { lng: number; lat: number; kind: string; label: string }[];
+    }
   | { type: "avatar"; url: string | null };
 
 // 默认视野：深圳（设备无数据时的兜底画面）
@@ -57,17 +85,23 @@ const HTML = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
 <style>
   html, body, #map { height: 100%; margin: 0; background: #0B0C0E; }
-  /* 底图压暗去蓝调（对齐 design/map.png 近黑风格）：只作用于瓦片/线条画布，
-     DOM Marker 不受影响；轨迹线亮度损失由更亮的描边色补偿。
+  /* 底图压暗去蓝调（对齐 design/map.png 近黑风格）：只压底图那一张画布（.amap-layers 的直接子画布）。
+     DOM Marker 不受影响；轨迹画在另一张画布上（见下面的 trackLayer），也不受影响。
      仅 Android 应用——iOS WKWebView 对 canvas CSS 滤镜的合成有缺陷，会把整块画布渲染成黑屏
-     （2026-08-16 模拟器实证），iOS 用高德原生暗色样式原样呈现。 */
-  body.with-canvas-filter #map canvas { filter: saturate(0.35) brightness(0.85) contrast(1.08); }
-  /* iOS：WebKit 下 JS API 不走矢量渲染、amap 暗色样式失效（webgl=true 仍如此，2026-08-16 实证）。
-     退而求其次在容器层做暗化（canvas 层挂滤镜在 WKWebView 必黑屏，容器层合成路径不同）；
-     Marker/轨迹同被压暗，由更亮的描边色与荧光补偿。 */
-  body.ios-dark #map { filter: invert(0.88) hue-rotate(180deg) saturate(0.5) brightness(1.05); }
-  /* iOS 下 Marker 不做反向滤镜（WebKit 嵌套滤镜+动画子层合成不可靠，实测失效）：
-     改由 JS 设置预反色 CSS 变量，让容器反色把 Marker 反成目标配色 */
+     （2026-08-16 模拟器实证）。 */
+  body.with-canvas-filter #map .amap-layers > canvas { filter: saturate(0.35) brightness(0.85) contrast(1.08); }
+  /* iOS：WebKit 下 JS API 不走矢量渲染、amap 暗色样式失效（webgl=true 仍如此，2026-08-16 实证），
+     底图只能自己压暗。做法（2026-10-08 起）：在底图画布上面盖一层只带 backdrop-filter 的透明层 #dim，
+     它只改「压在它下面的东西」——底图；排在它上面的轨迹画布和 Marker 原样显示，品牌色是多少就是多少。
+     此前是给整个 #map 容器挂滤镜：轨迹和 Marker 一起被反色，只能用「预反色」的颜色去凑，
+     而反色 + 转色相保不住亮度，亮黄怎么凑都只能得到橄榄绿（负责人 2026-10-08 iPhone：
+     头像旁的颜色和轨迹不是品牌黄）。 */
+  #dim { position: absolute; left: 0; top: 0; right: 0; bottom: 0; z-index: 1; pointer-events: none;
+    -webkit-backdrop-filter: invert(0.88) hue-rotate(180deg) saturate(0.5) brightness(1.05);
+    backdrop-filter: invert(0.88) hue-rotate(180deg) saturate(0.5) brightness(1.05); }
+  /* 退路：系统不认 backdrop-filter 时仍给整个容器挂滤镜（Marker / 轨迹用预反色的颜色，颜色会偏暗）。
+     这时 Marker 不做反向滤镜（WebKit 嵌套滤镜+动画子层合成不可靠，实测失效） */
+  body.ios-dark-legacy #map { filter: invert(0.88) hue-rotate(180deg) saturate(0.5) brightness(1.05); }
   .hm { position: relative; width: 64px; height: 72px; }
   .hm .ring { position: absolute; left: 4px; top: 4px; width: 56px; height: 56px;
     border-radius: 50%; border: 1.5px solid var(--neon, ${ACCENT}); opacity: 0;
@@ -79,20 +113,28 @@ const HTML = `<!doctype html>
     100% { transform: scale(1.3); opacity: 0; }
   }
   .hm .badge { position: absolute; left: 50%; top: 32px; width: 42px; height: 42px;
-  .hm.off .badge { filter: grayscale(1); opacity: .55; }
-  .hm.off .ring { display: none; }
-  .hm.off .tip { opacity: .4; }
     transform: translate(-50%, -50%); border-radius: 50%;
     background: var(--badge, #17181B); border: 2.5px solid var(--neon, ${ACCENT});
     display: flex; align-items: center; justify-content: center;
     box-shadow: 0 0 18px var(--neon, ${ACCENT}); }
+  /* 离线：变灰、停波纹。这三条原先被插在上面 .badge 那条规则的花括号里面，从来没有生效过（2026-10-07 挪出来） */
+  .hm.off .badge { filter: grayscale(1); opacity: .55; }
+  .hm.off .ring { display: none; }
+  .hm.off .tip { opacity: .4; }
+  .hm.replay .ring { display: none; }
   .hm .badge img.av { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
-  /* iOS 暗色：容器整体 invert 会把照片反色，头像自身再反一次抵消（静态滤镜，不含动画子层） */
+  /* iOS 暗色的退路（整个容器挂滤镜）：容器整体 invert 会把照片反色，头像自身再反一次抵消（静态滤镜，不含动画子层） */
   .hm .badge img.av.inv { filter: invert(1) hue-rotate(180deg); }
   /* 锚点荧光小圆点（map.png 的 Marker 底部落点） */
   .hm .tip { position: absolute; left: 50%; top: 60px; width: 10px; height: 10px;
     transform: translate(-50%, -50%); border-radius: 50%;
     background: var(--neon, ${ACCENT}); box-shadow: 0 0 10px var(--neon, ${ACCENT}); }
+  /* 轨迹上的标记：起点空心、终点实心、途中的安全事件是提醒色圆点 */
+  .mk { box-sizing: border-box; border-radius: 50%; }
+  .mk.start { width: 14px; height: 14px; background: var(--el); border: 3px solid var(--neon, ${ACCENT}); }
+  .mk.end { width: 14px; height: 14px; background: var(--neon, ${ACCENT}); border: 3px solid var(--el); }
+  .mk.event { width: 26px; height: 26px; background: var(--warn); border: 3px solid var(--el);
+    color: var(--el); font: 800 13px/20px -apple-system, "PingFang SC", sans-serif; text-align: center; }
 </style>
 <script>
   window._AMapSecurityConfig = { securityJsCode: '${SECURITY_CODE}' };
@@ -116,21 +158,28 @@ const HTML = `<!doctype html>
 try {
   if (typeof AMap === 'undefined') throw new Error(i18n('noAmap'));
   var LIGHT = !!window.__LIGHT;
-  var MAP_STYLE = LIGHT ? 'amap://styles/normal' : 'amap://styles/dark';
+  var IOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  var BACKDROP_OK = !!(window.CSS && CSS.supports &&
+    (CSS.supports('backdrop-filter', 'invert(1)') || CSS.supports('-webkit-backdrop-filter', 'invert(1)')));
+  // iOS 深色：暗色样式在 WebKit 上不生效，底图一律按普通样式要、再自己压暗（见上面 #dim 的说明）。
+  // 明确要普通样式而不是「要了暗色、指望它不生效」：哪天暗色样式在 iOS 上生效了，再反一次色就成了浅灰底图
+  var IOS_DARK = !LIGHT && IOS;
+  var IOS_DARK_LEGACY = IOS_DARK && !BACKDROP_OK;
+  var MAP_STYLE = LIGHT || IOS_DARK ? 'amap://styles/normal' : 'amap://styles/dark';
   document.documentElement.style.background = LIGHT ? '#F4F5F7' : '#0B0C0E';
   document.body.style.background = LIGHT ? '#F4F5F7' : '#0B0C0E';
   if (!LIGHT) {
-    if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
-      document.body.classList.add('ios-dark');
-    } else {
-      document.body.classList.add('with-canvas-filter');
-    }
+    document.body.classList.add(IOS_DARK_LEGACY ? 'ios-dark-legacy' : IOS_DARK ? 'ios-dark' : 'with-canvas-filter');
   }
-  var IOS_DARK = document.body.classList.contains('ios-dark');
-  // 预反色调色板：iOS 端颜色经容器 invert+hue-rotate 后近似回到品牌荧光/深徽章
-  document.body.style.setProperty('--neon', IOS_DARK ? '#A5B50D' : (LIGHT ? '${ACCENT_LIGHT}' : '${ACCENT}'));
-  document.body.style.setProperty('--badge', IOS_DARK ? '#F2F3F6' : '#17181B');
-  var ICON_FILL = IOS_DARK ? '#0B0C0E' : '#F4F5F7';
+  // 调色板：品牌色 / 深徽章 / 标记底色 / 提醒色，和 App 主题一致。
+  // 只有退路（整个容器挂滤镜）才用预反色的那一套：经容器 invert+hue-rotate 后近似回到目标色
+  var NEON = IOS_DARK_LEGACY ? '#A5B50D' : (LIGHT ? '${ACCENT_LIGHT}' : '${ACCENT}');
+  document.body.style.setProperty('--neon', NEON);
+  document.body.style.setProperty('--badge', IOS_DARK_LEGACY ? '#F2F3F6' : '#17181B');
+  //（退路下提醒色反不回原样——容器滤镜带 saturate(0.5)，取能得到的最接近的暖色）
+  document.body.style.setProperty('--el', LIGHT ? '${Colors.light.backgroundElement}' : (IOS_DARK_LEGACY ? '#F2F3F6' : '${Colors.dark.backgroundElement}'));
+  document.body.style.setProperty('--warn', LIGHT ? '${Colors.light.warning}' : (IOS_DARK_LEGACY ? '#C62E00' : '${Colors.dark.warning}'));
+  var ICON_FILL = IOS_DARK_LEGACY ? '#0B0C0E' : '#F4F5F7';
   var map = new AMap.Map('map', {
     mapStyle: MAP_STYLE,
     // 纯监控底图（对齐 design/map.png）：不渲染 POI 点标注层
@@ -140,15 +189,17 @@ try {
   });
   // Marker 按 map.png：暗色圆徽章（白色头盔图标）+ 荧光描边 + 波纹 + 底部荧光落点
   var helmetOnline = true;
+  var helmetReplay = false;
   var avatarUrl = null;
+  var marks = [];
   var HELMET_SVG = '<svg viewBox="0 0 24 24" width="24" height="24" fill="' + ICON_FILL + '">' +
     '<path d="M12 4a8 8 0 0 0-8 8v3.5A1.5 1.5 0 0 0 5.5 17H7l1.2 2.2c.3.5.8.8 1.4.8h4.8c.6 0 1.1-.3 1.4-.8L17 17h1.5a1.5 1.5 0 0 0 1.5-1.5V12a8 8 0 0 0-8-8Zm-6 8a6 6 0 0 1 12 0v1H6Z"/></svg>';
   // 徽章内容：有头像用头像（圆形裁切），否则头盔图标；src 经 encodeURI 防止引号截断标签
   function helmetHtml() {
     var inner = avatarUrl
-      ? '<img class="av' + (IOS_DARK ? ' inv' : '') + '" src="' + String(avatarUrl).replace(/"/g, '&quot;') + '" alt="">'
+      ? '<img class="av' + (IOS_DARK_LEGACY ? ' inv' : '') + '" src="' + String(avatarUrl).replace(/"/g, '&quot;') + '" alt="">'
       : HELMET_SVG;
-    return '<div class="hm' + (helmetOnline ? '' : ' off') + '"><div class="ring"></div><div class="ring r2"></div><div class="ring r3"></div>' +
+    return '<div class="hm' + (helmetOnline ? '' : ' off') + (helmetReplay ? ' replay' : '') + '"><div class="ring"></div><div class="ring r2"></div><div class="ring r3"></div>' +
       '<div class="tip"></div><div class="badge">' + inner + '</div></div>';
   }
   var helmet = new AMap.Marker({
@@ -159,26 +210,70 @@ try {
     zIndex: 120,
   });
   var helmetShown = false;
-  // 辉光轨迹（三层）：最宽淡光晕 + 中层柔光 + 细亮主线；亮色补偿画布压暗。
+  // iOS 深色：把压暗底图的那一层放到底图画布上面（z-index 1：在轨迹画布 100、Marker 120 之下）。
+  // 地图换样式时这一层可能被重建掉，所以每次 complete / 定时补设样式时都确认一遍它还在
+  function ensureDim() {
+    if (!IOS_DARK || IOS_DARK_LEGACY) return;
+    var layers = document.querySelector('#map .amap-layers');
+    if (!layers) return;
+    var dim = document.getElementById('dim');
+    if (dim && dim.parentNode === layers) return;
+    if (!dim) { dim = document.createElement('div'); dim.id = 'dim'; }
+    layers.appendChild(dim);
+  }
+  // 辉光轨迹（三层）：最宽淡光晕 + 中层柔光 + 细主线，画在单独的一张画布上（高德的自定义图层）。
+  // 不用 AMap.Polyline：它和底图画在同一张画布里，底图一压暗 / 反色，线的颜色跟着变——
+  // Android 深色下被去掉六成多饱和度，iOS 深色下成了橄榄绿，都不是品牌色（2026-10-08）。
+  // 自定义图层的画布是 .amap-layers 里单独的一层（在底图画布之上、Marker 之下），
+  // 高德每一帧视野变化都会回调 render，线和底图是一起动的。
+  var LINE = IOS_DARK_LEGACY ? '#A5B50D' : NEON;
+  var LINE_MAIN = IOS_DARK_LEGACY ? '#ABAB00' : NEON;
+  var trackCanvas = document.createElement('canvas');
+  trackCanvas.style.pointerEvents = 'none';
+  var trackLayer = null;
+  var trackPath = null;
+  var trackShown = false;
+  function drawTrack() {
+    var size = map.getSize();
+    var w = size.width, h = size.height;
+    var dpr = Math.min(window.devicePixelRatio || 1, 3);
+    var pw = Math.round(w * dpr), ph = Math.round(h * dpr);
+    if (trackCanvas.width !== pw || trackCanvas.height !== ph) {
+      trackCanvas.width = pw; trackCanvas.height = ph;
+      trackCanvas.style.width = w + 'px'; trackCanvas.style.height = h + 'px';
+    }
+    var ctx = trackCanvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    if (!trackShown || !trackPath || trackPath.length < 2) return;
+    var n = trackPath.length, xs = new Array(n), ys = new Array(n);
+    for (var i = 0; i < n; i++) {
+      var q = map.lngLatToContainer(trackPath[i]);
+      xs[i] = q.x; ys[i] = q.y;
+    }
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    // 浅色底图上先垫一道深色细边：亮黄压在白色 / 浅绿的地块上，光靠颜色分不出来
+    var passes = LIGHT
+      ? [[12, 0.12, LINE], [6.5, 0.3, '#151804'], [4, 1, LINE_MAIN]]
+      : [[12, 0.1, LINE], [7, 0.24, LINE], [4, 1, LINE_MAIN]];
+    for (var k = 0; k < passes.length; k++) {
+      ctx.lineWidth = passes[k][0]; ctx.globalAlpha = passes[k][1]; ctx.strokeStyle = passes[k][2];
+      ctx.beginPath();
+      ctx.moveTo(xs[0], ys[0]);
+      for (var j = 1; j < n; j++) ctx.lineTo(xs[j], ys[j]);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+  // 留一条看不见的 AMap.Polyline 只给 setFitView 用（按轨迹定视野），显示全靠上面那张画布。
   // 懒创建：JS API 2.0 对空 path 构造会报 "error Polyline path"，首次收到轨迹再建。
-  var glowHalo = null, glowOuter = null, glowInner = null;
-  // iOS 容器反色会波及 canvas 轨迹线：用"预反色"颜色让最终呈现仍近似荧光柠檬
-  var LINE_SOFT = IOS_DARK ? '#A5B50D' : '${ACCENT}';
-  var LINE_MAIN = IOS_DARK ? '#ABAB00' : '#E9FF54';
-  function ensurePolylines() {
-    if (glowInner) return;
-    glowHalo = new AMap.Polyline({
-      map: map, strokeColor: LINE_SOFT, strokeWeight: 12,
-      strokeOpacity: 0.1, lineJoin: 'round', lineCap: 'round', zIndex: 98,
-    });
-    glowOuter = new AMap.Polyline({
-      map: map, strokeColor: LINE_SOFT, strokeWeight: 7,
-      strokeOpacity: 0.24, lineJoin: 'round', lineCap: 'round', zIndex: 100,
-    });
-    glowInner = new AMap.Polyline({
-      map: map, strokeColor: LINE_MAIN, strokeWeight: 4,
-      strokeOpacity: 1, lineJoin: 'round', lineCap: 'round', zIndex: 110,
-    });
+  var fitLine = null;
+  function ensureTrackLayer() {
+    if (trackLayer) return;
+    fitLine = new AMap.Polyline({ map: map, strokeOpacity: 0, strokeWeight: 1, zIndex: 1 });
+    trackLayer = new AMap.CustomLayer(trackCanvas, { zooms: [2, 22], alwaysRender: true, zIndex: 100 });
+    trackLayer.render = drawTrack;
+    map.add(trackLayer);
   }
   // ready 重发兜底：complete 可能早于 RN 消息通道就绪，首发丢失会让所有命令永远排队。
   // 重发数次由 RN 侧幂等消化。
@@ -190,11 +285,13 @@ try {
   // iOS WKWebView 偶发初始化期样式配置未生效（Android 正常）：complete 后与延时各补设一次
   map.on('complete', function () {
     map.setMapStyle(MAP_STYLE);
+    ensureDim();
     post({ type: 'ready' });
   });
   // 用户手势拖图(程序 panTo/setCenter 不触发 dragstart)→ 上报供"退出跟随"用
   map.on('dragstart', function () { post({ type: 'userpan' }); });
-  setTimeout(function () { map.setMapStyle(MAP_STYLE); }, 2500);
+  setTimeout(function () { map.setMapStyle(MAP_STYLE); ensureDim(); }, 2500);
+  ensureDim();
 
   window.__cmd = function (cmd) {
     try {
@@ -205,14 +302,14 @@ try {
         if (cmd.follow) map.panTo(p);
       } else if (cmd.type === 'track') {
         if (!cmd.path.length) return;
-        ensurePolylines();
-        glowHalo.setPath(cmd.path); glowHalo.show();
-        glowOuter.setPath(cmd.path); glowOuter.show();
-        glowInner.setPath(cmd.path); glowInner.show();
-        if (cmd.path.length > 1) map.setFitView([glowInner], true, [70, 70, 70, 70]);
+        ensureTrackLayer();
+        ensureDim();
+        trackPath = cmd.path; trackShown = true;
+        fitLine.setPath(cmd.path);
+        drawTrack();
+        if (cmd.fit && cmd.path.length > 1) map.setFitView([fitLine], true, cmd.pad);
       } else if (cmd.type === 'clearTrack') {
-        // setPath([]) 在 AMap 2.0 上不可靠(线留在图上,2026-09-08 实测)——hide 才是干净的清空
-        if (glowInner) { glowHalo.hide(); glowOuter.hide(); glowInner.hide(); }
+        if (trackLayer) { trackShown = false; drawTrack(); }
       } else if (cmd.type === 'center') {
         map.setZoomAndCenter(cmd.zoom || map.getZoom(), [cmd.lng, cmd.lat]);
       } else if (cmd.type === 'helmetState') {
@@ -220,6 +317,28 @@ try {
         if (helmetOnline === !!cmd.online) return;
         helmetOnline = !!cmd.online;
         helmet.setContent(helmetHtml());
+      } else if (cmd.type === 'helmetReplay') {
+        if (helmetReplay === !!cmd.replay) return;
+        helmetReplay = !!cmd.replay;
+        helmet.setContent(helmetHtml());
+      } else if (cmd.type === 'marks') {
+        for (var i = 0; i < marks.length; i++) marks[i].setMap(null);
+        marks = [];
+        for (var j = 0; j < cmd.items.length; j++) {
+          var it = cmd.items[j];
+          var isEvent = it.kind === 'event';
+          var half = isEvent ? 13 : 7;
+          marks.push(new AMap.Marker({
+            map: map,
+            position: [it.lng, it.lat],
+            // label 只可能是条数：进页面前再滤一遍，只留数字
+            content: '<div class="mk ' + (isEvent ? 'event' : it.kind === 'end' ? 'end' : 'start') + '">' + (isEvent ? (String(it.label || '').replace(/[^0-9]/g, '') || '!') : '') + '</div>',
+            anchor: 'top-left',
+            offset: new AMap.Pixel(-half, -half),
+            // 都压在轨迹线之上、头盔 Marker（120）之下；事件比起终点高一层
+            zIndex: isEvent ? 116 : 114,
+          }));
+        }
       } else if (cmd.type === 'avatar') {
         if (avatarUrl === (cmd.url || null)) return;
         avatarUrl = cmd.url || null;
@@ -284,15 +403,28 @@ export function AmapView({
           lat: pos.latitude,
           follow: opts?.follow ?? false,
         }),
-      setTrack: (path) =>
+      setTrack: (path, opts) =>
         send({
           type: "track",
           path: path.map((p) => [p.longitude, p.latitude]),
+          fit: opts?.fit ?? true,
+          pad: opts?.pad ?? [70, 70, 70, 70],
         }),
       clearTrack: () => send({ type: "clearTrack" }),
       setCenter: (pos, zoom) =>
         send({ type: "center", lng: pos.longitude, lat: pos.latitude, zoom }),
       setHelmetOnline: (online) => send({ type: "helmetState", online }),
+      setHelmetReplay: (replay) => send({ type: "helmetReplay", replay }),
+      setMarks: (marks) =>
+        send({
+          type: "marks",
+          items: marks.map((m) => ({
+            lng: m.longitude,
+            lat: m.latitude,
+            kind: m.kind,
+            label: m.label ?? "",
+          })),
+        }),
     };
     return () => {
       controllerRef.current = null;
