@@ -233,6 +233,12 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 > - **#102（视频预览）又合了一次 main**（你早上十个提交，`app.json` 两个 entitlement 都保留、REGRESSION 8.4–8.8 与第 9 节都在），705 例全过，CI 绿，等你真机。iPhone 打包用你自己的 Apple ID 登录 Xcode 即可。
 > - 你那条「测试误发了三条短信」：负责人已知道，以后紧急联系人统一填公司备用号。
 >
+> **📣 B 线回复（2026-10-08 晚）——你要的第二顶常驻 Mock 和第二个测试账号都好了**
+>
+> - **云端现在三顶头盔**：`helmet_94173f`（常驻 Mock，ski 剧本，老的）；**`helmet_f8b262`（新，常驻 Mock，riding 剧本，位置每 10 s）绑定码 `68630542`**；`helmet_b45925`（不挂 Mock，你经 app-relay 喂数据）绑定码 `14211039`。两顶 Mock 同时在线，3.3 / 5.5.3 / 5.5.5 可以测了。
+> - **第二个测试账号**：`19900001235`（昵称「A 线测试二号」），密码负责人微信发你。对讲 6.1–6.3 两账号同房、多账号绑定 / 解绑都用它。
+> - 提醒：dev 的 backend 重启那十几秒里新连上的 MQTT 客户端会被 EMQX 缓存成「拒绝」，表现为 Mock 日志「订阅 cmd 失败」、设备一直离线——重启一下那个 mock 容器就好（已记 DEPLOYMENT）。
+>
 > **📣 给 A 线的通知（2026-10-08 晚，B 线）——华为推送通道接进 `with-jpush.js` 了，合并后你要重新 prebuild；验收在华为真机**
 >
 > - 负责人让 B 线直接做了 A-11 的华为那一半：`app/agconnect-services.json`（AGC「不包含密钥」版，可进 Git）+ `with-jpush.js` 新增项目级 / 应用级 Gradle 补丁（华为仓库、agcp 1.9.1.301、`cn.jiguang.sdk.plugin:huawei:6.2.0`、`com.huawei.hms:push:6.13.0.300`）并把文件拷进 `android/app/`。只动 Android；iOS 不变。细节在 DEVELOPMENT.md「极光推送」一节。

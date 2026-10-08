@@ -90,6 +90,8 @@ docker compose -f docker-compose.prod.yml logs -f backend
 docker compose -f docker-compose.prod.yml exec backend npm run create:admin       # 密码只显示一次
 docker compose -f docker-compose.prod.yml exec backend npm run provision:device   # deviceSecret 只显示一次
 # 第二顶常驻 Mock（真机多设备回归，2026-10-08）：再开一台 → 填 MOCK2_DEVICE_* → COMPOSE_PROFILES=demo,demo2 → up -d --build mock2
+# 注意：`up -d --build mock2` 会连带重建 backend；backend 重启那十几秒里新连上的 MQTT 客户端（刚起的 mock）会被 EMQX 把
+# ACL 结果缓存成「拒绝」——日志「订阅 cmd 失败」、事件 not_authorized、设备一直离线。backend 起稳后 `restart mock2` 即可
 docker compose -f docker-compose.prod.yml exec backend npm run provision:batch -- --count 20   # 产线批量开通:CSV + 二维码,产物在容器 /repo/backend/provision-out/
 docker compose -f docker-compose.prod.yml cp backend:/repo/backend/provision-out ./provision-out   # 拷出后交接,两边都销毁
 ```
