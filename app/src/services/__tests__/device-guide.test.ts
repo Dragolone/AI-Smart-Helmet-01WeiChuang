@@ -150,3 +150,27 @@ describe("三步指引：卡片上写什么", () => {
     expect(two.status?.tone).toBe("ok");
   });
 });
+
+describe("绑过头盔的账号（只有绑定那一件）", () => {
+  it("没绑上是第一件；绑上或点了稍后就算完，不再轮到通知和联系人", () => {
+    expect(guideCurrent(GUIDE_FRESH, true)).toBe(1);
+    expect(guideCurrent({ r1: "done", r2: "", r3: "" }, true)).toBe(0);
+    expect(guideCurrent({ r1: "skipped", r2: "", r3: "" }, true)).toBe(0);
+  });
+
+  it("头盔连上会自己打勾；之后通知、联系人已经具备也不会再去打勾", () => {
+    expect(guideAutoDone(GUIDE_FRESH, facts({ link: "connected" }), true)).toBe(
+      1,
+    );
+    expect(guideAutoDone(GUIDE_FRESH, facts({ link: "searching" }), true)).toBe(
+      0,
+    );
+    expect(
+      guideAutoDone(
+        { r1: "done", r2: "", r3: "" },
+        facts({ link: "connected", notify: "granted", contacts: 2 }),
+        true,
+      ),
+    ).toBe(0);
+  });
+});

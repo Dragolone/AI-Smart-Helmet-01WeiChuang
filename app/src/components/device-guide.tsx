@@ -1,6 +1,11 @@
 // 设备页还没绑定头盔时的三步指引：绑定头盔 → 允许通知 → 添加紧急联系人，一张卡一件事。
 // 轮到的那张在最前面，后面两张只露出名字；做完一张，它收进下面进度条里对应的一格，后面那张上来。
 // 三件都处理完（做了或点了「稍后」）页面变成平常的设备页。逻辑在 services/device-guide（2026-10-08 负责人确认）。
+// 绑过头盔又解绑的账号只有绑定那一张（bindOnly），没有后两张和进度条，绑上就变成设备页。
+//
+// 自己打勾翻页、收尾变成设备页，都只在人看着这一页的时候走（onStage）：切到别的标签页、进了别的页面、
+// App 退到后台都先停着，回来再继续——否则人在别的页面时这里已经走完，衔接动画会盖在那个页面上
+// （负责人 2026-10-08：「绑定了后切到其他界面，衔接动画还在跑、穿模」）。
 //
 // 冷启动、账号下没有头盔时，开屏动画落在这一页上：最前面那张卡从商标的位置立起来，商标落成卡片左上角的
 // 徽标，一道光沿卡片的边走到按钮、把按钮点亮（components/splash）。平时进这一页没有这些动作。
@@ -17,7 +22,7 @@ import {
 import { Image } from "expo-image";
 import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Linking,
@@ -624,6 +629,8 @@ export function DeviceGuide({
   link,
   notify,
   contacts,
+  bindOnly,
+  onStage,
   onFinished,
 }: {
   /** 已经绑定的那顶（当前头盔）；还没绑定是 undefined */
@@ -631,7 +638,11 @@ export function DeviceGuide({
   link: HelmetLink | undefined;
   notify: NotifyPermission | null;
   contacts: number | null;
-  /** 三件都处理完了：页面该变成设备页了。带上最前面那张卡和徽标此刻的位置，衔接动画从那里接手 */
+  /** 这个账号以前绑过头盔：只有绑定那一张，没有后两张和进度条 */
+  bindOnly: boolean;
+  /** 人正看着这一页（设备页在最前面、App 在前台）。不在时自己打勾、收尾都先停着 */
+  onStage: boolean;
+  /** 都处理完了：页面该变成设备页了。带上最前面那张卡和徽标此刻的位置，衔接动画从那里接手 */
   onFinished: (from: GuideHandoverFrom | null) => void;
 }) {
   const theme = useTheme();
@@ -672,38 +683,53 @@ export function DeviceGuide({
     contacts,
     slow: searching && slowFor === helmetId,
   };
-  const cards = guideCards(facts);
-  const cur = guideCurrent(state);
-  // 三件都处理完之后、页面变过去之前，最后一张卡还留在前面
-  const front = cur === 0 ? 3 : cur;
+  const allCards = guideCards(facts);
+  const cards = bindOnly ? [allCards[0]] : allCards;
+  const cur = guideCurrent(state, bindOnly);
+  // 都处理完之后、页面变过去之前，最后一张卡还留在前面
+  const front = cur === 0 ? (bindOnly ? 1 : 3) : cur;
 
-  // 轮到的那件事已经具备了：打个勾，停一下，翻到下一张
-  const auto = guideAutoDone(state, facts);
+  // 轮到的那件事已经具备了：打个勾，停一下，翻到下一张。人不在这一页时不走：回来之后重新停满这一下，
+  // 打勾和翻页都让人看见
+  const auto = guideAutoDone(state, facts, bindOnly);
   useEffect(() => {
-    if (!auto) return;
+    if (!auto || !onStage) return;
     const id = setTimeout(() => mark(auto, "done"), TICK_MS);
     return () => clearTimeout(id);
-  }, [auto, mark]);
-  // 三件都处理完：卡片上的字和下面的进度先淡掉，只留下卡片的壳和徽标，然后交给衔接动画
+  }, [auto, mark, onStage]);
+  // 都处理完：卡片上的字和下面的进度先淡掉，只留下卡片的壳和徽标，然后交给衔接动画。
+  // 同样只在人看着的时候走；中途离开就撤回去（字恢复、先搭着的衔接层撤掉），回来从头来一遍
   const leaving = useSharedValue(0);
   const arm = useGuideStore((s) => s.arm);
+  const disarm = useGuideStore((s) => s.disarm);
+  // 页面每次重画都会给一个新的 onFinished；收尾的定时器不该因此重来，所以只记着最新的那个
+  const finishWith = useRef(onFinished);
   useEffect(() => {
-    if (cur !== 0) return;
+    finishWith.current = onFinished;
+  });
+  useEffect(() => {
+    if (cur !== 0 || !onStage) return;
+    let handed = false;
     arm();
     const fade = setTimeout(
       () => leaving.set(withTiming(1, { duration: LEAVE_MS })),
       FINISH_MS - LEAVE_MS,
     );
     const id = setTimeout(() => {
+      handed = true;
       const card = anchorRect.guideCard.get();
       const emblem = anchorRect.guideEmblem.get();
-      onFinished(card && emblem ? { card, emblem } : null);
+      finishWith.current(card && emblem ? { card, emblem } : null);
     }, FINISH_MS);
     return () => {
       clearTimeout(fade);
       clearTimeout(id);
+      if (!handed) {
+        leaving.set(0);
+        disarm();
+      }
     };
-  }, [cur, onFinished, leaving, arm]);
+  }, [cur, onStage, leaving, arm, disarm]);
   const leave = useAnimatedStyle(() => ({ opacity: 1 - leaving.get() }));
 
   const ble = useBleOnboardingSteps();
@@ -774,7 +800,7 @@ export function DeviceGuide({
           {/* 徽标一直在最前面那张卡的左上角。正在找头盔时从它这里一圈圈往外扩 */}
           <View pointerEvents="none" style={styles.emblemAt}>
             <PulseRing
-              active={cards[0].ripple && front === 1}
+              active={allCards[0].ripple && front === 1}
               size={EMBLEM}
               color={withAlpha(theme.brand, 0.8)}
               duration={1700}
@@ -800,58 +826,66 @@ export function DeviceGuide({
           </View>
         </View>
 
-        <Rise at={LAND.progress} dur={560} dy={16} style={styles.progress}>
-          <Animated.View style={leave}>
-            <View style={styles.caption}>
-              <ThemedText themeColor="textSecondary" style={styles.captionText}>
-                {t(done === 3 ? "guide.captionDone" : "guide.caption")}
-              </ThemedText>
-              <ThemedText themeColor="textSecondary" style={styles.captionText}>
-                {done} / 3
-              </ThemedText>
-            </View>
-            <View style={styles.segments}>
-              {segments.map((g) => (
-                <View key={g.label} style={styles.segment}>
-                  <View
-                    style={[
-                      styles.segBar,
-                      {
-                        backgroundColor:
-                          g.tone === "done"
-                            ? theme.success
-                            : g.tone === "current"
-                              ? withAlpha(theme.brand, 0.5)
+        {!bindOnly && (
+          <Rise at={LAND.progress} dur={560} dy={16} style={styles.progress}>
+            <Animated.View style={leave}>
+              <View style={styles.caption}>
+                <ThemedText
+                  themeColor="textSecondary"
+                  style={styles.captionText}
+                >
+                  {t(done === 3 ? "guide.captionDone" : "guide.caption")}
+                </ThemedText>
+                <ThemedText
+                  themeColor="textSecondary"
+                  style={styles.captionText}
+                >
+                  {done} / 3
+                </ThemedText>
+              </View>
+              <View style={styles.segments}>
+                {segments.map((g) => (
+                  <View key={g.label} style={styles.segment}>
+                    <View
+                      style={[
+                        styles.segBar,
+                        {
+                          backgroundColor:
+                            g.tone === "done"
+                              ? theme.success
+                              : g.tone === "current"
+                                ? withAlpha(theme.brand, 0.5)
+                                : g.tone === "skipped"
+                                  ? "transparent"
+                                  : theme.backgroundSelected,
+                          borderColor:
+                            g.tone === "skipped"
+                              ? withAlpha(theme.warning, 0.7)
+                              : "transparent",
+                        },
+                      ]}
+                    />
+                    <ThemedText
+                      style={[
+                        styles.segLabel,
+                        {
+                          color:
+                            g.tone === "done" || g.tone === "current"
+                              ? theme.text
                               : g.tone === "skipped"
-                                ? "transparent"
-                                : theme.backgroundSelected,
-                        borderColor:
-                          g.tone === "skipped"
-                            ? withAlpha(theme.warning, 0.7)
-                            : "transparent",
-                      },
-                    ]}
-                  />
-                  <ThemedText
-                    style={[
-                      styles.segLabel,
-                      {
-                        color:
-                          g.tone === "done" || g.tone === "current"
-                            ? theme.text
-                            : g.tone === "skipped"
-                              ? theme.warning
-                              : theme.textSecondary,
-                      },
-                    ]}
-                  >
-                    {t(g.label)}
-                  </ThemedText>
-                </View>
-              ))}
-            </View>
-          </Animated.View>
-        </Rise>
+                                ? theme.warning
+                                : theme.textSecondary,
+                        },
+                      ]}
+                    >
+                      {t(g.label)}
+                    </ThemedText>
+                  </View>
+                ))}
+              </View>
+            </Animated.View>
+          </Rise>
+        )}
         <View style={styles.below} />
       </View>
     </LayoutAnimationConfig>

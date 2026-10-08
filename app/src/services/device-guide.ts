@@ -2,6 +2,10 @@
 // 和「防护是否就绪」是同一套三项（services/safety-status 的 protectionStateOf），顺序先头盔后安全。
 // 每张卡写什么、按钮做什么、哪张卡会自己打勾翻过去，都在这里；界面在 components/device-guide。
 // 逻辑 2026-10-08 负责人确认（改版原型「设备页 · 未绑定」画板）。
+//
+// 三步只给从没绑过头盔的账号走一遍。绑过又解绑的（bindOnly）只有绑定那一张，绑上就是设备页——
+// 负责人 2026-10-08：「解绑了头盔又重新开始未绑定页，应该判定是否为新用户第一次打开」。
+// 「绑过没有」记在本机（stores/helmet-history-store）。
 import type { MessageKey, Params } from "@/i18n";
 import type { HelmetLink, NotifyPermission } from "@/services/safety-status";
 import type { BleLinkPhase } from "@/stores/ble-store";
@@ -61,9 +65,10 @@ export const TICK_MS = 1000;
 /** 三件都处理完后，停多久开始变成设备页 */
 export const FINISH_MS = 760;
 
-/** 现在轮到第几件；0 = 三件都处理完了 */
-export function guideCurrent(s: GuideState): 0 | 1 | 2 | 3 {
+/** 现在轮到第几件；0 = 都处理完了。bindOnly：这一次只有绑定头盔那一件 */
+export function guideCurrent(s: GuideState, bindOnly = false): 0 | 1 | 2 | 3 {
   if (!s.r1) return 1;
+  if (bindOnly) return 0;
   if (!s.r2) return 2;
   if (!s.r3) return 3;
   return 0;
@@ -76,8 +81,12 @@ const linked = (link: HelmetLink | null) =>
  * 轮到的那件事是不是已经具备了（会自己打勾翻过去）。
  * 通知、联系人只有查到了才算：还没查到（null）不能当成已经有。
  */
-export function guideAutoDone(s: GuideState, f: GuideFacts): 0 | 1 | 2 | 3 {
-  const cur = guideCurrent(s);
+export function guideAutoDone(
+  s: GuideState,
+  f: GuideFacts,
+  bindOnly = false,
+): 0 | 1 | 2 | 3 {
+  const cur = guideCurrent(s, bindOnly);
   if (cur === 1 && linked(f.link)) return 1;
   if (cur === 2 && f.notify === "granted") return 2;
   if (cur === 3 && f.contacts !== null && f.contacts >= 1) return 3;

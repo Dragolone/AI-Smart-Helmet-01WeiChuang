@@ -3,9 +3,12 @@
 // 名字、连接状态、下面两格依次出现。用的就是开屏那套零件（bus.ts 的共享值 + DeviceLanding），
 // 只是时钟从这里起、表盘一开始就在页面上大图的位置。
 // 这一层盖在整个 App 上面（和开屏一样挂在根布局），位置都按窗口坐标。播完就卸掉。
+// 它画的是设备页上的东西，所以只在设备页在最前面时播：途中页面换成了别的（被带去求救倒计时页、
+// 点通知进了别的页面……）就立刻收掉、把页面交还，不盖在别的页面上。
 import { useImage } from "@shopify/react-native-skia";
 import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
+import { usePathname } from "expo-router";
 import { useCallback, useEffect, useRef } from "react";
 import { StyleSheet, View, useWindowDimensions } from "react-native";
 import Animated, {
@@ -176,6 +179,11 @@ function Handover({ from }: { from: GuideHandoverFrom | null }) {
       endSplashStory();
     };
   }, [going, clock]);
+  // 设备页不在最前面了：立刻收掉。设备页是标签页的第一页，路径就是 "/"
+  const onDevicePage = usePathname() === "/";
+  useEffect(() => {
+    if (going && !onDevicePage) finish();
+  }, [going, onDevicePage, finish]);
   // 保险：这一层挡着整个页面，出了岔子也必须让开（先搭着的那一会儿不挡触摸，但也不能一直留着）
   useEffect(() => {
     const id = setTimeout(

@@ -16,7 +16,9 @@ type GuideStore = {
   /** 指引进行中：设备页显示三张卡，而不是头盔大图 */
   active: boolean;
   state: GuideState;
-  begin: (userId: string) => void;
+  /** 这一次只有绑定头盔那一件（这个账号以前绑过头盔，三步已经走过了） */
+  bindOnly: boolean;
+  begin: (userId: string, bindOnly?: boolean) => void;
   mark: (step: 1 | 2 | 3, result: Exclude<GuideResult, "">) => void;
   /**
    * 三件都处理完：页面变成设备页，同时播一段衔接（最后那张卡的边收成电量环，徽标回到环中间）。
@@ -31,6 +33,8 @@ type GuideStore = {
    */
   armed: boolean;
   arm: () => void;
+  /** 收尾被打断了（人离开了设备页）：先搭着的那一层撤掉，回来再搭 */
+  disarm: () => void;
   endHandover: () => void;
   reset: () => void;
 };
@@ -42,10 +46,11 @@ export const useGuideStore = create<GuideStore>((set, get) => ({
   userId: null,
   active: false,
   state: GUIDE_FRESH,
-  begin: (userId) => {
+  bindOnly: false,
+  begin: (userId, bindOnly = false) => {
     const cur = get();
     if (cur.active && cur.userId === userId) return;
-    set({ userId, active: true, state: GUIDE_FRESH });
+    set({ userId, active: true, state: GUIDE_FRESH, bindOnly });
   },
   mark: (step, result) => {
     const { state, active } = get();
@@ -60,6 +65,10 @@ export const useGuideStore = create<GuideStore>((set, get) => ({
   arm: () => {
     if (get().active) set({ armed: true });
   },
+  disarm: () => {
+    // 衔接已经在播（handover 有值）就不归这里管
+    if (get().armed && !get().handover) set({ armed: false });
+  },
   finish: (from) =>
     set({
       active: false,
@@ -73,6 +82,7 @@ export const useGuideStore = create<GuideStore>((set, get) => ({
       userId: null,
       active: false,
       state: GUIDE_FRESH,
+      bindOnly: false,
       handover: null,
       armed: false,
     }),

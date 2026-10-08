@@ -22,6 +22,27 @@ describe("三步指引的进度", () => {
     expect(s().state.r1).toBe("skipped");
   });
 
+  it("绑过头盔的账号：这一次只有绑定那一件；同一位用户重复开始不改这个", () => {
+    s().begin("u1", true);
+    expect(s().bindOnly).toBe(true);
+    s().begin("u1", false);
+    expect(s().bindOnly).toBe(true);
+    s().begin("u2");
+    expect(s().bindOnly).toBe(false);
+  });
+
+  it("收尾被打断：先搭着的那一层撤掉；衔接已经在播就不撤", () => {
+    s().begin("u1");
+    s().arm();
+    s().disarm();
+    expect(s().armed).toBe(false);
+    s().arm();
+    s().finish({ card: rect, emblem: rect });
+    s().disarm();
+    expect(s().armed).toBe(true);
+    expect(s().handover).not.toBeNull();
+  });
+
   it("同一位用户重复开始不会把进度清掉；换了用户重来", () => {
     s().begin("u1");
     s().mark(1, "done");

@@ -8,7 +8,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
-import { router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect, useIsFocused } from "expo-router";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   RefreshControl,
@@ -59,6 +59,7 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { helmetImageFor } from "@/constants/helmet-images";
 import { Radius } from "@/constants/theme";
+import { useAppActive } from "@/hooks/use-app-active";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { formatRideDuration, useRideToday } from "@/hooks/use-ride-today";
 import {
@@ -87,6 +88,10 @@ import {
 } from "@/services/safety-status";
 import { useAuthStore } from "@/stores/auth-store";
 import { useGuideStore } from "@/stores/guide-store";
+import {
+  hadHelmetBefore,
+  useHelmetHistoryStore,
+} from "@/stores/helmet-history-store";
 
 /** 标题栏占的高度（含上边距）：算大图光晕能铺多大时要用 */
 const HEADER_HEIGHT = 48;
@@ -627,13 +632,35 @@ export default function DevicesScreen() {
   // 头盔绑上之后指引接着做后两件，三件都处理完才变成下面的设备页（见 components/device-guide）
   const userId = useAuthStore((s) => s.user?.id ?? null);
   const guideRunning = useGuideStore((s) => s.active && s.userId === userId);
+  const guideBindOnly = useGuideStore((s) => s.bindOnly);
   const beginGuide = useGuideStore((s) => s.begin);
   const finishGuide = useGuideStore((s) => s.finish);
   const noHelmet = devices.data !== undefined && list.length === 0;
+  // 三步指引只给从没绑过头盔的账号走一遍；绑过又解绑的只给绑定那一张卡。「绑过没有」记在本机：
+  // 见到账号下有头盔就记上（stores/helmet-history-store）
+  const hydrateHistory = useHelmetHistoryStore((s) => s.hydrate);
+  const markHadHelmet = useHelmetHistoryStore((s) => s.markHad);
+  const historyReady = useHelmetHistoryStore((s) => s.hydrated);
+  const hadBefore = useHelmetHistoryStore((s) =>
+    hadHelmetBefore(s.users, userId),
+  );
   useEffect(() => {
-    if (userId && noHelmet) beginGuide(userId);
-  }, [userId, noHelmet, beginGuide]);
-  const guideOn = guideRunning || noHelmet;
+    void hydrateHistory();
+  }, [hydrateHistory]);
+  const hasHelmet = list.length > 0;
+  useEffect(() => {
+    if (userId && hasHelmet) markHadHelmet(userId);
+  }, [userId, hasHelmet, markHadHelmet]);
+  // 记录还没读出来时先不定走哪一种（读盘只要几毫秒，这时页面还是骨架）
+  const guideDue = noHelmet && historyReady;
+  const guidePending = noHelmet && !historyReady;
+  useEffect(() => {
+    if (userId && guideDue) beginGuide(userId, hadBefore);
+  }, [userId, guideDue, hadBefore, beginGuide]);
+  const guideOn = guideRunning || guideDue;
+  // 人是不是正看着这一页：指引自己打勾翻页、收尾变成设备页，只在这时走（见 components/device-guide）
+  const focused = useIsFocused();
+  const appActive = useAppActive();
 
   // 「设为当前」的选择还没从存储读出来时先不画大图：否则会先显示一台再跳到另一台。
   // 冷启动的开屏动画还在播路线那一段时也先画骨架，等它放行再搭（见 useSplashHold）
@@ -642,6 +669,7 @@ export default function DevicesScreen() {
     devices.isLoading ||
     viewport === 0 ||
     (list.length > 0 && !choice.ready) ||
+    guidePending ||
     splashHold;
 
   return (
@@ -716,6 +744,9 @@ export default function DevicesScreen() {
               link={hero ? links[hero.deviceId] : undefined}
               notify={notify}
               contacts={contactCount}
+              // 指引已经开始了就按开始时定的走；还没开始（这一帧刚拿到列表）按记录
+              bindOnly={guideRunning ? guideBindOnly : hadBefore}
+              onStage={focused && appActive}
               onFinished={(from) => {
                 if (from) prepareGuideHandover(from);
                 finishGuide(from);
@@ -794,7 +825,7 @@ export default function DevicesScreen() {
         <IntercomMiniBar style={styles.miniBar} />
 
         {/* 一台都没有时，绑定是这一页的主操作：除了右上角的「+」，底部再放一个品牌色按钮 */}
-        {list.length === 0 && !guideOn && (
+        {list.length === 0 && !guideOn && !guidePending && (
           <View style={styles.bottomCta}>
             <PrimaryButton
               title={t("devices.bindNew")}
