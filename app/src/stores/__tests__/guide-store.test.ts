@@ -80,3 +80,36 @@ describe("三步指引的进度", () => {
     expect(s().armed).toBe(false);
   });
 });
+
+describe("上一件事是什么时候处理完的", () => {
+  it("刚开始是 0；每处理一件记一次；同一件重复记不改时间", () => {
+    s().begin("u1");
+    expect(s().markedAt).toBe(0);
+    const before = Date.now();
+    s().mark(1, "done");
+    const first = s().markedAt;
+    expect(first).toBeGreaterThanOrEqual(before);
+    expect(first).toBeLessThanOrEqual(Date.now());
+    s().mark(1, "skipped");
+    expect(s().markedAt).toBe(first);
+    expect(s().state.r1).toBe("done");
+  });
+
+  it("指引结束、重新开始、退出登录都清掉", () => {
+    s().begin("u1");
+    s().mark(1, "done");
+    s().finish(null);
+    expect(s().markedAt).toBe(0);
+    s().begin("u1");
+    s().mark(1, "done");
+    s().reset();
+    expect(s().markedAt).toBe(0);
+    s().begin("u2");
+    expect(s().markedAt).toBe(0);
+  });
+
+  it("指引没在进行时记不上", () => {
+    s().mark(1, "done");
+    expect(s().markedAt).toBe(0);
+  });
+});

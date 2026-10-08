@@ -18,6 +18,11 @@ type GuideStore = {
   state: GuideState;
   /** 这一次只有绑定头盔那一件（这个账号以前绑过头盔，三步已经走过了） */
   bindOnly: boolean;
+  /**
+   * 上一件事是什么时候处理完的（Date.now()）；0 = 还一件都没处理。
+   * 页面用它算下一件的内容浮上来到位了没有：到位之后才开始画勾（components/device-guide）。
+   */
+  markedAt: number;
   begin: (userId: string, bindOnly?: boolean) => void;
   mark: (step: 1 | 2 | 3, result: Exclude<GuideResult, "">) => void;
   /**
@@ -47,10 +52,11 @@ export const useGuideStore = create<GuideStore>((set, get) => ({
   active: false,
   state: GUIDE_FRESH,
   bindOnly: false,
+  markedAt: 0,
   begin: (userId, bindOnly = false) => {
     const cur = get();
     if (cur.active && cur.userId === userId) return;
-    set({ userId, active: true, state: GUIDE_FRESH, bindOnly });
+    set({ userId, active: true, state: GUIDE_FRESH, bindOnly, markedAt: 0 });
   },
   mark: (step, result) => {
     const { state, active } = get();
@@ -58,7 +64,7 @@ export const useGuideStore = create<GuideStore>((set, get) => ({
     const key = step === 1 ? "r1" : step === 2 ? "r2" : "r3";
     // 一件事只记一次：自己翻过去和手点「稍后」可能前后脚到
     if (state[key]) return;
-    set({ state: { ...state, [key]: result } });
+    set({ state: { ...state, [key]: result }, markedAt: Date.now() });
   },
   handover: null,
   armed: false,
@@ -73,6 +79,7 @@ export const useGuideStore = create<GuideStore>((set, get) => ({
     set({
       active: false,
       state: GUIDE_FRESH,
+      markedAt: 0,
       handover: from,
       armed: from !== null,
     }),
@@ -83,6 +90,7 @@ export const useGuideStore = create<GuideStore>((set, get) => ({
       active: false,
       state: GUIDE_FRESH,
       bindOnly: false,
+      markedAt: 0,
       handover: null,
       armed: false,
     }),

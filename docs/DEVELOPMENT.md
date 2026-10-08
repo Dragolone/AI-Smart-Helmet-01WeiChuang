@@ -235,13 +235,25 @@ npx tsx scripts/splash-frames.ts <目录> 300,980,1500   # 把某几个时刻画
 
 **原生侧**：新增了 `@shopify/react-native-skia` 和 `expo-video`（都是原生库，要重新打包才有；是否采用见 DECISIONS「待定决策」），`app.json` 里原生启动画面的图换成了一张透明图（纯深色底，同样要重新 prebuild）。iOS 用个人证书构建过、在 iPhone 14 Pro Max 上跑过（那一版还没有 expo-video；iOS 的代码不用它，但下次构建会把它一起链进去）。
 
+### 没有头盔时的三步指引（`app/src/components/device-guide.tsx`）
+
+一张卡走到底（改版原型「设备页 · 未绑定：一张卡走到底」，负责人 2026-10-08 晚定稿）。逻辑在 `services/device-guide.ts`（纯函数，有单测）：轮到哪件、哪件会自己打勾、一件事处理完之后那一段怎么演（`guideBeat`：光回不回徽标、出不出去点亮按钮）。改这一页的动作时记住几条：
+
+- **只动位移、缩放、透明度**。上一版是三张卡轮换，换位置时每一帧都在改卡片的 `left / top / width / height / borderRadius`，卡片里的字和按钮每帧都要重新排版——负责人在真机上的反馈是「卡片切换动画太不流畅」。现在最前面那张卡的位置和大小从头到尾不变；后面压着的卡往前挪用位移加横向缩放，它左上角那行名字反着缩回去（不然字会被压扁）。
+- **换到下一件的那一段只有一个时钟**（`beat`，0 到 1700 毫秒）：旧内容淡走、光回徽标、徽标应一下、新内容浮上来、光出去、按钮点亮，都从它算，时间表在文件顶上的 `BEAT`，数字照原型。起这个时钟的那几个共享值要在记结果（`mark`）**之前**设：共享值比页面重画早到动画线程，新内容搭上来的那一帧才已经是「还没浮上来」的样子，不会先整个闪出来一下。
+- **勾和那道光是 Skia 画的**。勾是两条路径按比例裁出来（先圈后勾）；光和开屏落位时那道是同一个画法（虚线 + 模糊）。头一回画这道光显卡要现编程序，所以这一页一搭好就先几乎全透明地画几帧（和开屏同样的做法）。没有光在走时每次交回同一张空图，画布不重画。
+- **画勾只在人看着的时候走**（`onStage`）：人不在这一页时把勾擦掉，回来重新画——这个过程一个账号只看得到一次。已经具备的那件事，等它的内容浮上来到位之后才开始画勾；「到位了没有」按上一件处理完的时刻（`guide-store` 的 `markedAt`）算，页面里换下一件的定时器和画勾用的是同一个算法（`untilSettled`），改一处要看另一处。
+- 跟着每帧的时钟求值的样式照旧包一层 `steady()`（见上面开屏那一节）。
+
+量法：模拟器上录屏逐帧看（`adb shell screenrecord` 加 `ffmpeg -vf fps=30`），再用 `adb shell dumpsys gfxinfo <包名> reset` / `dumpsys gfxinfo <包名>` 看这一段掉了几帧。2026-10-08 模拟器（Pixel 8，JS 按正式方式打）：三件事连着做完的整条链 574 帧里慢了 5 帧。**两台真机都还没看**；模拟器用的是电脑的显卡，说明不了手机。
+
 ## 平台限制清单（持续维护）
 
 > 记录 Week 2 Spike 及后续开发中实测到的 iOS / Android 系统限制。禁止静默降级——任何限制先记录在此并与负责人确认口径。
 
 | 日期 | 平台 | 能力 | 实测限制 | 口径/结论 |
 |------|------|------|---------|----------|
-| 2026-10-08 | Android（华为 P30 Pro 实测） | 系统状态栏的深浅 | Android 上状态栏的时间、电量、信号默认一直是白色：原生主题里没有写 `windowLightStatusBar`，expo-router 57 也不再替 App 放一份 `<StatusBar style="auto" />`。App 内选浅色外观时白字压在浅色页面上，量到的对比度是 1.0 : 1，等于看不见。iOS 会自己跟着界面的深浅变，没有这个问题 | 根布局放一份 `<StatusBar>`，深浅取 App 自己的外观（`hooks/use-color-scheme`），不取系统的；放在最前面，扫码页、倒计时最后 10 秒各自的那一份后挂载、会盖过它，页面关掉再还回来。改后浅色下 8.1 : 1。开屏那几秒画面是深色的，浅色外观下状态栏在这几秒里看不清——在开屏遮罩里再放一份 `style="light"` 就好，还没做。回归见 REGRESSION 7.8 |
+| 2026-10-08 | Android（华为 P30 Pro 实测） | 系统状态栏的深浅 | Android 上状态栏的时间、电量、信号默认一直是白色：原生主题里没有写 `windowLightStatusBar`，expo-router 57 也不再替 App 放一份 `<StatusBar style="auto" />`。App 内选浅色外观时白字压在浅色页面上，量到的对比度是 1.0 : 1，等于看不见。iOS 会自己跟着界面的深浅变，没有这个问题 | 根布局放一份 `<StatusBar>`，深浅取 App 自己的外观（`hooks/use-color-scheme`），不取系统的；放在最前面，扫码页、倒计时最后 10 秒各自的那一份后挂载、会盖过它，页面关掉再还回来。改后浅色下 8.1 : 1。开屏那几秒画面是深色的，浅色外观下根布局那一份（深色字）压在上面看不清：开屏遮罩里另放了一份 `style="light"`（`splash/splash-overlay.tsx`，后挂载、盖过根布局那一份），深色画面淡到一半时撤掉，状态栏回到根布局那一份——模拟器（Android 16）逐帧量过，真机还没看。回归见 REGRESSION 7.8、1.5.16 |
 | 2026-10-08 | iOS（iPhone 14 Pro Max，iOS 26.6，开发包） | 挂着调试器往 App 里发命令 | 经 Metro 的调试通道对真机上的 App 执行 JS（`Runtime.evaluate`）时，一晚上两次把 App 带崩。两份崩溃记录一样：`EXC_BAD_ACCESS`，JS 线程，`hermes::vm::CodeBlock::getSourceLocation` ← `Debugger::runUntilValidPauseLocation` ← `Debugger::runDebugger`，再往下是 `expo::EventEmitter::emitEvent`——调试器的打断正好落在原生事件的回调里（求救页的警报音、扫码页），Hermes 的调试器自己解了空指针。同一页不挂调试器跑满一分钟没有问题；华为上没出过 | 是调试工具的问题，不是 App 的：崩溃记录里有 `Debugger::runUntilValidPauseLocation` 的，不用往业务代码上查；正式包里没有调试器。真机上用调试器（包括 React Native DevTools 的控制台）时，在警报音这类原生事件很密的页面上尽量别发命令；要在这种页面上取东西，先把动作排进 App 里自己跑，跑完回到安静的页面再取 |
 | 2026-10-08 | 双端（地图 WebView） | 深色底图上的轨迹与标记颜色 | 压暗底图的滤镜会连带改掉品牌色：① Android 深色是给地图画布挂 `saturate(0.35) brightness(0.85)`，`AMap.Polyline` 和底图画在同一张画布里，轨迹被去掉六成多饱和度（量到 `#CCD49C`）；② iOS 深色是给整个地图容器挂 `invert(0.88) hue-rotate(180deg) …`，轨迹和 Marker 都被反色，原来靠「预反色」的颜色去凑——但反色 + 转色相保不住亮度，亮黄的原像是暗蓝，怎么凑都只能得到橄榄绿（负责人 iPhone：头像旁的颜色和轨迹不是品牌黄）。高德 JS API 2.0 的 DOM 结构（Chromium、WebKit 上一样）：`.amap-layers` 下面是一张底图画布 + `.amap-markers`（z 120）；`AMap.CustomLayer` 的画布是它下面单独的一层 `div.amap-layer`（z = 图层的 zIndex），视野每变一帧高德都会回调它的 `render`，静止时不回调 | ① 轨迹改画在 `AMap.CustomLayer` 的画布上（zIndex 100，在底图之上、Marker 之下），Android 的滤镜收窄到 `.amap-layers > canvas`（只压底图）；② iOS 深色改成在 `.amap-layers` 里盖一层只带 `backdrop-filter` 的透明层（z 1）：它只改压在下面的底图，上面的轨迹画布和 Marker 原色显示，「预反色」那套只留作系统不认 backdrop-filter 时的退路；iOS 深色明确要普通样式再自己压暗。验证：Android 模拟器 App 内；同一份 HTML 在 iOS 26.5 模拟器 Safari 里（深色新旧两条路、浅色）。**iPhone 真机的 WKWebView 还没看过**——如果真机上底图不压暗或黑屏，把 `BACKDROP_OK` 判成 false 就回到原来的画法。可复用的测试页脚本在 `helmet-ui-shots/map-webkit-harness/`（仓库外） |
 | 2026-10-08 | Android 13+（Android 16 模拟器实测，真机待补） | 通知权限 · 首次登录 | expo-notifications 的 `getPermissionsAsync()` 在用户授权之前（包括系统授权框还开着的时候）报的就是 `denied`，不是 `undetermined`：库里只要系统的通知开关是关的就一律报 denied（`NotificationPermissionsModule` 的 API 33+ 一支；Android 13+ 新装的 App 通知默认关）。所以按「不是 undetermined 才算被拒」来判（评审 R-31 的修法）在 Android 13+ 上不成立——全新安装第一次登录，系统框下面已经弹好了 App 的「通知未开启」说明框，点了「允许」它也还在。华为 P30 是 Android 10，没有这个授权框，一直测不到。另外两点：① 第一次点「不允许」后系统紧接着再问一次通知权限——`ble-link.ts` 的 `requestBlePermissions()` 为前台服务的常驻通知另外申请了一次 `POST_NOTIFICATIONS`；② 在两个系统框之间的空当里调 `Alert.alert`，几个框都点完后这张说明框不在屏幕上（丢了） | 界面读通知权限之前先等登录后那一次申请有结果（`readNotifyPermissionAfterAsk`）；说明框等系统框都走完、App 连续在前台满 1 秒再弹（`whenForegroundSettled`）。全允许 / 全拒绝 / 先拒后允许 / 彻底拒绝后重启四种模拟器上验过（REGRESSION 8.6）。**被拒后连问两次是现状，没动**：去不去掉 ble-link 里那一次要负责人定，改它要真机复测。Android 13+ 真机、iPhone 都还没复验 |

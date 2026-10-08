@@ -60,10 +60,18 @@ export type GuideCard = {
 
 /** 搜索多久还没找到就换一句提示 */
 export const SEARCH_SLOW_MS = 5000;
-/** 一件事做完后，卡片停多久再翻到下一张 */
-export const TICK_MS = 1000;
+/**
+ * 一件事具备之后，过多久换到下一件：勾是画出来的（约 0.8 秒），画完再停一下。
+ * 最后一件短一点——它后面还接着「变成设备页」那一段。
+ */
+export const TICK_MS = 1250;
+export const TICK_LAST_MS = 1150;
 /** 三件都处理完后，停多久开始变成设备页 */
 export const FINISH_MS = 760;
+
+export function guideTickMs(step: 1 | 2 | 3, bindOnly = false): number {
+  return step === 3 || bindOnly ? TICK_LAST_MS : TICK_MS;
+}
 
 /** 现在轮到第几件；0 = 都处理完了。bindOnly：这一次只有绑定头盔那一件 */
 export function guideCurrent(s: GuideState, bindOnly = false): 0 | 1 | 2 | 3 {
@@ -256,6 +264,31 @@ function contactCard(f: GuideFacts): GuideCard {
 
 export function guideCards(f: GuideFacts): [GuideCard, GuideCard, GuideCard] {
   return [helmetCard(f), notifyCard(f), contactCard(f)];
+}
+
+export type GuideBeat = {
+  /** 接下来轮到第几件；0 = 都处理完了 */
+  next: 0 | 1 | 2 | 3;
+  /** 光沿卡片的边走回徽标、徽标应一下：只有做完的才有，点了「稍后」的没有 */
+  home: boolean;
+  /** 光再从徽标出去、把下一件的按钮点亮：下一件还要人去做才有（已经具备的会自己打勾，没有按钮可点亮） */
+  out: boolean;
+};
+/** 第 step 件刚处理完（result）：换到下一件的那一段怎么演。cards 是这一刻三张卡各自写的东西 */
+export function guideBeat(
+  s: GuideState,
+  step: 1 | 2 | 3,
+  result: Exclude<GuideResult, "">,
+  cards: readonly GuideCard[],
+  bindOnly = false,
+): GuideBeat {
+  const key = step === 1 ? "r1" : step === 2 ? "r2" : "r3";
+  const next = guideCurrent({ ...s, [key]: result }, bindOnly);
+  return {
+    next,
+    home: result === "done",
+    out: next !== 0 && cards[next - 1].primary !== undefined,
+  };
 }
 
 export type GuideSegment = {

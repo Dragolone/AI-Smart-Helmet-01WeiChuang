@@ -3,11 +3,15 @@ import { describe, expect, it } from "@jest/globals";
 
 import {
   GUIDE_FRESH,
+  TICK_LAST_MS,
+  TICK_MS,
   guideAutoDone,
+  guideBeat,
   guideCards,
   guideCurrent,
   guideDoneCount,
   guideSegments,
+  guideTickMs,
   type GuideFacts,
 } from "../device-guide";
 
@@ -172,5 +176,77 @@ describe("绑过头盔的账号（只有绑定那一件）", () => {
         true,
       ),
     ).toBe(0);
+  });
+});
+
+describe("一件事处理完，换到下一件的那一段", () => {
+  const fresh = guideCards(facts());
+
+  it("做完的：光走回徽标；下一件还要人去做，光再出去点亮它的按钮", () => {
+    expect(guideBeat(GUIDE_FRESH, 1, "done", fresh)).toEqual({
+      next: 2,
+      home: true,
+      out: true,
+    });
+  });
+
+  it("点了稍后的：光不往回走，下一件的按钮照样点亮", () => {
+    expect(guideBeat(GUIDE_FRESH, 1, "skipped", fresh)).toEqual({
+      next: 2,
+      home: false,
+      out: true,
+    });
+  });
+
+  it("下一件已经具备（会自己打勾）：没有按钮可点亮，光不出去", () => {
+    const granted = guideCards(facts({ notify: "granted" }));
+    expect(guideBeat(GUIDE_FRESH, 1, "done", granted)).toEqual({
+      next: 2,
+      home: true,
+      out: false,
+    });
+    const have = guideCards(facts({ contacts: 1 }));
+    expect(
+      guideBeat({ r1: "done", r2: "", r3: "" }, 2, "skipped", have),
+    ).toEqual({ next: 3, home: false, out: false });
+  });
+
+  it("最后一件：后面没有下一件了；做完的光仍然走回徽标", () => {
+    const two = { r1: "done", r2: "done", r3: "" } as const;
+    expect(guideBeat(two, 3, "done", fresh)).toEqual({
+      next: 0,
+      home: true,
+      out: false,
+    });
+    expect(guideBeat(two, 3, "skipped", fresh)).toEqual({
+      next: 0,
+      home: false,
+      out: false,
+    });
+  });
+
+  it("只有绑定那一件的账号：第一件处理完就没有下一件", () => {
+    expect(guideBeat(GUIDE_FRESH, 1, "done", fresh, true)).toEqual({
+      next: 0,
+      home: true,
+      out: false,
+    });
+  });
+
+  it("结果按处理的那一件记，不动别的", () => {
+    // 第二件点了稍后之后，轮到的是第三件，不是回到第一件
+    expect(
+      guideBeat({ r1: "skipped", r2: "", r3: "" }, 2, "done", fresh).next,
+    ).toBe(3);
+  });
+
+  it("画勾加停顿的时间：最后一件短一点（后面还接着变成设备页那一段）", () => {
+    expect(guideTickMs(1)).toBe(TICK_MS);
+    expect(guideTickMs(2)).toBe(TICK_MS);
+    expect(guideTickMs(3)).toBe(TICK_LAST_MS);
+    expect(guideTickMs(1, true)).toBe(TICK_LAST_MS);
+    // 勾约 0.8 秒画完，画完要留出看一眼的时间
+    expect(TICK_LAST_MS).toBeGreaterThanOrEqual(1100);
+    expect(TICK_MS).toBeGreaterThanOrEqual(TICK_LAST_MS);
   });
 });
