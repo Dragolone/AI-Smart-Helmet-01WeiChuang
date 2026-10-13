@@ -2,6 +2,7 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import type { MediaUrlResponse } from '@helmet/shared';
@@ -12,13 +13,25 @@ import {
   STORAGE_PROVIDER,
   type StorageProvider,
 } from '../providers/storage.provider';
+import { BACKUP_PREFIX } from '../scripts/backup-upload';
 
 /** 预签名 URL 时效（API.md §9 ✅ 定稿 10 分钟）；测试用短时效验证过期窗口 */
 const urlTtlSeconds = (): number =>
   envPositiveInt('MEDIA_URL_TTL_SECONDS', 600);
 
+/**
+ * storageKey 来自设备上报（video_ready），服务端原样签名。数据库备份与媒体在同一个桶里
+ *（deploy/backup.sh → backups/helmet_<UTC>.dump，时间可猜）：不拦的话，拿到任一设备凭证的人上报一条
+ * storageKey 指向备份的 video_ready，就能以设备主人身份换到整库导出的下载链接
+ */
+export const isSignableStorageKey = (key: string): boolean =>
+  !key.replace(/^\/+/, '').startsWith(BACKUP_PREFIX) &&
+  !key.split('/').includes('..');
+
 @Injectable()
 export class MediaService {
+  private readonly logger = new Logger(MediaService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly scope: BindingScopeService,
@@ -48,6 +61,15 @@ export class MediaService {
           throw new ConflictException({
             code: 'MEDIA_NOT_READY',
             message: '媒体尚未上传就绪',
+          });
+        }
+        if (!isSignableStorageKey(media.storageKey)) {
+          this.logger.warn(
+            `拒绝签名保留前缀下的 storageKey（media=${media.id}，device=${media.deviceId}）`,
+          );
+          throw new NotFoundException({
+            code: 'NOT_FOUND',
+            message: '媒体不存在',
           });
         }
         const ttl = urlTtlSeconds();

@@ -31,7 +31,7 @@ export const RateLimit = (...rules: RateLimitRule[]) =>
  */
 const MAX_BUCKETS = 50_000;
 const PRUNE_INTERVAL_MS = 60_000;
-/** 淘汰时先清 1 分钟内无命中的桶，仍超限再按最久命中淘汰这一比例 */
+/** 淘汰时先清已出各自窗口的桶，仍超限再按「最先到期」淘汰这一比例 */
 const EVICT_RATIO = 0.1;
 
 /**
@@ -42,6 +42,8 @@ const EVICT_RATIO = 0.1;
 @Injectable()
 export class RateLimitGuard implements CanActivate {
   private readonly buckets = new Map<string, number[]>();
+  /** 规则名 → 窗口长度：淘汰时按桶所属规则的窗口判断，而不是一刀切 */
+  private readonly windowByRule = new Map<string, number>();
   private lastPrune = Date.now();
 
   constructor(private readonly reflector: Reflector) {}
@@ -68,6 +70,7 @@ export class RateLimitGuard implements CanActivate {
     // 先把所有规则判完，全部通过才记账：被拒请求不留痕（既不建桶也不占额度）
     const passed: Array<{ key: string; hits: number[] }> = [];
     for (const rule of rules) {
+      this.windowByRule.set(rule.name, rule.windowMs);
       const subject =
         rule.keyBy === 'ip+phone' && phoneKey ? `${ip}|${phoneKey}` : ip;
       const key = `${rule.name}:${subject}`;
@@ -107,19 +110,30 @@ export class RateLimitGuard implements CanActivate {
     }
   }
 
-  /** 容量淘汰：只动最久没命中的桶，活跃桶（尤其正在 429 的）保持不变 */
+  /** 桶失效时刻：最近一次命中 + 所属规则窗口；过了这一刻桶对任何判定都没有影响 */
+  private expiresAt(key: string, hits: number[]): number {
+    const window =
+      this.windowByRule.get(key.slice(0, key.indexOf(':'))) ??
+      PRUNE_INTERVAL_MS;
+    return hits[hits.length - 1] + window;
+  }
+
+  /**
+   * 容量淘汰：先删已失效的桶（无损）；仍超限时淘汰最先失效的一批。
+   * 原先按「1 分钟无命中」一刀切，24h 的 sms_day 桶也被清掉——单个 IP 用 5 万个随机号码的
+   * 找回密码请求把表撑满，就能把自己的每日发码上限归零（2026-10-14 排查）
+   */
   private evict(now: number): void {
     for (const [key, hits] of this.buckets) {
-      if (now - hits[hits.length - 1] > PRUNE_INTERVAL_MS)
-        this.buckets.delete(key);
+      if (this.expiresAt(key, hits) <= now) this.buckets.delete(key);
     }
     if (this.buckets.size <= MAX_BUCKETS) return;
-    const byLastHit = [...this.buckets.entries()].sort(
-      (a, b) => a[1][a[1].length - 1] - b[1][b[1].length - 1],
+    const byExpiry = [...this.buckets.entries()].sort(
+      (a, b) => this.expiresAt(a[0], a[1]) - this.expiresAt(b[0], b[1]),
     );
-    for (const [key] of byLastHit.slice(
+    for (const [key] of byExpiry.slice(
       0,
-      Math.ceil(byLastHit.length * EVICT_RATIO),
+      Math.ceil(byExpiry.length * EVICT_RATIO),
     )) {
       this.buckets.delete(key);
     }
