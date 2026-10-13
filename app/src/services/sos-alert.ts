@@ -486,5 +486,8 @@ export async function clearSosAlert(sosId: string): Promise<void> {
 /** 登出：上一个账号的 SOS 提醒不该留在这台手机上（留着也取消不了——没有 token，重试只会静默用尽） */
 export async function resetSosAlerts(): Promise<void> {
   for (const sosId of [...cancelRetries.keys()]) clearCancelRetry(sosId);
+  // 在途标记一并清：重试停了标记还在，重新登录后同一单的倒计时页会一直「取消中…」、按钮点不了、警报静音
+  const cancelStore = useSosCancelStore.getState();
+  for (const sosId of Object.keys(cancelStore.inFlight)) cancelStore.end(sosId);
   for (const sosId of [...alerts.keys()]) await clearSosAlert(sosId);
 }

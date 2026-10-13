@@ -15,6 +15,24 @@ jest.mock("../client", () => ({
 }));
 
 describe("buildRelayEnvelope", () => {
+  it("timestamp 用服务端时钟：手机慢 5 分钟时，刚按下的长按求救不能被写成 5 分钟前的事件", () => {
+    const { noteServerDate, __resetServerClockForTests } =
+      jest.requireActual<typeof import("@/services/server-clock")>(
+        "@/services/server-clock",
+      );
+    const phoneNow = Date.UTC(2026, 9, 14, 6, 0, 0);
+    const spy = jest.spyOn(Date, "now").mockReturnValue(phoneNow);
+    try {
+      // 服务端比手机快 5 分钟
+      noteServerDate(new Date(phoneNow + 5 * 60_000).toUTCString(), phoneNow);
+      const env = buildRelayEnvelope("helmet_001", "manual_sos");
+      expect(env.timestamp).toBe(new Date(phoneNow + 5 * 60_000).toISOString());
+    } finally {
+      spy.mockRestore();
+      __resetServerClockForTests();
+    }
+  });
+
   it("一次构造一个 eventId（v4 UUID），重复提交同一个 envelope 带的是同一个 eventId", async () => {
     const env = buildRelayEnvelope("helmet_001", "manual_sos");
     expect(env.eventId).toMatch(
