@@ -9,7 +9,7 @@ import type {
   WsRiskEventData,
   WsSosData,
 } from '@helmet/shared';
-import { normalizeDeviceStatus } from '../devices/device-snapshot.service';
+import type { DeviceSnapshot } from '../devices/device-snapshot.service';
 import { buildSummary } from '../events/event-wire';
 import type { ValidEnvelope } from '../ingest/envelope';
 import { RealtimeGateway } from './realtime.gateway';
@@ -74,18 +74,21 @@ export class RealtimePushService {
     this.gateway.pushToUser(userId, message);
   }
 
-  pushDeviceStatus(userId: string, e: ValidEnvelope): void {
-    // 设备输入不可信：与快照同一套收敛规则（值域外字段按缺失）；刚收到事件即在线
-    const p = normalizeDeviceStatus(e.payload);
+  /** 推刚刷新过的设备快照（与 GET /devices/{id}/status 同一份数据）；刚收到事件即在线 */
+  pushDeviceStatus(
+    userId: string,
+    deviceId: string,
+    snapshot: DeviceSnapshot,
+  ): void {
     const data: WsDeviceStatusData = {
-      deviceId: e.deviceId,
+      deviceId,
       online: true,
-      lastSeenAt: new Date().toISOString(),
-      battery: p.battery ?? null,
-      charging: p.charging ?? null,
-      signalLevel: p.signalLevel ?? null,
-      sleeping: p.sleeping ?? false,
-      firmwareVersion: e.firmwareVersion,
+      lastSeenAt: (snapshot.lastSeenAt ?? new Date()).toISOString(),
+      battery: snapshot.battery,
+      charging: snapshot.charging,
+      signalLevel: snapshot.signalLevel,
+      sleeping: snapshot.sleeping,
+      firmwareVersion: snapshot.firmwareVersion,
     };
     const message: WsMessage<WsDeviceStatusData> = {
       type: 'device_status',

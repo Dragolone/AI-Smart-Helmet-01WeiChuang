@@ -16,6 +16,7 @@ import {
   Matches,
   MaxLength,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
 import { PHONE_PATTERN } from '../common/phone';
@@ -41,15 +42,18 @@ class CreateContactDto {
   relation?: string;
 }
 
+// name / phone 是必填列：只有「没传」可以跳过校验；IsOptional 连 null 也放过，写库时才炸成 500
+const present = (_: object, value: unknown) => value !== undefined;
+
 class UpdateContactDto {
-  @IsOptional()
+  @ValidateIf(present)
   @Transform(trim)
   @IsString()
   @MinLength(1)
   @MaxLength(30)
   name?: string;
 
-  @IsOptional()
+  @ValidateIf(present)
   @Matches(PHONE_PATTERN, { message: 'phone 必须是有效的大陆手机号' })
   phone?: string;
 

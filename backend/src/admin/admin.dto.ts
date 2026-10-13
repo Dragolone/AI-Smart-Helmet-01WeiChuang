@@ -1,11 +1,11 @@
 import {
   IsIn,
-  IsISO8601,
   IsOptional,
   IsString,
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { IsIsoDateTime } from '../common/iso-date';
 import { PageQueryDto } from '../common/page-query.dto';
 
 export class AdminLoginDto {
@@ -65,11 +65,11 @@ export class AdminEventsQueryDto extends AdminListQueryDto {
   deviceId?: string;
 
   @IsOptional()
-  @IsISO8601({ strict: true })
+  @IsIsoDateTime()
   from?: string;
 
   @IsOptional()
-  @IsISO8601({ strict: true })
+  @IsIsoDateTime()
   to?: string;
 
   // invalid=true 只看校验失败的 _invalid 留档（排查用）；缺省排除

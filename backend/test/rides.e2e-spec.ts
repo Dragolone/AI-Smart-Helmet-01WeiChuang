@@ -145,6 +145,28 @@ describe('GET /devices/:id/rides + /locations/track (e2e)', () => {
     await rides(firstAt - 60 * MIN, Date.now(), other.token).expect(404);
   });
 
+  it('rejects ISO 8601 forms that Date cannot parse (week / ordinal / compact) with 400, not 500', async () => {
+    const to = iso(Date.now());
+    for (const bad of ['20261007', '2026-W41', '2026-280']) {
+      for (const path of [
+        `devices/${deviceId}/rides?from=${bad}&to=${to}`,
+        `devices/${deviceId}/locations/track?from=${bad}&to=${to}`,
+        `devices/${deviceId}/locations?from=${bad}&to=${to}`,
+        `devices/${deviceId}/locations/summary?from=${bad}&to=${to}`,
+        `devices/${deviceId}/events?from=${bad}`,
+      ]) {
+        const res = await request(http)
+          .get(`/api/v1/${path}`)
+          .set(auth(owner.token));
+        expect([path, res.status, res.body.code]).toEqual([
+          path,
+          400,
+          'VALIDATION_FAILED',
+        ]);
+      }
+    }
+  });
+
   it('cuts a ride that has been going for over 24h at `from`, so it still shows up in the current window', async () => {
     // 这一趟的起点在 26 小时前；不切的话它不属于 [2 小时前, 现在) 这个区间，列表是空的
     const from = Date.now() - 120 * MIN;

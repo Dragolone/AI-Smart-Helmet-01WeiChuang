@@ -1,5 +1,9 @@
 import { maskPhone } from '../providers/sms.provider';
-import { describeEventAge, extractSosLocation } from './sos-trigger.service';
+import {
+  createdPushBody,
+  describeEventAge,
+  extractSosLocation,
+} from './sos-trigger.service';
 
 describe('describeEventAge（补传事件给本人的时间说明，决策 #52）', () => {
   const now = Date.UTC(2026, 9, 3, 6, 0, 0);
@@ -33,6 +37,60 @@ describe('describeEventAge（补传事件给本人的时间说明，决策 #52�
     ['时间戳是 epoch', now],
   ])('%s → 不加说明（时钟不可信，不诱导本人取消）', (_name, ageMs) => {
     expect(describeEventAge(ago(ageMs), now)).toBeNull();
+  });
+});
+
+describe('createdPushBody（「SOS 倒计时已开始」正文，秒数按 deadline 现算）', () => {
+  const now = Date.UTC(2026, 9, 14, 6, 0, 0);
+  const deadline = new Date(now + 60_000);
+
+  it('建单当下发：写满 60 秒', () => {
+    expect(
+      createdPushBody(
+        'helmet_001',
+        'possible_fall',
+        new Date(now),
+        deadline,
+        now,
+      ),
+    ).toBe('头盔 helmet_001 检测到疑似摔倒，未取消将于 60 秒后通知紧急联系人');
+  });
+
+  it('首投超时后第三次重试（约 45 秒后）：只剩 15 秒就写 15 秒，不再写 60', () => {
+    const body = createdPushBody(
+      'helmet_001',
+      'manual_sos',
+      new Date(now),
+      deadline,
+      now + 45_000,
+    );
+    expect(body).toBe(
+      '头盔 helmet_001 触发手动求救，未取消将于 15 秒后通知紧急联系人',
+    );
+  });
+
+  it('补传旧事件：带「多久之前」说明', () => {
+    expect(
+      createdPushBody(
+        'helmet_001',
+        'possible_fall',
+        new Date(now - 3 * 3_600_000),
+        deadline,
+        now,
+      ),
+    ).toContain('（约 3 小时前的事件，刚补传到）');
+  });
+
+  it('已到期：不再发（到期通知归扫描任务）', () => {
+    expect(
+      createdPushBody(
+        'helmet_001',
+        'possible_fall',
+        new Date(now),
+        deadline,
+        now + 60_000,
+      ),
+    ).toBeNull();
   });
 });
 
