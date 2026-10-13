@@ -10,7 +10,9 @@ import { Reflector } from '@nestjs/core';
 import type { Express } from 'express';
 import request from 'supertest';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { AuthController } from '../src/auth/auth.controller';
 import {
+  RATE_LIMIT_KEY,
   RateLimitGuard,
   type RateLimitRule,
 } from '../src/common/rate-limit.guard';
@@ -394,6 +396,65 @@ describe('审计 §6：RateLimitGuard 桶策略（真实类，单元级）', () 
     expect(victimAfter).toBe(429);
     expect(attackerAfter).toBe(429);
     expect(allowed).toBeLessThanOrEqual(100);
+  });
+
+  it('桶容量：5 万个随机号码的找回密码请求撑满桶表，也清不掉一个 IP 的 24h 发码日限（2026-10-14）', () => {
+    let now = 20_000_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    // 用控制器上真实挂着的规则：两条路由共用同一个守卫实例的桶表
+    // SetMetadata 挂在方法函数本身上；按属性名取，不把方法从原型上拆下来
+    const handlers = AuthController.prototype as unknown as Record<
+      'smsCode' | 'resetPassword',
+      object
+    >;
+    const rulesOf = (name: 'smsCode' | 'resetPassword') =>
+      Reflect.getMetadata(RATE_LIMIT_KEY, handlers[name]) as RateLimitRule[];
+    const smsRules = rulesOf('smsCode');
+    const resetRules = rulesOf('resetPassword');
+    let current = smsRules;
+    const g = new RateLimitGuard({
+      getAllAndOverride: () => current,
+    } as unknown as Reflector);
+
+    // 攻击者 IP 一天内发满 50 条验证码（每分钟 5 条的分钟限照常遵守）
+    const attacker = '7.7.7.7';
+    for (let i = 0; i < 50; i += 1) {
+      if (i > 0 && i % 5 === 0) now += 61_000;
+      expect(status(() => g.canActivate(ctx(attacker).ctx))).toBe(200);
+    }
+    now += 61_000;
+    expect(status(() => g.canActivate(ctx(attacker).ctx))).toBe(429);
+
+    // 同一 IP 发不出 5 万个：找回密码有同 IP 每分钟 30 次的上限，被拒请求不建桶
+    current = resetRules;
+    let fromAttacker = 0;
+    for (let i = 0; i < 1_000; i += 1) {
+      const s = status(() =>
+        g.canActivate(
+          ctx(attacker, { phone: `13${String(i).padStart(9, '0')}` }).ctx,
+        ),
+      );
+      if (s === 200) fromAttacker += 1;
+    }
+    expect(fromAttacker).toBe(30);
+
+    // 换成大量出口 IP 把表撑过上限：淘汰的是最先到期的 1 分钟桶，不是 24h 的发码日限桶
+    for (let i = 0; i < 50_010; i += 1) {
+      status(() =>
+        g.canActivate(
+          ctx(`10.${(i >> 16) & 255}.${(i >> 8) & 255}.${i & 255}`, {
+            phone: `15${String(i).padStart(9, '0')}`,
+          }).ctx,
+        ),
+      );
+    }
+    current = smsRules;
+    const after = status(() => g.canActivate(ctx(attacker).ctx));
+    evidence(
+      LOG,
+      `guard 单元：发满 50 条后撑满桶表（${bucketsOf(g).size} 个桶）→ 攻击者再发码 ${after}`,
+    );
+    expect(after).toBe(429);
   });
 
   it('定期清理：60s 一次只删 24h 无命中的桶；有效桶保留（内存不因 sms_day 24h 窗口无限增长）', () => {

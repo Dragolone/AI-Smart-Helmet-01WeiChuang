@@ -208,6 +208,12 @@ export class AuthService {
         },
         data: { revokedAt: new Date() },
       }),
+      // 补发链路（refresh 应答丢失）按 replacedById 认「轮换出来、从没用过」的新 token：当前设备保留的
+      // 那张若刚由旧 token 轮换而来，旧 token 15 分钟内还能凭它补发——改密前偷到旧 token 的人就活过了改密
+      this.prisma.refreshToken.updateMany({
+        where: { userId, replacedById: { not: null } },
+        data: { replacedById: null },
+      }),
     ]);
     this.logger.log(`用户 ${userId} 已修改密码，其他会话已撤销`);
   }

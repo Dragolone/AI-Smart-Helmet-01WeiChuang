@@ -48,8 +48,12 @@ export class AuthController {
     return this.auth.login(dto.phone, dto.password);
   }
 
+  // 找回密码：同 IP+手机号每分钟 10 次（猜码），同 IP 每分钟 30 次（横向扫号；也让单个 IP 没法用随机号码撑满限频桶表）
   @Public()
-  @RateLimit({ name: 'reset', limit: 10, windowMs: 60_000, keyBy: 'ip+phone' })
+  @RateLimit(
+    { name: 'reset', limit: 10, windowMs: 60_000, keyBy: 'ip+phone' },
+    { name: 'reset_ip', limit: 30, windowMs: 60_000 },
+  )
   @HttpCode(204)
   @Post('reset-password')
   async resetPassword(@Body() dto: ResetPasswordDto): Promise<void> {

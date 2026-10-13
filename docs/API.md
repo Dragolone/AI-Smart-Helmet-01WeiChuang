@@ -105,7 +105,7 @@ Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / 
 | GET | /devices/{deviceId}/status | 设备状态：`{ online, lastSeenAt, battery, charging?, signalLevel?, sleeping, firmwareVersion }` |
 | GET | /devices/{deviceId}/battery-history?hours=24 | 电量历史（✅ 2026-09-10）：`{ from, to, points: [{ timestamp, battery, charging }] }`。数据源=raw_events 的 `device_status` 心跳，按 **10 分钟桶取桶内最后一条**（24h ≤ 144 点）；`battery` 不是 0–100 整数的心跳按缺失跳过（与设备快照同口径，2026-10-03——不再把 255 这类越界值截成 100% 画出来）；`hours` 1–168 默认 24；仅本人设备（否则 404）。App 设备详情页据此画 24h 电量曲线（替代原大电量条）；**只返回本人绑定区间内（服务端 receivedAt）到达的心跳**（决策 #39 同口径，2026-09-14 审计 AUTH-06 补） |
 
-device 对象补充字段（2026-08-17，TS 类型见 `@helmet/shared` DevicePublic）：`name`（用户自定义名，null 时 App 显示 deviceId）、`bindCode`（仅经归属校验的端点返回——本人可见，供详情页展示）。
+device 对象补充字段（2026-08-17，TS 类型见 `@helmet/shared` DevicePublic）：`name`（用户自定义名，null 时 App 显示 deviceId；**解绑时清空**，2026-10-14——下一位主人不会看到上一位起的名字）、`bindCode`（仅经归属校验的端点返回——本人可见，供详情页展示）。
 
 - MVP 绑定关系：一台设备同时只能绑定一个用户；一个用户可绑多台。⚠️ 家庭共享/多人查看不在 MVP。
 - `online` 判定规则见 DEVICE_PROTOCOL §5，由服务端计算（lastSeenAt 距今 ≤ 90s），App 不自行判断。
@@ -171,9 +171,9 @@ SOS 状态机为服务端权威（DECISIONS #8/#26）：`pending → notified | 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | PUT | /devices/{deviceId}/settings | body：`{ settings: { <key>: <值> } }`（扁平键值；**✅ 参数清单定稿 2026-09-19，决策 #43**：14 项，键名/类型/取值范围以 `@helmet/shared` 的 `DEVICE_SETTINGS` 为准，见下表；未知键、类型不符、越界 → `400 VALIDATION_FAILED`，**服务端就拦、不创建命令、不下发**）→ 创建 set_config 命令并双路下发，`202 { commandId, status: "pending" }`（TS 类型 PutSettingsResponse） |
-| GET | /devices/{deviceId}/settings | `{ settings, lastCommand }`——settings 为当前生效设置（**只写设备确认过的值：命令 success 回执，或头盔上报的实际值**，决策 #45），lastCommand 为最近一次下发（TS 类型 SettingsResponse） |
+| GET | /devices/{deviceId}/settings | `{ settings, lastCommand }`——settings 为当前生效设置（**只写设备确认过的值：命令 success 回执，或头盔上报的实际值**，决策 #45），lastCommand 为本人最近一次下发（TS 类型 SettingsResponse） |
 | POST | /devices/{deviceId}/settings/reported | **头盔实际设置上报（✅ 2026-09-19，决策 #45）**：App 每次 BLE 握手后读回头盔 0x20–0x2D 上报，body `{ settings: { <key>: <值> } }`（≤ 32 键）→ `200 { settings, applied, skipped }`（TS 类型 ReportSettingsRequest / ReportSettingsResponse）。**逐键**校验：清单外、类型不符、越界只跳过该键（`reason: invalid`），不整批拒；**有未完成（pending/delivered）或 30 s 内刚 success 的命令碰过的键跳过**（`reason: recent_command`，以命令为准——App 读到的可能是写入前的旧值）；已判 offline 的命令不保护。不创建命令、不改 lastCommand。归属：非本人 404 DEVICE_NOT_FOUND；结构错误（非对象/空/超 32 键）400 VALIDATION_FAILED |
-| GET | /devices/{deviceId}/commands?page=&pageSize= | 命令历史（最新在前，TS 类型 CommandPublic） |
+| GET | /devices/{deviceId}/commands?page=&pageSize= | 命令历史（最新在前，TS 类型 CommandPublic）。**只含本人下发的命令**（2026-10-14，决策 #39 同口径：换绑后新主人看不到上一位主人的设置记录，`GET /commands/{id}` 与 WS 连接补推同此） |
 | GET | /commands/{commandId} | 命令状态：`pending → delivered → success \| failed \| offline`（语义见 DEVICE_PROTOCOL §7，**未回执绝不显示成功**） |
 | POST | /devices/{deviceId}/commands/{commandId}/relay-ack | **BLE 下行链的回执入口（决策 #36）**：App 替头盔提交命令回执。body：`{ "stage": "delivered" }`（App 已收到命令并写入头盔——蓝牙版的 delivered 语义，对应 4G 版的 PUBACK）或 `{ "stage": "executed", "result": "success" \| "failed", "errorCode"?, "executedAt"? }`（头盔执行结果；executedAt 缺省、不是合法 ISO 8601、或年份不在 1970–9999 内时一律取服务器时间——设备/App 时钟不可信；MQTT cmd_ack 同口径）→ `200 { commandId, status }`（更新后状态）。**幂等不报错**：已终态命令再收 delivered/重复 executed 都返回当前状态；已判 offline 后迟到 executed 如实覆盖（同 MQTT cmd_ack 语义）。鉴权：用户 JWT + 设备归属（非本人 404 DEVICE_NOT_FOUND）+ 命令须属于该设备（否则 404 NOT_FOUND）。信任级与 §12.1 app-relay 一致（App 本就是蓝牙版设备的代理） |
 
@@ -256,7 +256,7 @@ MVP 实用为主，全部只读 + 少量运维操作。
 | sos_update | §7 sos 对象 | SOS 创建/取消/确认/超时通知 |
 | risk_event | §6 event 详情对象 | collision_risk / obstacle_risk / risk_cleared |
 | device_event | §6 event 列表项 | 其余事件（sleep_*、bluetooth_lost、video_ready） |
-| device_command | `{ deviceId, commandId, type, params, issuedAt }` | ① 新命令创建（§8 下发）时实时推送；② **连接建立时补推**该用户绑定设备所有 `status ∈ {pending, delivered}` 的命令（BLE 下行通道，决策 #36） |
+| device_command | `{ deviceId, commandId, type, params, issuedAt }` | ① 新命令创建（§8 下发）时实时推送；② **连接建立时补推**该用户绑定设备上**本人下发的**、`status ∈ {pending, delivered}` 的命令（BLE 下行通道，决策 #36；只推本人的：换绑后上一位主人没执行完的命令不由新主人的 App 写进头盔，2026-10-14） |
 
 - WebSocket 是加速通道不是可靠通道：App 重连后须用 REST 拉取兜底；SOS 兜底靠 Push（deadline 持久化在服务端）。
 - **device_command 的连接补推不违反「不补发」口径**：这是持久化命令的状态同步（commandId 幂等，App/头盔重复收到不重复执行），不是历史事件重放。补推含 `delivered` 是因为 delivered=PUBACK 只证明送达 Broker（口径 #27④）——蓝牙版设备不在 MQTT 上，PUBACK 照样成功，若只补推 pending 则蓝牙版 App 上线永远收不到已 PUBACK 的命令。`offline` 的命令不补推（用户可能已重发），REST 兜底可查。

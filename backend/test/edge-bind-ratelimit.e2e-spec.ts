@@ -67,6 +67,26 @@ describe('设备绑定限频 (e2e)', () => {
     }
   });
 
+  it('对讲邀请码同口径（2026-10-14）：同一来源前 10 次照常应答，第 11 次起 429', async () => {
+    const saved = process.env.RATE_LIMIT_DISABLED;
+    delete process.env.RATE_LIMIT_DISABLED;
+    try {
+      const join = (inviteCode: string): request.Test =>
+        request(http)
+          .post('/api/v1/voice/channels/join')
+          .set(auth(attacker.token))
+          .send({ inviteCode });
+      for (let i = 0; i < 10; i += 1) {
+        expect((await join(String(900_000 + i))).status).not.toBe(429);
+      }
+      const limited = await join('900099');
+      expect(limited.status).toBe(429);
+      expect(limited.body.code).toBe('RATE_LIMITED');
+    } finally {
+      if (saved !== undefined) process.env.RATE_LIMIT_DISABLED = saved;
+    }
+  });
+
   it('限频关闭（联调 / 压力口径）时不受影响：正确的码照常绑定', async () => {
     process.env.RATE_LIMIT_DISABLED = '1';
     await request(http)
