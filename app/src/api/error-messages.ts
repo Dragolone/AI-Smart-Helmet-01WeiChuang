@@ -26,13 +26,27 @@ const MESSAGE_KEYS: Record<string, MessageKey> = {
 const own = <T>(table: Record<string, T>, key: string): T | undefined =>
   Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
 
+/**
+ * 等多久换成人读得懂的单位：发码有「同 IP 每天 50 条」的日限，Retry-After 可达 86400，
+ * 原样写成「请 86231 秒后再试」没人看得懂
+ */
+function rateLimitedMessage(seconds: number): string {
+  if (seconds <= 90) return translate("error.rateLimitedRetry", { seconds });
+  if (seconds <= 90 * 60) {
+    return translate("error.rateLimitedRetryMinutes", {
+      minutes: Math.ceil(seconds / 60),
+    });
+  }
+  return translate("error.rateLimitedRetryHours", {
+    hours: Math.ceil(seconds / 3600),
+  });
+}
+
 export function toUserMessage(err: unknown): string {
   if (err instanceof ApiRequestError) {
     // 限频：服务端说了还要等几秒就照说（负责人 2026-10-07 iPhone 2.6 实测：只说「太频繁」用户不知道要等多久）
     if (err.code === "RATE_LIMITED" && err.retryAfterSec) {
-      return translate("error.rateLimitedRetry", {
-        seconds: err.retryAfterSec,
-      });
+      return rateLimitedMessage(err.retryAfterSec);
     }
     const key = own(MESSAGE_KEYS, err.code);
     return key

@@ -114,6 +114,9 @@ describe("formatKm（里程数字，单位另显示）", () => {
     expect(formatKm(0)).toBe("0.0");
     expect(formatKm(129_740)).toBe("129.7");
     expect(formatKm(999_949)).toBe("999.9");
+    // 999.95–999.99 km：toFixed(1) 会进位成六个字符的「1000.0」，同样被截断
+    expect(formatKm(999_950)).toBe("1000");
+    expect(formatKm(999_999)).toBe("1000");
     expect(formatKm(6_547_400)).toBe("6547");
     expect(formatKm(Number.NaN)).toBe("0.0");
   });
