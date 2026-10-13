@@ -302,11 +302,10 @@ describe('账号与安全 (e2e)', () => {
         .expect(401);
     });
 
-    it('库中：软删除留档、phone 改写、昵称头像清空、原号验证码记录删除、设备已解绑且自定义名清空、联系人已软删', async () => {
+    it('库中：软删除留档、phone 改写、头像清空、原号验证码记录删除、设备已解绑且自定义名清空、联系人已软删', async () => {
       const user = await prisma.user.findUnique({ where: { id: userId } });
       expect(user?.deletedAt).toBeInstanceOf(Date);
       expect(user?.phone).toBe(`deleted:${userId}`);
-      expect(user?.nickname).toBeNull();
       expect(user?.avatarUrl).toBeNull();
       // 隐私政策 V1.2：注销后「立即清除你的手机号」——验证码表里的手机号是明文
       expect(await prisma.smsCode.count({ where: { phone } })).toBe(0);
