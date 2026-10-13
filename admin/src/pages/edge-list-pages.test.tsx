@@ -233,6 +233,8 @@ describe('AccidentsPage：边界', () => {
           user: { id: 'u', phone: '13900002222', nickname: '小李' },
           location: { latitude: 0, longitude: 0, coordinateSystem: 'gcj02', accuracy: 5, source: 'event' },
         }),
+        // 事故后注销：事故按 userId 留档，phone 已被改写成 deleted:<id>
+        accident({ sosId: 's4', deviceId: 'helmet_d', status: 'notified', user: { id: 'u_4', phone: 'deleted:u_4', nickname: '老王' } }),
       ]),
     )
     renderWithProviders(<AccidentsPage />)
@@ -240,6 +242,8 @@ describe('AccidentsPage：边界', () => {
     expect(cellsOf('helmet_a')).toEqual(['2026-09-18 00:30:05', 'helmet_a', '—', '疑似摔倒', '倒计时中', '无位置'])
     expect(cellsOf('helmet_b').slice(2)).toEqual(['13800001111', '手动求救', '已通知', '-33.86882, -151.20930（wgs84·轨迹回落）'])
     expect(cellsOf('helmet_c').slice(2)).toEqual(['13900002222（小李）', '疑似摔倒', '已取消', '0.00000, 0.00000（gcj02）'])
+    expect(cellsOf('helmet_d')[2]).toBe('已注销（老王）')
+    expect(screen.queryByText(/deleted:/)).not.toBeInTheDocument()
   })
 
   it('设备 ID 筛选去空格后带上 deviceId；清空后参数消失；筛选时回到第 1 页', async () => {
