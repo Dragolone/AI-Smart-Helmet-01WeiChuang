@@ -63,6 +63,8 @@ services:
     stop_grace_period: 15s
     environment:
       DATABASE_URL: postgresql://helmet:${POSTGRES_PASSWORD}@postgres:5432/helmet
+      # 生产开关：任一通道配置不全时拒绝启动（DEPLOYMENT §8.1 5b，转正当天设 1）
+      REQUIRE_REAL_PROVIDERS: ${REQUIRE_REAL_PROVIDERS:-}
       # backend 只经 gateway 一跳到达：信任第一跳的 X-Forwarded-For，req.ip 才是真实客户端（限频按此计）
       TRUST_PROXY: ${TRUST_PROXY:-1}
       SHUTDOWN_DRAIN_MS: ${SHUTDOWN_DRAIN_MS:-}
@@ -88,6 +90,7 @@ services:
       JPUSH_APP_KEY: ${JPUSH_APP_KEY:-}
       JPUSH_MASTER_SECRET: ${JPUSH_MASTER_SECRET:-}
       JPUSH_APNS_PRODUCTION: ${JPUSH_APNS_PRODUCTION:-}
+      JPUSH_THIRD_PARTY_CHANNEL: ${JPUSH_THIRD_PARTY_CHANNEL:-}
       PUSH_SEND_TIMEOUT_MS: ${PUSH_SEND_TIMEOUT_MS:-}
       # 对象存储（密钥与桶名齐全走腾讯云 COS，否则 Mock）
       TENCENT_COS_SECRET_ID: ${TENCENT_COS_SECRET_ID:-}

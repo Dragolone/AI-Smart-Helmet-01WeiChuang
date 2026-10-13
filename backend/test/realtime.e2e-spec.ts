@@ -210,6 +210,55 @@ describe('WebSocket 实时通道 (e2e)', () => {
     expect(msg.data.online).toBe(true);
   });
 
+  it('device_status 推的是设备快照：心跳缺字段 / 越界时不把已知值刷成 null 或「醒着」', async () => {
+    const ws = await openRegistered(ownerToken);
+    const statuses: Record<string, unknown>[] = [];
+    ws.on('message', (raw) => {
+      const m = JSON.parse(
+        (raw as Buffer).toString('utf-8'),
+      ) as ReceivedMessage;
+      if (m.type === 'device_status') statuses.push(m.data);
+    });
+
+    await ingest.ingestRaw(
+      envelope('device_status', {
+        battery: 58,
+        charging: false,
+        signalLevel: 3,
+      }),
+      deviceId,
+      'mqtt',
+    );
+    await ingest.ingestRaw(envelope('sleep_entered', {}), deviceId, 'mqtt');
+    // 固件拿 255 表示「未知」、心跳不带 sleeping：快照保留上一次的有效值
+    await ingest.ingestRaw(
+      envelope('device_status', { battery: 255, charging: true }),
+      deviceId,
+      'mqtt',
+    );
+    for (let i = 0; i < 30 && statuses.length < 2; i += 1) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    expect(statuses[1]).toMatchObject({
+      deviceId,
+      battery: 58,
+      charging: true,
+      signalLevel: 3,
+      sleeping: true,
+    });
+
+    const rest = await request(app.getHttpServer())
+      .get(`/api/v1/devices/${deviceId}/status`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .expect(200);
+    expect(rest.body).toMatchObject({
+      battery: 58,
+      charging: true,
+      signalLevel: 3,
+      sleeping: true,
+    });
+  });
+
   it('非绑定用户收不到该设备的推送', async () => {
     const ws = new WebSocket(`${wsBase}?token=${otherToken}`);
     sockets.push(ws);

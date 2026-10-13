@@ -87,6 +87,25 @@ export function describeEventAge(
 }
 
 /**
+ * 「SOS 倒计时已开始」推送正文。秒数按 deadline 现算而不是写死倒计时长度：首投超时 10 s、
+ * 再按 5 s / 20 s 重试时，最后一次可能只剩 15 秒，还写「60 秒后」会让本人以为来得及慢慢确认。
+ * 已到期返回 null（不再发，到期通知由扫描任务负责）。
+ */
+export function createdPushBody(
+  deviceId: string,
+  eventType: string,
+  eventAt: Date,
+  deadline: Date,
+  now: number = Date.now(),
+): string | null {
+  const remainingSec = Math.ceil((deadline.getTime() - now) / 1000);
+  if (remainingSec <= 0) return null;
+  const action = eventType === 'manual_sos' ? '触发手动求救' : '检测到疑似摔倒';
+  const age = describeEventAge(eventAt, now);
+  return `头盔 ${deviceId} ${action}${age ? `（${age}的事件，刚补传到）` : ''}，未取消将于 ${remainingSec} 秒后通知紧急联系人`;
+}
+
+/**
  * possible_fall / manual_sos → SOS 单（Ingest 分发入口）。
  * 与 Ingest 其他副表同哲学：这里绝不向上抛错——抛错不会带来重投（raw 已落库、重投会被幂等挡掉），
  * 只会丢掉本次业务动作；失败大声记 ERROR，raw_events 留档可人工回放。
@@ -223,17 +242,15 @@ export class SosTriggerService {
     e: ValidEnvelope,
     userId: string,
   ): Promise<void> {
-    const action =
-      e.eventType === 'manual_sos' ? '触发手动求救' : '检测到疑似摔倒';
-    const age = describeEventAge(e.timestamp);
-    // 用户看不懂也不关心精确到毫秒的 UTC（10-07 A 线反馈）：写「N 秒后」，N = 服务端倒计时长度
-    const body = `头盔 ${e.deviceId} ${action}${age ? `（${age}的事件，刚补传到）` : ''}，未取消将于 ${Math.round(countdownMs() / 1000)} 秒后通知紧急联系人`;
+    // 用户看不懂也不关心精确到毫秒的 UTC（10-07 A 线反馈）：写「N 秒后」，N = 发这一次时离 deadline 还剩几秒
+    const bodyNow = () =>
+      createdPushBody(e.deviceId, e.eventType, e.timestamp, created.deadline);
     const delays = createdPushRetryDelaysMs();
     try {
       await this.pushCreatedWithRetry(
         created.id,
         userId,
-        body,
+        bodyNow,
         e.deviceId,
         delays,
       );
@@ -245,11 +262,13 @@ export class SosTriggerService {
   private async pushCreatedWithRetry(
     sosId: string,
     userId: string,
-    body: string,
+    bodyNow: () => string | null,
     deviceId: string,
     delays: number[],
   ): Promise<void> {
     for (let attempt = 0; ; attempt += 1) {
+      const body = bodyNow();
+      if (body === null) return;
       try {
         await this.push.send(
           userId,

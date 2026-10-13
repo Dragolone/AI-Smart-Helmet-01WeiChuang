@@ -117,12 +117,18 @@ describe('SosTriggerService：升级与取消撞车 / 建单推送重试', () =>
 
   describe('建单推送「SOS 倒计时已开始」', () => {
     const flush = () => new Promise((r) => setTimeout(r, 30));
+    // 正文秒数按 deadline 现算、已到期不发：这里的单必须相对真实时钟还在倒计时
+    const inOneMinute = () => new Date(Date.now() + 60_000);
 
     it('首投失败按节奏再试；单仍 pending 才发', async () => {
       process.env.SOS_CREATED_PUSH_RETRY_DELAYS_SECONDS = '0,0';
       prismaMock.sosCase.findFirst.mockResolvedValue(null);
       prismaMock.sosCase.create.mockResolvedValue(
-        pendingCase({ id: 'c9', triggerEventId: 'fall-9' }),
+        pendingCase({
+          id: 'c9',
+          triggerEventId: 'fall-9',
+          deadline: inOneMinute(),
+        }),
       );
       prismaMock.sosCase.findUnique.mockResolvedValue({ status: 'pending' });
       pushMock.send
@@ -142,7 +148,11 @@ describe('SosTriggerService：升级与取消撞车 / 建单推送重试', () =>
       process.env.SOS_CREATED_PUSH_RETRY_DELAYS_SECONDS = '0';
       prismaMock.sosCase.findFirst.mockResolvedValue(null);
       prismaMock.sosCase.create.mockResolvedValue(
-        pendingCase({ id: 'c10', triggerEventId: 'fall-10' }),
+        pendingCase({
+          id: 'c10',
+          triggerEventId: 'fall-10',
+          deadline: inOneMinute(),
+        }),
       );
       prismaMock.sosCase.findUnique.mockResolvedValue({ status: 'cancelled' });
       pushMock.send.mockRejectedValue(new Error('jpush 502'));
@@ -155,7 +165,11 @@ describe('SosTriggerService：升级与取消撞车 / 建单推送重试', () =>
       process.env.SOS_CREATED_PUSH_RETRY_DELAYS_SECONDS = '0';
       prismaMock.sosCase.findFirst.mockResolvedValue(null);
       prismaMock.sosCase.create.mockResolvedValue(
-        pendingCase({ id: 'c11', triggerEventId: 'fall-11' }),
+        pendingCase({
+          id: 'c11',
+          triggerEventId: 'fall-11',
+          deadline: inOneMinute(),
+        }),
       );
       prismaMock.sosCase.findUnique.mockResolvedValue({ status: 'pending' });
       pushMock.send.mockRejectedValue(new Error('jpush 502'));
@@ -168,7 +182,11 @@ describe('SosTriggerService：升级与取消撞车 / 建单推送重试', () =>
     it('不在 ingest 路径里等推送：push.send 挂起时 handleTrigger 照样立刻返回', async () => {
       prismaMock.sosCase.findFirst.mockResolvedValue(null);
       prismaMock.sosCase.create.mockResolvedValue(
-        pendingCase({ id: 'c12', triggerEventId: 'fall-12' }),
+        pendingCase({
+          id: 'c12',
+          triggerEventId: 'fall-12',
+          deadline: inOneMinute(),
+        }),
       );
       pushMock.send.mockReturnValue(new Promise(() => undefined));
       const started = Date.now();

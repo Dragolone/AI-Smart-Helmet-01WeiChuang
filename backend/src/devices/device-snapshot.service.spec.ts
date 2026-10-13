@@ -82,7 +82,12 @@ describe('DeviceSnapshotService.applyEvent', () => {
     expect(update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { deviceId: 'helmet_001' },
-        select: { bindUserId: true },
+        // 状态列一并带回：WS device_status 推的就是这份快照（API.md §11）
+        select: expect.objectContaining({
+          bindUserId: true,
+          battery: true,
+          sleeping: true,
+        }),
       }),
     );
     expect(dataOf()).toMatchObject({
@@ -108,7 +113,7 @@ describe('DeviceSnapshotService.applyEvent', () => {
     ).resolves.toEqual({ bindUserId: 'user_1' });
     expect(findUnique).toHaveBeenCalledWith({
       where: { deviceId: 'helmet_001' },
-      select: { bindUserId: true },
+      select: expect.objectContaining({ bindUserId: true }),
     });
   });
 
