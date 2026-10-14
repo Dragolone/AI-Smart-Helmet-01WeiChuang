@@ -62,7 +62,7 @@ export const auth = {
     "auth.currentPasswordPlaceholder": "输入当前使用的密码",
     "auth.changePasswordDone": "密码已修改",
     "auth.changePhoneLead":
-      "新手机号验证通过后立即生效，之后请使用新手机号登录。",
+      "需要输入当前密码。新手机号验证通过后立即生效，之后请使用新手机号登录。",
     "auth.currentPhone": "当前手机号",
     "auth.newPhone": "新手机号",
     "auth.newPhonePlaceholder": "11 位大陆手机号",
@@ -169,7 +169,7 @@ export const auth = {
     "auth.currentPasswordPlaceholder": "輸入目前使用的密碼",
     "auth.changePasswordDone": "密碼已修改",
     "auth.changePhoneLead":
-      "新手機號碼驗證通過後立即生效，之後請使用新手機號碼登入。",
+      "需要輸入目前密碼。新手機號碼驗證通過後立即生效，之後請使用新手機號碼登入。",
     "auth.currentPhone": "目前手機號碼",
     "auth.newPhone": "新手機號碼",
     "auth.newPhonePlaceholder": "11 位中國大陸手機號碼",
@@ -279,7 +279,7 @@ export const auth = {
     "auth.currentPasswordPlaceholder": "Enter your current password",
     "auth.changePasswordDone": "Password changed",
     "auth.changePhoneLead":
-      "The new number takes effect as soon as it is verified. Use it to log in from then on.",
+      "Enter your current password. The new number takes effect as soon as it is verified. Use it to log in from then on.",
     "auth.currentPhone": "Current phone",
     "auth.newPhone": "New phone",
     "auth.newPhonePlaceholder": "11-digit mainland China number",

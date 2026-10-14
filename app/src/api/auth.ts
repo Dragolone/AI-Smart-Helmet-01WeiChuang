@@ -29,6 +29,8 @@ export interface ChangePasswordRequest {
 export interface ChangePhoneRequest {
   newPhone: string;
   code: string;
+  /** 当前密码：持有会话不等于本人（2026-10-14 后端要求） */
+  password: string;
 }
 
 export interface DeleteAccountRequest {

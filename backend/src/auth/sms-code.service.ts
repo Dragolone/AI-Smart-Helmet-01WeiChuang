@@ -68,7 +68,8 @@ export class SmsCodeService {
     const salt = randomBytes(8).toString('hex');
 
     const row = await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`sms:${purpose}:${phone}`}))`;
+      // 锁按号码（不分用途）：日限是按号码合计的，两个用途并发发码不能各自数各自的
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`sms:${phone}`}))`;
       const latest = await tx.smsCode.findFirst({
         where: { phone, purpose },
         orderBy: { createdAt: 'desc' },
@@ -86,8 +87,9 @@ export class SmsCodeService {
           HttpStatus.TOO_MANY_REQUESTS,
         );
       }
+      // 日限按号码合计、不分用途（API.md §2）：否则一个号码一天能被注册 + 换号 + 找回三类码各轰 10 条
       const sentToday = await tx.smsCode.count({
-        where: { phone, purpose, createdAt: { gte: dayAgo } },
+        where: { phone, createdAt: { gte: dayAgo } },
       });
       if (sentToday >= dailyLimit()) {
         throw new HttpException(
