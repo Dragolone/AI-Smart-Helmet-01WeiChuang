@@ -127,6 +127,13 @@ export default function AccidentDetailScreen() {
               label={t("accident.triggeredAt")}
               value={dateTime(d.createdAt)}
             />
+            {/* 补传的旧事件（决策 #52）：头盔上发生的时间可能比建单早好几个小时，记录里要看得到 */}
+            {d.triggeredAt && (
+              <Row
+                label={t("accident.helmetTriggeredAt")}
+                value={dateTime(d.triggeredAt)}
+              />
+            )}
             <Row label={t("accident.deadline")} value={dateTime(d.deadline)} />
             {/* 触发事件里头盔给出的量（冲击力、倾角、触发方式…）：有就显示，没有不占位 */}
             {readableEventFields(d.triggerPayload ?? {}, t).map((f) => (

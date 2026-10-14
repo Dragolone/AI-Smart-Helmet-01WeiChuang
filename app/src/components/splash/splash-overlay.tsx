@@ -239,10 +239,15 @@ function SplashPlayer({ onDone }: { onDone: () => void }) {
   const warp = useMemo(() => buildWarp(), []);
   const real = useSharedValue(0);
 
+  // 「由通知拉起」只在挂载时读一次：RealtimeBridge 稍后会把本地通知的启动响应清掉（sos-alert 的
+  // consumeLaunchResponse），而 begin() 要等 onLayout 才跑——晚于那次清除就读成 false，锁屏按
+  // 「我没事，取消」拉起的 App 又会播两三秒开屏（2026-10-14）。这一层排在 RealtimeBridge 前面挂载
+  const [byNotification] = useState(launchedByNotification);
+
   // ------------------------------------------------------------ 安卓：路线段的视频
   // 由通知拉起时不播开屏，播放器也就不用建
   const [videoOn, setVideoOn] = useState(
-    () => ROUTE_VIDEO && !launchedByNotification(),
+    () => ROUTE_VIDEO && !byNotification,
   );
   // 这一层还指望着视频（没放完、也没放弃）
   const videoLive = useRef(videoOn);
@@ -558,7 +563,7 @@ function SplashPlayer({ onDone }: { onDone: () => void }) {
     if (begun.current) return;
     begun.current = true;
     // 由通知拉起（多半是求救 / 摔倒提醒）：不播，直接把页面露出来
-    if (launchedByNotification()) {
+    if (byNotification) {
       SplashScreen.hide();
       finish();
       return;
@@ -621,6 +626,7 @@ function SplashPlayer({ onDone }: { onDone: () => void }) {
       clock.setActive(true);
     });
   }, [
+    byNotification,
     clock,
     dropVideo,
     endVideo,
