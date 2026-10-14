@@ -14,7 +14,7 @@ const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 // 开发机 shell 里可能留着联调用的变量，子进程只认用例显式给的
 const MOCK_ENV_KEYS = [
   'MQTT_URL', 'DEVICE_ID', 'DEVICE_SECRET', 'FIRMWARE_VERSION', 'LOCATION_INTERVAL_MS', 'STATUS_INTERVAL_MS',
-  'TRANSPORT', 'MOCK_CMD_RESULT', 'SCENARIO', 'EMERGENCY_AFTER_POINTS', 'TOUR_CYCLE_POINTS', 'NODE_TEST_CONTEXT',
+  'TRANSPORT', 'MOCK_CMD_RESULT', 'SCENARIO', 'EMERGENCY_AFTER_POINTS', 'TOUR_CYCLE_POINTS', 'TOUR_SOS', 'NODE_TEST_CONTEXT',
 ];
 
 interface Envelope {
@@ -276,6 +276,31 @@ describe('Mock 剧本（子进程黑盒，MQTT 链路）', { concurrency: true }
       assert.equal((BLE_RELAY_EVENT_TYPES as readonly string[]).includes('video_ready'), false);
     } finally {
       await shutdown(r);
+    }
+  });
+
+  it('TOUR_SOS=0：tour 的求救步不发 possible_fall / manual_sos，其余步照演；DEVICE_ID / DEVICE_SECRET 给空串立即退出 1 并说明原因', async () => {
+    const id = 'helmet_tour_nosos';
+    const r = await run(id, { SCENARIO: 'tour', TOUR_CYCLE_POINTS: '40', LOCATION_INTERVAL_MS: '500', TOUR_SOS: '0' });
+    const emptyId = await run('helmet_empty', { DEVICE_ID: '' });
+    const emptySecret = await run('helmet_empty_secret', { DEVICE_SECRET: '' });
+    try {
+      // 蓝牙断开在第 34 个点，求救那步（第 16 个点）早已过去
+      await waitFor(() => r.on('event').some((e) => e.eventType === 'bluetooth_lost'), '走过求救步到蓝牙断开', 45_000);
+      const types = r.on('event').map((e) => e.eventType);
+      assert.ok(types.includes('collision_risk') && types.includes('sleep_entered'), '其余步照演');
+      assert.ok(!types.includes('possible_fall') && !types.includes('manual_sos'), '不发求救');
+      assert.match(r.output(), /求救步已关（TOUR_SOS=0）/);
+
+      assert.equal(await emptyId.exited, 1);
+      assert.match(emptyId.output(), /DEVICE_ID 是空串/);
+      assert.equal(await emptySecret.exited, 1);
+      assert.match(emptySecret.output(), /DEVICE_SECRET 是空串/);
+      assert.equal(emptyId.broker.publishes.length, 0, '没连上 Broker 就退出，不发任何东西');
+    } finally {
+      await shutdown(r);
+      await shutdown(emptyId);
+      await shutdown(emptySecret);
     }
   });
 

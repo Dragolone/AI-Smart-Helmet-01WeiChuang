@@ -14,7 +14,7 @@
 | 4 | 手机联网、蓝牙开、通知权限已允许 | 系统设置 | — |
 | 5 | 演示账号 | 密码管理器「演示账号」条目（手机号 + 密码）；App 端账号已绑定 `helmet_94173f`（绑定码 `94041564`） | — |
 | 6 | 紧急联系人 | App → 我的 → 紧急联系人：填一个**演示者自己的手机号** | 列表里有 1 条 |
-| 7 | 短信通道 | 当前是 Console Mock：短信内容打在后端日志，不会真发（THIRD_PARTY §4 过审后自动变真发） | 演示时打开日志窗口：`docker compose -f docker-compose.prod.yml logs -f backend \| grep -E "MOCK SMS\|MOCK PUSH"` |
+| 7 | 短信通道 | **dev 已真发（2026-10-12 起，THIRD_PARTY §4）**：演示账号的紧急联系人会收到真短信，只填演示用的号码；本地仍是 Console Mock（打在后端日志） | 演示时打开日志窗口：`docker compose -f docker-compose.prod.yml logs -f backend \| grep -E "MOCK SMS\|MOCK PUSH"` |
 
 **备用方案**：云端故障时切本地——Mac 上 `docker compose up -d`（PG + EMQX）→ `npm run start:dev -w backend` → Mock `npm run start -w mock-device` → App `.env` 指到 Mac 局域网 IP（DEVELOPMENT.md）。
 
