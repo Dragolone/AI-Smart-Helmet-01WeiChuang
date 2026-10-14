@@ -638,10 +638,13 @@ function SplashPlayer({ onDone }: { onDone: () => void }) {
     warm,
   ]);
 
-  // 播到一半进了求救页（推送 / 实时通道把人带过去的）：立刻收掉
+  // 播到一半进了求救页（推送 / 实时通道把人带过去的）：立刻收掉——不看阶段（推送可能在视频起步前就到，
+  // 华为 10-14 实测那次整段播完才见倒计时，晚 5 秒），也不等 finish 里那两帧的收尾，直接卸掉
   useEffect(() => {
-    if (phase === "play" && pathname.startsWith("/sos-active")) finish();
-  }, [phase, pathname, finish]);
+    if (!pathname.startsWith("/sos-active")) return;
+    finish();
+    onDone();
+  }, [pathname, finish, onDone]);
 
   // 画布上已经没有东西了（线收完、商标周围的光也收掉了）：卸掉画布。去登录页时画布还要负责露出页面，留到最后
   useAnimatedReaction(
