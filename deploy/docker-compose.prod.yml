@@ -182,6 +182,28 @@ services:
       LOCATION_INTERVAL_MS: ${MOCK3_LOCATION_INTERVAL_MS:-10000}
       MOCK_CMD_RESULT: ${MOCK3_CMD_RESULT:-success}
 
+  # 第四顶常驻 Mock 头盔（profile demo4，2026-10-14 负责人要求）：负责人自测用，剧本 tour——一轮把预警 / 障碍 /
+  # 摔倒或求救 / 休眠 / 蓝牙断开全演一遍（mock-device/src/index.ts maybeSendTour）。⚠️ 每轮一次求救会真发短信，
+  # 只绑自测账号。COMPOSE_PROFILES=demo,demo2,demo3,demo4 一起打开。
+  mock4:
+    build:
+      context: ..
+      dockerfile: mock-device/Dockerfile
+    restart: unless-stopped
+    logging: *default-logging
+    profiles: ["demo4"]
+    depends_on:
+      backend:
+        condition: service_started
+    environment:
+      MQTT_URL: mqtt://emqx:1883
+      DEVICE_ID: ${MOCK4_DEVICE_ID:-}
+      DEVICE_SECRET: ${MOCK4_DEVICE_SECRET:-}
+      SCENARIO: ${MOCK4_SCENARIO:-tour}
+      TOUR_CYCLE_POINTS: ${MOCK4_TOUR_CYCLE_POINTS:-}
+      LOCATION_INTERVAL_MS: ${MOCK4_LOCATION_INTERVAL_MS:-10000}
+      MOCK_CMD_RESULT: ${MOCK4_CMD_RESULT:-success}
+
   gateway:
     build:
       context: ..

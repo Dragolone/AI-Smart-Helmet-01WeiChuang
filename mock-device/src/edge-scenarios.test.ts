@@ -14,7 +14,7 @@ const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 // 开发机 shell 里可能留着联调用的变量，子进程只认用例显式给的
 const MOCK_ENV_KEYS = [
   'MQTT_URL', 'DEVICE_ID', 'DEVICE_SECRET', 'FIRMWARE_VERSION', 'LOCATION_INTERVAL_MS', 'STATUS_INTERVAL_MS',
-  'TRANSPORT', 'MOCK_CMD_RESULT', 'SCENARIO', 'EMERGENCY_AFTER_POINTS', 'NODE_TEST_CONTEXT',
+  'TRANSPORT', 'MOCK_CMD_RESULT', 'SCENARIO', 'EMERGENCY_AFTER_POINTS', 'TOUR_CYCLE_POINTS', 'NODE_TEST_CONTEXT',
 ];
 
 interface Envelope {
@@ -274,6 +274,58 @@ describe('Mock 剧本（子进程黑盒，MQTT 链路）', { concurrency: true }
 
       // video_ready 不在蓝牙版 7 种范围内——这条剧本在 MQTT 链路才完整，中转链路会在本地过滤掉它
       assert.equal((BLE_RELAY_EVENT_TYPES as readonly string[]).includes('video_ready'), false);
+    } finally {
+      await shutdown(r);
+    }
+  });
+
+  it('SCENARIO=tour：一轮按进度依次演预警→解除+录像、障碍→解除、摔倒、休眠→唤醒、蓝牙断开；下一轮换成手动求救；休眠段心跳 sleeping=true', async () => {
+    const id = 'helmet_tour';
+    // 一轮 20 个点 × 500 ms = 10 s：各步落在第 2 / 5 / 8 / 13 / 15 / 17 个点，第二轮求救在第 28 个点
+    const r = await run(id, { SCENARIO: 'tour', TOUR_CYCLE_POINTS: '20', LOCATION_INTERVAL_MS: '500', STATUS_INTERVAL_MS: '500' });
+    try {
+      // 第二轮从第 20 个点起又会先来一遍预警 / 障碍，求救那步（第 28 个点）才换成 manual_sos
+      await waitFor(() => r.on('event').some((e) => e.eventType === 'manual_sos'), '一轮九步 + 第二轮的手动求救', 30_000);
+      const events = r.on('event');
+      const steps = events.map((e) => [e.eventType, r.pointsBefore(e)]);
+      assert.deepEqual(steps.slice(0, 9), [
+        ['collision_risk', 2],
+        ['risk_cleared', 4],
+        ['video_ready', 4],
+        ['obstacle_risk', 5],
+        ['risk_cleared', 7],
+        ['possible_fall', 8],
+        ['sleep_entered', 13],
+        ['sleep_exited', 15],
+        ['bluetooth_lost', 17],
+      ]);
+      assert.deepEqual(steps.slice(9, 14), [
+        ['collision_risk', 22],
+        ['risk_cleared', 24],
+        ['video_ready', 24],
+        ['obstacle_risk', 25],
+        ['risk_cleared', 27],
+      ]);
+      assert.deepEqual(steps[14], ['manual_sos', 28]);
+      assert.equal(events.filter((e) => e.eventType === 'possible_fall').length, 1, '第二轮不再是摔倒');
+      for (const e of events) assertEnvelope(e, id, '0.1.0-mock');
+      const [risk, cleared, video, obstacle, obstacleCleared] = events;
+      assert.deepEqual(cleared.payload, { clearedEventId: risk.eventId });
+      assert.equal(video.payload.relatedEventId, risk.eventId);
+      assert.equal(obstacle.payload.riskLevel, 'medium');
+      assert.equal(obstacle.payload.objectType, 'obstacle');
+      assert.equal(obstacle.payload.direction, 'front');
+      assert.deepEqual(obstacleCleared.payload, { clearedEventId: obstacle.eventId });
+      assert.equal(events[6].payload.reason, 'inactivity');
+      assert.equal(events[8].payload.disconnectDuration, 35);
+      // 休眠段（第 13–15 个点之间）的心跳 sleeping 为 true，唤醒后恢复 false
+      const sleepAt = r.pointsBefore(events[6]);
+      const wakeAt = r.pointsBefore(events[7]);
+      const statuses = r.on('status').map((s) => [r.pointsBefore(s), s.payload.sleeping as boolean] as const);
+      assert.ok(statuses.some(([p, sleeping]) => p >= sleepAt && p < wakeAt && sleeping === true), '休眠段应有 sleeping=true 的心跳');
+      assert.ok(statuses.every(([p, sleeping]) => p < sleepAt || p >= wakeAt || sleeping === true));
+      assert.ok(statuses.some(([p, sleeping]) => p >= wakeAt + 1 && sleeping === false), '唤醒后心跳恢复 sleeping=false');
+      assert.match(r.output(), /全情况轮播（每 20 个位置点一轮）/);
     } finally {
       await shutdown(r);
     }
