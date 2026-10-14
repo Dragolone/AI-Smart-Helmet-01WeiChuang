@@ -135,5 +135,7 @@ export function timeWithDateIfNotToday(iso: string, locale: Locale): string {
 export function formatKm(meters: number): string {
   const km = meters / 1000;
   if (!Number.isFinite(km) || km < 0) return "0.0";
-  return km >= 1000 ? Math.round(km).toString() : km.toFixed(1);
+  // 先按一位小数取整再判断：999.95–999.99 km 用 toFixed(1) 会进位成六个字符的「1000.0」
+  const tenths = Math.round(km * 10) / 10;
+  return tenths >= 1000 ? Math.round(km).toString() : tenths.toFixed(1);
 }

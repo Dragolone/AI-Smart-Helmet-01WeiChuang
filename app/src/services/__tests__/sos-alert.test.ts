@@ -748,6 +748,20 @@ describe("sos-alert", () => {
       return { m: mod, store: store.useSosCancelStore };
     };
 
+    it("登出（resetSosAlerts）连同在途标记一起清：重新登录后同一单的倒计时页不会卡在「取消中…」、按钮点不了（2026-10-14）", async () => {
+      jest.useFakeTimers();
+      override(AppState, "addEventListener", () => ({
+        remove: () => undefined,
+      }));
+      mockCancel.mockRejectedValue(new Error("network"));
+      const { m, store } = loadWithStore();
+      expect(await m.cancelFromNotification("s9")).toBe(false); // 排了重试，标记在途
+      expect(store.getState().inFlight.s9).toBe(true);
+      await m.resetSosAlerts();
+      expect(store.getState().inFlight.s9).toBeUndefined();
+      jest.useRealTimers();
+    });
+
     it("请求发出即标记在途，服务端确认后清掉", async () => {
       let finish!: () => void;
       mockCancel.mockImplementationOnce(

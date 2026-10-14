@@ -39,11 +39,15 @@ export interface RelayConfig {
 
 // 缓存上限：真机 App 的离线缓存也有边界。溢出时丢最旧并告警——绝不静默截断。
 const QUEUE_MAX = 1000;
+// 溢出时先丢的类型：与头盔 Flash 同口径（DEVICE_PROTOCOL §6：位置 / 心跳 FIFO，高危事件保护区永不覆盖）
+const FIFO_TYPES = new Set<string>(['location_update', 'device_status']);
 
 export function createRelayTransport(cfg: RelayConfig): Transport {
   const { apiBaseUrl, deviceId, phone, password, log } = cfg;
   const base = apiBaseUrl.replace(/\/+$/, '');
   const queue: EventEnvelope<EventType>[] = [];
+  // 正在提交的那一批：202 回来时按对象删掉这些，而不是从队头数条数——提交期间队列可能因溢出被挪动过
+  const inFlight = new Set<EventEnvelope<EventType>>();
   let accessToken = '';
   let refreshToken = '';
   let flushTimer: NodeJS.Timeout | null = null;
@@ -108,6 +112,7 @@ export function createRelayTransport(cfg: RelayConfig): Transport {
         return;
       }
       const batch = queue.slice(0, cfg.maxBatch);
+      batch.forEach((e) => inFlight.add(e));
       let { status, json } = await post(
         '/api/v1/ingest/app-relay',
         { deviceId, envelopes: batch },
@@ -127,7 +132,9 @@ export function createRelayTransport(cfg: RelayConfig): Transport {
         return;
       }
       const counts = json as AppRelayResponse;
-      queue.splice(0, batch.length);
+      const kept = queue.filter((e) => !inFlight.has(e));
+      queue.length = 0;
+      queue.push(...kept);
       log(
         `📤 已中转 ${batch.length} 条 → accepted=${counts.accepted} duplicate=${counts.duplicate} invalid=${counts.invalid}` +
           (queue.length > 0 ? `（缓存剩余 ${queue.length}）` : ''),
@@ -135,6 +142,7 @@ export function createRelayTransport(cfg: RelayConfig): Transport {
     } catch (err) {
       log(`中转异常：${(err as Error).message}（保留缓存，下轮重试）`);
     } finally {
+      inFlight.clear();
       flushing = false;
     }
   };
@@ -255,8 +263,15 @@ export function createRelayTransport(cfg: RelayConfig): Transport {
         return;
       }
       if (queue.length >= QUEUE_MAX) {
-        queue.shift();
-        log(`⚠️ 离线缓存已满（${QUEUE_MAX} 条），丢弃最旧一条`);
+        // 不丢正在提交的（那批已经发出去了，丢了也省不出位置），先丢最旧的位置 / 心跳，实在没有才丢最旧的其他事件
+        const evictable = (e: EventEnvelope<EventType>) => !inFlight.has(e);
+        let at = queue.findIndex((e) => evictable(e) && FIFO_TYPES.has(e.eventType));
+        if (at < 0) at = queue.findIndex(evictable);
+        if (at < 0) at = 0;
+        const [dropped] = queue.splice(at, 1);
+        log(
+          `⚠️ 离线缓存已满（${QUEUE_MAX} 条），丢弃最旧的一条 ${dropped.eventType} (eventId=${dropped.eventId.slice(0, 8)}…)`,
+        );
       }
       queue.push(envelope);
       log(`已入队 ${envelope.eventType} (eventId=${envelope.eventId.slice(0, 8)}…) 队列=${queue.length}`);

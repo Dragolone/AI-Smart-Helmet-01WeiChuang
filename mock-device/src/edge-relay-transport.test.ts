@@ -194,6 +194,45 @@ describe('relay-transport 边界', () => {
       assert.ok(logs.some((l) => l.includes('退出时仍有 900 条未提交')), '剩余条数如实告警，不静默丢');
     });
 
+    it('提交在途时缓存溢出：202 回来只删真正提交过的那批，丢的那条如实告警（2026-10-14）', async () => {
+      // 让第一次提交挂住，期间再入队一条把缓存挤满
+      let release: (r: Response) => void = () => undefined;
+      const ok = onRelay;
+      let n = 0;
+      onRelay = ((c: Call) => {
+        n += 1;
+        return n === 1 ? new Promise<Response>((resolve) => (release = resolve)) : ok(c);
+      }) as unknown as Handler;
+      const t = await start({ maxBatch: 2 });
+      const events = Array.from({ length: 1000 }, locationEvent);
+      events.forEach((e) => t.send('location', e));
+      await tick(1000); // 第一批 [e0, e1] 在途
+      const extra = locationEvent();
+      t.send('location', extra);
+      // 在途的两条不丢：丢的是没提交过的最旧一条 e2，日志写明是哪一条
+      assert.ok(logs.some((l) => l.includes('离线缓存已满') && l.includes(events[2].eventId.slice(0, 8))));
+      release(json(202, { accepted: 2, duplicate: 0, invalid: 0 }));
+      await settle();
+      await tick(1000);
+      // 下一批从 e3 开始：没有一条未提交的事件被「顺手」删掉
+      assert.deepEqual(relayIds(relayCalls()[1]), [events[3].eventId, events[4].eventId]);
+      await stop(t);
+      assert.ok(logs.some((l) => l.includes('退出时仍有 994 条未提交')), '1001 条 − 丢 1 − 三批各 2');
+    });
+
+    it('缓存满时先丢位置 / 心跳，摔倒等高危事件不被挤掉（DEVICE_PROTOCOL §6）', async () => {
+      const t = await start({ maxBatch: 100 });
+      const fall = buildEnvelope(DEVICE, '1.0.0', 'possible_fall', { confidence: 0.9 }) as EventEnvelope<EventType>;
+      t.send('event', fall);
+      const events = Array.from({ length: 999 }, locationEvent);
+      events.forEach((e) => t.send('location', e));
+      t.send('location', locationEvent());
+      await stop(t);
+      const ids = relayIds(relayCalls()[0]);
+      assert.equal(ids[0], fall.eventId, '摔倒仍在队头');
+      assert.equal(ids[1], events[1].eventId, '丢的是最旧的位置 events[0]');
+    });
+
     it('网关返回非 JSON 的 502 → 缓存保留，下一轮整批重试（同一批 eventId）', async () => {
       let n = 0;
       const ok = onRelay;

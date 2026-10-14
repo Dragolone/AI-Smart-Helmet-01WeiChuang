@@ -1,6 +1,7 @@
 import { Controller, Get, Param, Query, Req } from '@nestjs/common';
-import { IsISO8601, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsOptional, IsString, MaxLength } from 'class-validator';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
+import { IsIsoDateTime } from '../common/iso-date';
 import { PageQueryDto } from '../common/page-query.dto';
 import { EventsService } from './events.service';
 
@@ -12,11 +13,11 @@ class EventsQueryDto extends PageQueryDto {
   type?: string;
 
   @IsOptional()
-  @IsISO8601({ strict: true })
+  @IsIsoDateTime()
   from?: string;
 
   @IsOptional()
-  @IsISO8601({ strict: true })
+  @IsIsoDateTime()
   to?: string;
 }
 

@@ -140,9 +140,10 @@ export class DevicesService {
     const run = async (c: DbClient) => {
       // 带条件：归属检查到这里之间若自己的另一台手机已解绑、别人又绑上了，不能把别人的绑定抹掉；
       // 命中 0 行 = 已经不是自己的了，按幂等成功（10-06 并发评审 #5）
+      // 自定义名一并清掉：那是上一位主人起的（如「张三的头盔」），下一位绑定后不该在列表里看到
       await c.device.updateMany({
         where: { deviceId, bindUserId: userId },
-        data: { bindUserId: null, boundAt: null },
+        data: { bindUserId: null, boundAt: null, name: null },
       });
       await c.deviceBinding.updateMany({
         where: { deviceId, userId, unboundAt: null },

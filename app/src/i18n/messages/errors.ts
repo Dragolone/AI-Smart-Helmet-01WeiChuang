@@ -15,6 +15,8 @@ export const errors = {
     "error.passwordIncorrect": "密码不正确",
     "error.rateLimited": "操作太频繁，请稍后再试",
     "error.rateLimitedRetry": "操作太频繁，请 {seconds} 秒后再试",
+    "error.rateLimitedRetryMinutes": "操作太频繁，请 {minutes} 分钟后再试",
+    "error.rateLimitedRetryHours": "操作太频繁，请 {hours} 小时后再试",
     "error.internal": "服务暂时不可用，请稍后再试",
     "error.sosAlreadyFinalized":
       "本次求救已取消或已启动通知，无需重复操作",
@@ -37,6 +39,8 @@ export const errors = {
     "error.passwordIncorrect": "密碼不正確",
     "error.rateLimited": "操作太頻繁，請稍後再試",
     "error.rateLimitedRetry": "操作太頻繁，請 {seconds} 秒後再試",
+    "error.rateLimitedRetryMinutes": "操作太頻繁，請 {minutes} 分鐘後再試",
+    "error.rateLimitedRetryHours": "操作太頻繁，請 {hours} 小時後再試",
     "error.internal": "服務暫時無法使用，請稍後再試",
     "error.sosAlreadyFinalized":
       "本次求救已取消或已啟動通知，無需重複操作",
@@ -60,6 +64,8 @@ export const errors = {
     "error.passwordIncorrect": "Incorrect password",
     "error.rateLimited": "Too many requests. Try again later.",
     "error.rateLimitedRetry": "Too many requests. Try again in {seconds} s.",
+    "error.rateLimitedRetryMinutes": "Too many requests. Try again in {minutes} min.",
+    "error.rateLimitedRetryHours": "Too many requests. Try again in {hours} h.",
     "error.internal": "Service temporarily unavailable. Try again later.",
     "error.sosAlreadyFinalized":
       "This SOS was cancelled or notifications have started. No further action is needed.",

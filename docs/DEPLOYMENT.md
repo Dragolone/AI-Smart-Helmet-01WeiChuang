@@ -235,7 +235,7 @@ docker compose -f docker-compose.prod.yml exec -T postgres pg_restore -U helmet 
 
 | # | 步骤 | 谁 | 说明 |
 |---|------|----|------|
-| 1 | DNS 加三条 A 记录 `api` / `admin` / `mqtt.01weichuang.com` → 111.230.157.151 | 负责人 | **现在就能加,不影响现网**;`dev-` 三条保留。App 备案填服务域名 `api.01weichuang.com` 也以此为准 |
+| 1 | ✅ DNS 加三条 A 记录 `api` / `admin` / `mqtt.01weichuang.com` → 111.230.157.151(2026-10-12 已加并核对生效) | 负责人 | **现在就能加,不影响现网**;`dev-` 三条保留。App 备案填服务域名 `api.01weichuang.com` 也以此为准 |
 | 2 | 定切换日 | 负责人 | 建议在 A 线回归完成之后、首次提交商店审核之前 |
 | 3 | 切换前手动备份一次 | B 线 | `sh backup.sh`,确认 COS `backups/` 有新对象(§4 #9) |
 | 4 | 清空测试数据 | B 线 | 当前库里全是测试账号与 Mock 轨迹,正式用户不该看到。`docker compose -f docker-compose.prod.yml stop backend mock` → `exec postgres dropdb -U helmet helmet` → `exec postgres createdb -U helmet helmet` → `up -d`(backend 启动时自动 `prisma migrate deploy` 建表)。**只删库不删卷**,EMQX / Caddy 证书不受影响 |

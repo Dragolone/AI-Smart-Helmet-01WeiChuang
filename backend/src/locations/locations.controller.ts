@@ -1,16 +1,17 @@
 import { Controller, Get, Param, Query, Req } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { IsISO8601, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsInt, IsOptional, Max, Min } from 'class-validator';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
+import { IsIsoDateTime } from '../common/iso-date';
 import { PageQueryDto } from '../common/page-query.dto';
 import { DevicesService } from '../devices/devices.service';
 import { LocationsService } from './locations.service';
 
 class RangeQueryDto {
-  @IsISO8601({ strict: true })
+  @IsIsoDateTime()
   from!: string;
 
-  @IsISO8601({ strict: true })
+  @IsIsoDateTime()
   to!: string;
 }
 
@@ -26,10 +27,10 @@ class TrackQueryDto extends RangeQueryDto {
 
 class LocationsQueryDto extends PageQueryDto {
   // 时间范围必填（API.md §5）；范围上限与先后关系在服务层校验
-  @IsISO8601({ strict: true })
+  @IsIsoDateTime()
   from!: string;
 
-  @IsISO8601({ strict: true })
+  @IsIsoDateTime()
   to!: string;
 }
 

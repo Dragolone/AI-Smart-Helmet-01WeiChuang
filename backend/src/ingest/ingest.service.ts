@@ -191,7 +191,7 @@ export class IngestService {
 
     if (device.bindUserId) {
       if (e.eventType === 'device_status') {
-        this.push.pushDeviceStatus(device.bindUserId, e);
+        this.push.pushDeviceStatus(device.bindUserId, e.deviceId, device);
       } else if (point) {
         this.push.pushLocation(device.bindUserId, e.deviceId, point);
       } else if (RISK_EVENT_TYPES.has(e.eventType)) {

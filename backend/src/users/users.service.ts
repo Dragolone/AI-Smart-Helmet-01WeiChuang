@@ -23,17 +23,27 @@ export class UsersService {
   /**
    * 注销账号（API.md §2，App Store 要求应用内可注销）：软删除留档，一个事务内完成——
    * 置 deletedAt、phone 改写为 deleted:<id>（释放号码供再注册，原号不保留）、清头像、
-   * 撤销全部会话、解绑全部设备（与 DELETE /devices/{id}/binding 同口径）、软删全部紧急联系人。
-   * 事故/事件/轨迹等历史数据按设备留档不动。
+   * 删该号码的验证码记录（手机号在那张表里是明文）、撤销全部会话、解绑全部设备
+   *（与 DELETE /devices/{id}/binding 同口径）、软删全部紧急联系人。
+   * 事故/事件/轨迹等历史数据按设备留档不动。隐私政策 V1.2「注销」一节按此写，改这里要同步改政策。
    */
   async deleteAccount(userId: string, password: string): Promise<void> {
     await this.auth.verifyPassword(userId, password);
     const now = new Date();
     await this.prisma.$transaction(async (tx) => {
+      const { phone } = await tx.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { phone: true },
+      });
       await tx.user.update({
         where: { id: userId },
-        data: { deletedAt: now, phone: `deleted:${userId}`, avatarUrl: null },
+        data: {
+          deletedAt: now,
+          phone: `deleted:${userId}`,
+          avatarUrl: null,
+        },
       });
+      await tx.smsCode.deleteMany({ where: { phone } });
       await tx.refreshToken.updateMany({
         where: { userId, revokedAt: null },
         data: { revokedAt: now },

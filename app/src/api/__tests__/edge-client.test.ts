@@ -388,6 +388,17 @@ describe("响应体形态", () => {
     );
   });
 
+  it.each([
+    [90, translate("error.rateLimitedRetry", { seconds: 90 })],
+    [91, translate("error.rateLimitedRetryMinutes", { minutes: 2 })],
+    [5400, translate("error.rateLimitedRetryMinutes", { minutes: 90 })],
+    // 发码日限（同 IP 每天 50 条）：Retry-After 可达 86400，不能写「请 86231 秒后再试」
+    [86_231, translate("error.rateLimitedRetryHours", { hours: 24 })],
+  ])("429 Retry-After=%d 换成人读得懂的单位", (seconds, text) => {
+    const err = new ApiRequestError(429, { code: "RATE_LIMITED" }, seconds);
+    expect(toUserMessage(err)).toBe(text);
+  });
+
   it("429 没有 Retry-After（或值不是秒数）：退回原来的「请稍后再试」", async () => {
     fetchMock.mockResolvedValue({
       ...res(429, { code: "RATE_LIMITED" }),
