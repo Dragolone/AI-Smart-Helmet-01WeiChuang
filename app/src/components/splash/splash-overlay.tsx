@@ -642,6 +642,10 @@ function SplashPlayer({ onDone }: { onDone: () => void }) {
   // 华为 10-14 实测那次整段播完才见倒计时，晚 5 秒），也不等 finish 里那两帧的收尾，直接卸掉
   useEffect(() => {
     if (!pathname.startsWith("/sos-active")) return;
+    // 原生启动画面只在 begin()（onLayout 触发）里收：iOS 以 sos-active 深链冷启动时 getInitialURL 是同步的，
+    // 首帧 pathname 就命中这里、画布在 onLayout 之前被卸掉，begin() 永远不跑 → 原生启动画面盖在倒计时页上不消失。
+    // hide() 幂等，这里先收掉再卸（10-15 复审 F-1）
+    SplashScreen.hide();
     finish();
     onDone();
   }, [pathname, finish, onDone]);
