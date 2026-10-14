@@ -36,6 +36,15 @@ describe("网络让位", () => {
     expect(page).toMatch(/useEffect\(\(\) => releaseWifi, \[releaseWifi\]\)/);
   });
 
+  it("失焦释放（倒计时页盖上来时手机不能还绑在头盔热点上）；连接途中离开、结果迟到时也释放", () => {
+    expect(page).toMatch(
+      /useFocusEffect\([\s\S]{0,400}return \(\) => \{\s*releaseWifi\(\);\s*dispatch\(\{ type: "suspend", reason: "background" \}\)/,
+    );
+    expect(page).toMatch(
+      /if \(cancelled\) \{[\s\S]{0,300}if \(!holdingWifi\.current\) HelmetWifi\.release\(\);/,
+    );
+  });
+
   it("释放后立即补传积压的中转事件", () => {
     expect(page).toMatch(
       /HelmetWifi\.release\(\);[\s\S]{0,120}flushRelayQueue\(\)/,
