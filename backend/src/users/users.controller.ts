@@ -17,6 +17,7 @@ import {
   MinLength,
 } from 'class-validator';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
+import { PASSWORD_CHECK_LIMITS, RateLimit } from '../common/rate-limit.guard';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from './users.service';
 
@@ -86,6 +87,7 @@ export class UsersController {
   }
 
   /** 注销账号（软删除）：密码错误 400 PASSWORD_INCORRECT；成功 204，之后原手机号可重新注册 */
+  @RateLimit(...PASSWORD_CHECK_LIMITS)
   @Delete('me')
   @HttpCode(204)
   async deleteMe(

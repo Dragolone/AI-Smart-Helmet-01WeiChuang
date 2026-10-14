@@ -245,26 +245,34 @@ describe("持久化：先写临时文件再原子改名（10-06 不变式评审 
 });
 
 describe("高危事件被服务端接受后的回调（10-06 不变式评审 F-1）", () => {
-  it("批次含摔倒 / 求救且 accepted>0 → 回调一次并带设备号；全是 duplicate 或只有位置事件 → 不回调", async () => {
+  it("批次含摔倒 / 求救且 accepted+duplicate>0 → 回调一次并带设备号；全是 invalid 或只有位置事件 → 不回调", async () => {
     const { up, push } = load();
     const onAccepted = jest.fn((_deviceId: string) => undefined);
     up.setCriticalAcceptedHandler(onAccepted);
     up.startRelayUplink("user_A");
     await tick();
-    push.mockResolvedValueOnce({ accepted: 0, duplicate: 1, invalid: 0 });
+    // 全是 invalid：服务端没建单，不回调
+    push.mockResolvedValueOnce({ accepted: 0, duplicate: 0, invalid: 1 });
     up.enqueueRelayEvent(env("possible_fall", "helmet_x"));
     await up.flushRelayQueue();
     expect(onAccepted).not.toHaveBeenCalled();
+    // 只有位置事件：不是高危，不回调
     push.mockResolvedValueOnce({ accepted: 1, duplicate: 0, invalid: 0 });
     up.enqueueRelayEvent(env("location_update", "helmet_x"));
     await up.flushRelayQueue();
     expect(onAccepted).not.toHaveBeenCalled();
+    // 补传回 duplicate：第一次已到服务端、单子早建好了，同样要拉倒计时（10-14 代码审查）
+    push.mockResolvedValueOnce({ accepted: 0, duplicate: 1, invalid: 0 });
+    up.enqueueRelayEvent(env("possible_fall", "helmet_x"));
+    await up.flushRelayQueue();
+    expect(onAccepted).toHaveBeenCalledTimes(1);
+    expect(onAccepted).toHaveBeenCalledWith("helmet_x");
     push.mockResolvedValueOnce({ accepted: 2, duplicate: 0, invalid: 0 });
     up.enqueueRelayEvent(env("manual_sos", "helmet_x"));
     up.enqueueRelayEvent(env("location_update", "helmet_x"));
     await up.flushRelayQueue();
-    expect(onAccepted).toHaveBeenCalledTimes(1);
-    expect(onAccepted).toHaveBeenCalledWith("helmet_x");
+    expect(onAccepted).toHaveBeenCalledTimes(2);
+    expect(onAccepted).toHaveBeenLastCalledWith("helmet_x");
     up.setCriticalAcceptedHandler(null);
   });
 

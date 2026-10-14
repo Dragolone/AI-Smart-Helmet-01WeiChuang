@@ -1,6 +1,6 @@
 import { Body, Controller, HttpCode, Post, Req } from '@nestjs/common';
 import { Public } from '../common/public.decorator';
-import { RateLimit } from '../common/rate-limit.guard';
+import { PASSWORD_CHECK_LIMITS, RateLimit } from '../common/rate-limit.guard';
 import {
   ChangePasswordDto,
   ChangePhoneDto,
@@ -60,7 +60,8 @@ export class AuthController {
     await this.auth.resetPassword(dto.phone, dto.code, dto.newPassword);
   }
 
-  /** 需登录（非 @Public）：改密后其他会话全部撤销，本设备凭 refreshToken 保留 */
+  /** 需登录（非 @Public）：改密后其他会话全部撤销，本设备凭 refreshToken 保留。密码尝试限频见 PASSWORD_CHECK_LIMITS */
+  @RateLimit(...PASSWORD_CHECK_LIMITS)
   @HttpCode(204)
   @Post('change-password')
   async changePassword(
@@ -75,6 +76,7 @@ export class AuthController {
     );
   }
 
+  @RateLimit(...PASSWORD_CHECK_LIMITS)
   @HttpCode(200)
   @Post('change-phone')
   changePhone(@Req() req: AuthenticatedRequest, @Body() dto: ChangePhoneDto) {

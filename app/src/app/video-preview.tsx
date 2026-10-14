@@ -1,7 +1,7 @@
 // 实时视频预览（决策 #37/#49，DEVICE_PROTOCOL §1.3）：手机连头盔 SoftAP → RTSP over TCP 拉流 → libVLC 硬解。
 // 约束（§1.3 App 侧硬要求）：本页不发任何外网请求（此时手机在没有互联网的头盔热点上）；
 // Android 进程绑在头盔热点期间连不上云端，所以只在前台持有，离开 / 退后台 / 摔倒求救入队时立即释放。
-import { useLocalSearchParams } from "expo-router";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { File, Paths } from "expo-file-system";
 import { useKeepAwake } from "expo-keep-awake";
 import type { ComponentType, Ref } from "react";
@@ -136,7 +136,12 @@ export default function VideoPreviewScreen() {
       wpa3: devWpa3,
     }).then(
       () => {
-        if (cancelled) return;
+        if (cancelled) {
+          // 页面在连接途中已离开 / 失焦：此刻才拿到热点，没人再释放它——iOS 会一直挂在没有互联网的头盔热点上
+          // （joinOnce 只在退后台时才自动断），Android 则把进程绑死在头盔网络。立即还回去
+          if (!holdingWifi.current) HelmetWifi.release();
+          return;
+        }
         dispatch({ type: "joined" });
         // 连上那一刻系统弹窗多半还没关、AppState 还是 background（华为实测连上 0.5 s 后弹窗才收）；
         // 2 s 后仍在后台才是人按了 HOME：照退后台处理，回前台再重连
@@ -217,6 +222,19 @@ export default function VideoPreviewScreen() {
     const sub = HelmetWifi.onWifiLost(() => dispatch({ type: "wifiLost" }));
     return () => sub.remove();
   }, []);
+
+  // 任何压在本页上面的页面（倒计时页是 fullScreenModal、推送跳转）都让本页失焦但不卸载：此时 Android 进程仍绑在
+  // 头盔热点上，倒计时页的取消 / 确认接口没有互联网可走，到期服务端照常通知联系人（10-15 评审 F-1）。
+  // 失焦一律视同退后台：释放热点、暂停；回到本页再按「回前台」自动重连。系统的选 Wi-Fi 弹窗不改导航焦点，不受影响
+  useFocusEffect(
+    useCallback(() => {
+      dispatch({ type: "foreground" });
+      return () => {
+        releaseWifi();
+        dispatch({ type: "suspend", reason: "background" });
+      };
+    }, [releaseWifi]),
+  );
 
   const continueManual = () => {
     if (HelmetWifi.bindToWifi()) {

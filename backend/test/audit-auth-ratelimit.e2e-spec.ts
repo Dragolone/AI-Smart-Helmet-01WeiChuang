@@ -117,6 +117,45 @@ describe('审计 §6：限频（RATE_LIMIT_DISABLED 未设） (e2e)', () => {
     expect(other.status).toBe(401);
   });
 
+  it('已登录的密码校验端点（改密 / 换号 / 注销）同用户 5 次/分、三处共用额度：第 6 次 429；换接口不能续命；他人不受影响', async () => {
+    process.env.RATE_LIMIT_DISABLED = '1';
+    const u = await createUser(app, http);
+    users.push(u);
+    delete process.env.RATE_LIMIT_DISABLED;
+    const wrongPassword = (): request.Test =>
+      request(http)
+        .post('/api/v1/auth/change-password')
+        .set(auth(u.token))
+        .send({ oldPassword: 'wrong_pw_1', newPassword: 'new_password_8' });
+    const { before, limited } = await untilLimited(wrongPassword, 7);
+    expect(before).toHaveLength(5);
+    expect(before.every((s) => s === 400)).toBe(true);
+    expect(limited?.status).toBe(429);
+    expect(limited?.body.code).toBe('RATE_LIMITED');
+    expect(retryAfter(limited!)).toBeGreaterThanOrEqual(1);
+    // 同一额度覆盖换号与注销：换到另一个端点也 429，猜密码没法靠换接口续命；正确密码同样被限（限的是尝试次数）
+    const changePhone = await request(http)
+      .post('/api/v1/auth/change-phone')
+      .set(auth(u.token))
+      .send({ password: u.password, newPhone: randomPhone(), code: '000000' });
+    expect(changePhone.status).toBe(429);
+    const del = await request(http)
+      .delete('/api/v1/users/me')
+      .set(auth(u.token))
+      .send({ password: u.password });
+    expect(del.status).toBe(429);
+    // 按用户分桶：同 IP 的另一个用户照常 400
+    const other = await request(http)
+      .post('/api/v1/auth/change-password')
+      .set(auth(users[1].token))
+      .send({ oldPassword: 'wrong_pw_1', newPassword: 'new_password_8' });
+    expect(other.status).toBe(400);
+    evidence(
+      LOG,
+      `change-password 同用户：5×400 → 第 6 次 429 Retry-After=${retryAfter(limited!)}；change-phone / DELETE me 共用额度 → 429；同 IP 他人 → ${other.status}`,
+    );
+  });
+
   it('sms-code 同 IP 5 条/分：第 6 条 429 + Retry-After；无 trust proxy 时 X-Forwarded-For 伪造不能绕过', async () => {
     const send = (i: number, xff?: string): request.Test => {
       let t = request(http)
