@@ -111,7 +111,11 @@
     "extra": {
       "jpush": {
         "appKey": "79cce150234ce38063213ccd",
-        "channel": "official"
+        "channel": "official",
+        "xiaomi": {
+          "appId": "2882303761520592446",
+          "appKey": "5922059287446"
+        }
       }
     }
   }
