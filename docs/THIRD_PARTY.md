@@ -124,6 +124,7 @@
 - 选型已定案（决策 #22），后端 UserSig 自实现官方 HMAC-SHA256 算法，不引 SDK 依赖
 - ✅ **补验通过（2026-08-16）**：Developer A 提供个人测试应用凭证，填入 `backend/.env` 的 `TRTC_SDK_APP_ID` / `TRTC_SECRET_KEY` 后实测「注册 → 建频道 → 取进房凭证」全链路，`POST /voice/channels/:channelId/token` 正常返回 `sdkAppId` / `roomId` / `userSig`（216 字符）/ `expiresAt`（24h）。**Week 9–10 遗留项①清零**
 - 正式应用待公司资质就绪后在同一腾讯云账号下创建，**换 Key 零代码改动**（仅改 env）
+- **房间权限（2026-10-14 排查，决策 #56，待负责人在控制台开）**：原来 UserSig 不绑房间、房间号又是自增，任何人建个频道拿到凭证就能挨个房间偷听。后端已改：房间号随机 10 位，`/token` 多发一把绑定房间的 `privateMapKey`（10 分钟），App 进房时带上。**控制台这一步**：TRTC → 应用管理 → 该应用 → 功能配置 → 开启「**高级权限控制**」（房间进入权限）。⚠️ 顺序：先让带 privateMapKey 的 App 包装到所有测试机，再开开关——开了之后旧包进不了房（-3340 以外的权限错误）；开之前多发的钥匙会被 TRTC 忽略，不影响现有使用。个人测试应用与正式应用各开一次
 - ✅ 对讲已切服务端签发 UserSig；**2026-09-17 删除 spike-* 页与 `EXPO_PUBLIC_TRTC_SDKAPPID/SECRETKEY`（SecretKey 曾随 Spike 页进客户端包）**，App 不再持有任何 TRTC 密钥
 
 ## 域名与 HTTPS（决策 #34）

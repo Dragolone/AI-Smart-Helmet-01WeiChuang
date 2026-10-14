@@ -101,6 +101,9 @@ describe('网络对讲后端 (e2e)', () => {
     expect(res.body.memberCount).toBe(1);
     expect(inviteCode).toMatch(/^\d{6}$/);
     expect(Number.isInteger(res.body.roomId)).toBe(true);
+    // 房间号随机 10 位（决策 #56）：不再是从 1 起的自增号
+    expect(res.body.roomId).toBeGreaterThanOrEqual(1_000_000_000);
+    expect(res.body.roomId).toBeLessThan(2_147_483_647);
 
     const list = await request(http)
       .get(BASE)
@@ -194,6 +197,19 @@ describe('网络对讲后端 (e2e)', () => {
     const expiresAt = new Date(res.body.expiresAt as string).getTime();
     expect(expiresAt).toBeGreaterThan(before + 3590_000);
     expect(expiresAt).toBeLessThan(before + 3610_000);
+
+    // 房间权限钥匙（决策 #56）：绑这个房间、默认 10 分钟、全权限
+    const key = verifyUserSig(
+      { sdkAppId: TEST_SDK_APP_ID, secretKey: TEST_SECRET, expireSeconds: 600 },
+      res.body.privateMapKey as string,
+    );
+    expect(key.identifier).toBe(res.body.userId);
+    expect(key.room).toMatchObject({
+      roomId: res.body.roomId,
+      privilegeMap: 255,
+    });
+    expect(key.room!.expireAt * 1000).toBeGreaterThan(before + 590_000);
+    expect(key.room!.expireAt * 1000).toBeLessThan(before + 610_000);
   });
 
   it('TRTC 未配置 → 503 TRTC_NOT_CONFIGURED（频道功能不受影响）', async () => {

@@ -495,12 +495,18 @@ export interface VoiceChannelMemberPublic {
   joinedAt: string;
 }
 
-/** 进房凭证：App 端用 TRTC SDK 携此进房（roomId）+ PTT */
+/** 进房凭证：App 端用 TRTC SDK 携此进房（roomId + privateMapKey）+ PTT */
 export interface VoiceTokenResponse {
   sdkAppId: number;
   userId: string;
   roomId: number;
   userSig: string;
+  /**
+   * 房间权限钥匙（TRTC PrivateMapKey，决策 #56）：只对这个 roomId 有效、默认 10 分钟——进房前现取 /token，
+   * 填进 TRTCParams.privateMapKey。TRTC 控制台开启「高级权限控制」后不带它进不了房
+   */
+  privateMapKey: string;
+  /** userSig 到期时间（privateMapKey 更短，不单独下发） */
   expiresAt: string;
 }
 

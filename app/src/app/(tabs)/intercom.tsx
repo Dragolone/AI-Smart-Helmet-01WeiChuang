@@ -460,6 +460,8 @@ export default function IntercomScreen() {
         userId: tk.userId,
         userSig: tk.userSig,
         roomId: tk.roomId,
+        // 房间权限钥匙（决策 #56）：凭证只对这个房间有效，别人拿着自己频道的凭证进不来
+        privateMapKey: tk.privateMapKey,
       });
       await trtc.current.enterRoom(
         params,
