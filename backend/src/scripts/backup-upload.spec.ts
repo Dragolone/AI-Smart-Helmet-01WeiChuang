@@ -3,6 +3,7 @@ import {
   isValidBackupKey,
   looksLikePgDump,
   parseArgs,
+  resolveBackupBucket,
   runBackup,
   selectExpired,
   type BackupStore,
@@ -157,5 +158,26 @@ describe('backup-upload：runBackup 编排（假存储）', () => {
       now,
     );
     expect(store.remove).not.toHaveBeenCalled();
+  });
+});
+
+describe('resolveBackupBucket（备份桶与媒体桶分开，2026-10-14）', () => {
+  it('填了单独的备份桶就用它；没填 / 空串 / 与媒体桶同名都算没分桶，回落媒体桶并标记', () => {
+    expect(
+      resolveBackupBucket(
+        { TENCENT_COS_BACKUP_BUCKET: 'helmet-backups-1' },
+        'media-1',
+      ),
+    ).toEqual({ bucket: 'helmet-backups-1', dedicated: true });
+    expect(resolveBackupBucket({}, 'media-1')).toEqual({
+      bucket: 'media-1',
+      dedicated: false,
+    });
+    expect(
+      resolveBackupBucket({ TENCENT_COS_BACKUP_BUCKET: '  ' }, 'media-1'),
+    ).toEqual({ bucket: 'media-1', dedicated: false });
+    expect(
+      resolveBackupBucket({ TENCENT_COS_BACKUP_BUCKET: 'media-1' }, 'media-1'),
+    ).toEqual({ bucket: 'media-1', dedicated: false });
   });
 });
