@@ -599,6 +599,12 @@ export default function DeviceDetailScreen() {
             onPress={() => router.navigate(`/device-alerts/${deviceId}`)}
           />
           <ListRow
+            icon="videocam-outline"
+            title={t("device.videoPreview")}
+            subtitle={t("device.videoPreview.open")}
+            onPress={() => router.navigate("/video-preview")}
+          />
+          <ListRow
             icon="information-circle-outline"
             title={t("device.cat.about")}
             subtitle={t("device.cat.aboutSummary")}
