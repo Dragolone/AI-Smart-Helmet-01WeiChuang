@@ -14,6 +14,7 @@ export const accident = {
     "sosAlert.cancelFailedBody":
       "取消请求未送达服务器，请打开求救页面重试。",
     "accident.triggeredAt": "求救创建时间",
+    "accident.helmetTriggeredAt": "头盔上的触发时间",
     "accident.deadline": "倒计时截止",
     "accident.location": "求救记录位置",
     "accident.locationSource.event": "头盔事件中的位置",
@@ -43,6 +44,7 @@ export const accident = {
       "取消請求未送達伺服器，請開啟求救頁面重試。",
     "sosAlert.openAction": "開啟 App",
     "accident.triggeredAt": "求救建立時間",
+    "accident.helmetTriggeredAt": "頭盔上的觸發時間",
     "accident.deadline": "倒數截止",
     "accident.location": "求救紀錄位置",
     "accident.locationSource.event": "頭盔事件中的位置",
@@ -73,6 +75,7 @@ export const accident = {
       "The cancellation request did not reach the server. Open the SOS page and try again.",
     "sosAlert.openAction": "Open app",
     "accident.triggeredAt": "SOS created at",
+    "accident.helmetTriggeredAt": "Triggered on helmet",
     "accident.deadline": "Countdown ends",
     "accident.location": "Recorded SOS location",
     "accident.locationSource.event": "Location from helmet event",
