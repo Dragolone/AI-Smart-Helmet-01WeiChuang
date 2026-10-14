@@ -7,13 +7,21 @@ const plugin = require("../with-jpush.js") as {
   applyProjectBuildGradleHuawei: (s: string, o: { agpVersion: string }) => string;
   readAgpVersion: (root: string) => string;
   applyAppBuildGradleHuawei: (s: string) => string;
-  JPUSH_HUAWEI_PLUGIN_VERSION: string;
+  applyAppBuildGradleXiaomi: (s: string) => string;
+  JPUSH_VENDOR_PLUGIN_VERSION: string;
   applyAppDelegate: (s: string) => string;
-  applyAppBuildGradle: (s: string, cfg: { appKey: string; channel: string }) => string;
+  applyAppBuildGradle: (
+    s: string,
+    cfg: { appKey: string; channel: string; xiaomi?: { appId: string; appKey: string } },
+  ) => string;
   applyAndroidManifest: (m: unknown) => unknown;
   applyBridgingHeader: (s: string) => string;
   applyInfoPlist: (p: Record<string, unknown>) => Record<string, unknown>;
-  readJPushExtra: (c: unknown) => { appKey: string; channel: string };
+  readJPushExtra: (c: unknown) => {
+    appKey: string;
+    channel: string;
+    xiaomi?: { appId: string; appKey: string };
+  };
 };
 
 const APP_DELEGATE_SDK57 = `internal import Expo
@@ -276,7 +284,7 @@ describe("Android 华为厂商通道（上线清单 A-11）", () => {
   it("应用级：AGC 插件紧跟 com.facebook.react 之后；极光华为插件与 HMS Push 进 dependencies", () => {
     expect(app).toMatch(/apply plugin: "com\.facebook\.react"\n(?:\/\/.*\n)?apply plugin: "com\.huawei\.agconnect"/);
     const deps = app.slice(app.indexOf("dependencies {"));
-    expect(deps).toContain(`implementation("cn.jiguang.sdk.plugin:huawei:${plugin.JPUSH_HUAWEI_PLUGIN_VERSION}")`);
+    expect(deps).toContain(`implementation("cn.jiguang.sdk.plugin:huawei:${plugin.JPUSH_VENDOR_PLUGIN_VERSION}")`);
     expect(deps).toContain('implementation("com.huawei.hms:push:6.13.0.300")');
   });
 
@@ -295,13 +303,66 @@ describe("Android 华为厂商通道（上线清单 A-11）", () => {
     expect(() => plugin.applyAppBuildGradleHuawei("android {}")).toThrow(/app\/build\.gradle 锚点失效/);
   });
 
-  it("极光华为插件的版本与 jpush-react-native 自带的 JPush SDK 版本一致（库升级后这条会提醒同步）", () => {
+  it("极光厂商插件的版本与 jpush-react-native 自带的 JPush SDK 版本一致（库升级后这条会提醒同步）", () => {
     const fs = require("node:fs") as typeof import("node:fs");
     const path = require("node:path") as typeof import("node:path");
     const gradle = fs.readFileSync(
       path.join(__dirname, "../../../node_modules/jpush-react-native/android/build.gradle"),
       "utf8",
     );
-    expect(gradle).toContain(`cn.jiguang.sdk:jpush:${plugin.JPUSH_HUAWEI_PLUGIN_VERSION}`);
+    expect(gradle).toContain(`cn.jiguang.sdk:jpush:${plugin.JPUSH_VENDOR_PLUGIN_VERSION}`);
+  });
+});
+
+describe("Android 小米厂商通道", () => {
+  const xiaomi = { appId: "2882303761520592446", appKey: "5922059287446" };
+
+  it("配了小米：manifestPlaceholders 多两项，原样是字符串（19 位 AppID 不能丢精度）", () => {
+    const out = plugin.applyAppBuildGradle(BUILD_GRADLE_SDK57, { appKey: "k", channel: "official", xiaomi });
+    expect(out).toContain('XIAOMI_APPID: "2882303761520592446"');
+    expect(out).toContain('XIAOMI_APPKEY: "5922059287446"');
+    // 插件 5.5.3 起不加「MI-」前缀
+    expect(out).not.toContain("MI-");
+    // 仍是一个合法的 Groovy map：最后一项后面没有逗号
+    expect(out).toMatch(/XIAOMI_APPKEY: "5922059287446"\n\s*\]/);
+  });
+
+  it("没配小米：占位符与原来完全一样（不多出空项）", () => {
+    const out = plugin.applyAppBuildGradle(BUILD_GRADLE_SDK57, { appKey: "k", channel: "official" });
+    expect(out).not.toContain("XIAOMI");
+    expect(out).toMatch(/JPUSH_CHANNEL: "official"\n\s*\]/);
+  });
+
+  it("应用级 dependencies 加极光小米插件，版本跟 JPush SDK；和华为一起接也不打架", () => {
+    const app = plugin.applyAppBuildGradleXiaomi(APP_BUILD_GRADLE_HEAD_SDK57);
+    const deps = app.slice(app.indexOf("dependencies {"));
+    expect(deps).toContain(`implementation("cn.jiguang.sdk.plugin:xiaomi:${plugin.JPUSH_VENDOR_PLUGIN_VERSION}")`);
+    expect(plugin.applyAppBuildGradleXiaomi(app)).toBe(app);
+    const both = plugin.applyAppBuildGradleXiaomi(plugin.applyAppBuildGradleHuawei(APP_BUILD_GRADLE_HEAD_SDK57));
+    expect(both).toContain("cn.jiguang.sdk.plugin:huawei:");
+    expect(both).toContain("cn.jiguang.sdk.plugin:xiaomi:");
+    expect(plugin.applyAppBuildGradleXiaomi(both)).toBe(both);
+  });
+
+  it("模板变了（锚点找不到）就报错，不静默漏接", () => {
+    expect(() => plugin.applyAppBuildGradleXiaomi("android {}")).toThrow(/xiaomi-deps/);
+  });
+
+  it("app.json：只收纯数字字符串；写成数字（会丢精度）或缺一项直接报错", () => {
+    expect(plugin.readJPushExtra({ extra: { jpush: { appKey: "k", xiaomi } } }).xiaomi).toEqual(xiaomi);
+    expect(() =>
+      plugin.readJPushExtra({ extra: { jpush: { appKey: "k", xiaomi: { appId: Number("2882303761520592446"), appKey: "5922059287446" } } } }),
+    ).toThrow(/xiaomi\.appId/);
+    expect(() => plugin.readJPushExtra({ extra: { jpush: { appKey: "k", xiaomi: { appId: "2882303761520592446" } } } })).toThrow(
+      /xiaomi\.appKey/,
+    );
+    expect(() =>
+      plugin.readJPushExtra({ extra: { jpush: { appKey: "k", xiaomi: { appId: "MI-2882303761520592446", appKey: "5922059287446" } } } }),
+    ).toThrow(/xiaomi\.appId/);
+  });
+
+  it("仓库里的 app.json 配的就是小米开发者站上的值", () => {
+    const appJson = require("../../app.json") as { expo: unknown };
+    expect(plugin.readJPushExtra(appJson.expo).xiaomi).toEqual(xiaomi);
   });
 });

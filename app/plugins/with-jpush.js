@@ -15,7 +15,12 @@
 // Android 厂商通道——华为（2026-10-08，上线清单 A-11）：App 被杀后只有厂商通道能把 SOS 推送送到。极光的
 //   华为插件 + HMS Push SDK + AGC Gradle 插件，再把 AGC 的 agconnect-services.json（「不包含密钥」版，进 Git）
 //   拷进 android/app/。项目根有这个文件才接，没有就跳过并提示——拿不到华为参数的开发机照样能 prebuild。
-//   小米通道等账号审核通过后同样方式加（manifestPlaceholders XIAOMI_APPID / XIAOMI_APPKEY）。
+//
+// Android 厂商通道——小米（2026-10-14）：极光小米插件（自带 MiPush SDK 与混淆规则，Maven Central）+ manifestPlaceholders
+//   XIAOMI_APPID / XIAOMI_APPKEY。两个值是小米开发者站「应用概览」里的客户端公开值（会进 APK），和极光 AppKey 一样放
+//   app.json extra.jpush.xiaomi；AppSecret 只填极光控制台。app.json 没配就跳过并提示。插件 5.5.3 起值不再加「MI-」前缀
+//   （aar 的 manifest 在占位符后补了一个反斜杠，纯数字不会被当成数字解析）。小米要求应用先在小米应用商店上架才能
+//   启用推送：上架前这里接好不影响什么（小米通道注册不上，极光自有通道照常），上架后控制台一开即生效，不用为它发版。
 //
 // 纯函数 apply*() 独立导出给单测（plugins/__tests__/with-jpush.test.ts）——补丁靠锚点正则，Expo 模板一变就会断，
 // 单测拿真实模板做夹具，断了会先在 CI 红而不是在真机上黑屏。
@@ -41,17 +46,34 @@ function readJPushExtra(config) {
   if (!extra.appKey) {
     throw new Error(`[${PLUGIN_NAME}] app.json 缺 extra.jpush.appKey`);
   }
-  return { appKey: String(extra.appKey), channel: String(extra.channel || "official") };
+  return {
+    appKey: String(extra.appKey),
+    channel: String(extra.channel || "official"),
+    xiaomi: readXiaomi(extra.xiaomi),
+  };
+}
+
+/** 小米 AppID 有 19 位，超过 JS 安全整数：app.json 里写成数字的话读进来就已经错了，所以只收字符串 */
+function readXiaomi(xiaomi) {
+  if (!xiaomi) return undefined;
+  for (const key of ["appId", "appKey"]) {
+    const v = xiaomi[key];
+    if (typeof v !== "string" || !/^\d+$/.test(v)) {
+      throw new Error(`[${PLUGIN_NAME}] app.json extra.jpush.xiaomi.${key} 必须是纯数字字符串（加引号；写成数字会丢精度）`);
+    }
+  }
+  return { appId: xiaomi.appId, appKey: xiaomi.appKey };
 }
 
 // ---------- Android ----------
 
-function applyAppBuildGradle(contents, { appKey, channel }) {
+function applyAppBuildGradle(contents, { appKey, channel, xiaomi }) {
+  const entries = [`JPUSH_PKGNAME: applicationId`, `JPUSH_APPKEY: "${appKey}"`, `JPUSH_CHANNEL: "${channel}"`];
+  // 小米插件的 aar manifest 引用这两个占位符：接了插件就必须给，缺一个 manifest 合并直接失败
+  if (xiaomi) entries.push(`XIAOMI_APPID: "${xiaomi.appId}"`, `XIAOMI_APPKEY: "${xiaomi.appKey}"`);
   const block = [
     `        manifestPlaceholders = [`,
-    `            JPUSH_PKGNAME: applicationId,`,
-    `            JPUSH_APPKEY: "${appKey}",`,
-    `            JPUSH_CHANNEL: "${channel}"`,
+    entries.map((e) => `            ${e}`).join(",\n"),
     `        ]`,
   ].join("\n");
   // mergeContents 锚不到会直接抛 ERR_NO_MATCH（不是静默跳过），这里换成一句看得懂的错误
@@ -70,8 +92,8 @@ function applyAppBuildGradle(contents, { appKey, channel }) {
   }
 }
 
-/** 极光厂商插件的版本必须与 jpush-react-native 自带的 JPush SDK 版本一致（单测对照 node_modules 里的 build.gradle） */
-const JPUSH_HUAWEI_PLUGIN_VERSION = "6.2.0";
+/** 极光厂商插件（华为 / 小米）的版本必须与 jpush-react-native 自带的 JPush SDK 版本一致（单测对照 node_modules 里的 build.gradle） */
+const JPUSH_VENDOR_PLUGIN_VERSION = "6.2.0";
 /** 极光官方集成指南给出的 HMS Push 版本（docs.jiguang.cn 厂商通道 SDK 集成指南） */
 const HMS_PUSH_VERSION = "6.13.0.300";
 /** 华为 AGC Gradle 插件（apply plugin: 'com.huawei.agconnect'），同一份指南 */
@@ -151,13 +173,31 @@ function applyAppBuildGradleHuawei(contents) {
   next = merge(
     next,
     [
-      `    implementation("cn.jiguang.sdk.plugin:huawei:${JPUSH_HUAWEI_PLUGIN_VERSION}")`,
+      `    implementation("cn.jiguang.sdk.plugin:huawei:${JPUSH_VENDOR_PLUGIN_VERSION}")`,
       `    implementation("com.huawei.hms:push:${HMS_PUSH_VERSION}")`,
     ].join("\n"),
     "deps",
     /^\s*implementation\("com\.facebook\.react:react-android"\)\s*$/m,
   );
   return next;
+}
+
+/** 应用级 build.gradle：极光小米插件（MiPush SDK 作为它的依赖一起来，不用另加仓库） */
+function applyAppBuildGradleXiaomi(contents) {
+  const tag = `${PLUGIN_NAME}-xiaomi-app-deps`;
+  if (contents.includes(`@generated begin ${tag}`)) return contents; // 幂等
+  try {
+    return mergeContents({
+      src: contents,
+      newSrc: `    implementation("cn.jiguang.sdk.plugin:xiaomi:${JPUSH_VENDOR_PLUGIN_VERSION}")`,
+      tag,
+      anchor: /^\s*implementation\("com\.facebook\.react:react-android"\)\s*$/m,
+      offset: 1,
+      comment: "//",
+    }).contents;
+  } catch (e) {
+    throw new Error(`[${PLUGIN_NAME}] app/build.gradle 锚点失效：xiaomi-deps（Expo 模板变了，请更新插件；${e.message}）`);
+  }
 }
 
 function applyAndroidManifest(androidManifest) {
@@ -353,6 +393,11 @@ const withJPush = (config) => {
     if (huaweiEnabled(c.modRequest.projectRoot)) {
       c.modResults.contents = applyAppBuildGradleHuawei(c.modResults.contents);
     }
+    if (jpush.xiaomi) {
+      c.modResults.contents = applyAppBuildGradleXiaomi(c.modResults.contents);
+    } else {
+      console.warn(`[${PLUGIN_NAME}] app.json 没有 extra.jpush.xiaomi，跳过小米推送通道（被杀状态下小米手机收不到 SOS 推送）`);
+    }
     return c;
   });
   config = withProjectBuildGradle(config, (c) => {
@@ -409,7 +454,8 @@ module.exports.applyAppBuildGradle = applyAppBuildGradle;
 module.exports.applyAppBuildGradleHuawei = applyAppBuildGradleHuawei;
 module.exports.applyProjectBuildGradleHuawei = applyProjectBuildGradleHuawei;
 module.exports.readAgpVersion = readAgpVersion;
-module.exports.JPUSH_HUAWEI_PLUGIN_VERSION = JPUSH_HUAWEI_PLUGIN_VERSION;
+module.exports.applyAppBuildGradleXiaomi = applyAppBuildGradleXiaomi;
+module.exports.JPUSH_VENDOR_PLUGIN_VERSION = JPUSH_VENDOR_PLUGIN_VERSION;
 module.exports.applyAndroidManifest = applyAndroidManifest;
 module.exports.applyAppDelegate = applyAppDelegate;
 module.exports.applyBridgingHeader = applyBridgingHeader;
