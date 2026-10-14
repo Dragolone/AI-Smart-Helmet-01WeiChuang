@@ -11,9 +11,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   BackHandler,
@@ -406,26 +406,30 @@ export default function BindDeviceScreen() {
     if (!sheetOpen) Keyboard.dismiss();
   }, [sheetOpen]);
 
-  // Android 返回键：先收面板；成功卡片上等于「完成」，没绑上的卡片上等于「重新扫码」
-  useEffect(() => {
-    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
-      if (sheetOpen) {
-        setSheetOpen(false);
-        return true;
-      }
-      if (stage.kind === "done") {
-        router.dismissAll();
-        return true;
-      }
-      if (stage.kind === "failed") {
-        setViaScan(false);
-        setStage({ kind: "scan" });
-        return true;
-      }
-      return false;
-    });
-    return () => sub.remove();
-  }, [sheetOpen, stage.kind]);
+  // Android 返回键：先收面板；成功卡片上等于「完成」，没绑上的卡片上等于「重新扫码」。
+  // 只在本页在最上面时接管：绑定途中来了求救、倒计时页盖上来后，这里若跟着 stage 变化重新注册，
+  // 会排到倒计时页那份前面，倒数中按返回键就 dismissAll 把倒计时页一起关掉（10-06 F-4）
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (sheetOpen) {
+          setSheetOpen(false);
+          return true;
+        }
+        if (stage.kind === "done") {
+          router.dismissAll();
+          return true;
+        }
+        if (stage.kind === "failed") {
+          setViaScan(false);
+          setStage({ kind: "scan" });
+          return true;
+        }
+        return false;
+      });
+      return () => sub.remove();
+    }, [sheetOpen, stage.kind]),
+  );
 
   // 扫描线只在真的在扫的时候走。开着读屏或「减弱动态效果」时停在中间不动：
   // Android 上一直在变的 transform 会不停发「内容变了」的无障碍事件，读屏等不到界面静止

@@ -121,9 +121,14 @@ function RootNavigator() {
           name="help"
           options={{ headerShown: true, title: t("nav.help") }}
         />
-        {/* SOS 全屏页：手势返回禁用——处理中的求救不允许误滑关闭 */}
+        {/* SOS 全屏页：手势返回禁用——处理中的求救不允许误滑关闭。
+            按 sosId 区分页面：不配的话 navigate 只看路由名，点另一单的通知会把最上面那页直接改写成另一单，
+            原来那单的倒计时页就没了。配了之后两单各占一页，点哪单就把哪单提到最上面；演练页没有 sosId，照默认 */}
         <Stack.Screen
           name="sos-active"
+          dangerouslySingular={(_, params) =>
+            typeof params.sosId === "string" ? params.sosId : undefined
+          }
           options={{ presentation: "fullScreenModal", gestureEnabled: false }}
         />
       </Stack.Protected>

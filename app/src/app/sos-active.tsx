@@ -164,7 +164,14 @@ function paletteOf(
   };
 }
 
+// 页面内容按 sosId 重建：「我还是需要帮助」的 eventId 等存在实例里，换了单不清掉的话会复用上一单的
+// eventId，被服务端当重复事件吞掉。_layout 已按 sosId 区分页面，这里再兜一层
 export default function SosActiveScreen() {
+  const { sosId } = useLocalSearchParams<{ sosId?: string }>();
+  return <SosActiveContent key={sosId ?? "drill"} />;
+}
+
+function SosActiveContent() {
   const { sosId, deviceId, drill } = useLocalSearchParams<{
     sosId: string;
     deviceId: string;
