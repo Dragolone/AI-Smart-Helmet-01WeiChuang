@@ -100,6 +100,22 @@ export async function requestBlePermissions(): Promise<boolean> {
   return r === PermissionsAndroid.RESULTS.GRANTED;
 }
 
+/** 只查不弹框：人去系统设置里授权回来时用（Android 授权不会重启进程，得自己再看一眼） */
+async function checkBlePermissions(): Promise<boolean> {
+  if (Platform.OS !== "android") return true;
+  const names =
+    Platform.Version >= 31
+      ? [
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+        ]
+      : [PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION];
+  const results = await Promise.all(
+    names.map((n) => PermissionsAndroid.check(n).catch(() => false)),
+  );
+  return results.every(Boolean);
+}
+
 /** 蓝牙就绪(PoweredOn);未开蓝牙时调用方引导用户去系统设置 */
 export async function bleReady(): Promise<boolean> {
   return (await getBleManager().state()) === State.PoweredOn;
@@ -725,10 +741,24 @@ export async function startBleLink(deviceIds: string[]): Promise<void> {
   if (running) return;
   running = true;
   log("链路启动，目标设备", deviceIds.join(",") || "(无)");
-  const granted = await requestBlePermissions();
+  const granted = await requestBlePermissions().catch(() => false);
   if (!running) return; // 等权限期间已 stop（登出 / 进工程模式）
   if (!granted) {
     store().setAdapter("unauthorized");
+    // 拒绝之后不能把 running 留在 true：那样之后谁都起不了链路，人去系统设置里授了权回来也没反应
+    //（Android 授权不重启进程；10-14 代码审查）。回前台只查不弹框，授了才重启，免得反复弹授权框
+    running = false;
+    appStateSub?.remove();
+    appStateSub = AppState.addEventListener("change", (s) => {
+      if (s !== "active") return;
+      void checkBlePermissions().then((ok) => {
+        if (!ok || running) return;
+        appStateSub?.remove();
+        appStateSub = null;
+        log("权限已在系统设置里打开，重启链路");
+        void startBleLink(targets);
+      });
+    });
     return;
   }
   // 「搜索中」也要有前台服务：头盔没开机时就退后台的话，没有服务的普通后台进程扫描会被系统掐掉、
