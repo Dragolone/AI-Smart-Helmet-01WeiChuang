@@ -40,7 +40,11 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { devLog } from "@/services/dev-log";
 import { serverNow } from "@/services/server-clock";
-import { countdownPollInterval, settleSnapshot } from "@/services/sos-sync";
+import {
+  countdownPollInterval,
+  presentedSos,
+  settleSnapshot,
+} from "@/services/sos-sync";
 import { useSosCancelStore } from "@/stores/sos-cancel-store";
 import type { EventEnvelope, EventType, Sos } from "@helmet/shared";
 
@@ -178,6 +182,12 @@ function SosActiveContent() {
     drill?: string;
   }>();
   const isDrill = drill === "1";
+  // 从安全页 / 安全记录 / 事故详情用 navigate 打开的倒计时页没登记过：之后 WS 重连、推送到达、中转 duplicate 回调
+  // 走 resumePendingSos 会判「没拉起过」再 push 同一单，expo-router 的 singular 逻辑把已有路由移除再以同 key 追加——
+  // 倒计时中无谓改栈（10-15 复审 F-2）。真实单挂载即登记，三处入口自然覆盖
+  useEffect(() => {
+    if (!isDrill && sosId) presentedSos.current.add(sosId);
+  }, [isDrill, sosId]);
   const theme = useTheme();
   const t = useT();
   const queryClient = useQueryClient();
@@ -473,7 +483,14 @@ function SosActiveContent() {
     setHelpBusy(true);
     relayApi
       .push({ deviceId, envelopes: [envelope] })
-      .then(() => notifyCriticalAccepted(deviceId))
+      .then((counts) => {
+        // 服务端判 invalid 只留档不建单：不进队列（重发也不会变合法），但要明说，别让骑手以为求救已发出（10-15 复审 F-4）
+        if (counts.invalid > 0) {
+          Alert.alert(t("safety.sosSendFailed"), t("safety.sosRejected"));
+          return;
+        }
+        notifyCriticalAccepted(deviceId);
+      })
       .catch((e) => {
         // 没发出去：进持久队列，网络恢复后按原 eventId 自动补发（同一条只入队一次）
         if (!helpQueued.current) {

@@ -71,6 +71,7 @@ export const safety = {
     "safety.sosCancelable": "进入 60 秒倒计时，可取消",
     "safety.sosA11y": "SOS，按住 2 秒求救，关联 {device}",
     "safety.sosSendFailed": "求救发送失败",
+    "safety.sosRejected": "服务器没有接受这条求救，请直接拨打紧急电话。",
     "safety.sosQueued": "求救请求已暂存，网络恢复后将自动发送。",
     "safety.manualSos": "手动求救",
     "safety.status.pending": "进行中",
@@ -196,6 +197,7 @@ export const safety = {
     "safety.sosCancelable": "進入 60 秒倒數，可取消",
     "safety.sosA11y": "SOS，按住 2 秒求救，關聯 {device}",
     "safety.sosSendFailed": "求救傳送失敗",
+    "safety.sosRejected": "伺服器沒有接受這筆求救，請直接撥打緊急電話。",
     "safety.sosQueued": "求救請求已暫存，網路恢復後將自動傳送。",
     "safety.manualSos": "手動求救",
     "safety.status.pending": "進行中",
@@ -327,6 +329,8 @@ export const safety = {
     "safety.sosCancelable": "Starts a 60 s countdown you can cancel",
     "safety.sosA11y": "SOS, hold for 2 seconds, linked to {device}",
     "safety.sosSendFailed": "Could not send SOS",
+    "safety.sosRejected":
+      "The server did not accept this SOS. Please call emergency services directly.",
     "safety.sosQueued":
       "SOS request saved. It will be sent automatically when the connection returns.",
     "safety.manualSos": "Manual SOS",

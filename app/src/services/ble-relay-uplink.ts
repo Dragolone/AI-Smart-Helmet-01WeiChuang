@@ -262,6 +262,16 @@ export async function flushRelayQueue(): Promise<void> {
       const sent = new Set(batch);
       queue = queue.filter((e) => !sent.has(e));
       lastFlushOkAt = Date.now();
+      // 摔倒 / 求救被服务端判为 invalid 只留档不建单：出队是对的（重发也不会变合法），但不能只 devLog——骑手以为求救已发出。
+      // 计数不分条，只知道这一批里有求救且有 invalid；App 自建 envelope 几乎不会 invalid，真发生多半是协议漂移（10-15 复审 F-3）
+      if (
+        counts.invalid > 0 &&
+        batch.some((e) => SOS_TRIGGER_TYPES.has(e.eventType))
+      ) {
+        console.error(
+          `[BLE-RELAY] ${dev} 这一批含摔倒 / 求救，其中 ${counts.invalid} 条被服务端判为 invalid（只留档、不建单）`,
+        );
+      }
       // 这一批里有摔倒 / 求救且服务端已入库：此刻 JS 在跑、网络刚被持锁打开——是唯一不依赖
       // WS 存活或远程推送到达就能确认「云端已建单」并拉起倒计时页的时机（10-06 不变式评审 F-1）。
       // duplicate 也算：第一次提交到了服务端但响应丢了（深睡刚醒的 SSL 读错误就是这种），重传按原
