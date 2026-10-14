@@ -279,6 +279,7 @@ iPhone 真机没有 adb：在备忘录里写下深链长按打开，或用 Safar
 
 | 日期 | 平台 | 能力 | 实测限制 | 口径/结论 |
 |------|------|------|---------|----------|
+| 2026-10-14 | Android（华为 P30 Pro / EMUI 10） | 视频预览连头盔热点（`WifiNetworkSpecifier` 系统选网弹窗） | ① 弹窗是 Settings 的另一个 Activity，一弹出 `AppState` 就变 `background`：预览页「退后台即释放头盔 Wi-Fi」的逻辑把 68 ms 前发出的请求撤回，弹窗报「出了点问题。该应用已取消选择设备的请求」，点掉回前台又重发，无限循环，真头盔也连不上；② `onUnavailable` 不区分用户取消 / 找不到 / 超时；③ App 侧 `requestNetwork` 超时到期撤回请求时，若弹窗还开着，系统同样显示上面那条错误，要用户再点一次 | ① **已修（#102 分支 10-14）**：phase 为 `joining` 时忽略 `background`（连上之前没绑任何网络，请求本身有 30 s 超时兜底）；连上时若 App 已在后台，照退后台处理、回前台再连。② 文案统一为「没有连上头盔 Wi-Fi…」，REGRESSION 9.10 的预期按此改。③ 待 B 线定：Android 10+ 有系统弹窗时是否取消 App 侧超时 |
 | 2026-09-30 | Android | 头盔热点绑定（视频预览） | `bindProcessToNetwork` 让本进程所有连接走头盔热点，绑定期间 App 连不上云端（BLE 中转上传、WS、REST） | 只在预览页前台持有；离开 / 退后台 / 摔倒求救入队时同步释放并立即补传；页面文案告知「此时手机无法上网」。**设计口径，待真机实测确认** |
 | 2026-09-30 | Android 8/9 | 程序化连 Wi-Fi、截图存相册 | `WifiNetworkSpecifier` 只有 Android 10+；存相册在 8/9 需要存储权限，而该权限因商店合规被 `blockedPermissions` 屏蔽 | 8/9 走「去系统设置手动连 → 已连接，继续」引导；截图提示不支持保存。决策 #49 已接受 minSdk 26 |
 | 2026-09-30 | iOS | 连头盔热点（NEHotspotConfiguration） | 需要 App ID 开 Hotspot 能力；`joinOnce` 下退后台约 15 s / 锁屏系统自动断开；首次拉流弹「本地网络」授权，拒绝后连不上；部分 iOS 版本热点不在范围内时 `apply` 也回调成功 | 预览只在前台；用途说明已配；「apply 成功但没连上」靠 5 s 无画面提示兜底，不做 SSID 校验（校验要再开 Access Wi-Fi Information 能力）。**待真机实测确认** |

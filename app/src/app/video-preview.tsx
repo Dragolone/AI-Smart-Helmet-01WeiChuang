@@ -115,7 +115,14 @@ export default function VideoPreviewScreen() {
       JOIN_TIMEOUT_MS,
     ).then(
       () => {
-        if (!cancelled) dispatch({ type: "joined" });
+        if (cancelled) return;
+        if (AppState.currentState === "background") {
+          // 弹窗期间人按了 HOME，连上时 App 已在后台：照退后台处理，回前台再重连
+          releaseWifi();
+          dispatch({ type: "suspend", reason: "background" });
+          return;
+        }
+        dispatch({ type: "joined" });
       },
       (e: { code?: string }) => {
         devLog("VIDEO", "连接头盔热点失败", e?.code);
@@ -125,7 +132,7 @@ export default function VideoPreviewScreen() {
     return () => {
       cancelled = true;
     };
-  }, [state.phase, state.attempt, skipJoin]);
+  }, [state.phase, state.attempt, skipJoin, releaseWifi]);
 
   // 不再需要头盔 Wi-Fi 的阶段（出错 / 暂停 / 手动引导）立即释放
   useEffect(() => {
@@ -156,9 +163,17 @@ export default function VideoPreviewScreen() {
     [releaseWifi],
   );
 
+  // Android 的「选择 Wi-Fi」系统弹窗是另一个 Activity，一弹出来 AppState 就变 background（华为 P30 实测，
+  // 请求发出 68 ms 后就被这里释放，弹窗报「该应用已取消选择设备的请求」，回前台又重发，无限循环）。
+  // 正在连热点时不把 background 当成离开：请求本身有 30 s 超时兜底，连上之前也没有绑定任何网络。
+  const phaseRef = useRef(state.phase);
+  useEffect(() => {
+    phaseRef.current = state.phase;
+  }, [state.phase]);
   useEffect(() => {
     const sub = AppState.addEventListener("change", (next) => {
       if (next === "background") {
+        if (phaseRef.current === "joining") return;
         releaseWifi();
         dispatch({ type: "suspend", reason: "background" });
       } else if (next === "active") {
