@@ -61,7 +61,7 @@ describe('事故记录查询 (e2e)', () => {
     });
 
   const sosCaseOf = (eventId: string) =>
-    prisma.sosCase.findUniqueOrThrow({ where: { triggerEventId: eventId } });
+    prisma.sosCase.findFirstOrThrow({ where: { triggerEventId: eventId } });
 
   beforeAll(async () => {
     process.env.SOS_COUNTDOWN_SECONDS = '600'; // 长倒计时：本套件不测到期，pending 稳定存在

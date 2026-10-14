@@ -255,7 +255,7 @@ AI-Smart-Helmet-01WeiChuang/
 - `location_update` payload 必含：`latitude`、`longitude`、`coordinateSystem`（`wgs84` | `gcj02`，必填，不允许隐含）、`accuracy`（米）、`speed`（米/秒）、`heading`（度，正北为 0 顺时针 0–360）。
 - **EVENTS.md 必须写明每个字段的数据类型、必填/选填、单位、枚举与值域；距离、速度、角度等禁止只写 number 不写单位。**
 - MVP 事件类型：`device_status`、`location_update`、`possible_fall`、`manual_sos`、`collision_risk`、`obstacle_risk`、`risk_cleared`、`sleep_entered`、`sleep_exited`、`bluetooth_lost`、`video_ready`。
-- 服务端按 `eventId` 幂等：重复上报只存一次、只通知一次。
+- 服务端按 `deviceId + eventId` 幂等（设备内唯一，决策 #54）：重复上报只存一次、只通知一次。
 - 所有事件原始 payload 落库（含 confidence、algorithmVersion），供未来 AI 服务读取。
 
 ## Mock Data Strategy

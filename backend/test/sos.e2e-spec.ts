@@ -286,7 +286,7 @@ describe('SOS 状态机 (e2e)', () => {
       'mqtt',
     );
 
-    const sosCase = await prisma.sosCase.findUniqueOrThrow({
+    const sosCase = await prisma.sosCase.findFirstOrThrow({
       where: { triggerEventId: eventId },
     });
     expect(sosCase.status).toBe('pending');
@@ -397,7 +397,7 @@ describe('SOS 状态机 (e2e)', () => {
       devMain,
       'mqtt',
     );
-    const fresh = await prisma.sosCase.findUniqueOrThrow({
+    const fresh = await prisma.sosCase.findFirstOrThrow({
       where: { triggerEventId: eventId },
     });
     expect(fresh.status).toBe('pending');
@@ -456,7 +456,7 @@ describe('SOS 状态机 (e2e)', () => {
       devMain,
       'mqtt',
     );
-    const sosCase = await prisma.sosCase.findUniqueOrThrow({
+    const sosCase = await prisma.sosCase.findFirstOrThrow({
       where: { triggerEventId: eventId },
     });
 
@@ -481,7 +481,7 @@ describe('SOS 状态机 (e2e)', () => {
       devMain,
       'mqtt',
     );
-    const sosCase = await prisma.sosCase.findUniqueOrThrow({
+    const sosCase = await prisma.sosCase.findFirstOrThrow({
       where: { triggerEventId: eventId },
     });
     expect(sosCase.status).toBe('pending');
@@ -553,7 +553,7 @@ describe('SOS 状态机 (e2e)', () => {
       devRetry,
       'mqtt',
     );
-    const sosCase = await prisma.sosCase.findUniqueOrThrow({
+    const sosCase = await prisma.sosCase.findFirstOrThrow({
       where: { triggerEventId: eventId },
     });
     // userB 单联系人 → 1 条 SMS 行
@@ -628,7 +628,7 @@ describe('SOS 状态机 (e2e)', () => {
       devMain,
       'mqtt',
     );
-    const fromPoint = await prisma.sosCase.findUniqueOrThrow({
+    const fromPoint = await prisma.sosCase.findFirstOrThrow({
       where: { triggerEventId: eventId },
     });
     expect(fromPoint.locationSource).toBe('last_point');
@@ -648,7 +648,7 @@ describe('SOS 状态机 (e2e)', () => {
       devEmpty,
       'mqtt',
     );
-    const noLoc = await prisma.sosCase.findUniqueOrThrow({
+    const noLoc = await prisma.sosCase.findFirstOrThrow({
       where: { triggerEventId: emptyEventId },
     });
     expect(noLoc.status).toBe('pending');
