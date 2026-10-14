@@ -51,6 +51,7 @@ describe('审计 SOS-02 启动对账：不该补建的不补建 (e2e)', () => {
   const devAfterFinal = `audit_rec_final_${run}`;
   const devManualRace = `audit_rec_manual_${run}`;
   const devOld = `audit_rec_old_${run}`;
+  const devFlood = `audit_rec_flood_${run}`;
   const devices = [
     devUnbound,
     devFormer,
@@ -58,6 +59,7 @@ describe('审计 SOS-02 启动对账：不该补建的不补建 (e2e)', () => {
     devAfterFinal,
     devManualRace,
     devOld,
+    devFlood,
   ];
 
   /** 插一条「已落库但没建单」的 possible_fall（receivedAt 默认 2 s 前，落在对账窗口内） */
@@ -96,6 +98,7 @@ describe('审计 SOS-02 启动对账：不该补建的不补建 (e2e)', () => {
       devAfterFinal,
       devManualRace,
       devOld,
+      devFlood,
     ])
       await bindDevice(http, owner.token, d);
     await addContact(http, owner.token, '家人', '19100000021');
@@ -186,6 +189,51 @@ describe('审计 SOS-02 启动对账：不该补建的不补建 (e2e)', () => {
     );
     await scheduler.reconcileLostTriggers();
     const recovered = await sosByEvent(prisma, eventId);
+    expect(recovered).not.toBeNull();
+    expect(recovered!.userId).toBe(owner.id);
+    expect(recovered!.status).toBe('pending');
+  });
+
+  it('⑦ 10-15 复审：窗口里已有 ≥200 条已建单的触发事件时，之后真正丢的那条仍能补建（候选翻页，不被刷满）', async () => {
+    // 250 条「已处理」的摔倒：raw 与 sos_cases 一一对应、全部 cancelled，receivedAt 都早于待补的那条。
+    // 原实现一次只取最旧的 200 条再过滤，这些全是已建单的，真正丢的那条永远排不进来
+    const base = Date.now() - 30_000;
+    const rows = Array.from({ length: 250 }, (_, i) => ({
+      eventId: randomUUID(),
+      at: new Date(base + i),
+    }));
+    await prisma.rawEvent.createMany({
+      data: rows.map((r) => ({
+        eventId: r.eventId,
+        deviceId: devFlood,
+        eventType: 'possible_fall',
+        timestamp: r.at,
+        receivedAt: r.at,
+        schemaVersion: 1,
+        payload: { confidence: 0.9, algorithmVersion: 'audit-rec' },
+        source: 'app_relay',
+      })),
+    });
+    await prisma.sosCase.createMany({
+      data: rows.map((r) => ({
+        deviceId: devFlood,
+        userId: owner.id,
+        triggerEventId: r.eventId,
+        triggerType: 'possible_fall',
+        status: 'cancelled',
+        deadline: r.at,
+        finalizedAt: r.at,
+        createdAt: r.at,
+      })),
+    });
+    // 事件时间锚在绑定之后：套件跑得快，默认的「2 秒前」会早于 beforeAll 里的绑定时刻，被「当时无绑定」守卫拦下；
+    // after() 再等它落进对账窗口的 grace 之内
+    const binding = await prisma.deviceBinding.findFirstOrThrow({
+      where: { deviceId: devFlood },
+    });
+    const lost = await orphanFall(devFlood, await after(binding.boundAt));
+    await scheduler.reconcileLostTriggers();
+    const recovered = await sosByEvent(prisma, lost);
     expect(recovered).not.toBeNull();
     expect(recovered!.userId).toBe(owner.id);
     expect(recovered!.status).toBe('pending');

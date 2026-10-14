@@ -13,13 +13,24 @@ import { PHONE_PATTERN } from './phone';
 /**
  * 限频规则：同一路由可叠多条（如「每 IP 每分钟」+「每 IP+手机号每分钟」），任一超限即 429。
  * keyBy=ip+phone 时从请求体取 phone（登录/发码按号维度限）；体里没有 phone 则退化为 ip。
+ * keyBy=user 按登录用户限（JwtAuthGuard 先于本 guard 注册，req.user 已就位）；未登录退化为 ip。
  */
 export interface RateLimitRule {
   name: string;
   limit: number;
   windowMs: number;
-  keyBy?: 'ip' | 'ip+phone';
+  keyBy?: 'ip' | 'ip+phone' | 'user';
 }
+
+/**
+ * 改密 / 换号 / 注销三处都要当前密码（#153 的威胁模型：别人借用解锁的手机两分钟）；错了 400 且不消费验证码，
+ * 没有限频就是一个无代价的密码 oracle——持会话者脚本猜密码，猜中即换号夺号。三处共用同一额度，
+ * 限的是尝试次数不分对错：同用户 5 次/分 + 同 IP 20 次/分
+ */
+export const PASSWORD_CHECK_LIMITS: readonly RateLimitRule[] = [
+  { name: 'password_user', limit: 5, windowMs: 60_000, keyBy: 'user' },
+  { name: 'password_ip', limit: 20, windowMs: 60_000 },
+];
 
 export const RATE_LIMIT_KEY = 'rate_limit_rules';
 export const RateLimit = (...rules: RateLimitRule[]) =>
@@ -67,12 +78,18 @@ export class RateLimitGuard implements CanActivate {
     // 手机号只接受合法格式做 key，否则退化为 ip：任意字符串都能造键会把桶表撑爆
     const phoneKey =
       typeof phone === 'string' && PHONE_PATTERN.test(phone) ? phone : null;
+    const userId = (req as { user?: { userId?: unknown } }).user?.userId;
+    const userKey = typeof userId === 'string' && userId ? userId : null;
     // 先把所有规则判完，全部通过才记账：被拒请求不留痕（既不建桶也不占额度）
     const passed: Array<{ key: string; hits: number[] }> = [];
     for (const rule of rules) {
       this.windowByRule.set(rule.name, rule.windowMs);
       const subject =
-        rule.keyBy === 'ip+phone' && phoneKey ? `${ip}|${phoneKey}` : ip;
+        rule.keyBy === 'user' && userKey
+          ? `u|${userKey}`
+          : rule.keyBy === 'ip+phone' && phoneKey
+            ? `${ip}|${phoneKey}`
+            : ip;
       const key = `${rule.name}:${subject}`;
       const hits = (this.buckets.get(key) ?? []).filter(
         (t) => now - t < rule.windowMs,
