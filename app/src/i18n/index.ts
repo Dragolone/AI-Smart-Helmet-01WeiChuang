@@ -17,6 +17,7 @@ import { safety } from "./messages/safety";
 import { legal } from "./messages/legal";
 import { help } from "./messages/help";
 import { video } from "./messages/video";
+import { guide } from "./messages/guide";
 import { useLocaleStore, type Locale } from "./locale-store";
 
 export { useLocaleStore, LOCALES, type Locale } from "./locale-store";
@@ -36,6 +37,7 @@ const zhCN = {
   ...legal["zh-CN"],
   ...help["zh-CN"],
   ...video["zh-CN"],
+  ...guide["zh-CN"],
 };
 export type MessageKey = keyof typeof zhCN;
 
@@ -56,6 +58,7 @@ const dictionaries: Record<Locale, Partial<Record<MessageKey, string>>> = {
     ...legal["zh-TW"],
     ...help["zh-TW"],
     ...video["zh-TW"],
+    ...guide["zh-TW"],
   },
   en: {
     ...common.en,
@@ -72,6 +75,7 @@ const dictionaries: Record<Locale, Partial<Record<MessageKey, string>>> = {
     ...legal.en,
     ...help.en,
     ...video.en,
+    ...guide.en,
   },
 };
 

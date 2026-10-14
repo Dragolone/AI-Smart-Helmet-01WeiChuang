@@ -12,9 +12,15 @@
 //   另外往 bridging header 加两行 #import（Swift 调 JPUSHService / RCTJPushEventQueue）。
 //   **不在 AppDelegate 里初始化极光**：初始化必须等用户同意隐私政策之后由 JS 触发（services/push.ts）。
 //
+// Android 厂商通道——华为（2026-10-08，上线清单 A-11）：App 被杀后只有厂商通道能把 SOS 推送送到。极光的
+//   华为插件 + HMS Push SDK + AGC Gradle 插件，再把 AGC 的 agconnect-services.json（「不包含密钥」版，进 Git）
+//   拷进 android/app/。项目根有这个文件才接，没有就跳过并提示——拿不到华为参数的开发机照样能 prebuild。
+//   小米通道等账号审核通过后同样方式加（manifestPlaceholders XIAOMI_APPID / XIAOMI_APPKEY）。
+//
 // 纯函数 apply*() 独立导出给单测（plugins/__tests__/with-jpush.test.ts）——补丁靠锚点正则，Expo 模板一变就会断，
 // 单测拿真实模板做夹具，断了会先在 CI 红而不是在真机上黑屏。
 const {
+  withProjectBuildGradle,
   withAppBuildGradle,
   withAndroidManifest,
   withAppDelegate,
@@ -62,6 +68,96 @@ function applyAppBuildGradle(contents, { appKey, channel }) {
   } catch (e) {
     throw new Error(`[${PLUGIN_NAME}] app/build.gradle 里找不到 applicationId 锚点（${e.message}）`);
   }
+}
+
+/** 极光厂商插件的版本必须与 jpush-react-native 自带的 JPush SDK 版本一致（单测对照 node_modules 里的 build.gradle） */
+const JPUSH_HUAWEI_PLUGIN_VERSION = "6.2.0";
+/** 极光官方集成指南给出的 HMS Push 版本（docs.jiguang.cn 厂商通道 SDK 集成指南） */
+const HMS_PUSH_VERSION = "6.13.0.300";
+/** 华为 AGC Gradle 插件（apply plugin: 'com.huawei.agconnect'），同一份指南 */
+const AGCP_VERSION = "1.9.1.301";
+const HUAWEI_MAVEN = "maven { url 'https://developer.huawei.com/repo/' }";
+const AGC_SERVICES_FILE = "agconnect-services.json";
+
+function huaweiEnabled(projectRoot) {
+  return fs.existsSync(path.join(projectRoot, AGC_SERVICES_FILE));
+}
+
+/**
+ * AGC Gradle 插件（agcp）在 apply 时会检查 buildscript classpath 里的 `com.android.tools.build:gradle`，碰到不带版本号的
+ * 声明就报「com.android.tools.build:gradle is no set in the build.gradle file」——另加一行带版本的也没用，它取到的仍是
+ * 模板那行（2026-10-08 本机打包实测）。Expo 模板写的是 `classpath('com.android.tools.build:gradle')`，版本由 React Native
+ * 的 gradle 版本表给出；这里从同一份表读出来，把模板那一行**改写成带版本的**，解析到的 AGP 与原来完全相同。
+ */
+function readAgpVersion(projectRoot) {
+  const catalog = path.join(
+    path.dirname(require.resolve("react-native/package.json", { paths: [projectRoot] })),
+    "gradle",
+    "libs.versions.toml",
+  );
+  const m = /^agp\s*=\s*"([^"]+)"/m.exec(fs.readFileSync(catalog, "utf8"));
+  if (!m) {
+    throw new Error(`[${PLUGIN_NAME}] 读不到 React Native 的 AGP 版本（${catalog} 里没有 agp = "…"）`);
+  }
+  return m[1];
+}
+
+/** 项目级 build.gradle：buildscript 与 allprojects 都加华为仓库；buildscript 加显式 AGP 版本 + agcp classpath */
+function applyProjectBuildGradleHuawei(contents, { agpVersion }) {
+  if (!agpVersion) throw new Error(`[${PLUGIN_NAME}] applyProjectBuildGradleHuawei 需要 agpVersion`);
+  const tag = `${PLUGIN_NAME}-huawei-project`;
+  if (contents.includes(`@generated begin ${tag}-repo`)) return contents; // 幂等
+  const merge = (src, newSrc, suffix, anchor) => {
+    try {
+      return mergeContents({ src, newSrc, tag: `${tag}-${suffix}`, anchor, offset: 1, comment: "//" }).contents;
+    } catch (e) {
+      throw new Error(`[${PLUGIN_NAME}] android/build.gradle 锚点失效：${suffix}（Expo 模板变了，请更新插件；${e.message}）`);
+    }
+  };
+  let next = contents;
+  // 模板里不带版本的 AGP 声明改写成带版本的（agcp 的要求，见 readAgpVersion 注释）
+  const versionless = /^(\s*)classpath\(['"]com\.android\.tools\.build:gradle['"]\)\s*$/m;
+  if (versionless.test(next)) {
+    next = next.replace(versionless, `$1classpath('com.android.tools.build:gradle:${agpVersion}')`);
+  } else if (!/classpath\(['"]com\.android\.tools\.build:gradle:[^'"]+['"]\)/.test(next)) {
+    throw new Error(`[${PLUGIN_NAME}] android/build.gradle 锚点失效：找不到 classpath('com.android.tools.build:gradle')（Expo 模板变了，请更新插件）`);
+  }
+  // buildscript.repositories：模板里第一个 mavenCentral() 在 buildscript 块
+  next = merge(next, `    ${HUAWEI_MAVEN}`, "repo", /^\s*mavenCentral\(\)\s*$/m);
+  next = merge(
+    next,
+    `    classpath('com.huawei.agconnect:agcp:${AGCP_VERSION}')`,
+    "classpath",
+    /^\s*classpath\('org\.jetbrains\.kotlin:kotlin-gradle-plugin'\)\s*$/m,
+  );
+  // allprojects.repositories：锚在模板里的 jitpack 那行
+  next = merge(next, `    ${HUAWEI_MAVEN}`, "allprojects", /^\s*maven \{ url 'https:\/\/www\.jitpack\.io' \}\s*$/m);
+  return next;
+}
+
+/** 应用级 build.gradle：apply AGC 插件 + 极光华为插件 + HMS Push 依赖 */
+function applyAppBuildGradleHuawei(contents) {
+  const tag = `${PLUGIN_NAME}-huawei-app`;
+  if (contents.includes(`@generated begin ${tag}-plugin`)) return contents; // 幂等
+  const merge = (src, newSrc, suffix, anchor) => {
+    try {
+      return mergeContents({ src, newSrc, tag: `${tag}-${suffix}`, anchor, offset: 1, comment: "//" }).contents;
+    } catch (e) {
+      throw new Error(`[${PLUGIN_NAME}] app/build.gradle 锚点失效：${suffix}（Expo 模板变了，请更新插件；${e.message}）`);
+    }
+  };
+  let next = contents;
+  next = merge(next, `apply plugin: "com.huawei.agconnect"`, "plugin", /^apply plugin: "com\.facebook\.react"\s*$/m);
+  next = merge(
+    next,
+    [
+      `    implementation("cn.jiguang.sdk.plugin:huawei:${JPUSH_HUAWEI_PLUGIN_VERSION}")`,
+      `    implementation("com.huawei.hms:push:${HMS_PUSH_VERSION}")`,
+    ].join("\n"),
+    "deps",
+    /^\s*implementation\("com\.facebook\.react:react-android"\)\s*$/m,
+  );
+  return next;
 }
 
 function applyAndroidManifest(androidManifest) {
@@ -254,8 +350,31 @@ const withJPush = (config) => {
 
   config = withAppBuildGradle(config, (c) => {
     c.modResults.contents = applyAppBuildGradle(c.modResults.contents, jpush);
+    if (huaweiEnabled(c.modRequest.projectRoot)) {
+      c.modResults.contents = applyAppBuildGradleHuawei(c.modResults.contents);
+    }
     return c;
   });
+  config = withProjectBuildGradle(config, (c) => {
+    if (huaweiEnabled(c.modRequest.projectRoot)) {
+      c.modResults.contents = applyProjectBuildGradleHuawei(c.modResults.contents, {
+        agpVersion: readAgpVersion(c.modRequest.projectRoot),
+      });
+    } else {
+      console.warn(`[${PLUGIN_NAME}] 项目根没有 ${AGC_SERVICES_FILE}，跳过华为推送通道（被杀状态下华为手机收不到 SOS 推送）`);
+    }
+    return c;
+  });
+  config = withDangerousMod(config, [
+    "android",
+    (c) => {
+      const src = path.join(c.modRequest.projectRoot, AGC_SERVICES_FILE);
+      if (fs.existsSync(src)) {
+        fs.copyFileSync(src, path.join(c.modRequest.platformProjectRoot, "app", AGC_SERVICES_FILE));
+      }
+      return c;
+    },
+  ]);
   config = withAndroidManifest(config, (c) => {
     c.modResults = applyAndroidManifest(c.modResults);
     return c;
@@ -287,6 +406,10 @@ const withJPush = (config) => {
 
 module.exports = createRunOncePlugin(withJPush, PLUGIN_NAME, "1.0.0");
 module.exports.applyAppBuildGradle = applyAppBuildGradle;
+module.exports.applyAppBuildGradleHuawei = applyAppBuildGradleHuawei;
+module.exports.applyProjectBuildGradleHuawei = applyProjectBuildGradleHuawei;
+module.exports.readAgpVersion = readAgpVersion;
+module.exports.JPUSH_HUAWEI_PLUGIN_VERSION = JPUSH_HUAWEI_PLUGIN_VERSION;
 module.exports.applyAndroidManifest = applyAndroidManifest;
 module.exports.applyAppDelegate = applyAppDelegate;
 module.exports.applyBridgingHeader = applyBridgingHeader;

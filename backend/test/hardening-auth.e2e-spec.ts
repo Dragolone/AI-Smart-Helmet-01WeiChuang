@@ -335,6 +335,40 @@ describe('加固：认证与令牌 (e2e)', () => {
       );
     });
 
+    it('改密前偷到的旧 token：改密时保留的当前 token 若刚由它轮换而来，旧 token 不能再凭补发链路换出新会话（2026-10-14）', async () => {
+      const u = await createUser(app, http);
+      users.push(u);
+      // A（u.refreshToken）被人偷走；本人正常刷新 A → B
+      const b = await request(http)
+        .post('/api/v1/auth/refresh')
+        .send({ refreshToken: u.refreshToken })
+        .expect(200);
+      // 本人改密，保留当前设备的 B
+      await request(http)
+        .post('/api/v1/auth/change-password')
+        .set(auth(b.body.accessToken as string))
+        .send({
+          oldPassword: u.password,
+          newPassword: 'NewPassw0rd_1014',
+          refreshToken: b.body.refreshToken as string,
+        })
+        .expect(204);
+      // 偷来的 A 在补发窗口内出现（出了 0.5 s 并发窗口）
+      await prisma.refreshToken.updateMany({
+        where: { userId: u.id, revokedAt: { not: null } },
+        data: { revokedAt: new Date(Date.now() - 30_000) },
+      });
+      await request(http)
+        .post('/api/v1/auth/refresh')
+        .send({ refreshToken: u.refreshToken })
+        .expect(401);
+      // 本人保留的 B 没被抢走
+      await request(http)
+        .post('/api/v1/auth/refresh')
+        .send({ refreshToken: b.body.refreshToken as string })
+        .expect(200);
+    });
+
     it('找回密码后：旧 refresh 失效；旧 access 在 15 分钟内仍有效（记录）', async () => {
       const u = await createUser(app, http);
       users.push(u);

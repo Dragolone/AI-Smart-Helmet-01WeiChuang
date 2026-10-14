@@ -8,6 +8,7 @@ import type {
   RelayAckResponse,
 } from '@helmet/shared';
 
+import { serverNow } from '@/services/server-clock';
 import { api } from './client';
 
 /** RFC4122 v4(Math.random 版):envelope.eventId 幂等去重用,开发触发场景强度足够 */
@@ -66,7 +67,8 @@ export const buildRelayEnvelope = (
   eventId: uuid4(),
   deviceId,
   eventType,
-  timestamp: new Date().toISOString(),
+  // 服务端时钟（F-3 同口径）：手机慢 5 分钟时，刚按下的长按求救会被当成「约 5 分钟前的事件，刚补传到」
+  timestamp: new Date(serverNow()).toISOString(),
   firmwareVersion: 'app-relay-dev',
   payload,
 });

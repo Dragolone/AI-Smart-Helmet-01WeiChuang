@@ -141,8 +141,8 @@ model DeviceCommand {
 // 类型化列（不用 raw_events 的 JSON payload）——轨迹查询是高频主路径，且为 Retention/降采样留余地
 model LocationPoint {
   id               String   @id @default(cuid())
-  // 与源事件 1:1（并发/重放的幂等兜底）；不建外键：与 raw_events 同原则
-  eventId          String   @unique @map("event_id")
+  // 与源事件 1:1（并发/重放的幂等兜底，粒度 = 设备内，见 raw_events）；不建外键：与 raw_events 同原则
+  eventId          String   @map("event_id")
   deviceId         String   @map("device_id")
   // 设备侧事件发生时间；receivedAt 为服务器接收时间（时钟不可信时的兜底，见 DEVICE_PROTOCOL §8）
   timestamp        DateTime
@@ -157,6 +157,7 @@ model LocationPoint {
   // 海拔（米）：滑雪场景的核心维度，设备未上报则为空
   altitude         Float?
 
+  @@unique([deviceId, eventId])
   @@index([deviceId, timestamp])
   @@map("location_points")
 }
@@ -168,10 +169,13 @@ model SosCase {
   deviceId       String  @map("device_id")
   // 触发时的绑定用户，冗余固化：解绑后事故记录不失主；取消/确认权限与通知对象均以此为准
   userId         String  @map("user_id")
-  // 与触发事件 1:1（幂等兜底）；不建外键：与 raw_events 同原则
-  triggerEventId String  @unique @map("trigger_event_id")
+  // 与触发事件 1:1（幂等兜底，粒度 = 设备内，见 raw_events）；不建外键：与 raw_events 同原则
+  triggerEventId String  @map("trigger_event_id")
   triggerType    String  @map("trigger_type") // possible_fall | manual_sos
   status         String  @default("pending") // pending | notified | cancelled
+  // 触发事件在头盔上发生的时间（envelope.timestamp，设备时钟）：只给 App 写「约 3 小时前的事件，刚补传到」
+  // （决策 #52），不参与任何判定。10-07 新增，旧单为空
+  triggeredAt    DateTime? @map("triggered_at")
   // deadline 一律按服务器时间计算（createdAt + 倒计时秒数）；设备时钟不参与，clock_skew 不影响保命链路
   deadline       DateTime
   finalizedAt    DateTime? @map("finalized_at")
@@ -188,6 +192,7 @@ model SosCase {
 
   // 附加约束（见 migration SQL）：partial unique index「每设备每用户至多一个 pending」
   //（决策 #40，2026-09-15；原为每设备一个），并发触发的兜底闸门（Prisma schema 语法不支持 partial index，故此处仅注释留痕）
+  @@unique([deviceId, triggerEventId])
   @@index([deviceId, createdAt])
   @@index([status, deadline])
   @@map("sos_cases")
@@ -217,8 +222,8 @@ model SosNotification {
 // 上传方式待硬件确认（EVENTS.md 4.9 ⚠️）：storageKey 缺失时 status=pending_upload，不可换 URL
 model Media {
   id             String   @id @default(cuid())
-  // 与源 video_ready 事件 1:1（幂等兜底）；不建外键：与 raw_events 同原则
-  eventId        String   @unique @map("event_id")
+  // 与源 video_ready 事件 1:1（幂等兜底，粒度 = 设备内，见 raw_events）；不建外键：与 raw_events 同原则
+  eventId        String   @map("event_id")
   deviceId       String   @map("device_id")
   // 设备侧媒体唯一 ID：同设备内唯一（跨设备可能重复，故用复合唯一约束）
   videoId        String   @map("video_id")
@@ -232,6 +237,7 @@ model Media {
   status         String   @default("ready") // ready | pending_upload
   createdAt      DateTime @default(now()) @map("created_at")
 
+  @@unique([deviceId, eventId])
   @@unique([deviceId, videoId])
   @@index([relatedEventId])
   @@map("media")
@@ -276,8 +282,10 @@ model VoiceChannelMember {
 
 model RawEvent {
   id              String   @id @default(cuid())
-  // 幂等去重依据：设备/算法侧生成的 eventId，唯一约束兜底并发重复
-  eventId         String   @unique @map("event_id")
+  // 幂等去重依据：设备/算法侧生成的 eventId，(device_id, event_id) 唯一约束兜底并发重复。
+  // 粒度是「设备内」而不是全局（决策 #54，2026-10-14）：BLE 版 eventId 由公开算法从 deviceId + 序号推出，
+  // 全局唯一时任何绑了头盔的用户都能用自己的设备抢先占用别人的 eventId，让对方之后的摔倒被当成重复、不建单
+  eventId         String   @map("event_id")
   // 故意不建到 devices 的外键：未注册设备/未知来源的事件也必须能原样落库（Ingest 层规则）
   deviceId        String   @map("device_id")
   eventType       String   @map("event_type")
@@ -291,6 +299,7 @@ model RawEvent {
   // 设备时钟偏移标记：|timestamp - receivedAt| 超阈值时置真（DEVICE_PROTOCOL §8）
   clockSkew       Boolean  @default(false) @map("clock_skew")
 
+  @@unique([deviceId, eventId])
   @@index([deviceId, timestamp])
   // Admin 概览/全量事件列表与 SOS 对账都按接收时间查；没有它就是全表扫描
   @@index([receivedAt])

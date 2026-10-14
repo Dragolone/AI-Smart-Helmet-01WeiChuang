@@ -2,7 +2,14 @@
 // 用固定时刻控制"现在"，避免跨秒抖动。
 import { afterEach, describe, expect, it, jest } from "@jest/globals";
 
-import { relativeTime, shortDate, shortTime } from "../format";
+import {
+  formatKm,
+  fullDateTime,
+  relativeTime,
+  shortDate,
+  shortTime,
+  timeWithDateIfNotToday,
+} from "../format";
 
 const NOW = Date.UTC(2026, 8, 17, 12, 0, 0);
 const agoIso = (seconds: number) =>
@@ -64,5 +71,53 @@ describe("shortDate / shortTime", () => {
     }
     // 只校验格式：分钟数随时区偏移（印度等半小时时区）会变，不做字面断言
     expect(shortTime("2026-09-17T00:05:00Z", "zh-CN")).toMatch(/^\d{2}:\d{2}$/);
+  });
+});
+
+describe("fullDateTime", () => {
+  const iso = "2026-09-17T08:31:05Z";
+  it("带年份和秒：一年前的记录不会和今年的同一天混淆", () => {
+    for (const loc of ["zh-CN", "zh-TW", "en"] as const) {
+      const out = fullDateTime(iso, loc);
+      expect(out).toContain("2026");
+      expect(out).toMatch(/\d{2}:\d{2}:05/);
+    }
+  });
+
+  it("认不出的时间戳给占位符，不把页面带崩", () => {
+    expect(fullDateTime("not-a-date", "zh-CN")).toBe("—");
+  });
+});
+
+describe("timeWithDateIfNotToday", () => {
+  it("当天的只给时间", () => {
+    freeze();
+    expect(timeWithDateIfNotToday(agoIso(60), "zh-CN")).toMatch(
+      /^\d{2}:\d{2}$/,
+    );
+  });
+
+  it("不是当天的带上日期：几周前的「已生效」不会被读成今天", () => {
+    freeze();
+    const old = timeWithDateIfNotToday(agoIso(86400 * 20), "zh-CN");
+    expect(old).toMatch(/\d{2}:\d{2}$/);
+    expect(old).toMatch(/8.*28/);
+  });
+
+  it("认不出的时间给占位符", () => {
+    expect(timeWithDateIfNotToday("nope", "en")).toBe("—");
+  });
+});
+
+describe("formatKm（里程数字，单位另显示）", () => {
+  it("1000 km 以下一位小数；以上取整，免得统计卡把「6547.4」截成「65…」（10-07 华为 3.1）", () => {
+    expect(formatKm(0)).toBe("0.0");
+    expect(formatKm(129_740)).toBe("129.7");
+    expect(formatKm(999_949)).toBe("999.9");
+    // 999.95–999.99 km：toFixed(1) 会进位成六个字符的「1000.0」，同样被截断
+    expect(formatKm(999_950)).toBe("1000");
+    expect(formatKm(999_999)).toBe("1000");
+    expect(formatKm(6_547_400)).toBe("6547");
+    expect(formatKm(Number.NaN)).toBe("0.0");
   });
 });

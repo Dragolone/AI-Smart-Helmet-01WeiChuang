@@ -105,7 +105,7 @@ Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / 
 | GET | /devices/{deviceId}/status | 设备状态：`{ online, lastSeenAt, battery, charging?, signalLevel?, sleeping, firmwareVersion }` |
 | GET | /devices/{deviceId}/battery-history?hours=24 | 电量历史（✅ 2026-09-10）：`{ from, to, points: [{ timestamp, battery, charging }] }`。数据源=raw_events 的 `device_status` 心跳，按 **10 分钟桶取桶内最后一条**（24h ≤ 144 点）；`battery` 不是 0–100 整数的心跳按缺失跳过（与设备快照同口径，2026-10-03——不再把 255 这类越界值截成 100% 画出来）；`hours` 1–168 默认 24；仅本人设备（否则 404）。App 设备详情页据此画 24h 电量曲线（替代原大电量条）；**只返回本人绑定区间内（服务端 receivedAt）到达的心跳**（决策 #39 同口径，2026-09-14 审计 AUTH-06 补） |
 
-device 对象补充字段（2026-08-17，TS 类型见 `@helmet/shared` DevicePublic）：`name`（用户自定义名，null 时 App 显示 deviceId）、`bindCode`（仅经归属校验的端点返回——本人可见，供详情页展示）。
+device 对象补充字段（2026-08-17，TS 类型见 `@helmet/shared` DevicePublic）：`name`（用户自定义名，null 时 App 显示 deviceId；**解绑时清空**，2026-10-14——下一位主人不会看到上一位起的名字）、`bindCode`（仅经归属校验的端点返回——本人可见，供详情页展示）。
 
 - MVP 绑定关系：一台设备同时只能绑定一个用户；一个用户可绑多台。⚠️ 家庭共享/多人查看不在 MVP。
 - `online` 判定规则见 DEVICE_PROTOCOL §5，由服务端计算（lastSeenAt 距今 ≤ 90s），App 不自行判断。
@@ -118,6 +118,8 @@ device 对象补充字段（2026-08-17，TS 类型见 `@helmet/shared` DevicePub
 | GET | /devices/{deviceId}/locations/latest | 最新位置：`200 { "location": <location 对象> \| null }`（设备存在但尚无数据时为 null，✅ 定稿）。设备时钟跑到未来的点（`timestamp` 超过服务器当前时间 5 分钟以上，DEVICE_PROTOCOL §8 的偏移阈值）不参与「最新」判定——否则一条错误时间的点会永久排在最前；该点照常留档，按时间范围仍可查到（2026-10-03） |
 | GET | /devices/{deviceId}/locations?from=&to=&page=&pageSize= | 历史轨迹（from/to 必填 ISO 8601；**单次范围上限 24h，✅ 定稿**；按 timestamp 升序；统一分页结构） |
 | GET | /devices/{deviceId}/locations/summary?from=&to= | 区间轨迹统计（2026-09-17 A 线新增，App 首页「今日骑行」）：`200 { distanceMeters, movingSeconds, maxSpeed, pointCount, firstAt, lastAt }`；from/to 规则同上（必填、≤24h）；服务端按相邻点大圆距离累加，间隔 >10 min 的段不桥接、隐含速度 >55 m/s 视为漂移不计；`movingSeconds` 只累计平均速度 ≥0.5 m/s 的段；`maxSpeed` 为设备上报速度最大值（m/s），无点时 maxSpeed/firstAt/lastAt 为 null。TS 类型 `LocationSummaryResponse` |
+| GET | /devices/{deviceId}/rides?from=&to= | 行程列表（2026-10-07 A 线新增，App 地图页「行程」；B 线 10-08 Review 通过）：`200 { "rides": [{ startAt, endAt, distanceMeters, movingSeconds, maxSpeed, ongoing }] }`，最新在前；返回**起点**落在 `[from, to)` 内的行程（跨边界的那一趟归到起点所在的区间，App 按月往前翻页时不重不漏）。from/to 必填 ISO 8601、from < to、**单次范围上限 32 天**（够一个自然月；夏令时结束的那个月比 31 天多 1 小时）（服务端为了把跨边界的行程算完整，实际会多取 from 之前 24h、to 之后 48h 的点）。**一趟怎么切**（负责人 2026-10-07 定，展示用的分段，不是骑行状态判断、不触发任何业务流程）：相邻点断档超过 15 分钟，或停住不动超过 15 分钟（相邻点隐含速度 <0.5 m/s，口径同 summary 的 `movingSeconds`），上一趟就结束在最后一个在动的点；里程不足 50 m 的不算一趟。最后一趟若距最后一次在动不超过 15 分钟，`ongoing=true`，此时 `endAt` 是目前收到的最后一个点。**连续不停的超长行程**（真实头盔电量撑不到，常驻的 Mock 设备会这样）：在 `from + n×24h` 这些时刻，一趟若已经连续进行了 23 小时 45 分以上，就在该时刻结束、之后的第一个点起算新的一趟——否则它的起点早已在查询范围之外，当前这页里反而没有它。切点以 `from` 为基准，所以**调用方要固定用同一种对齐方式的 from**（App 一律用本地零点），不同页的结果才对得上；一趟因此最长不到 48 小时。各字段统计口径同 summary。设备时钟跑到未来的点不参与（同 latest）。只读、无表结构变更。TS 类型 `RidesResponse` / `RideSummary` **量级**：服务端一次把范围内（含前后各 1–2 天）的点全部读进内存再切分，一台常驻 Mock 每天约 9 千点、32 天约 28 万点（dev 库 10-08 实测 94 MB 表里 28 万行）仍可承受；真实头盔每天一两千点不成问题。若将来单设备月点数超过约 50 万，再改成按天分块计算。 |
+| GET | /devices/{deviceId}/locations/track?from=&to=&maxPoints= | 抽稀轨迹（2026-10-07 A 线新增，App 地图页单趟行程的画线与回放；B 线 10-08 Review 通过）：`200 { points: <location 对象>[], total, summary }`。`points` 按 timestamp 升序，点数超过 `maxPoints`（选填，2–2000，默认 1000）时**等间隔抽稀**，首尾两点一定保留；`total` 是抽稀前的点数；`summary` 与上一行 summary 接口同结构，**用全部点计算**，不受抽稀影响。from/to 规则同上两行（必填、≤24h）。解决的问题：原分页接口每页上限 100，App 拉满 1000 点（运动时 5 秒一点，约 83 分钟）后更长的行程被截断。TS 类型 `TrackResponse` |
 
 `location` 对象（与 EVENTS.md 4.2 对齐，TS 类型见 `@helmet/shared` LocationPoint）：`{ latitude, longitude, coordinateSystem, accuracy, speed, heading, altitude, timestamp, receivedAt }`（altitude 无值为 null——滑雪场景核心维度，设备上报则全链路透传）。
 
@@ -152,7 +154,7 @@ SOS 状态机为服务端权威（DECISIONS #8/#26）：`pending → notified | 
 | GET | /devices/{deviceId}/accidents?page=&pageSize= | 事故记录列表（含已取消供留档，最新在前；TS 类型 AccidentListItem）。换绑后新主看不到旧主的事故（deviceId+userId 双过滤） |
 | GET | /accidents/{accidentId} | 事故详情（TS 类型 AccidentDetail）：sos 对象 + `location`（快照，source: event\|last_point）+ `triggerPayload`（触发事件原始 payload）+ `notifications`（通道/状态/重试次数/错误；**target 已脱敏**） |
 
-`sos` 对象（TS 类型见 `@helmet/shared` Sos）：`{ sosId, deviceId, triggerEventId, triggerType: "possible_fall"|"manual_sos", status: "pending"|"notified"|"cancelled", deadline, createdAt, updatedAt }`。
+`sos` 对象（TS 类型见 `@helmet/shared` Sos）：`{ sosId, deviceId, triggerEventId, triggerType: "possible_fall"|"manual_sos", status: "pending"|"notified"|"cancelled", deadline, createdAt, updatedAt, triggeredAt? }`。`triggeredAt`（2026-10-07 新增，可选）= 触发事件 envelope 的 `timestamp`（设备时钟），只供 App 写「约 N 小时前的事件，刚补传到」（决策 #52），不参与任何判定；10-07 之前建的单没有，App 缺省不显示。WS `sos_update`、`/sos/active`、事故列表 / 详情都带。
 
 - App 收到 WebSocket/Push 的 `sos` 对象后按 `deadline` 本地倒计时渲染，不自行计时判断超时。
 - 错误码：`SOS_ALREADY_FINALIZED`（409，取消/确认时状态机已终态）；取消/确认权限以**建单时固化的绑定用户**为准，他人操作一律 404（不泄露存在性）。进行中的单按「设备 + 用户」唯一（决策 #40）：换绑后新用户的求救另建新单，前用户的单不受影响。
@@ -169,9 +171,9 @@ SOS 状态机为服务端权威（DECISIONS #8/#26）：`pending → notified | 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | PUT | /devices/{deviceId}/settings | body：`{ settings: { <key>: <值> } }`（扁平键值；**✅ 参数清单定稿 2026-09-19，决策 #43**：14 项，键名/类型/取值范围以 `@helmet/shared` 的 `DEVICE_SETTINGS` 为准，见下表；未知键、类型不符、越界 → `400 VALIDATION_FAILED`，**服务端就拦、不创建命令、不下发**）→ 创建 set_config 命令并双路下发，`202 { commandId, status: "pending" }`（TS 类型 PutSettingsResponse） |
-| GET | /devices/{deviceId}/settings | `{ settings, lastCommand }`——settings 为当前生效设置（**只写设备确认过的值：命令 success 回执，或头盔上报的实际值**，决策 #45），lastCommand 为最近一次下发（TS 类型 SettingsResponse） |
+| GET | /devices/{deviceId}/settings | `{ settings, lastCommand }`——settings 为当前生效设置（**只写设备确认过的值：命令 success 回执，或头盔上报的实际值**，决策 #45），lastCommand 为本人最近一次下发（TS 类型 SettingsResponse） |
 | POST | /devices/{deviceId}/settings/reported | **头盔实际设置上报（✅ 2026-09-19，决策 #45）**：App 每次 BLE 握手后读回头盔 0x20–0x2D 上报，body `{ settings: { <key>: <值> } }`（≤ 32 键）→ `200 { settings, applied, skipped }`（TS 类型 ReportSettingsRequest / ReportSettingsResponse）。**逐键**校验：清单外、类型不符、越界只跳过该键（`reason: invalid`），不整批拒；**有未完成（pending/delivered）或 30 s 内刚 success 的命令碰过的键跳过**（`reason: recent_command`，以命令为准——App 读到的可能是写入前的旧值）；已判 offline 的命令不保护。不创建命令、不改 lastCommand。归属：非本人 404 DEVICE_NOT_FOUND；结构错误（非对象/空/超 32 键）400 VALIDATION_FAILED |
-| GET | /devices/{deviceId}/commands?page=&pageSize= | 命令历史（最新在前，TS 类型 CommandPublic） |
+| GET | /devices/{deviceId}/commands?page=&pageSize= | 命令历史（最新在前，TS 类型 CommandPublic）。**只含本人下发的命令**（2026-10-14，决策 #39 同口径：换绑后新主人看不到上一位主人的设置记录，`GET /commands/{id}` 与 WS 连接补推同此） |
 | GET | /commands/{commandId} | 命令状态：`pending → delivered → success \| failed \| offline`（语义见 DEVICE_PROTOCOL §7，**未回执绝不显示成功**） |
 | POST | /devices/{deviceId}/commands/{commandId}/relay-ack | **BLE 下行链的回执入口（决策 #36）**：App 替头盔提交命令回执。body：`{ "stage": "delivered" }`（App 已收到命令并写入头盔——蓝牙版的 delivered 语义，对应 4G 版的 PUBACK）或 `{ "stage": "executed", "result": "success" \| "failed", "errorCode"?, "executedAt"? }`（头盔执行结果；executedAt 缺省、不是合法 ISO 8601、或年份不在 1970–9999 内时一律取服务器时间——设备/App 时钟不可信；MQTT cmd_ack 同口径）→ `200 { commandId, status }`（更新后状态）。**幂等不报错**：已终态命令再收 delivered/重复 executed 都返回当前状态；已判 offline 后迟到 executed 如实覆盖（同 MQTT cmd_ack 语义）。鉴权：用户 JWT + 设备归属（非本人 404 DEVICE_NOT_FOUND）+ 命令须属于该设备（否则 404 NOT_FOUND）。信任级与 §12.1 app-relay 一致（App 本就是蓝牙版设备的代理） |
 
@@ -208,7 +210,7 @@ SOS 状态机为服务端权威（DECISIONS #8/#26）：`pending → notified | 
 |------|------|------|
 | GET | /media/{mediaId}/url | 换取**有时效**预签名 URL：`{ url, expiresAt }`（**✅ 时效定稿 10 分钟**，env `MEDIA_URL_TTL_SECONDS` 可调）；归属校验：仅设备当前绑定用户可取，非本人一律 404 |
 
-- 媒体元数据随 `video_ready` 事件入库（EVENTS.md 4.9），幂等：同 eventId 或同 (deviceId, videoId) 只登记一条。
+- 媒体元数据随 `video_ready` 事件入库（EVENTS.md 4.9），幂等：同 (deviceId, eventId) 或同 (deviceId, videoId) 只登记一条（决策 #54）。
 - `storageKey` 缺失（上云路径 ⏸️ MVP 后定，DEVICE_PROTOCOL §10 E-17）时 status=`pending_upload`，换 URL 返回 409 `MEDIA_NOT_READY`（错误码只增）。
 - §6 事件详情的 `media` 数组：危险/摔倒事件按 `relatedEventId` 反查，video_ready 事件带自身条目。
 - ✅ 本节已实现（2026-08-16）：StorageProvider 薄接口 + Mock 实现（本地假 URL）。**2026-09-16 接入腾讯云 COS**（`TencentCosProvider`，env 齐全即切换，否则 Mock），返回的 `url` 为私有桶对象的签名 GET 链接，过期后 COS 侧返回 403；响应结构 `{ url, expiresAt }` 不变。
@@ -254,7 +256,7 @@ MVP 实用为主，全部只读 + 少量运维操作。
 | sos_update | §7 sos 对象 | SOS 创建/取消/确认/超时通知 |
 | risk_event | §6 event 详情对象 | collision_risk / obstacle_risk / risk_cleared |
 | device_event | §6 event 列表项 | 其余事件（sleep_*、bluetooth_lost、video_ready） |
-| device_command | `{ deviceId, commandId, type, params, issuedAt }` | ① 新命令创建（§8 下发）时实时推送；② **连接建立时补推**该用户绑定设备所有 `status ∈ {pending, delivered}` 的命令（BLE 下行通道，决策 #36） |
+| device_command | `{ deviceId, commandId, type, params, issuedAt }` | ① 新命令创建（§8 下发）时实时推送；② **连接建立时补推**该用户绑定设备上**本人下发的**、`status ∈ {pending, delivered}` 的命令（BLE 下行通道，决策 #36；只推本人的：换绑后上一位主人没执行完的命令不由新主人的 App 写进头盔，2026-10-14） |
 
 - WebSocket 是加速通道不是可靠通道：App 重连后须用 REST 拉取兜底；SOS 兜底靠 Push（deadline 持久化在服务端）。
 - **device_command 的连接补推不违反「不补发」口径**：这是持久化命令的状态同步（commandId 幂等，App/头盔重复收到不重复执行），不是历史事件重放。补推含 `delivered` 是因为 delivered=PUBACK 只证明送达 Broker（口径 #27④）——蓝牙版设备不在 MQTT 上，PUBACK 照样成功，若只补推 pending 则蓝牙版 App 上线永远收不到已 PUBACK 的命令。`offline` 的命令不补推（用户可能已重发），REST 兜底可查。

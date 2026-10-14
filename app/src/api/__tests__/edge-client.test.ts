@@ -21,6 +21,10 @@ import {
   forceRefreshTokens,
 } from "../client";
 import { toUserMessage } from "../error-messages";
+import {
+  __resetServerClockForTests,
+  serverClockOffsetMs,
+} from "@/services/server-clock";
 
 type Init = RequestInit & { headers?: Record<string, string> };
 type FetchMock = Mock<(url: string, init?: Init) => Promise<unknown>>;
@@ -370,6 +374,44 @@ describe("响应体形态", () => {
     },
   );
 
+  it("429 带 Retry-After：错误对象记下秒数，文案说「请 N 秒后再试」（决策 #53；负责人 2026-10-07 iPhone 2.6 实测只说「太频繁」不知要等多久）", async () => {
+    fetchMock.mockResolvedValue({
+      ...res(429, { code: "RATE_LIMITED", message: "请求过于频繁" }),
+      headers: { get: (k: string) => (k === "retry-after" ? "47" : null) },
+    });
+    const err = await api("/devices/bind", { method: "POST", body: {} }).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toMatchObject({ code: "RATE_LIMITED", retryAfterSec: 47 });
+    expect(toUserMessage(err)).toBe(
+      translate("error.rateLimitedRetry", { seconds: 47 }),
+    );
+  });
+
+  it.each([
+    [90, translate("error.rateLimitedRetry", { seconds: 90 })],
+    [91, translate("error.rateLimitedRetryMinutes", { minutes: 2 })],
+    [5400, translate("error.rateLimitedRetryMinutes", { minutes: 90 })],
+    // 发码日限（同 IP 每天 50 条）：Retry-After 可达 86400，不能写「请 86231 秒后再试」
+    [86_231, translate("error.rateLimitedRetryHours", { hours: 24 })],
+  ])("429 Retry-After=%d 换成人读得懂的单位", (seconds, text) => {
+    const err = new ApiRequestError(429, { code: "RATE_LIMITED" }, seconds);
+    expect(toUserMessage(err)).toBe(text);
+  });
+
+  it("429 没有 Retry-After（或值不是秒数）：退回原来的「请稍后再试」", async () => {
+    fetchMock.mockResolvedValue({
+      ...res(429, { code: "RATE_LIMITED" }),
+      headers: { get: () => "Wed, 07 Oct 2026 01:00:00 GMT" },
+    });
+    const err = await api("/x", { auth: false }).catch((e: unknown) => e);
+    expect(err).toMatchObject({
+      code: "RATE_LIMITED",
+      retryAfterSec: undefined,
+    });
+    expect(toUserMessage(err)).toBe(translate("error.rateLimited"));
+  });
+
   it("请求体：未传 body 不带 Content-Type；0 / false / null / 空串是合法 JSON，照常序列化", async () => {
     fetchMock.mockImplementation(async () => res(200, {}));
     await api("/x", { auth: false });
@@ -511,5 +553,23 @@ describe("请求体里带 token 的接口：401 重试时要重取（2026-10-05 
         (callsTo(fetchMock, "/auth/change-password") as [string, Init?][])[0],
       ).refreshToken,
     ).toBe("");
+  });
+});
+
+describe("服务端时钟（F-3）", () => {
+  it("每个响应的 Date 头都喂给 server-clock；没有 headers 的假响应不报错", async () => {
+    __resetServerClockForTests();
+    const serverDate = new Date(Date.now() - 90_000).toUTCString();
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true }),
+      headers: { get: (k: string) => (k === "date" ? serverDate : null) },
+    });
+    await api("/x");
+    expect(serverClockOffsetMs()).toBeLessThan(-80_000);
+    fetchMock.mockResolvedValue(res(200, { ok: true })); // 没有 headers
+    await expect(api("/x")).resolves.toEqual({ ok: true });
+    __resetServerClockForTests();
   });
 });

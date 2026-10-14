@@ -132,6 +132,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 }));
 
+/**
+ * 两个相邻状态之间是不是「换了一个账号」：两边都有用户档案且 id 不同。
+ * 档案从无到有（冷启动只有 token、/users/me 之后才有 user）不算——那时清缓存会把刚拉好的设备列表等全丢掉。
+ */
+export function accountSwitched(
+  prevUserId: string | undefined,
+  nextUserId: string | undefined,
+): boolean {
+  return (
+    prevUserId !== undefined &&
+    nextUserId !== undefined &&
+    prevUserId !== nextUserId
+  );
+}
+
 // api 层回调注入：token 读取、刷新轮换后的持久化、会话失效清理
 attachSession({
   getTokens: () => useAuthStore.getState().tokens,

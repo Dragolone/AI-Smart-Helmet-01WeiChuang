@@ -1,6 +1,6 @@
 // 注册页（API.md §2：POST /auth/sms-code 取验证码 → POST /auth/register 带 code）
 import { Link, router } from "expo-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -25,14 +25,11 @@ import {
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { Radius } from "@/constants/theme";
+import { useSmsCode, isValidPhone } from "@/hooks/use-sms-code";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
 import { useAuthStore } from "@/stores/auth-store";
 import { useConsentStore } from "@/stores/consent-store";
-
-/** 与后端 SMS_CODE_RESEND_INTERVAL_SECONDS 默认一致；超前点击由服务端 429 兜底 */
-const RESEND_SECONDS = 60;
-const PHONE_PATTERN = /^1[3-9]\d{9}$/;
 
 export default function RegisterScreen() {
   const theme = useTheme();
@@ -57,39 +54,21 @@ export default function RegisterScreen() {
   const fail = (field: FormField, message: string) =>
     setFieldError({ field, message });
   const [busy, setBusy] = useState(false);
-  const [sending, setSending] = useState(false);
-  /** 重发限频用截止时间戳 + 墙钟计算剩余——递减 state 在 App 退后台时定时器
-   *  被 iOS 暂停,回前台倒计时冻在原地(2026-09-10 真机实证);按墙钟算则
-   *  回前台首个 tick 即校准。同 sos-active 倒计时的口径。 */
-  const [cooldownUntil, setCooldownUntil] = useState(0);
-  const [now, setNow] = useState(() => Date.now());
-  const cooldown = Math.max(0, Math.ceil((cooldownUntil - now) / 1000));
-
-  useEffect(() => {
-    if (cooldownUntil <= now) return;
-    const timer = setInterval(() => setNow(Date.now()), 500);
-    return () => clearInterval(timer);
-  }, [cooldownUntil, now]);
+  const sms = useSmsCode("register");
 
   const sendCode = async () => {
     setError(null);
     setFieldError(null);
-    if (!PHONE_PATTERN.test(phone.trim())) {
+    if (!isValidPhone(phone)) {
       fail("phone", t("auth.invalidPhone"));
       return;
     }
-    setSending(true);
     try {
-      await authApi.sendSmsCode({ phone: phone.trim(), purpose: "register" });
-      const t = Date.now();
-      setNow(t);
-      setCooldownUntil(t + RESEND_SECONDS * 1000);
+      await sms.send(phone);
     } catch (e) {
       const field = errorField(e);
       if (field) fail(field, toUserMessage(e));
       else setError(toUserMessage(e));
-    } finally {
-      setSending(false);
     }
   };
 
@@ -132,7 +111,7 @@ export default function RegisterScreen() {
     }
   };
 
-  const codeButtonDisabled = sending || cooldown > 0;
+  const codeButtonDisabled = sms.disabled;
 
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: theme.background }]}>
@@ -200,10 +179,10 @@ export default function RegisterScreen() {
                       : theme.brand,
                   }}
                 >
-                  {sending
+                  {sms.sending
                     ? t("auth.sending")
-                    : cooldown > 0
-                      ? t("auth.resend", { n: cooldown })
+                    : sms.cooldown > 0
+                      ? t("auth.resend", { n: sms.cooldown })
                       : t("auth.getCode")}
                 </ThemedText>
               </Pressable>
@@ -259,7 +238,7 @@ export default function RegisterScreen() {
                   style={{ color: theme.brand }}
                   onPress={() => {
                     Keyboard.dismiss();
-                    router.push("/legal/terms");
+                    router.navigate("/legal/terms");
                   }}
                   suppressHighlighting
                 >
@@ -271,7 +250,7 @@ export default function RegisterScreen() {
                   style={{ color: theme.brand }}
                   onPress={() => {
                     Keyboard.dismiss();
-                    router.push("/legal/privacy");
+                    router.navigate("/legal/privacy");
                   }}
                   suppressHighlighting
                 >

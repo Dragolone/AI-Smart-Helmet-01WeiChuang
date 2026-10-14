@@ -259,6 +259,16 @@ describe('账号与安全 (e2e)', () => {
         .set(auth(access))
         .send({ name: '家人', phone: '13800138000' })
         .expect(201);
+      await request(http)
+        .patch('/api/v1/users/me')
+        .set(auth(access))
+        .send({ nickname: '张三' })
+        .expect(200);
+      await request(http)
+        .patch(`/api/v1/devices/${deviceId}`)
+        .set(auth(access))
+        .send({ name: '张三的头盔' })
+        .expect(200);
     });
 
     it('密码错误 → 400 PASSWORD_INCORRECT，账号原样', async () => {
@@ -292,14 +302,17 @@ describe('账号与安全 (e2e)', () => {
         .expect(401);
     });
 
-    it('库中：软删除留档、phone 改写、头像清空、设备已解绑、联系人已软删', async () => {
+    it('库中：软删除留档、phone 改写、头像清空、原号验证码记录删除、设备已解绑且自定义名清空、联系人已软删', async () => {
       const user = await prisma.user.findUnique({ where: { id: userId } });
       expect(user?.deletedAt).toBeInstanceOf(Date);
       expect(user?.phone).toBe(`deleted:${userId}`);
       expect(user?.avatarUrl).toBeNull();
+      // 隐私政策 V1.2：注销后「立即清除你的手机号」——验证码表里的手机号是明文
+      expect(await prisma.smsCode.count({ where: { phone } })).toBe(0);
       const device = await prisma.device.findUnique({ where: { deviceId } });
       expect(device?.bindUserId).toBeNull();
       expect(device?.boundAt).toBeNull();
+      expect(device?.name).toBeNull();
       const activeContacts = await prisma.emergencyContact.count({
         where: { userId, deletedAt: null },
       });

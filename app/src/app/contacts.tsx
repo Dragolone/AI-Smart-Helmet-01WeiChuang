@@ -164,7 +164,7 @@ export default function ContactsScreen() {
           title={t("contacts.add")}
           icon="add"
           disabled={list.length >= MAX_CONTACTS}
-          onPress={() => router.push("/add-contact")}
+          onPress={() => router.navigate("/add-contact")}
         />
         {list.length >= MAX_CONTACTS && (
           <ThemedText

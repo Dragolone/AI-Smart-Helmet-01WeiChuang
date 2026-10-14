@@ -121,6 +121,8 @@ export class CommandsService implements OnModuleInit {
       const commands = await this.prisma.deviceCommand.findMany({
         where: {
           deviceId: { in: devices.map((d) => d.deviceId) },
+          // 只补推本人下的：换绑后 30 s 内，上一位主人没执行完的命令不该由新主人的 App 写进头盔
+          issuedBy: userId,
           status: { in: [COMMAND_STATUS.pending, COMMAND_STATUS.delivered] },
         },
         orderBy: { issuedAt: 'asc' },
@@ -465,7 +467,7 @@ export class CommandsService implements OnModuleInit {
         select: { settings: true },
       }),
       this.prisma.deviceCommand.findFirst({
-        where: { deviceId },
+        where: { deviceId, issuedBy: userId },
         orderBy: { issuedAt: 'desc' },
       }),
     ]);
@@ -482,7 +484,8 @@ export class CommandsService implements OnModuleInit {
     pageSize: number,
   ): Promise<Paginated<CommandPublic>> {
     await ensureDeviceOwned(this.prisma, userId, deviceId);
-    const where = { deviceId };
+    // 命令历史只含本人下发的（决策 #39 同口径）：换绑后新主人看不到上一位主人的设置记录
+    const where = { deviceId, issuedBy: userId };
     const [total, commands] = await this.prisma.$transaction([
       this.prisma.deviceCommand.count({ where }),
       this.prisma.deviceCommand.findMany({
@@ -495,12 +498,12 @@ export class CommandsService implements OnModuleInit {
     return { items: commands.map(toWireCommand), total, page, pageSize };
   }
 
-  /** 命令详情：归属 = 命令所属设备的当前绑定用户 */
+  /** 命令详情：归属 = 命令所属设备的当前绑定用户，且是本人下发的 */
   async getCommand(userId: string, commandId: string): Promise<CommandPublic> {
     const command = await this.prisma.deviceCommand.findUnique({
       where: { id: commandId },
     });
-    if (command) {
+    if (command?.issuedBy === userId) {
       const device = await this.prisma.device.findUnique({
         where: { deviceId: command.deviceId },
         select: { bindUserId: true },

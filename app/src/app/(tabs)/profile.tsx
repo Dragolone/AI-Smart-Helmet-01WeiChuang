@@ -17,6 +17,7 @@ import { contactsApi } from "@/api/contacts";
 import { devicesApi } from "@/api/devices";
 import { toUserMessage } from "@/api/error-messages";
 import { FormInput, PrimaryButton } from "@/components/form";
+import { IntercomMiniBar } from "@/components/intercom-mini-bar";
 import { Card, GroupTitle, ListRow } from "@/components/list";
 import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
@@ -243,19 +244,13 @@ export default function ProfileScreen() {
               value={t("profile.contactsValue", {
                 n: contacts.data?.length ?? 0,
               })}
-              onPress={() => router.push("/contacts")}
+              onPress={() => router.navigate("/contacts")}
             />
             <ListRow
               compact
-              icon="medkit-outline"
-              title={t("profile.accidents")}
-              onPress={() => router.push("/accidents")}
-            />
-            <ListRow
-              compact
-              icon="warning-outline"
-              title={t("profile.events")}
-              onPress={() => router.push("/events")}
+              icon="time-outline"
+              title={t("profile.records")}
+              onPress={() => router.navigate("/safety-records")}
               last
             />
           </Card>
@@ -266,20 +261,20 @@ export default function ProfileScreen() {
               compact
               icon="key-outline"
               title={t("profile.changePassword")}
-              onPress={() => router.push("/account/change-password")}
+              onPress={() => router.navigate("/account/change-password")}
             />
             <ListRow
               compact
               icon="phone-portrait-outline"
               title={t("profile.changePhone")}
               value={maskPhone(user?.phone)}
-              onPress={() => router.push("/account/change-phone")}
+              onPress={() => router.navigate("/account/change-phone")}
             />
             <ListRow
               compact
               icon="person-remove-outline"
               title={t("profile.deleteAccount")}
-              onPress={() => router.push("/account/delete")}
+              onPress={() => router.navigate("/account/delete")}
               last
             />
           </Card>
@@ -321,32 +316,32 @@ export default function ProfileScreen() {
               compact
               icon="help-circle-outline"
               title={t("profile.help")}
-              onPress={() => router.push("/help")}
+              onPress={() => router.navigate("/help")}
             />
             <ListRow
               compact
               icon="shield-checkmark-outline"
               title={t("profile.privacy")}
-              onPress={() => router.push("/legal/privacy")}
+              onPress={() => router.navigate("/legal/privacy")}
             />
             <ListRow
               compact
               icon="document-text-outline"
               title={t("profile.terms")}
-              onPress={() => router.push("/legal/terms")}
+              onPress={() => router.navigate("/legal/terms")}
             />
             {/* 两份清单：华为 / 小米隐私检测与 App 备案都要求 App 内可查（LAUNCH_CHECKLIST A-6） */}
             <ListRow
               compact
               icon="list-outline"
               title={t("profile.collection")}
-              onPress={() => router.push("/legal/collection")}
+              onPress={() => router.navigate("/legal/collection")}
             />
             <ListRow
               compact
               icon="share-social-outline"
               title={t("profile.sharing")}
-              onPress={() => router.push("/legal/sharing")}
+              onPress={() => router.navigate("/legal/sharing")}
             />
             <ListRow
               compact
@@ -368,6 +363,9 @@ export default function ProfileScreen() {
             </ThemedText>
           </Tappable>
         </ScrollView>
+
+        {/* 人在对讲房间里时占一行，不在时不占位置 */}
+        <IntercomMiniBar style={styles.miniBar} />
 
         {/* 个人资料编辑 */}
         <Modal
@@ -572,6 +570,7 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  miniBar: { paddingHorizontal: 12, paddingBottom: 12 },
   container: { paddingHorizontal: 20, paddingBottom: 28, gap: 14 },
   pageTitle: { fontSize: 32, lineHeight: 40, marginBottom: -2 },
   accountCard: {

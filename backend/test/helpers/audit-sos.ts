@@ -141,7 +141,7 @@ export const confirmSos = (
   request(http).post(`/api/v1/sos/${sosId}/confirm`).set(auth(token));
 
 export const sosByEvent = (prisma: PrismaService, eventId: string) =>
-  prisma.sosCase.findUnique({ where: { triggerEventId: eventId } });
+  prisma.sosCase.findFirst({ where: { triggerEventId: eventId } });
 
 /** 与投递顺序同口径（sms 先于 push）；只按 createdAt 排会因同事务同时间戳而顺序不定 */
 export const notificationsOf = (prisma: PrismaService, sosId: string) =>

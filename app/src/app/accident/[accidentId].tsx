@@ -1,10 +1,12 @@
-// 事故详情（API.md §7 GET /accidents/{id}）：状态流转 + 位置快照 + 通知发送记录（手机号已脱敏）
+// SOS 记录详情（API.md §7 GET /accidents/{id}，一条记录 = 一张求救单）：处理状态 + 来源头盔 + 准确时间
+// + 位置快照 + 通知发送记录（手机号已脱敏）。界面上不叫「事故」：疑似摔倒、已取消的求救都在这里，不代表出了事故。
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 
+import { devicesApi } from "@/api/devices";
 import { toUserMessage } from "@/api/error-messages";
 import { sosApi } from "@/api/sos";
 import { Badge } from "@/components/badge";
@@ -15,8 +17,9 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
+import { readableEventFields } from "@/services/event-fields";
 import { useLocale, useT } from "@/i18n";
-import { shortDate, shortTime } from "@/i18n/format";
+import { fullDateTime, shortTime } from "@/i18n/format";
 
 function Row({ label, value }: { label: string; value: string }) {
   const theme = useTheme();
@@ -42,14 +45,18 @@ export default function AccidentDetailScreen() {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const dateTime = (iso: string) =>
-    `${shortDate(iso, locale)} ${shortTime(iso, locale)}`;
+  const dateTime = (iso: string) => fullDateTime(iso, locale);
   const detail = useQuery({
     queryKey: ["accident", accidentId],
     queryFn: () => sosApi.accidentDetail(accidentId),
   });
+  // 来源头盔显示用户起的名字（与安全页同一份设备列表缓存）；已解绑的头盔查不到名字，退回设备号
+  const devices = useQuery({ queryKey: ["devices"], queryFn: devicesApi.list });
 
   const d = detail.data;
+  const helmetName = devices.data?.find(
+    (x) => x.deviceId === d?.deviceId,
+  )?.name;
   const mapRef = useRef<AmapViewHandle>(null);
   const gcjPos = d?.location ? toGcj02(d.location) : null;
 
@@ -69,9 +76,11 @@ export default function AccidentDetailScreen() {
           <>
             <View style={styles.titleRow}>
               <ThemedText type="title" style={styles.title}>
-                {d.triggerType === "manual_sos"
-                  ? t("safety.manualSos")
-                  : t("safety.fallDetected")}
+                {t(
+                  d.triggerType === "manual_sos"
+                    ? "records.sos.manual"
+                    : "records.sos.fall",
+                )}
               </ThemedText>
               <Badge
                 variant={
@@ -110,12 +119,19 @@ export default function AccidentDetailScreen() {
               </Pressable>
             )}
 
-            <Row label={t("accident.device")} value={d.deviceId} />
+            <Row
+              label={t("accident.device")}
+              value={helmetName ? `${helmetName} · ${d.deviceId}` : d.deviceId}
+            />
             <Row
               label={t("accident.triggeredAt")}
               value={dateTime(d.createdAt)}
             />
             <Row label={t("accident.deadline")} value={dateTime(d.deadline)} />
+            {/* 触发事件里头盔给出的量（冲击力、倾角、触发方式…）：有就显示，没有不占位 */}
+            {readableEventFields(d.triggerPayload ?? {}, t).map((f) => (
+              <Row key={f.label} label={f.label} value={f.value} />
+            ))}
             <Row
               label={t("accident.location")}
               value={
@@ -252,9 +268,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 12,
     marginBottom: 4,
   },
-  title: { fontSize: 26, lineHeight: 32 },
+  title: { fontSize: 26, lineHeight: 32, flexShrink: 1 },
   row: {
     flexDirection: "row",
     justifyContent: "space-between",

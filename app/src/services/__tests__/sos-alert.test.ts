@@ -90,9 +90,13 @@ const deadlineIn = (seconds: number) =>
   new Date(Date.now() + seconds * 1000).toISOString();
 
 /** 模块有模块级状态（shownForSosId / notificationIds / permissionAsked），每个用例拿一份新的 */
+type ServerClock = typeof import("@/services/server-clock");
+/** 与被测模块同一份隔离注册表里的 server-clock（isolateModules 让顶层 import 的那份与它不是同一个实例） */
+let clock!: ServerClock;
 const load = (): SosAlert => {
   let mod!: SosAlert;
   jest.isolateModules(() => {
+    clock = require("@/services/server-clock") as ServerClock;
     mod = require("../sos-alert") as SosAlert;
   });
   return mod;
@@ -146,6 +150,31 @@ describe("sos-alert", () => {
       expect(mockSchedule).not.toHaveBeenCalled();
     });
 
+    it("补传的 3 小时前的事件：正文末尾点明「约 3 小时前的事件，刚补传到」（决策 #52，2026-10-07 iPhone 4.14）", async () => {
+      const m = load();
+      const triggeredAt = new Date(Date.now() - 3 * 3_600_000).toISOString();
+      await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60), triggeredAt);
+      const r = reqs();
+      expect(r[0].content.body).toBe(
+        'sosAlert.bodyCountdown:{"seconds":60}（sos.lateEventHours:{"n":3}）',
+      );
+      // 静默刷新那两条也带
+      expect(r[1].content.body).toContain("sos.lateEventHours");
+    });
+
+    it("事件时间只早 2 分钟（时钟偏差）或缺省：正文不加说明", async () => {
+      const m = load();
+      await m.showSosAlertIfBackground(
+        "s1",
+        "d1",
+        deadlineIn(60),
+        new Date(Date.now() - 2 * 60_000).toISOString(),
+      );
+      expect(reqs()[0].content.body).toBe(
+        'sosAlert.bodyCountdown:{"seconds":60}',
+      );
+    });
+
     it("60s 倒计时：立即一条带声，30s/10s 各一条静默刷新", async () => {
       const m = load();
       await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
@@ -178,6 +207,21 @@ describe("sos-alert", () => {
       await m.showSosAlertIfBackground("s1", "d1", deadlineIn(12));
       // 30s 档已过（delay 为负），10s 档 delay=2 <3 也跳过 → 只有首条
       expect(reqs()).toHaveLength(1);
+    });
+
+    it("手机快 90 秒：读秒按服务端时钟算，不会一弹出来就是 0（F-3）", async () => {
+      const m = load();
+      clock.noteServerDate(
+        new Date(Date.now() - 90_000).toUTCString(),
+        Date.now(),
+      );
+      await m.showSosAlertIfBackground("s1", "d1", deadlineIn(-30)); // 按手机时钟已过期 30 s，服务端看还剩 60 s
+      const r = reqs();
+      // Date 头只有秒级精度，偏移最多差 1 s
+      expect(r[0].content.body).toMatch(
+        /sosAlert\.bodyCountdown:\{"seconds":6[01]\}/,
+      );
+      expect(r).toHaveLength(3); // 30 s / 10 s 两档刷新也排上了
     });
 
     it("已过期的 deadline 不会排出负数延迟", async () => {
@@ -505,6 +549,43 @@ describe("sos-alert", () => {
       expect(mockCancel).toHaveBeenCalledTimes(2);
       await jest.advanceTimersByTimeAsync(30_000);
       expect(mockCancel).toHaveBeenCalledTimes(2);
+    });
+
+    it("回前台触发的重试不消耗机会：飞行模式下点取消再拉起 App，三次机会不会在同一秒内打光，网络回来后定时重试成功", async () => {
+      jest.useFakeTimers();
+      const listener: { cb: ((s: string) => void) | null } = { cb: null };
+      override(
+        AppState,
+        "addEventListener",
+        (_: string, cb: (s: string) => void) => {
+          listener.cb = cb;
+          return { remove: () => undefined };
+        },
+      );
+      let online = false;
+      mockCancel.mockImplementation(async () => {
+        if (!online)
+          throw new Error("The Internet connection appears to be offline.");
+        return {} as never;
+      });
+      const m = load();
+      expect(await m.cancelFromNotification("s1")).toBe(false);
+      // 拉起 App：inactive → active 来回几次，每次都立刻重试一遍（仍离线），但不算用掉机会
+      for (let i = 0; i < 3; i += 1) {
+        listener.cb?.("active");
+        await jest.advanceTimersByTimeAsync(0);
+      }
+      expect(mockCancel.mock.calls.length).toBeGreaterThanOrEqual(4);
+      expect(mockNavigate).not.toHaveBeenCalled(); // 没有「用尽」
+      // 2 s 定时重试仍离线 → 第 2 档 5 s；期间网络回来 → 成功，不弹失败
+      await jest.advanceTimersByTimeAsync(2_000);
+      online = true;
+      await jest.advanceTimersByTimeAsync(5_000);
+      expect(
+        await Promise.resolve(mockCancel.mock.results.at(-1)?.value),
+      ).toEqual({});
+      expect(mockNavigate).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(60_000);
       jest.useRealTimers();
     });
 
@@ -653,6 +734,62 @@ describe("sos-alert", () => {
       const m = load();
       await expect(m.ensureSosAlertPermission()).resolves.toBeUndefined();
       expect(responseHandler).not.toBeNull();
+    });
+  });
+
+  describe("取消在途标记（2026-10-07 iPhone：被杀后点通知按钮，倒计时页要显示「取消中」而不是继续倒数）", () => {
+    const loadWithStore = () => {
+      let mod!: SosAlert;
+      let store!: typeof import("@/stores/sos-cancel-store");
+      jest.isolateModules(() => {
+        store = require("@/stores/sos-cancel-store");
+        mod = require("../sos-alert") as SosAlert;
+      });
+      return { m: mod, store: store.useSosCancelStore };
+    };
+
+    it("登出（resetSosAlerts）连同在途标记一起清：重新登录后同一单的倒计时页不会卡在「取消中…」、按钮点不了（2026-10-14）", async () => {
+      jest.useFakeTimers();
+      override(AppState, "addEventListener", () => ({
+        remove: () => undefined,
+      }));
+      mockCancel.mockRejectedValue(new Error("network"));
+      const { m, store } = loadWithStore();
+      expect(await m.cancelFromNotification("s9")).toBe(false); // 排了重试，标记在途
+      expect(store.getState().inFlight.s9).toBe(true);
+      await m.resetSosAlerts();
+      expect(store.getState().inFlight.s9).toBeUndefined();
+      jest.useRealTimers();
+    });
+
+    it("请求发出即标记在途，服务端确认后清掉", async () => {
+      let finish!: () => void;
+      mockCancel.mockImplementationOnce(
+        () => new Promise<never>((r) => (finish = () => r({} as never))),
+      );
+      const { m, store } = loadWithStore();
+      const p = m.cancelFromNotification("s1");
+      expect(store.getState().inFlight.s1).toBe(true);
+      finish();
+      expect(await p).toBe(true);
+      expect(store.getState().inFlight.s1).toBeUndefined();
+    });
+
+    it("重试期间一直在途；重试用尽后清掉（页面上的按钮要能再按）", async () => {
+      jest.useFakeTimers();
+      override(AppState, "addEventListener", () => ({
+        remove: () => undefined,
+      }));
+      mockCancel.mockRejectedValue(new Error("offline"));
+      const { m, store } = loadWithStore();
+      expect(await m.cancelFromNotification("s1")).toBe(false);
+      expect(store.getState().inFlight.s1).toBe(true);
+      await jest.advanceTimersByTimeAsync(2_000);
+      expect(store.getState().inFlight.s1).toBe(true);
+      await jest.advanceTimersByTimeAsync(5_000);
+      await jest.advanceTimersByTimeAsync(10_000);
+      expect(store.getState().inFlight.s1).toBeUndefined();
+      jest.useRealTimers();
     });
   });
 

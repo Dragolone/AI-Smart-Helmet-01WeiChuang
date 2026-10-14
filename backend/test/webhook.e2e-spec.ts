@@ -121,12 +121,12 @@ describe('Ingest Webhook 入口 (e2e)', () => {
       invalid: false,
     });
 
-    const raw = await prisma.rawEvent.findUnique({
+    const raw = await prisma.rawEvent.findFirst({
       where: { eventId: body.eventId as string },
     });
     expect(raw).toMatchObject({ deviceId, source: 'webhook' });
     // 业务分发证据：location_update 进了轨迹表（不是只留档）
-    const point = await prisma.locationPoint.findUnique({
+    const point = await prisma.locationPoint.findFirst({
       where: { eventId: body.eventId as string },
     });
     expect(point).not.toBeNull();

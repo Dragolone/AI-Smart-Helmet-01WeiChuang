@@ -208,6 +208,41 @@ export interface LocationSummaryResponse {
   lastAt: string | null;
 }
 
+/**
+ * 一趟行程的摘要（GET /devices/{id}/rides，API.md §5）。
+ * 「一趟」是展示用的分段：相邻定位点断档超过 15 分钟，或停住不动超过 15 分钟，就算上一趟结束；
+ * 不是骑行状态判断，不触发任何业务流程。startAt 同时是这一趟的标识。
+ */
+export interface RideSummary {
+  /** 这一趟第一个点的时间（ISO 8601 UTC） */
+  startAt: string;
+  /** 这一趟最后一个在动的点的时间；进行中的一趟是目前收到的最后一个点 */
+  endAt: string;
+  /** 米 */
+  distanceMeters: number;
+  /** 秒，口径同 LocationSummaryResponse.movingSeconds */
+  movingSeconds: number;
+  /** m/s，与 location.speed 同单位 */
+  maxSpeed: number | null;
+  /** 还没结束：距这一趟最后一次在动不超过 15 分钟 */
+  ongoing: boolean;
+}
+
+/** GET /devices/{id}/rides?from&to：起点落在 [from, to) 内的行程，最新在前 */
+export interface RidesResponse {
+  rides: RideSummary[];
+}
+
+/** GET /devices/{id}/locations/track?from&to&maxPoints：抽稀后的轨迹 + 用全部点算出的统计 */
+export interface TrackResponse {
+  /** 按 timestamp 升序；点数超过 maxPoints 时等间隔抽稀，首尾两点一定保留 */
+  points: LocationPoint[];
+  /** 抽稀前的点数 */
+  total: number;
+  /** 用全部点算的统计，不受抽稀影响 */
+  summary: LocationSummaryResponse;
+}
+
 // —— §6 事件查询（已实现） ——
 
 /** 事件详情里的关联媒体（§9；该事件没有关联媒体时为空数组） */
@@ -321,6 +356,13 @@ export interface Sos {
   deadline: string;
   createdAt: string;
   updatedAt: string;
+  /**
+   * 触发事件在头盔上发生的时间（事件 envelope 的 timestamp）。离线补传的旧事件它会明显早于 createdAt，
+   * App 据此在锁屏通知与倒计时页写明「约 3 小时前的事件，刚补传到」（决策 #52）——此前这句只在服务端的
+   * 远程推送正文里，iOS 为避免与本地通知叠在一起会撤掉远程那条，这句话就跟着没了（2026-10-07 iPhone 4.14 实测）。
+   * 服务端填；旧数据 / 旧服务端可缺省，缺省时不显示这句。
+   */
+  triggeredAt?: string;
 }
 
 /** GET /devices/{id}/sos/active：无进行中 SOS 时 sos 为 null（与 locations/latest 同口径，定稿） */

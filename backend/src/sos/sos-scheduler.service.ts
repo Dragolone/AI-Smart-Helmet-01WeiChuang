@@ -176,15 +176,25 @@ export class SosSchedulerService implements OnModuleInit, OnModuleDestroy {
     });
     if (candidates.length === 0) return 0;
 
+    // eventId 只在设备内唯一（决策 #54）：按 (deviceId, eventId) 成对比对
+    const pairKey = (deviceId: string, eventId: string): string =>
+      `${deviceId}\u0000${eventId}`;
     const existing = await this.prisma.sosCase.findMany({
-      where: { triggerEventId: { in: candidates.map((c) => c.eventId) } },
-      select: { triggerEventId: true },
+      where: {
+        OR: candidates.map((c) => ({
+          deviceId: c.deviceId,
+          triggerEventId: c.eventId,
+        })),
+      },
+      select: { deviceId: true, triggerEventId: true },
     });
-    const hasCase = new Set(existing.map((c) => c.triggerEventId));
+    const hasCase = new Set(
+      existing.map((c) => pairKey(c.deviceId, c.triggerEventId)),
+    );
 
     let recovered = 0;
     for (const raw of candidates) {
-      if (hasCase.has(raw.eventId)) continue;
+      if (hasCase.has(pairKey(raw.deviceId, raw.eventId))) continue;
       // 当时无绑定用户 → 口径为只留档（没有人可通知/取消）
       const binding = await this.prisma.deviceBinding.findFirst({
         where: {

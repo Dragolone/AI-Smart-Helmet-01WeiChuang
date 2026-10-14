@@ -311,4 +311,43 @@ describe('命令下发与回执状态机 (e2e)', () => {
     await request(http).get(`/api/v1/devices/${deviceId}/settings`).expect(401);
     expect(ownerId).toBeTruthy();
   });
+
+  it('换绑后：新主人看不到上一位主人下发的命令（历史 / lastCommand / 详情），设置本身留在头盔上（2026-10-14）', async () => {
+    const before = await request(http)
+      .get(`/api/v1/devices/${deviceId}/commands`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .expect(200);
+    const ownerCommandId = before.body.items[0].commandId as string;
+    const settingsBefore = await request(http)
+      .get(`/api/v1/devices/${deviceId}/settings`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .expect(200);
+
+    await request(http)
+      .delete(`/api/v1/devices/${deviceId}/binding`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .expect(204);
+    await request(http)
+      .post('/api/v1/devices/bind')
+      .set('Authorization', `Bearer ${otherToken}`)
+      .send({ deviceId, bindCode: `bc_${deviceId}` })
+      .expect(200);
+
+    const history = await request(http)
+      .get(`/api/v1/devices/${deviceId}/commands`)
+      .set('Authorization', `Bearer ${otherToken}`)
+      .expect(200);
+    expect(history.body).toMatchObject({ items: [], total: 0 });
+    const settings = await request(http)
+      .get(`/api/v1/devices/${deviceId}/settings`)
+      .set('Authorization', `Bearer ${otherToken}`)
+      .expect(200);
+    expect(settings.body.lastCommand).toBeNull();
+    // 头盔上实际生效的设置是物理状态，不随换绑清掉
+    expect(settings.body.settings).toEqual(settingsBefore.body.settings);
+    await request(http)
+      .get(`/api/v1/commands/${ownerCommandId}`)
+      .set('Authorization', `Bearer ${otherToken}`)
+      .expect(404);
+  });
 });

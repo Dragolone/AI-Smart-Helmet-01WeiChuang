@@ -3,13 +3,21 @@ import type { EventDetail, EventListItem, Paginated } from '@helmet/shared';
 import { api } from './client';
 
 export const eventsApi = {
-  /** 设备事件历史（最新在前）；type 可多值逗号分隔（EVENTS.md §3 事件类型） */
+  /** 设备事件历史（最新在前）；type 可多值逗号分隔（EVENTS.md §3 事件类型）；from / to 选填（API.md §6） */
   list: (
     deviceId: string,
-    opts: { type?: string; page?: number; pageSize?: number } = {},
+    opts: {
+      type?: string;
+      from?: string;
+      to?: string;
+      page?: number;
+      pageSize?: number;
+    } = {},
   ) => {
     const params = new URLSearchParams();
     if (opts.type) params.set('type', opts.type);
+    if (opts.from) params.set('from', opts.from);
+    if (opts.to) params.set('to', opts.to);
     params.set('page', String(opts.page ?? 1));
     params.set('pageSize', String(opts.pageSize ?? 20));
     return api<Paginated<EventListItem>>(

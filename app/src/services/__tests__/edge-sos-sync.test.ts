@@ -118,6 +118,7 @@ describe("applySosUpdate：重复与乱序", () => {
       "s2",
       "d1",
       "2026-10-03T10:05:00.000Z",
+      undefined,
     );
   });
 });

@@ -7,7 +7,6 @@ import { StyleSheet } from "react-native";
 import { contactsApi } from "@/api/contacts";
 import { toUserMessage } from "@/api/error-messages";
 import { FormError, FormInput, PrimaryButton } from "@/components/form";
-import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { useT } from "@/i18n";
 
@@ -44,9 +43,6 @@ export default function AddContactScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <ThemedText type="small" themeColor="textSecondary">
-        {t("contacts.addLead")}
-      </ThemedText>
       <FormInput
         label={t("contacts.name")}
         icon="person-outline"

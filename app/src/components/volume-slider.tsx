@@ -1,5 +1,6 @@
 // 蜂鸣音量滑杆。手感优先：拖动全程在 UI 线程（gesture-handler + reanimated），
 // 不经过 JS 重渲染；JS 侧只在跨过 5% 档位时收到一次回调（震动 + 节流下发）。
+import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useState } from "react";
 import { StyleSheet, View, type LayoutChangeEvent } from "react-native";
@@ -37,6 +38,7 @@ export function VolumeSlider({
   onStep,
   onRelease,
   onDraggingChange,
+  icon,
 }: {
   /** 展示值(调用方可传乐观值:滑到哪停在哪);拖动中忽略 */
   value: number;
@@ -48,6 +50,8 @@ export function VolumeSlider({
   onRelease: (v: number) => void;
   /** 拖动开始/结束（调用方用来暂时关掉返回手势） */
   onDraggingChange?: (dragging: boolean) => void;
+  /** 标题前的图标（设备详情首页的常用控制带） */
+  icon?: keyof typeof Ionicons.glyphMap;
 }) {
   const theme = useTheme();
   const t = useT();
@@ -158,9 +162,14 @@ export function VolumeSlider({
   return (
     <View style={styles.wrap}>
       <View style={styles.labelRow}>
-        <ThemedText type="small" themeColor="textSecondary">
-          {t("device.volume")}
-        </ThemedText>
+        <View style={styles.title}>
+          {icon && (
+            <Ionicons name={icon} size={18} color={theme.textSecondary} />
+          )}
+          <ThemedText type="small" style={styles.titleText}>
+            {t("device.volume")}
+          </ThemedText>
+        </View>
         <ThemedText
           type="smallBold"
           style={{
@@ -236,6 +245,8 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
+  title: { flexDirection: "row", alignItems: "center", gap: 8 },
+  titleText: { fontSize: 15 },
   trackHit: { height: THUMB + 12, justifyContent: "center" },
   track: { height: 8, borderRadius: 4 },
   fill: { position: "absolute", left: 0, top: 0, bottom: 0, borderRadius: 4 },

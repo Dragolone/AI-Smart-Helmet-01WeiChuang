@@ -1,6 +1,7 @@
 // 登录页（API.md §2 POST /auth/login）
 import { Link, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
+import { Image } from "expo-image";
 import { useEffect, useState } from "react";
 import {
   Keyboard,
@@ -10,6 +11,7 @@ import {
   ScrollView,
   StyleSheet,
   View,
+  useWindowDimensions,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -23,8 +25,12 @@ import {
   errorField,
   type FormField,
 } from "@/components/form";
+import { LOGIN_BRAND } from "@/components/splash/login-brand";
+import { SplashAnchor } from "@/components/splash/splash-anchor";
+import { SplashArrive } from "@/components/splash/splash-arrive";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
 import { useAuthStore } from "@/stores/auth-store";
@@ -33,6 +39,7 @@ import { useConsentStore } from "@/stores/consent-store";
 export default function LoginScreen() {
   const t = useT();
   const theme = useTheme();
+  const dark = useColorScheme() === "dark";
   const router = useRouter();
   const signIn = useAuthStore((s) => s.signIn);
   // 这台设备上还没同意过隐私政策（老用户换机 / 注册在别的手机上）→ 登录页补一次勾选，
@@ -56,6 +63,10 @@ export default function LoginScreen() {
   const fe = (f: FormField) =>
     fieldError?.field === f ? fieldError.message : null;
   const [busy, setBusy] = useState(false);
+  // 顶部的商标和 App 名是开屏动画落下来的地方，尺寸两边共用
+  const { width } = useWindowDimensions();
+  const markSize = LOGIN_BRAND.markSize(width);
+  const titleSize = LOGIN_BRAND.titleSize(width);
 
   // 记住上次登录的手机号(只存号码不存密码);读取失败静默忽略
   useEffect(() => {
@@ -110,17 +121,58 @@ export default function LoginScreen() {
             alwaysBounceVertical={false}
             overScrollMode="never"
           >
-            {/* 隐藏入口：长按 App 名 3 秒进蓝牙工程模式（硬件联调，不需要账号）；正式上线可删 */}
-            <Pressable
-              delayLongPress={3000}
-              onLongPress={() => router.push("/ble-bench")}
-              style={styles.brand}
-            >
-              <ThemedText type="title">{t("auth.appName")}</ThemedText>
-            </Pressable>
-            <ThemedText type="small" themeColor="textSecondary">
-              {t("auth.slogan")}
-            </ThemedText>
+            {/* 开屏动画把商标和 App 名送到这里（冷启动、没登录时）；下面各块在页面涌上来之后依次进场。
+                平时进这一页（登出、从注册页回来）没有这些动作，就是普通的静态页面。 */}
+            <View style={styles.brand}>
+              <SplashAnchor name="loginMark">
+                {/* 商标的「0」是白的：浅色外观下放在一块深色底上（就是 App 图标的样子），否则看不见 */}
+                <Image
+                  source={
+                    dark
+                      ? require("@/assets/images/company-mark-solid.webp")
+                      : require("@/assets/images/icon-brand.png")
+                  }
+                  style={{
+                    width: markSize,
+                    height: markSize,
+                    borderRadius: dark ? 0 : markSize * 0.225,
+                  }}
+                  contentFit="contain"
+                  accessible={false}
+                />
+              </SplashAnchor>
+              {/* 隐藏入口：长按 App 名 3 秒进蓝牙工程模式（硬件联调，不需要账号）；正式上线可删 */}
+              <Pressable
+                delayLongPress={3000}
+                onLongPress={() => router.navigate("/ble-bench")}
+                style={{ marginTop: LOGIN_BRAND.gap(width) }}
+              >
+                <SplashAnchor name="loginTitle">
+                  <ThemedText
+                    allowFontScaling={false}
+                    style={[
+                      styles.brandName,
+                      {
+                        fontSize: titleSize,
+                        lineHeight: titleSize * 1.3,
+                        letterSpacing: LOGIN_BRAND.titleSpacing(width),
+                      },
+                    ]}
+                  >
+                    {t("auth.appName")}
+                  </ThemedText>
+                </SplashAnchor>
+              </Pressable>
+            </View>
+            <SplashArrive order={0}>
+              <ThemedText
+                type="small"
+                themeColor="textSecondary"
+                style={styles.slogan}
+              >
+                {t("auth.slogan")}
+              </ThemedText>
+            </SplashArrive>
 
             {/* 被动登出要说清楚后果：头盔事件靠这台手机中转，没登录就没有摔倒通知（2026-10-05 评审） */}
             {sessionExpired && (
@@ -139,89 +191,99 @@ export default function LoginScreen() {
               </View>
             )}
 
-            <FormInput
-              label={t("auth.phone")}
-              error={fe("phone")}
-              icon="phone-portrait-outline"
-              value={phone}
-              onChangeText={setPhone}
-              keyboardType="phone-pad"
-              maxLength={11}
-              placeholder={t("auth.phonePlaceholder")}
-              autoComplete="tel"
-            />
-            <FormInput
-              label={t("auth.password")}
-              error={fe("password")}
-              icon="lock-closed-outline"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              placeholder={t("auth.passwordPlaceholderLogin")}
-              autoComplete="password"
-            />
+            <SplashArrive order={1}>
+              <FormInput
+                label={t("auth.phone")}
+                error={fe("phone")}
+                icon="phone-portrait-outline"
+                value={phone}
+                onChangeText={setPhone}
+                keyboardType="phone-pad"
+                maxLength={11}
+                placeholder={t("auth.phonePlaceholder")}
+                autoComplete="tel"
+              />
+            </SplashArrive>
+            <SplashArrive order={2}>
+              <FormInput
+                label={t("auth.password")}
+                error={fe("password")}
+                icon="lock-closed-outline"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                placeholder={t("auth.passwordPlaceholderLogin")}
+                autoComplete="password"
+              />
+            </SplashArrive>
 
             {needConsent && (
-              <Pressable
-                onPress={() => setConsented((v) => !v)}
-                style={styles.consentRow}
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: consented }}
-                accessibilityLabel={`${t("auth.consentPrefix")}${t("auth.consentTerms")}${t("auth.consentAnd")}${t("auth.consentPrivacy")}`}
-              >
-                <Ionicons
-                  name={consented ? "checkbox" : "square-outline"}
-                  size={20}
-                  color={consented ? theme.brand : theme.textSecondary}
-                />
-                <ThemedText type="small" style={styles.consentText}>
-                  {t("auth.consentPrefix")}
-                  <ThemedText
-                    type="small"
-                    style={{ color: theme.brand }}
-                    onPress={() => {
-                      Keyboard.dismiss();
-                      router.push("/legal/terms");
-                    }}
-                    suppressHighlighting
-                  >
-                    {t("auth.consentTerms")}
+              <SplashArrive order={3}>
+                <Pressable
+                  onPress={() => setConsented((v) => !v)}
+                  style={styles.consentRow}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: consented }}
+                  accessibilityLabel={`${t("auth.consentPrefix")}${t("auth.consentTerms")}${t("auth.consentAnd")}${t("auth.consentPrivacy")}`}
+                >
+                  <Ionicons
+                    name={consented ? "checkbox" : "square-outline"}
+                    size={20}
+                    color={consented ? theme.brand : theme.textSecondary}
+                  />
+                  <ThemedText type="small" style={styles.consentText}>
+                    {t("auth.consentPrefix")}
+                    <ThemedText
+                      type="small"
+                      style={{ color: theme.brand }}
+                      onPress={() => {
+                        Keyboard.dismiss();
+                        router.navigate("/legal/terms");
+                      }}
+                      suppressHighlighting
+                    >
+                      {t("auth.consentTerms")}
+                    </ThemedText>
+                    {t("auth.consentAnd")}
+                    <ThemedText
+                      type="small"
+                      style={{ color: theme.brand }}
+                      onPress={() => {
+                        Keyboard.dismiss();
+                        router.navigate("/legal/privacy");
+                      }}
+                      suppressHighlighting
+                    >
+                      {t("auth.consentPrivacy")}
+                    </ThemedText>
                   </ThemedText>
-                  {t("auth.consentAnd")}
-                  <ThemedText
-                    type="small"
-                    style={{ color: theme.brand }}
-                    onPress={() => {
-                      Keyboard.dismiss();
-                      router.push("/legal/privacy");
-                    }}
-                    suppressHighlighting
-                  >
-                    {t("auth.consentPrivacy")}
-                  </ThemedText>
-                </ThemedText>
-              </Pressable>
+                </Pressable>
+              </SplashArrive>
             )}
 
             <FormError message={error} />
-            <PrimaryButton
-              title={t("auth.login")}
-              onPress={submit}
-              loading={busy}
-            />
+            <SplashArrive order={4}>
+              <PrimaryButton
+                title={t("auth.login")}
+                onPress={submit}
+                loading={busy}
+              />
+            </SplashArrive>
 
-            <View style={styles.linkRow}>
-              {/* 跳走之前先收键盘：输入框还聚焦着就离开的话，回来时 iOS 会把焦点和键盘一起恢复，
+            <SplashArrive order={5}>
+              <View style={styles.linkRow}>
+                {/* 跳走之前先收键盘：输入框还聚焦着就离开的话，回来时 iOS 会把焦点和键盘一起恢复，
                   返回手势途中键盘那块区域也是空的（2026-10-06 iPhone 实测） */}
-              <Link href="/register" onPress={() => Keyboard.dismiss()}>
-                <ThemedText type="link">{t("auth.noAccount")}</ThemedText>
-              </Link>
-              <Link href="/reset-password" onPress={() => Keyboard.dismiss()}>
-                <ThemedText type="link" themeColor="textSecondary">
-                  {t("auth.forgotPassword")}
-                </ThemedText>
-              </Link>
-            </View>
+                <Link href="/register" onPress={() => Keyboard.dismiss()}>
+                  <ThemedText type="link">{t("auth.noAccount")}</ThemedText>
+                </Link>
+                <Link href="/reset-password" onPress={() => Keyboard.dismiss()}>
+                  <ThemedText type="link" themeColor="textSecondary">
+                    {t("auth.forgotPassword")}
+                  </ThemedText>
+                </Link>
+              </View>
+            </SplashArrive>
           </ScrollView>
         </ThemedView>
       </KeyboardAvoidingView>
@@ -237,7 +299,9 @@ const styles = StyleSheet.create({
     padding: 24,
     gap: 14,
   },
-  brand: { alignSelf: "flex-start" },
+  brand: { alignItems: "center", marginBottom: 6 },
+  brandName: { fontWeight: "400", textAlign: "center" },
+  slogan: { textAlign: "center" },
   consentRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   expiredNotice: {
     flexDirection: "row",

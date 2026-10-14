@@ -2,9 +2,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
+import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
-import { AnimatedSplashOverlay } from "@/components/animated-icon";
+import { SplashOverlay } from "@/components/splash/splash-overlay";
+import { GuideHandover } from "@/components/splash/guide-handover";
 import { ToastHost } from "@/components/toast";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useRealtimeUpdates } from "@/hooks/use-realtime";
@@ -18,7 +20,7 @@ import {
   clearSessionExpiredNotice,
   notifySessionExpired,
 } from "@/services/session-notice";
-import { useAuthStore } from "@/stores/auth-store";
+import { accountSwitched, useAuthStore } from "@/stores/auth-store";
 import { useConsentStore } from "@/stores/consent-store";
 import { useThemeStore } from "@/stores/theme-store";
 
@@ -37,7 +39,9 @@ const queryClient = new QueryClient({
 // 登出或换账号时清空查询缓存：query key 不含用户 id，staleTime 内新账号会直接看到上一账号的
 // 设备/事件/事故（审计 APP-01）。同一账号改昵称等 user 变更不清（id 不变）。
 useAuthStore.subscribe((state, prev) => {
-  const switched = (state.user?.id ?? null) !== (prev.user?.id ?? null);
+  // 「换了人」= 两边都有档案且 id 不同。冷启动钥匙串里只有 token、/users/me 回来才有 user 的那一刻
+  // 不算换人，不能把刚拉好的整套缓存清掉（B 线 10-06 评审 F-7）；换账号一定先经过登出，那一步已清过
+  const switched = accountSwitched(prev.user?.id, state.user?.id);
   const loggedOut = state.tokens === null && prev.tokens !== null;
   if (switched || loggedOut) queryClient.clear();
   // 会话被服务端否定：BLE 中转 / 实时通道 / 推送随登录态一起停了，不能让用户蒙在鼓里
@@ -55,25 +59,27 @@ function RootNavigator() {
       <Stack.Protected guard={authed}>
         {/* 标签页自身不显示 header，但它的 title 会成为下级页面返回键的文字（默认会露出路由组名 "(tabs)"） */}
         <Stack.Screen name="(tabs)" options={{ title: t("nav.back") }} />
+        {/* 绑定头盔：一进来就是取景框，页头自己画在相机画面上（扫码页已并进这一页） */}
         <Stack.Screen
           name="bind-device"
-          options={{
-            presentation: "modal",
-            headerShown: true,
-            title: t("nav.bindDevice"),
-          }}
-        />
-        <Stack.Screen
-          name="scan-bind"
-          options={{
-            presentation: "fullScreenModal",
-            headerShown: true,
-            title: t("scan.title"),
-          }}
+          options={{ presentation: "fullScreenModal" }}
         />
         <Stack.Screen
           name="device/[deviceId]"
           options={{ headerShown: true, title: t("nav.deviceDetail") }}
+        />
+        {/* 设备设置的三个分类页（从设备详情进入，带同一个 deviceId） */}
+        <Stack.Screen
+          name="device-safety/[deviceId]"
+          options={{ headerShown: true, title: t("device.cat.safety") }}
+        />
+        <Stack.Screen
+          name="device-alerts/[deviceId]"
+          options={{ headerShown: true, title: t("device.cat.alerts") }}
+        />
+        <Stack.Screen
+          name="device-about/[deviceId]"
+          options={{ headerShown: true, title: t("device.cat.about") }}
         />
         <Stack.Screen
           name="add-contact"
@@ -88,8 +94,12 @@ function RootNavigator() {
           options={{ headerShown: true, title: t("nav.accidentDetail") }}
         />
         <Stack.Screen
-          name="events"
-          options={{ headerShown: true, title: t("nav.events") }}
+          name="safety-records"
+          options={{ headerShown: true, title: t("nav.safetyRecords") }}
+        />
+        <Stack.Screen
+          name="safety-settings"
+          options={{ headerShown: true, title: t("nav.safetySettings") }}
         />
         <Stack.Screen
           name="video-preview"
@@ -98,10 +108,6 @@ function RootNavigator() {
         <Stack.Screen
           name="contacts"
           options={{ headerShown: true, title: t("nav.contacts") }}
-        />
-        <Stack.Screen
-          name="accidents"
-          options={{ headerShown: true, title: t("nav.accidents") }}
         />
         <Stack.Screen
           name="account/change-password"
@@ -184,12 +190,18 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
+      {/* 系统状态栏（时间 / 电量 / 信号）的深浅跟着 App 的外观走。Android 上不设就一直是白字，
+          浅色外观下压在浅色底上看不见（2026-10-08 华为实测）。放在最前面：之后挂上来的页面
+          （扫码页、倒计时最后 10 秒）自己那份会盖过它，页面关掉再还回来 */}
+      <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
       <QueryClientProvider client={queryClient}>
         <ThemeFade scheme={colorScheme} />
         <ThemeProvider
           value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
         >
-          <AnimatedSplashOverlay />
+          <SplashOverlay />
+          {/* 设备页三步指引做完、变成设备页时的那一段衔接（平时不渲染任何东西） */}
+          <GuideHandover />
           {/* SecureStore 恢复完成前不挂路由，避免登录态闪变；空白由 SplashOverlay 兜住 */}
           {/* 语言恢复完再起：通知通道名、前台服务文案都要翻译 */}
           {hydrated && localeHydrated && themeHydrated && <RealtimeBridge />}

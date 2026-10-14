@@ -191,7 +191,7 @@ export class IngestService {
 
     if (device.bindUserId) {
       if (e.eventType === 'device_status') {
-        this.push.pushDeviceStatus(device.bindUserId, e);
+        this.push.pushDeviceStatus(device.bindUserId, e.deviceId, device);
       } else if (point) {
         this.push.pushLocation(device.bindUserId, e.deviceId, point);
       } else if (RISK_EVENT_TYPES.has(e.eventType)) {
@@ -269,7 +269,9 @@ export class IngestService {
     if (!SEQ_ROLLBACK_WATCH_TYPES.has(e.eventType)) return;
     try {
       const prior = await this.prisma.rawEvent.findUnique({
-        where: { eventId: e.eventId },
+        where: {
+          deviceId_eventId: { deviceId: e.deviceId, eventId: e.eventId },
+        },
         select: { timestamp: true },
       });
       if (!prior) return;

@@ -71,23 +71,14 @@ export function useRealtimeUpdates(): void {
       // 4401（token 过期）后必须真的换一把新 token 再重连，否则会拿着同一个过期 token 死循环
       triggerTokenRefresh: () => forceRefreshTokens(),
     });
-    // BLE 上行中转队列与登录态同生命周期(决策 #35:BLE 是唯一真机数据链路)；按账号分区，换账号不混用
-    startRelayUplink(useAuthStore.getState().user?.id ?? undefined);
+    // BLE 上行中转队列与登录态同生命周期(决策 #35:BLE 是唯一真机数据链路)；按账号分区，换账号不混用。
+    // 钥匙串里只有 token、档案晚到时先落匿名分区，user.id 一出现就换到它名下（B 线 10-06 评审 F8）
+    let uplinkOwner = useAuthStore.getState().user?.id;
+    startRelayUplink(uplinkOwner ?? undefined);
     let cancelled = false;
     // 通知权限的系统框要先有结果，再去要蓝牙权限：Android 一次只允许一个权限请求，两路并发时后到的
     // 被立即取消，蓝牙权限框不出现、链路本次进程起不来（Android 13+ 全新安装首次登录，2026-10-05 评审）
     const permissionReady = ensureSosAlertPermission();
-    // 远程推送（极光）：alias = 用户 ID；内部会等隐私政策同意后才初始化 SDK。
-    // 钥匙串里只有 token、档案没落上盘时，user 要等 /users/me 回来才有——那时再补，不能整个会话都不设别名
-    let pushStarted = false;
-    const ensurePush = () => {
-      const uid = useAuthStore.getState().user?.id;
-      if (!uid || pushStarted) return;
-      pushStarted = true;
-      startPush(uid);
-    };
-    ensurePush();
-    const unsubscribeUser = useAuthStore.subscribe(ensurePush);
     // BLE 近场链路：目标 = 已绑定设备；绑定/解绑后随 ['devices'] 缓存变化同步目标。
     // 列表还没拉到（或拉失败）时用上次存下的那份，见 services/ble-targets.ts
     let known: string[] = [];
@@ -97,16 +88,42 @@ export function useRealtimeUpdates(): void {
     ).then((ids) => {
       if (!cancelled && liveTargets(queryClient) === null) known = ids;
     });
+    // 远程推送（极光）：alias = 用户 ID；内部会等隐私政策同意后才初始化 SDK。
+    // 钥匙串里只有 token、档案没落上盘时，user 要等 /users/me 回来才有——那时再补，不能整个会话都不设别名；
+    // 上行队列分区与缓存目标同理（F8）：档案到了就换到该用户名下、重载他的目标
+    let pushStarted = false;
+    const onUserReady = () => {
+      const uid = useAuthStore.getState().user?.id;
+      if (!uid) return;
+      if (!pushStarted) {
+        pushStarted = true;
+        startPush(uid);
+      }
+      if (uplinkOwner !== uid) {
+        uplinkOwner = uid;
+        stopRelayUplink();
+        startRelayUplink(uid);
+        void loadCachedTargets(uid).then((ids) => {
+          if (cancelled || liveTargets(queryClient) !== null) return;
+          known = ids;
+          setBleTargets(ids);
+        });
+      }
+    };
+    onUserReady();
+    const unsubscribeUser = useAuthStore.subscribe(onUserReady);
     void Promise.all([permissionReady, cachedReady]).then(() => {
       if (!cancelled) void startBleLink(bleTargetsOf());
     });
     // SOS 同步的判断逻辑在 services/sos-sync.ts（纯函数 + 注入副作用，有单测）；这里只接线
     const sosDeps: SosSyncDeps = {
       fetchActive: (id) => sosApi.active(id),
+      // 全仓只有这里用 push：两顶头盔同时有进行中的单时要各开各的倒计时页（同一单只开一次由 presentedSos 管）。
+      // 别处点了开页面一律用 navigate——同一页已经在最上面时不再叠一页（连点两下不会开出两页）
       openCountdown: (sosId, deviceId) =>
         router.push(`/sos-active?sosId=${sosId}&deviceId=${deviceId}`),
-      showLockScreenAlert: (sosId, deviceId, deadline) =>
-        void showSosAlertIfBackground(sosId, deviceId, deadline),
+      showLockScreenAlert: (sosId, deviceId, deadline, triggeredAt) =>
+        void showSosAlertIfBackground(sosId, deviceId, deadline, triggeredAt),
       clearLockScreenAlert: (sosId) => void clearSosAlert(sosId),
       log: (m) => devLog("SOS", m),
     };
@@ -132,14 +149,15 @@ export function useRealtimeUpdates(): void {
         staleTime: 10_000,
       }),
     );
+    // 冷启动那次补拉若手上一台目标都没有（首拉失败且没有缓存），列表之后拉到了要再补一次，
+    // 否则进行中的 SOS 要等 WS 重连或回前台才会被发现（B 线 10-06 评审 F-10）
+    let coldResumeHadTargets: boolean | null = null;
+    let resumedAfterListArrived = false;
     void Promise.all([devicesLoad.firstAttempt, cachedReady]).then(() => {
       if (cancelled) return;
-      void resumePendingSos(
-        queryClient,
-        bleTargetsOf(),
-        presentedSosId,
-        sosDeps,
-      );
+      const ids = bleTargetsOf();
+      coldResumeHadTargets = ids.length > 0;
+      void resumePendingSos(queryClient, ids, presentedSosId, sosDeps);
     });
     // 自己把摔倒 / 求救送上云且服务端接受了 → 立刻核对进行中的 SOS 并拉起倒计时页，顺手让 WS 立即重连。
     // 手机深睡时 WS 早已断、极光长连接也被挂起，这是唯一不依赖它们的拉起路径（10-06 不变式评审 F-1）
@@ -176,6 +194,20 @@ export function useRealtimeUpdates(): void {
         known = live;
         setBleTargets(live);
         void saveCachedTargets(useAuthStore.getState().user?.id, live);
+        if (
+          live.length > 0 &&
+          coldResumeHadTargets === false &&
+          !resumedAfterListArrived
+        ) {
+          resumedAfterListArrived = true;
+          void resumePendingSos(
+            queryClient,
+            live,
+            presentedSosId,
+            sosDeps,
+            "设备列表到位后补拉",
+          );
+        }
       }
     });
 

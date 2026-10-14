@@ -2,7 +2,7 @@
 
 > 本文件是第三方账号/Key 的**唯一状态台账**，每周对表更新。申请主体统一为**深圳零一唯创科技有限公司**（91440300MAK7XEPD38）。
 > 相关决策：#34（云厂商统一腾讯云 + 域名备案复用）、#22（TRTC 选型）、#24（双 Bundle ID）、#33（地图库定案）。
-> 最后更新：2026-10-06
+> 最后更新：2026-10-14
 
 ## 状态总览
 
@@ -11,13 +11,13 @@
 | 1 | 腾讯云账号（企业实名） | ✅ **已完成**（主账号 100047478294，企业认证 2026-05-31，2026-09-06 确认可复用） | — | 负责人 |
 | 2 | 云服务器（腾讯云轻量 2C4G） | ✅ **已购买并部署完成（2026-09-06）**：helmet-dev，广州，2核4G/90GB/6Mbps，1 年 816 元，到期 2027-09-06；三子域名解析 + HTTPS + Mock 接入全部验收通过 | — | 负责人 |
 | 3 | 对象存储 COS | ✅ **已开通并接入（2026-09-16）**：桶 `helmet-media-1415122735`（广州 / 单 AZ / 私有读写 / SSE-COS），子账号 `helmet-cos` 仅授 `QcloudCOSDataFullControl`；后端 `TencentCosProvider` 真桶自检 5 项通过；**2026-09-22 子账号密钥已轮换（旧密钥曾出现在对话中），新密钥填入云端 `deploy/.env`，容器内 verify:cos 5 项通过；旧密钥（09-16）已禁用并删除，负责人本机 `backend/.env` 已换新且本地 verify:cos 5 项通过** | 视频上传入口待硬件确认上传方式 | 负责人 |
-| 4 | 腾讯云短信（签名 + 模板） | 🔄 服务已开通（2026-09-09）；**资质 ID 1309643 已通过（2026-09-22）**；两个模板（验证码 2739084、SOS 通知 2739086）**已生效**；签名「零一唯创」被驳回（公司类型签名须为营业执照全称的连续片段，不得跳字），改为 **「深圳零一唯创」（ID 723610）腾讯云已过审，2026-09-23 起运营商报备中**（验证码/通知两类，7–10 工作日；营销类不报备）；报备成功前签名状态显示「不可用」，真发会失败；后端腾讯云实现已就绪等六项配置 | 注册验证码 + SOS 短信真发（现为 Console Mock，不阻塞） | 负责人 |
+| 4 | 腾讯云短信（签名 + 模板） | ✅ **dev 已真发（2026-10-12）**：签名「深圳零一唯创」（ID 723610）运营商报备完成，接口查签名与模板 2739084 / 2739086 均为审核通过；云端 `deploy/.env` 六项已填、backend 日志「短信通道：腾讯云」；负责人手机实收验证码 + SOS 通知各一条。明细见 §4 | — | 负责人 |
 | 5 | Apple Developer 公司账号 | ✅ **已开通（2026-09-23）**：Apple Developer Program 组织账号「Shenzhen Lingyi Weichuang Technology Co., Ltd.」，有效期至 2027-09-23（年付 ¥688，到期前续）。**后续动作见 §5「账号到位后清单」** | — | 负责人 |
-| 6 | 推送：极光 + 安卓厂商通道 | 🔄 **极光账号 + 应用已建（2026-09-22），云端后端已切极光通道（2026-09-23）**：登录邮箱 zhongqilong@01weichuang.com，企业开发者，应用「零一唯创」AppKey `79cce150234ce38063213ccd`，Android 包名已配；**✅ iOS 已配 Token Authentication（2026-10-01）**：APNs Auth Key `44RYD6QKJC`（Sandbox & Production，Team `B3NHB45FS7`，Bundle `com.lingyiweichuang.app`，.p8 在密码管理器）；隐私协议字段已填；厂商通道：**华为开发者企业实名认证已通过（2026-10-06）**，小米开发者身份审核中（2026-10-05 提交），OPPO/vivo/荣耀未开始 | Android App 被杀后收不到推送（现只有本地通知） | 负责人 |
+| 6 | 推送：极光 + 安卓厂商通道 | 🔄 **极光账号 + 应用已建（2026-09-22），云端后端已切极光通道（2026-09-23）**：登录邮箱 zhongqilong@01weichuang.com，企业开发者，应用「零一唯创」AppKey `79cce150234ce38063213ccd`，Android 包名已配；**✅ iOS 已配 Token Authentication（2026-10-01）**：APNs Auth Key `44RYD6QKJC`（Sandbox & Production，Team `B3NHB45FS7`，Bundle `com.lingyiweichuang.app`，.p8 在密码管理器）；隐私协议字段已填；厂商通道：**华为已在极光启用（2026-10-08，App 侧 SDK 未接，见明细）**，小米开发者身份审核中（2026-10-05 提交），OPPO/vivo/荣耀未开始 | Android App 被杀后收不到推送（现只有本地通知） | 负责人 |
 | 7 | 高德地图 Key | ✅ 企业认证已完成（2026-09-06）；企业主体三把 Key 已建并换入（2026-09-17，测试额度）；**商用授权 = 付费年包 ¥5 万/年，上线前待汤总拍板（买 / 换图商）** | 不阻塞开发 | 负责人 → 汤总 |
 | 8 | 腾讯云 TRTC 应用 | ✅ **已完成（2026-09-10）**：应用在公司腾讯云账号下（SDKAppID 1600157223）；云端 `deploy/.env` 已填，进房凭证接口实测返回 userSig | — | 负责人 |
 | 9 | 软件著作权（App） | 🔄 **材料已备好（2026-09-10）；2026-09-22 版权中心登记网站境内外均 403（法人本地网络 + 手机流量、云服务器均打不开），改走代理机构加急（5–10 个工作日）**：软件名「零一唯创App V1.0」（汤总定名），源程序 60 页 + 说明书 14 页 + 填表信息在负责人桌面 `01/软著/`；待版权中心网站提交 + 申请表盖章 | 安卓商店上架硬性要求（30 个工作日，可加急） | **汤总**（2026-10-01 起由汤总申请） |
-| 10 | App 备案（工信部） | ⬜ 待办：腾讯云控制台「备案」→ 新增 App，主体沿用公司；**前置=正式包名定稿**（建议 `com.lingyiweichuang.app`，安卓包名段不能以数字开头故不能用 01weichuang） | 苹果 / 安卓商店上架均查备案号（1–2 周） | 负责人 |
+| 10 | App 备案（工信部） | ⏳ **未提交（2026-10-12 负责人在控制台核实更正：10-09 那次没交上去，「备案订单」只有两张旧单）**：09-24 的「变更主体信息」订单 10-08 管局通过、主体已解锁。安卓证书信息已齐，iOS 等 A 线导出发布证书信息（上线清单 A 线第 1 项），到手当天安卓 + iOS 一张单提交。腾讯初审 1–2 工作日 → 管局 7–20 工作日；**转管局时工信部给主体负责人（龙俊洁）发短信核验，须 24 小时内在 beian.miit.gov.cn 完成，否则退单** | 苹果 / 安卓商店上架均查备案号 | 负责人 |
 | — | ~~域名 + ICP 备案~~ | ✅ **已消除**（决策 #34） | — | — |
 
 > 图例：⬜ 未开始 ｜ 🔄 进行中 ｜ ✅ 已完成/已消除
@@ -55,7 +55,8 @@
 - 后端 `SmsProvider` 已改为**模板式**（2026-09-09）：`TencentSmsProvider` 已实现，`deploy/.env` 配齐六项即切换真发，否则 Console Mock（验证码打印在日志）：`TENCENT_SMS_SECRET_ID` / `TENCENT_SMS_SECRET_KEY`（子账号 API 密钥，只授 QcloudSMSFullAccess）/ `TENCENT_SMS_SDK_APP_ID`（应用管理，1400 开头）/ `TENCENT_SMS_SIGN_NAME` / `TENCENT_SMS_TEMPLATE_VERIFY_CODE` / `TENCENT_SMS_TEMPLATE_SOS_ALERT`
 - **申请进度（2026-09-09）**：短信服务已开通（企业认证，赠 200 条）；签名与模板待提交——需先在「实名资质管理」建企业资质（营业执照 + 《安全合规使用承诺书》盖章件，承诺书已填好待汤总盖章）。⚠️ 签名过审后运营商实名报备另需 7–10 工作日，真短信最快约两周后可发；期间开发用 Mock
 - **资质（2026-09-22 提交，ID 1309643）**：营业执照 + 盖章承诺书 + 法人与管理员身份证 A4 复印盖章件。⚠️ 两个坑：承诺书原件公司名用未嵌入的黑体、多数电脑显示空白，已重做嵌入字体版（`桌面/01/光/合规使用承诺函-已填公司名.pdf`）；企业注册地要求 5–30 字，填到区。公章为电子加盖，若被退回改为打印盖实章拍照
-- **2026-09-23 落地记录**：签名 **`深圳零一唯创`（ID 723610）**——公司类型签名必须是营业执照全称里**连续**的一段，「零一唯创」跳过「深圳」被驳回；SDK AppID **1401190283**（应用列表里两个默认应用，取编号较小的）；子账号 **helmet-sms**（仅编程访问 + QcloudSMSFullAccess，密钥曾出现在对话截图中，上线前轮换）；模板 **2739084** 注册验证码（验证码短信）→ `TENCENT_SMS_TEMPLATE_VERIFY_CODE`，模板 **2739086** SOS紧急通知（通知短信、固定文案）→ `TENCENT_SMS_TEMPLATE_SOS_ALERT`。三样过审后再备：`TENCENT_SMS_SDK_APP_ID`（应用管理，1400 开头）、短信专用子账号 API 密钥（只授 QcloudSMSFullAccess）
+- **2026-09-23 落地记录**：签名 **`深圳零一唯创`（ID 723610）**——公司类型签名必须是营业执照全称里**连续**的一段，「零一唯创」跳过「深圳」被驳回；SDK AppID **1401190283**（应用列表里两个默认应用，取编号较小的）；子账号 **helmet-sms**（仅编程访问 + QcloudSMSFullAccess）；模板 **2739084** 注册验证码（验证码短信）→ `TENCENT_SMS_TEMPLATE_VERIFY_CODE`，模板 **2739086** SOS紧急通知（通知短信、固定文案）→ `TENCENT_SMS_TEMPLATE_SOS_ALERT`。三样过审后再备：`TENCENT_SMS_SDK_APP_ID`（应用管理，1400 开头）、短信专用子账号 API 密钥（只授 QcloudSMSFullAccess）
+- ✅ **2026-10-12 dev 真发上线**：运营商报备完成，`DescribeSmsSignList` / `DescribeSmsTemplateList` 查得签名 723610、模板 2739084 / 2739086 均为审核通过。helmet-sms 新建第二把密钥写入云端 `deploy/.env`（09-23 那把的 SecretKey 已无从查看——腾讯云 2023-11 起只在创建时显示一次；旧密钥留着不删、从未调用，90 天未用会被自动禁用；**负责人决定不轮换**，与极光 / COS 同口径）。backend 重建后日志「短信通道：腾讯云（签名「深圳零一唯创」）」；真发验收：验证码（`reset_password` 用途，该号已注册）与 SOS 通知（测试账号 app-relay `manual_sos` → `/sos/{id}/confirm`）各一条，负责人手机均收到，发送号码 106 开头。**此后 dev 上任何一次求救到期或「立即求救」都会真发短信给该账号的紧急联系人**——测试账号的联系人统一填公司备用号或本人号码，别填编的号。
 - **签名**：`零一唯创`（公司简称，类型「公司」，场景勾验证码 + 通知）
 - **模板一 · 注册验证码**（对应 `verify_code`，变量顺序 {1}{2}）：`您的验证码为{1}，{2}分钟内有效，请勿泄露给他人。`
 - **模板二 · SOS 紧急通知**（对应 `sos_alert`）：**2026-09-23 改为固定文案、无变量**（腾讯云新规：新建通知类与营销类模板不支持变量，只有验证码类可带、且每个变量限 6 位纯数字；决策 #46）：`您被设为紧急联系人的骑行者，其零一唯创智能头盔刚刚发出紧急求救，请立即致电确认其安全。`。短信类型选「通知短信」。代价：联系人看不到是谁、在哪，需自行致电确认。~~原方案~~：`您的联系人{1}佩戴的智能头盔于{2}触发紧急求救，位置：{3}，请尽快联系确认。`——{1} 佩戴者昵称（后端截 10 字）、{2} 触发时间 `MM-DD HH:mm`、{3} 坐标文本（约 18 字符，⚠️ 腾讯云变量默认限 12 字符，**申请说明里注明 {3} 为位置坐标/链接需放宽至 ≥ 40 字符**；决策 #30 临时分享链接就绪后换成短链）
@@ -98,12 +99,16 @@
   - ✅ iOS（2026-10-01）：APNs Auth Key `44RYD6QKJC` 已配进极光「Token Authentication 配置」（Sandbox & Production 一把钥匙，不过期）。PUSH-01 解除，待 A 线复测 REGRESSION 4.6–4.8 iPhone
   - ⬜ 厂商通道：优先华为（AppGallery Connect，需登记正式签名 SHA256）+ 小米；OPPO/vivo 通常要求先上架（依赖第 10 项 App 备案）；荣耀单独注册
   - ✅ **华为开发者企业实名认证（2026-10-06 通过）**：对公银行打款认证（中国银行坪山支行对公户），账号手机 13556826256，法人龙俊洁。⬜ 下一步：AppGallery Connect 建项目 → 添加 Android 应用 `com.lingyiweichuang.app` → 登记正式签名 SHA256 证书指纹 → 开通推送服务（Push Kit）→ AppID / AppSecret 填极光厂商通道；下载 `agconnect-services.json` 交给 App 侧（`with-jpush.js` 接华为通道要用；文件内含 client_secret，先按密钥管理、不进 Git，接入时再定构建期注入方式）
+  - ✅ **华为 AGC 配置完成（2026-10-07/08）**：项目「零一唯创」（项目 ID 101653523865237448）→ Android 应用 **APP ID `119248019`**（= OAuth Client ID）；数据处理位置 = 中国（默认）；推送服务已开通；SHA256 证书指纹两条——正式签名 `61:19:D2:F5…5D:02` + Expo 工程模板公共调试签名 `FA:C6:17:45…3B:9C`（供开发包测华为推送；**公共密钥，正式上架前删除这条**）
+  - ✅ **极光华为通道已启用（2026-10-08）**：App ID + 应用级 Client Secret（Secret 只在极光后台与华为后台，不进 Git）、Default Title「零一唯创」、入口 Activity `com.lingyiweichuang.app.MainActivity`；服务账号密钥文件暂未上传（非必填，华为新鉴权方式，需要时再生成）
+  - 🔄 **华为自分类权益（2026-10-07 22:04 提交，≤5 工作日）**：申请「设备提醒」「出行」两类，示例 = 「SOS 倒计时已开始」「SOS 已通知紧急联系人」。不批则 SOS 推送按资讯营销类处理（静默展示、限条数）；批下后服务端推送需带华为消息分类（B 线）
+  - ⬜ **App 侧接华为通道**：`agconnect-services.json` 已用「不包含密钥」下载（不含 client_secret / api_key，可进 Git），负责人本机 `~/Downloads`；`with-jpush.js` 加华为插件依赖 + 拷贝该文件，双端只涉及 Android，需华为真机验证被杀状态能收到
   - 🔄 **小米开发者**：企业实名已通过（2026-10-05，法人扫码），开发者身份审核中（2–5 工作日，结果发 zhongqilong@01weichuang.com）；过审后建应用 → 开通小米推送 → AppID / AppKey / AppSecret 填极光
   - ✅ 极光「隐私协议」字段已填 `https://dev-api.01weichuang.com/legal/privacy`（2026-10-01；production 后换 `api.` 域名）；App 已在用户同意隐私政策后才初始化极光 SDK（决策 #48）
   - ✅ **后端 `JPushProvider`（2026-09-23，B 线）**：`JPUSH_APP_KEY` + `JPUSH_MASTER_SECRET` 齐全即走极光 REST v3（`POST /v3/push`，Basic 鉴权），否则 Console Mock；可选 `JPUSH_APNS_PRODUCTION=true`（TestFlight/App Store 包用 APNs 生产环境，Xcode 直装开发包留空）、`PUSH_SEND_TIMEOUT_MS`（默认 10 s）。**定向口径：audience = alias，alias = 用户 ID**——服务端不存设备 token、不建表；极光返回非 2xx（含 1011「该 alias 无设备」）一律抛错，SOS 通知记 failed 并按既有规则重试。
   - ✅ **App 端 SDK 接入（2026-09-24，A 线，决策 #48）**：`jpush-react-native@3.2.8` + `jcore-react-native@2.3.7`，原生配置由本地 config plugin `app/plugins/with-jpush.js` 生成（Android manifestPlaceholders + meta-data；iOS AppDelegate.swift 补 deviceToken 上报 / `JPUSHRegisterDelegate` / 回调转发 expo-notifications；bridging header 两行 import）。JS 侧 `app/src/services/push.ts`：登录后 `setAlias(userId)`、登出 `deleteAlias`；**SDK 只在用户同意隐私政策后初始化**（`stores/consent-store.ts`，注册页/登录页勾选一次，每台设备只问一次）；点通知落地：SOS 进行中 → 倒计时页，否则 → 事故详情。AppKey 放 `app.json extra.jpush`（公开值）。极光 SDK 带进来的 READ_PHONE_STATE / 外部存储 / GET_TASKS / 后台定位权限用 `android.blockedPermissions` 屏蔽。**⚠️ 状态：本机 prebuild + pod install 通过，双端原生编译见 DEVELOPMENT.md「极光推送」一节；真机三态（前台/后台/被杀）双端未测，REGRESSION 4.6–4.8。**还需负责人：① iOS 的 APNs .p8 上传极光（上一条）；② 服务端 `JPUSH_APNS_PRODUCTION` 与装机包一致——Xcode 直装 Debug 包留空，TestFlight/Release 包设 `true`（App 侧 `production: !__DEV__` 同口径）。
   - ✅ **云端 development 已切极光（2026-09-23 11:01 UTC）**：`deploy/.env` 已填 `JPUSH_APP_KEY` / `JPUSH_MASTER_SECRET`，backend 重建后日志「推送通道：极光（APNs 沙盒环境）」（同批带上 #77/#78/#84/#95，main=9261ee6）。~~Master Secret 曾出现在截图/聊天，上线前重置~~ → **负责人 2026-10-02 决定不重置**，沿用现值。
-  - ⬜ 极光实名认证（工作台右上提示「未实名认证」，用公司资料）
+  - ✅ 极光企业认证（2026-09-23 审核通过，工作台显示「已企业认证」）
 
 ### 7. 高德地图 Key
 
@@ -168,8 +173,8 @@
   - 用户服务协议 <https://dev-api.01weichuang.com/legal/terms>
 - 内容按本仓库实际数据流写：采集项（手机号/昵称头像/紧急联系人/设备状态/位置与轨迹/安全事件及原始判定参数/媒体/实时语音/蓝牙/日志与推送标识）、**第三方 SDK 清单**（极光推送、腾讯云 TRTC、高德地图 JS API、腾讯云 COS、腾讯云短信）、境内存储（腾讯云广州）、保存期限、你的权利（含应用内注销）。
 - **用户服务协议 §二 写明了决策 #35 的前提**：MVP 头盔无 4G，摔倒自动通知需要「手机在身边 + 蓝牙已连 + App 在运行 + 手机有网 + 已设联系人」同时成立。这正是 CLAUDE.md 里挂着的「对外口径必须补此前提」的待决项，文本层面已落地；**对外宣传口径（决策 #28）仍需负责人按同一说法同步**。
-- ⬜ **待负责人**：两份文本按公司要求审阅（尤其责任限制、争议解决管辖、联系邮箱是否换成专用邮箱），需要法务过目的话在上架前完成。
-- ⬜ **待 A 线**：注册页加「我已阅读并同意《用户服务协议》和《隐私政策》」勾选（默认不勾），两个链接指向上述 URL；**极光 SDK 必须在用户勾选同意之后再初始化**（工信部与各商店合规检查的高频扣分项）。见 weekly-plan A 线通知。
+- ✅ **2026-10-14 定稿：汤总交法务审阅后回复「可以，没有问题」**，隐私政策 V1.2 / 用户服务协议 V1.1 按现文本定稿，无修改。四个审阅点均按现文本：用户协议第七节责任限制（未付费不承担金钱赔偿）、第十节由公司住所地法院管辖、联系邮箱沿用 zhongqilong@01weichuang.com、轨迹 / 事件 / 事故记录保存 3 年。以后再改正文要升版本号，重大变更按隐私政策第八节在 App 内提示用户。
+- ✅ **A 线已做（决策 #47）**：登录 / 注册页「我已阅读并同意」勾选（默认不勾，`consent-store`），链接打开上述托管页；极光 SDK 在用户同意之前不初始化（`services/push.ts`，同意那一刻再补做）。
 - ⬜ **上线切换**：production 后把 URL 换成 `https://api.01weichuang.com/legal/...`，极光后台、商店后台、App 内链接三处同步。
 
 - **Apple Critical Alerts entitlement（2026-09-17 新增待办）**：锁屏 SOS 告警目前走普通本地通知（系统通知声，静音键/勿扰会压掉）；要穿透静音需向 Apple 申请 `com.apple.developer.usernotifications.critical-alerts`，公司 Apple Developer 账号到位后提交（说明用途：摔倒/求救 60 s 倒计时提醒）。

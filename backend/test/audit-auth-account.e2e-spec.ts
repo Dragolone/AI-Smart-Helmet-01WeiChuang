@@ -664,8 +664,9 @@ describe('审计 §6：账号全流程 / 验证码 / refresh / 撤销规则 (e2e
         .send({ phone: u.phone, password: u.password })
         .expect(401);
 
-      // 号码释放：同号再注册 = 全新账号，且可绑回该设备（先回拨 60s 前那枚 register 码）
-      await backdateLatestCode(prisma, u.phone, 'register', 61);
+      // 号码释放：同号再注册 = 全新账号，且可绑回该设备。注销时该号的验证码记录已删（手机号在那张表里是明文，
+      // 隐私政策「立即清除你的手机号」），所以不用等 60 s 重发窗口（2026-10-14）
+      expect(await prisma.smsCode.count({ where: { phone: u.phone } })).toBe(0);
       const code = await issueCode(app, http, u.phone, 'register');
       const reg = await request(http)
         .post('/api/v1/auth/register')

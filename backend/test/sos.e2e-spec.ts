@@ -286,7 +286,7 @@ describe('SOS 状态机 (e2e)', () => {
       'mqtt',
     );
 
-    const sosCase = await prisma.sosCase.findUniqueOrThrow({
+    const sosCase = await prisma.sosCase.findFirstOrThrow({
       where: { triggerEventId: eventId },
     });
     expect(sosCase.status).toBe('pending');
@@ -309,6 +309,10 @@ describe('SOS 状态机 (e2e)', () => {
     );
     expect(msg.data.status).toBe('pending');
     expect(msg.data.deadline).toBe(sosCase.deadline.toISOString());
+    // 触发事件在头盔上发生的时间（设备时钟，早 1 小时）原样下发：App 据此写「约 1 小时前的事件，刚补传到」（10-07）
+    expect(msg.data.triggeredAt).toBe(
+      new Date(before - 3600_000).toISOString(),
+    );
     expect(pushMock.send).toHaveBeenCalledWith(
       ownerId,
       expect.any(String),
@@ -393,7 +397,7 @@ describe('SOS 状态机 (e2e)', () => {
       devMain,
       'mqtt',
     );
-    const fresh = await prisma.sosCase.findUniqueOrThrow({
+    const fresh = await prisma.sosCase.findFirstOrThrow({
       where: { triggerEventId: eventId },
     });
     expect(fresh.status).toBe('pending');
@@ -452,7 +456,7 @@ describe('SOS 状态机 (e2e)', () => {
       devMain,
       'mqtt',
     );
-    const sosCase = await prisma.sosCase.findUniqueOrThrow({
+    const sosCase = await prisma.sosCase.findFirstOrThrow({
       where: { triggerEventId: eventId },
     });
 
@@ -477,7 +481,7 @@ describe('SOS 状态机 (e2e)', () => {
       devMain,
       'mqtt',
     );
-    const sosCase = await prisma.sosCase.findUniqueOrThrow({
+    const sosCase = await prisma.sosCase.findFirstOrThrow({
       where: { triggerEventId: eventId },
     });
     expect(sosCase.status).toBe('pending');
@@ -549,7 +553,7 @@ describe('SOS 状态机 (e2e)', () => {
       devRetry,
       'mqtt',
     );
-    const sosCase = await prisma.sosCase.findUniqueOrThrow({
+    const sosCase = await prisma.sosCase.findFirstOrThrow({
       where: { triggerEventId: eventId },
     });
     // userB 单联系人 → 1 条 SMS 行
@@ -624,7 +628,7 @@ describe('SOS 状态机 (e2e)', () => {
       devMain,
       'mqtt',
     );
-    const fromPoint = await prisma.sosCase.findUniqueOrThrow({
+    const fromPoint = await prisma.sosCase.findFirstOrThrow({
       where: { triggerEventId: eventId },
     });
     expect(fromPoint.locationSource).toBe('last_point');
@@ -644,7 +648,7 @@ describe('SOS 状态机 (e2e)', () => {
       devEmpty,
       'mqtt',
     );
-    const noLoc = await prisma.sosCase.findUniqueOrThrow({
+    const noLoc = await prisma.sosCase.findFirstOrThrow({
       where: { triggerEventId: emptyEventId },
     });
     expect(noLoc.status).toBe('pending');

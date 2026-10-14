@@ -1,55 +1,127 @@
-// 地图（底部标签）正式版（Week 5–6 A 线，决策 #33：WebView + JS API）。
-// 功能：实时位置（WS 直写缓存 + REST 兜底）、历史轨迹回放（1/6/24h + 近 7 天按日）、位置分享、导航跳转。
-// 2026-09-10 重设计：全屏地图 + 左上设备药丸 + 右侧三枚圆钮（回中/跟随/分享）+ 底部统计卡，
-// 回放面板收进卡内按需展开；唯一品牌填充控件是「导航到头盔」主按钮。
-import { Ionicons } from "@expo/vector-icons";
+// 地图（底部标签）（决策 #33：WebView + JS API）。只管两件事：现在在哪、骑过哪。
+// 2026-10-07 改版（负责人定稿）：历史按「一趟」来组织，取代原来的 1 / 6 / 24 小时和选天——
+//   实时：位置、速度、本趟里程、电量；右侧圆钮回到头盔并跟随；底部「行程」和「分享位置」，
+//         头盔没连着时主按钮换成「导航到最后位置」；
+//   行程：按天分组的列表，一趟一行，按月往前翻（服务器按定位点事后切分，API.md §5）；
+//   一趟：地图只画这一趟，带小结、回放，路上的安全事件标在轨迹和进度条上。
+// 底部抽屉沿用 2026-09 的做法：贴着标签栏，下滑收起只留第一行，上滑展开。
+import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
-import { useKeepAwake } from "expo-keep-awake";
+import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { Image } from "expo-image";
-import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  router,
+  useFocusEffect,
+  useIsFocused,
+  useLocalSearchParams,
+} from "expo-router";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   Animated,
+  BackHandler,
   type LayoutChangeEvent,
   Platform,
   Pressable,
   Share,
   StyleSheet,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Reanimated, {
   Easing,
+  FadeIn,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { LocationPoint, WsLocationData } from "@helmet/shared";
+import type {
+  LocationPoint,
+  RideSummary,
+  WsLocationData,
+} from "@helmet/shared";
 
 import { devicesApi } from "@/api/devices";
 import { realtimeClient } from "@/api/realtime";
 import { PrimaryButton, SecondaryButton } from "@/components/form";
-import { AmapView, type AmapViewHandle } from "@/components/map/amap-view";
-import { useAuthStore } from "@/stores/auth-store";
+import { IntercomMiniBar } from "@/components/intercom-mini-bar";
 import {
-  cumulativeMeters,
-  toGcj02,
-  type LngLat,
-} from "@/components/map/coords";
+  AmapView,
+  type AmapViewHandle,
+  type MapMark,
+} from "@/components/map/amap-view";
+import { toGcj02, type LngLat } from "@/components/map/coords";
+import { HelmetPicker } from "@/components/map/helmet-picker";
 import { openAmapNavigation } from "@/components/map/nav-links";
-import { AnimatedChip, ValueTransition } from "@/components/motion";
-import { PulseDot } from "@/components/motion";
+import { RideCalendar } from "@/components/map/ride-calendar";
+import {
+  RideList,
+  rideTimeRange,
+  type RideListStatus,
+} from "@/components/map/ride-list";
+import {
+  RideReplay,
+  type ReplayEvent,
+  type TrackStatus,
+} from "@/components/map/ride-replay";
+import { ValueTransition } from "@/components/motion";
 import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
 import { Radius } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { formatRideDuration } from "@/hooks/use-ride-today";
+import {
+  useRecentRides,
+  useRideAt,
+  useRideEvents,
+  useRideMonth,
+  useRidePages,
+  useRideTrack,
+} from "@/hooks/use-rides";
+import { useCurrentHelmetChoice, useHelmetLinks } from "@/hooks/use-safety";
 import { useTheme } from "@/hooks/use-theme";
-import { translate, useLocale, useT } from "@/i18n";
-import { relativeTime } from "@/i18n/format";
+import { translate, useLocale, useT, type MessageKey } from "@/i18n";
+import {
+  dayTitle,
+  formatKm,
+  monthTitle,
+  relativeTime,
+  shortTime,
+  timeWithDateIfNotToday,
+} from "@/i18n/format";
+import {
+  dayKeyOf,
+  eventNear,
+  filterRides,
+  groupByDay,
+  groupEvents,
+  mergeRides,
+  momentWindowOf,
+  monthOf,
+  nearestIndex,
+  noonOfDayKey,
+  placeEvents,
+  rideAvgKmh,
+  rideSeconds,
+  ridesByDay,
+  trackWindowOf,
+  type DayStat,
+  type MonthCursor,
+  type RideFilter,
+} from "@/services/rides";
+import { currentHelmetOf, helmetNameOf } from "@/services/safety-status";
+import { MOVING_MPS } from "@/services/switch-reminder";
+import { useAuthStore } from "@/stores/auth-store";
 
-const RANGE_OPTIONS = [1, 6, 24] as const;
 /** 底部抽屉过渡：点按/松手都用 220ms 缓出，不要弹簧的惯性（负责人 2026-09-17：点收起不要有惯性副作用） */
 const SHEET_TIMING = { duration: 220, easing: Easing.out(Easing.cubic) };
 /** 展开态 maxHeight 取一个够大的值 = 自适应，内容开合永远不会被裁 */
@@ -57,145 +129,63 @@ const SHEET_OPEN = 4000;
 /** iOS 原生玻璃标签条高度（不含 home 指示条） */
 const IOS_TAB_BAR_H = 62;
 const CARD_PAD_TOP = 8;
-type RangeHours = (typeof RANGE_OPTIONS)[number];
-type Translate = ReturnType<typeof useT>;
-
-/** 轨迹分页上限保护：10 页 × 100 点；超出如实提示截断（API.md §5：不假设所有点都在） */
-const MAX_TRACK_PAGES = 10;
-const TRACK_PAGE_SIZE = 100;
-/** 回放步进：每 200ms 前进一个轨迹点（Mock 5s/点 ≈ 25 倍速） */
+/** 回放步进：每 200ms 前进一个轨迹点（5 秒一个点 ≈ 25 倍速；长行程服务器已抽稀到 1000 点以内） */
 const REPLAY_TICK_MS = 200;
-/** 近 7 天按日选择 */
-const DAY_OFFSETS = [0, 1, 2, 3, 4, 5, 6] as const;
+const KEEP_AWAKE_TAG = "map-riding";
+const NO_POINTS: readonly LocationPoint[] = [];
+const NO_DAY_STATS: ReadonlyMap<string, DayStat> = new Map();
 
-interface TrackResult {
-  points: LocationPoint[];
-  total: number;
-  truncated: boolean;
-}
+/** 抽屉里在看什么 */
+type Stage = "live" | "list" | "ride";
+/**
+ * 「一趟」那一页的对象：从列表点进来的是一趟行程；从安全事件「在地图上查看该时刻」进来的
+ * 只知道一个时刻，它落在哪一趟里要先查（查不到就看那一刻前后各半小时）。
+ */
+type Detail =
+  { kind: "ride"; ride: RideSummary } | { kind: "moment"; atMs: number };
 
-/** dayOffset=0:此刻往前 hours;>0:N 天前整个自然日(24h 上限内,API.md §5) */
-function trackWindow(
-  hours: RangeHours,
-  dayOffset: number,
-): { from: Date; to: Date } {
-  if (dayOffset === 0) {
-    const to = new Date();
-    return { from: new Date(to.getTime() - hours * 3_600_000), to };
-  }
-  const midnight = new Date();
-  midnight.setHours(0, 0, 0, 0);
-  const from = new Date(midnight.getTime() - dayOffset * 86_400_000);
-  return { from, to: new Date(from.getTime() + 86_400_000 - 1) };
-}
+/** 轨迹上标的事件叫什么（与安全记录页同一套叫法） */
+const EVENT_NAME: Record<string, MessageKey> = {
+  collision_risk: "events.type.collision_risk",
+  obstacle_risk: "events.type.obstacle_risk",
+  possible_fall: "safety.risk.fall",
+  manual_sos: "safety.manualSos",
+};
 
-function dayLabel(offset: number, t: Translate): string {
-  if (offset === 0) return t("common.today");
-  if (offset === 1) return t("common.yesterday");
-  if (offset === 2) return t("map.dayBefore");
-  const d = new Date(Date.now() - offset * 86_400_000);
-  return `${d.getMonth() + 1}/${d.getDate()}`;
-}
+/**
+ * 把一趟收进视野时四边让出多少（上、下、左、右）：上面是状态栏和药丸，下面是抽屉。
+ * @param sheet 抽屉内容高度 + 底部内边距
+ */
+const fitPadOf = (
+  safeTop: number,
+  sheet: number,
+): [number, number, number, number] => [
+  safeTop + 84,
+  CARD_PAD_TOP + sheet + 36,
+  52,
+  52,
+];
 
-async function fetchTrack(
-  deviceId: string,
-  hours: RangeHours,
-  dayOffset: number,
-): Promise<TrackResult> {
-  const { from, to } = trackWindow(hours, dayOffset);
-  const points: LocationPoint[] = [];
-  let total = 0;
-  for (let page = 1; page <= MAX_TRACK_PAGES; page++) {
-    const res = await devicesApi.locations(
-      deviceId,
-      from.toISOString(),
-      to.toISOString(),
-      page,
-      TRACK_PAGE_SIZE,
-    );
-    points.push(...res.items);
-    total = res.total;
-    if (points.length >= res.total || res.items.length < TRACK_PAGE_SIZE) {
-      return { points, total, truncated: false };
-    }
-  }
-  return { points, total, truncated: true };
-}
-
-function formatClock(ms: number): string {
-  const s = Math.max(0, Math.floor(ms / 1000));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  const mm = String(m).padStart(2, "0");
-  const ss = String(sec).padStart(2, "0");
-  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
-}
-
-/** 轻量进度条（点按/拖动 seek）——不引第三方 Slider 依赖。
- *  定位模型：轨道两端各内缩一个点半径，点在 0%–100% 全程都落在条内且与轨道垂直居中；
- *  视觉层全部 pointerEvents=none，触摸永远落在外层容器上，locationX 参照系稳定不跳变。 */
-const THUMB_R = 7;
-
-function SeekBar({
-  ratio,
-  onSeek,
-  accent,
-  trackColor,
-}: {
-  ratio: number;
-  onSeek: (ratio: number) => void;
-  accent: string;
-  trackColor: string;
-}) {
-  const width = useRef(1);
-  const handle = (x: number) =>
-    onSeek(
-      Math.min(
-        1,
-        Math.max(0, (x - THUMB_R) / Math.max(1, width.current - THUMB_R * 2)),
-      ),
-    );
-  return (
-    <View
-      style={styles.seekTouch}
-      onLayout={(e: LayoutChangeEvent) => {
-        width.current = Math.max(1, e.nativeEvent.layout.width);
-      }}
-      onStartShouldSetResponder={() => true}
-      onMoveShouldSetResponder={() => true}
-      onResponderGrant={(e) => handle(e.nativeEvent.locationX)}
-      onResponderMove={(e) => handle(e.nativeEvent.locationX)}
-    >
-      <View pointerEvents="none" style={styles.seekRail}>
-        <View style={[styles.seekTrack, { backgroundColor: trackColor }]}>
-          <View
-            style={[
-              styles.seekFill,
-              { backgroundColor: accent, width: `${ratio * 100}%` },
-            ]}
-          />
-        </View>
-        <View
-          style={[
-            styles.seekThumb,
-            { backgroundColor: accent, left: `${ratio * 100}%` },
-          ]}
-        />
-      </View>
-    </View>
-  );
+/**
+ * 「用高德导航过去」的图标：通用的路线指示牌（菱形 + 转弯箭头）。
+ * 不用箭头：右侧「跟随」已经是箭头了；也不用带框的上箭头：那是分享。Ionicons 里没有这个形状，取自 MaterialIcons。
+ */
+function AmapNavIcon({ size, color }: { size: number; color: string }) {
+  return <MaterialIcons name="directions" size={size} color={color} />;
 }
 
 /** 右侧浮动圆钮：中性底 + 描边 + 白色图标；激活态只染图标色，不填充（品牌填充只留给主按钮） */
 function RoundButton({
   icon,
+  renderIcon,
   label,
   onPress,
   disabled = false,
   tint,
 }: {
-  icon: keyof typeof Ionicons.glyphMap;
+  icon?: keyof typeof Ionicons.glyphMap;
+  /** 图标不在 Ionicons 里时自己画 */
+  renderIcon?: (props: { size: number; color: string }) => ReactNode;
   label: string;
   onPress: () => void;
   disabled?: boolean;
@@ -214,36 +204,10 @@ function RoundButton({
         { backgroundColor: theme.backgroundElement, borderColor: theme.border },
       ]}
     >
-      <Ionicons name={icon} size={22} color={tint ?? theme.text} />
+      {renderIcon
+        ? renderIcon({ size: 26, color: tint ?? theme.text })
+        : icon && <Ionicons name={icon} size={22} color={tint ?? theme.text} />}
     </Tappable>
-  );
-}
-
-function Chip({
-  label,
-  active,
-  disabled = false,
-  onPress,
-}: {
-  label: string;
-  active: boolean;
-  disabled?: boolean;
-  onPress: () => void;
-}) {
-  const theme = useTheme();
-  return (
-    <AnimatedChip
-      label={label}
-      active={active}
-      disabled={disabled}
-      onPress={onPress}
-      style={styles.chip}
-      textStyle={styles.chipText}
-      activeBg={theme.brand}
-      inactiveBg={theme.backgroundSelected}
-      activeFg={theme.onBrand}
-      inactiveFg={theme.textSecondary}
-    />
   );
 }
 
@@ -264,6 +228,7 @@ function Stat({
       <ThemedText
         type="small"
         themeColor="textSecondary"
+        numberOfLines={1}
         style={styles.statLabel}
       >
         {label}
@@ -274,6 +239,9 @@ function Stat({
             type="display"
             style={[styles.statValue, { color: valueColor ?? theme.text }]}
             numberOfLines={1}
+            // 一格只容四五个字符：「16:17」这样的长数字缩小字号放下，不截成「16:…」
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
           >
             {value}
           </ThemedText>
@@ -290,37 +258,81 @@ function Stat({
   );
 }
 
+/** 抽屉右上角的关闭圆钮（行程列表、一趟行程共用）：回到实时位置 */
+function CloseButton({
+  label,
+  onPress,
+}: {
+  label: string;
+  onPress: () => void;
+}) {
+  const theme = useTheme();
+  return (
+    <Tappable
+      feedback="opacity"
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={[styles.closeBtn, { backgroundColor: theme.backgroundSelected }]}
+    >
+      <Ionicons name="close" size={20} color={theme.text} />
+    </Tappable>
+  );
+}
+
 export default function MapScreen() {
   const theme = useTheme();
   const scheme = useColorScheme();
   const t = useT();
   const locale = useLocale();
   const insets = useSafeAreaInsets();
+  const focused = useIsFocused();
+  const { height: windowHeight } = useWindowDimensions();
   const mapRef = useRef<AmapViewHandle>(null);
   // Marker 徽章显示本人头像（无头像回落头盔图标）
   const avatarUrl = useAuthStore((s) => s.user?.avatarUrl ?? null);
   const [mapError, setMapError] = useState<string | null>(null);
-  const [range, setRange] = useState<RangeHours>(1);
-  const [dayOffset, setDayOffset] = useState(0);
-  const [dateOpen, setDateOpen] = useState(false);
-  // 回放面板默认收起，点「历史轨迹」展开
-  const [historyOpen, setHistoryOpen] = useState(false);
-  // 骑行面板收纳：收起只留状态行，地图占满（骑行中当仪表盘看时用）
+
+  const [stage, setStage] = useState<Stage>("live");
+  const [detail, setDetail] = useState<Detail | null>(null);
+  // null = 还没开始回放；数字 = 回放停在 / 走到的轨迹点下标
+  const [replayIdx, setReplayIdx] = useState<number | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState<1 | 2 | 4>(1);
+  // 跟随模式：用户手势拖图即退出，右侧圆钮点一下回到头盔并重新跟随
+  const [following, setFollowing] = useState(true);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  // 行程列表「按日期找」：列表只看某一天 / 某个月。月历开着时记下它正显示哪个月，
+  // 以及打开那一刻的「今天」和「这个月」（晚于今天的日子、晚于这个月的月份不能选）
+  const [rideFilter, setRideFilter] = useState<RideFilter>({ kind: "all" });
+  const [calendar, setCalendar] = useState<{
+    month: MonthCursor;
+    max: MonthCursor;
+    todayKey: string;
+  } | null>(null);
+  // 在地图上看哪顶头盔：null = 跟着当前头盔走；选了别的才记下来。只影响地图，不改当前头盔
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // 骑行面板收纳：收起只留第一行，地图占满（骑行中当仪表盘看时用）
   const [panelCollapsed, setPanelCollapsed] = useState(false);
-  // 底部统计卡 = 贴着标签栏的抽屉：下滑收起只留状态行，在状态行上滑展开；
-  // 收起位移 = 卡高 − 状态行高（都用 onLayout 量，回放面板展开时卡高变了照样对）
-  // 高度动画（不是位移）：位移会让卡身从半透明玻璃标签栏下面透出来；高度收到只剩状态行则干净。
+  // 底部抽屉贴着标签栏：下滑收起只留第一行，在第一行上滑展开；
+  // 收起高度 = 第一行高（onLayout 量，三种内容各不一样）。
+  // 高度动画（不是位移）：位移会让卡身从半透明玻璃标签栏下面透出来；高度收到只剩一行则干净。
   // iOS 卡片向下延伸到屏幕底、内容底部让出标签栏高度，玻璃条浮在卡上 = "连在一起"；Android 内容区不含标签栏。
-  // 标签页内 insets.bottom 已含标签条高度（iPhone 17 Pro 实测 83 = 34 home 条 + 49 标签条）：
-  // 内容底部让出 insets.bottom；卡片再向下延伸 62（overlay 原本给玻璃条留的浮空距离）到屏幕底
+  // 标签页内 insets.bottom 已含标签条高度（iPhone 17 Pro 实测 83 = 34 home 条 + 49 标签条）
   const cardPadBottom = Platform.OS === "ios" ? 18 + insets.bottom : 18;
-  // 抽屉用 maxHeight 而不是 height：展开 = maxHeight 足够大（自适应，历史轨迹开合随内容涨缩，
-  // 不会裁在标签栏下、也不会留黑）；收起/拖动时 maxHeight = 具体值裁到只剩状态行。
+  // 抽屉用 maxHeight 而不是 height：展开 = maxHeight 足够大（自适应，内容换了高度随之涨缩，
+  // 不会裁在标签栏下、也不会留黑）；收起/拖动时 maxHeight = 具体值裁到只剩第一行。
   const maxH = useSharedValue(SHEET_OPEN);
   const sheetStart = useSharedValue(0);
   const contentH = useSharedValue(0);
   const headerH = useSharedValue(0);
   const collapsedSV = useSharedValue(false);
+  // 抽屉内容高度在 JS 这边也留一份（状态，不是共享值）：
+  // ① 把一趟的轨迹收进视野时，要让出抽屉盖住的那一块；
+  // ② 右侧圆钮要垫高到抽屉上面——这个垫高量原先只读共享值 contentH，2026-10-07 华为真机上见过一次
+  //    首次进页面时没跟上（圆钮停在抽屉后面，动一下抽屉才上来）；改成读这份状态，内容高度一变就重算
+  const [sheetH, setSheetH] = useState(0);
   const expandedH = () => CARD_PAD_TOP + contentH.get() + cardPadBottom;
   const collapsedH = () => CARD_PAD_TOP + headerH.get() + cardPadBottom;
   const snapSheet = (collapsed: boolean) => {
@@ -339,14 +351,28 @@ export default function MapScreen() {
       );
     }
   };
+  // 换内容（实时 / 列表 / 一趟）时抽屉一律展开：三种内容的第一行不一样高，收着换会裁歪。
+  // 状态在渲染期跟着改（React 官方 "adjusting state" 模式），共享值在 effect 里同步
+  const [sheetStage, setSheetStage] = useState(stage);
+  if (sheetStage !== stage) {
+    setSheetStage(stage);
+    if (panelCollapsed) setPanelCollapsed(false);
+  }
+  useEffect(() => {
+    collapsedSV.set(false);
+    maxH.set(SHEET_OPEN);
+  }, [stage, collapsedSV, maxH]);
   const onContentLayout = (e: LayoutChangeEvent) => {
     const h = e.nativeEvent.layout.height;
-    if (h > 0) contentH.set(h);
+    if (h > 0) {
+      contentH.set(h);
+      if (Math.abs(h - sheetH) > 0.5) setSheetH(h);
+    }
   };
   const onHeaderLayout = (e: LayoutChangeEvent) => {
     headerH.set(e.nativeEvent.layout.height);
   };
-  // 手势只挂在状态行上：卡身里的按钮/拖杆不会被抽屉手势抢走（快速点击历史轨迹误触）。
+  // 手势只挂在第一行和数据格上：卡身里的按钮/列表/进度条不会被抽屉手势抢走。
   // 回调跑在 UI 线程（worklet）：只能用共享值和常量
   const makeSheetPan = (enabled: boolean) =>
     Gesture.Pan()
@@ -372,8 +398,8 @@ export default function MapScreen() {
           (e.velocityY > -400 && maxH.get() < (lo + hi) / 2);
         runOnJS(snapSheet)(collapse);
       });
-  // 展开时：手势只在抓手 + 状态行 + 四格数据（按钮行不受影响）；
-  // 收起时：整张可见的卡（含标签栏上方那段留白）都能上滑展开，不用精确按到状态行
+  // 展开时：手势只在抓手 + 第一行 + 数据格（按钮行以下不受影响）；
+  // 收起时：整张可见的卡（含标签栏上方那段留白）都能上滑展开，不用精确按到第一行
   const sheetPan = makeSheetPan(!panelCollapsed);
   const cardPan = makeSheetPan(panelCollapsed);
   const sheetStyle = useAnimatedStyle(() => ({ maxHeight: maxH.get() }));
@@ -381,23 +407,10 @@ export default function MapScreen() {
   const overlayReserve =
     Platform.OS === "ios" ? insets.bottom + IOS_TAB_BAR_H : 14;
   const liftStyle = useAnimatedStyle(() => {
-    const natural = CARD_PAD_TOP + contentH.get() + cardPadBottom;
+    const natural = CARD_PAD_TOP + sheetH + cardPadBottom;
     const h = Math.min(maxH.get(), natural);
     return { paddingBottom: Math.max(0, h - overlayReserve) };
   });
-  // 从安全事件「在地图上查看该时刻」跳入：?deviceId=&at=ISO → 定位到当天轨迹并把回放停在该时刻
-  const params = useLocalSearchParams<{ deviceId?: string; at?: string }>();
-  const [jumpAt, setJumpAt] = useState<number | null>(null);
-  // null = 实时模式；数字 = 回放中的当前轨迹点下标
-  // 地图页常亮:骑行中把手机当仪表盘看,不该黑屏
-  useKeepAwake();
-  const [replayIdx, setReplayIdx] = useState<number | null>(null);
-  const [playing, setPlaying] = useState(false);
-  const [speed, setSpeed] = useState<1 | 2 | 4>(1);
-  // 跟随模式:用户手势拖图即退出,右侧「跟随」圆钮可重新开启
-  const [following, setFollowing] = useState(true);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const devices = useQuery({ queryKey: ["devices"], queryFn: devicesApi.list });
   /** 底部卡进场动画:每次进入地图页(且有设备)从下方弹入;Animated.Value 惰性
@@ -406,11 +419,16 @@ export default function MapScreen() {
   /** WS 加速通道健康度:断线时药丸下方提示「重连中」,野外测试知道数据是否还新鲜 */
   const [wsUp, setWsUp] = useState(true);
   useEffect(() => realtimeClient.subscribeState(setWsUp), []);
-  const deviceList = devices.data ?? [];
-  const device =
-    deviceList.find((d) => d.deviceId === selectedId) ?? deviceList[0];
+  const deviceList = useMemo(() => devices.data ?? [], [devices.data]);
+  const choice = useCurrentHelmetChoice();
+  const current = currentHelmetOf(deviceList, choice.chosenId);
+  const device = deviceList.find((d) => d.deviceId === selectedId) ?? current;
+  const links = useHelmetLinks(deviceList, !devices.isError);
   const hasDevice = device != null;
   const canPick = deviceList.length > 1;
+  const deviceId = device?.deviceId;
+  const currentId = current?.deviceId;
+  const online = device?.online ?? false;
 
   useFocusEffect(
     useCallback(() => {
@@ -427,36 +445,107 @@ export default function MapScreen() {
       }).start();
     }, [hasDevice, cardIn]),
   );
-  const deviceId = device?.deviceId;
 
-  // 路由参数是一次性外部输入，不是可推导状态：放到下一 tick 应用，避免 effect 内同步 setState 级联重渲染
+  const resetReplay = () => {
+    setPlaying(false);
+    setReplayIdx(null);
+  };
+  const openRides = () => {
+    resetReplay();
+    setDetail(null);
+    setStage("list");
+    setFollowing(true);
+  };
+  /** 回到「全部行程」，月历也收起来 */
+  const showAllRides = () => {
+    setRideFilter({ kind: "all" });
+    setCalendar(null);
+  };
+  /** 关掉行程，回到实时位置；下次再打开从全部行程看起 */
+  const closeRides = () => {
+    resetReplay();
+    setDetail(null);
+    setStage("live");
+    setFollowing(true);
+    showAllRides();
+  };
+  const openCalendar = () => {
+    const now = new Date();
+    setCalendar({
+      // 正在看某一天 / 某个月：月历打开就停在那个月
+      month: rideFilter.kind === "all" ? monthOf(now) : rideFilter.month,
+      max: monthOf(now),
+      todayKey: dayKeyOf(now.toISOString()),
+    });
+  };
+  const pickRide = (ride: RideSummary) => {
+    // 进行中的那一趟就是「现在」：回到实时看
+    if (ride.ongoing) {
+      closeRides();
+      return;
+    }
+    resetReplay();
+    setDetail({ kind: "ride", ride });
+    setStage("ride");
+  };
+  const pickHelmet = (id: string) => {
+    resetReplay();
+    setSelectedId(id === currentId ? null : id);
+    setDetail(null);
+    // 正在看的那一趟是上一顶头盔的：退回这一顶的行程列表
+    if (stage === "ride") setStage("list");
+    // 选的日期也是照着上一顶头盔的行程选的
+    showAllRides();
+    setFollowing(true);
+    setPickerOpen(false);
+  };
+
+  // 路由参数是一次性的外部输入：放到下一 tick 应用（不在 effect 里同步 setState），用完即清，
+  // 免得之后在药丸里换了头盔、关了行程，又被换回来、重新打开。
+  //   ?deviceId=           设备页带过来的头盔
+  //   ?deviceId=&rides=1   设备页「今日骑行」那一格：打开这顶头盔的行程列表
+  //   ?deviceId=&at=ISO    安全记录「在地图上查看该时刻」：打开那一刻所在的那一趟，回放停在那一刻
+  const params = useLocalSearchParams<{
+    deviceId?: string;
+    at?: string;
+    rides?: string;
+  }>();
   useEffect(() => {
-    if (!params.at) return;
-    const at = new Date(params.at).getTime();
-    if (Number.isNaN(at)) return;
-    const targetDevice = params.deviceId;
+    if (!params.deviceId && !params.at && !params.rides) return;
+    const target = params.deviceId;
+    const atMs = params.at ? new Date(params.at).getTime() : Number.NaN;
+    const wantRides = !!params.rides;
     const id = setTimeout(() => {
-      if (targetDevice) setSelectedId(targetDevice);
-      const midnight = new Date();
-      midnight.setHours(0, 0, 0, 0);
-      if (at >= midnight.getTime()) {
-        const hoursAgo = (Date.now() - at) / 3_600_000;
-        setDayOffset(0);
-        setRange(hoursAgo <= 1 ? 1 : hoursAgo <= 6 ? 6 : 24);
-      } else {
-        setDayOffset(Math.floor((midnight.getTime() - at) / 86_400_000) + 1);
+      if (target) setSelectedId(target === currentId ? null : target);
+      if (!Number.isNaN(atMs)) {
+        setPlaying(false);
+        setReplayIdx(null);
+        setDetail({ kind: "moment", atMs });
+        setStage("ride");
+      } else if (wantRides) {
+        setPlaying(false);
+        setReplayIdx(null);
+        setDetail(null);
+        setStage("list");
+        setRideFilter({ kind: "all" });
+        setCalendar(null);
       }
-      setHistoryOpen(true);
-      collapsedSV.set(false);
-      setPanelCollapsed(false);
-      maxH.set(SHEET_OPEN);
-      setJumpAt(at);
-      // 用完即清，避免下次进页面重复跳
-      router.setParams({ at: undefined, deviceId: undefined });
+      // 已经在这一页、抽屉又收着时再带参数进来：也要展开
+      if (!Number.isNaN(atMs) || wantRides) {
+        collapsedSV.set(false);
+        setPanelCollapsed(false);
+        maxH.set(SHEET_OPEN);
+      }
+      router.setParams({
+        deviceId: undefined,
+        at: undefined,
+        rides: undefined,
+      });
     }, 0);
     return () => clearTimeout(id);
-  }, [params.at, params.deviceId, collapsedSV, maxH]);
+  }, [params.deviceId, params.at, params.rides, currentId, collapsedSV, maxH]);
 
+  // —— 实时 ——
   // WS 推送直写此缓存（use-realtime）；REST 30s 轮询兜底（API.md §11 口径）
   const live = useQuery<WsLocationData | LocationPoint | null>({
     queryKey: ["device-location", deviceId],
@@ -467,55 +556,278 @@ export default function MapScreen() {
     enabled: !!deviceId,
     refetchInterval: 30_000,
   });
+  const liveLoc = live.data ?? null;
+  const livePos = useMemo(() => (liveLoc ? toGcj02(liveLoc) : null), [liveLoc]);
 
-  const track = useQuery({
-    queryKey: ["device-track", deviceId, range, dayOffset],
-    queryFn: () => fetchTrack(deviceId!, range, dayOffset),
-    enabled: !!deviceId,
+  // 昨天零点以来的行程：第一条若是「进行中」，就是现在这一趟（本趟里程、实时模式下画的那条线）
+  const recent = useRecentRides(deviceId, {
+    enabled: focused && hasDevice,
+    poll: online,
   });
-
-  const trackPoints = useMemo(() => track.data?.points ?? [], [track.data]);
-  const gcjPath = useMemo<LngLat[]>(
-    () => trackPoints.map(toGcj02),
-    [trackPoints],
+  const currentRide = recent.data?.[0]?.ongoing ? recent.data[0] : null;
+  // 服务器说这一趟还没结束（路口停着也算），或者此刻就在动（刚出发，服务器那边还没刷新到）
+  const riding =
+    online && (currentRide !== null || (liveLoc?.speed ?? 0) >= MOVING_MPS);
+  const liveTrack = useRideTrack(
+    deviceId,
+    currentRide ? trackWindowOf(currentRide) : null,
+    true,
   );
-  const cumulative = useMemo(() => cumulativeMeters(gcjPath), [gcjPath]);
-  const trackStartMs = trackPoints.length
-    ? new Date(trackPoints[0].timestamp).getTime()
-    : 0;
-  const trackEndMs = trackPoints.length
-    ? new Date(trackPoints[trackPoints.length - 1].timestamp).getTime()
-    : 0;
+  const liveTrackPoints = currentRide ? liveTrack.data?.points : undefined;
+  const livePath = useMemo<LngLat[]>(() => {
+    const path = (liveTrackPoints ?? NO_POINTS).map(toGcj02);
+    // 这条线每 30 秒才向服务器取一次：把此刻的位置接在末尾，线头始终连着头盔，不落后一截
+    return path.length > 0 && livePos ? [...path, livePos] : path;
+  }, [liveTrackPoints, livePos]);
 
-  // 轨迹变化（换设备/换时间段/新数据）：渲染期重置回放状态（React 官方"adjusting state"模式）
-  const [prevPath, setPrevPath] = useState(gcjPath);
-  if (prevPath !== gcjPath) {
-    setPrevPath(gcjPath);
+  // 屏幕常亮只在骑行中、且正看着地图页时开：把手机当仪表盘看时不该黑屏，停着的时候不白耗电
+  useEffect(() => {
+    if (!focused || !riding) return;
+    activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {});
+    return () => {
+      deactivateKeepAwake(KEEP_AWAKE_TAG).catch(() => {});
+    };
+  }, [focused, riding]);
+
+  // —— 行程列表 ——
+  const pages = useRidePages(deviceId, device?.createdAt, stage !== "live");
+  const days = useMemo(
+    () =>
+      groupByDay(
+        mergeRides([
+          // 每 30 秒刷新的那一份排前面：同一趟以它为准（进行中的那趟在往前走，或者已经结束了）
+          recent.data ?? [],
+          ...(pages.data?.pages.map((p) => p.rides) ?? []),
+        ]),
+      ),
+    [recent.data, pages.data],
+  );
+  const lastPage = pages.data?.pages[pages.data.pages.length - 1];
+  const older = lastPage?.next ?? null;
+  const listStatus = !pages.data
+    ? pages.isError
+      ? "error"
+      : "loading"
+    : days.length === 0 && older === null
+      ? "empty"
+      : "ready";
+
+  // —— 按日期找 ——
+  // 月历开着看它正显示的那个月；收起后看筛选落在的那个月。两处用的是同一份数据
+  const monthCursor = calendar
+    ? calendar.month
+    : rideFilter.kind === "all"
+      ? null
+      : rideFilter.month;
+  const monthQuery = useRideMonth(deviceId, monthCursor, stage !== "live");
+  // 每 30 秒刷新的那一份排前面（同上）；不在这个月里的由下面按月 / 按天筛掉
+  const monthRides = useMemo(
+    () =>
+      monthQuery.data ? mergeRides([recent.data ?? [], monthQuery.data]) : null,
+    [recent.data, monthQuery.data],
+  );
+  const monthStatus = monthQuery.data
+    ? "ready"
+    : monthQuery.isError
+      ? "error"
+      : "loading";
+  const calendarStats = useMemo(
+    () => (calendar ? ridesByDay(monthRides ?? [], calendar.month) : null),
+    [calendar, monthRides],
+  );
+  const filteredDays = useMemo(
+    () =>
+      rideFilter.kind === "all" || !monthRides
+        ? []
+        : groupByDay(filterRides(monthRides, rideFilter)),
+    [rideFilter, monthRides],
+  );
+  const filteredStatus: RideListStatus =
+    monthStatus !== "ready"
+      ? monthStatus
+      : filteredDays.length === 0
+        ? "empty"
+        : "ready";
+  // 头盔登记到系统里的那个月：月历最早翻到这里（和「加载更早的行程」翻到头是同一个月）
+  const sinceMs = device?.createdAt ? Date.parse(device.createdAt) : Number.NaN;
+  const floorMonth: MonthCursor = Number.isNaN(sinceMs)
+    ? { year: 2000, month: 0 }
+    : monthOf(new Date(sinceMs));
+  const filterLabel =
+    rideFilter.kind === "day"
+      ? dayTitle(noonOfDayKey(rideFilter.dayKey).toISOString(), locale)
+      : rideFilter.kind === "month"
+        ? monthTitle(rideFilter.month.year, rideFilter.month.month, locale)
+        : null;
+
+  // —— 一趟 ——
+  // 只知道一个时刻时先查它落在哪一趟里；查到就按那一趟来看
+  const momentMs = detail?.kind === "moment" ? detail.atMs : null;
+  const rideAtQuery = useRideAt(deviceId, stage === "ride" ? momentMs : null);
+  const ride =
+    detail?.kind === "ride" ? detail.ride : (rideAtQuery.data ?? null);
+  const finding = momentMs !== null && rideAtQuery.isPending;
+  const rideWindow =
+    stage !== "ride" || finding
+      ? null
+      : ride
+        ? trackWindowOf(ride)
+        : momentMs !== null
+          ? { ...momentWindowOf(momentMs), clipped: false }
+          : null;
+  const rideTrack = useRideTrack(deviceId, rideWindow);
+  const ridePoints = (rideWindow && rideTrack.data?.points) || NO_POINTS;
+  const ridePath = useMemo<LngLat[]>(
+    () => ridePoints.map(toGcj02),
+    [ridePoints],
+  );
+  const rideTimes = useMemo(
+    () => ridePoints.map((p) => new Date(p.timestamp).getTime()),
+    [ridePoints],
+  );
+  const trackStatus: TrackStatus = !rideWindow
+    ? "loading"
+    : rideTrack.isError
+      ? "error"
+      : rideTrack.isPending
+        ? "loading"
+        : ridePoints.length > 1
+          ? "ready"
+          : "empty";
+  const canReplay = trackStatus === "ready";
+
+  const rideEvents = useRideEvents(deviceId, rideWindow);
+  const replayEvents = useMemo<ReplayEvent[]>(() => {
+    if (rideTimes.length < 2) return [];
+    const items = rideEvents.data?.items ?? [];
+    const nameOf = (eventType: string) =>
+      translate(EVENT_NAME[eventType] ?? "map.moment.mark", undefined, locale);
+    // 从安全记录跳进来的那一刻单独标一处，不和别的并在一起——用户就是来看它的
+    const jumped =
+      momentMs === null
+        ? undefined
+        : items.find(
+            (e) => Math.abs(new Date(e.timestamp).getTime() - momentMs) < 2000,
+          );
+    const out: ReplayEvent[] = groupEvents(
+      placeEvents(
+        items.filter((e) => e !== jumped),
+        rideTimes,
+      ),
+      rideTimes.length,
+    ).map((g) => ({
+      key: g.first.event.eventId,
+      index: g.first.index,
+      time: shortTime(g.first.event.timestamp, locale),
+      name: nameOf(g.first.event.eventType),
+      count: g.count,
+    }));
+    if (momentMs !== null) {
+      out.push({
+        key: "moment",
+        index: nearestIndex(rideTimes, momentMs),
+        time: shortTime(new Date(momentMs).toISOString(), locale),
+        name: jumped
+          ? nameOf(jumped.eventType)
+          : translate("map.moment.mark", undefined, locale),
+        count: 1,
+      });
+      out.sort((a, b) => a.index - b.index);
+    }
+    return out;
+  }, [rideEvents.data, rideTimes, momentMs, locale]);
+  const moreEvents = Math.max(
+    0,
+    (rideEvents.data?.total ?? 0) - (rideEvents.data?.items.length ?? 0),
+  );
+  // 回放走到哪个事件上了：从安全记录跳进来的那一刻优先（它和旁边那一处可能挨得很近）
+  const activeEvent =
+    replayIdx === null
+      ? null
+      : (replayEvents.find(
+          (e) => e.key === "moment" && e.index === replayIdx,
+        ) ??
+        eventNear(
+          replayEvents.map((e) => ({ event: e, index: e.index, atMs: 0 })),
+          replayIdx,
+          ridePath.length,
+        )?.event ??
+        null);
+
+  // 轨迹换了（换了一趟 / 重新加载）：渲染期重置回放状态（React 官方 "adjusting state" 模式）
+  const [prevPath, setPrevPath] = useState(ridePath);
+  if (prevPath !== ridePath) {
+    setPrevPath(ridePath);
     if (replayIdx !== null) setReplayIdx(null);
     if (playing) setPlaying(false);
+    // 从安全记录跳进来的：轨迹一到，回放就停在那一刻
+    if (momentMs !== null && ridePath.length > 1) {
+      setReplayIdx(nearestIndex(rideTimes, momentMs));
+    }
   }
 
-  // 画轨迹线（effect 只同步外部系统）
+  // —— 地图（effect 只同步外部系统） ——
+  const showRide = stage === "ride";
+  const padTop = insets.top;
+  // 收视野要让出抽屉盖住的那一块；抽屉在轨迹到了之后还会变高（事件那一行后到），
+  // 变高了就按新的高度再收一次——除非用户已经自己拖过地图
+  const fitted = useRef<{ path: LngLat[] | null; moved: boolean }>({
+    path: null,
+    moved: false,
+  });
   useEffect(() => {
-    if (gcjPath.length > 1) {
-      mapRef.current?.setTrack(gcjPath);
+    const map = mapRef.current;
+    if (!map) return;
+    if (showRide) {
+      if (ridePath.length > 1) {
+        const fresh = fitted.current.path !== ridePath;
+        if (fresh) fitted.current = { path: ridePath, moved: false };
+        if (fresh || !fitted.current.moved) {
+          map.setTrack(ridePath, {
+            pad: fitPadOf(padTop, sheetH + cardPadBottom),
+          });
+        }
+      } else map.clearTrack();
+    } else if (livePath.length > 1) {
+      // 实时模式定时刷新这条线：不收视野，镜头归「跟随」管
+      map.setTrack(livePath, { fit: false });
     } else {
-      mapRef.current?.clearTrack();
+      map.clearTrack();
     }
-  }, [gcjPath]);
+  }, [showRide, ridePath, livePath, padTop, cardPadBottom, sheetH]);
 
-  // 实时模式：跟随最新位置
-  const liveLoc = live.data ?? null;
+  const marks = useMemo<MapMark[]>(() => {
+    if (!showRide || ridePath.length < 2) return [];
+    return [
+      { ...ridePath[0], kind: "start" },
+      { ...ridePath[ridePath.length - 1], kind: "end" },
+      ...replayEvents.map((e): MapMark => ({
+        ...ridePath[e.index],
+        kind: "event",
+        label: e.count > 1 ? String(Math.min(99, e.count)) : undefined,
+      })),
+    ];
+  }, [showRide, ridePath, replayEvents]);
   useEffect(() => {
-    if (replayIdx !== null || !liveLoc) return;
-    mapRef.current?.setHelmet(toGcj02(liveLoc), { follow: following });
-  }, [liveLoc, replayIdx, following]);
+    mapRef.current?.setMarks(marks);
+  }, [marks]);
 
-  // 回放模式：头盔沿轨迹移动
+  // 头盔 Marker：看一趟时停在回放的那个点（没开始回放就在起点），不跟镜头——整趟已经在视野里；
+  // 其余时候是实时位置，跟不跟镜头看「跟随」
+  const replayPos = showRide ? ridePath[replayIdx ?? 0] : undefined;
   useEffect(() => {
-    if (replayIdx === null || !gcjPath[replayIdx]) return;
-    mapRef.current?.setHelmet(gcjPath[replayIdx], { follow: true });
-  }, [replayIdx, gcjPath]);
+    if (showRide) {
+      if (replayPos) mapRef.current?.setHelmet(replayPos);
+    } else if (livePos) {
+      mapRef.current?.setHelmet(livePos, { follow: following });
+    }
+  }, [showRide, replayPos, livePos, following]);
+
+  // 离线时 Marker 变灰停波纹，一眼能看出"这不是实时位置"；看一趟时它不是实时位置，也不放波纹
+  useEffect(() => {
+    mapRef.current?.setHelmetOnline(showRide || online);
+    mapRef.current?.setHelmetReplay(showRide);
+  }, [showRide, online]);
 
   // 回放计时器
   useEffect(() => {
@@ -523,31 +835,15 @@ export default function MapScreen() {
     const timer = setInterval(() => {
       setReplayIdx((idx) => {
         const next = (idx ?? 0) + 1;
-        if (next >= gcjPath.length) {
+        if (next >= ridePath.length) {
           setPlaying(false);
-          return gcjPath.length - 1;
+          return ridePath.length - 1;
         }
         return next;
       });
     }, REPLAY_TICK_MS / speed);
     return () => clearInterval(timer);
-  }, [playing, gcjPath.length, speed]);
-
-  // 统计卡数据源：回放中取轨迹点，否则取实时点
-  const statPoint: LocationPoint | null =
-    replayIdx !== null ? (trackPoints[replayIdx] ?? null) : liveLoc;
-  const distanceMeters =
-    replayIdx !== null
-      ? (cumulative[replayIdx] ?? 0)
-      : (cumulative[cumulative.length - 1] ?? 0);
-
-  const canReplay = gcjPath.length > 1;
-  const replayRatio =
-    replayIdx !== null && canReplay ? replayIdx / (gcjPath.length - 1) : 0;
-  const replayElapsedMs =
-    replayIdx !== null && trackPoints[replayIdx]
-      ? new Date(trackPoints[replayIdx].timestamp).getTime() - trackStartMs
-      : 0;
+  }, [playing, ridePath.length, speed]);
 
   const togglePlay = () => {
     if (!canReplay) return;
@@ -556,98 +852,145 @@ export default function MapScreen() {
       return;
     }
     setReplayIdx((idx) =>
-      idx === null || idx >= gcjPath.length - 1 ? 0 : idx,
+      idx === null || idx >= ridePath.length - 1 ? 0 : idx,
     );
     setPlaying(true);
   };
-
-  useEffect(() => {
-    if (jumpAt === null || trackPoints.length === 0) return;
-    let best = 0;
-    let bestDiff = Number.POSITIVE_INFINITY;
-    trackPoints.forEach((p, i) => {
-      const diff = Math.abs(new Date(p.timestamp).getTime() - jumpAt);
-      if (diff < bestDiff) {
-        bestDiff = diff;
-        best = i;
-      }
-    });
-    const id = setTimeout(() => {
-      setPlaying(false);
-      setReplayIdx(best);
-      setJumpAt(null);
-    }, 0);
-    return () => clearTimeout(id);
-  }, [jumpAt, trackPoints]);
-
-  const exitReplay = () => {
+  const seekTo = (index: number) => {
+    if (!canReplay) return;
     setPlaying(false);
-    setReplayIdx(null);
-    if (liveLoc) mapRef.current?.setHelmet(toGcj02(liveLoc), { follow: true });
+    setReplayIdx(Math.max(0, Math.min(ridePath.length - 1, index)));
   };
 
-  // 收起面板时若还在回放，一并回到实时，避免地图停在旧点却没有退出入口
-  const toggleHistory = () => {
-    if (historyOpen && replayIdx !== null) exitReplay();
-    setHistoryOpen((v) => !v);
-    // 打开回放面板时抽屉必须是展开的，否则面板长在看不见的地方
-    if (collapsedSV.get()) snapSheet(false);
-  };
-
-  const toggleFollow = () => {
-    const next = !following;
-    setFollowing(next);
-    if (next && liveLoc)
-      mapRef.current?.setHelmet(toGcj02(liveLoc), { follow: true });
-  };
-
-  const sharePos = statPoint ? toGcj02(statPoint) : null;
+  // Android 返回键：先一层层退回实时（一趟 → 列表 → 实时；月历开着先收月历），到了实时才交还系统
+  const calendarOpen = calendar !== null;
+  useFocusEffect(
+    useCallback(() => {
+      if (stage === "live") return;
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (stage === "list" && calendarOpen) {
+          setCalendar(null);
+          return true;
+        }
+        setPlaying(false);
+        setReplayIdx(null);
+        setDetail(null);
+        setStage(stage === "ride" ? "list" : "live");
+        if (stage !== "ride") {
+          setFollowing(true);
+          setRideFilter({ kind: "all" });
+        }
+        return true;
+      });
+      return () => sub.remove();
+    }, [stage, calendarOpen]),
+  );
 
   const recenter = () => {
-    if (sharePos) mapRef.current?.setCenter(sharePos, 15);
+    setFollowing(true);
+    if (livePos) mapRef.current?.setCenter(livePos, 15);
   };
 
   const shareLocation = async () => {
-    if (!sharePos || !device) return;
+    if (!livePos || !device) return;
     // 高德分享链接吃 GCJ-02；App 端生成（API.md §5：不做服务端短链）
-    const name = device.name ?? device.deviceId;
-    const url = `https://uri.amap.com/marker?position=${sharePos.longitude.toFixed(6)},${sharePos.latitude.toFixed(6)}&name=${encodeURIComponent(name)}`;
+    const name = helmetNameOf(device);
+    const url = `https://uri.amap.com/marker?position=${livePos.longitude.toFixed(6)},${livePos.latitude.toFixed(6)}&name=${encodeURIComponent(name)}`;
     await Share.share({
       message: translate("map.shareMessage", { name, url }),
     });
   };
 
   const navigateTo = async () => {
-    if (!sharePos || !device) return;
-    await openAmapNavigation(sharePos, device.name ?? device.deviceId);
+    if (!livePos || !device) return;
+    await openAmapNavigation(livePos, helmetNameOf(device));
   };
 
-  const online = device?.online ?? false;
-  // 离线时 Marker 变灰停波纹，一眼能看出"这不是实时位置"
-  useEffect(() => {
-    mapRef.current?.setHelmetOnline(online);
-  }, [online]);
   const dotColor = !wsUp
     ? theme.warning
     : online
       ? theme.success
       : theme.textSecondary;
-  const caption = statPoint
-    ? t("map.updatedAgo", { ago: relativeTime(statPoint.timestamp, locale) })
-    : t("map.waiting");
+  const caption = !liveLoc
+    ? t("map.waiting")
+    : online
+      ? t("map.updatedAgo", { ago: relativeTime(liveLoc.timestamp, locale) })
+      : t("map.lastPosition", {
+          ago: relativeTime(liveLoc.timestamp, locale),
+        });
+  const chip = riding
+    ? { text: t("map.riding"), bg: theme.brand, fg: theme.onBrand }
+    : {
+        text: t(online ? "map.still" : "common.offline"),
+        bg: theme.backgroundSelected,
+        fg: theme.textSecondary,
+      };
+
+  // 一趟的小结：从列表带过来的（轨迹没取到也不受影响）；只知道一个时刻、又不在任何一趟里时，
+  // 用那前后半小时的轨迹统计
+  const momentSummary =
+    !ride && momentMs !== null && rideWindow ? rideTrack.data?.summary : null;
+  const summary: Pick<
+    RideSummary,
+    "startAt" | "endAt" | "distanceMeters" | "maxSpeed"
+  > | null =
+    ride ??
+    (momentSummary?.firstAt && momentSummary.lastAt
+      ? {
+          startAt: momentSummary.firstAt,
+          endAt: momentSummary.lastAt,
+          distanceMeters: momentSummary.distanceMeters,
+          maxSpeed: momentSummary.maxSpeed,
+        }
+      : null);
+  const duration = summary ? formatRideDuration(rideSeconds(summary)) : null;
+  const avgKmh = ride ? rideAvgKmh(ride) : null;
+  const rideTitle = ride
+    ? `${dayTitle(ride.startAt, locale)} ${rideTimeRange(ride, locale, t)}`
+    : momentMs !== null
+      ? t("map.moment.title", {
+          when: timeWithDateIfNotToday(
+            new Date(momentMs).toISOString(),
+            locale,
+          ),
+        })
+      : "";
+  const replayNote = finding
+    ? t("map.moment.finding")
+    : !ride && momentMs !== null && trackStatus === "empty"
+      ? t("map.moment.none")
+      : null;
+
+  // 行程列表的可见高度：约占屏幕一半多一点，上面留出地图和药丸
+  const listHeight = Math.round(
+    Math.min(520, Math.max(260, windowHeight * 0.52)),
+  );
 
   const devicePillBody = (
     <>
       <View style={[styles.liveDot, { backgroundColor: dotColor }]} />
       <ThemedText type="smallBold" numberOfLines={1} style={styles.pillName}>
-        {device?.name ?? device?.deviceId}
+        {device ? helmetNameOf(device) : ""}
       </ThemedText>
       {canPick && (
-        <Ionicons
-          name={pickerOpen ? "chevron-up" : "chevron-down"}
-          size={16}
-          color={theme.textSecondary}
-        />
+        <>
+          {deviceId === currentId && (
+            <View
+              style={[
+                styles.pillTag,
+                { backgroundColor: theme.backgroundSelected },
+              ]}
+            >
+              <ThemedText themeColor="textSecondary" style={styles.pillTagText}>
+                {t("map.pill.current")}
+              </ThemedText>
+            </View>
+          )}
+          <ThemedText themeColor="textSecondary" style={styles.pillAction}>
+            {t("map.pill.switch")}
+          </ThemedText>
+          <Ionicons name="chevron-down" size={16} color={theme.textSecondary} />
+        </>
       )}
     </>
   );
@@ -665,17 +1008,30 @@ export default function MapScreen() {
         avatarUrl={avatarUrl}
         style={StyleSheet.absoluteFill}
         controllerRef={mapRef}
-        onUserPan={() => setFollowing(false)}
+        onUserPan={() => {
+          // 看一趟时拖地图是在看轨迹，不动「跟随」；记下来，之后不再替用户收视野
+          if (showRide) fitted.current.moved = true;
+          else setFollowing(false);
+        }}
         onError={(msg) => setMapError(msg)}
         // 地图（重）就绪时重推当前状态：WebView 重挂载/进程重启后 effect 依赖未变不会重发
         onReady={() => {
-          if (gcjPath.length > 1) mapRef.current?.setTrack(gcjPath);
-          const pos =
-            replayIdx !== null
-              ? gcjPath[replayIdx]
-              : liveLoc && toGcj02(liveLoc);
-          if (pos) mapRef.current?.setHelmet(pos, { follow: true });
-          mapRef.current?.setHelmetOnline(online);
+          const map = mapRef.current;
+          if (!map) return;
+          if (showRide) {
+            if (ridePath.length > 1) {
+              map.setTrack(ridePath, {
+                pad: fitPadOf(padTop, sheetH + cardPadBottom),
+              });
+            }
+            if (replayPos) map.setHelmet(replayPos);
+          } else {
+            if (livePath.length > 1) map.setTrack(livePath, { fit: false });
+            if (livePos) map.setHelmet(livePos, { follow: true });
+          }
+          map.setMarks(marks);
+          map.setHelmetOnline(showRide || online);
+          map.setHelmetReplay(showRide);
         }}
       />
 
@@ -690,13 +1046,17 @@ export default function MapScreen() {
         ]}
         pointerEvents="box-none"
       >
-        {/* 顶部：仅设备药丸（多设备可点开切换）+ 断线/地图异常横幅 */}
+        {/* 顶部：设备药丸（有两顶以上可点开换一台看）+ 断线/地图异常横幅 + 「对讲中」小条 */}
         <View style={styles.topArea} pointerEvents="box-none">
           {hasDevice &&
             (canPick ? (
               <Tappable
+                feedback="scale"
                 accessibilityRole="button"
-                onPress={() => setPickerOpen((v) => !v)}
+                accessibilityLabel={t("map.pill.a11y", {
+                  name: helmetNameOf(device),
+                })}
+                onPress={() => setPickerOpen(true)}
                 style={devicePillStyle}
               >
                 {devicePillBody}
@@ -736,52 +1096,9 @@ export default function MapScreen() {
               </ThemedText>
             </View>
           )}
-        </View>
 
-        {/* 设备切换下拉(多设备时点药丸展开) */}
-        {pickerOpen && (
-          <View
-            style={[
-              styles.devicePicker,
-              {
-                top: insets.top + 54,
-                backgroundColor: theme.backgroundElement,
-                borderColor: theme.border,
-              },
-            ]}
-          >
-            {deviceList.map((d) => (
-              <Tappable
-                key={d.deviceId}
-                feedback="fill"
-                style={styles.pickerRow}
-                onPress={() => {
-                  setSelectedId(d.deviceId);
-                  setPickerOpen(false);
-                  setFollowing(true);
-                }}
-              >
-                <View
-                  style={[
-                    styles.liveDot,
-                    {
-                      backgroundColor: d.online
-                        ? theme.success
-                        : theme.textSecondary,
-                    },
-                  ]}
-                />
-                <ThemedText
-                  type="smallBold"
-                  themeColor={d.deviceId === deviceId ? "brand" : "text"}
-                  numberOfLines={1}
-                >
-                  {d.name ?? d.deviceId}
-                </ThemedText>
-              </Tappable>
-            ))}
-          </View>
-        )}
+          <IntercomMiniBar style={styles.miniBar} />
+        </View>
 
         {/* 空状态:成功拉取且无绑定设备——新用户引导去绑定(设备页同款头盔素材) */}
         {devices.isSuccess && deviceList.length === 0 && (
@@ -796,7 +1113,7 @@ export default function MapScreen() {
               ]}
             >
               <Image
-                source={require("@/assets/images/helmet-urban-v5.webp")}
+                source={require("@/assets/images/helmet-aero-v1.webp")}
                 style={styles.emptyImg}
                 contentFit="contain"
               />
@@ -811,15 +1128,15 @@ export default function MapScreen() {
               <PrimaryButton
                 title={t("map.bindNew")}
                 icon="add"
-                onPress={() => router.push("/bind-device")}
+                onPress={() => router.navigate("/bind-device")}
                 style={styles.emptyBtn}
               />
             </View>
           </View>
         )}
 
-        {/* 底部组:右侧圆钮栈悬在统计卡上方;无设备不渲染,进入页面时从下方弹入 */}
-        {hasDevice && (
+        {/* 右侧圆钮栈悬在抽屉上方，只在看实时位置时有；无设备不渲染，进入页面时从下方弹入 */}
+        {hasDevice && stage === "live" && (
           <Animated.View
             pointerEvents="box-none"
             style={{
@@ -836,23 +1153,28 @@ export default function MapScreen() {
           >
             <Reanimated.View style={liftStyle} pointerEvents="box-none">
               <View style={styles.sideStack} pointerEvents="box-none">
-                <RoundButton
-                  icon="locate"
-                  label={t("map.recenter")}
-                  onPress={recenter}
-                  disabled={!sharePos}
-                />
+                {/* 底部主按钮没占用的那个动作放这里：连着时主按钮是分享，这里是导航；没连着时反过来 */}
+                {online ? (
+                  <RoundButton
+                    renderIcon={AmapNavIcon}
+                    label={t("map.navigate")}
+                    onPress={navigateTo}
+                    disabled={!livePos}
+                  />
+                ) : (
+                  <RoundButton
+                    icon="share-outline"
+                    label={t("map.shareLast")}
+                    onPress={shareLocation}
+                    disabled={!livePos}
+                  />
+                )}
                 <RoundButton
                   icon={following ? "navigate" : "navigate-outline"}
-                  label={t("map.follow")}
-                  onPress={toggleFollow}
+                  label={t(following ? "map.following" : "map.followBack")}
+                  onPress={recenter}
+                  disabled={!livePos}
                   tint={following ? theme.brand : undefined}
-                />
-                <RoundButton
-                  icon="share-outline"
-                  label={t("map.share")}
-                  onPress={shareLocation}
-                  disabled={!sharePos}
                 />
               </View>
             </Reanimated.View>
@@ -860,7 +1182,7 @@ export default function MapScreen() {
         )}
       </View>
 
-      {/* 底部抽屉：贴着标签栏，绝对定位在屏幕底；下滑收起只留状态行、状态行上滑展开。
+      {/* 底部抽屉：贴着标签栏，绝对定位在屏幕底；下滑收起只留第一行、在第一行上滑展开。
           iOS 卡身延伸到玻璃标签条下面（内容底部让出 insets.bottom），Android 内容区不含标签条 */}
       {hasDevice && (
         <Animated.View
@@ -892,10 +1214,10 @@ export default function MapScreen() {
                 sheetStyle,
               ]}
             >
-              {/* 裁切盒在底部内边距之上：收起时只露状态行，玻璃标签条下不再透出后面的内容 */}
+              {/* 裁切盒在底部内边距之上：收起时只露第一行，玻璃标签条下不再透出后面的内容 */}
               <View style={styles.cardClip}>
                 <View style={styles.cardContent} onLayout={onContentLayout}>
-                  {/* 手势区 = 抓手 + 状态行 + 四格数据（无按钮的区域都能拖），按钮行以下不响应抽屉手势 */}
+                  {/* 手势区 = 抓手 + 第一行 + 数据格（无按钮的区域都能拖），以下不响应抽屉手势 */}
                   <GestureDetector gesture={sheetPan}>
                     <View style={styles.gripZone}>
                       <View style={styles.gripHead} onLayout={onHeaderLayout}>
@@ -911,34 +1233,27 @@ export default function MapScreen() {
                             ]}
                           />
                         </Pressable>
-                        <Tappable
-                          feedback="opacity"
-                          onPress={() => snapSheet(!panelCollapsed)}
-                          style={styles.cardHeader}
-                        >
-                          <View style={styles.headerLeft}>
+
+                        {stage === "live" && (
+                          <Tappable
+                            feedback="opacity"
+                            onPress={() => snapSheet(!panelCollapsed)}
+                            style={styles.cardHeader}
+                          >
                             <View
                               style={[
                                 styles.statusChip,
-                                {
-                                  backgroundColor: online
-                                    ? theme.brand
-                                    : theme.backgroundSelected,
-                                },
+                                { backgroundColor: chip.bg },
                               ]}
                             >
                               <ThemedText
                                 type="smallBold"
                                 style={[
                                   styles.statusChipText,
-                                  {
-                                    color: online
-                                      ? theme.onBrand
-                                      : theme.textSecondary,
-                                  },
+                                  { color: chip.fg },
                                 ]}
                               >
-                                {online ? t("map.riding") : t("map.offline")}
+                                {chip.text}
                               </ThemedText>
                             </View>
                             <ThemedText
@@ -949,291 +1264,367 @@ export default function MapScreen() {
                             >
                               {caption}
                             </ThemedText>
-                          </View>
-                          {!online && (
+                          </Tappable>
+                        )}
+
+                        {stage === "list" && !calendar && (
+                          <View style={styles.sheetHead}>
                             <ThemedText
-                              type="small"
-                              themeColor="textSecondary"
-                              style={styles.captionRight}
+                              type="smallBold"
+                              accessibilityRole="header"
+                              style={styles.sheetTitle}
                             >
-                              {t("map.lastSeen", {
-                                ago: relativeTime(
-                                  device.lastSeenAt ?? null,
-                                  locale,
-                                ),
-                              })}
+                              {t("map.rides.title")}
                             </ThemedText>
-                          )}
-                        </Tappable>
+                            <View style={styles.headTools}>
+                              {/* 按日期找：没选时是「选日期」，选了之后写着在看哪一天 / 哪个月，再点可以换 */}
+                              <Tappable
+                                feedback="opacity"
+                                accessibilityRole="button"
+                                accessibilityLabel={
+                                  filterLabel
+                                    ? t("map.rides.filteredA11y", {
+                                        label: filterLabel,
+                                      })
+                                    : t("map.rides.pickDateA11y")
+                                }
+                                onPress={openCalendar}
+                                style={[
+                                  styles.datePill,
+                                  {
+                                    backgroundColor: filterLabel
+                                      ? theme.brand
+                                      : theme.backgroundSelected,
+                                  },
+                                ]}
+                              >
+                                <Ionicons
+                                  name="calendar-outline"
+                                  size={16}
+                                  color={
+                                    filterLabel ? theme.onBrand : theme.text
+                                  }
+                                />
+                                <ThemedText
+                                  type="smallBold"
+                                  numberOfLines={1}
+                                  style={[
+                                    styles.datePillText,
+                                    {
+                                      color: filterLabel
+                                        ? theme.onBrand
+                                        : theme.text,
+                                    },
+                                  ]}
+                                >
+                                  {filterLabel ?? t("map.rides.pickDate")}
+                                </ThemedText>
+                              </Tappable>
+                              <CloseButton
+                                label={t("map.rides.close")}
+                                onPress={closeRides}
+                              />
+                            </View>
+                          </View>
+                        )}
+
+                        {stage === "list" && calendar && (
+                          <View style={styles.sheetHead}>
+                            <Tappable
+                              feedback="opacity"
+                              accessibilityRole="button"
+                              accessibilityLabel={t("map.ride.back")}
+                              onPress={() => setCalendar(null)}
+                              style={styles.backBtn}
+                            >
+                              <Ionicons
+                                name="chevron-back"
+                                size={20}
+                                color={theme.text}
+                              />
+                              <ThemedText
+                                type="smallBold"
+                                style={styles.backText}
+                              >
+                                {t("map.rides.title")}
+                              </ThemedText>
+                            </Tappable>
+                            <ThemedText
+                              type="smallBold"
+                              numberOfLines={1}
+                              accessibilityRole="header"
+                              style={styles.rideTitle}
+                            >
+                              {t("map.rides.calendarTitle")}
+                            </ThemedText>
+                            <CloseButton
+                              label={t("map.rides.close")}
+                              onPress={closeRides}
+                            />
+                          </View>
+                        )}
+
+                        {stage === "ride" && (
+                          <View style={styles.sheetHead}>
+                            <Tappable
+                              feedback="opacity"
+                              accessibilityRole="button"
+                              accessibilityLabel={t("map.ride.back")}
+                              onPress={openRides}
+                              style={styles.backBtn}
+                            >
+                              <Ionicons
+                                name="chevron-back"
+                                size={20}
+                                color={theme.text}
+                              />
+                              <ThemedText
+                                type="smallBold"
+                                style={styles.backText}
+                              >
+                                {t("map.rides.title")}
+                              </ThemedText>
+                            </Tappable>
+                            <ThemedText
+                              type="smallBold"
+                              numberOfLines={1}
+                              accessibilityRole="header"
+                              style={styles.rideTitle}
+                            >
+                              {rideTitle}
+                            </ThemedText>
+                            <CloseButton
+                              label={t("map.rides.close")}
+                              onPress={closeRides}
+                            />
+                          </View>
+                        )}
                       </View>
 
-                      {
+                      {stage === "live" && (
                         <View style={styles.statsRow}>
                           <Stat
                             label={t("map.speed")}
                             value={
-                              statPoint
-                                ? (statPoint.speed * 3.6).toFixed(0)
+                              online && liveLoc
+                                ? (liveLoc.speed * 3.6).toFixed(0)
                                 : "—"
                             }
                             unit="km/h"
                           />
                           <Stat
-                            label={t("map.distance")}
-                            value={(distanceMeters / 1000).toFixed(1)}
+                            label={t("map.rideDistance")}
+                            value={
+                              !online
+                                ? "—"
+                                : currentRide
+                                  ? formatKm(currentRide.distanceMeters)
+                                  : recent.isSuccess
+                                    ? "0.0"
+                                    : "—"
+                            }
                             unit="km"
                           />
                           <Stat
                             label={t("map.altitude")}
                             value={
-                              statPoint?.altitude != null
-                                ? statPoint.altitude.toFixed(0)
+                              online && liveLoc?.altitude != null
+                                ? liveLoc.altitude.toFixed(0)
                                 : "—"
                             }
                             unit="m"
                           />
                           <Stat
-                            label={t("map.battery")}
+                            label={t(
+                              online ? "map.battery" : "map.batteryLast",
+                            )}
                             value={
                               device.battery != null
                                 ? String(device.battery)
                                 : "—"
                             }
                             unit="%"
-                            valueColor={theme.brand}
+                            valueColor={
+                              online ? theme.brand : theme.textSecondary
+                            }
                           />
                         </View>
-                      }
+                      )}
+
+                      {stage === "ride" && (
+                        <View style={styles.statsRow}>
+                          <Stat
+                            label={t("map.distance")}
+                            value={
+                              summary ? formatKm(summary.distanceMeters) : "—"
+                            }
+                            unit="km"
+                          />
+                          <Stat
+                            label={t("map.ride.duration")}
+                            value={duration ? duration.value : "—"}
+                            unit={t(
+                              duration?.unit === "h"
+                                ? "ride.hours"
+                                : "ride.minutes",
+                            )}
+                          />
+                          <Stat
+                            label={t("map.ride.max")}
+                            value={
+                              summary?.maxSpeed != null
+                                ? (summary.maxSpeed * 3.6).toFixed(0)
+                                : "—"
+                            }
+                            unit="km/h"
+                          />
+                          <Stat
+                            label={t("map.ride.avg")}
+                            value={avgKmh !== null ? avgKmh.toFixed(0) : "—"}
+                            unit="km/h"
+                          />
+                        </View>
+                      )}
                     </View>
                   </GestureDetector>
 
-                  {
-                    <View style={styles.actionRow}>
+                  {stage === "live" && (
+                    <Reanimated.View
+                      entering={FadeIn.duration(180)}
+                      style={styles.actionRow}
+                    >
                       <SecondaryButton
                         compact
-                        title={t("map.history")}
-                        icon="time-outline"
-                        onPress={toggleHistory}
+                        title={t("map.rides.title")}
+                        icon="trail-sign-outline"
+                        onPress={openRides}
                         style={styles.flex1}
                       />
-                      <PrimaryButton
-                        compact
-                        title={t("map.navigate")}
-                        icon="navigate"
-                        onPress={navigateTo}
-                        disabled={!sharePos}
-                        style={styles.flex1}
-                      />
-                    </View>
-                  }
-
-                  {historyOpen && (
-                    <>
-                      <View
-                        style={[
-                          styles.divider,
-                          { backgroundColor: theme.border },
-                        ]}
-                      />
-
-                      <View style={styles.replayHeader}>
-                        <ThemedText
-                          type="smallBold"
-                          themeColor="textSecondary"
-                          style={styles.panelTitle}
-                        >
-                          {t("map.replay")}
-                        </ThemedText>
-                        <ThemedText
-                          type="small"
-                          themeColor="textSecondary"
-                          style={styles.panelMeta}
-                        >
-                          {canReplay ? (
-                            <>
-                              <ThemedText
-                                type="small"
-                                themeColor="brand"
-                                style={styles.panelMeta}
-                              >
-                                {formatClock(replayElapsedMs)}
-                              </ThemedText>
-                              {" / "}
-                              {formatClock(trackEndMs - trackStartMs)}
-                            </>
-                          ) : track.isLoading ? (
-                            t("map.loadingTrack")
-                          ) : (
-                            t("map.noTrack")
-                          )}
-                        </ThemedText>
-                      </View>
-
-                      <View style={styles.chipRow}>
-                        <Chip
-                          label={`${dayLabel(dayOffset, t)} ▾`}
-                          active={dayOffset > 0}
-                          onPress={() => setDateOpen((v) => !v)}
+                      {online ? (
+                        <SecondaryButton
+                          compact
+                          title={t("map.share")}
+                          icon="share-outline"
+                          onPress={shareLocation}
+                          disabled={!livePos}
+                          style={styles.flex1}
                         />
-                        {RANGE_OPTIONS.map((h) => (
-                          <Chip
-                            key={h}
-                            label={`${h}h`}
-                            active={dayOffset === 0 && range === h}
-                            disabled={dayOffset > 0}
-                            onPress={() => setRange(h)}
-                          />
-                        ))}
-                        {/* 实时/回放状态放在这一行最右（负责人 2026-09-26 定的样式）：
-                            不占进度条那一行的位置；实时 = 绿色呼吸点·实时，回放 = 红色「回到实时」可点 */}
-                        {replayIdx !== null ? (
-                          <Tappable
-                            hitSlop={8}
-                            accessibilityRole="button"
-                            style={[
-                              styles.liveSlot,
-                              styles.backToLive,
-                              {
-                                backgroundColor: theme.dangerBg,
-                                borderColor: theme.danger,
-                              },
-                            ]}
-                            onPress={exitReplay}
-                          >
-                            <ThemedText
-                              type="smallBold"
-                              themeColor="danger"
-                              style={styles.chipText}
-                            >
-                              {t("map.backToLive")}
-                            </ThemedText>
-                          </Tappable>
-                        ) : (
-                          <View style={styles.liveSlot}>
-                            <PulseDot color={theme.success} size={7} active />
-                            <ThemedText
-                              type="small"
-                              themeColor="textSecondary"
-                              style={styles.chipText}
-                            >
-                              {t("map.liveNow")}
-                            </ThemedText>
-                          </View>
-                        )}
-                      </View>
-
-                      {dateOpen && (
-                        <View style={styles.chipRow}>
-                          {DAY_OFFSETS.map((d) => (
-                            <Chip
-                              key={d}
-                              label={dayLabel(d, t)}
-                              active={dayOffset === d}
-                              onPress={() => {
-                                setDayOffset(d);
-                                setDateOpen(false);
-                              }}
-                            />
-                          ))}
-                        </View>
+                      ) : (
+                        <PrimaryButton
+                          compact
+                          title={t("map.navigateLast")}
+                          renderIcon={AmapNavIcon}
+                          onPress={navigateTo}
+                          disabled={!livePos}
+                          style={styles.flex1}
+                        />
                       )}
+                    </Reanimated.View>
+                  )}
 
-                      <View style={styles.replayRow}>
-                        <Tappable
-                          accessibilityRole="button"
-                          accessibilityLabel={t(
-                            playing ? "map.pause" : "map.play",
-                          )}
-                          style={[
-                            styles.playBtn,
-                            {
-                              borderColor: canReplay
-                                ? theme.brand
-                                : theme.border,
-                            },
-                          ]}
-                          onPress={togglePlay}
-                          disabled={!canReplay}
-                        >
-                          <Ionicons
-                            name={playing ? "pause" : "play"}
-                            size={16}
-                            color={
-                              canReplay ? theme.brand : theme.textSecondary
-                            }
-                          />
-                        </Tappable>
-                        <Tappable
-                          accessibilityRole="button"
-                          style={[
-                            styles.speedBtn,
-                            { backgroundColor: theme.backgroundSelected },
-                          ]}
-                          disabled={!canReplay}
-                          onPress={() =>
-                            setSpeed((v) => (v === 1 ? 2 : v === 2 ? 4 : 1))
-                          }
-                        >
-                          <ThemedText
-                            type="smallBold"
-                            style={[
-                              styles.chipText,
-                              {
-                                color:
-                                  speed > 1 ? theme.brand : theme.textSecondary,
-                              },
-                            ]}
-                          >
-                            ×{speed}
-                          </ThemedText>
-                        </Tappable>
-                        <View style={styles.seekColumn}>
-                          <SeekBar
-                            ratio={replayRatio}
-                            accent={theme.brand}
-                            trackColor={theme.backgroundSelected}
-                            onSeek={(r) => {
-                              if (!canReplay) return;
-                              setPlaying(false);
-                              setReplayIdx(
-                                Math.round(r * (gcjPath.length - 1)),
-                              );
-                            }}
-                          />
-                          <View style={styles.seekLabels}>
-                            <ThemedText
-                              type="small"
-                              themeColor="textSecondary"
-                              style={styles.seekLabel}
-                            >
-                              00:00
-                            </ThemedText>
-                            <ThemedText
-                              type="small"
-                              themeColor="textSecondary"
-                              style={styles.seekLabel}
-                            >
-                              {canReplay
-                                ? formatClock(trackEndMs - trackStartMs)
-                                : "--:--"}
-                            </ThemedText>
-                          </View>
-                        </View>
-                      </View>
+                  {stage === "list" && calendar && (
+                    <Reanimated.View entering={FadeIn.duration(180)}>
+                      <RideCalendar
+                        height={listHeight}
+                        month={calendar.month}
+                        min={floorMonth}
+                        max={calendar.max}
+                        todayKey={calendar.todayKey}
+                        status={monthStatus}
+                        stats={calendarStats ?? NO_DAY_STATS}
+                        selectedDayKey={
+                          rideFilter.kind === "day" ? rideFilter.dayKey : null
+                        }
+                        filtered={rideFilter.kind !== "all"}
+                        onMonth={(month) => setCalendar({ ...calendar, month })}
+                        onPickDay={(dayKey) => {
+                          setRideFilter({
+                            kind: "day",
+                            month: calendar.month,
+                            dayKey,
+                          });
+                          setCalendar(null);
+                        }}
+                        onPickMonth={() => {
+                          setRideFilter({
+                            kind: "month",
+                            month: calendar.month,
+                          });
+                          setCalendar(null);
+                        }}
+                        onShowAll={showAllRides}
+                        onRetry={() => void monthQuery.refetch()}
+                      />
+                    </Reanimated.View>
+                  )}
 
-                      {track.data?.truncated && (
-                        <ThemedText
-                          type="small"
-                          themeColor="textSecondary"
-                          style={styles.note}
-                        >
-                          {t("map.truncated", {
-                            shown: MAX_TRACK_PAGES * TRACK_PAGE_SIZE,
-                            total: track.data.total,
-                          })}
-                        </ThemedText>
+                  {stage === "list" && !calendar && (
+                    <Reanimated.View
+                      // 换了筛选整块重新淡入：列表里的内容全换了
+                      key={
+                        rideFilter.kind === "all"
+                          ? "all"
+                          : rideFilter.kind === "day"
+                            ? rideFilter.dayKey
+                            : `${rideFilter.month.year}-${rideFilter.month.month}`
+                      }
+                      entering={FadeIn.duration(180)}
+                    >
+                      {rideFilter.kind === "all" ? (
+                        <RideList
+                          height={listHeight}
+                          status={listStatus}
+                          days={days}
+                          onRetry={() => void pages.refetch()}
+                          onPick={pickRide}
+                          older={older}
+                          loadingOlder={pages.isFetchingNextPage}
+                          olderFailed={pages.isFetchNextPageError}
+                          onLoadOlder={() => void pages.fetchNextPage()}
+                        />
+                      ) : (
+                        <RideList
+                          height={listHeight}
+                          status={filteredStatus}
+                          days={filteredDays}
+                          onRetry={() => void monthQuery.refetch()}
+                          onPick={pickRide}
+                          older={null}
+                          loadingOlder={false}
+                          olderFailed={false}
+                          onLoadOlder={showAllRides}
+                          onShowAll={showAllRides}
+                        />
                       )}
-                    </>
+                    </Reanimated.View>
+                  )}
+
+                  {stage === "ride" && (
+                    <Reanimated.View entering={FadeIn.duration(180)}>
+                      <RideReplay
+                        status={trackStatus}
+                        points={ridePoints}
+                        clipped={rideWindow?.clipped ?? false}
+                        events={replayEvents}
+                        moreEvents={moreEvents}
+                        eventsFailed={rideEvents.isError}
+                        activeEventKey={activeEvent?.key ?? null}
+                        replayIdx={replayIdx}
+                        playing={playing}
+                        speed={speed}
+                        note={replayNote}
+                        onTogglePlay={togglePlay}
+                        onCycleSpeed={() =>
+                          setSpeed((v) => (v === 1 ? 2 : v === 2 ? 4 : 1))
+                        }
+                        onSeek={seekTo}
+                        onRetry={() => {
+                          void rideTrack.refetch();
+                          if (rideEvents.isError) void rideEvents.refetch();
+                        }}
+                        onRetryEvents={() => void rideEvents.refetch()}
+                      />
+                    </Reanimated.View>
                   )}
                 </View>
               </View>
@@ -1241,6 +1632,16 @@ export default function MapScreen() {
           </GestureDetector>
         </Animated.View>
       )}
+
+      <HelmetPicker
+        visible={pickerOpen && canPick}
+        devices={deviceList}
+        links={links}
+        viewedId={deviceId}
+        currentId={currentId}
+        onPick={pickHelmet}
+        onClose={() => setPickerOpen(false)}
+      />
     </View>
   );
 }
@@ -1264,14 +1665,23 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+    minHeight: 44,
     borderRadius: Radius.pill,
     borderWidth: 1,
     paddingVertical: 9,
     paddingLeft: 12,
-    paddingRight: 14,
-    maxWidth: "70%",
+    paddingRight: 12,
+    maxWidth: "86%",
   },
   pillName: { fontSize: 15, flexShrink: 1 },
+  pillTag: {
+    height: 20,
+    paddingHorizontal: 7,
+    borderRadius: 10,
+    justifyContent: "center",
+  },
+  pillTagText: { fontSize: 11, lineHeight: 14, fontWeight: 700 },
+  pillAction: { fontSize: 13, lineHeight: 18 },
   liveDot: { width: 10, height: 10, borderRadius: 5 },
   banner: {
     flexDirection: "row",
@@ -1283,25 +1693,7 @@ const styles = StyleSheet.create({
     maxWidth: "100%",
   },
   bannerText: { fontSize: 13, lineHeight: 18, flexShrink: 1 },
-  devicePicker: {
-    position: "absolute",
-    left: 14,
-    minWidth: 220,
-    borderRadius: Radius.card,
-    borderWidth: 1,
-    paddingVertical: 4,
-    overflow: "hidden",
-    zIndex: 30,
-    elevation: 12,
-  },
-  pickerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    minHeight: 44,
-  },
+  miniBar: { alignSelf: "stretch" },
   emptyWrap: {
     position: "absolute",
     top: 0,
@@ -1327,9 +1719,9 @@ const styles = StyleSheet.create({
   emptyBtn: { alignSelf: "stretch", marginTop: 10 },
   sideStack: { alignSelf: "flex-end", gap: 10, marginBottom: 12 },
   roundBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -1359,24 +1751,59 @@ const styles = StyleSheet.create({
   cardHeader: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
     gap: 8,
-  },
-  headerLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    flex: 1,
-    minWidth: 0,
+    minHeight: 32,
   },
   statusChip: {
     borderRadius: Radius.pill,
     paddingHorizontal: 10,
-    paddingVertical: 3,
+    paddingVertical: 4,
   },
-  statusChipText: { fontSize: 12, lineHeight: 16 },
-  caption: { fontSize: 12, lineHeight: 16, flexShrink: 1 },
-  captionRight: { fontSize: 12, lineHeight: 16 },
+  statusChipText: { fontSize: 13, lineHeight: 18 },
+  caption: { fontSize: 13, lineHeight: 18, flex: 1, minWidth: 0 },
+  sheetHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    minHeight: 44,
+  },
+  sheetTitle: { fontSize: 20, lineHeight: 26 },
+  headTools: { flexDirection: "row", alignItems: "center", gap: 8 },
+  datePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    height: 36,
+    maxWidth: 190,
+    paddingHorizontal: 12,
+    borderRadius: 18,
+  },
+  datePillText: { fontSize: 14, lineHeight: 20, flexShrink: 1 },
+  closeBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  backBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    height: 44,
+    marginLeft: -6,
+    paddingRight: 8,
+  },
+  backText: { fontSize: 15, lineHeight: 20 },
+  rideTitle: {
+    flex: 1,
+    minWidth: 0,
+    textAlign: "center",
+    fontSize: 15,
+    lineHeight: 20,
+    fontVariant: ["tabular-nums"],
+  },
   statsRow: { flexDirection: "row", gap: 8 },
   stat: { flex: 1, gap: 4, minWidth: 0 },
   statLabel: { fontSize: 12, lineHeight: 16 },
@@ -1384,71 +1811,4 @@ const styles = StyleSheet.create({
   statValue: { fontSize: 24, lineHeight: 28, fontWeight: 600, flexShrink: 1 },
   statUnit: { fontSize: 12, lineHeight: 16 },
   actionRow: { flexDirection: "row", gap: 10 },
-  divider: { height: StyleSheet.hairlineWidth, alignSelf: "stretch" },
-  replayHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  panelTitle: { fontSize: 13 },
-  panelMeta: { fontSize: 12, lineHeight: 16, fontVariant: ["tabular-nums"] },
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  // 触控最小 32px 高：7px 上下内边距 + 18px 行高
-  chip: {
-    borderRadius: Radius.pill,
-    paddingVertical: 7,
-    paddingHorizontal: 12,
-    minHeight: 32,
-    justifyContent: "center",
-  },
-  chipText: { fontSize: 13, lineHeight: 18 },
-  replayRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  playBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 1.5,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  speedBtn: {
-    borderRadius: Radius.pill,
-    paddingHorizontal: 10,
-    minWidth: 40,
-    minHeight: 32,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  seekColumn: { flex: 1, gap: 2 },
-  seekLabels: { flexDirection: "row", justifyContent: "space-between" },
-  seekLabel: { fontSize: 11, lineHeight: 14 },
-  // 「回到实时」要像个按钮：红边 + 淡红底的药丸，用户一眼知道能点（负责人 2026-09-26）
-  backToLive: {
-    borderWidth: 1,
-    borderRadius: Radius.pill,
-    paddingHorizontal: 10,
-  },
-  liveSlot: {
-    marginLeft: "auto",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    minHeight: 28,
-    paddingHorizontal: 4,
-  },
-  note: { fontSize: 12, lineHeight: 16 },
-  seekTouch: { flex: 1, height: 28, justifyContent: "center" },
-  // 轨道两端内缩点半径：点的可动范围 = 轨道范围，0%/100% 不出界
-  seekRail: { marginHorizontal: THUMB_R, justifyContent: "center" },
-  seekTrack: { height: 4, borderRadius: 2, overflow: "hidden" },
-  seekFill: { height: 4, borderRadius: 2 },
-  seekThumb: {
-    position: "absolute",
-    width: THUMB_R * 2,
-    height: THUMB_R * 2,
-    borderRadius: THUMB_R,
-    marginLeft: -THUMB_R,
-    top: "50%",
-    marginTop: -THUMB_R,
-  },
 });

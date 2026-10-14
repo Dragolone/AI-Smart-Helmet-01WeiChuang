@@ -89,6 +89,9 @@ docker compose -f docker-compose.prod.yml logs -f backend
 ```bash
 docker compose -f docker-compose.prod.yml exec backend npm run create:admin       # 密码只显示一次
 docker compose -f docker-compose.prod.yml exec backend npm run provision:device   # deviceSecret 只显示一次
+# 第二顶常驻 Mock（真机多设备回归，2026-10-08）：再开一台 → 填 MOCK2_DEVICE_* → COMPOSE_PROFILES=demo,demo2 → up -d --build mock2
+# 注意：`up -d --build mock2` 会连带重建 backend；backend 重启那十几秒里新连上的 MQTT 客户端（刚起的 mock）会被 EMQX 把
+# ACL 结果缓存成「拒绝」——日志「订阅 cmd 失败」、事件 not_authorized、设备一直离线。backend 起稳后 `restart mock2` 即可
 docker compose -f docker-compose.prod.yml exec backend npm run provision:batch -- --count 20   # 产线批量开通:CSV + 二维码,产物在容器 /repo/backend/provision-out/
 docker compose -f docker-compose.prod.yml cp backend:/repo/backend/provision-out ./provision-out   # 拷出后交接,两边都销毁
 ```
@@ -232,7 +235,7 @@ docker compose -f docker-compose.prod.yml exec -T postgres pg_restore -U helmet 
 
 | # | 步骤 | 谁 | 说明 |
 |---|------|----|------|
-| 1 | DNS 加三条 A 记录 `api` / `admin` / `mqtt.01weichuang.com` → 111.230.157.151 | 负责人 | **现在就能加,不影响现网**;`dev-` 三条保留。App 备案填服务域名 `api.01weichuang.com` 也以此为准 |
+| 1 | ✅ DNS 加三条 A 记录 `api` / `admin` / `mqtt.01weichuang.com` → 111.230.157.151(2026-10-12 已加并核对生效) | 负责人 | **现在就能加,不影响现网**;`dev-` 三条保留。App 备案填服务域名 `api.01weichuang.com` 也以此为准 |
 | 2 | 定切换日 | 负责人 | 建议在 A 线回归完成之后、首次提交商店审核之前 |
 | 3 | 切换前手动备份一次 | B 线 | `sh backup.sh`,确认 COS `backups/` 有新对象(§4 #9) |
 | 4 | 清空测试数据 | B 线 | 当前库里全是测试账号与 Mock 轨迹,正式用户不该看到。`docker compose -f docker-compose.prod.yml stop backend mock` → `exec postgres dropdb -U helmet helmet` → `exec postgres createdb -U helmet helmet` → `up -d`(backend 启动时自动 `prisma migrate deploy` 建表)。**只删库不删卷**,EMQX / Caddy 证书不受影响 |

@@ -215,6 +215,16 @@ describe('紧急联系人 (e2e)', () => {
       .send({ phone: 'not-a-phone' })
       .expect(400);
 
+    // null 不是「没传」：必填列写 null 原先在 Prisma 那里炸成 500
+    for (const body of [{ name: null }, { phone: null }]) {
+      const bad = await request(http)
+        .patch(`${BASE}/${target.id}`)
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .send(body)
+        .expect(400);
+      expect(bad.body.code).toBe('VALIDATION_FAILED');
+    }
+
     // whitelist：未知字段静默剥除，其余字段照常生效
     const res = await request(http)
       .patch(`${BASE}/${target.id}`)

@@ -25,13 +25,16 @@ describe("安全页 app/(tabs)/safety.tsx", () => {
   const src = read("app/(tabs)/safety.tsx");
 
   it("长按求救：一次长按一个 eventId，失败按原 eventId 进持久队列，成功立刻核对拉起倒计时页", () => {
-    expect(src).toContain('buildRelayEnvelope(sosTarget, "manual_sos", {})');
-    expect(src).toMatch(/\.then\(\(\) => notifyCriticalAccepted\(sosTarget\)\)/);
+    // 10-07 安全页改版后目标变量名是 sosTargetId（sosTarget 是设备对象）
+    expect(src).toContain('buildRelayEnvelope(sosTargetId, "manual_sos", {})');
+    expect(src).toMatch(/\.then\(\(\) => notifyCriticalAccepted\(sosTargetId\)\)/);
     expect(src).toMatch(/enqueueRelayEvent\(envelope as EventEnvelope<EventType>\)/);
-    expect(src).not.toContain('pushEvent(sosTarget, "manual_sos"');
+    expect(src).not.toContain('pushEvent(sosTargetId, "manual_sos"');
   });
 
   it("30 s 轮询的 /sos/active 结果过终态守卫，迟到的 pending 不让卡片回潮", () => {
-    expect(src).toMatch(/guardActiveResult\(queryClient, await sosApi\.active\(id\)\)/);
+    // 10-07 安全页改版后轮询收进 hooks/use-safety.ts 的 usePendingSos
+    const hook = read("hooks/use-safety.ts");
+    expect(hook).toMatch(/guardActiveResult\(queryClient, await sosApi\.active\(id\)\)/);
   });
 });

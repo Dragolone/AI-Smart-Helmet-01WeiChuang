@@ -72,6 +72,7 @@ describe('BLE 下行命令链：WS device_command + relay-ack (e2e)', () => {
   const deviceId = `e2e_relay_${Date.now()}`;
   const otherDeviceId = `e2e_relay_other_${Date.now()}`;
   let ownerToken: string;
+  let ownerId: string;
   let otherToken: string;
   const sockets: WebSocket[] = [];
 
@@ -161,6 +162,11 @@ describe('BLE 下行命令链：WS device_command + relay-ack (e2e)', () => {
       return res.body.accessToken as string;
     };
     ownerToken = await register();
+    ownerId = (
+      JSON.parse(
+        Buffer.from(ownerToken.split('.')[1], 'base64url').toString('utf-8'),
+      ) as { sub: string }
+    ).sub;
     otherToken = await register();
     await request(http)
       .post('/api/v1/devices/bind')
@@ -212,7 +218,11 @@ describe('BLE 下行命令链：WS device_command + relay-ack (e2e)', () => {
 
   it('连接补推：pending+delivered 按 issuedAt 升序推；offline/终态不推', async () => {
     // 预置四种状态各一条（直接入库，绕过下发路径以精确控制状态与时序）
-    const seed = async (status: string, at: Date): Promise<string> => {
+    const seed = async (
+      status: string,
+      at: Date,
+      issuedBy: string = ownerId,
+    ): Promise<string> => {
       const c = await prisma.deviceCommand.create({
         data: {
           deviceId,
@@ -220,6 +230,7 @@ describe('BLE 下行命令链：WS device_command + relay-ack (e2e)', () => {
           params: { seeded: status },
           status,
           issuedAt: at,
+          issuedBy,
         },
       });
       return c.id;
@@ -229,6 +240,8 @@ describe('BLE 下行命令链：WS device_command + relay-ack (e2e)', () => {
     const deliveredId = await seed('delivered', new Date(t0 - 2000));
     await seed('offline', new Date(t0 - 1000));
     await seed('success', new Date(t0));
+    // 上一位主人没执行完的命令（换绑后 30 s 内）：不由新主人的 App 写进头盔（2026-10-14）
+    await seed('pending', new Date(t0 - 2500), 'previous_owner');
 
     const ws = await connectWs(ownerToken);
     const messages = (await collectMessages(ws, 800)).filter(

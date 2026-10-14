@@ -15,19 +15,54 @@ export interface JPushConfig {
   apnsProduction: boolean;
   apiUrl: string;
   timeoutMs: number;
+  /**
+   * 厂商通道参数（极光 v3/push 的 `options.third_party_channel`，原样透传）：App 被杀后 Android 只能靠
+   * 华为 / 小米等厂商通道送达，而厂商按消息分类限流——SOS 要登记成系统级 / 提醒类消息才不被当营销消息
+   * 压掉。各家键名不同（华为 `importance` / `category`，小米 `channel_id`，vivo `classification` / `category`），
+   * 由 `JPUSH_THIRD_PARTY_CHANNEL`（JSON）给出，厂商后台申请到什么就填什么，不用改代码。
+   */
+  thirdPartyChannel?: Record<string, unknown>;
 }
+
+/**
+ * `JPUSH_THIRD_PARTY_CHANNEL`：JSON 对象，键是厂商（huawei / xiaomi / oppo / vivo / honor），值原样透传给极光。
+ * 不是合法 JSON 对象时整体忽略并出声——宁可少带参数（走极光自有通道），不能让一次解析错误拖垮推送。
+ */
+export const thirdPartyChannelFromEnv = ():
+  Record<string, unknown> | undefined => {
+  const raw = process.env.JPUSH_THIRD_PARTY_CHANNEL?.trim();
+  if (!raw) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      !Array.isArray(parsed)
+    ) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // 下面统一出声
+  }
+  new Logger('JPushProvider').error(
+    'JPUSH_THIRD_PARTY_CHANNEL 不是合法的 JSON 对象，已忽略：Android 被杀状态下的 SOS 推送将只走极光自有通道',
+  );
+  return undefined;
+};
 
 /** 从环境变量读取；AppKey 或 Master Secret 缺失返回 null → ProvidersModule 回落 Console Mock */
 export const jpushConfigFromEnv = (): JPushConfig | null => {
   const appKey = process.env.JPUSH_APP_KEY;
   const masterSecret = process.env.JPUSH_MASTER_SECRET;
   if (!appKey || !masterSecret) return null;
+  const thirdPartyChannel = thirdPartyChannelFromEnv();
   return {
     appKey,
     masterSecret,
     apnsProduction: process.env.JPUSH_APNS_PRODUCTION === 'true',
     apiUrl: process.env.JPUSH_API_URL || 'https://api.jpush.cn/v3/push',
     timeoutMs: envPositiveInt('PUSH_SEND_TIMEOUT_MS', 10_000),
+    ...(thirdPartyChannel ? { thirdPartyChannel } : {}),
   };
 };
 
@@ -57,6 +92,7 @@ export const buildJPushBody = (
   data: Record<string, string> | undefined,
   apnsProduction: boolean,
   options?: PushOptions,
+  thirdPartyChannel?: Record<string, unknown>,
 ): Record<string, unknown> => ({
   platform: 'all',
   audience: { alias: [userId] },
@@ -79,6 +115,7 @@ export const buildJPushBody = (
     // 离线保留一天：SOS 到期通知过了一天再送到已无意义
     time_to_live: 86_400,
     apns_production: apnsProduction,
+    ...(thirdPartyChannel ? { third_party_channel: thirdPartyChannel } : {}),
   },
 });
 
@@ -117,6 +154,7 @@ export class JPushProvider implements PushProvider {
             data,
             this.config.apnsProduction,
             options,
+            this.config.thirdPartyChannel,
           ),
         ),
         signal: controller.signal,

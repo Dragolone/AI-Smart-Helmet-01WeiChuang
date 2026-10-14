@@ -55,7 +55,7 @@ describe('审计 §7：三入口等价 / 坏输入矩阵 / 中断与故障 (e2e)
     ingest.ingestRaw(JSON.stringify(env), id, 'mqtt');
 
   const rawByEventId = (eventId: string) =>
-    prisma.rawEvent.findUnique({ where: { eventId } });
+    prisma.rawEvent.findFirst({ where: { eventId } });
 
   beforeAll(async () => {
     process.env.SOS_SCAN_INTERVAL_MS = '600000';
@@ -682,7 +682,7 @@ describe('审计 §7：三入口等价 / 坏输入矩阵 / 中断与故障 (e2e)
         where: { eventId: { in: bad.map((e) => e.eventId as string) } },
       });
       expect(badPoints).toBe(0);
-      const goodPoint = await prisma.locationPoint.findUnique({
+      const goodPoint = await prisma.locationPoint.findFirst({
         where: { eventId: good.eventId as string },
       });
       expect(goodPoint?.latitude).toBe(0);
@@ -863,7 +863,7 @@ describe('审计 §7：三入口等价 / 坏输入矩阵 / 中断与故障 (e2e)
       const cases = await prisma.sosCase.findMany({
         where: { deviceId, triggerEventId: fall.eventId as string },
       });
-      const point = await prisma.locationPoint.findUnique({
+      const point = await prisma.locationPoint.findFirst({
         where: { eventId: loc.eventId as string },
       });
       const after = await prisma.device.findUniqueOrThrow({

@@ -112,7 +112,7 @@ describe('审计 §4 SOS 故障注入 (e2e, 手动 tick)', () => {
     // 第一次抛错、第二次成功：瞬断被进程内重试吸收
     expect(fault.calls).toBe(2);
     expect(
-      await prisma.rawEvent.findUnique({ where: { eventId } }),
+      await prisma.rawEvent.findFirst({ where: { eventId } }),
     ).not.toBeNull();
     expect(await sosByEvent(prisma, eventId)).not.toBeNull();
     expect(pushCallsTitled(mocks, 'SOS 倒计时已开始')).toHaveLength(1);
@@ -179,7 +179,7 @@ describe('审计 §4 SOS 故障注入 (e2e, 手动 tick)', () => {
     }
     expect(fault.calls).toBe(1);
     expect(
-      await prisma.rawEvent.findUnique({ where: { eventId } }),
+      await prisma.rawEvent.findFirst({ where: { eventId } }),
     ).not.toBeNull();
     // 口径（决策 #26 ③）：都无则空快照照建单——副表查询失败不应阻断建单
     const c = await sosByEvent(prisma, eventId);

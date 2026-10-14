@@ -74,18 +74,19 @@ export class EventsService {
 
   /** 事件详情（§6）：原样 payload + 关联媒体；归属按事件所属设备的当前绑定判定 */
   async detail(userId: string, eventId: string): Promise<EventDetail> {
-    const event = await this.prisma.rawEvent.findUnique({
-      where: { eventId },
-    });
-    if (!event || event.eventType === INVALID_EVENT_TYPE) {
-      throw eventNotFound();
-    }
-    const device = await this.prisma.device.findUnique({
-      where: { deviceId: event.deviceId },
-      select: { bindUserId: true },
-    });
+    // eventId 只在设备内唯一（决策 #54）：按「本人当前绑定的设备」找，别人设备上同号的事件不在范围内。
     // 与列表同口径：非本人绑定设备、或不在本人绑定区间内的事件一律 404，不泄露存在性
-    if (!device || device.bindUserId !== userId) {
+    const owned = await this.prisma.device.findMany({
+      where: { bindUserId: userId },
+      select: { deviceId: true },
+    });
+    const event =
+      owned.length === 0
+        ? null
+        : await this.prisma.rawEvent.findFirst({
+            where: { eventId, deviceId: { in: owned.map((d) => d.deviceId) } },
+          });
+    if (!event || event.eventType === INVALID_EVENT_TYPE) {
       throw eventNotFound();
     }
     const intervals = await this.scope.intervals(event.deviceId, userId);

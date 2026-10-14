@@ -200,6 +200,28 @@ describe('媒体元数据与预签名 URL (e2e)', () => {
     expect(res.body.code).toBe('MEDIA_NOT_READY');
   });
 
+  it('storageKey 指向数据库备份（同桶 backups/ 前缀）或带 ..：不签名，404（2026-10-14）', async () => {
+    for (const [videoId, storageKey] of [
+      ['vid_backup', 'backups/helmet_20261014T030000Z.dump'],
+      ['vid_backup_slash', '/backups/helmet_20261014T030000Z.dump'],
+      ['vid_dotdot', `mock/${deviceId}/../../backups/x.dump`],
+    ]) {
+      await ingest.ingestRaw(
+        envelope('video_ready', { videoId, storageKey }),
+        deviceId,
+        'mqtt',
+      );
+      const row = await prisma.media.findFirstOrThrow({
+        where: { deviceId, videoId },
+      });
+      const res = await request(http)
+        .get(`/api/v1/media/${row.id}/url`)
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .expect(404);
+      expect(res.body.code).toBe('NOT_FOUND');
+    }
+  });
+
   it('归属：他人换 URL → 404（不泄露存在性）；未登录 401；不存在的 mediaId 404', async () => {
     const mediaRow = await prisma.media.findFirstOrThrow({
       where: { deviceId, videoId: 'vid_001' },

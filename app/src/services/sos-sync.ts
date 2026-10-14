@@ -17,6 +17,7 @@ export type SosSyncDeps = {
     sosId: string,
     deviceId: string,
     deadline: string,
+    triggeredAt?: string,
   ) => void;
   clearLockScreenAlert: (sosId: string) => void;
   log?: (message: string) => void;
@@ -67,7 +68,12 @@ export function applySosUpdate(
   qc.setQueryData(["sos", sos.sosId], sos);
   if (sos.status === "pending") {
     if (present(sos, presented, deps)) {
-      deps.showLockScreenAlert(sos.sosId, sos.deviceId, sos.deadline);
+      deps.showLockScreenAlert(
+        sos.sosId,
+        sos.deviceId,
+        sos.deadline,
+        sos.triggeredAt,
+      );
     }
     return;
   }
@@ -98,7 +104,12 @@ export async function resumePendingSos(
     if (isFinal(qc, sos.sosId)) continue;
     qc.setQueryData<ActiveSosResponse>(["sos-active", deviceId], { sos });
     qc.setQueryData(["sos", sos.sosId], sos);
-    deps.showLockScreenAlert(sos.sosId, deviceId, sos.deadline);
+    deps.showLockScreenAlert(
+      sos.sosId,
+      deviceId,
+      sos.deadline,
+      sos.triggeredAt,
+    );
     found.push(sos.sosId);
     if (present({ sosId: sos.sosId, deviceId }, presented, deps)) {
       deps.log?.(`${reason}发现进行中 SOS ${sos.sosId}`);
@@ -126,7 +137,12 @@ export function alertPendingOnBackground(
     ])?.sos;
     if (!active || active.status !== "pending") continue;
     if (isFinal(qc, active.sosId)) continue;
-    deps.showLockScreenAlert(active.sosId, deviceId, active.deadline);
+    deps.showLockScreenAlert(
+      active.sosId,
+      deviceId,
+      active.deadline,
+      active.triggeredAt,
+    );
     n += 1;
   }
   return n;
