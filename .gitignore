@@ -59,3 +59,6 @@ app/modules/*/android/build/
 
 # 批量开通产物（provision:batch）：含 deviceSecret 的 CSV 与二维码，交接后销毁
 backend/provision-out/
+
+# 不带斜杠才同时挡住 node_modules 软链（worktree 里把 node_modules 做成软链时，`node_modules/` 只匹配目录，2026-10-14 误提交过一次）
+node_modules
