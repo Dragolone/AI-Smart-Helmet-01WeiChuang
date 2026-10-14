@@ -218,12 +218,15 @@ export class AuthService {
     this.logger.log(`用户 ${userId} 已修改密码，其他会话已撤销`);
   }
 
-  /** 换绑手机号（已登录）：新号未注册 → 校验并消费发往新号的 change_phone 验证码 → 改号。 */
+  /** 换绑手机号（已登录）：当前密码正确 → 新号未注册 → 校验并消费发往新号的 change_phone 验证码 → 改号。 */
   async changePhone(
     userId: string,
     newPhone: string,
     code: string,
+    password: string,
   ): Promise<SafeUser> {
+    // 先验密码再查号：密码不对时不消费验证码，也不泄露新号是否已注册
+    await this.verifyPassword(userId, password);
     const taken = await this.prisma.user.findUnique({
       where: { phone: newPhone },
       select: { id: true },

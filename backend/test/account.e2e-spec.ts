@@ -172,7 +172,7 @@ describe('账号与安全 (e2e)', () => {
     it('未登录 → 401', async () => {
       await request(http)
         .post('/api/v1/auth/change-phone')
-        .send({ newPhone, code: lastCodeFor(app, newPhone) })
+        .send({ newPhone, code: lastCodeFor(app, newPhone), password })
         .expect(401);
     });
 
@@ -182,7 +182,7 @@ describe('账号与安全 (e2e)', () => {
       const res = await request(http)
         .post('/api/v1/auth/change-phone')
         .set(auth(access))
-        .send({ newPhone, code: wrong })
+        .send({ newPhone, code: wrong, password })
         .expect(400);
       expect(res.body.code).toBe('SMS_CODE_INVALID');
       const me = await request(http)
@@ -202,16 +202,34 @@ describe('账号与安全 (e2e)', () => {
       const res = await request(http)
         .post('/api/v1/auth/change-phone')
         .set(auth(access))
-        .send({ newPhone: takenPhone, code: '123456' })
+        .send({ newPhone: takenPhone, code: '123456', password })
         .expect(409);
       expect(res.body.code).toBe('PHONE_ALREADY_REGISTERED');
+    });
+
+    it('密码错误 → 400 PASSWORD_INCORRECT，手机号不变、验证码不被消费（持有会话不等于本人，2026-10-14）', async () => {
+      const res = await request(http)
+        .post('/api/v1/auth/change-phone')
+        .set(auth(access))
+        .send({
+          newPhone,
+          code: lastCodeFor(app, newPhone),
+          password: 'wrong_password_1',
+        })
+        .expect(400);
+      expect(res.body.code).toBe('PASSWORD_INCORRECT');
+      const me = await request(http)
+        .get('/api/v1/users/me')
+        .set(auth(access))
+        .expect(200);
+      expect(me.body.phone).toBe(phone);
     });
 
     it('验证码正确 → 200 返回更新后的 user；新号可登录、旧号释放', async () => {
       const res = await request(http)
         .post('/api/v1/auth/change-phone')
         .set(auth(access))
-        .send({ newPhone, code: lastCodeFor(app, newPhone) })
+        .send({ newPhone, code: lastCodeFor(app, newPhone), password })
         .expect(200);
       expect(res.body.phone).toBe(newPhone);
       expect(res.body).not.toHaveProperty('passwordHash');

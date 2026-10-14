@@ -30,6 +30,7 @@ export default function ChangePhoneScreen() {
   const setUser = useAuthStore((s) => s.setUser);
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const sms = useSmsCode("change_phone");
@@ -66,11 +67,16 @@ export default function ChangePhoneScreen() {
       setError(t("auth.invalidCode"));
       return;
     }
+    if (password.length < 8) {
+      setError(t("auth.passwordTooShort"));
+      return;
+    }
     setBusy(true);
     try {
       const updated = await authApi.changePhone({
         newPhone: phone.trim(),
         code,
+        password,
       });
       await setUser(updated);
       showToast(t("auth.changePhoneDone"));
@@ -122,6 +128,15 @@ export default function ChangePhoneScreen() {
             </ThemedText>
           </View>
 
+          <FormInput
+            label={t("auth.currentPassword")}
+            icon="lock-closed-outline"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            autoComplete="current-password"
+            placeholder={t("auth.currentPasswordPlaceholder")}
+          />
           <FormInput
             label={t("auth.newPhone")}
             icon="phone-portrait-outline"

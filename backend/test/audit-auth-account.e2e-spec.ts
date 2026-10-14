@@ -110,11 +110,14 @@ describe('审计 §6：账号全流程 / 验证码 / refresh / 撤销规则 (e2e
         await backdateLatestCode(prisma, phone, 'register', 61);
         const daily = await sendCode(http, phone, 'register').expect(429);
         expect(daily.body.code).toBe('SMS_CODE_DAILY_LIMIT');
-        // 日限按「号+用途」计：另一用途不受影响（reset_password 需已注册号，这里用 change_phone）
-        await sendCode(http, phone, 'change_phone').expect(204);
+        // 日限按号码合计、不分用途（API.md §2，2026-10-14 改）：换个用途也发不出去
+        const otherPurpose = await sendCode(http, phone, 'change_phone').expect(
+          429,
+        );
+        expect(otherPurpose.body.code).toBe('SMS_CODE_DAILY_LIMIT');
         evidence(
           LOG,
-          `日限=2：第 3 条 → 429 ${daily.body.code}；同号另一用途仍 204（日限按号+用途分桶）`,
+          `日限=2：第 3 条 → 429 ${daily.body.code}；同号换用途 → 429（日限按号码合计）`,
         );
       } finally {
         delete process.env.SMS_CODE_DAILY_LIMIT;
@@ -166,14 +169,14 @@ describe('审计 §6：账号全流程 / 验证码 / refresh / 撤销规则 (e2e
       const asChange = await request(http)
         .post('/api/v1/auth/change-phone')
         .set(auth(u.token))
-        .send({ newPhone, code: resetCode })
+        .send({ newPhone, code: resetCode, password: u.password })
         .expect(400);
       expect(asChange.body.code).toBe('SMS_CODE_INVALID');
       // 用途码本身仍可用（未被上面误消费）
       await request(http)
         .post('/api/v1/auth/change-phone')
         .set(auth(u.token))
-        .send({ newPhone, code: changeCode })
+        .send({ newPhone, code: changeCode, password: u.password })
         .expect(200);
       u.phone = newPhone;
     });
@@ -539,7 +542,7 @@ describe('审计 §6：账号全流程 / 验证码 / refresh / 撤销规则 (e2e
       const res = await request(http)
         .post('/api/v1/auth/change-phone')
         .set(auth(u.token))
-        .send({ newPhone, code })
+        .send({ newPhone, code, password: u.password })
         .expect(200);
       expect(res.body.phone).toBe(newPhone);
       u.phone = newPhone;
@@ -575,7 +578,7 @@ describe('审计 §6：账号全流程 / 验证码 / refresh / 撤销规则 (e2e
       const raced = await request(http)
         .post('/api/v1/auth/change-phone')
         .set(auth(u.token))
-        .send({ newPhone: racePhone, code: changeCode });
+        .send({ newPhone: racePhone, code: changeCode, password: u.password });
       spy.mockRestore();
       evidence(
         LOG,

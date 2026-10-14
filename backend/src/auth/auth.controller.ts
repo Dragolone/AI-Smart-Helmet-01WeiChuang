@@ -78,7 +78,12 @@ export class AuthController {
   @HttpCode(200)
   @Post('change-phone')
   changePhone(@Req() req: AuthenticatedRequest, @Body() dto: ChangePhoneDto) {
-    return this.auth.changePhone(req.user.userId, dto.newPhone, dto.code);
+    return this.auth.changePhone(
+      req.user.userId,
+      dto.newPhone,
+      dto.code,
+      dto.password,
+    );
   }
 
   @Public()

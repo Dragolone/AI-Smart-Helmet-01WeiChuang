@@ -93,11 +93,13 @@ export interface ChangePasswordRequest {
   refreshToken?: string;
 }
 
-/** POST /auth/change-phone → 200 返回更新后的 user（需登录）；code 为 purpose=change_phone、发往 newPhone 的验证码。
+/** POST /auth/change-phone → 200 返回更新后的 user（需登录）；code 为 purpose=change_phone、发往 newPhone 的验证码；
+ *  password 为当前密码（2026-10-14 加：持有会话不等于本人）。密码错误 → 400 PASSWORD_INCORRECT（不消费验证码）；
  *  newPhone 已注册 → 409 PHONE_ALREADY_REGISTERED；验证码错误 → 400 SMS_CODE_INVALID */
 export interface ChangePhoneRequest {
   newPhone: string;
   code: string;
+  password: string;
 }
 
 /** DELETE /users/me → 204（需登录）：注销账号（软删除）；密码错误 → 400 PASSWORD_INCORRECT。

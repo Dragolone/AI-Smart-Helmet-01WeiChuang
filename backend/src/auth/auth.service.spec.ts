@@ -365,10 +365,28 @@ describe('AuthService（单测，mock 数据层）', () => {
     );
   });
 
-  it('changePhone：新号已注册 → PHONE_ALREADY_REGISTERED，不消费验证码', async () => {
-    prismaMock.user.findUnique.mockResolvedValue({ id: 'u2' });
+  // changePhone 先按 id 查密码（verifyPassword），再按新号查重：同一个 findUnique mock 按调用顺序给值
+  const selfWithPassword = async () => ({
+    passwordHash: await bcrypt.hash('correct_pw_1', 4),
+    deletedAt: null,
+  });
+
+  it('changePhone：密码错误 → PASSWORD_INCORRECT，不查新号、不消费验证码（2026-10-14）', async () => {
+    prismaMock.user.findUnique.mockResolvedValueOnce(await selfWithPassword());
     await expect(
-      service.changePhone('u1', '13900139000', '123456'),
+      service.changePhone('u1', '13900139000', '123456', 'wrong_pw_1'),
+    ).rejects.toMatchObject({ response: { code: 'PASSWORD_INCORRECT' } });
+    expect(prismaMock.user.findUnique).toHaveBeenCalledTimes(1);
+    expect(smsCodesMock.verifyAndConsume).not.toHaveBeenCalled();
+    expect(prismaMock.user.update).not.toHaveBeenCalled();
+  });
+
+  it('changePhone：新号已注册 → PHONE_ALREADY_REGISTERED，不消费验证码', async () => {
+    prismaMock.user.findUnique
+      .mockResolvedValueOnce(await selfWithPassword())
+      .mockResolvedValueOnce({ id: 'u2' });
+    await expect(
+      service.changePhone('u1', '13900139000', '123456', 'correct_pw_1'),
     ).rejects.toMatchObject({
       response: { code: 'PHONE_ALREADY_REGISTERED' },
     });
@@ -376,7 +394,9 @@ describe('AuthService（单测，mock 数据层）', () => {
   });
 
   it('changePhone：验证码通过 → 改号并返回安全用户对象', async () => {
-    prismaMock.user.findUnique.mockResolvedValue(null);
+    prismaMock.user.findUnique
+      .mockResolvedValueOnce(await selfWithPassword())
+      .mockResolvedValueOnce(null);
     smsCodesMock.verifyAndConsume.mockResolvedValue(undefined);
     prismaMock.user.update.mockResolvedValue({
       id: 'u1',
@@ -386,7 +406,12 @@ describe('AuthService（单测，mock 数据层）', () => {
       avatarUrl: null,
       createdAt: new Date(),
     });
-    const res = await service.changePhone('u1', '13900139000', '123456');
+    const res = await service.changePhone(
+      'u1',
+      '13900139000',
+      '123456',
+      'correct_pw_1',
+    );
     expect(smsCodesMock.verifyAndConsume).toHaveBeenCalledWith(
       '13900139000',
       'change_phone',

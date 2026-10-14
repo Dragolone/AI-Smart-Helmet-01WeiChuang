@@ -66,16 +66,14 @@ describe('SmsCodeService（单测，mock 数据层与短信通道）', () => {
     expect(created.expiresAt.getTime()).toBeGreaterThan(Date.now() + 290_000);
   });
 
-  it('issue：事务内先按「用途+号码」取咨询锁再查写（并发发码只放行一条，审计 AUTH-04）；短信在事务外发', async () => {
+  it('issue：事务内先按号码取咨询锁再查写（日限按号码合计，锁也按号码）（并发发码只放行一条，审计 AUTH-04）；短信在事务外发', async () => {
     prismaMock.smsCode.findFirst.mockResolvedValue(null);
     await service.issue('13800138000', 'register');
     expect(prismaMock.$transaction).toHaveBeenCalledTimes(1);
     const lockSql = prismaMock.$executeRaw.mock
       .calls[0][0] as TemplateStringsArray;
     expect(lockSql.join('?')).toContain('pg_advisory_xact_lock');
-    expect(prismaMock.$executeRaw.mock.calls[0][1]).toBe(
-      'sms:register:13800138000',
-    );
+    expect(prismaMock.$executeRaw.mock.calls[0][1]).toBe('sms:13800138000');
     const order = (fn: jest.Mock) => fn.mock.invocationCallOrder[0];
     expect(order(prismaMock.$executeRaw)).toBeLessThan(
       order(prismaMock.smsCode.findFirst),

@@ -112,6 +112,14 @@ export class ChangePasswordDto {
 }
 
 export class ChangePhoneDto {
+  // 当前密码：持有会话不等于本人（别人借用解锁的手机两分钟就能改号、再用新号找回密码夺走账号），
+  // 与改密、注销同样要密码（2026-10-14）
+  @IsString()
+  @MinLength(1)
+  @MaxLength(72)
+  @MaxBytes(MAX_PASSWORD_BYTES)
+  password!: string;
+
   @Matches(PHONE_PATTERN, { message: 'newPhone 必须是有效的大陆手机号' })
   newPhone!: string;
 
