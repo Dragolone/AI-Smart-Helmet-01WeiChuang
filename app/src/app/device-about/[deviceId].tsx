@@ -194,7 +194,7 @@ export default function DeviceAboutScreen() {
           <ListRow
             icon="construct-outline"
             title={t("device.bleBench")}
-            onPress={() => router.push(`/ble-bench?deviceId=${deviceId}`)}
+            onPress={() => router.navigate(`/ble-bench?deviceId=${deviceId}`)}
             last
           />
         </Card>

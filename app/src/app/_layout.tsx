@@ -2,9 +2,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
+import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
-import { AnimatedSplashOverlay } from "@/components/animated-icon";
+import { SplashOverlay } from "@/components/splash/splash-overlay";
+import { GuideHandover } from "@/components/splash/guide-handover";
 import { ToastHost } from "@/components/toast";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useRealtimeUpdates } from "@/hooks/use-realtime";
@@ -57,21 +59,10 @@ function RootNavigator() {
       <Stack.Protected guard={authed}>
         {/* 标签页自身不显示 header，但它的 title 会成为下级页面返回键的文字（默认会露出路由组名 "(tabs)"） */}
         <Stack.Screen name="(tabs)" options={{ title: t("nav.back") }} />
+        {/* 绑定头盔：一进来就是取景框，页头自己画在相机画面上（扫码页已并进这一页） */}
         <Stack.Screen
           name="bind-device"
-          options={{
-            presentation: "modal",
-            headerShown: true,
-            title: t("nav.bindDevice"),
-          }}
-        />
-        <Stack.Screen
-          name="scan-bind"
-          options={{
-            presentation: "fullScreenModal",
-            headerShown: true,
-            title: t("scan.title"),
-          }}
+          options={{ presentation: "fullScreenModal" }}
         />
         <Stack.Screen
           name="device/[deviceId]"
@@ -195,12 +186,18 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
+      {/* 系统状态栏（时间 / 电量 / 信号）的深浅跟着 App 的外观走。Android 上不设就一直是白字，
+          浅色外观下压在浅色底上看不见（2026-10-08 华为实测）。放在最前面：之后挂上来的页面
+          （扫码页、倒计时最后 10 秒）自己那份会盖过它，页面关掉再还回来 */}
+      <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
       <QueryClientProvider client={queryClient}>
         <ThemeFade scheme={colorScheme} />
         <ThemeProvider
           value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
         >
-          <AnimatedSplashOverlay />
+          <SplashOverlay />
+          {/* 设备页三步指引做完、变成设备页时的那一段衔接（平时不渲染任何东西） */}
+          <GuideHandover />
           {/* SecureStore 恢复完成前不挂路由，避免登录态闪变；空白由 SplashOverlay 兜住 */}
           {/* 语言恢复完再起：通知通道名、前台服务文案都要翻译 */}
           {hydrated && localeHydrated && themeHydrated && <RealtimeBridge />}

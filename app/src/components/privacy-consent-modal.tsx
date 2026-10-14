@@ -69,7 +69,7 @@ export function PrivacyConsentModal() {
               <ThemedText
                 type="small"
                 style={{ color: theme.brand }}
-                onPress={() => router.push("/legal/terms")}
+                onPress={() => router.navigate("/legal/terms")}
                 suppressHighlighting
               >
                 {t("auth.consentTerms")}
@@ -78,7 +78,7 @@ export function PrivacyConsentModal() {
               <ThemedText
                 type="small"
                 style={{ color: theme.brand }}
-                onPress={() => router.push("/legal/privacy")}
+                onPress={() => router.navigate("/legal/privacy")}
                 suppressHighlighting
               >
                 {t("auth.consentPrivacy")}

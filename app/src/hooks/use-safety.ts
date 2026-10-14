@@ -8,7 +8,7 @@ import type { DevicePublic, Sos } from "@helmet/shared";
 import { devicesApi } from "@/api/devices";
 import { sosApi } from "@/api/sos";
 import { guardActiveResult } from "@/services/sos-sync";
-import { readNotifyPermission } from "@/services/notify-permission";
+import { readNotifyPermissionAfterAsk } from "@/services/notify-permission";
 import {
   helmetLinkOf,
   type HelmetLink,
@@ -16,10 +16,39 @@ import {
 } from "@/services/safety-status";
 import { useAuthStore } from "@/stores/auth-store";
 import { useBleStore, type BleLinkPhase } from "@/stores/ble-store";
+import { useCurrentHelmetStore } from "@/stores/current-helmet-store";
 import { useDrillStore } from "@/stores/drill-store";
-import { useHelmetViewStore, viewedHelmetOf } from "@/stores/helmet-view-store";
 
-/** 绑定的头盔 + 正在查看的那顶（选择存在 helmet-view-store，两页共用） */
+/**
+ * 设备页「设为当前」的选择（按账号存，见 current-helmet-store）。
+ * chosenId 在读到存储之前是 null，按没选过走默认规则；ready 给设备页用——
+ * 冷启动时等读到了再画大图，免得先显示一台再跳到另一台。
+ */
+export function useCurrentHelmetChoice(): {
+  chosenId: string | null;
+  ready: boolean;
+  choose: (deviceId: string) => void;
+} {
+  const userId = useAuthStore((s) => s.user?.id);
+  const stored = useCurrentHelmetStore((s) =>
+    userId ? s.chosen[userId] : undefined,
+  );
+  const load = useCurrentHelmetStore((s) => s.load);
+  const chooseFor = useCurrentHelmetStore((s) => s.choose);
+  useEffect(() => {
+    if (userId) void load(userId);
+  }, [userId, load]);
+  return {
+    chosenId: stored ?? null,
+    // 没有登录用户时没有可读的选择，不让页面一直等
+    ready: !userId || stored !== undefined,
+    choose: (deviceId) => {
+      if (userId) chooseFor(userId, deviceId);
+    },
+  };
+}
+
+/** 绑定的头盔（安全页 / 安全记录页共用；看哪一顶由设备页的「当前头盔」决定，这里不再另存一份） */
 export function useHelmets() {
   // 与设备页同一份缓存、同样的 30 秒轮询兜底：WS 断着的时候，这里的「在线」不至于一直停在旧值，
   // 拉取失败时 isError 也会如实翻过来
@@ -29,12 +58,11 @@ export function useHelmets() {
     refetchInterval: 30_000,
   });
   const list = devices.data ?? [];
-  const selectedId = useHelmetViewStore((s) => s.selectedId);
-  const select = useHelmetViewStore((s) => s.select);
+  const { chosenId } = useCurrentHelmetChoice();
   return {
     list,
-    viewed: viewedHelmetOf(list, selectedId),
-    select,
+    /** 设备页「设为当前」的选择，求救关联（sosTargetOf）要用 */
+    chosenId,
     /** 列表拿到过没有：没拿到（还在拉 / 拉失败）≠ 一台都没绑 */
     known: devices.data !== undefined,
     /** 最近一次拉取失败：缓存里的状态可能是旧的 */
@@ -87,13 +115,16 @@ export function usePendingSos(deviceIds: readonly string[]): Sos[] {
     .filter((s): s is Sos => s != null && s.status === "pending");
 }
 
-/** 通知权限；null = 还没查到。回前台再查一次：用户多半是刚从系统设置改完权限回来 */
+/**
+ * 通知权限；null = 还没查到（包括系统的授权框还开着、用户还没点的时候）。
+ * 回前台再查一次：用户多半是刚从系统设置改完权限回来
+ */
 export function useNotifyPermission(): NotifyPermission | null {
   const [state, setState] = useState<NotifyPermission | null>(null);
   useEffect(() => {
     let alive = true;
     const check = () =>
-      void readNotifyPermission().then((p) => {
+      void readNotifyPermissionAfterAsk().then((p) => {
         if (alive) setState(p);
       });
     check();
@@ -125,7 +156,7 @@ export function useSosDrill(): { unseen: boolean; open: () => void } {
     unseen: seen === false,
     open: () => {
       if (userId) markSeen(userId);
-      router.push("/sos-active?drill=1");
+      router.navigate("/sos-active?drill=1");
     },
   };
 }

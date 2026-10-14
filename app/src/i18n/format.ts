@@ -67,6 +67,53 @@ export function fullDateTime(iso: string, locale: Locale): string {
   }).format(at);
 }
 
+/**
+ * 日期标题（行程列表按天分组用）：今天 / 昨天 / 10月4日 周日；不是今年的带上年份。
+ * 「今天」按本地日历日算，不是按 24 小时。
+ */
+export function dayTitle(iso: string, locale: Locale): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return INVALID_TIME;
+  const now = new Date(Date.now());
+  const startOf = (d: Date) =>
+    new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  // 夏令时切换那天一天不是 24 小时，四舍五入到整天
+  const days = Math.round((startOf(now) - startOf(at)) / 86_400_000);
+  if (days === 0) return translate("common.today", undefined, locale);
+  if (days === 1) return translate("common.yesterday", undefined, locale);
+  const tag = LOCALE_TAGS[locale];
+  const date = new Intl.DateTimeFormat(tag, {
+    month: "short",
+    day: "numeric",
+    ...(at.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }),
+  }).format(at);
+  const weekday = new Intl.DateTimeFormat(tag, { weekday: "short" }).format(at);
+  return translate("common.dateWithWeekday", { date, weekday }, locale);
+}
+
+/** 月份标题（月历上用）：2026年10月 / October 2026 */
+export function monthTitle(
+  year: number,
+  month: number,
+  locale: Locale,
+): string {
+  return new Intl.DateTimeFormat(LOCALE_TAGS[locale], {
+    year: "numeric",
+    month: "long",
+  }).format(new Date(year, month, 1));
+}
+
+/** 一周七天的单字名，周一起（月历的表头）：一 二 三 四 五 六 日 / M T W T F S S */
+export function weekdayInitials(locale: Locale): string[] {
+  const fmt = new Intl.DateTimeFormat(LOCALE_TAGS[locale], {
+    weekday: "narrow",
+  });
+  // 2024 年 1 月 1 日是周一
+  return Array.from({ length: 7 }, (_, i) =>
+    fmt.format(new Date(2024, 0, 1 + i)),
+  );
+}
+
 /** 当天的只给时间（08:31），不是当天的带上日期（9月17日 08:31）——留在界面上的旧时间不会被读成今天 */
 export function timeWithDateIfNotToday(iso: string, locale: Locale): string {
   const at = new Date(iso);

@@ -26,3 +26,32 @@ export function parseBindQr(raw: string): BindQr | null {
   if (DEVICE_ID_RE.test(text)) return { deviceId: text, bindCode: null };
   return null;
 }
+
+/** 扫到一个码之后该怎么办（绑定页用） */
+export type ScanOutcome =
+  /** 设备号、绑定码都在码里：直接绑 */
+  | { kind: "bind"; deviceId: string; bindCode: string }
+  /** 旧批次只印了设备号：绑定码要手输 */
+  | { kind: "needCode"; deviceId: string }
+  /** 这次进绑定页刚绑上的那一顶，码还留在镜头里 */
+  | { kind: "alreadyBound"; deviceId: string }
+  /** 不是绑定二维码 */
+  | { kind: "notBindCode" };
+
+/**
+ * @param boundThisVisit 这次进绑定页已经绑上的设备号。只认这一小撮，不拿设备列表来挡：
+ *   列表可能是旧的（在别的手机上解绑了），绑不绑得上以服务器的回答为准。
+ */
+export function classifyScan(
+  raw: string,
+  boundThisVisit: ReadonlySet<string>,
+): ScanOutcome {
+  const parsed = parseBindQr(raw);
+  if (!parsed) return { kind: "notBindCode" };
+  if (boundThisVisit.has(parsed.deviceId)) {
+    return { kind: "alreadyBound", deviceId: parsed.deviceId };
+  }
+  return parsed.bindCode
+    ? { kind: "bind", deviceId: parsed.deviceId, bindCode: parsed.bindCode }
+    : { kind: "needCode", deviceId: parsed.deviceId };
+}

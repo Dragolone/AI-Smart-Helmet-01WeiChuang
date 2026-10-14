@@ -1,6 +1,11 @@
 // 底部标签（最终 IA 定案 2026-08-16）：设备 / 地图 / 对讲 / 安全 / 我的（Android 上限 5）
 // 图标双轨：iOS 用 SF Symbols（模板 PNG 在 iOS 原生标签条按原始尺寸渲染会撑爆整条栏，
-// 2026-08-16 真机实证）；Android 继续用模板 PNG（正式设计资产出图后统一替换）。
+// 2026-08-16 真机实证）；Android 用模板 PNG。
+// Android 这五张（2026-10-08 重出）是官方 Material Symbols Rounded 渲染的（Apache-2.0，字重 400），
+// 含义和 iOS 一一对应：house / map / dot.radiowaves.left.and.right / shield / person.crop.circle
+// → home / map / sensors / shield / account_circle；未选中是线框、选中是实心，也和 iOS 一样
+//（电波那张两边都没有实心款）。此前那套是实心头盔 + 麦克风 + 带勾盾牌，粗细和含义都和 iOS 对不上。
+// 不用组件自带的 md（运行时拿字体现画）：要多带 1 MB 的字体，图标还会晚一拍才出来。
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 
 import { Colors } from '@/constants/theme';
@@ -25,7 +30,10 @@ export default function AppTabs() {
         <NativeTabs.Trigger.Label>{t('tab.devices')}</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
           sf={{ default: 'house', selected: 'house.fill' }}
-          src={require('@/assets/images/tabIcons/tab-devices.png')}
+          src={{
+            default: require('@/assets/images/tabIcons/tab-devices.png'),
+            selected: require('@/assets/images/tabIcons/tab-devices-selected.png'),
+          }}
           renderingMode="template"
         />
       </NativeTabs.Trigger>
@@ -34,7 +42,10 @@ export default function AppTabs() {
         <NativeTabs.Trigger.Label>{t('tab.map')}</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
           sf={{ default: 'map', selected: 'map.fill' }}
-          src={require('@/assets/images/tabIcons/tab-map.png')}
+          src={{
+            default: require('@/assets/images/tabIcons/tab-map.png'),
+            selected: require('@/assets/images/tabIcons/tab-map-selected.png'),
+          }}
           renderingMode="template"
         />
       </NativeTabs.Trigger>
@@ -52,7 +63,10 @@ export default function AppTabs() {
         <NativeTabs.Trigger.Label>{t('tab.safety')}</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
           sf={{ default: 'shield', selected: 'shield.fill' }}
-          src={require('@/assets/images/tabIcons/tab-safety.png')}
+          src={{
+            default: require('@/assets/images/tabIcons/tab-safety.png'),
+            selected: require('@/assets/images/tabIcons/tab-safety-selected.png'),
+          }}
           renderingMode="template"
         />
       </NativeTabs.Trigger>
@@ -64,7 +78,10 @@ export default function AppTabs() {
             default: 'person.crop.circle',
             selected: 'person.crop.circle.fill',
           }}
-          src={require('@/assets/images/tabIcons/tab-profile.png')}
+          src={{
+            default: require('@/assets/images/tabIcons/tab-profile.png'),
+            selected: require('@/assets/images/tabIcons/tab-profile-selected.png'),
+          }}
           renderingMode="template"
         />
       </NativeTabs.Trigger>

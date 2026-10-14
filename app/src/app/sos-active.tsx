@@ -1,6 +1,10 @@
 // SOS 倒计时全屏页（API.md §7；决策 #8：服务端权威——App 只按 deadline 渲染，
 // 取消/立即求救调 API，最终状态以服务端推送/响应为准，本地绝不判断超时）
-// 设计对齐定稿套图：警示图标 + 超大倒计时 + 灰色取消 / 红色立即求救双药丸
+// 界面按画板「求救倒计时」（2026-10-08 定稿）：环形倒计时 + 将通知谁 + 立即求救 + 向右滑动取消；
+// 最后 10 秒整页转红；结束后是「已取消」，或带每位联系人发送结果的「已通知」。
+// 这次换的是界面。服务端权威的状态与轮询、警报音、亮屏、Android 返回键拦截、锁屏提醒的撤销、
+// 通知按钮取消在路上的显示、演练模式、补传旧事件的说明都照原样；多出来的只有三处：
+// 最后 10 秒的震动改成连着两下、读联系人和通知记录来显示、已取消后的「我还是需要帮助」。
 // 演练模式（?drill=1）：同一页面、同样的警报音/振动/倒计时，但**不碰服务端、不通知任何人**——
 // 新用户先见过一次求救长什么样，真出事时才敢按、也知道怎么取消。顶部常驻醒目标记避免混淆。
 import { Ionicons } from "@expo/vector-icons";
@@ -8,36 +12,156 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { setAudioModeAsync, useAudioPlayer } from "expo-audio";
 import * as Haptics from "expo-haptics";
 import { useKeepAwake } from "expo-keep-awake";
-import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AccessibilityInfo,
   Alert,
   AppState,
   BackHandler,
-  Pressable,
+  ScrollView,
   StyleSheet,
+  useWindowDimensions,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import Animated, {
+  cancelAnimation,
+  Easing,
+  FadeIn,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+  ZoomIn,
+} from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { devLog } from "@/services/dev-log";
 import { serverNow } from "@/services/server-clock";
 import { countdownPollInterval, settleSnapshot } from "@/services/sos-sync";
 import { useSosCancelStore } from "@/stores/sos-cancel-store";
-import type { Sos } from "@helmet/shared";
+import type { EventEnvelope, EventType, Sos } from "@helmet/shared";
 
 import { ApiRequestError } from "@/api/client";
+import { contactsApi } from "@/api/contacts";
 import { clearSosAlert } from "@/services/sos-alert";
 import { toUserMessage } from "@/api/error-messages";
+import { buildRelayEnvelope, relayApi } from "@/api/relay";
 import { sosApi } from "@/api/sos";
+import { Badge } from "@/components/badge";
+import { CountdownRing } from "@/components/countdown-ring";
+import { SlideToCancel } from "@/components/slide-to-cancel";
+import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
-import { ThemedView } from "@/components/themed-view";
 import { Radius } from "@/constants/theme";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
+import {
+  enqueueRelayEvent,
+  notifyCriticalAccepted,
+} from "@/services/ble-relay-uplink";
+import { msToNextSecond } from "@/services/countdown";
 import { lateEventNote } from "@/services/sos-age";
+import {
+  deliveryPollInterval,
+  deliveryStateOf,
+  initialOf,
+  smsRows,
+} from "@/services/sos-delivery";
+
+/** 读屏（VoiceOver / TalkBack）开没开 */
+function useScreenReader(): boolean {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void AccessibilityInfo.isScreenReaderEnabled().then((v) => {
+      if (alive) setOn(v);
+    });
+    const sub = AccessibilityInfo.addEventListener(
+      "screenReaderChanged",
+      setOn,
+    );
+    return () => {
+      alive = false;
+      sub.remove();
+    };
+  }, []);
+  return on;
+}
 
 function secondsLeft(deadline: string, now: number): number {
   return Math.max(0, Math.ceil((new Date(deadline).getTime() - now) / 1000));
+}
+
+/** 环走一圈对应的秒数（服务端的倒计时是 60 秒，决策 #8） */
+const TOTAL_SECONDS = 60;
+/** 最后这么多秒整页转红、震动改成连着两下 */
+const URGENT_SECONDS = 10;
+/** 求救的红。白字压在上面对比度 4.8 : 1（设计规范），比主题里的 danger 深一档 */
+const SOS_RED = "#D92D25";
+const SOS_RED_BEAT = "#B8241D";
+
+/** 这一页的颜色：平时跟着外观走；最后 10 秒整页红底，深浅外观是同一套 */
+function paletteOf(
+  theme: ReturnType<typeof useTheme>,
+  dark: boolean,
+  urgent: boolean,
+) {
+  if (urgent) {
+    return {
+      text: "#FFFFFF",
+      sub: "#FFFFFF",
+      alert: "#FFFFFF",
+      alertBg: "rgba(0,0,0,0.22)",
+      alertBorder: "rgba(255,255,255,0.55)",
+      num: "#FFFFFF",
+      sosBtn: "#FFFFFF",
+      onSosBtn: SOS_RED,
+      ring: "#FFFFFF",
+      ringTrack: "rgba(0,0,0,0.30)",
+      chip: "rgba(0,0,0,0.28)",
+      avatarBg: "#FFFFFF",
+      avatarText: SOS_RED,
+      slide: {
+        track: "rgba(0,0,0,0.28)",
+        trackBorder: "transparent",
+        fill: "rgba(255,255,255,0.22)",
+        thumb: "#FFFFFF",
+        thumbIcon: SOS_RED,
+        text: "#FFFFFF",
+        hint: "#FFFFFF",
+      },
+    };
+  }
+  // 浅色下的红比主题的 danger 深：这一页的红字是大号数字和提示框，要压得住浅灰底
+  const alert = dark ? theme.danger : "#B93229";
+  return {
+    text: theme.text,
+    sub: theme.textSecondary,
+    alert,
+    alertBg: dark ? theme.dangerBg : "rgba(185,50,41,0.10)",
+    alertBorder: dark ? "rgba(242,109,95,0.5)" : "rgba(185,50,41,0.45)",
+    num: alert,
+    sosBtn: SOS_RED,
+    onSosBtn: "#FFFFFF",
+    ring: SOS_RED,
+    ringTrack: dark ? theme.backgroundSelected : "#E3E6EA",
+    chip: theme.backgroundSelected,
+    avatarBg: dark ? "rgba(255,255,255,0.14)" : "rgba(17,24,39,0.10)",
+    avatarText: theme.text,
+    slide: {
+      track: theme.backgroundSelected,
+      trackBorder: dark ? "transparent" : theme.borderStrong,
+      fill: theme.successBg,
+      thumb: theme.text,
+      thumbIcon: theme.background,
+      text: theme.text,
+      hint: theme.textSecondary,
+    },
+  };
 }
 
 export default function SosActiveScreen() {
@@ -111,11 +235,25 @@ export default function SosActiveScreen() {
     : null;
   const sos = isDrill ? drillSos : (sosQuery.data ?? null);
 
-  // 每秒推进"当前时刻"，渲染期据此重算剩余秒数（仅展示用途，超时判定在服务端）
+  // 推进"当前时刻"，渲染期据此重算剩余秒数（仅展示用途，超时判定在服务端）。
+  // 对着「数字该换的那一刻」去读时钟（services/countdown），不是固定每秒一次：固定间隔时定时器每次晚几毫秒，
+  // 数字会偶尔跳过一秒。也不用更密的轮询：一秒只重画一次，页面在两次之间是静止的，
+  // 读屏和自动化工具（uiautomator）才读得到这一页
+  const deadlineMs = sos ? new Date(sos.deadline).getTime() : Number.NaN;
   useEffect(() => {
-    const t = setInterval(() => setNow(serverNow()), 1000);
-    return () => clearInterval(t);
-  }, []);
+    let timer: ReturnType<typeof setTimeout>;
+    const schedule = () => {
+      const wait = Number.isNaN(deadlineMs)
+        ? 1000
+        : msToNextSecond(deadlineMs, serverNow()) + 30;
+      timer = setTimeout(() => {
+        setNow(serverNow());
+        schedule();
+      }, wait);
+    };
+    schedule();
+    return () => clearTimeout(timer);
+  }, [deadlineMs]);
 
   // 倒计时期间保持亮屏——摔倒场景手机可能放在口袋/车把,锁屏会错过取消窗口
   useKeepAwake();
@@ -124,6 +262,7 @@ export default function SosActiveScreen() {
   const alarm = useAudioPlayer(require("@/assets/sos-alarm.wav"));
   const counting =
     sos != null && sos.status === "pending" && !cancellingFromNotification;
+  const deadline = sos?.deadline;
   useEffect(() => {
     if (!counting) return;
     // 警报音绝不能把页面打崩：锁屏/后台时 AVAudioSession 激活可能失败（expo-audio 同步抛
@@ -150,22 +289,30 @@ export default function SosActiveScreen() {
       .then(safePlay);
     // 每秒重播警报段(0.9s 素材)+ 振动;不用 player.loop——
     // React Compiler 禁止修改 hook 返回对象的属性
+    // 最后 10 秒震动改成连着两下（设计规范：警示震感每秒一次，最后 10 秒双击）
+    let second: ReturnType<typeof setTimeout> | undefined;
+    const warn = () =>
+      void Haptics.notificationAsync(
+        Haptics.NotificationFeedbackType.Warning,
+      ).catch(() => {});
     const t = setInterval(() => {
       alarm.seekTo(0).catch(() => {});
       safePlay();
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(
-        () => {},
-      );
+      warn();
+      if (deadline && secondsLeft(deadline, serverNow()) <= URGENT_SECONDS) {
+        second = setTimeout(warn, 160);
+      }
     }, 1000);
     return () => {
       clearInterval(t);
+      clearTimeout(second);
       try {
         alarm.pause();
       } catch {
         // 会话已失效时 pause 也可能抛，忽略
       }
     };
-  }, [counting, alarm]);
+  }, [counting, alarm, deadline]);
 
   const act = (kind: "cancel" | "confirm") => {
     if (isDrill) {
@@ -213,146 +360,563 @@ export default function SosActiveScreen() {
     if (finished && !isDrill) void clearSosAlert(sosId);
   }, [finished, isDrill, sosId]);
 
+  // —— 以下只管界面 ——
+  const dark = useColorScheme() === "dark";
+  const insets = useSafeAreaInsets();
+  const { height: windowHeight, fontScale } = useWindowDimensions();
+  // 开着读屏时和「减弱动态效果」同样处理：环一秒跳一格、背景不跳。
+  // Android 上一直在变的 transform 会不停发「内容变了」的无障碍事件，读屏等不到界面静止
+  const screenReader = useScreenReader();
+  const reducedMotion = useReducedMotion() || screenReader;
+  // 这一单还在倒数、只剩最后 10 秒：整页转红
+  const urgent = !finished && left !== null && left <= URGENT_SECONDS;
+  const P = paletteOf(theme, dark, urgent);
+
+  // 将通知谁：倒计时结束后服务端通知的就是这份紧急联系人。没拿到（加载中 / 失败）≠ 一位都没有
+  const contacts = useQuery({
+    queryKey: ["contacts"],
+    queryFn: contactsApi.list,
+  });
+  // 发出去之后每位联系人的结果：与事故详情页同一份缓存；还有在发的就隔几秒再看一次
+  const detail = useQuery({
+    queryKey: ["accident", sosId],
+    queryFn: () => sosApi.accidentDetail(sosId),
+    enabled: !isDrill && sos?.status === "notified",
+    refetchInterval: (q) => deliveryPollInterval(q.state.data?.notifications),
+  });
+  const delivery = deliveryStateOf(detail.data?.notifications);
+  const sentTo = smsRows(detail.data?.notifications);
+
+  // 环：每秒匀速走到下一格，看起来是连着走的（60 秒线性）；数字每秒轻跳一下（160 ms）。
+  // 只是把剩余秒数画出来，到没到期仍由服务端说了算
+  // 一开始就按已知的剩余秒数摆好；这一单的状态还没拿到（数字位置写「—」）时环是空的，不画成满圈
+  const ring = useSharedValue(
+    left === null ? 0 : Math.max(0, Math.min(1, left / TOTAL_SECONDS)),
+  );
+  const tick = useSharedValue(1);
+  const ringStarted = useRef(false);
+  useEffect(() => {
+    if (left === null) return;
+    const at = (seconds: number) =>
+      Math.max(0, Math.min(1, seconds / TOTAL_SECONDS));
+    if (!ringStarted.current || reducedMotion) {
+      // 刚进来（或系统开了「减弱动态效果」）：直接摆到位，不从满圈扫过来
+      ringStarted.current = true;
+      ring.set(at(left));
+      if (reducedMotion) return;
+    }
+    ring.set(
+      withTiming(at(left - 1), { duration: 1000, easing: Easing.linear }),
+    );
+    tick.set(1.06);
+    tick.set(withTiming(1, { duration: 160, easing: Easing.out(Easing.ease) }));
+  }, [left, reducedMotion, ring, tick]);
+  const tickStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: tick.get() }],
+  }));
+
+  // 最后 10 秒：红色铺满整页，之后一深一浅地跳（每半秒一换）；开了「减弱动态效果」或读屏就不跳
+  const wash = useSharedValue(0);
+  const beat = useSharedValue(0);
+  useEffect(() => {
+    // 字是立刻变白的。深色下底色用 400 ms 渐红；浅色下渐变的中途是白字压在浅灰底上，看不清，改成 120 ms
+    wash.set(
+      withTiming(urgent ? 1 : 0, {
+        duration: dark ? 400 : 120,
+        easing: Easing.out(Easing.ease),
+      }),
+    );
+    if (!urgent || reducedMotion) {
+      beat.set(0);
+      return;
+    }
+    beat.set(
+      withRepeat(
+        withSequence(
+          withTiming(1, { duration: 400 }),
+          withTiming(1, { duration: 100 }),
+          withTiming(0, { duration: 400 }),
+          withTiming(0, { duration: 100 }),
+        ),
+        -1,
+      ),
+    );
+    return () => cancelAnimation(beat);
+  }, [urgent, reducedMotion, dark, wash, beat]);
+  const washStyle = useAnimatedStyle(() => ({ opacity: wash.get() }));
+  const beatStyle = useAnimatedStyle(() => ({ opacity: beat.get() }));
+
+  // 取消之后又需要帮助：和安全页长按 SOS 走同一条路——经 app-relay 注入 manual_sos，服务端同一套状态机，
+  // 重新倒数 60 秒；新的倒计时页由「核对进行中的 SOS」那条路拉起，盖在这一页上面。
+  // 这一页里只算一次求救：再点（失败后重试）复用同一个 eventId，服务端按它幂等。换了 eventId 的话，
+  // 前一条已经建了单、倒计时中再到一条 manual_sos，会被当成「倒计时中按实体键」直接跳过 60 秒通知联系人
+  //（10-06 不变式评审 F-5）
+  const helpEnvelope = useRef<ReturnType<typeof buildRelayEnvelope> | null>(
+    null,
+  );
+  const helpQueued = useRef(false);
+  const askedForHelp = useRef(false);
+  const [helpBusy, setHelpBusy] = useState(false);
+  const needHelp = () => {
+    if (!deviceId) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
+    askedForHelp.current = true;
+    helpEnvelope.current ??= buildRelayEnvelope(deviceId, "manual_sos", {});
+    const envelope = helpEnvelope.current;
+    setHelpBusy(true);
+    relayApi
+      .push({ deviceId, envelopes: [envelope] })
+      .then(() => notifyCriticalAccepted(deviceId))
+      .catch((e) => {
+        // 没发出去：进持久队列，网络恢复后按原 eventId 自动补发（同一条只入队一次）
+        if (!helpQueued.current) {
+          helpQueued.current = true;
+          enqueueRelayEvent(envelope as EventEnvelope<EventType>);
+        }
+        Alert.alert(
+          t("safety.sosSendFailed"),
+          `${toUserMessage(e)}\n${t("safety.sosQueued")}`,
+        );
+      })
+      .finally(() => setHelpBusy(false));
+  };
+  // 新一单的倒计时页盖上来又关掉之后，不再露出这张「已取消」，跟着关掉
+  const coveredAfterHelp = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (coveredAfterHelp.current) router.back();
+      return () => {
+        if (askedForHelp.current) coveredAfterHelp.current = true;
+      };
+    }, []),
+  );
+
+  // 环随屏幕高度缩，两个操作始终留在屏幕里。环以外要放下的东西按 1 倍字体算是 446；
+  // 系统字体放大时标题、说明、联系人那几行跟着长高。矮屏（或字体放得很大）放不下时，
+  // 先去掉顶上那个警示图标，环再缩，最小 140（2026-10-08 模拟器 360×640 + 1.3 倍字体：不这样联系人那行会被挤掉）
+  const room =
+    windowHeight -
+    insets.top -
+    insets.bottom -
+    446 -
+    Math.max(0, fontScale - 1) * 110 -
+    (isDrill ? 44 : 0) -
+    (lateNote ? 26 : 0);
+  const compact = room < 200;
+  const ringSize = Math.round(
+    Math.max(140, Math.min(252, room + (compact ? 66 : 0))),
+  );
+  const numberSize = Math.round((112 * ringSize) / 252);
+
+  const notifiedTitle = isDrill
+    ? t("sos.drillDoneTitle")
+    : delivery === "sent"
+      ? t("sos.notified.sent")
+      : delivery === "none"
+        ? t("sos.notified.none")
+        : delivery === "failed"
+          ? t("sos.notified.failed")
+          : t("sos.notified.sending");
+  const notifiedBody = isDrill
+    ? t("sos.drillNotifiedBody")
+    : delivery === "none"
+      ? t("sos.notified.noneBody")
+      : delivery === "failed"
+        ? t("sos.notified.failedBody")
+        : delivery === "unknown"
+          ? t("sos.notifiedBody")
+          : t("sos.notified.body");
+
+  const pop = ZoomIn.duration(320).easing(Easing.out(Easing.back(2)));
+  const drillBadge = isDrill ? (
+    <View style={[styles.drillBadge, { backgroundColor: theme.brand }]}>
+      <Ionicons name="school-outline" size={16} color={theme.onBrand} />
+      <ThemedText
+        type="smallBold"
+        style={{ color: theme.onBrand, fontSize: 13 }}
+      >
+        {t("sos.drillBadge")}
+      </ThemedText>
+    </View>
+  ) : null;
+  const closeButton = (
+    <Tappable
+      feedback="scale"
+      accessibilityRole="button"
+      onPress={() => router.back()}
+      style={[styles.doneBtn, { backgroundColor: theme.backgroundSelected }]}
+    >
+      <ThemedText style={styles.doneBtnText}>{t("sos.close")}</ThemedText>
+    </Tappable>
+  );
+
   return (
-    <SafeAreaView style={[styles.flex, { backgroundColor: theme.background }]}>
-      <ThemedView style={styles.container}>
-        <View style={styles.hero}>
-          {isDrill && (
-            <View style={[styles.drillBadge, { backgroundColor: theme.brand }]}>
-              <Ionicons name="school-outline" size={16} color={theme.onBrand} />
-              <ThemedText
-                type="smallBold"
-                style={{ color: theme.onBrand, fontSize: 13 }}
+    // 这一页是全屏弹出的。iPhone 上 SafeAreaView 在这里拿到的留白是 0，内容顶到了灵动岛上、
+    // 滑块贴着底部横条（2026-10-08 iPhone 截图量出来：上 16、下 12，正好只剩页面自己的边距）；
+    // 所以不用它，直接用根上量到的安全区留白。Android 上两种写法结果一样
+    <View
+      style={[
+        styles.flex,
+        {
+          backgroundColor: theme.background,
+          paddingTop: insets.top,
+          paddingBottom: insets.bottom,
+        },
+      ]}
+    >
+      {urgent && <StatusBar style="light" />}
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.wash, { backgroundColor: SOS_RED }, washStyle]}
+      />
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.wash, { backgroundColor: SOS_RED_BEAT }, beatStyle]}
+      />
+      <View style={styles.container}>
+        {!finished ? (
+          <>
+            <View style={styles.top}>
+              <View style={styles.grow} />
+              <View style={styles.head}>
+                {drillBadge}
+                {!compact && (
+                  <View
+                    style={[styles.headIcon, { backgroundColor: P.alertBg }]}
+                  >
+                    <Ionicons
+                      name="warning-outline"
+                      size={30}
+                      color={P.alert}
+                    />
+                  </View>
+                )}
+                <ThemedText
+                  accessibilityRole="header"
+                  style={[styles.title, { color: P.text }]}
+                >
+                  {sos?.triggerType === "manual_sos"
+                    ? t("safety.manualSos")
+                    : t("sos.fall")}
+                </ThemedText>
+                <ThemedText style={[styles.subtitle, { color: P.sub }]}>
+                  {t("sos.pendingBody")}
+                </ThemedText>
+                {lateNote ? (
+                  <ThemedText style={[styles.subtitle, { color: P.sub }]}>
+                    {lateNote}
+                  </ThemedText>
+                ) : null}
+              </View>
+
+              <View style={styles.ring}>
+                <CountdownRing
+                  size={ringSize}
+                  progress={ring}
+                  color={P.ring}
+                  track={P.ringTrack}
+                >
+                  <Animated.View style={tickStyle}>
+                    <ThemedText
+                      allowFontScaling={false}
+                      style={[
+                        styles.number,
+                        {
+                          color: P.num,
+                          fontSize: numberSize,
+                          lineHeight: numberSize,
+                        },
+                      ]}
+                    >
+                      {left ?? "—"}
+                    </ThemedText>
+                  </Animated.View>
+                  {/* 环内只显示时间单位，完整说明在上方并跟随系统字号。 */}
+                  <ThemedText
+                    allowFontScaling={false}
+                    style={[
+                      styles.suffix,
+                      { color: P.sub, fontSize: ringSize >= 220 ? 14 : 12 },
+                    ]}
+                  >
+                    {t("sos.autoSendSuffix")}
+                  </ThemedText>
+                </CountdownRing>
+              </View>
+
+              <View style={styles.who}>
+                {contacts.data === undefined ? null : contacts.data.length >
+                  0 ? (
+                  <>
+                    <ThemedText style={[styles.whoLabel, { color: P.sub }]}>
+                      {t(isDrill ? "sos.willNotifyDrill" : "sos.willNotify", {
+                        n: contacts.data.length,
+                      })}
+                    </ThemedText>
+                    <View style={styles.chips}>
+                      {contacts.data.slice(0, 3).map((c) => (
+                        <View
+                          key={c.id}
+                          style={[
+                            styles.chip,
+                            {
+                              backgroundColor: P.chip,
+                              borderColor: theme.border,
+                            },
+                          ]}
+                        >
+                          <View
+                            style={[
+                              styles.avatar,
+                              { backgroundColor: P.avatarBg },
+                            ]}
+                          >
+                            <ThemedText
+                              style={[
+                                styles.avatarText,
+                                { color: P.avatarText },
+                              ]}
+                            >
+                              {initialOf(c.name)}
+                            </ThemedText>
+                          </View>
+                          <ThemedText
+                            numberOfLines={1}
+                            style={[styles.chipText, { color: P.text }]}
+                          >
+                            {c.name}
+                          </ThemedText>
+                        </View>
+                      ))}
+                      {contacts.data.length > 3 && (
+                        <View
+                          style={[
+                            styles.chip,
+                            styles.chipMore,
+                            {
+                              backgroundColor: P.chip,
+                              borderColor: theme.border,
+                            },
+                          ]}
+                        >
+                          <ThemedText
+                            style={[styles.chipText, { color: P.text }]}
+                          >
+                            +{contacts.data.length - 3}
+                          </ThemedText>
+                        </View>
+                      )}
+                    </View>
+                  </>
+                ) : (
+                  <View
+                    style={[
+                      styles.noContacts,
+                      {
+                        backgroundColor: P.alertBg,
+                        borderColor: P.alertBorder,
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name="warning-outline"
+                      size={18}
+                      color={P.alert}
+                    />
+                    <ThemedText
+                      style={[styles.noContactsText, { color: P.text }]}
+                    >
+                      {t(isDrill ? "sos.noContactsDrill" : "sos.noContacts")}
+                    </ThemedText>
+                  </View>
+                )}
+              </View>
+              <View style={styles.grow} />
+            </View>
+
+            <View style={styles.actions}>
+              <Tappable
+                feedback="scale"
+                accessibilityRole="button"
+                disabled={busy !== null}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(
+                    () => {},
+                  );
+                  act("confirm");
+                }}
+                style={[styles.send, { backgroundColor: P.sosBtn }]}
               >
-                {t("sos.drillBadge")}
+                <Ionicons name="call" size={22} color={P.onSosBtn} />
+                <ThemedText style={[styles.sendText, { color: P.onSosBtn }]}>
+                  {busy === "confirm" ? t("auth.sending") : t("sos.sendNow")}
+                </ThemedText>
+              </Tappable>
+              <SlideToCancel
+                label={t("sos.slide")}
+                busyLabel={t("sos.cancelling")}
+                a11yLabel={t("sos.slideA11y")}
+                a11yHint={t("sos.slideHint")}
+                busy={cancelBusy}
+                disabled={busy === "confirm"}
+                colors={P.slide}
+                onCancel={() => act("cancel")}
+              />
+            </View>
+          </>
+        ) : sos.status === "cancelled" ? (
+          <>
+            <View style={styles.doneCenter}>
+              {drillBadge}
+              <Animated.View
+                entering={pop}
+                style={[styles.doneIcon, { backgroundColor: theme.successBg }]}
+              >
+                <Ionicons name="checkmark" size={44} color={theme.success} />
+              </Animated.View>
+              <ThemedText accessibilityRole="header" style={styles.doneTitle}>
+                {t(isDrill ? "sos.drillDoneTitle" : "sos.cancelledTitle")}
+              </ThemedText>
+              <ThemedText themeColor="textSecondary" style={styles.doneText}>
+                {t(isDrill ? "sos.drillCancelledBody" : "sos.cancelledBody")}
               </ThemedText>
             </View>
-          )}
-          <View style={[styles.warnIcon, { backgroundColor: theme.dangerBg }]}>
-            <Ionicons name="warning" size={40} color={theme.danger} />
-          </View>
-          <ThemedText type="title" style={styles.title}>
-            {sos?.triggerType === "manual_sos"
-              ? t("safety.manualSos")
-              : t("sos.fall")}
-          </ThemedText>
-          <ThemedText
-            type="small"
-            themeColor="textSecondary"
-            style={styles.subtitle}
-          >
-            {finished
-              ? sos.status === "cancelled"
-                ? t(isDrill ? "sos.drillCancelledBody" : "sos.cancelledBody")
-                : t(isDrill ? "sos.drillNotifiedBody" : "sos.notifiedBody")
-              : t("sos.pendingBody")}
-          </ThemedText>
-          {!finished && lateNote ? (
-            <ThemedText
-              type="small"
-              themeColor="textSecondary"
-              style={styles.subtitle}
-            >
-              {lateNote}
-            </ThemedText>
-          ) : null}
-        </View>
-
-        <View style={styles.countdownWrap}>
-          {!finished && left !== null ? (
-            <>
-              <ThemedText style={[styles.countdown, { color: theme.danger }]}>
-                {left}
-              </ThemedText>
-              <ThemedText type="small" themeColor="textSecondary">
-                {t("sos.autoSendSuffix")}
-              </ThemedText>
-              <View
-                style={[
-                  styles.track,
-                  { backgroundColor: theme.backgroundSelected },
-                ]}
-              >
-                <View
+            <View style={styles.doneActions}>
+              {!isDrill && (
+                <Tappable
+                  feedback="scale"
+                  accessibilityRole="button"
+                  disabled={helpBusy}
+                  onPress={needHelp}
                   style={[
-                    styles.fill,
+                    styles.doneBtn,
+                    styles.doneBtnOutline,
+                    { borderColor: theme.borderStrong },
+                  ]}
+                >
+                  <ThemedText style={styles.doneBtnText}>
+                    {t("sos.needHelp")}
+                  </ThemedText>
+                </Tappable>
+              )}
+              {closeButton}
+            </View>
+          </>
+        ) : (
+          <>
+            <ScrollView
+              style={styles.flex}
+              contentContainerStyle={styles.notified}
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+            >
+              {drillBadge}
+              <Animated.View
+                entering={pop}
+                style={[styles.notifiedIcon, { backgroundColor: P.alertBg }]}
+              >
+                <Ionicons
+                  name="notifications-outline"
+                  size={36}
+                  color={P.alert}
+                />
+              </Animated.View>
+              <ThemedText accessibilityRole="header" style={styles.doneTitle}>
+                {notifiedTitle}
+              </ThemedText>
+              <ThemedText themeColor="textSecondary" style={styles.doneText}>
+                {notifiedBody}
+              </ThemedText>
+              {sentTo.length > 0 && (
+                <Animated.View
+                  entering={FadeIn.duration(220)}
+                  style={[
+                    styles.sentCard,
                     {
-                      width: `${Math.min(100, (left / 60) * 100)}%`,
-                      backgroundColor: theme.danger,
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: theme.border,
                     },
                   ]}
-                />
-              </View>
-            </>
-          ) : (
-            <Ionicons
-              name={
-                sos?.status === "cancelled"
-                  ? "checkmark-circle"
-                  : "notifications"
-              }
-              size={96}
-              color={sos?.status === "cancelled" ? theme.success : theme.danger}
-            />
-          )}
-        </View>
-
-        <View style={styles.actions}>
-          {!finished ? (
-            <>
-              <Pressable
-                style={[
-                  styles.btn,
-                  { backgroundColor: theme.backgroundSelected },
-                ]}
-                disabled={busy !== null || cancellingFromNotification}
-                onPress={() => act("cancel")}
-              >
-                <ThemedText type="smallBold" style={styles.btnText}>
-                  {cancelBusy ? t("sos.cancelling") : t("sos.imOk")}
-                </ThemedText>
-              </Pressable>
-              <Pressable
-                style={[styles.btn, { backgroundColor: theme.danger }]}
-                disabled={busy !== null}
-                onPress={() => act("confirm")}
-              >
-                <View style={styles.btnRow}>
-                  <Ionicons name="call" size={18} color="#fff" />
-                  <ThemedText
-                    type="smallBold"
-                    style={[styles.btnText, { color: "#fff" }]}
-                  >
-                    {busy === "confirm" ? t("auth.sending") : t("sos.sendNow")}
-                  </ThemedText>
-                </View>
-              </Pressable>
-            </>
-          ) : (
-            <Pressable
-              style={[
-                styles.btn,
-                { backgroundColor: theme.backgroundSelected },
-              ]}
-              onPress={() => router.back()}
-            >
-              <ThemedText type="smallBold" style={styles.btnText}>
-                {t("sos.close")}
-              </ThemedText>
-            </Pressable>
-          )}
-        </View>
-      </ThemedView>
-    </SafeAreaView>
+                >
+                  {sentTo.map((n, i) => (
+                    <View
+                      key={n.id}
+                      style={[
+                        styles.sentRow,
+                        i > 0 && {
+                          borderTopWidth: StyleSheet.hairlineWidth,
+                          borderTopColor: theme.border,
+                        },
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.sentAvatar,
+                          { backgroundColor: theme.backgroundSelected },
+                        ]}
+                      >
+                        <ThemedText style={styles.sentInitial}>
+                          {initialOf(n.contactName ?? n.target)}
+                        </ThemedText>
+                      </View>
+                      <View style={styles.sentBody}>
+                        <ThemedText numberOfLines={1} style={styles.sentName}>
+                          {n.contactName ?? n.target}
+                        </ThemedText>
+                        <ThemedText
+                          themeColor="textSecondary"
+                          numberOfLines={1}
+                          style={styles.sentSub}
+                        >
+                          {n.contactName
+                            ? `${t("sos.viaSms")} · ${n.target}`
+                            : t("sos.viaSms")}
+                        </ThemedText>
+                      </View>
+                      <Badge
+                        variant={
+                          n.status === "sent"
+                            ? "success"
+                            : n.status === "failed"
+                              ? "danger"
+                              : "warning"
+                        }
+                        label={
+                          n.status === "sent"
+                            ? t("accident.notif.sent")
+                            : n.status === "failed"
+                              ? t("accident.notif.failed")
+                              : t("accident.notif.sending")
+                        }
+                      />
+                    </View>
+                  ))}
+                </Animated.View>
+              )}
+            </ScrollView>
+            {closeButton}
+          </>
+        )}
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  container: { flex: 1, padding: 24, justifyContent: "space-between" },
-  hero: { alignItems: "center", gap: 12, marginTop: 24 },
+  wash: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
+  container: {
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 12,
+  },
+  // 上半截（图标到联系人）在顶部和两个操作之间上下居中：高屏上不再全挤在顶上、下面空一大截
+  //（负责人 2026-10-08：太上面了）。放不下时两头的留白收成 0，被裁的是它的下沿；两个操作不会被挤出屏幕
+  top: { flex: 1, alignItems: "center", overflow: "hidden" },
+  grow: { flexGrow: 1 },
+  head: { alignSelf: "stretch", alignItems: "center", gap: 10 },
   drillBadge: {
-    marginBottom: 4,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
@@ -360,32 +924,152 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: Radius.pill,
   },
-  warnIcon: {
+  headIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  title: {
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: 600,
+    textAlign: "center",
+  },
+  subtitle: { fontSize: 14, lineHeight: 20, textAlign: "center" },
+  ring: { marginTop: 20 },
+  number: {
+    fontWeight: 800,
+    fontVariant: ["tabular-nums"],
+    letterSpacing: -2,
+    textAlign: "center",
+  },
+  suffix: { lineHeight: 20, marginTop: 2 },
+  who: {
+    alignSelf: "stretch",
+    minHeight: 76,
+    marginTop: 20,
+    alignItems: "center",
+    gap: 8,
+  },
+  whoLabel: { fontSize: 13, lineHeight: 18, textAlign: "center" },
+  chips: {
+    alignSelf: "stretch",
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 8,
+  },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    height: 36,
+    paddingLeft: 6,
+    paddingRight: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexShrink: 1,
+  },
+  chipMore: { paddingLeft: 12, paddingRight: 12, flexShrink: 0 },
+  avatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText: { fontSize: 12, lineHeight: 16, fontWeight: 700 },
+  chipText: { fontSize: 15, lineHeight: 20, fontWeight: 600, flexShrink: 1 },
+  noContacts: {
+    alignSelf: "stretch",
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  noContactsText: { flex: 1, fontSize: 14, lineHeight: 20, fontWeight: 600 },
+  actions: { gap: 20, paddingTop: 8 },
+  send: {
+    height: 72,
+    borderRadius: 36,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+  sendText: { fontSize: 17, lineHeight: 24, fontWeight: 700 },
+  doneCenter: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+  },
+  doneIcon: {
     width: 88,
     height: 88,
     borderRadius: 44,
     alignItems: "center",
     justifyContent: "center",
+    marginBottom: 8,
   },
-  title: { fontSize: 30, lineHeight: 36 },
-  subtitle: { textAlign: "center", paddingHorizontal: 16 },
-  countdownWrap: { alignItems: "center", gap: 8 },
-  countdown: {
-    fontSize: 128,
-    lineHeight: 140,
-    fontWeight: 800,
-    fontVariant: ["tabular-nums"],
+  doneTitle: {
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: 600,
+    textAlign: "center",
   },
-  track: {
-    height: 6,
-    borderRadius: 3,
+  doneText: { fontSize: 15, lineHeight: 22, textAlign: "center" },
+  doneActions: { gap: 12 },
+  doneBtn: {
+    height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  doneBtnOutline: { borderWidth: 1 },
+  doneBtnText: { fontSize: 16, lineHeight: 22, fontWeight: 700 },
+  notified: {
+    alignItems: "center",
+    gap: 10,
+    paddingTop: 16,
+    paddingBottom: 16,
+  },
+  notifiedIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 6,
+  },
+  sentCard: {
     alignSelf: "stretch",
+    marginTop: 14,
+    borderRadius: 16,
+    borderWidth: 1,
     overflow: "hidden",
-    marginTop: 12,
   },
-  fill: { height: 6, borderRadius: 3 },
-  actions: { gap: 12, paddingBottom: 8 },
-  btn: { borderRadius: Radius.pill, paddingVertical: 18, alignItems: "center" },
-  btnRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  btnText: { fontSize: 16 },
+  sentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    minHeight: 60,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  sentAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sentInitial: { fontSize: 15, lineHeight: 20, fontWeight: 700 },
+  sentBody: { flex: 1, minWidth: 0 },
+  sentName: { fontSize: 15, lineHeight: 20, fontWeight: 600 },
+  sentSub: { fontSize: 13, lineHeight: 18 },
 });

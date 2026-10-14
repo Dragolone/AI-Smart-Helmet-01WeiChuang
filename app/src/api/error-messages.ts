@@ -62,6 +62,15 @@ export function toUserMessage(err: unknown): string {
 }
 
 /**
+ * 这次失败是不是「原样再来一次可能就行」：没连上服务器（断网、超时）、被限频、服务器自己出错。
+ * 服务端明确说不行的（绑定码不对、已被绑定……）不算——同样的请求再发多少次结果都一样。
+ */
+export function isTransientFailure(err: unknown): boolean {
+  if (!(err instanceof ApiRequestError)) return true;
+  return err.status === 429 || err.status >= 500;
+}
+
+/**
  * 头盔回执错误码 → 用户看得懂的一句话（BLE v0.6 §3.0，清单见 shared HELMET_ERROR_CODES）。
  * 回执里的码形如 `ERR_PARAM_VALUE:volume`（冒号后是设置键）——用户不该读到这种东西，
  * 但技术支持需要，所以正文说人话、原始码留在括号里。

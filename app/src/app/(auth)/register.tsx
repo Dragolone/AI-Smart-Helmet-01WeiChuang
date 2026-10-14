@@ -238,7 +238,7 @@ export default function RegisterScreen() {
                   style={{ color: theme.brand }}
                   onPress={() => {
                     Keyboard.dismiss();
-                    router.push("/legal/terms");
+                    router.navigate("/legal/terms");
                   }}
                   suppressHighlighting
                 >
@@ -250,7 +250,7 @@ export default function RegisterScreen() {
                   style={{ color: theme.brand }}
                   onPress={() => {
                     Keyboard.dismiss();
-                    router.push("/legal/privacy");
+                    router.navigate("/legal/privacy");
                   }}
                   suppressHighlighting
                 >

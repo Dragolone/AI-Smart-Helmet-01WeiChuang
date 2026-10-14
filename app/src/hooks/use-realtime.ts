@@ -118,6 +118,8 @@ export function useRealtimeUpdates(): void {
     // SOS 同步的判断逻辑在 services/sos-sync.ts（纯函数 + 注入副作用，有单测）；这里只接线
     const sosDeps: SosSyncDeps = {
       fetchActive: (id) => sosApi.active(id),
+      // 全仓只有这里用 push：两顶头盔同时有进行中的单时要各开各的倒计时页（同一单只开一次由 presentedSos 管）。
+      // 别处点了开页面一律用 navigate——同一页已经在最上面时不再叠一页（连点两下不会开出两页）
       openCountdown: (sosId, deviceId) =>
         router.push(`/sos-active?sosId=${sosId}&deviceId=${deviceId}`),
       showLockScreenAlert: (sosId, deviceId, deadline, triggeredAt) =>
