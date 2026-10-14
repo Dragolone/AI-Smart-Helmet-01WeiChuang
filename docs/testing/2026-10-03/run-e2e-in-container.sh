@@ -37,10 +37,12 @@ if ! docker ps --format '{{.Names}}' | grep -qx "$NODE"; then
 fi
 
 # 拷工作区当前内容进容器（含未提交改动，不含被忽略的文件）。源码目录先清掉，删掉的文件才不会残留；
-# node_modules 留在容器文件系统里，不走挂载，装一次之后每次都快
+# node_modules 留在容器文件系统里，不走挂载，装一次之后每次都快。
+# 显式跳过 node_modules：在 worktree 里把 node_modules 做成软链时，`.gitignore` 的 `node_modules/`（带斜杠）
+# 不匹配软链，`git ls-files -o` 会把它当未跟踪文件列出来，解包时撞上容器里的真目录整条管道退出 2（2026-10-14）
 docker exec "$NODE" sh -c 'rm -rf /work/backend/src /work/backend/test /work/backend/prisma /work/backend/scripts /work/packages/shared/src /work/mock-device/src'
 git ls-files -co --exclude-standard -- package.json package-lock.json .nvmrc backend packages mock-device \
-  | while IFS= read -r f; do [ -e "$f" ] && printf '%s\n' "$f"; done \
+  | while IFS= read -r f; do case "$f" in *node_modules*) continue;; esac; [ -e "$f" ] && printf '%s\n' "$f"; done \
   | COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata -cf - -T - 2>/dev/null \
   | docker exec -i "$NODE" sh -c 'tar -xf - -C /work 2>/dev/null'
 

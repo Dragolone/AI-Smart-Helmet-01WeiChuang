@@ -253,12 +253,13 @@ model AdminUser {
   @@map("admin_users")
 }
 
-// 对讲频道（API.md §13，口径 #27⑤）：TRTC 房间号=数字 roomId（自增，TRTC 要求 uint32）；
+// 对讲频道（API.md §13，口径 #27⑤）：TRTC 房间号=数字 roomId（服务端随机 10 位，决策 #56；原为自增——
+// 房间号可猜、进房凭证又不绑房间，任何人都能挨个房间偷听）；
 // 6 位邀请码加入；后端只管频道与凭证，音频流走 App ↔ TRTC 云，不经后端
 model VoiceChannel {
   id         String               @id @default(cuid())
   name       String
-  roomId     Int                  @unique @default(autoincrement()) @map("room_id")
+  roomId     Int                  @unique @map("room_id")
   inviteCode String               @unique @map("invite_code")
   ownerId    String               @map("owner_id")
   createdAt  DateTime             @default(now()) @map("created_at")

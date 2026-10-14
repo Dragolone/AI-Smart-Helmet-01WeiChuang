@@ -296,12 +296,12 @@ MVP 实用为主，全部只读 + 少量运维操作。
 | POST | /voice/channels/join | body：`{ inviteCode }`；邀请码错误 404；满员 409 `CHANNEL_FULL`；重复加入幂等返回频道 |
 | DELETE | /voice/channels/{channelId}/membership | 退出频道（非成员 404；频道保留，MVP 不做解散/回收） |
 | GET | /voice/channels/{channelId}/members | 成员列表（仅成员可见）：`{ userId, nickname, avatarUrl, phone, joinedAt }`（**手机号脱敏**；avatarUrl 同频道成员互相可见,2026-08-17；TS 类型 VoiceChannelMemberPublic） |
-| POST | /voice/channels/{channelId}/token | 进房凭证（仅成员）：`{ sdkAppId, userId, roomId, userSig, expiresAt }`；TRTC 未配置时 503 `TRTC_NOT_CONFIGURED` |
+| POST | /voice/channels/{channelId}/token | 进房凭证（仅成员）：`{ sdkAppId, userId, roomId, userSig, privateMapKey, expiresAt }`；`privateMapKey` 为**绑定该房间**的权限钥匙（TRTC PrivateMapKey，默认 10 分钟有效 `TRTC_ROOM_KEY_EXPIRE_SECONDS`，App 进房前现取，填 `TRTCParams.privateMapKey`；2026-10-14 决策 #56——TRTC 控制台开启「高级权限控制」后不带它进不了房）；TRTC 未配置时 503 `TRTC_NOT_CONFIGURED` |
 
-`channel` 对象（TS 类型见 `@helmet/shared` VoiceChannel）：`{ channelId, name, roomId, inviteCode, ownerId, memberCount, createdAt }`。
+`channel` 对象（TS 类型见 `@helmet/shared` VoiceChannel）：`{ channelId, name, roomId, inviteCode, ownerId, memberCount, createdAt }`。`roomId` 为服务端随机 10 位数（2026-10-14 决策 #56；原自增号可猜）。
 
 - **UserSig 由服务端签发**（官方 TLS-Sig-API-v2 HMAC-SHA256 算法自实现，不引 SDK 依赖，决策 #27⑥）；`TRTC_SDK_APP_ID` / `TRTC_SECRET_KEY` 走 env（当前个人测试应用，公司资质就绪后换正式 Key 零代码改动）；有效期 `TRTC_SIG_EXPIRE_SECONDS`（默认 24h）。
-- App 端：拿 token 用 TRTC SDK 进房（roomId）+ PTT 推流；蓝牙耳机路由等音频行为在 App 端处理（Week 2 Spike 已验证）。
+- App 端：拿 token 用 TRTC SDK 进房（roomId + privateMapKey）+ PTT 推流；蓝牙耳机路由等音频行为在 App 端处理（Week 2 Spike 已验证）。
 - ✅ 本节已实现（2026-08-16）。
 
 ## 14. 待定稿清单汇总

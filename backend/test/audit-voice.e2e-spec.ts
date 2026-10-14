@@ -349,7 +349,14 @@ describe('audit-voice：频道与进房凭证 (e2e)', () => {
         .set(auth(owner.token))
         .expect(200);
       expect(Object.keys(res.body).sort()).toEqual(
-        ['expiresAt', 'roomId', 'sdkAppId', 'userId', 'userSig'].sort(),
+        [
+          'expiresAt',
+          'privateMapKey',
+          'roomId',
+          'sdkAppId',
+          'userId',
+          'userSig',
+        ].sort(),
       );
       expect(res.body.sdkAppId).toBe(TEST_SDK_APP_ID);
       expect(res.body.userId).toBe(owner.id);

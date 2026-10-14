@@ -1,4 +1,4 @@
-import { genUserSig, verifyUserSig } from './trtc-sig';
+import { genPrivateMapKey, genUserSig, verifyUserSig } from './trtc-sig';
 
 describe('TRTC UserSig（TLS-Sig-API-v2 自实现）', () => {
   const config = {
@@ -27,6 +27,28 @@ describe('TRTC UserSig（TLS-Sig-API-v2 自实现）', () => {
     expect(() =>
       verifyUserSig({ ...config, secretKey: 'wrong_key' }, sig),
     ).toThrow('HMAC 校验失败');
+  });
+
+  it('PrivateMapKey：绑定房间号、到期 = 签发时刻 + 有效期、全权限；换密钥校验失败（决策 #56）', () => {
+    const now = 1760400000;
+    const roomConfig = { ...config, expireSeconds: 600 };
+    const key = genPrivateMapKey(roomConfig, 'user_abc', 1234567890, now);
+    expect(key).not.toMatch(/[+/=]/);
+    const decoded = verifyUserSig(roomConfig, key);
+    expect(decoded).toEqual({
+      identifier: 'user_abc',
+      sdkAppId: config.sdkAppId,
+      time: now,
+      expire: 600,
+      room: { roomId: 1234567890, expireAt: now + 600, privilegeMap: 255 },
+    });
+    expect(() =>
+      verifyUserSig({ ...roomConfig, secretKey: 'wrong_key' }, key),
+    ).toThrow('HMAC 校验失败');
+    // 另一个房间的钥匙是另一串
+    expect(genPrivateMapKey(roomConfig, 'user_abc', 1234567891, now)).not.toBe(
+      key,
+    );
   });
 
   it('不同用户/不同时刻的签名互不相同', () => {

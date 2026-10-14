@@ -16,7 +16,7 @@ import { isUniqueViolation } from '../common/prisma-errors';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { maskPhone } from '../providers/sms.provider';
-import { genUserSig } from './trtc-sig';
+import { genPrivateMapKey, genUserSig } from './trtc-sig';
 
 /** 成员上限（口径 #27⑤：20；env 可调，测试用小值验证满员路径） */
 const memberLimit = (): number =>
@@ -24,6 +24,16 @@ const memberLimit = (): number =>
 
 const sigExpireSeconds = (): number =>
   envPositiveInt('TRTC_SIG_EXPIRE_SECONDS', 86400);
+
+/** 房间权限钥匙有效期（决策 #56）：只在进房那一刻校验，App 进房前现取 /token，10 分钟够用 */
+const roomKeyExpireSeconds = (): number =>
+  envPositiveInt('TRTC_ROOM_KEY_EXPIRE_SECONDS', 600);
+
+/**
+ * 房间号随机 10 位（决策 #56）：自增号可猜，配合不绑房间的 UserSig 就能挨个房间偷听。
+ * TRTC 数字房间号上限 4294967294，但列是 int4，取 [1e9, 2^31) 约 11 亿个，撞车走与邀请码同一个重试
+ */
+const randomRoomId = (): number => randomInt(1_000_000_000, 2_147_483_647);
 
 const channelNotFound = () =>
   new NotFoundException({ code: 'NOT_FOUND', message: '频道不存在' });
@@ -46,6 +56,7 @@ export class VoiceService {
           data: {
             name,
             ownerId: userId,
+            roomId: randomRoomId(),
             inviteCode: String(randomInt(100_000, 1_000_000)),
             members: { create: { userId } },
           },
@@ -54,7 +65,7 @@ export class VoiceService {
         return this.toWire(channel);
       } catch (err) {
         if (isUniqueViolation(err)) {
-          continue; // 邀请码撞车，换一个重试
+          continue; // 邀请码 / 房间号撞车，换一个重试
         }
         throw err;
       }
@@ -172,12 +183,19 @@ export class VoiceService {
     }
     const expireSeconds = sigExpireSeconds();
     const userSig = genUserSig({ sdkAppId, secretKey, expireSeconds }, userId);
+    // 绑定这一个房间：成员身份在这里校验过，钥匙只对这个房间号有效（决策 #56）
+    const privateMapKey = genPrivateMapKey(
+      { sdkAppId, secretKey, expireSeconds: roomKeyExpireSeconds() },
+      userId,
+      channel.roomId,
+    );
     this.logger.log(`已签发进房凭证：user=${userId} room=${channel.roomId}`);
     return {
       sdkAppId,
       userId,
       roomId: channel.roomId,
       userSig,
+      privateMapKey,
       expiresAt: new Date(Date.now() + expireSeconds * 1000).toISOString(),
     };
   }
