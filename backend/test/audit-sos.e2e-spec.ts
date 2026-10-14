@@ -158,7 +158,7 @@ describe('审计 §4 SOS 全链路与状态机 (e2e, 手动 tick)', () => {
     expect(res.body).toEqual({ accepted: 1, duplicate: 0, invalid: 0 });
 
     // 层 1：raw_events
-    const raw = await prisma.rawEvent.findUniqueOrThrow({ where: { eventId } });
+    const raw = await prisma.rawEvent.findFirstOrThrow({ where: { eventId } });
     expect(raw).toMatchObject({
       deviceId: devChain,
       eventType: 'possible_fall',

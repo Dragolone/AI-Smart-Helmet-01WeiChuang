@@ -143,7 +143,7 @@ describe('audit-media：媒体元数据与预签名 URL (e2e)', () => {
       });
       // 2^53 不是安全整数 → 置 null；raw_events 里也只剩失真后的数
       expect(row.sizeBytes).toBeNull();
-      const rawEvent = await prisma.rawEvent.findUniqueOrThrow({
+      const rawEvent = await prisma.rawEvent.findFirstOrThrow({
         where: { eventId },
       });
       expect(JSON.stringify(rawEvent.payload)).toContain('9007199254740992');

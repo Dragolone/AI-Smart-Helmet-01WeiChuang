@@ -132,7 +132,7 @@ ACL 规则：设备 `helmet_001` 只允许 publish `helmet/helmet_001/{status,lo
 | Reconnect | BLE（v0.6）：连续 5 s 无 PDU 判链路断，头盔恢复广播，App 指数退避重连；4G：设备断线后指数退避重连（建议 1s 起，上限 60s，带抖动） | ✅ BLE 已定 / ⏸️ 4G 固件实现 |
 | Offline buffering | BLE（v0.6）：Flash 环形区 ≥ 1000 条 / 48 h，高危事件保护区永不覆盖、位置/心跳 FIFO；重连后 `0x07/0x08` 逐条补传、App ACK 即擦除，eventId 由 deviceId + Event_Seq 派生故补传天然幂等 | ✅ 已定；补传是否含位置/心跳待答（§10 B-5） |
 | 补传时间语义 | 补传事件保留原 `timestamp`（事件发生时间）；服务端以 `receivedAt` 记录实际到达时间。**补传的摔倒 / 求救事件照常进入 SOS 状态机**（从到达时刻起倒计时并通知，不按事件新旧丢弃——决策 #52） | ✅ |
-| Duplicate delivery | QoS 1 与补传都可能造成重复；**服务端按 eventId 幂等去重，只存一次、只通知一次**；设备无需保证不重发 | ✅ |
+| Duplicate delivery | QoS 1 与补传都可能造成重复；**服务端按 deviceId + eventId 幂等去重（设备内唯一，决策 #54），只存一次、只通知一次**；设备无需保证不重发 | ✅ |
 | Retry | BLE（v0.6）：高危事件 1.5 s 无 ACK 重发，3 次后入 Flash 保护队列；软件侧不假设“必达” | ✅ BLE 已定 / ⏸️ 4G 固件实现 |
 
 ## 7. 命令下发与 ACK（cmd / cmd_ack）

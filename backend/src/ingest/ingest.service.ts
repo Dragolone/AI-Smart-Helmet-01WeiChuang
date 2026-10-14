@@ -269,7 +269,9 @@ export class IngestService {
     if (!SEQ_ROLLBACK_WATCH_TYPES.has(e.eventType)) return;
     try {
       const prior = await this.prisma.rawEvent.findUnique({
-        where: { eventId: e.eventId },
+        where: {
+          deviceId_eventId: { deviceId: e.deviceId, eventId: e.eventId },
+        },
         select: { timestamp: true },
       });
       if (!prior) return;

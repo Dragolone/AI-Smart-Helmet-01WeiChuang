@@ -220,7 +220,7 @@ describe('审计 §6：决策 #39 绑定区间 / 电量历史 / 绑定竞态 (e2
     );
     // 解绑再绑回来：A1 的最后位置对 A 仍可见；B 的位置不可见
     const aLatest = await latestReceivedAt(a.token);
-    const aLoc1Row = await prisma.locationPoint.findUnique({
+    const aLoc1Row = await prisma.locationPoint.findFirst({
       where: { eventId: ev.aLoc1 },
     });
     expect(aLatest).toBe(aLoc1Row?.receivedAt.toISOString());
@@ -341,7 +341,7 @@ describe('审计 §6：决策 #39 绑定区间 / 电量历史 / 绑定竞态 (e2
       { timestamp: tsInB.toISOString() },
     );
     const aSees = await listEventIds(a.token);
-    const row = await prisma.rawEvent.findUnique({
+    const row = await prisma.rawEvent.findFirst({
       where: { eventId: lateViaRelay },
     });
     evidence(
@@ -393,11 +393,11 @@ describe('审计 §6：决策 #39 绑定区间 / 电量历史 / 绑定竞态 (e2
       `轨迹 range（timestamp 在 A1、receivedAt 在 B1）→ 窗口内共 ${range.body.total} 条，其中该点 ${hit.length} 条（契约 0；其余为 A1 自己的点）`,
     );
     expect(hit).toHaveLength(0);
-    await prisma.locationPoint.delete({ where: { eventId } });
+    await prisma.locationPoint.deleteMany({ where: { eventId } });
   });
 
   it('【AUTH-06 缺陷断言】battery-history 不按绑定区间过滤：A 能看到 B 期间的电量点（决策 #39 隐私意图；§4 契约未明列）', async () => {
-    const bStatusRow = await prisma.rawEvent.findUnique({
+    const bStatusRow = await prisma.rawEvent.findFirst({
       where: { eventId: ev.bStatus1 },
     });
     const points = await batteryTimestamps(a.token);

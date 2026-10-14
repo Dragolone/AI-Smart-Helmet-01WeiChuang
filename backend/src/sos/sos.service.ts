@@ -114,7 +114,12 @@ export class SosService {
     }
     const [rawEvent, notifications] = await this.prisma.$transaction([
       this.prisma.rawEvent.findUnique({
-        where: { eventId: sosCase.triggerEventId },
+        where: {
+          deviceId_eventId: {
+            deviceId: sosCase.deviceId,
+            eventId: sosCase.triggerEventId,
+          },
+        },
         select: { payload: true },
       }),
       this.prisma.sosNotification.findMany({
