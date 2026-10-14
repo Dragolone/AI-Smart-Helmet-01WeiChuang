@@ -772,6 +772,42 @@ describe("2026-10-05 评审：Android 前台服务在「搜索中」就要起来
     expect(useBleStore.getState().adapter).toBe("unauthorized");
   });
 
+  it("2026-10-14 审查：拒绝后去系统设置授权、回前台 → 不弹框、只查一次，授了就重启链路", async () => {
+    const { PermissionsAndroid } =
+      require("react-native") as typeof import("react-native");
+    let appStateCb: ((s: string) => void) | null = null;
+    jest.spyOn(AppState, "addEventListener").mockImplementation(((
+      _: string,
+      cb: (s: string) => void,
+    ) => {
+      appStateCb = cb;
+      return { remove: () => undefined };
+    }) as never);
+    const request = jest
+      .spyOn(PermissionsAndroid, "request")
+      .mockResolvedValue(PermissionsAndroid.RESULTS.DENIED);
+    const check = jest
+      .spyOn(PermissionsAndroid, "check")
+      .mockResolvedValue(false);
+    await startBleLink(["helmet_94173f"]);
+    await tick();
+    expect(useBleStore.getState().adapter).toBe("unauthorized");
+    expect(appStateCb).not.toBeNull();
+    // 回前台但还没授权：只 check，不再 request（否则会反复弹授权框）
+    appStateCb!("active");
+    await tick();
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(mockSvcStart).not.toHaveBeenCalled();
+    // 授了权再回前台：重新走一遍启动
+    check.mockResolvedValue(true);
+    request.mockResolvedValue(PermissionsAndroid.RESULTS.GRANTED);
+    appStateCb!("active");
+    await tick();
+    await tick();
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(mockSvcStart).toHaveBeenCalled();
+  });
+
   it("起服务抛错（Android 12+ 后台起前台服务被拒）：链路照常，握手不被带崩", async () => {
     mockSvcStart.mockImplementation(() => {
       throw new Error("ForegroundServiceStartNotAllowedException");

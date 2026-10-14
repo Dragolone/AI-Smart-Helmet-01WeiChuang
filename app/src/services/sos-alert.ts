@@ -9,6 +9,7 @@ import { Alert, AppState, Platform } from "react-native";
 
 import { sosApi } from "@/api/sos";
 import { translate } from "@/i18n";
+import type { Sos } from "@helmet/shared";
 import { devLog } from "@/services/dev-log";
 import { serverNow } from "@/services/server-clock";
 import { lateEventNote } from "@/services/sos-age";
@@ -34,9 +35,9 @@ const alerts = new Map<
 >();
 let responseSub: Notifications.EventSubscription | null = null;
 /** 通知按钮「取消」被服务端确认后回调（use-realtime 注册：让倒计时页立刻拉一次权威状态） */
-let onCancelConfirmed: ((sosId: string) => void) | null = null;
+let onCancelConfirmed: ((sosId: string, sos?: Sos) => void) | null = null;
 export function setSosCancelConfirmedListener(
-  listener: ((sosId: string) => void) | null,
+  listener: ((sosId: string, sos?: Sos) => void) | null,
 ): void {
   onCancelConfirmed = listener;
 }
@@ -270,21 +271,23 @@ export async function cancelFromNotification(
   useSosCancelStore.getState().begin(sosId);
   // 成功的收尾放在这里而不是调用方的 .then：重试成功时调用方早就拿着第一次的 false 走了，
   // 通知会一直留在锁屏上、预排的「还剩 30 秒」照常弹（2026-10-05 评审）
-  const settled = (): true => {
+  // 取消成功的返回值（已是 cancelled 的单）要交给页面直接写进缓存：弱网下紧接着的两次快照都失败时，
+  // 页面会回落到缓存里的 pending，从「取消中…」变回倒计时并重新响警报，而服务端其实已取消（10-14 代码审查）
+  const settled = (sos?: Sos): true => {
     useSosCancelStore.getState().end(sosId);
     void clearSosAlert(sosId);
     // 远程推送那条也撤掉：被杀状态下它是通知中心里唯一的一条，取消完还留着，用户会再去长按（10-07 实测）
     void dismissRemoteTwins(sosId);
     try {
-      onCancelConfirmed?.(sosId);
+      onCancelConfirmed?.(sosId, sos);
     } catch (e) {
       devLog("SOS-ALERT", "取消确认回调抛错", e as Error);
     }
     return true;
   };
   try {
-    await sosApi.cancel(sosId);
-    return settled();
+    const sos = await sosApi.cancel(sosId);
+    return settled(sos);
   } catch (e) {
     const code = (e as { code?: string }).code;
     if (code === "SOS_ALREADY_FINALIZED") return settled();
