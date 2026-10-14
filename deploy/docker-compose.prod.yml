@@ -161,6 +161,27 @@ services:
       LOCATION_INTERVAL_MS: ${MOCK2_LOCATION_INTERVAL_MS:-10000}
       MOCK_CMD_RESULT: ${MOCK2_CMD_RESULT:-success}
 
+  # 第三顶常驻 Mock 头盔（profile demo3，2026-10-14 负责人要求）：给汤总在自己手机上体验用，独占一顶，
+  # 不和 A 线回归用的两顶抢绑定。凭证同样来自 provision:device；COMPOSE_PROFILES=demo,demo2,demo3 一起打开。
+  # 剧本保持默认 riding：别设 fall / sos——常驻剧本会周期性触发求救，倒计时到期会真发短信给他的紧急联系人。
+  mock3:
+    build:
+      context: ..
+      dockerfile: mock-device/Dockerfile
+    restart: unless-stopped
+    logging: *default-logging
+    profiles: ["demo3"]
+    depends_on:
+      backend:
+        condition: service_started
+    environment:
+      MQTT_URL: mqtt://emqx:1883
+      DEVICE_ID: ${MOCK3_DEVICE_ID:-}
+      DEVICE_SECRET: ${MOCK3_DEVICE_SECRET:-}
+      SCENARIO: ${MOCK3_SCENARIO:-}
+      LOCATION_INTERVAL_MS: ${MOCK3_LOCATION_INTERVAL_MS:-10000}
+      MOCK_CMD_RESULT: ${MOCK3_CMD_RESULT:-success}
+
   gateway:
     build:
       context: ..
