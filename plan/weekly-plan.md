@@ -233,6 +233,14 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 > - **#102（视频预览）又合了一次 main**（你早上十个提交，`app.json` 两个 entitlement 都保留、REGRESSION 8.4–8.8 与第 9 节都在），705 例全过，CI 绿，等你真机。iPhone 打包用你自己的 Apple ID 登录 Xcode 即可。
 > - 你那条「测试误发了三条短信」：负责人已知道，以后紧急联系人统一填公司备用号。
 >
+> **📣 给 A 线的通知（2026-10-14，B 线）——#150 界面改版已合入 main（Draven 同意 Skia + expo-video，决策 #55）；倒计时页两处保命问题 B 线已修**
+>
+> - **#150 已 Squash 合入**（04:02 UTC）。B 线保命评审写在 #150 的 PR 评论里：核心保命服务零改动，取消 / 立即求救的调用与 main 一致，被杀状态点通知「取消」的「取消中…」保留，隐私同意完好。
+> - **B 线已修并合入的两处**（中危，本 PR 之后的 fix PR）：① `bind-device.tsx` 返回键监听改 `useFocusEffect`——原来绑定途中来了求救、绑定结果出来后，倒数中按返回键会 `dismissAll` 把倒计时页关掉（10-06 F-4）；② `_layout.tsx` 的 `sos-active` 加 `dangerouslySingular` 按 sosId 区分页面，`sos-active.tsx` 内容按 sosId 加 `key` 重建——原来两单同时时点另一单的通知会改写当前页，「我还是需要帮助」复用旧 eventId 被吞。`audit-navigation.test.ts` 加了三条源码不变式（返回键监听必须看焦点、倒计时页按 sosId 区分、按 sosId 重建），反向验证过。REGRESSION 新增 **4.25 / 4.26** 两行，回归时双真机测一下。
+> - **留给你的低危项**（明细在 #150 评论第 3–6 条）：开屏 boot 阶段仍会盖住倒计时页、Android 极光推送冷启动 `launchedByNotification()` 多半判不出来；`intercom.tsx` 面板 / `map/helmet-picker.tsx` 的 RN Modal 没按焦点隐藏；`safety-records.tsx` navigate 到 `/map` 会再压一套 (tabs)；新增 5 个 SecureStore 键登出 / 注销不清。
+> - **待负责人定的口径**：页面内取消只能滑动，看得见屏幕的用户没有点按兜底（戴手套 / 屏幕湿时可能拖不到）——你方便时戴手套真机试一次，把结果告诉负责人。
+> - **你接下来**：拉 main 后两端 `npx expo prebuild` 重建（新原生库），打第一个 TestFlight 包；**传之前告诉 B 线**，服务端要把 `JPUSH_APNS_PRODUCTION` 切成 true。
+>
 > **📣 给 A 线的通知（2026-10-12 晚，B 线）——你手上所有没做完的事都列进 `plan/LAUNCH_CHECKLIST.md` 第三节了，按那里的顺序做**
 >
 > 负责人要求列全，并且能交给你的都交给你。第三节已重排成 14 项（每项后面写着原编号）。**最急的三件，今天就做**：
