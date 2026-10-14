@@ -6,6 +6,8 @@
  *   pg_dump -Fc … | node dist/scripts/backup-upload.js --key backups/helmet_20260918T030000Z.dump [--retention-days 30] [--keep-min 7]
  *
  * 只接受 pg_dump 自定义格式（文件头 PGDMP）：pg_dump 失败时 stdin 是空的或错误文本，绝不能把它当备份传上去。
+ * 备份桶与媒体桶分开（TENCENT_COS_BACKUP_BUCKET，2026-10-14）：媒体换链接接口按设备上报的路径签名，
+ * 同桶等于给拿到设备凭证的人一条通往整库导出的路；没填时落到媒体桶并在 stderr 打 ⚠️，不中断备份。
  * 退出码：0 成功；2 参数/输入不合法；3 未配置 COS；1 上传或清理失败（cron 据此告警）。
  */
 import COS from 'cos-nodejs-sdk-v5';
@@ -14,6 +16,17 @@ import { tencentCosConfigFromEnv } from '../providers/tencent-cos.provider';
 
 export const BACKUP_PREFIX = 'backups/';
 const PG_DUMP_MAGIC = 'PGDMP';
+
+/** 备份桶：优先 TENCENT_COS_BACKUP_BUCKET；没填 / 空串 / 与媒体桶同名都算没分桶，回落媒体桶（调用方要出声） */
+export function resolveBackupBucket(
+  env: Record<string, string | undefined>,
+  mediaBucket: string,
+): { bucket: string; dedicated: boolean } {
+  const dedicated = env.TENCENT_COS_BACKUP_BUCKET?.trim();
+  return dedicated && dedicated !== mediaBucket
+    ? { bucket: dedicated, dedicated: true }
+    : { bucket: mediaBucket, dedicated: false };
+}
 
 export interface BackupArgs {
   key: string;
@@ -201,6 +214,12 @@ async function main(): Promise<void> {
     );
     process.exit(3);
   }
+  const target = resolveBackupBucket(process.env, config.bucket);
+  if (!target.dedicated) {
+    console.error(
+      `⚠️ 未设置 TENCENT_COS_BACKUP_BUCKET，备份落到媒体桶 ${target.bucket}：媒体换链接接口按设备上报的路径签名，同桶等于给设备一条通往整库导出的路（见 deploy/.env.example）`,
+    );
+  }
   const body = await readStdin();
   const cos = new COS({
     SecretId: config.secretId,
@@ -209,12 +228,12 @@ async function main(): Promise<void> {
   });
   try {
     const result = await runBackup(
-      cosStore(cos, config.bucket, config.region),
+      cosStore(cos, target.bucket, config.region),
       body,
       args,
     );
     console.log(
-      `✓ 已上传 ${result.key}（${(result.bytes / 1024 / 1024).toFixed(2)} MB）到 ${config.bucket}；清理 ${result.deleted.length} 份过期备份，现存 ${result.remaining} 份`,
+      `✓ 已上传 ${result.key}（${(result.bytes / 1024 / 1024).toFixed(2)} MB）到 ${target.bucket}；清理 ${result.deleted.length} 份过期备份，现存 ${result.remaining} 份`,
     );
     for (const k of result.deleted) console.log(`  - 已删除 ${k}`);
   } catch (err) {

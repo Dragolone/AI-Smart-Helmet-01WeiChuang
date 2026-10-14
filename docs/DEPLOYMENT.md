@@ -121,7 +121,7 @@ docker compose -f docker-compose.prod.yml logs -f mock       # 应持续「已�
 | 6 | App 端 `EXPO_PUBLIC_API_URL=https://dev-api.01weichuang.com/api/v1` 重启 Metro,注册→绑定→地图页 | 全流程可用,地图上看到 Mock 头盔移动(WS 走 wss 自动) |
 | 7 | `docker compose -f docker-compose.prod.yml restart backend` 后重复 #1 | 服务自动恢复,health 正常(重启接管:含 SOS pending 恢复逻辑)。重启期间 `curl` health 先见 `503 {"status":"draining"}` 再恢复 200(SIGTERM 排空,审计 DBOPS-07) |
 | 8 | `curl -s -o /dev/null -w '%{http_code}' -X POST https://dev-api.01weichuang.com/api/v1/internal/emqx/authenticate` | **404**——EMQX 回调只走容器网络,公网被网关拦下(审计 MQTT-03);同时 Mock 仍在线(容器内回调不受影响) |
-| 9 | `sh backup.sh`(§5 备份) | 末行 `✓ 已上传 backups/helmet_<时间>.dump(x MB)…`;COS 控制台桶内 `backups/` 出现该对象 |
+| 9 | `sh backup.sh`(§5 备份) | 末行 `✓ 已上传 backups/helmet_<时间>.dump(x MB)…`;COS 控制台**备份桶**内 `backups/` 出现该对象（dev 未分桶时在媒体桶,日志带 ⚠️ 行） |
 | 10 | `docker inspect helmet-backend-1 --format '{{json .HostConfig.LogConfig}}'`(容器名以 `docker compose ps` 为准) | `max-size: 20m / max-file: 5`——日志轮转生效,不会写满盘 |
 
 ## 5. 日常运维
@@ -141,6 +141,8 @@ ssh -L 18083:localhost:18083 <user>@<服务器IP>
 
 # 数据库备份:每日自动 → COS(上线前清单 #6 ①;脚本 deploy/backup.sh,上传逻辑 backend/src/scripts/backup-upload.ts)
 sh backup.sh                       # 手动跑一次:pg_dump -Fc → 管道进 backend 容器上传到 COS backups/,并清理超过保留期的旧份
+#   备份桶与媒体桶分开（2026-10-14）：deploy/.env 填 TENCENT_COS_BACKUP_BUCKET（控制台新建一个私有桶，helmet-cos 子账号的权限对全账号的桶都有效，不用另授）；
+#   没填时备份落到媒体桶、日志里打 ⚠️——媒体换链接接口按设备上报的路径签名，备份与视频同桶等于给设备一条通往整库导出的路
 crontab -e                         # 加一行(每天 03:00 北京时间=19:00 UTC,按服务器时区调整):
 #   0 3 * * * /home/ubuntu/AI-Smart-Helmet-01WeiChuang/deploy/backup.sh >> /home/ubuntu/helmet-backup.log 2>&1
 #   ⚠️ 日志别写 /var/log：cron 以 ubuntu 用户跑，那里没写权限，重定向失败会让整条任务不执行（2026-09-18~22 踩中，4 天无备份）
@@ -150,7 +152,7 @@ crontab -e                         # 加一行(每天 03:00 北京时间=19:00 U
 
 # 恢复演练 / 事故恢复(用隔离库先演练一次再动生产)
 docker compose -f docker-compose.prod.yml exec -T postgres pg_restore -U helmet -d helmet --clean --if-exists --no-owner < helmet_<时间>.dump
-#   备份文件从 COS 控制台下载,或 backend 容器内用同一套凭证取回;恢复后跑 §4 #1/#3/#5 验证计数与关系
+#   备份文件从 COS 控制台（备份桶 TENCENT_COS_BACKUP_BUCKET）下载,或 backend 容器内用同一套凭证取回;恢复后跑 §4 #1/#3/#5 验证计数与关系
 ```
 
 - **容器日志轮转**(上线前清单 #6 ②):compose 所有服务 `logging: json-file max-size 20m × max-file 5`(`x-logging` 锚点),改动后 `up -d` 重建才生效;更久的历史不靠容器日志。
@@ -218,11 +220,11 @@ docker compose -f docker-compose.prod.yml exec -T postgres pg_restore -U helmet 
 | 1 | 新服务器(腾讯云轻量 2C4G 起,同一账号) | 新实例;development 保留作联调/演示 |
 | 2 | DNS 三条 A 记录 | `api` / `admin` / `mqtt.01weichuang.com`(去掉 `dev-` 前缀)→ 新 IP;先解析再部署 |
 | 3 | 防火墙 | 同 §2 表;1883 只放硬件团队出口 IP;22 只放办公出口 |
-| 4 | `deploy/.env` | `cp .env.example .env` 后:`API_DOMAIN`/`ADMIN_DOMAIN` 填正式域名;**全部密钥重新 `openssl rand -hex 32`**(POSTGRES/JWT/ADMIN_JWT/EMQX_INTERNAL_TOKEN/MQTT_BACKEND_PASSWORD/EMQX_NODE_COOKIE/EMQX_DASHBOARD_PASSWORD);COS/短信/TRTC 用**正式**子账号密钥与正式应用(THIRD_PARTY.md);`TRUST_PROXY` 保持默认 1;`SOS_COUNTDOWN_SECONDS=60` 不改(决策 #28) |
+| 4 | `deploy/.env` | `cp .env.example .env` 后:`API_DOMAIN`/`ADMIN_DOMAIN` 填正式域名;**全部密钥重新 `openssl rand -hex 32`**(POSTGRES/JWT/ADMIN_JWT/EMQX_INTERNAL_TOKEN/MQTT_BACKEND_PASSWORD/EMQX_NODE_COOKIE/EMQX_DASHBOARD_PASSWORD);COS/短信/TRTC 用**正式**子账号密钥与正式应用(THIRD_PARTY.md),**`TENCENT_COS_BACKUP_BUCKET` 填单独的备份桶**(THIRD_PARTY §3,2026-10-14);`TRUST_PROXY` 保持默认 1;`SOS_COUNTDOWN_SECONDS=60` 不改(决策 #28) |
 | 5 | Mock 常驻 | 生产**不开** `COMPOSE_PROFILES=demo`;演示走 development |
 | 6 | `sh render-config.sh` + `up -d --build` | 同 §3 ④⑤ |
 | 7 | 管理员与设备 | `create:admin` 新建(密码入密码管理器);真机设备用 `provision:batch` 按批开通(CSV + 二维码交产线,单台用 `provision:device`),deviceSecret 交硬件产线 |
-| 8 | 备份 cron | §5 那一行 crontab(日志写 `/home/ubuntu/`,不要 `/var/log`);**用 crontab 里一模一样的整条命令**手动跑一次,`~/helmet-backup.log` 末行「备份完成」,COS 里 `backups/` 有新对象;次日再看一次日志确认定时触发 |
+| 8 | 备份 cron | §5 那一行 crontab(日志写 `/home/ubuntu/`,不要 `/var/log`);**用 crontab 里一模一样的整条命令**手动跑一次,`~/helmet-backup.log` 末行「备份完成」且 ✓ 行写的是**备份桶**（不是媒体桶、没有 ⚠️ 行）,备份桶里 `backups/` 有新对象;次日再看一次日志确认定时触发 |
 | 9 | 拨测 | §5 对外拨测加 `api.01weichuang.com` 一条 |
 | 10 | 验收 | §4 全部 10 条 + §6 安全基线逐条打勾;App 正式包 `EXPO_PUBLIC_API_URL=https://api.01weichuang.com/api/v1` |
 | 11 | ~~上线后~~ | ~~给 `helmet-cos` 子账号换新密钥~~ → 负责人 2026-10-02 决定不再轮换(09-22 已换过一次),COS 与极光沿用现有密钥 |

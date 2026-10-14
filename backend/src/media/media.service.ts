@@ -22,7 +22,8 @@ const urlTtlSeconds = (): number =>
 /**
  * storageKey 来自设备上报（video_ready），服务端原样签名。数据库备份与媒体在同一个桶里
  *（deploy/backup.sh → backups/helmet_<UTC>.dump，时间可猜）：不拦的话，拿到任一设备凭证的人上报一条
- * storageKey 指向备份的 video_ready，就能以设备主人身份换到整库导出的下载链接
+ * storageKey 指向备份的 video_ready，就能以设备主人身份换到整库导出的下载链接。
+ * 根治是备份放单独的桶（TENCENT_COS_BACKUP_BUCKET，2026-10-14）；这里的前缀拦截留作第二道防线
  */
 export const isSignableStorageKey = (key: string): boolean =>
   !key.replace(/^\/+/, '').startsWith(BACKUP_PREFIX) &&

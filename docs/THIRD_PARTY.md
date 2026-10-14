@@ -44,6 +44,7 @@
 - **桶**：`helmet-media-1415122735`，地域广州 `ap-guangzhou`（与服务器同区），**单 AZ**（多 AZ 无资源包可抵且开启后不可关）、**私有读写**、服务端加密 **SSE-COS**、版本控制/日志/极智压缩均关闭。
 - **子账号**：`helmet-cos`，仅「编程访问」，仅关联 `QcloudCOSDataFullControl`（对象读写删列，不能删桶/改桶配置）。密钥存密码管理器，**不进 Git、不发聊天**。⚠️ 首把密钥曾在对话中出现过，正式上线前在访问管理里为该子账号新建密钥、删除旧密钥后再填云端。
 - **后端**：`TencentCosProvider`（`cos-nodejs-sdk-v5`，本地签名不联网）；`TENCENT_COS_SECRET_ID / SECRET_KEY / BUCKET` 齐全即切换，`TENCENT_COS_REGION` 缺省广州；否则回落 Mock。业务代码零改动。
+- **备份桶（2026-10-14 排查，待负责人建）**：数据库每日备份原来与媒体同桶，而媒体换链接接口按设备上报的路径签名——拿到任一设备凭证就能换到整库导出的下载链接；代码已拒签 `backups/` 前缀，**分桶才是根治**。控制台新建一个私有桶（建议 `helmet-backups-1415122735`，广州、SSE-COS、不开公共读、不用资源包），把桶名填进云端 `deploy/.env` 的 `TENCENT_COS_BACKUP_BUCKET` 后 `up -d` 重建 backend，再手动 `sh backup.sh` 看 ✓ 行写的是新桶。helmet-cos 子账号的 `QcloudCOSDataFullControl` 对全账号的桶都有效，不用另授权。
 - **验收命令**：`npm run verify:cos -w backend`（上传临时对象 → 签名可读 → 无签名 403 → 篡改 403 → 过期 403 → 删除）。本地 2026-09-16 通过；**云端填好 `deploy/.env` 后在 backend 容器内再跑一次**：`docker compose -f docker-compose.prod.yml exec backend npm run verify:cos`。✅ **云端 2026-09-17 12:55 已填并自检通过（5 项）**；同日云端已重新部署到 main（含 #57/#58/#60/#62/#64，四条迁移应用成功）。🔴 上线前给子账号 `helmet-cos` 换新密钥（现用密钥曾进过聊天）。
 - **待定**：① 视频文件怎么进桶（头盔 Wi-Fi 直传 / 经 App 中转）待硬件确认（EVENTS.md 4.9 ⚠️），确定后再加上传签名接口；② **云端保留期待负责人确认**（候选 90 天到期删除，见 DECISIONS.md 待定表），定案后用主账号在控制台配生命周期规则，并确认超期媒体的接口表现。
 - **费用参考**（广州标准存储，按量）：存储约 0.1 元/GB/月、外网下行约 0.5 元/GB、上传免费；MVP 规模预计每月 0–10 元。不开 CDN。
