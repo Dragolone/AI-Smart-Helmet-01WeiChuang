@@ -205,6 +205,17 @@ export function DeviceSettingList({
       {keys.map((key, index) => {
         const spec = DEVICE_SETTINGS[key];
         const current = normalize(key, settings?.[key]);
+        // 「待确认」的那一档：刚点过、回执还没回来的值；或者头盔从没上报过（current 为空）时的出厂默认——
+        // 只描边不填色，和「头盔确认过」的实心高亮分得开，不把没生效的值显示成已生效（决策 #27③ / #45）
+        const inFlight =
+          lastCommand &&
+          commandTouches(lastCommand, key) &&
+          (lastCommand.status === "pending" ||
+            lastCommand.status === "delivered")
+            ? normalize(key, lastCommand.params[key])
+            : null;
+        const tentative =
+          inFlight ?? (current === null ? normalize(key, spec.default) : null);
         const hint = HINT[key];
         const levels = LEVEL_LABELS[key];
         const stacked = !!levels; // 3–4 档的分段控件单独占一行，否则标签会被挤断行
@@ -239,6 +250,15 @@ export function DeviceSettingList({
                 {t(hint)}
               </ThemedText>
             ) : null}
+            {current === null && tentative !== null && (
+              <ThemedText
+                type="small"
+                themeColor="textSecondary"
+                style={styles.hint}
+              >
+                {t("device.unconfirmedDefault")}
+              </ThemedText>
+            )}
           </View>
         );
         const control =
@@ -250,6 +270,7 @@ export function DeviceSettingList({
                 label: t(v ? "device.on" : "device.off"),
               }))}
               current={current}
+              tentative={tentative}
               disabled={disabled}
               onSelect={(v) => onChange(key, v)}
             />
@@ -260,6 +281,7 @@ export function DeviceSettingList({
                 label: t(labelKey),
               }))}
               current={current}
+              tentative={tentative}
               disabled={disabled}
               onSelect={(v) => onChange(key, v)}
             />
@@ -272,6 +294,7 @@ export function DeviceSettingList({
               max={spec.max ?? 255}
               step={key === "radarDistance" ? 5 : 1}
               unit={"unit" in spec ? (spec.unit as string) : ""}
+              tentative={current === null}
               disabled={disabled}
               onChange={(v) => onChange(key, v)}
             />
@@ -307,12 +330,15 @@ export function DeviceSettingList({
 function Segmented({
   options,
   current,
+  tentative = null,
   disabled,
   onSelect,
   compact = false,
 }: {
   options: { value: SettingValue; label: string }[];
   current: SettingValue | null;
+  /** 待确认的那一档（在途 / 未上报时的默认）：品牌色描边、不填色 */
+  tentative?: SettingValue | null;
   disabled: boolean;
   onSelect: (v: SettingValue) => void;
   compact?: boolean;
@@ -340,7 +366,15 @@ function Segmented({
             activeBg={theme.brand}
             inactiveBg={theme.backgroundSelected}
             activeFg={theme.onBrand}
-            inactiveFg={theme.textSecondary}
+            inactiveFg={
+              o.value === tentative ? theme.text : theme.textSecondary
+            }
+            borderActive={theme.brand}
+            borderInactive={
+              o.value === tentative && current !== o.value
+                ? theme.brand
+                : "transparent"
+            }
           />
         </View>
       ))}
@@ -355,6 +389,7 @@ function Stepper({
   max,
   step,
   unit,
+  tentative = false,
   disabled,
   onChange,
 }: {
@@ -363,6 +398,8 @@ function Stepper({
   max: number;
   step: number;
   unit: string;
+  /** 头盔没上报过：显示的是默认值，数字用次要色 */
+  tentative?: boolean;
   disabled: boolean;
   onChange: (v: number) => void;
 }) {
@@ -386,7 +423,11 @@ function Stepper({
   return (
     <View style={styles.stepper}>
       {btn(-step, "−")}
-      <ThemedText type="smallBold" style={styles.stepValue}>
+      <ThemedText
+        type="smallBold"
+        themeColor={tentative ? "textSecondary" : undefined}
+        style={styles.stepValue}
+      >
         {value}
         {unit}
       </ThemedText>
@@ -418,6 +459,9 @@ const styles = StyleSheet.create({
   segment: {
     minHeight: 42,
     borderRadius: 9,
+    // 描边留给「待确认」态；平时透明，占位一致不跳动
+    borderWidth: 1.5,
+    borderColor: "transparent",
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 4,
