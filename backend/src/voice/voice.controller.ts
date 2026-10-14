@@ -21,7 +21,7 @@ class CreateChannelDto {
 }
 
 class JoinChannelDto {
-  @Matches(/^\d{6}$/, { message: 'inviteCode 必须是 6 位数字' })
+  @Matches(/^[0-9A-Za-z]{6}$/, { message: 'inviteCode 必须是 6 位字母或数字' })
   inviteCode!: string;
 }
 
@@ -39,7 +39,7 @@ export class VoiceController {
     return this.voice.listMine(req.user.userId);
   }
 
-  // 邀请码 6 位数字、长期有效，且「码错 404 / 码对 200」能区分猜没猜中：不限频时一个脚本就能
+  // 邀请码 6 位字母 / 数字（决策 #57）、长期有效，且「码错 404 / 码对 200」能区分猜没猜中：不限频时一个脚本就能
   // 枚举出陌生人的频道并自动入群（看到成员昵称头像、拿进房凭证）。与绑定码同口径（决策 #53）
   @RateLimit({ name: 'voice_join', limit: 10, windowMs: 60_000 })
   @Post('join')

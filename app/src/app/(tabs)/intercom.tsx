@@ -552,7 +552,7 @@ export default function IntercomScreen() {
   };
 
   const submitJoin = () => {
-    if (!/^\d{6}$/.test(codeDraft.trim())) {
+    if (!/^[0-9A-Za-z]{6}$/.test(codeDraft.trim())) {
       Alert.alert(t("intercom.inviteCode"), t("intercom.inviteCodeFormat"));
       return;
     }
@@ -1581,7 +1581,9 @@ export default function IntercomScreen() {
                   value={codeDraft}
                   onChangeText={setCodeDraft}
                   placeholder={t("intercom.inviteCodePlaceholder")}
-                  keyboardType="number-pad"
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  autoComplete="off"
                   maxLength={6}
                   autoFocus
                 />
