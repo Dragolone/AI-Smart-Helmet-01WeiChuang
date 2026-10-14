@@ -16,6 +16,7 @@ import { isUniqueViolation } from '../common/prisma-errors';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { maskPhone } from '../providers/sms.provider';
+import { generateInviteCode, normalizeInviteCode } from './invite-code';
 import { genPrivateMapKey, genUserSig } from './trtc-sig';
 
 /** 成员上限（口径 #27⑤：20；env 可调，测试用小值验证满员路径） */
@@ -48,7 +49,7 @@ export class VoiceService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  /** 建频道：创建者自动入频道；6 位邀请码，撞码重试 */
+  /** 建频道：创建者自动入频道；6 位字母 / 数字邀请码（决策 #57），撞码重试 */
   async create(userId: string, name: string): Promise<WireChannel> {
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
@@ -57,7 +58,7 @@ export class VoiceService {
             name,
             ownerId: userId,
             roomId: randomRoomId(),
-            inviteCode: String(randomInt(100_000, 1_000_000)),
+            inviteCode: generateInviteCode(),
             members: { create: { userId } },
           },
           include: { _count: { select: { members: true } } },
@@ -84,10 +85,10 @@ export class VoiceService {
     return memberships.map((m) => this.toWire(m.channel));
   }
 
-  /** 凭邀请码加入：满员 409；重复加入幂等返回频道 */
+  /** 凭邀请码加入（大小写不敏感，O/I/L 兜底旧数字码）：满员 409；重复加入幂等返回频道 */
   async join(userId: string, inviteCode: string): Promise<WireChannel> {
     const channel = await this.prisma.voiceChannel.findUnique({
-      where: { inviteCode },
+      where: { inviteCode: normalizeInviteCode(inviteCode) },
       include: { _count: { select: { members: true } } },
     });
     if (!channel) throw channelNotFound();

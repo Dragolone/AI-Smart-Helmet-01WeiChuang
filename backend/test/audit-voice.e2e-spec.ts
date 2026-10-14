@@ -55,7 +55,7 @@ describe('audit-voice：频道与进房凭证 (e2e)', () => {
     await app.close();
   });
 
-  describe('邀请码输入边界（DTO 正则 ^\\d{6}$，ValidationPipe 不做 trim）', () => {
+  describe('邀请码输入边界（DTO 正则 ^[0-9A-Za-z]{6}$，ValidationPipe 不做 trim）', () => {
     let owner: TestUser;
     let inviteCode: string;
     beforeAll(async () => {
@@ -72,8 +72,8 @@ describe('audit-voice：频道与进房凭证 (e2e)', () => {
       ['前后空格', (c: string) => ` ${c} `],
       ['5 位', (c: string) => c.slice(0, 5)],
       ['7 位', (c: string) => `${c}0`],
-      ['小写字母混入', (c: string) => `${c.slice(0, 5)}a`],
-      ['大写字母混入', (c: string) => `${c.slice(0, 5)}A`],
+      ['符号混入', (c: string) => `${c.slice(0, 5)}-`],
+      ['全角字母', () => 'ＡＢＣＤＥＦ'],
       ['全角数字', () => '１２３４５６'],
       ['换行结尾', (c: string) => `${c}\n`],
     ])('%s → 400 VALIDATION_FAILED', async (_label, mutate) => {
@@ -116,6 +116,36 @@ describe('audit-voice：频道与进房凭证 (e2e)', () => {
         .send({ inviteCode: missing })
         .expect(404);
       expect(res.body.code).toBe('NOT_FOUND');
+    });
+
+    it('大小写不敏感（决策 #57）：小写输入照样加入，返回同一个频道', async () => {
+      const joiner = await newUser();
+      const res = await request(http)
+        .post(`${BASE}/join`)
+        .set(auth(joiner.token))
+        .send({ inviteCode: inviteCode.toLowerCase() })
+        .expect(200);
+      expect(res.body.inviteCode).toBe(inviteCode);
+    });
+
+    it('10-15 前发出的 6 位数字旧码继续有效，且 O / I / L 当 0 / 1 / 1 兜底', async () => {
+      await prisma.voiceChannel.deleteMany({ where: { inviteCode: '100110' } });
+      await prisma.voiceChannel.create({
+        data: {
+          name: '旧码频道',
+          ownerId: owner.id,
+          roomId: 1_234_567_890,
+          inviteCode: '100110',
+          members: { create: { userId: owner.id } },
+        },
+      });
+      const joiner = await newUser();
+      const res = await request(http)
+        .post(`${BASE}/join`)
+        .set(auth(joiner.token))
+        .send({ inviteCode: 'IOOIlO' })
+        .expect(200);
+      expect(res.body.inviteCode).toBe('100110');
     });
 
     it('建频道 name 边界：30 字通过、31 字 400、非字符串 400', async () => {

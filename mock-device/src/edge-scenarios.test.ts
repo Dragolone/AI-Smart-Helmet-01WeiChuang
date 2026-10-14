@@ -279,55 +279,97 @@ describe('Mock 剧本（子进程黑盒，MQTT 链路）', { concurrency: true }
     }
   });
 
-  it('SCENARIO=tour：一轮按进度依次演预警→解除+录像、障碍→解除、摔倒、休眠→唤醒、蓝牙断开；下一轮换成手动求救；休眠段心跳 sleeping=true', async () => {
+  it('SCENARIO=tour：一轮 12 步——8 条各不相同的安全事件（4 条带录像）+ 摔倒 + 休眠→唤醒 + 蓝牙断开；下一轮换成手动求救且距离拉近；休眠段心跳 sleeping=true', async () => {
     const id = 'helmet_tour';
-    // 一轮 20 个点 × 500 ms = 10 s：各步落在第 2 / 5 / 8 / 13 / 15 / 17 个点，第二轮求救在第 28 个点
-    const r = await run(id, { SCENARIO: 'tour', TOUR_CYCLE_POINTS: '20', LOCATION_INTERVAL_MS: '500', STATUS_INTERVAL_MS: '500' });
+    // 一轮 40 个点（下限）× 500 ms = 20 s：各步落在第 2 / 6 / 9 / 12 / 16 / 20 / 23 / 26 / 30 / 32 / 34 / 37 个点，第二轮求救在第 56 个点
+    const r = await run(id, { SCENARIO: 'tour', TOUR_CYCLE_POINTS: '40', LOCATION_INTERVAL_MS: '500', STATUS_INTERVAL_MS: '500' });
+    // 轮长低于 40 会让相邻两步撞到同一个点：回退默认 72，只看启动日志
+    const short = await run('helmet_tour_short', { SCENARIO: 'tour', TOUR_CYCLE_POINTS: '39' });
     try {
-      // 第二轮从第 20 个点起又会先来一遍预警 / 障碍，求救那步（第 28 个点）才换成 manual_sos
-      await waitFor(() => r.on('event').some((e) => e.eventType === 'manual_sos'), '一轮九步 + 第二轮的手动求救', 30_000);
+      await waitFor(() => short.output().includes('开始全情况轮播'), '短轮长的启动日志');
+      assert.match(short.output(), /全情况轮播（每 72 个位置点一轮）/);
+
+      await waitFor(() => r.on('event').some((e) => e.eventType === 'manual_sos'), '一轮 12 步 + 第二轮的手动求救', 45_000);
       const events = r.on('event');
       const steps = events.map((e) => [e.eventType, r.pointsBefore(e)]);
-      assert.deepEqual(steps.slice(0, 9), [
-        ['collision_risk', 2],
-        ['risk_cleared', 4],
-        ['video_ready', 4],
-        ['obstacle_risk', 5],
-        ['risk_cleared', 7],
-        ['possible_fall', 8],
-        ['sleep_entered', 13],
-        ['sleep_exited', 15],
-        ['bluetooth_lost', 17],
+      const firstCycle: Array<[string, number]> = [
+        ['collision_risk', 2], ['risk_cleared', 4], ['video_ready', 4],
+        ['collision_risk', 6], ['risk_cleared', 8],
+        ['obstacle_risk', 9], ['risk_cleared', 11],
+        ['collision_risk', 12], ['risk_cleared', 13], ['video_ready', 13],
+        ['possible_fall', 16],
+        ['obstacle_risk', 20], ['risk_cleared', 23],
+        ['collision_risk', 23], ['risk_cleared', 25],
+        ['sleep_entered', 26],
+        ['sleep_exited', 30],
+        ['collision_risk', 32], ['risk_cleared', 34], ['video_ready', 34],
+        ['bluetooth_lost', 34],
+        ['obstacle_risk', 37], ['risk_cleared', 39], ['video_ready', 39],
+      ];
+      assert.deepEqual(steps.slice(0, firstCycle.length), firstCycle);
+      // 第二轮：安全事件照旧，求救那步换成 manual_sos
+      assert.deepEqual(steps.slice(firstCycle.length, firstCycle.length + 10), [
+        ['collision_risk', 42], ['risk_cleared', 44], ['video_ready', 44],
+        ['collision_risk', 46], ['risk_cleared', 48],
+        ['obstacle_risk', 49], ['risk_cleared', 51],
+        ['collision_risk', 52], ['risk_cleared', 53], ['video_ready', 53],
       ]);
-      assert.deepEqual(steps.slice(9, 14), [
-        ['collision_risk', 22],
-        ['risk_cleared', 24],
-        ['video_ready', 24],
-        ['obstacle_risk', 25],
-        ['risk_cleared', 27],
-      ]);
-      assert.deepEqual(steps[14], ['manual_sos', 28]);
+      assert.deepEqual(steps[firstCycle.length + 10], ['manual_sos', 56]);
       assert.equal(events.filter((e) => e.eventType === 'possible_fall').length, 1, '第二轮不再是摔倒');
       for (const e of events) assertEnvelope(e, id, '0.1.0-mock');
-      const [risk, cleared, video, obstacle, obstacleCleared] = events;
-      assert.deepEqual(cleared.payload, { clearedEventId: risk.eventId });
-      assert.equal(video.payload.relatedEventId, risk.eventId);
-      assert.equal(obstacle.payload.riskLevel, 'medium');
-      assert.equal(obstacle.payload.objectType, 'obstacle');
-      assert.equal(obstacle.payload.direction, 'front');
-      assert.deepEqual(obstacleCleared.payload, { clearedEventId: obstacle.eventId });
-      assert.equal(events[6].payload.reason, 'inactivity');
-      assert.equal(events[8].payload.disconnectDuration, 35);
-      // 休眠段（第 13–15 个点之间）的心跳 sleeping 为 true，唤醒后恢复 false
-      const sleepAt = r.pointsBefore(events[6]);
-      const wakeAt = r.pointsBefore(events[7]);
+
+      // 每条预警都有自己的解除（clearedEventId 精确指向它，顺序一一对应）；录像只跟在带录像的那 4 条后面并关联到它
+      const risks = events.filter((e) => e.eventType === 'collision_risk' || e.eventType === 'obstacle_risk');
+      const cleared = events.filter((e) => e.eventType === 'risk_cleared');
+      assert.deepEqual(cleared.map((e) => e.payload), risks.map((e) => ({ clearedEventId: e.eventId })));
+      const videos = events.filter((e) => e.eventType === 'video_ready');
+      const firstRisks = risks.slice(0, 8);
+      assert.deepEqual(
+        videos.slice(0, 4).map((v) => v.payload.relatedEventId),
+        [firstRisks[0], firstRisks[3], firstRisks[6], firstRisks[7]].map((e) => e.eventId),
+      );
+      for (const v of videos) assert.equal(v.payload.videoId, `vid_${(v.payload.relatedEventId as string).slice(0, 8)}`);
+
+      // 8 条安全事件各不相同：三档等级、四个方向、四种目标（含 unknown）都出现，没有两条长得一样
+      const p = firstRisks.map((e) => e.payload);
+      assert.deepEqual(new Set(p.map((x) => x.riskLevel)), new Set(['low', 'medium', 'high']));
+      assert.deepEqual(new Set(p.map((x) => x.direction)), new Set(['front', 'rear', 'left', 'right']));
+      assert.deepEqual(new Set(p.map((x) => x.objectType)), new Set(['vehicle', 'pedestrian', 'obstacle', 'unknown']));
+      assert.equal(new Set(p.map((x) => JSON.stringify([x.riskLevel, x.objectType, x.direction, x.distance]))).size, 8);
+      assert.deepEqual(firstRisks.map((e) => e.eventType), [
+        'collision_risk', 'collision_risk', 'obstacle_risk', 'collision_risk',
+        'obstacle_risk', 'collision_risk', 'collision_risk', 'obstacle_risk',
+      ]);
+      for (const x of p) {
+        assert.ok((x.distance as number) >= 0, 'distance');
+        assert.ok((x.confidence as number) > 0 && (x.confidence as number) <= 1, 'confidence');
+        assert.equal(x.algorithmVersion, 'mock-risk-v1');
+        assert.equal((x.location as Record<string, unknown>).coordinateSystem, 'wgs84');
+      }
+      assert.deepEqual(p[0], {
+        riskLevel: 'high', objectType: 'vehicle', direction: 'rear', distance: 12, ttcSeconds: 1.8, approachSpeedKmh: 55,
+        confidence: 0.92, algorithmVersion: 'mock-risk-v1', location: p[0].location,
+      });
+      // 第二轮同一条的距离拉近 10%（相邻两轮记录不完全一样），其余字段不变
+      assert.equal(risks[8].payload.distance, 10.8);
+      assert.equal(risks[8].payload.riskLevel, p[0].riskLevel);
+      assert.equal(risks[9].payload.distance, Number(((p[1].distance as number) * 0.9).toFixed(1)));
+
+      assert.equal(events.find((e) => e.eventType === 'sleep_entered')?.payload.reason, 'inactivity');
+      assert.equal(events.find((e) => e.eventType === 'bluetooth_lost')?.payload.disconnectDuration, 35);
+      // 休眠段（第 26–30 个点之间）的心跳 sleeping 为 true，唤醒后恢复 false；休眠段里不发预警
+      const sleepAt = r.pointsBefore(events.find((e) => e.eventType === 'sleep_entered')!);
+      const wakeAt = r.pointsBefore(events.find((e) => e.eventType === 'sleep_exited')!);
+      assert.ok(!risks.some((e) => r.pointsBefore(e) >= sleepAt && r.pointsBefore(e) < wakeAt), '休眠中不该有预警');
       const statuses = r.on('status').map((s) => [r.pointsBefore(s), s.payload.sleeping as boolean] as const);
-      assert.ok(statuses.some(([p, sleeping]) => p >= sleepAt && p < wakeAt && sleeping === true), '休眠段应有 sleeping=true 的心跳');
-      assert.ok(statuses.every(([p, sleeping]) => p < sleepAt || p >= wakeAt || sleeping === true));
-      assert.ok(statuses.some(([p, sleeping]) => p >= wakeAt + 1 && sleeping === false), '唤醒后心跳恢复 sleeping=false');
-      assert.match(r.output(), /全情况轮播（每 20 个位置点一轮）/);
+      assert.ok(statuses.some(([pt, sleeping]) => pt >= sleepAt && pt < wakeAt && sleeping === true), '休眠段应有 sleeping=true 的心跳');
+      assert.ok(statuses.every(([pt, sleeping]) => pt < sleepAt || pt >= wakeAt || sleeping === true));
+      assert.ok(statuses.some(([pt, sleeping]) => pt >= wakeAt + 1 && sleeping === false), '唤醒后心跳恢复 sleeping=false');
+      assert.match(r.output(), /全情况轮播（每 40 个位置点一轮）/);
+      assert.match(r.output(), /已触发后方不明目标快速逼近（collision_risk rear\/high）/);
     } finally {
       await shutdown(r);
+      await shutdown(short);
     }
   });
 });

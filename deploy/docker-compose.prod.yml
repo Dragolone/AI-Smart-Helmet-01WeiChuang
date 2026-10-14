@@ -182,9 +182,9 @@ services:
       LOCATION_INTERVAL_MS: ${MOCK3_LOCATION_INTERVAL_MS:-10000}
       MOCK_CMD_RESULT: ${MOCK3_CMD_RESULT:-success}
 
-  # 第四顶常驻 Mock 头盔（profile demo4，2026-10-14 负责人要求）：负责人自测用，剧本 tour——一轮把预警 / 障碍 /
-  # 摔倒或求救 / 休眠 / 蓝牙断开全演一遍（mock-device/src/index.ts maybeSendTour）。⚠️ 每轮一次求救会真发短信，
-  # 只绑自测账号。COMPOSE_PROFILES=demo,demo2,demo3,demo4 一起打开。
+  # 第四顶常驻 Mock 头盔（profile demo4，2026-10-14 负责人要求）：负责人自测用，剧本 tour——一轮 8 条各不相同的安全事件
+  # （目标 / 方向 / 等级 / 距离都不同，4 条带录像）+ 摔倒或求救 + 休眠→唤醒 + 蓝牙断开全演一遍（mock-device/src/index.ts
+  # TOUR_STEPS）。⚠️ 每轮一次求救会真发短信，只绑自测账号。COMPOSE_PROFILES=demo,demo2,demo3,demo4 一起打开。
   mock4:
     build:
       context: ..

@@ -155,49 +155,39 @@ const locationOf = (current: RoutePoint) => ({
   coordinateSystem: 'wgs84' as const,
   accuracy: 8,
 });
+/** 一条预警怎么演：事件类型 + 载荷（位置临场补）+ 几个点后解除 + 要不要跟录像 */
+interface RiskSpec {
+  kind: 'collision_risk' | 'obstacle_risk';
+  payload: Omit<EventPayloadMap['collision_risk'], 'location' | 'algorithmVersion'>;
+  clearAfterPoints: number;
+  withVideo: boolean;
+  /** 日志里给人看的一句话 */
+  label: string;
+}
 let activeRisk: { eventId: string; countdown: number; withVideo: boolean } | null =
   null;
-function startRisk(
-  current: RoutePoint,
-  kind: 'collision_risk' | 'obstacle_risk',
-  clearAfterPoints: number,
-  withVideo: boolean,
-): void {
-  const envelope =
-    kind === 'collision_risk'
-      ? publish('event', 'collision_risk', {
-          riskLevel: 'high',
-          objectType: 'vehicle',
-          direction: 'rear',
-          distance: 15 - (pointsSent % 3) * 3,
-          ttcSeconds: 1.8,
-          approachSpeedKmh: 55,
-          confidence: 0.92,
-          algorithmVersion: 'mock-risk-v1',
-          location: locationOf(current),
-        })
-      : publish('event', 'obstacle_risk', {
-          riskLevel: 'medium',
-          objectType: 'obstacle',
-          direction: 'front',
-          distance: 6,
-          confidence: 0.88,
-          algorithmVersion: 'mock-risk-v1',
-          location: locationOf(current),
-        });
-  activeRisk = { eventId: envelope.eventId, countdown: clearAfterPoints, withVideo };
+function startRisk(current: RoutePoint, spec: RiskSpec): void {
+  // 上一条还没到点下一条就来了：先解除再发，保证每条预警都有自己的解除
+  //（App 的「当前危险状态」由事件流推导，决策 #27，悬着一条没解除会一直亮红）
+  if (activeRisk) clearRisk();
+  const envelope = publish('event', spec.kind, {
+    ...spec.payload,
+    algorithmVersion: 'mock-risk-v1',
+    location: locationOf(current),
+  });
+  activeRisk = {
+    eventId: envelope.eventId,
+    countdown: spec.clearAfterPoints,
+    withVideo: spec.withVideo,
+  };
   log(
-    kind === 'collision_risk'
-      ? '⚠️ 已触发后方来车预警（collision_risk rear/high）'
-      : '⚠️ 已触发前方障碍预警（obstacle_risk front/medium）',
+    `⚠️ 已触发${spec.label}（${spec.kind} ${spec.payload.direction ?? '-'}/${spec.payload.riskLevel}）`,
   );
 }
-/** 每个位置点推进一次：在途的预警到点解除 */
-function tickRisk(): void {
+function clearRisk(): void {
   if (!activeRisk) return;
-  activeRisk.countdown -= 1;
-  if (activeRisk.countdown > 0) return;
   const { eventId, withVideo } = activeRisk;
+  activeRisk = null;
   publish('event', 'risk_cleared', { clearedEventId: eventId });
   if (withVideo) {
     // 头盔录像就绪：关联刚才的危险事件
@@ -211,7 +201,12 @@ function tickRisk(): void {
     });
   }
   log(withVideo ? '✅ 已解除危险（risk_cleared）+ 录像就绪（video_ready）' : '✅ 已解除危险（risk_cleared）');
-  activeRisk = null;
+}
+/** 每个位置点推进一次：在途的预警到点解除 */
+function tickRisk(): void {
+  if (!activeRisk) return;
+  activeRisk.countdown -= 1;
+  if (activeRisk.countdown <= 0) clearRisk();
 }
 
 // —— SCENARIO=risk：后方来车预警循环（EVENTS.md 4.5/4.6）——
@@ -224,56 +219,181 @@ function maybeSendRisk(current: RoutePoint): void {
     return;
   }
   if (pointsSent % RISK_CYCLE_POINTS !== 0) return;
-  startRisk(current, 'collision_risk', 2, true);
+  startRisk(current, {
+    kind: 'collision_risk',
+    payload: {
+      riskLevel: 'high',
+      objectType: 'vehicle',
+      direction: 'rear',
+      distance: 15 - (pointsSent % 3) * 3,
+      ttcSeconds: 1.8,
+      approachSpeedKmh: 55,
+      confidence: 0.92,
+    },
+    clearAfterPoints: 2,
+    withVideo: true,
+    label: '后方来车预警',
+  });
 }
 
 // —— SCENARIO=tour：一轮把所有情况轮着演一遍（负责人自测用，2026-10-14）——
-// 一轮 TOUR_CYCLE_POINTS 个位置点（默认 72，云端位置每 10 s 即 12 分钟），按轮内进度依次：
-//   10% 后方来车预警 → 2 点后解除 + 录像就绪；25% 前方障碍预警 → 2 点后解除；
+// 一轮 TOUR_CYCLE_POINTS 个位置点（默认 72，云端位置每 10 s 即 12 分钟），按轮内进度（TOUR_STEPS 的 at）依次演：
+//   安全事件一轮 8 条（负责人要求「多加一点」）：目标 / 方向 / 等级 / 距离各不相同，安全记录页看得出差别；
+//   objectType 带一条 unknown 看 App 的兜底文案；4 条跟录像走 §9 媒体链路；距离按轮次微调，相邻两轮的记录不完全一样。
 //   40% 摔倒（偶数轮）/ 实体键求救（奇数轮）→ 服务端 60 s 倒计时，App 上可取消；
-//   65% 进入休眠 → 75% 唤醒（心跳里的 sleeping 跟着变）；85% 蓝牙断开。其余时间照常骑行 + 心跳。
+//   65% 进入休眠 → 75% 唤醒（心跳里的 sleeping 跟着变，休眠段不发预警）；85% 蓝牙断开。其余时间照常骑行 + 心跳。
 // ⚠️ 每轮都会有一次求救：到期未取消会真发短信给绑定账号的紧急联系人，只给自测账号用。
 const TOUR_CYCLE_POINTS = (() => {
   const n = Number(process.env.TOUR_CYCLE_POINTS);
-  return Number.isInteger(n) && n >= 20 ? n : 72;
+  // 12 步里最近的两步只隔 5%，轮长低于 40 个点会落到同一个点上（后一步被吞掉）
+  return Number.isInteger(n) && n >= 40 ? n : 72;
 })();
+type TourStep = { at: number } & (
+  | { risk: RiskSpec; action?: undefined }
+  | { risk?: undefined; action: 'sos' | 'sleep' | 'wake' | 'bluetooth_lost' }
+);
+const TOUR_STEPS: readonly TourStep[] = [
+  {
+    at: 0.06,
+    risk: {
+      kind: 'collision_risk',
+      payload: { riskLevel: 'high', objectType: 'vehicle', direction: 'rear', distance: 12, ttcSeconds: 1.8, approachSpeedKmh: 55, confidence: 0.92 },
+      clearAfterPoints: 2,
+      withVideo: true,
+      label: '后方来车逼近',
+    },
+  },
+  {
+    at: 0.14,
+    risk: {
+      kind: 'collision_risk',
+      payload: { riskLevel: 'medium', objectType: 'vehicle', direction: 'left', distance: 4.5, ttcSeconds: 2.6, approachSpeedKmh: 30, confidence: 0.85 },
+      clearAfterPoints: 2,
+      withVideo: false,
+      label: '左侧车辆贴近',
+    },
+  },
+  {
+    at: 0.22,
+    risk: {
+      kind: 'obstacle_risk',
+      payload: { riskLevel: 'medium', objectType: 'obstacle', direction: 'front', distance: 6, confidence: 0.88 },
+      clearAfterPoints: 2,
+      withVideo: false,
+      label: '前方障碍物',
+    },
+  },
+  {
+    at: 0.3,
+    risk: {
+      kind: 'collision_risk',
+      payload: { riskLevel: 'high', objectType: 'pedestrian', direction: 'front', distance: 3.2, ttcSeconds: 1.2, approachSpeedKmh: 8, confidence: 0.9 },
+      clearAfterPoints: 1,
+      withVideo: true,
+      label: '前方行人横穿',
+    },
+  },
+  { at: 0.4, action: 'sos' },
+  {
+    at: 0.5,
+    risk: {
+      kind: 'obstacle_risk',
+      payload: { riskLevel: 'low', objectType: 'obstacle', direction: 'front', distance: 14, confidence: 0.76 },
+      clearAfterPoints: 3,
+      withVideo: false,
+      label: '远处障碍物提示',
+    },
+  },
+  {
+    at: 0.57,
+    risk: {
+      kind: 'collision_risk',
+      payload: { riskLevel: 'medium', objectType: 'vehicle', direction: 'right', distance: 2.8, ttcSeconds: 2.1, approachSpeedKmh: 25, confidence: 0.83 },
+      clearAfterPoints: 2,
+      withVideo: false,
+      label: '右侧车辆超车',
+    },
+  },
+  { at: 0.65, action: 'sleep' },
+  { at: 0.75, action: 'wake' },
+  {
+    at: 0.8,
+    risk: {
+      kind: 'collision_risk',
+      payload: { riskLevel: 'high', objectType: 'unknown', direction: 'rear', distance: 9, ttcSeconds: 1.5, approachSpeedKmh: 60, confidence: 0.71 },
+      clearAfterPoints: 2,
+      withVideo: true,
+      label: '后方不明目标快速逼近',
+    },
+  },
+  { at: 0.85, action: 'bluetooth_lost' },
+  {
+    at: 0.93,
+    risk: {
+      kind: 'obstacle_risk',
+      payload: { riskLevel: 'high', objectType: 'obstacle', direction: 'front', distance: 2.5, confidence: 0.94 },
+      clearAfterPoints: 2,
+      withVideo: true,
+      label: '前方障碍物紧急',
+    },
+  },
+];
 function maybeSendTour(current: RoutePoint): void {
   if (SCENARIO !== 'tour') return;
   tickRisk();
   const cycle = Math.floor(pointsSent / TOUR_CYCLE_POINTS);
-  const at = (fraction: number): boolean =>
-    pointsSent % TOUR_CYCLE_POINTS === Math.max(1, Math.round(TOUR_CYCLE_POINTS * fraction));
-  if (at(0.1)) startRisk(current, 'collision_risk', 2, true);
-  else if (at(0.25)) startRisk(current, 'obstacle_risk', 2, false);
-  else if (at(0.4)) {
-    if (cycle % 2 === 0) {
-      publish('event', 'possible_fall', {
-        confidence: 0.87,
-        algorithmVersion: 'mock-fall-v1',
-        impactG: 4.5,
-        tiltDeg: 85,
-        location: locationOf(current),
-      });
-      log('🚨 已触发 possible_fall（服务端将开始 SOS 倒计时）');
-    } else {
-      publish('event', 'manual_sos', {
-        triggerMode: 'long_press',
-        pressDurationMs: 2300,
-        location: locationOf(current),
-      });
-      log('🚨 已触发 manual_sos（服务端将开始 SOS 倒计时）');
-    }
-  } else if (at(0.65)) {
-    asleep = true;
-    publish('event', 'sleep_entered', { reason: 'inactivity', battery });
-    log('😴 已进入休眠（sleep_entered）');
-  } else if (at(0.75)) {
-    asleep = false;
-    publish('event', 'sleep_exited', { reason: 'manual', battery });
-    log('⏰ 已唤醒（sleep_exited）');
-  } else if (at(0.85)) {
-    publish('event', 'bluetooth_lost', { disconnectDuration: 35 });
-    log('📵 已上报蓝牙断开（bluetooth_lost）');
+  const slot = pointsSent % TOUR_CYCLE_POINTS;
+  const step = TOUR_STEPS.find(
+    (s) => slot === Math.max(1, Math.round(TOUR_CYCLE_POINTS * s.at)),
+  );
+  if (!step) return;
+  if (step.risk) {
+    // 距离按轮次微调（原值 / 近 10% / 近 20% 轮着来），相邻两轮的安全记录不完全一样
+    const nearer = 1 - 0.1 * (cycle % 3);
+    const { distance } = step.risk.payload;
+    startRisk(current, {
+      ...step.risk,
+      payload: {
+        ...step.risk.payload,
+        ...(distance !== undefined ? { distance: Number((distance * nearer).toFixed(1)) } : {}),
+      },
+    });
+    return;
+  }
+  switch (step.action) {
+    case 'sos':
+      if (cycle % 2 === 0) {
+        publish('event', 'possible_fall', {
+          confidence: 0.87,
+          algorithmVersion: 'mock-fall-v1',
+          impactG: 4.5,
+          tiltDeg: 85,
+          location: locationOf(current),
+        });
+        log('🚨 已触发 possible_fall（服务端将开始 SOS 倒计时）');
+      } else {
+        publish('event', 'manual_sos', {
+          triggerMode: 'long_press',
+          pressDurationMs: 2300,
+          location: locationOf(current),
+        });
+        log('🚨 已触发 manual_sos（服务端将开始 SOS 倒计时）');
+      }
+      break;
+    case 'sleep':
+      asleep = true;
+      publish('event', 'sleep_entered', { reason: 'inactivity', battery });
+      log('😴 已进入休眠（sleep_entered）');
+      break;
+    case 'wake':
+      asleep = false;
+      publish('event', 'sleep_exited', { reason: 'manual', battery });
+      log('⏰ 已唤醒（sleep_exited）');
+      break;
+    case 'bluetooth_lost':
+      publish('event', 'bluetooth_lost', { disconnectDuration: 35 });
+      log('📵 已上报蓝牙断开（bluetooth_lost）');
+      break;
   }
 }
 
