@@ -70,7 +70,26 @@ export default function VideoPreviewScreen() {
   //   ?url=rtsp://<电脑IP>:8554/ch0 换成 tools/rtsp-mock 的测试流；仍会先连名为 X821cam 的热点
   //   （用另一台手机开同名热点、电脑连上去跑测试流，连接 + 绑定整条路径都能测）
   //   ?join=0 再跳过连热点（手机和电脑在同一个普通 Wi-Fi 下，只测播放器）
-  const params = useLocalSearchParams<{ url?: string; join?: string }>();
+  //   ?ssid=…&pass=… 换成另一台手机现成的热点名和密码（不用把手机改名成 X821cam）
+  //   &wpa3=1（Android 10 对 iPhone 这类 WPA2/WPA3 混合热点要按 WPA3 请求才匹配得上）
+  const params = useLocalSearchParams<{
+    url?: string;
+    join?: string;
+    ssid?: string;
+    pass?: string;
+    wpa3?: string;
+  }>();
+  const devWpa3 = __DEV__ && params.wpa3 === "1";
+  const devSsid =
+    __DEV__ && typeof params.ssid === "string" && params.ssid
+      ? params.ssid
+      : undefined;
+  const hotspotSsid = devSsid ?? HELMET_HOTSPOT.ssid;
+  const hotspotPass = devSsid
+    ? typeof params.pass === "string"
+      ? params.pass
+      : ""
+    : HELMET_HOTSPOT.passphrase;
   const devUrl =
     __DEV__ &&
     typeof params.url === "string" &&
@@ -81,6 +100,10 @@ export default function VideoPreviewScreen() {
   const skipJoin = !HelmetWifi.available || (__DEV__ && params.join === "0");
 
   const [state, dispatch] = useReducer(previewReducer, initialPreviewState);
+  const phaseRef = useRef(state.phase);
+  useEffect(() => {
+    phaseRef.current = state.phase;
+  }, [state.phase]);
   const [snapping, setSnapping] = useState(false);
   const playerRef = useRef<VlcHandle>(null);
   const holdingWifi = useRef(false);
@@ -109,20 +132,23 @@ export default function VideoPreviewScreen() {
     }
     let cancelled = false;
     holdingWifi.current = true;
-    HelmetWifi.connect(
-      HELMET_HOTSPOT.ssid,
-      HELMET_HOTSPOT.passphrase,
-      JOIN_TIMEOUT_MS,
-    ).then(
+    HelmetWifi.connect(hotspotSsid, hotspotPass, JOIN_TIMEOUT_MS, {
+      wpa3: devWpa3,
+    }).then(
       () => {
         if (cancelled) return;
-        if (AppState.currentState === "background") {
-          // 弹窗期间人按了 HOME，连上时 App 已在后台：照退后台处理，回前台再重连
-          releaseWifi();
-          dispatch({ type: "suspend", reason: "background" });
-          return;
-        }
         dispatch({ type: "joined" });
+        // 连上那一刻系统弹窗多半还没关、AppState 还是 background（华为实测连上 0.5 s 后弹窗才收）；
+        // 2 s 后仍在后台才是人按了 HOME：照退后台处理，回前台再重连
+        setTimeout(() => {
+          if (
+            AppState.currentState === "background" &&
+            holdsHelmetWifi(phaseRef.current)
+          ) {
+            releaseWifi();
+            dispatch({ type: "suspend", reason: "background" });
+          }
+        }, 2000);
       },
       (e: { code?: string }) => {
         devLog("VIDEO", "连接头盔热点失败", e?.code);
@@ -132,7 +158,15 @@ export default function VideoPreviewScreen() {
     return () => {
       cancelled = true;
     };
-  }, [state.phase, state.attempt, skipJoin, releaseWifi]);
+  }, [
+    state.phase,
+    state.attempt,
+    skipJoin,
+    releaseWifi,
+    hotspotSsid,
+    hotspotPass,
+    devWpa3,
+  ]);
 
   // 不再需要头盔 Wi-Fi 的阶段（出错 / 暂停 / 手动引导）立即释放
   useEffect(() => {
@@ -166,10 +200,6 @@ export default function VideoPreviewScreen() {
   // Android 的「选择 Wi-Fi」系统弹窗是另一个 Activity，一弹出来 AppState 就变 background（华为 P30 实测，
   // 请求发出 68 ms 后就被这里释放，弹窗报「该应用已取消选择设备的请求」，回前台又重发，无限循环）。
   // 正在连热点时不把 background 当成离开：请求本身有 30 s 超时兜底，连上之前也没有绑定任何网络。
-  const phaseRef = useRef(state.phase);
-  useEffect(() => {
-    phaseRef.current = state.phase;
-  }, [state.phase]);
   useEffect(() => {
     const sub = AppState.addEventListener("change", (next) => {
       if (next === "background") {
@@ -245,7 +275,7 @@ export default function VideoPreviewScreen() {
     }
   };
 
-  const ssid = HELMET_HOTSPOT.ssid;
+  const ssid = hotspotSsid;
   const overlayText =
     state.phase === "joining"
       ? t("video.joining", { ssid })
@@ -254,7 +284,7 @@ export default function VideoPreviewScreen() {
           ? t("video.stalled", { ssid })
           : t("video.connecting")
         : state.phase === "manual"
-          ? t("video.manual", { ssid, pass: HELMET_HOTSPOT.passphrase })
+          ? t("video.manual", { ssid, pass: hotspotPass })
           : state.phase === "paused"
             ? state.pauseReason === "sos"
               ? t("video.paused.sos")

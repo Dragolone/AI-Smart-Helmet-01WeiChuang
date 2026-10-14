@@ -20,6 +20,12 @@ interface Subscription {
 interface NativeHelmetWifi {
   canConnectProgrammatically(): boolean;
   connect(ssid: string, passphrase: string, timeoutMs: number): Promise<void>;
+  /** 仅 Android：按 WPA3（SAE）请求，开发期对 iPhone 热点用 */
+  connectSae?(
+    ssid: string,
+    passphrase: string,
+    timeoutMs: number,
+  ): Promise<void>;
   bindToWifi(): boolean;
   release(): void;
   openWifiSettings(): void;
@@ -35,11 +41,18 @@ export const HelmetWifi = {
   canConnectProgrammatically(): boolean {
     return native?.canConnectProgrammatically() ?? false;
   },
-  connect(ssid: string, passphrase: string, timeoutMs = 30_000): Promise<void> {
+  connect(
+    ssid: string,
+    passphrase: string,
+    timeoutMs = 30_000,
+    opts?: { wpa3?: boolean },
+  ): Promise<void> {
     if (!native)
       return Promise.reject(
         Object.assign(new Error("unavailable"), { code: "UNAVAILABLE" }),
       );
+    if (opts?.wpa3 && typeof native.connectSae === "function")
+      return native.connectSae(ssid, passphrase, timeoutMs);
     return native.connect(ssid, passphrase, timeoutMs);
   },
   bindToWifi(): boolean {

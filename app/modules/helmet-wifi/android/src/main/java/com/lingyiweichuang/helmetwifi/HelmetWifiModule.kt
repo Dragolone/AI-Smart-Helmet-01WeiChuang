@@ -48,48 +48,15 @@ class HelmetWifiModule : Module() {
      * 用户拒绝 / 附近找不到 / 超时 → UNAVAILABLE。
      */
     AsyncFunction("connect") { ssid: String, passphrase: String, timeoutMs: Int, promise: Promise ->
-      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-        promise.reject("MANUAL_REQUIRED", "Android 10 以下需在系统设置里手动连接", null)
-        return@AsyncFunction
-      }
-      releaseInternal()
-      val specifier = WifiNetworkSpecifier.Builder()
-        .setSsid(ssid)
-        .setWpa2Passphrase(passphrase)
-        .build()
-      val request = NetworkRequest.Builder()
-        .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-        .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-        .setNetworkSpecifier(specifier)
-        .build()
-      var settled = false
-      val cb = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) {
-          val bound = connectivity.bindProcessToNetwork(network)
-          if (settled) return
-          settled = true
-          if (bound) {
-            promise.resolve(null)
-          } else {
-            promise.reject("BIND_FAILED", "已连上头盔热点，但无法把 App 流量绑到该网络", null)
-          }
-        }
+      doConnect(ssid, passphrase, timeoutMs, sae = false, promise)
+    }
 
-        override fun onUnavailable() {
-          callback = null
-          if (settled) return
-          settled = true
-          promise.reject("UNAVAILABLE", "未连上头盔热点（用户取消、不在附近或超时）", null)
-        }
-
-        override fun onLost(network: Network) {
-          // 头盔关机 / 走远：立刻解绑，别让 App 卡在一个已经没了的网络上
-          connectivity.bindProcessToNetwork(null)
-          this@HelmetWifiModule.sendEvent("onWifiLost")
-        }
-      }
-      callback = cb
-      connectivity.requestNetwork(request, cb, timeoutMs.coerceIn(5_000, 120_000))
+    /**
+     * 开发期用：按 WPA3（SAE）请求。Android 10 把「WPA2/WPA3 混合」的热点一律归为 WPA3，按 WPA2 请求永远匹配不上
+     * （2026-10-14 华为 P30 Pro 对 iPhone 热点实测）；真头盔是纯 WPA2，正式路径不走这里。iOS 没有这个函数。
+     */
+    AsyncFunction("connectSae") { ssid: String, passphrase: String, timeoutMs: Int, promise: Promise ->
+      doConnect(ssid, passphrase, timeoutMs, sae = true, promise)
     }
 
     /**
@@ -153,6 +120,50 @@ class HelmetWifiModule : Module() {
     OnDestroy {
       releaseInternal()
     }
+  }
+
+  private fun doConnect(ssid: String, passphrase: String, timeoutMs: Int, sae: Boolean, promise: Promise) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+      promise.reject("MANUAL_REQUIRED", "Android 10 以下需在系统设置里手动连接", null)
+      return
+    }
+    releaseInternal()
+    val specifierBuilder = WifiNetworkSpecifier.Builder().setSsid(ssid)
+    val specifier = (if (sae) specifierBuilder.setWpa3Passphrase(passphrase) else specifierBuilder.setWpa2Passphrase(passphrase))
+      .build()
+    val request = NetworkRequest.Builder()
+      .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+      .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+      .setNetworkSpecifier(specifier)
+      .build()
+    var settled = false
+    val cb = object : ConnectivityManager.NetworkCallback() {
+      override fun onAvailable(network: Network) {
+        val bound = connectivity.bindProcessToNetwork(network)
+        if (settled) return
+        settled = true
+        if (bound) {
+          promise.resolve(null)
+        } else {
+          promise.reject("BIND_FAILED", "已连上头盔热点，但无法把 App 流量绑到该网络", null)
+        }
+      }
+
+      override fun onUnavailable() {
+        callback = null
+        if (settled) return
+        settled = true
+        promise.reject("UNAVAILABLE", "未连上头盔热点（用户取消、不在附近或超时）", null)
+      }
+
+      override fun onLost(network: Network) {
+        // 头盔关机 / 走远：立刻解绑，别让 App 卡在一个已经没了的网络上
+        connectivity.bindProcessToNetwork(null)
+        this@HelmetWifiModule.sendEvent("onWifiLost")
+      }
+    }
+    callback = cb
+    connectivity.requestNetwork(request, cb, timeoutMs.coerceIn(5_000, 120_000))
   }
 
   private fun releaseInternal() {
