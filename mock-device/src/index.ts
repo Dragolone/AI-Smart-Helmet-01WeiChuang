@@ -75,11 +75,15 @@ function publish<T extends EventType>(
   return envelope;
 }
 
-// —— device_status 心跳：电量缓慢下降，见底后模拟换电复位 ——
+// —— device_status 心跳：电量缓慢下降，到 60% 模拟换电复位 ——
+// 演示要「看得出在变」又别掉到让人以为快没电（常驻 Mock 一跑几天，原先每次心跳掉 1%、掉到 5% 才复位，
+// 随时可能停在 10% 几；2026-10-14 负责人要求默认电量高一些）：每 10 次心跳掉 1%，60 s 心跳即 10 分钟 1%
 let battery = 100;
+let statusTicks = 0;
 function sendStatus(): void {
   publish('status', 'device_status', { battery, charging: false, sleeping: false });
-  battery = battery <= 5 ? 100 : battery - 1;
+  statusTicks += 1;
+  if (statusTicks % 10 === 0) battery = battery <= 60 ? 100 : battery - 1;
 }
 
 // —— location_update 剧本：沿内置路线逐点前进，循环播放 ——

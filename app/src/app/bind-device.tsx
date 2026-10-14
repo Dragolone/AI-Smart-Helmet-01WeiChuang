@@ -76,6 +76,9 @@ const DISMISS_DRAG = 90;
 const REARM_MS = 1500;
 
 // 取景框画在相机画面上，不跟外观走：深浅两种外观下都是这几个颜色
+/** 相机开着时整页压黑，取景画面上的字和角标才看得清；相机没开（授权前 / 被拒 / 模拟器）就按主题来 */
+const CAMERA_BG = "#050607";
+
 const ON_CAMERA = {
   scan: Colors.dark.brand,
   ok: Colors.dark.success,
@@ -518,8 +521,13 @@ export default function BindDeviceScreen() {
   const manualReady = idVal.trim().length > 0 && codeVal.trim().length > 0;
 
   return (
-    <View style={styles.root}>
-      <StatusBar style="light" />
+    <View
+      style={[
+        styles.root,
+        { backgroundColor: granted ? CAMERA_BG : theme.background },
+      ]}
+    >
+      <StatusBar style={granted ? "light" : "auto"} />
       {granted && (
         <CameraView
           style={StyleSheet.absoluteFill}
@@ -587,17 +595,20 @@ export default function BindDeviceScreen() {
           </>
         ) : permission ? (
           <View style={styles.permission}>
-            <View style={styles.permissionIcon}>
-              <Ionicons
-                name="camera-outline"
-                size={30}
-                color={ON_CAMERA.text}
-              />
+            <View
+              style={[
+                styles.permissionIcon,
+                { backgroundColor: theme.backgroundSelected },
+              ]}
+            >
+              <Ionicons name="camera-outline" size={30} color={theme.text} />
             </View>
-            <ThemedText style={styles.permissionTitle}>
+            <ThemedText style={[styles.permissionTitle, { color: theme.text }]}>
               {t("scan.permissionTitle")}
             </ThemedText>
-            <ThemedText style={styles.permissionBody}>
+            <ThemedText
+              style={[styles.permissionBody, { color: theme.textSecondary }]}
+            >
               {t("scan.permissionBody")}
             </ThemedText>
             <PrimaryButton
@@ -638,9 +649,16 @@ export default function BindDeviceScreen() {
           onPress={() => router.back()}
           style={styles.close}
         >
-          <Ionicons name="close" size={22} color={ON_CAMERA.text} />
+          <Ionicons
+            name="close"
+            size={22}
+            color={granted ? ON_CAMERA.text : theme.text}
+          />
         </Tappable>
-        <ThemedText accessibilityRole="header" style={styles.topTitle}>
+        <ThemedText
+          accessibilityRole="header"
+          style={[styles.topTitle, !granted && { color: theme.text }]}
+        >
           {t("scan.title")}
         </ThemedText>
         <View style={styles.topSpacer} />
@@ -916,7 +934,7 @@ export default function BindDeviceScreen() {
 
 const CORNER = 30;
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#050607" },
+  root: { flex: 1 },
   center: {
     position: "absolute",
     top: 0,
