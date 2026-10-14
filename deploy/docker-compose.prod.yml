@@ -134,7 +134,7 @@ services:
       MQTT_URL: mqtt://emqx:1883
       DEVICE_ID: ${MOCK_DEVICE_ID:-}
       DEVICE_SECRET: ${MOCK_DEVICE_SECRET:-}
-      # 剧本：留空=正常骑行；ski / fall / sos / risk 见 docs/DEVELOPMENT.md
+      # 剧本：留空=正常骑行；ski / fall / sos / risk / tour（定义在 mock-device/src/index.ts）
       SCENARIO: ${MOCK_SCENARIO:-}
       # 位置上报间隔（ms）：常驻演示建议 10000，减缓 location_points 增长（本地默认 5000）
       LOCATION_INTERVAL_MS: ${MOCK_LOCATION_INTERVAL_MS:-10000}
@@ -184,7 +184,8 @@ services:
 
   # 第四顶常驻 Mock 头盔（profile demo4，2026-10-14 负责人要求）：负责人自测用，剧本 tour——一轮 8 条各不相同的安全事件
   # （目标 / 方向 / 等级 / 距离都不同，4 条带录像）+ 摔倒或求救 + 休眠→唤醒 + 蓝牙断开全演一遍（mock-device/src/index.ts
-  # TOUR_STEPS）。⚠️ 每轮一次求救会真发短信，只绑自测账号。COMPOSE_PROFILES=demo,demo2,demo3,demo4 一起打开。
+  # TOUR_STEPS）。⚠️ 每轮一次求救会真发短信（dev 短信已真发），只绑自测账号；账号有真实联系人就把 MOCK4_TOUR_SOS 改 0。
+  # COMPOSE_PROFILES=demo,demo2,demo3,demo4 一起打开。
   mock4:
     build:
       context: ..
@@ -201,6 +202,7 @@ services:
       DEVICE_SECRET: ${MOCK4_DEVICE_SECRET:-}
       SCENARIO: ${MOCK4_SCENARIO:-tour}
       TOUR_CYCLE_POINTS: ${MOCK4_TOUR_CYCLE_POINTS:-}
+      TOUR_SOS: ${MOCK4_TOUR_SOS:-1}
       LOCATION_INTERVAL_MS: ${MOCK4_LOCATION_INTERVAL_MS:-10000}
       MOCK_CMD_RESULT: ${MOCK4_CMD_RESULT:-success}
 

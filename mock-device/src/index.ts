@@ -16,9 +16,20 @@ import {
 } from './route.ts';
 
 const MQTT_URL = process.env.MQTT_URL ?? 'mqtt://localhost:1883';
-const DEVICE_ID = process.env.DEVICE_ID ?? 'helmet_mock_001';
+// 没设 → 本地默认；设了但是空串 → 直接退出：云端 compose 把 .env 里没填的 MOCKn_DEVICE_ID 以空串注入，
+// 空 clientId 连 EMQX 认证失败后 restart: unless-stopped 会每秒重连、日志只有「MQTT 错误」，看不出是没填凭证
+function envOrDefault(name: 'DEVICE_ID' | 'DEVICE_SECRET', fallback: string): string {
+  const v = process.env[name];
+  if (v === undefined) return fallback;
+  if (v.trim() === '') {
+    console.error(`[mock-device] ${name} 是空串：deploy/.env 里对应的 MOCKn_${name} 没填。填上设备凭证，或别打开这个 profile`);
+    process.exit(1);
+  }
+  return v;
+}
+const DEVICE_ID = envOrDefault('DEVICE_ID', 'helmet_mock_001');
 // 真机凭证机制的占位（DEVICE_PROTOCOL §3）：本地 EMQX 暂不校验，但行为与真机一致
-const DEVICE_SECRET = process.env.DEVICE_SECRET ?? 'mock_secret';
+const DEVICE_SECRET = envOrDefault('DEVICE_SECRET', 'mock_secret');
 const FIRMWARE_VERSION = process.env.FIRMWARE_VERSION ?? '0.1.0-mock';
 // 非法/过小的间隔一律回退默认：NaN 或 0 会被 setInterval 钳到 1ms，等于对 Broker 洪水攻击
 function parseIntervalMs(raw: string | undefined, fallback: number): number {
@@ -242,12 +253,14 @@ function maybeSendRisk(current: RoutePoint): void {
 //   objectType 带一条 unknown 看 App 的兜底文案；4 条跟录像走 §9 媒体链路；距离按轮次微调，相邻两轮的记录不完全一样。
 //   40% 摔倒（偶数轮）/ 实体键求救（奇数轮）→ 服务端 60 s 倒计时，App 上可取消；
 //   65% 进入休眠 → 75% 唤醒（心跳里的 sleeping 跟着变，休眠段不发预警）；85% 蓝牙断开。其余时间照常骑行 + 心跳。
-// ⚠️ 每轮都会有一次求救：到期未取消会真发短信给绑定账号的紧急联系人，只给自测账号用。
+// ⚠️ 每轮都会有一次求救：到期未取消会真发短信给绑定账号的紧急联系人（dev 短信 2026-10-12 起已真发），只给自测账号用；
+//   TOUR_SOS=0 关掉求救那一步，其余步照演（常驻实例绑了有真实联系人的账号时用）。
 const TOUR_CYCLE_POINTS = (() => {
   const n = Number(process.env.TOUR_CYCLE_POINTS);
   // 12 步里最近的两步只隔 5%，轮长低于 40 个点会落到同一个点上（后一步被吞掉）
   return Number.isInteger(n) && n >= 40 ? n : 72;
 })();
+const TOUR_SOS = process.env.TOUR_SOS !== '0';
 type TourStep = { at: number } & (
   | { risk: RiskSpec; action?: undefined }
   | { risk?: undefined; action: 'sos' | 'sleep' | 'wake' | 'bluetooth_lost' }
@@ -362,6 +375,10 @@ function maybeSendTour(current: RoutePoint): void {
   }
   switch (step.action) {
     case 'sos':
+      if (!TOUR_SOS) {
+        log('tour 的求救步已关（TOUR_SOS=0），本轮不发 possible_fall / manual_sos');
+        break;
+      }
       if (cycle % 2 === 0) {
         publish('event', 'possible_fall', {
           confidence: 0.87,
