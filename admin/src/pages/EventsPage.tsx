@@ -125,8 +125,9 @@ export default function EventsPage() {
       {query.isError && (
         <QueryError error={query.error} onRetry={() => void query.refetch()} />
       )}
+      {/* eventId 只在设备内唯一（决策 #54）：跨设备的列表要带 deviceId，否则两台设备同号时 key 冲突、行渲染错乱 */}
       <Table<AdminEventRow>
-        rowKey="eventId"
+        rowKey={(r) => `${r.deviceId}:${r.eventId}`}
         columns={columns}
         dataSource={query.isError ? [] : query.data?.items}
         loading={query.isLoading}

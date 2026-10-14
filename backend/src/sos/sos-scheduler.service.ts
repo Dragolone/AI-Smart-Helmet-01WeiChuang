@@ -23,6 +23,9 @@ import { SosTriggerService } from './sos-trigger.service';
 
 /** 会触发 SOS 状态机的事件类型（EVENTS.md §3） */
 const TRIGGER_TYPES = ['possible_fall', 'manual_sos'];
+const RECONCILE_PAGE_SIZE = 200;
+/** 每轮对账最多翻 50 页（1 万条触发事件）：正常运行时窗口里只有个位数，封顶只防洪水 */
+const RECONCILE_MAX_PAGES = 50;
 
 /**
  * SOS 后台扫描（决策 #8：持久化 deadline + 周期扫描，禁止仅靠内存 timer）。
@@ -162,71 +165,83 @@ export class SosSchedulerService implements OnModuleInit, OnModuleDestroy {
    */
   async reconcileLostTriggers(windowMs = reconcileWindowMs()): Promise<number> {
     const now = Date.now();
-    const candidates = await this.prisma.rawEvent.findMany({
-      where: {
-        eventType: { in: TRIGGER_TYPES },
-        schemaVersion: { in: [...SUPPORTED_SCHEMA_VERSIONS] },
-        receivedAt: {
-          gte: new Date(now - windowMs),
-          lte: new Date(now - reconcileGraceMs()),
-        },
-      },
-      orderBy: { receivedAt: 'asc' },
-      take: 200,
-    });
-    if (candidates.length === 0) return 0;
-
+    const lower = new Date(now - windowMs);
+    const upper = new Date(now - reconcileGraceMs());
     // eventId 只在设备内唯一（决策 #54）：按 (deviceId, eventId) 成对比对
     const pairKey = (deviceId: string, eventId: string): string =>
       `${deviceId}\u0000${eventId}`;
-    const existing = await this.prisma.sosCase.findMany({
-      where: {
-        OR: candidates.map((c) => ({
-          deviceId: c.deviceId,
-          triggerEventId: c.eventId,
-        })),
-      },
-      select: { deviceId: true, triggerEventId: true },
-    });
-    const hasCase = new Set(
-      existing.map((c) => pairKey(c.deviceId, c.triggerEventId)),
-    );
 
+    // 候选按游标翻页直到窗口耗尽（2026-10-15 复审）：原来一次 take 200 再过滤「已建单」，窗口里 ≥200 条已处理的
+    // 触发事件（一个绑了头盔的账号经 app-relay 两批就能刷到——合并规则吞掉不建单，raw 照存）会让真正丢单的
+    // 事件永远排不进来，而对账存在的意义正是那种时刻。页数封顶，异常洪水也不会拖住扫描循环
     let recovered = 0;
-    for (const raw of candidates) {
-      if (hasCase.has(pairKey(raw.deviceId, raw.eventId))) continue;
-      // 当时无绑定用户 → 口径为只留档（没有人可通知/取消）
-      const binding = await this.prisma.deviceBinding.findFirst({
+    let cursor: string | undefined;
+    for (let page = 0; page < RECONCILE_MAX_PAGES; page++) {
+      const candidates = await this.prisma.rawEvent.findMany({
         where: {
-          deviceId: raw.deviceId,
-          boundAt: { lte: raw.receivedAt },
-          OR: [{ unboundAt: null }, { unboundAt: { gte: raw.receivedAt } }],
+          eventType: { in: TRIGGER_TYPES },
+          schemaVersion: { in: [...SUPPORTED_SCHEMA_VERSIONS] },
+          receivedAt: { gte: lower, lte: upper },
         },
-        orderBy: { boundAt: 'desc' },
-        select: { userId: true },
+        orderBy: [{ receivedAt: 'asc' }, { id: 'asc' }],
+        take: RECONCILE_PAGE_SIZE,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       });
-      if (!binding) continue;
-      // 当时该用户在该设备上已有进行中的单 → 按合并规则（设备 + 用户，决策 #40）只留档不建单，属正常，不是丢失。
-      // manual_sos 并入的单只会以 notified 收尾（升级即立即通知）：并入对象若是 cancelled，只可能是
-      // 「读到 pending 后、升级前被本人取消」那次竞态把求救吞掉了，这里要补建
-      const mergedInto = await this.prisma.sosCase.findFirst({
+      if (candidates.length === 0) break;
+      cursor = candidates[candidates.length - 1].id;
+
+      const existing = await this.prisma.sosCase.findMany({
         where: {
-          deviceId: raw.deviceId,
-          userId: binding.userId,
-          createdAt: { lte: raw.receivedAt },
-          OR: [{ finalizedAt: null }, { finalizedAt: { gte: raw.receivedAt } }],
-          ...(raw.eventType === 'manual_sos'
-            ? { status: { not: SOS_STATUS.cancelled } }
-            : {}),
+          OR: candidates.map((c) => ({
+            deviceId: c.deviceId,
+            triggerEventId: c.eventId,
+          })),
         },
-        select: { id: true },
+        select: { deviceId: true, triggerEventId: true },
       });
-      if (mergedInto) continue;
-      this.logger.warn(
-        `SOS 对账：事件 ${raw.eventId}（${raw.eventType}，device=${raw.deviceId}）已落库但无 SOS 单，重新触发`,
+      const hasCase = new Set(
+        existing.map((c) => pairKey(c.deviceId, c.triggerEventId)),
       );
-      await this.sosTrigger.handleTrigger(toEnvelope(raw), binding.userId);
-      recovered += 1;
+
+      for (const raw of candidates) {
+        if (hasCase.has(pairKey(raw.deviceId, raw.eventId))) continue;
+        // 当时无绑定用户 → 口径为只留档（没有人可通知/取消）
+        const binding = await this.prisma.deviceBinding.findFirst({
+          where: {
+            deviceId: raw.deviceId,
+            boundAt: { lte: raw.receivedAt },
+            OR: [{ unboundAt: null }, { unboundAt: { gte: raw.receivedAt } }],
+          },
+          orderBy: { boundAt: 'desc' },
+          select: { userId: true },
+        });
+        if (!binding) continue;
+        // 当时该用户在该设备上已有进行中的单 → 按合并规则（设备 + 用户，决策 #40）只留档不建单，属正常，不是丢失。
+        // manual_sos 并入的单只会以 notified 收尾（升级即立即通知）：并入对象若是 cancelled，只可能是
+        // 「读到 pending 后、升级前被本人取消」那次竞态把求救吞掉了，这里要补建
+        const mergedInto = await this.prisma.sosCase.findFirst({
+          where: {
+            deviceId: raw.deviceId,
+            userId: binding.userId,
+            createdAt: { lte: raw.receivedAt },
+            OR: [
+              { finalizedAt: null },
+              { finalizedAt: { gte: raw.receivedAt } },
+            ],
+            ...(raw.eventType === 'manual_sos'
+              ? { status: { not: SOS_STATUS.cancelled } }
+              : {}),
+          },
+          select: { id: true },
+        });
+        if (mergedInto) continue;
+        this.logger.warn(
+          `SOS 对账：事件 ${raw.eventId}（${raw.eventType}，device=${raw.deviceId}）已落库但无 SOS 单，重新触发`,
+        );
+        await this.sosTrigger.handleTrigger(toEnvelope(raw), binding.userId);
+        recovered += 1;
+      }
+      if (candidates.length < RECONCILE_PAGE_SIZE) break;
     }
     if (recovered > 0) this.logger.warn(`SOS 对账补建 ${recovered} 单`);
     return recovered;
