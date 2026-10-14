@@ -96,7 +96,7 @@ cd backend && npx prisma migrate dev   # 建表（要求 docker 里的 postgres 
 
 - **iPhone**：设置 → 隐私与安全性 → 开发者模式 → 打开并重启；用数据线连 Mac，首次需在手机上信任此电脑。
 - **Android**：设置 → 关于手机 → 连点「版本号」7 次开启开发者选项 → 打开「USB 调试」；连线后允许调试授权。
-- **原生依赖变更后所有开发包都要重建**（CNG：`npx expo prebuild` → `pod install` → xcodebuild / `gradlew assembleDebug`；**2026-09-23 起 iOS 用公司团队 `B3NHB45FS7` 签名，不再需要手删 `aps-environment`**）。只连 Metro 不重建会在进入用到该模块的页面时红屏 `Cannot find native module`。最近一次：**2026-09-24 新增 `jpush-react-native` / `jcore-react-native`（极光推送，决策 #48）**，此后三处包都需要是 09-24 之后打的；上一次是 2026-09-17 新增 `expo-camera`（扫码绑定）。
+- **原生依赖变更后所有开发包都要重建**（CNG：`npx expo prebuild` → `pod install` → xcodebuild / `gradlew assembleDebug`；**2026-09-23 起 iOS 用公司团队 `B3NHB45FS7` 签名，不再需要手删 `aps-environment`**）。只连 Metro 不重建会在进入用到该模块的页面时红屏 `Cannot find native module`。最近一次：**2026-10-14 合入 #102——新增 `react-native-vlc-media-player`（libVLC）+ 本地模块 `app/modules/helmet-wifi`，Android minSdk 升到 26，iOS 多了 Hotspot Configuration entitlement（实时视频预览，决策 #49，见下方「实时视频预览」）**，此后所有开发包都需要是 10-14 之后打的；前一次是 2026-10-08 新增 `@shopify/react-native-skia` / `expo-video`（开屏动画，#150），再前一次 2026-09-24 新增 `jpush-react-native` / `jcore-react-native`（极光推送，决策 #48）。
 
 ## Android 正式签名包（2026-09-21 起）
 
@@ -248,6 +248,34 @@ npx tsx scripts/splash-frames.ts <目录> 300,980,1500   # 把某几个时刻画
 
 量法：模拟器上录屏逐帧看（`adb shell screenrecord` 加 `ffmpeg -vf fps=30`），再用 `adb shell dumpsys gfxinfo <包名> reset` / `dumpsys gfxinfo <包名>` 看这一段掉了几帧。2026-10-08 模拟器（Pixel 8，JS 按正式方式打）：三件事连着做完的整条链 574 帧里慢了 5 帧。**两台真机都还没看**；模拟器用的是电脑的显卡，说明不了手机。
 
+## 实时视频预览（2026-09-30 起，决策 #37/#49）
+
+入口：设备详情 →「实时画面」（路由 `/video-preview`）。约定见 DEVICE_PROTOCOL §1.3：热点 `X821cam` / `Aa123456`，`rtsp://192.168.176.1:8554/ch0`，H.264 720p30 无音频，强制 RTSP over TCP。
+
+- **组成**：播放器 `react-native-vlc-media-player`（libVLC，参数沿用 Spike）；连热点与存截图是本地 Expo 模块 `app/modules/helmet-wifi`（Kotlin + Swift）；页面状态机在 `app/src/services/video-preview.ts`，页面只接线。
+- **Android 连热点**：Android 10+ 用 `WifiNetworkSpecifier` 由系统弹窗确认连接，连上后 `bindProcessToNetwork`——不绑的话头盔热点没有互联网，系统把默认路由留在 4G，RTSP 走 4G 黑屏。Android 8/9 没有这个 API，页面转「手动连接」引导：去系统设置连好 → 点「已连接，继续」→ 绑定当前 Wi-Fi。
+- **绑定的代价**：绑定期间本进程所有连接都走头盔热点，**App 连不上云端**（BLE 中转上传、WS、REST 都会失败，事件留在上行队列）。所以只在预览页前台持有，三种情况同步释放并立即补传：离开页面、退后台、**摔倒 / 求救事件入队**（`ble-relay-uplink.ts` 的 `onSosRelayEvent`，在上传发起前回调）。危险预警不打断预览（留档，不赶时间）。
+- **iOS 连热点**：`NEHotspotConfiguration` + `joinOnce`，退后台约 15 s、锁屏或 App 退出时系统自动断开并删配置。不需要绑定。**需要 App ID 勾选「Hotspot」能力**（app.json 已加 entitlement `com.apple.developer.networking.HotspotConfiguration`；✅ 负责人 2026-09-30 已在 developer.apple.com → Identifiers → `com.lingyiweichuang.app` 勾上，旧描述文件随之失效，Xcode 自动签名下次构建会重新生成；命令行构建记得带 `-allowProvisioningUpdates`）。首次拉流会弹「本地网络」授权，拒绝了永远连不上，只能去设置里开。
+- **截图**：从解码器取帧（VLC `snapshot`，PNG），不向头盔要 JPEG；再用模块存相册（iOS 只申请「添加照片」；Android 10+ 走 MediaStore 存到 `Pictures/零一唯创`，8/9 需要的存储权限被合规屏蔽，提示不支持）。
+- **本页不发外网请求**：页面不引用 `@/api` 与 react-query（`audit-video-preview.test.ts` 钉住）。
+
+### 无硬件怎么测（开发包，`__DEV__` 才生效）
+
+先在电脑上起测试流：`tools/rtsp-mock/start_rtsp.sh`（彩条 + 时间戳，同 §1.3 约定）。然后用深链打开预览页（App 已登录）：
+
+```bash
+# ① 只测播放器：手机和电脑在同一个普通 Wi-Fi 下，跳过连热点
+xcrun simctl openurl booted "app://video-preview?url=rtsp://<电脑IP>:8554/ch0&join=0"   # iOS 模拟器
+adb shell am start -a android.intent.action.VIEW -d "app://video-preview?url=rtsp://<电脑IP>:8554/ch0\&join=0"   # Android 真机
+# ② 连接 + 绑定整条路径（最接近真头盔）：用另一台手机开热点，名称 X821cam、密码 Aa123456，并关掉它的移动数据
+#    （模拟头盔热点没有互联网）；电脑连上这个热点后起测试流，被测手机打开：
+app://video-preview?url=rtsp://<电脑在该热点下的IP>:8554/ch0
+```
+
+iPhone 真机没有 adb：在备忘录里写下深链长按打开，或用 Safari 地址栏打开。不带 `url` 参数时就是正式行为（连 `X821cam`，拉 `192.168.176.1`）。
+
+方式 ② 不想把另一台手机改名成 `X821cam` 的话，再加 `&ssid=<那台手机的热点名>&pass=<密码>`（2026-10-14 加，同样只在开发包生效）：`app://video-preview?url=rtsp://<电脑在该热点下的IP>:8554/ch0&ssid=<热点名>&pass=<密码>`。Android 上深链里的 `&` 要用单引号包住整个地址传给 `am start -d`，否则被设备的 shell 当成后台符吃掉。**Android 10 + iPhone 热点再加 `&wpa3=1`**：iPhone 热点是 WPA2/WPA3 混合，Android 10 把它归为 WPA3，按头盔协议的 WPA2 去请求永远匹配不上（系统弹窗一直转圈，30 s 后报「该应用已取消」）；`wpa3=1` 走模块的 `connectSae`（只在 Android 上有，真头盔纯 WPA2 不受影响）。
+
 ## 平台限制清单（持续维护）
 
 > 记录 Week 2 Spike 及后续开发中实测到的 iOS / Android 系统限制。禁止静默降级——任何限制先记录在此并与负责人确认口径。
@@ -255,6 +283,12 @@ npx tsx scripts/splash-frames.ts <目录> 300,980,1500   # 把某几个时刻画
 | 日期 | 平台 | 能力 | 实测限制 | 口径/结论 |
 |------|------|------|---------|----------|
 | 2026-10-14 | Android（开发包） | 屏幕常亮 | 开发包里整个 App 在前台时屏幕永远不熄：是 Expo 开发环境自己开的（`expo/src/launch/withDevTools.tsx` 在 `__DEV__` 下 `useKeepAwake(ExpoKeepAwakeTag)`），华为 P30 Pro 上逐个标签 deactivate 验证过，业务里 `map-riding` / `intercom` 两个标签没问题 | 地图页 / 求救页 / 对讲页「只在需要时常亮」（REGRESSION 3.16 / 7.5.2 / 6.11）**只能用正式包验**；开发包上看到常亮不是 Bug |
+| 2026-10-14 | iOS 26.6.1（iPhone 14 Pro Max） | 视频预览：连上头盔热点后拉流 | **蜂窝数据开着时 RTSP 握手多半要 30–60 s**：热点已连上、TCP 当秒建立，但 SETUP 要等 20–45 s、PLAY 再等 10–20 s（假头盔 mediamtx 日志）；同一热点下 Mac 握手约 1 s；**关掉蜂窝数据后点「加入」到出画 7 s**，蜂窝恢复后又有一次当秒完成，不是每次都慢。怀疑是 iOS 对刚加入的 Wi-Fi 做连通性探测期间把这条流量压在后面（系统日志有 `nw_proto_tcp_route_init … probe connectivity enabled`）。测试热点经华为能上网，真头盔热点没有互联网，行为可能不同 | 先记录；页面 5 s 的「画面还没出来」提示会先出现、出画后自动消失。要不要在 iOS 上等 `NWPathMonitor(requiredInterfaceType: .wifi)` 满足后再起播放器，交 B 线定；真头盔到了复测 |
+| 2026-10-14 | Android 10（华为 P30 Pro） | 视频预览连头盔热点：热点的加密方式 | 热点是 **WPA2/WPA3 混合**时（iPhone 个人热点默认就是），`WifiNetworkSpecifier` 按 WPA2 请求永远匹配不上（系统弹窗转圈到超时），按 WPA3 请求也不行；只有纯 WPA2 热点能 3 s 内列出并连上。Android 10 的匹配逻辑把混合加密一律当 WPA3 | **真头盔的热点必须是纯 WPA2（不开 WPA3 / 混合模式）**，已列入向硬件确认项；开发期用 iPhone 热点测要开「最大化兼容性」（变成纯 WPA2 + 2.4 GHz），深链见「无硬件怎么测」 |
+| 2026-10-14 | Android（华为 P30 Pro / EMUI 10） | 视频预览连头盔热点（`WifiNetworkSpecifier` 系统选网弹窗） | ① 弹窗是 Settings 的另一个 Activity，一弹出 `AppState` 就变 `background`：预览页「退后台即释放头盔 Wi-Fi」的逻辑把 68 ms 前发出的请求撤回，弹窗报「出了点问题。该应用已取消选择设备的请求」，点掉回前台又重发，无限循环，真头盔也连不上；② `onUnavailable` 不区分用户取消 / 找不到 / 超时；③ App 侧 `requestNetwork` 超时到期撤回请求时，若弹窗还开着，系统同样显示上面那条错误，要用户再点一次 | ① **已修（#102 分支 10-14）**：phase 为 `joining` 时忽略 `background`（连上之前没绑任何网络，请求本身有 30 s 超时兜底）；连上时若 App 已在后台，照退后台处理、回前台再连。② 文案统一为「没有连上头盔 Wi-Fi…」，REGRESSION 9.10 的预期按此改。③ 待 B 线定：Android 10+ 有系统弹窗时是否取消 App 侧超时 |
+| 2026-09-30 | Android | 头盔热点绑定（视频预览） | `bindProcessToNetwork` 让本进程所有连接走头盔热点，绑定期间 App 连不上云端（BLE 中转上传、WS、REST） | 只在预览页前台持有；离开 / 退后台 / 摔倒求救入队时同步释放并立即补传；页面文案告知「此时手机无法上网」。**设计口径，待真机实测确认** |
+| 2026-09-30 | Android 8/9 | 程序化连 Wi-Fi、截图存相册 | `WifiNetworkSpecifier` 只有 Android 10+；存相册在 8/9 需要存储权限，而该权限因商店合规被 `blockedPermissions` 屏蔽 | 8/9 走「去系统设置手动连 → 已连接，继续」引导；截图提示不支持保存。决策 #49 已接受 minSdk 26 |
+| 2026-09-30 | iOS | 连头盔热点（NEHotspotConfiguration） | 需要 App ID 开 Hotspot 能力；`joinOnce` 下退后台约 15 s / 锁屏系统自动断开；首次拉流弹「本地网络」授权，拒绝后连不上；部分 iOS 版本热点不在范围内时 `apply` 也回调成功 | 预览只在前台；用途说明已配；「apply 成功但没连上」靠 5 s 无画面提示兜底，不做 SSID 校验（校验要再开 Access Wi-Fi Information 能力）。**10-14 iPhone 14 Pro Max / iOS 26.6.1 实测坐实**：热点不在时系统自己弹「无法加入网络」，`apply` 仍回调成功，App 走 5 s 无画面提示、约 19 s 播放器报错「画面连接失败」兜底；退后台 17 s 时连接被系统断开 |
 | 2026-10-08 | Android（华为 P30 Pro 实测） | 系统状态栏的深浅 | Android 上状态栏的时间、电量、信号默认一直是白色：原生主题里没有写 `windowLightStatusBar`，expo-router 57 也不再替 App 放一份 `<StatusBar style="auto" />`。App 内选浅色外观时白字压在浅色页面上，量到的对比度是 1.0 : 1，等于看不见。iOS 会自己跟着界面的深浅变，没有这个问题 | 根布局放一份 `<StatusBar>`，深浅取 App 自己的外观（`hooks/use-color-scheme`），不取系统的；放在最前面，扫码页、倒计时最后 10 秒各自的那一份后挂载、会盖过它，页面关掉再还回来。改后浅色下 8.1 : 1。开屏那几秒画面是深色的，浅色外观下根布局那一份（深色字）压在上面看不清：开屏遮罩里另放了一份 `style="light"`（`splash/splash-overlay.tsx`，后挂载、盖过根布局那一份），深色画面淡到一半时撤掉，状态栏回到根布局那一份——模拟器（Android 16）逐帧量过，真机还没看。回归见 REGRESSION 7.8、1.5.16 |
 | 2026-10-08 | iOS（iPhone 14 Pro Max，iOS 26.6，开发包） | 挂着调试器往 App 里发命令 | 经 Metro 的调试通道对真机上的 App 执行 JS（`Runtime.evaluate`）时，一晚上两次把 App 带崩。两份崩溃记录一样：`EXC_BAD_ACCESS`，JS 线程，`hermes::vm::CodeBlock::getSourceLocation` ← `Debugger::runUntilValidPauseLocation` ← `Debugger::runDebugger`，再往下是 `expo::EventEmitter::emitEvent`——调试器的打断正好落在原生事件的回调里（求救页的警报音、扫码页），Hermes 的调试器自己解了空指针。同一页不挂调试器跑满一分钟没有问题；华为上没出过 | 是调试工具的问题，不是 App 的：崩溃记录里有 `Debugger::runUntilValidPauseLocation` 的，不用往业务代码上查；正式包里没有调试器。真机上用调试器（包括 React Native DevTools 的控制台）时，在警报音这类原生事件很密的页面上尽量别发命令；要在这种页面上取东西，先把动作排进 App 里自己跑，跑完回到安静的页面再取 |
 | 2026-10-08 | 双端（地图 WebView） | 深色底图上的轨迹与标记颜色 | 压暗底图的滤镜会连带改掉品牌色：① Android 深色是给地图画布挂 `saturate(0.35) brightness(0.85)`，`AMap.Polyline` 和底图画在同一张画布里，轨迹被去掉六成多饱和度（量到 `#CCD49C`）；② iOS 深色是给整个地图容器挂 `invert(0.88) hue-rotate(180deg) …`，轨迹和 Marker 都被反色，原来靠「预反色」的颜色去凑——但反色 + 转色相保不住亮度，亮黄的原像是暗蓝，怎么凑都只能得到橄榄绿（负责人 iPhone：头像旁的颜色和轨迹不是品牌黄）。高德 JS API 2.0 的 DOM 结构（Chromium、WebKit 上一样）：`.amap-layers` 下面是一张底图画布 + `.amap-markers`（z 120）；`AMap.CustomLayer` 的画布是它下面单独的一层 `div.amap-layer`（z = 图层的 zIndex），视野每变一帧高德都会回调它的 `render`，静止时不回调 | ① 轨迹改画在 `AMap.CustomLayer` 的画布上（zIndex 100，在底图之上、Marker 之下），Android 的滤镜收窄到 `.amap-layers > canvas`（只压底图）；② iOS 深色改成在 `.amap-layers` 里盖一层只带 `backdrop-filter` 的透明层（z 1）：它只改压在下面的底图，上面的轨迹画布和 Marker 原色显示，「预反色」那套只留作系统不认 backdrop-filter 时的退路；iOS 深色明确要普通样式再自己压暗。验证：Android 模拟器 App 内；同一份 HTML 在 iOS 26.5 模拟器 Safari 里（深色新旧两条路、浅色）。**iPhone 真机的 WKWebView 还没看过**——如果真机上底图不压暗或黑屏，把 `BACKDROP_OK` 判成 false 就回到原来的画法。可复用的测试页脚本在 `helmet-ui-shots/map-webkit-harness/`（仓库外） |

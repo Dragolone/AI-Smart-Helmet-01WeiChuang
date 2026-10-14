@@ -142,6 +142,24 @@ const persist = (): void => {
   void store.save(owner, queue);
 };
 
+/** 求救类事件：入队时同步通知订阅方（视频预览页据此让出网络，见 onSosRelayEvent） */
+const SOS_TYPES = new Set<string>(["possible_fall", "manual_sos"]);
+const sosListeners = new Set<(eventType: string) => void>();
+
+/**
+ * 订阅「摔倒 / 求救事件已入队」。在本次上传发起之前同步回调——视频预览期间 Android 把进程
+ * 绑在没有互联网的头盔热点上，订阅方必须在回调里立刻解绑，这条事件才能马上送出去。
+ * 危险预警不通知：那是留档，不值得打断用户。
+ */
+export function onSosRelayEvent(
+  listener: (eventType: string) => void,
+): () => void {
+  sosListeners.add(listener);
+  return () => {
+    sosListeners.delete(listener);
+  };
+}
+
 /** BLE 模块收到头盔事件后调用：范围外事件本地丢弃(蓝牙版 MVP 只中转 7 种,决策 #31) */
 export function enqueueRelayEvent(envelope: Envelope): void {
   if (!RELAY_SCOPE.has(envelope.eventType)) {
@@ -149,6 +167,16 @@ export function enqueueRelayEvent(envelope: Envelope): void {
     return;
   }
   queue.push(envelope);
+  if (SOS_TYPES.has(envelope.eventType)) {
+    for (const listener of sosListeners) {
+      // 订阅方出错绝不能拦住保命事件的入队与上传
+      try {
+        listener(envelope.eventType);
+      } catch (e) {
+        devLog("BLE-RELAY", "求救事件订阅方回调出错(已忽略)", e);
+      }
+    }
+  }
   // 保命事件入队即持锁（Android）：华为息屏深睡会挂起 App 网络，靠锁把上传窗口撑开；周期事件不持
   if (CRITICAL_TYPES.has(envelope.eventType))
     HelmetLinkService.holdNetwork(CRITICAL_HOLD_MS);
