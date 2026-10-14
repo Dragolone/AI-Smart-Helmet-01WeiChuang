@@ -244,9 +244,10 @@ export const auth = {
     "auth.nicknamePlaceholder": "Enter nickname",
     "auth.registerAndLogin": "Sign up & log in",
     "auth.haveAccount": "Have an account? Log in",
-    "auth.consentPrefix": "I have read and agree to the",
+    // 四段拼接：中文靠《》分隔，英文要把空格放进字符串里，否则连成 "theTerms of ServiceandPrivacy Policy"（2026-10-14 负责人实测）
+    "auth.consentPrefix": "I have read and agree to the ",
     "auth.consentTerms": "Terms of Service",
-    "auth.consentAnd": "and",
+    "auth.consentAnd": " and ",
     "auth.consentPrivacy": "Privacy Policy",
     "auth.consentRequired":
       "Please read and agree to the Terms of Service and Privacy Policy first",
