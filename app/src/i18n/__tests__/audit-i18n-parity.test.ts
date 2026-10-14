@@ -14,6 +14,7 @@ import { legal } from '../messages/legal';
 import { map } from '../messages/map';
 import { profile } from '../messages/profile';
 import { safety } from '../messages/safety';
+import { video } from '../messages/video';
 
 type Dict = Record<string, Record<string, string>>;
 const FILES: Record<string, Dict> = {
@@ -30,6 +31,7 @@ const FILES: Record<string, Dict> = {
   map: map as unknown as Dict,
   profile: profile as unknown as Dict,
   safety: safety as unknown as Dict,
+  video: video as unknown as Dict,
 };
 const LOCALES = ['zh-CN', 'zh-TW', 'en'];
 

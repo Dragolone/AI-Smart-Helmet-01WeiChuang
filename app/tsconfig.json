@@ -11,6 +11,9 @@
       ],
       "helmet-link-service": [
         "./modules/helmet-link-service/src/index.ts"
+      ],
+      "helmet-wifi": [
+        "./modules/helmet-wifi/src/index.ts"
       ]
     }
   },

@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["HelmetWifiModule"]
+  },
+  "android": {
+    "modules": ["com.lingyiweichuang.helmetwifi.HelmetWifiModule"]
+  }
+}
