@@ -99,7 +99,8 @@ describe('网络对讲后端 (e2e)', () => {
     expect(res.body.name).toBe('滑雪一队');
     expect(res.body.ownerId).toBe(ownerId);
     expect(res.body.memberCount).toBe(1);
-    expect(inviteCode).toMatch(/^\d{6}$/);
+    // 6 位字母 / 数字，没有 0/1/O/I/L（决策 #57）
+    expect(inviteCode).toMatch(/^[2-9A-HJKMNP-Z]{6}$/);
     expect(Number.isInteger(res.body.roomId)).toBe(true);
     // 房间号随机 10 位（决策 #56）：不再是从 1 起的自增号
     expect(res.body.roomId).toBeGreaterThanOrEqual(1_000_000_000);
@@ -136,7 +137,8 @@ describe('网络对讲后端 (e2e)', () => {
     const bad = await request(http)
       .post(`${BASE}/join`)
       .set(auth(strangerToken))
-      .send({ inviteCode: 'abc123' })
+      // 字母合法了（决策 #57），形状非法改用带符号的
+      .send({ inviteCode: 'abc-12' })
       .expect(400);
     expect(bad.body.code).toBe('VALIDATION_FAILED');
   });

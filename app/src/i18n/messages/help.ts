@@ -94,7 +94,7 @@ export const help = {
       "Helmet location is sent to your phone over Bluetooth, then synced over the internet, so it may be delayed. Indoor areas, tunnels and tall buildings can reduce location accuracy. The map shows the latest recorded location and its update time. “Navigate to location” opens Amap with that location as the destination.",
     "help.q8": "How do I join an intercom channel?",
     "help.a8":
-      "Select “Join with invite code” on the Intercom tab and enter the 6-digit code you received. Enter the channel to use hold-to-talk or open mic. To send and receive audio through your helmet, make sure helmet audio is connected to your phone. Intercom requires an internet connection.",
+      "Select “Join with invite code” on the Intercom tab and enter the 6-character code you received. Enter the channel to use hold-to-talk or open mic. To send and receive audio through your helmet, make sure helmet audio is connected to your phone. Intercom requires an internet connection.",
     "help.email": "Send feedback by email",
     "help.emailSubject": "Lingyi Weichuang app feedback (version {v})",
     "help.site": "Website",
