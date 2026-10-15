@@ -19,6 +19,8 @@ import { AccessibilityInfo, Alert, BackHandler } from "react-native";
 import { act } from "react-test-renderer";
 import { mockRouter, routerState } from "@/__tests__/helpers/native-mocks";
 import {
+  isHost,
+  flat,
   makeQueryClient,
   render,
   type Rendered,
@@ -33,6 +35,7 @@ import {
   enqueueRelayEvent,
   notifyCriticalAccepted,
 } from "@/services/ble-relay-uplink";
+import { devLog } from "@/services/dev-log";
 import { clearSosAlert } from "@/services/sos-alert";
 import { presentedSos } from "@/services/sos-sync";
 import { useSosCancelStore } from "@/stores/sos-cancel-store";
@@ -272,6 +275,55 @@ describe("倒数中", () => {
     await tick(2050);
     expect(number(r)).toBe("43");
     mockAlarm.play.mockReset();
+  });
+
+  it("音频会话设置失败：只记日志，警报照样响", async () => {
+    const err = new Error("audio session busy");
+    m(setAudioModeAsync).mockImplementationOnce(() => Promise.reject(err));
+    await mount();
+    expect(devLog).toHaveBeenCalledWith("SOS", "音频模式设置失败", err);
+    expect(mockAlarm.play).toHaveBeenCalled();
+  });
+
+  it("上半截放不下（英文多折行、没联系人的警告…）：量出溢出多少就把环缩多少，最小 140；缩到底还放不下才收起顶上的警示图标", async () => {
+    const r = await mount();
+    const scroll = r.root.find(
+      (n) =>
+        typeof n.type !== "string" &&
+        typeof n.props.onContentSizeChange === "function",
+    );
+    const fontSize = () =>
+      flat(
+        r.root.find(
+          (n) => isHost(n, "Text") && /^\d+$/.test(String(n.children.join(""))),
+        ).props.style,
+      ).fontSize as number;
+    const icon = () => r.icons().includes("warning-outline");
+    const measure = (viewport: number, content: number) => {
+      act(() => {
+        scroll.props.onLayout({
+          nativeEvent: { layout: { height: viewport } },
+        });
+        scroll.props.onContentSizeChange(0, content);
+      });
+    };
+    // 高屏：环是满的 252，数字 112
+    expect(fontSize()).toBe(112);
+    expect(icon()).toBe(true);
+    // 放得下（多出不到 1）：不动
+    measure(500, 501);
+    expect(fontSize()).toBe(112);
+    // 溢出 50：环缩 50 → 202
+    measure(500, 550);
+    expect(fontSize()).toBe(Math.round((112 * 202) / 252));
+    // 再溢出 100：最多缩到 140
+    measure(500, 600);
+    expect(fontSize()).toBe(Math.round((112 * 140) / 252));
+    expect(icon()).toBe(true);
+    // 环已经最小：收起顶上的图标
+    measure(500, 560);
+    expect(icon()).toBe(false);
+    expect(fontSize()).toBe(Math.round((112 * 140) / 252));
   });
 
   it("没有紧急联系人：明说倒计时结束也通知不了人；超过 3 位只露 3 个和 +n", async () => {
