@@ -2,7 +2,8 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useState } from "react";
-import { StyleSheet } from "react-native";
+import { Alert, StyleSheet } from "react-native";
+import type { EmergencyContact } from "@helmet/shared";
 
 import { contactsApi } from "@/api/contacts";
 import { toUserMessage } from "@/api/error-messages";
@@ -14,11 +15,14 @@ import {
   normalizePhone,
 } from "@/hooks/use-sms-code";
 import { useT } from "@/i18n";
+import { contactPhoneProblem } from "@/services/contact-phone";
 import { cleanNickname } from "@/services/user-name";
+import { useAuthStore } from "@/stores/auth-store";
 
 export default function AddContactScreen() {
   const queryClient = useQueryClient();
   const t = useT();
+  const selfPhone = useAuthStore((s) => s.user?.phone);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [relation, setRelation] = useState("");
@@ -42,13 +46,42 @@ export default function AddContactScreen() {
       setError(t("contacts.invalidPhone"));
       return;
     }
+    // 服务端不查重复、不拦本人号码：重复的号码求救时收两条短信还占名额；本人号码等于没人收到
+    const problem = contactPhoneProblem(
+      cleanPhone,
+      queryClient.getQueryData<EmergencyContact[]>(["contacts"]) ?? [],
+      selfPhone,
+    );
+    if (problem === "duplicate") {
+      setError(t("contacts.duplicatePhone"));
+      return;
+    }
+    const contact = {
+      name: cleanName,
+      phone: cleanPhone,
+      ...(cleanRelation && { relation: cleanRelation }),
+    };
+    if (problem === "self") {
+      Alert.alert(t("contacts.selfPhoneTitle"), t("contacts.selfPhoneBody"), [
+        { text: t("common.cancel"), style: "cancel" },
+        {
+          text: t("contacts.selfPhoneConfirm"),
+          onPress: () => void save(contact),
+        },
+      ]);
+      return;
+    }
+    await save(contact);
+  };
+
+  const save = async (contact: {
+    name: string;
+    phone: string;
+    relation?: string;
+  }) => {
     setBusy(true);
     try {
-      await contactsApi.create({
-        name: cleanName,
-        phone: cleanPhone,
-        ...(cleanRelation && { relation: cleanRelation }),
-      });
+      await contactsApi.create(contact);
       await queryClient.invalidateQueries({ queryKey: ["contacts"] });
       setDone(true);
     } catch (e) {
