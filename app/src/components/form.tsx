@@ -2,25 +2,30 @@
 // 药丸主按钮（品牌荧光色 + 深色文字）、描边次按钮、深色描边输入框（可带前置图标）、危险操作红药丸
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Pressable,
   StyleSheet,
   TextInput,
+  View,
   type StyleProp,
   type TextInputProps,
   type ViewStyle,
 } from "react-native";
 
 import Animated, {
+  Easing,
   interpolateColor,
   useAnimatedStyle,
+  useReducedMotion,
   useSharedValue,
+  withDelay,
   withSequence,
   withSpring,
   withTiming,
 } from "react-native-reanimated";
 
+import { CHECK_DRAW_MS, CheckDraw } from "@/components/check-draw";
 import { DotsLoader } from "@/components/motion";
 import { ThemedText } from "@/components/themed-text";
 import { Radius } from "@/constants/theme";
@@ -134,6 +139,13 @@ type ButtonProps = {
   compact?: boolean;
 };
 
+/** 成功态：文字从什么时候开始滑进来（毫秒，从 success 变 true 算起） */
+const SUCCESS_TEXT_AT = 480;
+/** 成功态画完（勾画完、文字到位）要多久；到时候才调 onSuccessShown */
+const SUCCESS_SHOWN_MS = CHECK_DRAW_MS + 160;
+/** 短药丸两端留白 */
+const SUCCESS_PAD = 22;
+
 /** 主按钮：品牌黄药丸。按压 = 变淡 + 轻缩 + 触觉（主操作都该有"按到了"的确认） */
 export function PrimaryButton({
   title,
@@ -145,26 +157,112 @@ export function PrimaryButton({
   renderIcon,
   style,
   compact = false,
-}: ButtonProps & { danger?: boolean }) {
+  success = false,
+  successTitle,
+  onSuccessShown,
+}: ButtonProps & {
+  danger?: boolean;
+  /**
+   * 成功态（负责人 2026-10-15 定「收成短药丸」）：整条药丸收到刚好包住「✓ 已保存」的宽度、底色变成功绿、
+   * 勾一笔画出、文字滑入、轻弹一下。变成 true 后按钮不再可点；画完（约 1 秒）调 onSuccessShown，
+   * 页面在那时再返回 / 关弹层。只给撑满一行的保存类按钮用，并排的小按钮不用。
+   */
+  success?: boolean;
+  /** 成功态上的字；默认「已保存」 */
+  successTitle?: string;
+  onSuccessShown?: () => void;
+}) {
   const theme = useTheme();
+  const t = useT();
+  const reduced = useReducedMotion();
   const bg = danger ? theme.danger : theme.brand;
   const fg = danger ? "#FFFFFF" : theme.onBrand;
-  const inactive = loading || disabled;
+  const inactive = loading || disabled || success;
   // 按下 0.965 快缩，松手低阻尼回弹带一点过冲（与 Tappable 手感一致）
   const scale = useSharedValue(1);
-  const springStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.get() }],
+  // 成功态的三个量：整体进度（底色、原内容淡出、新内容淡入）、宽度（整条 → 短药丸）、文字滑入
+  const p = useSharedValue(0);
+  const width = useSharedValue(0);
+  const textIn = useSharedValue(0);
+  // 整条时多宽、短药丸该多宽：都从布局量，不写死
+  const fullWidth = useRef(0);
+  const doneWidth = useRef(0);
+  // 回调存在 ref 里：页面每次渲染都是新的箭头函数，不能让它触发下面那个 effect 重跑（会重放动画和触觉）
+  const shown = useRef(onSuccessShown);
+  useEffect(() => {
+    shown.current = onSuccessShown;
+  }, [onSuccessShown]);
+  useEffect(() => {
+    if (!success) {
+      p.set(0);
+      textIn.set(0);
+      width.set(0);
+      return;
+    }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
+      () => {},
+    );
+    const target =
+      fullWidth.current > 0 && doneWidth.current > 0
+        ? Math.min(fullWidth.current, doneWidth.current)
+        : 0;
+    if (reduced) {
+      p.set(1);
+      textIn.set(1);
+      if (target > 0) width.set(target);
+    } else {
+      const ease = Easing.bezier(0.3, 0.9, 0.25, 1);
+      p.set(withTiming(1, { duration: 280, easing: ease }));
+      if (target > 0) {
+        width.set(fullWidth.current);
+        width.set(withTiming(target, { duration: 320, easing: ease }));
+      }
+      textIn.set(
+        withDelay(
+          SUCCESS_TEXT_AT,
+          withTiming(1, { duration: 240, easing: ease }),
+        ),
+      );
+    }
+    const timer = setTimeout(
+      () => shown.current?.(),
+      reduced ? 200 : SUCCESS_SHOWN_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [success, reduced, p, width, textIn]);
+
+  const boxStyle = useAnimatedStyle(() => {
+    const w = width.get();
+    return {
+      transform: [{ scale: scale.get() }],
+      backgroundColor: interpolateColor(p.get(), [0, 1], [bg, theme.success]),
+      ...(w > 0 ? { width: w } : {}),
+    };
+  });
+  const idleStyle = useAnimatedStyle(() => ({ opacity: 1 - p.get() }));
+  const doneStyle = useAnimatedStyle(() => ({ opacity: p.get() }));
+  const doneTextStyle = useAnimatedStyle(() => ({
+    opacity: textIn.get(),
+    transform: [{ translateX: -6 * (1 - textIn.get()) }],
   }));
+  const doneLabel = successTitle ?? t("common.saved");
   return (
     <AnimatedPressable
+      onLayout={(e) => {
+        // 量的是整条时的宽；收缩过程中的布局不算
+        if (!success) fullWidth.current = e.nativeEvent.layout.width;
+      }}
       style={[
         styles.button,
         compact && styles.buttonCompact,
-        { backgroundColor: bg, opacity: inactive ? 0.55 : 1 },
+        { opacity: inactive && !success ? 0.55 : 1 },
+        success && styles.buttonDone,
         style,
-        springStyle,
+        boxStyle,
       ]}
       disabled={inactive}
+      accessibilityLabel={success ? doneLabel : undefined}
+      accessibilityState={{ disabled: inactive, busy: loading }}
       onPressIn={() => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
         scale.set(withSpring(0.965, { damping: 20, stiffness: 420 }));
@@ -174,26 +272,57 @@ export function PrimaryButton({
       }
       onPress={onPress}
     >
-      {loading ? (
-        <DotsLoader color={fg} />
-      ) : (
-        <>
-          {renderIcon
-            ? renderIcon({ size: compact ? 17 : 18, color: fg })
-            : icon && (
-                <Ionicons name={icon} size={compact ? 17 : 18} color={fg} />
-              )}
-          <ThemedText
-            type="smallBold"
-            style={[
-              styles.buttonText,
-              { color: fg, fontSize: compact ? 15 : 16 },
-            ]}
-          >
-            {title}
-          </ThemedText>
-        </>
-      )}
+      {/* 平时的内容留在正常排版里：按内容收缩的按钮（空态、行内）靠它定宽 */}
+      <Animated.View style={[styles.idle, idleStyle]}>
+        {loading ? (
+          <DotsLoader color={fg} />
+        ) : (
+          <>
+            {renderIcon
+              ? renderIcon({ size: compact ? 17 : 18, color: fg })
+              : icon && (
+                  <Ionicons name={icon} size={compact ? 17 : 18} color={fg} />
+                )}
+            <ThemedText
+              type="smallBold"
+              style={[
+                styles.buttonText,
+                { color: fg, fontSize: compact ? 15 : 16 },
+              ]}
+            >
+              {title}
+            </ThemedText>
+          </>
+        )}
+      </Animated.View>
+      {/* 成功态那一层盖在上面：平时透明但照常排版，这样一开始就量得到短药丸该多宽 */}
+      <Animated.View
+        pointerEvents="none"
+        accessibilityElementsHidden={!success}
+        importantForAccessibility={success ? "auto" : "no-hide-descendants"}
+        style={[styles.layer, doneStyle]}
+      >
+        <View
+          style={styles.doneRow}
+          onLayout={(e) => {
+            doneWidth.current = e.nativeEvent.layout.width + SUCCESS_PAD * 2;
+          }}
+        >
+          <CheckDraw
+            size={compact ? 22 : 24}
+            color={theme.onBrand}
+            play={success}
+          />
+          <Animated.View style={doneTextStyle}>
+            <ThemedText
+              type="smallBold"
+              style={{ color: theme.onBrand, fontSize: compact ? 15 : 16 }}
+            >
+              {doneLabel}
+            </ThemedText>
+          </Animated.View>
+        </View>
+      </Animated.View>
     </AnimatedPressable>
   );
 }
@@ -316,5 +445,25 @@ const styles = StyleSheet.create({
   },
   buttonCompact: { minHeight: 46 },
   buttonText: { flexShrink: 1, textAlign: "center" },
+  // 成功态：从中间往里收，收缩中多出来的旧内容裁掉
+  buttonDone: { alignSelf: "center", overflow: "hidden" },
+  idle: {
+    // 能收窄：字放大时文字在药丸里折行，而不是把整行撑出按钮
+    flexShrink: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  layer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  doneRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   secondary: { borderWidth: 1 },
 });

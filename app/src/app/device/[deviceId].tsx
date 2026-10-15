@@ -317,9 +317,12 @@ export default function DeviceDetailScreen() {
   const [renameOpen, setRenameOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const [renaming, setRenaming] = useState(false);
+  // 改好了：按钮先画勾，画完再关弹层
+  const [renamed, setRenamed] = useState(false);
 
   const openRename = () => {
     setNameDraft(detail.data?.name ?? "");
+    setRenamed(false);
     setRenameOpen(true);
   };
 
@@ -328,8 +331,7 @@ export default function DeviceDetailScreen() {
     devicesApi
       .rename(deviceId, { name: nameDraft })
       .then(async () => {
-        setRenameOpen(false);
-        showToast(t("device.renamed"));
+        setRenamed(true);
         // 列表/详情/地图药丸同步刷新
         await Promise.all([
           queryClient.invalidateQueries({
@@ -693,6 +695,8 @@ export default function DeviceDetailScreen() {
                 title={t("common.save")}
                 onPress={submitRename}
                 loading={renaming}
+                success={renamed}
+                onSuccessShown={() => setRenameOpen(false)}
               />
             </Pressable>
           </ReAnimated.View>

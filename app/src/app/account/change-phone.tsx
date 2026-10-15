@@ -33,6 +33,8 @@ export default function ChangePhoneScreen() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // 换好了：按钮先画勾，画完再提示并返回
+  const [done, setDone] = useState(false);
   const sms = useSmsCode("change_phone");
 
   const validPhone = (): string | null => {
@@ -79,8 +81,7 @@ export default function ChangePhoneScreen() {
         password,
       });
       await setUser(updated);
-      showToast(t("auth.changePhoneDone"));
-      router.back();
+      setDone(true);
     } catch (e) {
       setError(toUserMessage(e));
     } finally {
@@ -192,6 +193,11 @@ export default function ChangePhoneScreen() {
             title={t("common.save")}
             onPress={() => void submit()}
             loading={busy}
+            success={done}
+            onSuccessShown={() => {
+              showToast(t("auth.changePhoneDone"));
+              router.back();
+            }}
           />
         </View>
       </KeyboardAvoidingView>

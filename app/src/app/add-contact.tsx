@@ -19,6 +19,8 @@ export default function AddContactScreen() {
   const [relation, setRelation] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // 保存成功：按钮先画勾（收成短药丸），画完再回列表
+  const [done, setDone] = useState(false);
 
   const submit = async () => {
     setError(null);
@@ -40,7 +42,7 @@ export default function AddContactScreen() {
         ...(relation.trim() && { relation: relation.trim() }),
       });
       await queryClient.invalidateQueries({ queryKey: ["contacts"] });
-      router.back();
+      setDone(true);
     } catch (e) {
       setError(toUserMessage(e));
     } finally {
@@ -77,7 +79,13 @@ export default function AddContactScreen() {
         placeholder={t("contacts.relationPlaceholder")}
       />
       <FormError message={error} />
-      <PrimaryButton title={t("common.save")} onPress={submit} loading={busy} />
+      <PrimaryButton
+        title={t("common.save")}
+        onPress={submit}
+        loading={busy}
+        success={done}
+        onSuccessShown={() => router.back()}
+      />
     </ThemedView>
   );
 }

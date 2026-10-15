@@ -25,6 +25,7 @@ import Animated, {
   useSharedValue,
   withRepeat,
   withTiming,
+  type SharedValue,
 } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { DevicePublic } from "@helmet/shared";
@@ -37,13 +38,19 @@ import { DeviceGuide } from "@/components/device-guide";
 import { EmptyState } from "@/components/empty-state";
 import { PrimaryButton } from "@/components/form";
 import { IntercomMiniBar } from "@/components/intercom-mini-bar";
-import { Card, IconCircle, type IconName } from "@/components/list";
-import { PulseDot, ValueTransition, listEntering } from "@/components/motion";
+import { Card, type IconName } from "@/components/list";
+import {
+  CrossfadeIcon,
+  PulseDot,
+  TINT_MS,
+  ValueTransition,
+  listEntering,
+  useTintStyle,
+} from "@/components/motion";
 import { Skeleton } from "@/components/skeleton";
 import {
   BATTERY_TOP,
   HELMET_BOX,
-  LOW_BATTERY,
   heroSplashOf,
 } from "@/components/splash/hero-splash";
 import { useSplashHold } from "@/components/splash/bus";
@@ -80,6 +87,7 @@ import {
   safetyTileOf,
   type SafetyTileTone,
 } from "@/services/device-home";
+import { batteryTierOf } from "@/services/device-view";
 import {
   currentHelmetOf,
   linkLevelOf,
@@ -95,6 +103,52 @@ import {
 
 /** 标题栏占的高度（含上边距）：算大图光晕能铺多大时要用 */
 const HEADER_HEIGHT = 48;
+/** 其他设备行里电量条的长度 */
+const BATTERY_BAR_W = 44;
+
+/**
+ * 大图外的一层光晕：on 时跟着呼吸，off 时淡出。三种状态色各一层常驻，
+ * 换色就是一层淡出、一层淡入；断开就全部淡出——都不硬切（负责人 2026-10-15 画板口径）。
+ */
+function GlowLayer({
+  color,
+  on,
+  breathe,
+  size,
+  radius,
+  alpha,
+  mid,
+}: {
+  color: string;
+  on: boolean;
+  breathe: SharedValue<number>;
+  size: number;
+  radius: number;
+  alpha: number;
+  mid: number;
+}) {
+  const k = useSharedValue(on ? 1 : 0);
+  useEffect(() => {
+    k.set(withTiming(on ? 1 : 0, { duration: TINT_MS }));
+  }, [on, k]);
+  const st = useAnimatedStyle(() => ({ opacity: breathe.get() * k.get() }));
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[
+        styles.abs,
+        {
+          left: size / 2 - radius,
+          top: size / 2 - radius,
+          width: radius * 2,
+          height: radius * 2,
+          experimental_backgroundImage: `radial-gradient(50% 50% at 50% 50%, ${withAlpha(color, alpha)} 0%, ${withAlpha(color, mid)} 46%, ${withAlpha(color, 0)} 100%)`,
+        },
+        st,
+      ]}
+    />
+  );
+}
 
 /** 当前头盔：头盔图 + 外圈电量环 + 名字 + 连接状态。整块可点，进详情 */
 function Hero({
@@ -114,9 +168,16 @@ function Hero({
   const t = useT();
   const pill = linkPillOf(link);
   const battery = device.battery;
-  const low = battery !== null && battery <= LOW_BATTERY;
-  // 连上时环和光晕是绿色，电量低变黄；没连上只剩灰色的环（显示的是上次电量），不发光
-  const accent = !pill.linked ? null : low ? theme.warning : theme.success;
+  const tier = batteryTierOf(battery);
+  const low = tier === "low" || tier === "critical";
+  // 连上时环和光晕是绿色，电量 ≤20% 变黄、≤10% 变红；没连上只剩灰色的环（显示的是上次电量），不发光
+  const accent = !pill.linked
+    ? null
+    : tier === "critical"
+      ? theme.danger
+      : low
+        ? theme.warning
+        : theme.success;
   const name = device.name ?? device.deviceId;
   const status = t(pill.text);
 
@@ -140,8 +201,6 @@ function Hero({
       };
     }, [breathe]),
   );
-  const glowStyle = useAnimatedStyle(() => ({ opacity: breathe.get() }));
-
   // 光晕的浓度。浅色底上同样的浓度几乎看不出来，最浓的中间那块还被头盔背后的白底盖住，
   // 所以浅色给得更足、往外也退得更慢，环外面才留得下一圈颜色
   const glowAlpha = dark ? 0.32 : 0.34;
@@ -151,8 +210,21 @@ function Hero({
   const valueColor = !pill.linked
     ? theme.textSecondary
     : low
-      ? theme.warning
+      ? (accent ?? theme.text)
       : theme.text;
+  // 连上 / 断开、电量跨档时颜色过渡而不是硬切；头盔图的明暗同理
+  const valueTint = useTintStyle({ color: valueColor });
+  const helmetFade = useAnimatedStyle(
+    () => ({
+      opacity: withTiming(pill.linked ? 1 : 0.45, { duration: TINT_MS }),
+    }),
+    [pill.linked],
+  );
+  const pillFg = pill.linked ? theme.success : theme.textSecondary;
+  const pillTint = useTintStyle({
+    backgroundColor: pill.linked ? theme.successBg : theme.backgroundSelected,
+  });
+  const pillTextTint = useTintStyle({ color: pillFg });
   // 冷启动的开屏动画会先在屏幕中间画出这块大图的替身、再送到这里（components/splash/landing-device）。
   // 替身照这份描述画，规则和下面是同一套（components/splash/hero-splash）：改了颜色 / 位置 / 文案，两边一起改
   const splash = heroSplashOf({
@@ -177,22 +249,18 @@ function Hero({
         data={splash}
         style={{ width: size, height: size }}
       >
-        {accent && (
-          <Animated.View
-            pointerEvents="none"
-            style={[
-              styles.abs,
-              {
-                left: size / 2 - glowRadius,
-                top: size / 2 - glowRadius,
-                width: glowRadius * 2,
-                height: glowRadius * 2,
-                experimental_backgroundImage: `radial-gradient(50% 50% at 50% 50%, ${withAlpha(accent, glowAlpha)} 0%, ${withAlpha(accent, glowMid)} 46%, ${withAlpha(accent, 0)} 100%)`,
-              },
-              glowStyle,
-            ]}
+        {[theme.success, theme.warning, theme.danger].map((c) => (
+          <GlowLayer
+            key={c}
+            color={c}
+            on={accent === c}
+            breathe={breathe}
+            size={size}
+            radius={glowRadius}
+            alpha={glowAlpha}
+            mid={glowMid}
           />
-        )}
+        ))}
         <View
           pointerEvents="none"
           style={[
@@ -214,9 +282,8 @@ function Hero({
           tick={theme.borderStrong}
           dimmed={!pill.linked}
         >
-          <Image
-            source={helmetImageFor(device.deviceId)}
-            contentFit="contain"
+          <Animated.View
+            pointerEvents="none"
             style={[
               styles.abs,
               {
@@ -225,10 +292,16 @@ function Hero({
                 top: size * HELMET_BOX.top,
                 width: size * HELMET_BOX.size,
                 height: size * HELMET_BOX.size,
-                opacity: pill.linked ? 1 : 0.45,
               },
+              helmetFade,
             ]}
-          />
+          >
+            <Image
+              source={helmetImageFor(device.deviceId)}
+              contentFit="contain"
+              style={styles.fill}
+            />
+          </Animated.View>
           <View style={[styles.battery, { top: size * BATTERY_TOP }]}>
             <ThemedText
               style={[styles.batteryLabel, { color: splash.labelColor }]}
@@ -236,16 +309,14 @@ function Hero({
               {splash.label}
             </ThemedText>
             <ValueTransition value={battery ?? "—"}>
-              <ThemedText style={[styles.batteryValue, { color: valueColor }]}>
+              <Animated.Text style={[styles.batteryValue, valueTint]}>
                 {battery ?? "—"}
                 {battery !== null && (
-                  <ThemedText
-                    style={[styles.batteryUnit, { color: valueColor }]}
-                  >
+                  <Animated.Text style={[styles.batteryUnit, valueTint]}>
                     %
-                  </ThemedText>
+                  </Animated.Text>
                 )}
-              </ThemedText>
+              </Animated.Text>
             </ValueTransition>
           </View>
         </BatteryArc>
@@ -263,31 +334,13 @@ function Hero({
       </SplashArrive>
 
       <SplashAnchor name="heroPill">
-        <SplashArrive
-          cue="pill"
-          kind="pop"
-          style={[
-            styles.statusPill,
-            {
-              backgroundColor: pill.linked
-                ? theme.successBg
-                : theme.backgroundSelected,
-            },
-          ]}
-        >
-          <PulseDot
-            size={6}
-            active={pill.searching}
-            color={pill.linked ? theme.success : theme.textSecondary}
-          />
-          <ThemedText
-            style={[
-              styles.statusText,
-              { color: pill.linked ? theme.success : theme.textSecondary },
-            ]}
-          >
-            {status}
-          </ThemedText>
+        <SplashArrive cue="pill" kind="pop">
+          <Animated.View style={[styles.statusPill, pillTint]}>
+            <PulseDot size={6} active={pill.searching} color={pillFg} />
+            <Animated.Text style={[styles.statusText, pillTextTint]}>
+              {status}
+            </Animated.Text>
+          </Animated.View>
         </SplashArrive>
       </SplashAnchor>
     </Tappable>
@@ -314,6 +367,17 @@ function SummaryTile({
   // 出问题时整格变色：提醒色给「没连上 / 通知关着 / 没有联系人」，红色只给身份不符（与安全页状态卡同一口径）
   const alert =
     tone === "warn" ? theme.warning : tone === "fault" ? theme.danger : null;
+  // 变色是过渡的：底、描边、图标圆各 240 ms，和安全页状态卡同一个节奏
+  const tileTint = useTintStyle({
+    // 实色：格子背后有大图的光晕，半透明底会透出来
+    backgroundColor: alert
+      ? mixHex(theme.background, alert, 0.14)
+      : theme.backgroundElement,
+    borderColor: alert ? withAlpha(alert, 0.34) : theme.border,
+  });
+  const iconTint = useTintStyle({
+    backgroundColor: alert ? withAlpha(alert, 0.18) : theme.backgroundSelected,
+  });
   return (
     <View style={styles.flex}>
       <Tappable
@@ -321,28 +385,13 @@ function SummaryTile({
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
         onPress={onPress}
-        style={[
-          styles.tile,
-          alert
-            ? {
-                // 实色：格子背后有大图的光晕，半透明底会透出来
-                backgroundColor: mixHex(theme.background, alert, 0.14),
-                borderColor: withAlpha(alert, 0.34),
-              }
-            : {
-                backgroundColor: theme.backgroundElement,
-                borderColor: theme.border,
-              },
-        ]}
+        style={styles.tile}
       >
+        <Animated.View pointerEvents="none" style={[styles.tileBg, tileTint]} />
         <View style={styles.tileTop}>
-          <IconCircle
-            icon={icon}
-            size={36}
-            iconSize={18}
-            color={alert ?? undefined}
-            bg={alert ? withAlpha(alert, 0.18) : undefined}
-          />
+          <Animated.View style={[styles.tileIcon, iconTint]}>
+            <CrossfadeIcon name={icon} size={18} color={alert ?? theme.text} />
+          </Animated.View>
           <Ionicons
             name="chevron-forward"
             size={16}
@@ -377,15 +426,16 @@ function SafetyTile({
   );
   const label = t("safety.title");
   const value = t(text);
+  // 描边款（实心圆看着像贴纸）；换档时淡入淡出并弹一下，和安全页核对项一致
   const glyph: { name: IconName; color: string } =
     tone === "ok"
-      ? { name: "checkmark-circle", color: theme.success }
+      ? { name: "checkmark-circle-outline", color: theme.success }
       : tone === "warn"
-        ? { name: "alert-circle", color: theme.warning }
+        ? { name: "alert-circle-outline", color: theme.warning }
         : tone === "fault"
-          ? { name: "alert-circle", color: theme.danger }
+          ? { name: "alert-circle-outline", color: theme.danger }
           : {
-              name: "ellipsis-horizontal-circle",
+              name: "ellipsis-horizontal-circle-outline",
               color: theme.textSecondary,
             };
   return (
@@ -397,7 +447,7 @@ function SafetyTile({
       onPress={() => router.navigate("/safety")}
     >
       <View style={styles.tileValueRow}>
-        <Ionicons name={glyph.name} size={17} color={glyph.color} />
+        <CrossfadeIcon name={glyph.name} size={17} color={glyph.color} pop />
         <ThemedText
           numberOfLines={1}
           adjustsFontSizeToFit
@@ -470,13 +520,29 @@ function OtherRow({
   const locale = useLocale();
   const pill = linkPillOf(link);
   const battery = device.battery;
-  const low = battery !== null && battery <= LOW_BATTERY;
-  const bColor = low
-    ? theme.warning
-    : pill.linked
-      ? theme.text
-      : theme.textSecondary;
+  const tier = batteryTierOf(battery);
+  const bColor =
+    tier === "critical"
+      ? theme.danger
+      : tier === "low"
+        ? theme.warning
+        : pill.linked
+          ? theme.text
+          : theme.textSecondary;
   const name = device.name ?? device.deviceId;
+  const bText = useTintStyle({ color: bColor });
+  // 电量条的长度和颜色都过渡，和大图的电量环一个节奏
+  const pct = Math.max(2, Math.min(100, battery ?? 0));
+  const bFill = useAnimatedStyle(
+    () => ({
+      width: withTiming((BATTERY_BAR_W * pct) / 100, {
+        duration: 700,
+        easing: Easing.out(Easing.cubic),
+      }),
+      backgroundColor: withTiming(bColor, { duration: TINT_MS }),
+    }),
+    [pct, bColor],
+  );
   return (
     <View
       style={[
@@ -542,9 +608,9 @@ function OtherRow({
             {device.charging === true && (
               <Ionicons name="flash" size={12} color={bColor} />
             )}
-            <ThemedText style={[styles.otherBatteryText, { color: bColor }]}>
+            <Animated.Text style={[styles.otherBatteryText, bText]}>
               {battery !== null ? `${battery}%` : "—"}
-            </ThemedText>
+            </Animated.Text>
           </View>
           <View
             style={[
@@ -552,15 +618,7 @@ function OtherRow({
               { backgroundColor: theme.backgroundSelected },
             ]}
           >
-            <View
-              style={[
-                styles.batteryFill,
-                {
-                  width: `${Math.max(2, Math.min(100, battery ?? 0))}%`,
-                  backgroundColor: bColor,
-                },
-              ]}
-            />
+            <Animated.View style={[styles.batteryFill, bFill]} />
           </View>
         </View>
         {!canSetCurrent && (
@@ -940,9 +998,26 @@ const styles = StyleSheet.create({
     paddingLeft: 14,
     paddingRight: 12,
     borderRadius: Radius.card,
-    borderWidth: 1,
     justifyContent: "space-between",
   },
+  // 格子的底和描边单独一层：颜色要过渡，Tappable 自己的样式是按下时给 Pressable 的
+  tileBg: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    borderRadius: Radius.card,
+    borderWidth: 1,
+  },
+  tileIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  fill: { width: "100%", height: "100%" },
   tileTop: {
     flexDirection: "row",
     alignItems: "center",
@@ -1014,7 +1089,12 @@ const styles = StyleSheet.create({
     fontWeight: 600,
     fontVariant: ["tabular-nums"],
   },
-  batteryTrack: { width: 44, height: 5, borderRadius: 3, overflow: "hidden" },
+  batteryTrack: {
+    width: BATTERY_BAR_W,
+    height: 5,
+    borderRadius: 3,
+    overflow: "hidden",
+  },
   batteryFill: { height: 5, borderRadius: 3 },
   setCurrent: { justifyContent: "center", paddingRight: 10 },
   setCurrentPill: {
