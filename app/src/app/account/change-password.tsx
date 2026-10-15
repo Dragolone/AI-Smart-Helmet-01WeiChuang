@@ -16,6 +16,7 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { showToast } from "@/components/toast";
 import { useT } from "@/i18n";
+import { isPasswordTooLong } from "@/services/password-rules";
 
 export default function ChangePasswordScreen() {
   const t = useT();
@@ -41,7 +42,8 @@ export default function ChangePasswordScreen() {
       setError(t("auth.passwordTooShort"));
       return;
     }
-    if (password.length > 72) {
+    // 按字节算、与服务端同口径：原来按字符数，30 个汉字（90 字节）在这里过了、提交后被服务端拒
+    if (isPasswordTooLong(password)) {
       setError(t("auth.passwordTooLong"));
       return;
     }
