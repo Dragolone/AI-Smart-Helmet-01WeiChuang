@@ -39,6 +39,14 @@ jobs:
         with:
           cache-read-only: false
 
+      # ubuntu-latest 只剩约 14 GB 可用盘：Gradle 冷构建 + libVLC + Skia + NDK 产物会把盘撑满（10-15 实测 Assemble 中途
+      # 「No space left on device」）。先清掉用不到的预装工具链（.NET / Haskell / CodeQL / Swift / 旧 NDK，保留 NDK 27）
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/share/swift /usr/local/lib/android/sdk/ndk/2[0-6]*
+          sudo docker image prune -af >/dev/null 2>&1 || true
+          df -h / | tail -1
+
       - name: Install
         run: npm ci
 
