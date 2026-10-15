@@ -51,6 +51,7 @@ import {
 } from "@/components/volume-slider";
 import { EmptyState } from "@/components/empty-state";
 import { FormInput, PrimaryButton } from "@/components/form";
+import { KeyboardAvoid } from "@/components/keyboard-avoid";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { Radius } from "@/constants/theme";
@@ -667,40 +668,48 @@ export default function DeviceDetailScreen() {
         animationType="fade"
         onRequestClose={() => setRenameOpen(false)}
       >
-        <Pressable
-          style={styles.modalMask}
-          onPress={() => setRenameOpen(false)}
-        >
-          <ReAnimated.View entering={FadeInDown.duration(200)}>
-            <Pressable
-              style={[
-                styles.modalCard,
-                {
-                  backgroundColor: theme.backgroundElement,
-                  borderColor: theme.border,
-                },
-              ]}
-              onPress={() => undefined}
-            >
-              <ThemedText type="subtitle">{t("device.renameTitle")}</ThemedText>
-              <FormInput
-                label={t("device.nameLabel")}
-                value={nameDraft}
-                onChangeText={setNameDraft}
-                placeholder={t("device.namePlaceholder")}
-                maxLength={20}
-                autoFocus
-              />
-              <PrimaryButton
-                title={t("common.save")}
-                onPress={submitRename}
-                loading={renaming}
-                success={renamed}
-                onSuccessShown={() => setRenameOpen(false)}
-              />
-            </Pressable>
-          </ReAnimated.View>
-        </Pressable>
+        <KeyboardAvoid>
+          <Pressable
+            // 遮罩只负责「点空白处关闭」，不能自成一个读屏焦点（会把整张卡片合成一块）
+            accessible={false}
+            style={styles.modalMask}
+            onPress={() => setRenameOpen(false)}
+          >
+            <ReAnimated.View entering={FadeInDown.duration(200)}>
+              <Pressable
+                style={[
+                  styles.modalCard,
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: theme.border,
+                  },
+                ]}
+                // 只用来挡住「点卡片关弹层」；不能自成一个读屏焦点，否则里面的选项 / 输入框被合成一块、读屏选不中
+                accessible={false}
+                onPress={() => undefined}
+              >
+                <ThemedText type="subtitle">
+                  {t("device.renameTitle")}
+                </ThemedText>
+                <FormInput
+                  label={t("device.nameLabel")}
+                  value={nameDraft}
+                  onChangeText={setNameDraft}
+                  placeholder={t("device.namePlaceholder")}
+                  maxLength={20}
+                  autoFocus
+                />
+                <PrimaryButton
+                  title={t("common.save")}
+                  onPress={submitRename}
+                  loading={renaming}
+                  success={renamed}
+                  onSuccessShown={() => setRenameOpen(false)}
+                />
+              </Pressable>
+            </ReAnimated.View>
+          </Pressable>
+        </KeyboardAvoid>
       </Modal>
     </ThemedView>
   );
