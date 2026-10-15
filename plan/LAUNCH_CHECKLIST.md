@@ -75,6 +75,7 @@
 | ☐ 12 | 商店截图（与负责人）（原第 13 项），规格和顺序见 `docs/STORE_LISTING.md` §3 | 10-23 | 用演示账号 + 正式环境 Mock 数据截，SOS 页用「演练模式」 |
 | ☐ 13 | **App 备案号放进「关于」页**（新增） | 备案批下来后 | 负责人拿到 App 备案号（末尾带「A」）后发你；App 内要能看到，商店后台也要填 |
 | ☐ 14 | Critical Alerts 代码接入（原第 14 项） | 苹果批下来后 | 负责人 10-05 已提交申请（Request ID VXZH7BBRQ7）；不卡上线 |
+| ☐ 15 | **iOS 包一律用 Xcode 26 打**（开发包 / TestFlight / 提审都是）：Xcode 27 的 iOS 27 SDK 要求 UIScene 生命周期，Expo 57 没有，打出来的包在 iOS 27 真机**启动即崩**（10-15 负责人 iPhone 16 Pro Max 实测，DEVELOPMENT 平台限制清单）。给负责人装机也走你的 Xcode 26（或 TestFlight 内测） | 每次打包 | 等 Expo 支持 UIScene 再升 Xcode 27 |
 
 ## 四、B 线
 
