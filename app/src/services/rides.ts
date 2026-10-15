@@ -251,7 +251,8 @@ export function trackWindowOf(r: Pick<RideSummary, "startAt" | "endAt">): {
   clipped: boolean;
 } {
   const end = Date.parse(r.endAt);
-  if (end - Date.parse(r.startAt) <= TRACK_MAX_MS) {
+  // 起止认不出时原样交给接口（由它回 400），不在这里拿 NaN 去 toISOString——那会抛 RangeError 把地图页带崩
+  if (!(end - Date.parse(r.startAt) > TRACK_MAX_MS)) {
     return { from: r.startAt, to: r.endAt, clipped: false };
   }
   return {
@@ -279,6 +280,8 @@ export function rideAt(
   for (const r of rides) {
     const start = Date.parse(r.startAt);
     const end = Date.parse(r.endAt);
+    // 起止认不出的那一趟：NaN 和谁比都是 false，不跳过的话它会以「差 0」赢过所有真的行程
+    if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
     if (atMs < start - BEFORE_RIDE_MS || atMs > end + AFTER_RIDE_MS) continue;
     const gap = atMs < start ? start - atMs : atMs > end ? atMs - end : 0;
     if (gap < bestGap) {
@@ -287,6 +290,23 @@ export function rideAt(
     }
   }
   return best;
+}
+
+/**
+ * JS 时间能表示的范围是 ±8.64e15 毫秒；那一刻前后还要再取几天的窗口（rideAtWindow / momentWindowOf），
+ * 留一周余量，超出的按认不出处理
+ */
+const MAX_MOMENT_MS = 8.64e15 - 7 * DAY_MS;
+
+/**
+ * 链接参数里的「那一刻」（地图页 ?at=ISO）：认得出、且前后取窗口不会越界才算，否则 null。
+ * 链接是外部输入：?at=+275760-09-13T00:00:00Z 这种合法但在边上的时间，原来会让 momentWindowOf 抛 RangeError、
+ * 整页崩到错误兜底页。1970 年 / 2099 年这类头盔时钟错乱的时刻照常接受（安全记录里真有）
+ */
+export function parseMomentParam(raw: string | undefined): number | null {
+  if (!raw) return null;
+  const atMs = new Date(raw).getTime();
+  return Number.isFinite(atMs) && Math.abs(atMs) <= MAX_MOMENT_MS ? atMs : null;
 }
 
 /** 那一刻不在任何一趟里：看它前后各半小时的定位 */

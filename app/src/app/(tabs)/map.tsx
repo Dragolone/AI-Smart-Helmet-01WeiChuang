@@ -110,6 +110,7 @@ import {
   monthOf,
   nearestIndex,
   noonOfDayKey,
+  parseMomentParam,
   placeEvents,
   rideAvgKmh,
   rideSeconds,
@@ -527,11 +528,11 @@ export default function MapScreen() {
   useEffect(() => {
     if (!params.deviceId && !params.at && !params.rides) return;
     const target = params.deviceId;
-    const atMs = params.at ? new Date(params.at).getTime() : Number.NaN;
+    const atMs = parseMomentParam(params.at);
     const wantRides = !!params.rides;
     const id = setTimeout(() => {
       if (target) setSelectedId(target === currentId ? null : target);
-      if (!Number.isNaN(atMs)) {
+      if (atMs !== null) {
         setPlaying(false);
         setReplayIdx(null);
         setDetail({ kind: "moment", atMs });
@@ -545,7 +546,7 @@ export default function MapScreen() {
         setCalendar(null);
       }
       // 已经在这一页、抽屉又收着时再带参数进来：也要展开
-      if (!Number.isNaN(atMs) || wantRides) {
+      if (atMs !== null || wantRides) {
         collapsedSV.set(false);
         setPanelCollapsed(false);
         maxH.set(SHEET_OPEN);
