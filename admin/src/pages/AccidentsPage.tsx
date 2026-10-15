@@ -4,6 +4,7 @@ import type { ColumnsType } from 'antd/es/table'
 import { useState } from 'react'
 import { api } from '../api/client'
 import QueryError from '../components/QueryError'
+import { useClampPage } from '../utils/use-clamp-page'
 import { formatTime, formatUserLabel } from '../utils/format'
 import type { AdminAccidentRow, Paginated, SosStatus } from '@helmet/shared'
 
@@ -75,6 +76,7 @@ export default function AccidentsPage() {
     // 进行中 SOS 状态会随倒计时/取消变化，停留时保持可信
     refetchInterval: 15_000,
   })
+  useClampPage(page, pageSize, query.data?.total, setPage)
 
   return (
     <Card>

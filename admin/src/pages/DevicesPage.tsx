@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import QueryError from '../components/QueryError'
+import { useClampPage } from '../utils/use-clamp-page'
 import { formatTime, formatUserLabel } from '../utils/format'
 import type { AdminDeviceRow, Paginated } from '@helmet/shared'
 
@@ -68,6 +69,7 @@ export default function DevicesPage() {
     // 在线状态基于 90s 心跳窗口，页面停留时定期刷新保持可信
     refetchInterval: 30_000,
   })
+  useClampPage(page, pageSize, query.data?.total, setPage)
 
   return (
     <Card>

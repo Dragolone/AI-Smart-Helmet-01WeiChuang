@@ -220,6 +220,27 @@ describe('DevicesPage：单元格', () => {
   })
 })
 
+describe('DevicesPage：数据变少后的页码', () => {
+  it('「在线」筛选停在第 3 页，刷新时设备掉线只剩 5 台 → 自动回第 1 页出数据，不停在空白页', async () => {
+    let total = 45
+    const apiStub = stubApi((url) =>
+      Number(url.searchParams.get('page')) > Math.ceil(total / 20)
+        ? page<AdminDeviceRow>([], total)
+        : page([device({ deviceId: `helmet_p${url.searchParams.get('page')}`, online: true })], total),
+    )
+    renderWithProviders(<DevicesPage />)
+    await screen.findByText('共 45 台设备')
+    fireEvent.click(screen.getByTitle('3'))
+    expect(await screen.findByText('helmet_p3')).toBeInTheDocument()
+
+    total = 5
+    fireEvent(window, new Event('visibilitychange'))
+    expect(await screen.findByText('helmet_p1')).toBeInTheDocument()
+    expect(apiStub.last().searchParams.get('page')).toBe('1')
+    expect(screen.getByText('共 5 台设备')).toBeInTheDocument()
+  })
+})
+
 describe('DevicesPage：轮询', () => {
   it('停留在页面上每 30 秒自动刷新一次（在线状态基于 90 秒心跳窗口）', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })

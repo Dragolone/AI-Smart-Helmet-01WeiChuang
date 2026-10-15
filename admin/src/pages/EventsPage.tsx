@@ -14,6 +14,7 @@ import dayjs from 'dayjs'
 import { useState } from 'react'
 import { api } from '../api/client'
 import QueryError from '../components/QueryError'
+import { useClampPage } from '../utils/use-clamp-page'
 import { EVENT_TYPES } from '@helmet/shared'
 import type { AdminEventRow, Paginated } from '@helmet/shared'
 
@@ -83,6 +84,7 @@ export default function EventsPage() {
     },
     refetchInterval: 30_000,
   })
+  useClampPage(page, pageSize, query.data?.total, setPage)
 
   return (
     <Card>

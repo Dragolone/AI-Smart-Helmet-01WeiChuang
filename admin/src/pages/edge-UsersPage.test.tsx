@@ -124,6 +124,31 @@ describe('UsersPage：搜索与筛选', () => {
   })
 })
 
+describe('UsersPage：数据变少后的页码', () => {
+  it('停在第 3 页，期间有账号注销、总数降到 41 → 自动回到末页（第 3 页仍在）；再降到 30 → 回第 2 页', async () => {
+    let total = 45
+    const apiStub = stubApi((url) =>
+      Number(url.searchParams.get('page')) > Math.ceil(total / 20)
+        ? page<AdminUserRow>([], total)
+        : page([user({ phone: `1380000000${url.searchParams.get('page')}` })], total),
+    )
+    renderWithProviders(<UsersPage />)
+    await screen.findByText('共 45 个用户')
+    fireEvent.click(screen.getByTitle('3'))
+    expect(await screen.findByText('13800000003')).toBeInTheDocument()
+
+    total = 41
+    fireEvent(window, new Event('visibilitychange'))
+    expect(await screen.findByText('共 41 个用户')).toBeInTheDocument()
+    expect(apiStub.last().searchParams.get('page')).toBe('3')
+
+    total = 30
+    fireEvent(window, new Event('visibilitychange'))
+    expect(await screen.findByText('13800000002')).toBeInTheDocument()
+    expect(apiStub.last().searchParams.get('page')).toBe('2')
+  })
+})
+
 describe('UsersPage：分页与刷新', () => {
   it('停在第 2 页时改成 50 条/页 → 回第 1 页', async () => {
     const apiStub = stubApi(() => page([user({})], 80))

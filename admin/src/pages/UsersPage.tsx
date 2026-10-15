@@ -5,6 +5,7 @@ import dayjs from 'dayjs'
 import { useState } from 'react'
 import { api } from '../api/client'
 import QueryError from '../components/QueryError'
+import { useClampPage } from '../utils/use-clamp-page'
 import type { AdminUserRow, Paginated } from '@helmet/shared'
 
 const columns: ColumnsType<AdminUserRow> = [
@@ -53,6 +54,7 @@ export default function UsersPage() {
       return api<Paginated<AdminUserRow>>(`/admin/users?${params}`)
     },
   })
+  useClampPage(page, pageSize, query.data?.total, setPage)
 
   return (
     <Card>

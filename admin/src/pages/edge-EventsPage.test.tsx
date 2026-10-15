@@ -191,6 +191,26 @@ describe('EventsPage：筛选', () => {
   })
 })
 
+describe('EventsPage：数据变少后的页码', () => {
+  it('停在第 3 页、刷新拿回的总数只够 2 页 → 拉回第 2 页', async () => {
+    let total = 45
+    const apiStub = stubApi((url) =>
+      Number(url.searchParams.get('page')) > Math.ceil(total / 20)
+        ? page<AdminEventRow>([], total)
+        : page([event({ deviceId: `helmet_p${url.searchParams.get('page')}` })], total),
+    )
+    renderWithProviders(<EventsPage />)
+    await screen.findByText('共 45 条事件')
+    fireEvent.click(screen.getByTitle('3'))
+    expect(await screen.findByText('helmet_p3')).toBeInTheDocument()
+
+    total = 25
+    fireEvent(window, new Event('visibilitychange'))
+    expect(await screen.findByText('helmet_p2')).toBeInTheDocument()
+    expect(apiStub.last().searchParams.get('page')).toBe('2')
+  })
+})
+
 describe('EventsPage：分页与轮询', () => {
   it('停在第 3 页时改成 100 条/页（后端上限）→ 回第 1 页', async () => {
     const apiStub = stubApi(() => page([event({})], 500))

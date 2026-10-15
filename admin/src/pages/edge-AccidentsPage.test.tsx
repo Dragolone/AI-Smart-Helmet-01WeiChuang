@@ -156,6 +156,26 @@ describe('AccidentsPage：筛选', () => {
   })
 })
 
+describe('AccidentsPage：数据变少后的页码', () => {
+  it('停在第 2 页时总数变成 0（如库被清理）→ 回第 1 页显示空状态，而不是停在不存在的页', async () => {
+    let total = 45
+    const apiStub = stubApi((url) =>
+      total === 0
+        ? page<AdminAccidentRow>([], 0)
+        : page([accident({ deviceId: `helmet_p${url.searchParams.get('page')}` })], total),
+    )
+    renderWithProviders(<AccidentsPage />)
+    await screen.findByText('共 45 条记录')
+    fireEvent.click(screen.getByTitle('2'))
+    expect(await screen.findByText('helmet_p2')).toBeInTheDocument()
+
+    total = 0
+    fireEvent(window, new Event('visibilitychange'))
+    await waitFor(() => expect(apiStub.last().searchParams.get('page')).toBe('1'))
+    await waitFor(() => expect(tablePlaceholder()).toHaveTextContent('暂无数据'))
+  })
+})
+
 describe('AccidentsPage：分页与轮询', () => {
   it('停在第 4 页时改成 10 条/页 → 回第 1 页', async () => {
     const apiStub = stubApi(() => page([accident({})], 120))
