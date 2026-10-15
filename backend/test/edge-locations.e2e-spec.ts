@@ -34,6 +34,7 @@ describe('边界：轨迹与行程查询 (e2e)', () => {
   const devRide = `edge_loc_ride_${run}`;
   const devScope = `edge_loc_scope_${run}`;
   const devEmpty = `edge_loc_empty_${run}`;
+  const devMonth = `edge_loc_month_${run}`;
   /** 固定在过去整点的锚：避开「最新」类查询对未来点的过滤 */
   const T0 = Math.floor((Date.now() - 3 * DAY) / HOUR) * HOUR;
 
@@ -60,7 +61,7 @@ describe('边界：轨迹与行程查询 (e2e)', () => {
     ({ app, http, prisma } = await buildApp());
     owner = await createUser(app, http);
     other = await createUser(app, http);
-    for (const d of [dev, devRide, devScope, devEmpty]) {
+    for (const d of [dev, devRide, devScope, devEmpty, devMonth]) {
       await provisionDevice(prisma, d);
       await bindDevice(http, owner.token, d);
     }
@@ -73,7 +74,7 @@ describe('边界：轨迹与行程查询 (e2e)', () => {
   });
 
   afterAll(async () => {
-    await cleanupDevices(prisma, [dev, devRide, devScope, devEmpty]);
+    await cleanupDevices(prisma, [dev, devRide, devScope, devEmpty, devMonth]);
     await cleanupUsers(prisma, [owner, other]);
     await app.close();
   });
@@ -366,6 +367,50 @@ describe('边界：轨迹与行程查询 (e2e)', () => {
         to: '9999-12-31T23:59:59Z',
       });
       expect(t.status).toBe(200);
+    });
+  });
+
+  describe('跨日 / 跨月（App 按北京时间零点切窗口）', () => {
+    // 北京时间 9 月 30 日 23:50 出发、10 月 1 日 00:20 到（UTC 15:50 → 16:20），每分钟一点、约 1.85 m/s
+    const start = Date.parse('2026-09-30T15:50:00Z');
+    beforeAll(async () => {
+      await prisma.locationPoint.createMany({
+        data: Array.from({ length: 31 }, (_, i) =>
+          point(devMonth, i, start + i * MIN),
+        ),
+      });
+    });
+    const sep = {
+      from: '2026-09-01T00:00:00+08:00',
+      to: '2026-10-01T00:00:00+08:00',
+    };
+    const oct = {
+      from: '2026-10-01T00:00:00+08:00',
+      to: '2026-11-01T00:00:00+08:00',
+    };
+
+    it('跨月那一趟整趟归 9 月（起点所在的窗口），10 月的窗口里没有它；endAt 在 10 月也照算完整', async () => {
+      const s = await get(`${devMonth}/rides`, sep).expect(200);
+      expect(s.body.rides).toHaveLength(1);
+      expect(s.body.rides[0].startAt).toBe(iso(start));
+      expect(s.body.rides[0].endAt).toBe(iso(start + 30 * MIN));
+      expect(s.body.rides[0].movingSeconds).toBe(30 * 60);
+      const o = await get(`${devMonth}/rides`, oct).expect(200);
+      expect(o.body.rides).toEqual([]);
+    });
+
+    it('按北京时间零点切的单日统计：9 月 30 日只算 23:50–24:00 的 11 个点，10 月 1 日算 00:00–00:20 的 21 个点（零点那个点两边都算，闭区间）', async () => {
+      const d30 = await get(`${devMonth}/locations/summary`, {
+        from: '2026-09-30T00:00:00+08:00',
+        to: '2026-10-01T00:00:00+08:00',
+      }).expect(200);
+      const d01 = await get(`${devMonth}/locations/summary`, {
+        from: '2026-10-01T00:00:00+08:00',
+        to: '2026-10-02T00:00:00+08:00',
+      }).expect(200);
+      expect(d30.body.pointCount).toBe(11);
+      expect(d01.body.pointCount).toBe(21);
+      expect(d30.body.lastAt).toBe(d01.body.firstAt);
     });
   });
 
