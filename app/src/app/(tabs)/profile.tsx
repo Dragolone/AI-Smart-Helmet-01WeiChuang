@@ -34,6 +34,7 @@ import {
   type ThemeMode,
 } from "@/stores/theme-store";
 import { showNotice } from "@/services/notice";
+import { profilePatch } from "@/services/profile-patch";
 
 export default function ProfileScreen() {
   const theme = useTheme();
@@ -103,14 +104,16 @@ export default function ProfileScreen() {
   };
 
   const saveProfile = async () => {
+    // 只发改过的字段：user 是本机存着的会话，可能是旧的（别的手机改过昵称）。
+    // 原来只换头像也会把旧昵称一起写回去，把别处的修改覆盖掉（2026-10-16 华为实测）
+    const patch = profilePatch(user, nickDraft, avatarDraft);
+    if (!patch) {
+      setSaved(true);
+      return;
+    }
     setSaving(true);
     try {
-      const updated = await authApi.updateMe({
-        nickname: nickDraft.trim(),
-        ...(avatarDraft && avatarDraft !== user?.avatarUrl
-          ? { avatarUrl: avatarDraft }
-          : {}),
-      });
+      const updated = await authApi.updateMe(patch);
       await setUser(updated);
       setSaved(true);
     } catch (e) {
