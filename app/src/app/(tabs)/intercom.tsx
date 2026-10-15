@@ -127,7 +127,8 @@ function MemberCell({
               ]}
             >
               <ThemedText type="smallBold" style={{ fontSize: 18 }}>
-                {name.slice(0, 1).toUpperCase()}
+                {/* 按字符取首字：slice(0, 1) 会把表情 / 扩展区汉字切成半个 */}
+                {(Array.from(name)[0] ?? "").toUpperCase()}
               </ThemedText>
             </View>
           )}
@@ -299,10 +300,12 @@ export default function IntercomScreen() {
     return map;
   }, [members.data]);
 
+  // 昵称清空后存的是空串：去空格后为空就当没设过，落到手机号（同「我的」页）
   const nameOf = (id: string) => {
-    if (id === myId) return user?.nickname ?? user?.phone ?? t("intercom.me");
+    if (id === myId)
+      return user?.nickname?.trim() || user?.phone || t("intercom.me");
     const m = memberMap.get(id);
-    return m?.nickname ?? m?.phone ?? id.slice(-4);
+    return m?.nickname?.trim() || m?.phone || id.slice(-4);
   };
   const avatarOf = (id: string) =>
     id === myId ? user?.avatarUrl : memberMap.get(id)?.avatarUrl;
@@ -1462,7 +1465,7 @@ export default function IntercomScreen() {
                       const self = m.userId === myId;
                       const display = self
                         ? nameOf(myId)
-                        : (m.nickname ?? m.phone);
+                        : m.nickname?.trim() || m.phone;
                       return (
                         <View key={m.userId} style={styles.memberRow}>
                           {m.avatarUrl ? (
@@ -1478,7 +1481,7 @@ export default function IntercomScreen() {
                               ]}
                             >
                               <ThemedText type="smallBold">
-                                {display.slice(0, 1).toUpperCase()}
+                                {(Array.from(display)[0] ?? "").toUpperCase()}
                               </ThemedText>
                             </View>
                           )}
