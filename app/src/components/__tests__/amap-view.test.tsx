@@ -1,0 +1,217 @@
+// 地图组件层（WebView + 高德 JS API 的唯一封装点）：命令在页内就绪前排队、就绪后按顺序冲刷，
+// ready 重发多次只回调一次 onReady；重载后重新排队；拖动 / 错误消息转给调用方；语言切换只推文案不重挂载。
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+} from "@jest/globals";
+import { createRef } from "react";
+import { act } from "react-test-renderer";
+
+import { isHost, render } from "@/__tests__/helpers/render";
+import { translate, useLocaleStore } from "@/i18n";
+import { AmapView, type AmapViewHandle } from "../map/amap-view";
+
+jest.mock("@/global.css", () => ({}));
+const mockWeb = { inject: jest.fn<(js: string) => void>(), reload: jest.fn() };
+jest.mock("react-native-webview", () => {
+  const React = jest.requireActual<typeof import("react")>("react");
+  const WebView = React.forwardRef(function WebView(
+    props: Record<string, unknown>,
+    ref,
+  ) {
+    React.useImperativeHandle(ref, () => ({
+      injectJavaScript: (js: string) => mockWeb.inject(js),
+      reload: () => mockWeb.reload(),
+    }));
+    return React.createElement("WebView", props);
+  });
+  return { WebView };
+});
+
+/** 注入过的命令（window.__cmd(...) 里的 JSON） */
+const cmds = () =>
+  mockWeb.inject.mock.calls
+    .map((c) => c[0])
+    .filter((js) => js.startsWith("window.__cmd("))
+    .map(
+      (js) =>
+        JSON.parse(js.slice("window.__cmd(".length, js.lastIndexOf(")"))) as {
+          type: string;
+        },
+    );
+
+beforeEach(() => {
+  useLocaleStore.setState({ locale: "zh-CN" });
+});
+afterEach(() => {
+  jest.clearAllMocks();
+});
+
+const mount = (props: Partial<Parameters<typeof AmapView>[0]> = {}) => {
+  const ref = createRef<AmapViewHandle | null>() as {
+    current: AmapViewHandle | null;
+  };
+  const onReady = jest.fn();
+  const onError = jest.fn();
+  const onUserPan = jest.fn();
+  const r = render(
+    <AmapView
+      controllerRef={ref}
+      onReady={onReady}
+      onError={onError}
+      onUserPan={onUserPan}
+      {...props}
+    />,
+  );
+  const web = () => r.root.find((n) => isHost(n, "WebView"));
+  const message = (data: unknown) =>
+    act(() => {
+      (web().props.onMessage as (e: unknown) => void)({
+        nativeEvent: {
+          data: typeof data === "string" ? data : JSON.stringify(data),
+        },
+      });
+    });
+  return { r, ref, onReady, onError, onUserPan, web, message };
+};
+
+describe("AmapView", () => {
+  it("页内就绪前的命令排队（含挂载时的头像），ready 后按顺序冲刷；之后的命令直接注入", () => {
+    const { ref, message, onReady } = mount({ avatarUrl: "https://x/a.jpg" });
+    ref.current!.setHelmet(
+      { longitude: 113.9, latitude: 22.5 },
+      { follow: true },
+    );
+    ref.current!.setCenter({ longitude: 114, latitude: 22.6 }, 15);
+    expect(cmds()).toEqual([]);
+    message({ type: "ready" });
+    expect(cmds()).toEqual([
+      { type: "avatar", url: "https://x/a.jpg" },
+      { type: "helmet", lng: 113.9, lat: 22.5, follow: true },
+      { type: "center", lng: 114, lat: 22.6, zoom: 15 },
+    ]);
+    expect(onReady).toHaveBeenCalledTimes(1);
+    ref.current!.clearTrack();
+    expect(cmds().pop()).toEqual({ type: "clearTrack" });
+  });
+
+  it("ready 会重发多次：每次都冲刷（幂等），onReady 只回调一次", () => {
+    const { message, onReady } = mount();
+    message({ type: "ready" });
+    message({ type: "ready" });
+    expect(onReady).toHaveBeenCalledTimes(1);
+    expect(cmds().filter((c) => c.type === "avatar")).toHaveLength(1);
+  });
+
+  it("各命令的形状：轨迹默认收进视野、四边让 70；标记没给文字时为空串；在线 / 回放状态", () => {
+    const { ref, message } = mount();
+    message({ type: "ready" });
+    const h = ref.current!;
+    h.setTrack([
+      { longitude: 1, latitude: 2 },
+      { longitude: 3, latitude: 4 },
+    ]);
+    h.setTrack([{ longitude: 1, latitude: 2 }], {
+      fit: false,
+      pad: [1, 2, 3, 4],
+    });
+    h.setMarks([
+      { longitude: 1, latitude: 2, kind: "start" },
+      { longitude: 3, latitude: 4, kind: "event", label: "3" },
+    ]);
+    h.setHelmetOnline(false);
+    h.setHelmetReplay(true);
+    h.setHelmet({ longitude: 5, latitude: 6 });
+    expect(cmds().slice(1)).toEqual([
+      {
+        type: "track",
+        path: [
+          [1, 2],
+          [3, 4],
+        ],
+        fit: true,
+        pad: [70, 70, 70, 70],
+      },
+      { type: "track", path: [[1, 2]], fit: false, pad: [1, 2, 3, 4] },
+      {
+        type: "marks",
+        items: [
+          { lng: 1, lat: 2, kind: "start", label: "" },
+          { lng: 3, lat: 4, kind: "event", label: "3" },
+        ],
+      },
+      { type: "helmetState", online: false },
+      { type: "helmetReplay", replay: true },
+      { type: "helmet", lng: 5, lat: 6, follow: false },
+    ]);
+  });
+
+  it("重载：就绪标志复位、整页重载，期间的命令排队等新的 ready；onReady 不重复回调", () => {
+    const { ref, message, onReady } = mount();
+    message({ type: "ready" });
+    ref.current!.reload();
+    expect(mockWeb.reload).toHaveBeenCalled();
+    const before = cmds().length;
+    ref.current!.setHelmetOnline(true);
+    expect(cmds()).toHaveLength(before);
+    message({ type: "ready" });
+    expect(cmds().pop()).toEqual({ type: "helmetState", online: true });
+    expect(onReady).toHaveBeenCalledTimes(1);
+  });
+
+  it("用户拖动 / 页内报错转给调用方；报错没带文字用「未知错误」；不是 JSON 的消息不理", () => {
+    const { message, onUserPan, onError } = mount();
+    message({ type: "userpan" });
+    expect(onUserPan).toHaveBeenCalled();
+    message({ type: "error", message: "脚本加载失败" });
+    expect(onError).toHaveBeenLastCalledWith("脚本加载失败");
+    message({ type: "error" });
+    expect(onError).toHaveBeenLastCalledWith(
+      translate("map.err.unknown", undefined, "zh-CN"),
+    );
+    expect(() => message("not json")).not.toThrow();
+    message({ type: "other" });
+    expect(onError).toHaveBeenCalledTimes(2);
+  });
+
+  it("WebView 自己出错：带上描述交给调用方", () => {
+    const { web, onError } = mount();
+    act(() =>
+      (web().props.onError as (e: unknown) => void)({
+        nativeEvent: { description: "net::ERR" },
+      }),
+    );
+    expect(onError).toHaveBeenCalledWith(
+      translate("map.err.webview", { msg: "net::ERR" }, "zh-CN"),
+    );
+  });
+
+  it("浅色外观和错误文案在页面加载前注入；切换语言只推新文案，不重挂载", () => {
+    const { web, r } = mount({ light: true });
+    const pre = web().props.injectedJavaScriptBeforeContentLoaded as string;
+    expect(pre).toContain("window.__LIGHT=true");
+    expect(pre).toContain(translate("map.err.init", undefined, "zh-CN"));
+    expect(mount().web().props.injectedJavaScriptBeforeContentLoaded).toContain(
+      "window.__LIGHT=false",
+    );
+    mockWeb.inject.mockClear();
+    act(() => useLocaleStore.setState({ locale: "en" }));
+    const i18n = mockWeb.inject.mock.calls
+      .map((c) => c[0])
+      .filter((js) => js.startsWith("window.__I18N="));
+    expect(i18n.length).toBeGreaterThan(0);
+    expect(i18n[0]).toContain(translate("map.err.init", undefined, "en"));
+    expect(r.root.findAll((n) => isHost(n, "WebView"))).toHaveLength(1);
+  });
+
+  it("卸载时清掉命令句柄", () => {
+    const { ref, r } = mount();
+    expect(ref.current).not.toBeNull();
+    r.unmount();
+    expect(ref.current).toBeNull();
+  });
+});
