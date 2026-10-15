@@ -258,8 +258,10 @@ export function expoRouterMock() {
     useLocalSearchParams: () => routerState.params,
     useGlobalSearchParams: () => routerState.params,
     useIsFocused: () => routerState.focused,
+    // 跟着 routerState.focused 走：改成 false 再渲染一次 = 失焦（跑上一次的清理），改回 true = 重新聚焦
     useFocusEffect: (cb: () => void | (() => void)) => {
-      useEffect(() => (routerState.focused ? cb() : undefined), [cb]);
+      const focused = routerState.focused;
+      useEffect(() => (focused ? cb() : undefined), [cb, focused]);
     },
     Stack,
     Link: ({ children, ...props }: AnyProps) =>
