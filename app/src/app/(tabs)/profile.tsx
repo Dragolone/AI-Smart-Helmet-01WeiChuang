@@ -20,6 +20,7 @@ import { FormInput, PrimaryButton } from "@/components/form";
 import { IntercomMiniBar } from "@/components/intercom-mini-bar";
 import { Card, GroupTitle, ListRow } from "@/components/list";
 import { Tappable } from "@/components/tappable";
+import { KeyboardAvoid } from "@/components/keyboard-avoid";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { showToast } from "@/components/toast";
@@ -318,75 +319,84 @@ export default function ProfileScreen() {
           animationType="fade"
           onRequestClose={() => setEditOpen(false)}
         >
-          <Tappable
-            feedback={[]}
-            style={styles.modalMask}
-            onPress={() => setEditOpen(false)}
-          >
-            <ReAnimated.View entering={FadeInDown.duration(200)}>
-              <Tappable
-                feedback={[]}
-                style={[
-                  styles.modalCard,
-                  {
-                    backgroundColor: theme.backgroundElement,
-                    borderColor: theme.border,
-                  },
-                ]}
-                onPress={() => undefined}
-              >
-                <ThemedText type="smallBold" style={{ fontSize: 20 }}>
-                  {t("profile.edit")}
-                </ThemedText>
+          <KeyboardAvoid>
+            <Tappable
+              feedback={[]}
+              // 遮罩只负责「点空白处关闭」，不能自成一个读屏焦点（会把整张卡片合成一块）
+              accessible={false}
+              style={styles.modalMask}
+              onPress={() => setEditOpen(false)}
+            >
+              <ReAnimated.View entering={FadeInDown.duration(200)}>
                 <Tappable
-                  style={styles.avatarPick}
-                  onPress={() => void pickAvatar()}
+                  feedback={[]}
+                  style={[
+                    styles.modalCard,
+                    {
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: theme.border,
+                    },
+                  ]}
+                  // 只用来挡住「点卡片关弹层」；不能自成一个读屏焦点，否则里面的选项 / 输入框被合成一块、读屏选不中
+                  accessible={false}
+                  onPress={() => undefined}
                 >
-                  {avatarDraft ? (
-                    <Image
-                      source={{ uri: avatarDraft }}
-                      style={styles.avatarBig}
-                    />
-                  ) : (
-                    <View
-                      style={[
-                        styles.avatarBig,
-                        styles.center,
-                        { backgroundColor: theme.backgroundSelected },
-                      ]}
-                    >
-                      <ThemedText
-                        type="display"
-                        style={{ fontSize: 26, lineHeight: 32 }}
-                      >
-                        {initial}
-                      </ThemedText>
-                    </View>
-                  )}
-                  <ThemedText type="small" themeColor="textSecondary">
-                    {t("profile.changeAvatar")}
+                  <ThemedText
+                    type="smallBold"
+                    style={{ fontSize: 20, lineHeight: 26 }}
+                  >
+                    {t("profile.edit")}
                   </ThemedText>
+                  <Tappable
+                    style={styles.avatarPick}
+                    onPress={() => void pickAvatar()}
+                  >
+                    {avatarDraft ? (
+                      <Image
+                        source={{ uri: avatarDraft }}
+                        style={styles.avatarBig}
+                      />
+                    ) : (
+                      <View
+                        style={[
+                          styles.avatarBig,
+                          styles.center,
+                          { backgroundColor: theme.backgroundSelected },
+                        ]}
+                      >
+                        <ThemedText
+                          type="display"
+                          style={{ fontSize: 26, lineHeight: 32 }}
+                        >
+                          {initial}
+                        </ThemedText>
+                      </View>
+                    )}
+                    <ThemedText type="small" themeColor="textSecondary">
+                      {t("profile.changeAvatar")}
+                    </ThemedText>
+                  </Tappable>
+                  <FormInput
+                    label={t("profile.nickname")}
+                    value={nickDraft}
+                    onChangeText={setNickDraft}
+                    placeholder={t("profile.nicknamePlaceholder")}
+                    maxLength={20}
+                  />
+                  <PrimaryButton
+                    title={t("common.save")}
+                    onPress={() => void saveProfile()}
+                    loading={saving}
+                    success={saved}
+                    onSuccessShown={() => {
+                      setEditOpen(false);
+                      setSaved(false);
+                    }}
+                  />
                 </Tappable>
-                <FormInput
-                  label={t("profile.nickname")}
-                  value={nickDraft}
-                  onChangeText={setNickDraft}
-                  placeholder={t("profile.nicknamePlaceholder")}
-                  maxLength={20}
-                />
-                <PrimaryButton
-                  title={t("common.save")}
-                  onPress={() => void saveProfile()}
-                  loading={saving}
-                  success={saved}
-                  onSuccessShown={() => {
-                    setEditOpen(false);
-                    setSaved(false);
-                  }}
-                />
-              </Tappable>
-            </ReAnimated.View>
-          </Tappable>
+              </ReAnimated.View>
+            </Tappable>
+          </KeyboardAvoid>
         </Modal>
 
         {/* 外观选择 */}
@@ -398,6 +408,8 @@ export default function ProfileScreen() {
         >
           <Tappable
             feedback={[]}
+            // 遮罩只负责「点空白处关闭」，不能自成一个读屏焦点（会把整张卡片合成一块）
+            accessible={false}
             style={styles.modalMask}
             onPress={() => setThemeOpen(false)}
           >
@@ -411,9 +423,14 @@ export default function ProfileScreen() {
                     borderColor: theme.border,
                   },
                 ]}
+                // 只用来挡住「点卡片关弹层」；不能自成一个读屏焦点，否则里面的选项 / 输入框被合成一块、读屏选不中
+                accessible={false}
                 onPress={() => undefined}
               >
-                <ThemedText type="smallBold" style={{ fontSize: 20 }}>
+                <ThemedText
+                  type="smallBold"
+                  style={{ fontSize: 20, lineHeight: 26 }}
+                >
                   {t("profile.chooseAppearance")}
                 </ThemedText>
                 <View>
@@ -421,6 +438,8 @@ export default function ProfileScreen() {
                     <Tappable
                       key={m}
                       feedback="fill"
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: m === themeMode }}
                       onPress={() => {
                         void setThemeMode(m);
                         setThemeOpen(false);
@@ -460,6 +479,8 @@ export default function ProfileScreen() {
         >
           <Tappable
             feedback={[]}
+            // 遮罩只负责「点空白处关闭」，不能自成一个读屏焦点（会把整张卡片合成一块）
+            accessible={false}
             style={styles.modalMask}
             onPress={() => setLangOpen(false)}
           >
@@ -473,9 +494,14 @@ export default function ProfileScreen() {
                     borderColor: theme.border,
                   },
                 ]}
+                // 只用来挡住「点卡片关弹层」；不能自成一个读屏焦点，否则里面的选项 / 输入框被合成一块、读屏选不中
+                accessible={false}
                 onPress={() => undefined}
               >
-                <ThemedText type="smallBold" style={{ fontSize: 20 }}>
+                <ThemedText
+                  type="smallBold"
+                  style={{ fontSize: 20, lineHeight: 26 }}
+                >
                   {t("profile.chooseLanguage")}
                 </ThemedText>
                 <View>
@@ -483,6 +509,8 @@ export default function ProfileScreen() {
                     <Tappable
                       key={loc}
                       feedback="fill"
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: loc === locale }}
                       onPress={() => {
                         void setLocale(loc);
                         setLangOpen(false);

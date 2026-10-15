@@ -698,7 +698,11 @@ export default function SafetyRecordsScreen() {
         animationType="fade"
         onRequestClose={() => setDetailId(null)}
       >
-        <Pressable style={styles.modalMask} onPress={() => setDetailId(null)}>
+        <Pressable
+          accessible={false}
+          style={styles.modalMask}
+          onPress={() => setDetailId(null)}
+        >
           <Animated.View entering={FadeInDown.duration(200)}>
             <Pressable
               accessibilityViewIsModal
@@ -709,6 +713,8 @@ export default function SafetyRecordsScreen() {
                   borderColor: theme.border,
                 },
               ]}
+              // 只用来挡住「点卡片关弹层」；不能自成一个读屏焦点，否则里面的选项 / 输入框被合成一块、读屏选不中
+              accessible={false}
               onPress={() => undefined}
             >
               <View style={styles.detailHeader}>

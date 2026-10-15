@@ -25,6 +25,31 @@ describe("实时通道 / BLE 中转 / 推送与登录态同生命周期，不随
     expect(read("app/(tabs)/_layout.tsx")).not.toContain("useRealtimeUpdates(");
   });
 
+  it("界面重建时旧根的清理不拆共享连接：按启动序号判断，只有最新那次才停 WS / BLE / 队列、解绑推送别名（2026-10-15 华为改字体实测）", () => {
+    const hook = read("hooks/use-realtime.ts");
+    expect(hook).toContain("const generation = ++bridgeGeneration;");
+    const cleanup = hook.slice(hook.lastIndexOf("return () => {"));
+    const guard = cleanup.indexOf("if (generation !== bridgeGeneration)");
+    expect(guard).toBeGreaterThan(0);
+    // 共享服务的停止都在判断之后；各自的订阅在判断之前照常清掉
+    for (const shared of [
+      "realtimeClient.stop()",
+      "stopBleLink()",
+      "stopRelayUplink()",
+      "stopPush()",
+    ]) {
+      expect(cleanup.indexOf(shared)).toBeGreaterThan(guard);
+    }
+    for (const own of [
+      "unsubscribe();",
+      "appState.remove();",
+      "unsubscribeCache();",
+    ]) {
+      expect(cleanup.indexOf(own)).toBeGreaterThan(0);
+      expect(cleanup.indexOf(own)).toBeLessThan(guard);
+    }
+  });
+
   it("全仓只有一处调用", () => {
     const callers = [
       "app/_layout.tsx",

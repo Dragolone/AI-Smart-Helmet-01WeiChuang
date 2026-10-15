@@ -55,6 +55,15 @@ import {
 } from "@/services/sos-sync";
 import { useAuthStore } from "@/stores/auth-store";
 
+/**
+ * 每次启动拿一个号；清理时只有自己仍是最新的那次，才拆掉共享的连接 / 链路 / 推送别名。
+ * Android 改系统字体、系统语言等会重建 Activity：新的根先挂上（这时各项启动都因「已在跑」直接返回），
+ * 旧的根随后卸下——不加这一层，旧根的清理会把实时连接停掉、把推送别名解绑，新根也不会再起，
+ * 之后直到重开 App 都收不到实时推送和远程推送、倒计时页弹不出来（2026-10-15 华为真机：改字体后挂起的求救一直没弹）。
+ * 退出登录时清理的是最新那次，照常全部拆掉。
+ */
+let bridgeGeneration = 0;
+
 export function useRealtimeUpdates(): void {
   const queryClient = useQueryClient();
   const authed = useAuthStore((s) => s.tokens !== null);
@@ -65,6 +74,7 @@ export function useRealtimeUpdates(): void {
   useEffect(() => {
     devLog("realtime", "effect authed=", authed);
     if (!authed) return;
+    const generation = ++bridgeGeneration;
 
     realtimeClient.start({
       getAccessToken: () => useAuthStore.getState().tokens?.accessToken ?? null,
@@ -294,9 +304,14 @@ export function useRealtimeUpdates(): void {
       unsubscribeState();
       unsubscribeUser();
       appState.remove();
+      unsubscribeCache();
+      // 以下是全 App 共用的：已有更新的一次接管（界面重建）就留给它，不拆
+      if (generation !== bridgeGeneration) {
+        devLog("realtime", "界面重建：新界面已接管，旧界面不拆共享连接");
+        return;
+      }
       realtimeClient.stop();
       stopRelayUplink();
-      unsubscribeCache();
       stopBleLink();
       resetBatteryAlerts();
       setPushArrivalHandler(null);

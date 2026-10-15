@@ -54,6 +54,7 @@ import { DotsLoader } from "@/components/motion";
 import { PulseRing } from "@/components/pulse-ring";
 import { Skeleton } from "@/components/skeleton";
 import { Tappable } from "@/components/tappable";
+import { KeyboardAvoid } from "@/components/keyboard-avoid";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { showToast } from "@/components/toast";
@@ -1524,40 +1525,46 @@ export default function IntercomScreen() {
           animationType="fade"
           onRequestClose={() => setCreateOpen(false)}
         >
-          <Pressable
-            style={styles.modalMask}
-            onPress={() => setCreateOpen(false)}
-          >
-            <Animated.View entering={FadeInDown.duration(200)}>
-              <Pressable
-                style={[
-                  styles.modalCard,
-                  {
-                    backgroundColor: theme.backgroundElement,
-                    borderColor: theme.border,
-                  },
-                ]}
-                onPress={() => undefined}
-              >
-                <ThemedText style={styles.modalTitle}>
-                  {t("intercom.create")}
-                </ThemedText>
-                <FormInput
-                  label={t("intercom.channelName")}
-                  value={nameDraft}
-                  onChangeText={setNameDraft}
-                  placeholder={t("intercom.channelNamePlaceholder")}
-                  maxLength={30}
-                  autoFocus
-                />
-                <PrimaryButton
-                  title={t("intercom.createAction")}
-                  onPress={submitCreate}
-                  loading={submitting}
-                />
-              </Pressable>
-            </Animated.View>
-          </Pressable>
+          <KeyboardAvoid>
+            <Pressable
+              // 遮罩只负责「点空白处关闭」，不能自成一个读屏焦点（会把整张卡片合成一块）
+              accessible={false}
+              style={styles.modalMask}
+              onPress={() => setCreateOpen(false)}
+            >
+              <Animated.View entering={FadeInDown.duration(200)}>
+                <Pressable
+                  style={[
+                    styles.modalCard,
+                    {
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: theme.border,
+                    },
+                  ]}
+                  // 只用来挡住「点卡片关弹层」；不能自成一个读屏焦点，否则里面的选项 / 输入框被合成一块、读屏选不中
+                  accessible={false}
+                  onPress={() => undefined}
+                >
+                  <ThemedText style={styles.modalTitle}>
+                    {t("intercom.create")}
+                  </ThemedText>
+                  <FormInput
+                    label={t("intercom.channelName")}
+                    value={nameDraft}
+                    onChangeText={setNameDraft}
+                    placeholder={t("intercom.channelNamePlaceholder")}
+                    maxLength={30}
+                    autoFocus
+                  />
+                  <PrimaryButton
+                    title={t("intercom.createAction")}
+                    onPress={submitCreate}
+                    loading={submitting}
+                  />
+                </Pressable>
+              </Animated.View>
+            </Pressable>
+          </KeyboardAvoid>
         </Modal>
 
         {/* 邀请码加入弹层 */}
@@ -1567,43 +1574,49 @@ export default function IntercomScreen() {
           animationType="fade"
           onRequestClose={() => setJoinOpen(false)}
         >
-          <Pressable
-            style={styles.modalMask}
-            onPress={() => setJoinOpen(false)}
-          >
-            <Animated.View entering={FadeInDown.duration(200)}>
-              <Pressable
-                style={[
-                  styles.modalCard,
-                  {
-                    backgroundColor: theme.backgroundElement,
-                    borderColor: theme.border,
-                  },
-                ]}
-                onPress={() => undefined}
-              >
-                <ThemedText style={styles.modalTitle}>
-                  {t("intercom.joinWithCode")}
-                </ThemedText>
-                <FormInput
-                  label={t("intercom.inviteCode")}
-                  value={codeDraft}
-                  onChangeText={setCodeDraft}
-                  placeholder={t("intercom.inviteCodePlaceholder")}
-                  autoCapitalize="characters"
-                  autoCorrect={false}
-                  autoComplete="off"
-                  maxLength={6}
-                  autoFocus
-                />
-                <PrimaryButton
-                  title={t("intercom.join")}
-                  onPress={submitJoin}
-                  loading={submitting}
-                />
-              </Pressable>
-            </Animated.View>
-          </Pressable>
+          <KeyboardAvoid>
+            <Pressable
+              // 遮罩只负责「点空白处关闭」，不能自成一个读屏焦点（会把整张卡片合成一块）
+              accessible={false}
+              style={styles.modalMask}
+              onPress={() => setJoinOpen(false)}
+            >
+              <Animated.View entering={FadeInDown.duration(200)}>
+                <Pressable
+                  style={[
+                    styles.modalCard,
+                    {
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: theme.border,
+                    },
+                  ]}
+                  // 只用来挡住「点卡片关弹层」；不能自成一个读屏焦点，否则里面的选项 / 输入框被合成一块、读屏选不中
+                  accessible={false}
+                  onPress={() => undefined}
+                >
+                  <ThemedText style={styles.modalTitle}>
+                    {t("intercom.joinWithCode")}
+                  </ThemedText>
+                  <FormInput
+                    label={t("intercom.inviteCode")}
+                    value={codeDraft}
+                    onChangeText={setCodeDraft}
+                    placeholder={t("intercom.inviteCodePlaceholder")}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    autoComplete="off"
+                    maxLength={6}
+                    autoFocus
+                  />
+                  <PrimaryButton
+                    title={t("intercom.join")}
+                    onPress={submitJoin}
+                    loading={submitting}
+                  />
+                </Pressable>
+              </Animated.View>
+            </Pressable>
+          </KeyboardAvoid>
         </Modal>
       </SafeAreaView>
     </ThemedView>
