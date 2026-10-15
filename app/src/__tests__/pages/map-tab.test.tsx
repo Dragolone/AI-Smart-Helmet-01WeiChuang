@@ -18,9 +18,15 @@ import {
   BackHandler,
   Share,
 } from "react-native";
-import { act } from "react-test-renderer";
-import { mockRouter, routerState } from "@/__tests__/helpers/native-mocks";
+import { act, type ReactTestInstance } from "react-test-renderer";
 import {
+  mockRouter,
+  routerState,
+  type RecordedGesture,
+} from "@/__tests__/helpers/native-mocks";
+import {
+  flat,
+  isHost,
   makeQueryClient,
   render,
   waitFor,
@@ -28,6 +34,7 @@ import {
 } from "@/__tests__/helpers/render";
 import { devicesApi } from "@/api/devices";
 import { openAmapNavigation } from "@/components/map/nav-links";
+import { RideReplay } from "@/components/map/ride-replay";
 import { Tappable } from "@/components/tappable";
 import { translate, useLocaleStore, type MessageKey } from "@/i18n";
 import { useAuthStore } from "@/stores/auth-store";
@@ -146,9 +153,14 @@ const mockRides = {
   pages: [] as RideSummary[],
   track: [] as LocationPoint[],
   events: [] as { eventId: string; eventType: string; timestamp: string }[],
+  /** 事件接口报的总数（比拿回来的多 = 还有没列出来的）；null = 和拿回来的一样多 */
+  eventsTotal: null as number | null,
+  trackError: false,
+  eventsError: false,
   month: [] as RideSummary[],
   at: null as RideSummary | null,
 };
+const mockRefetch = { track: jest.fn(), events: jest.fn() };
 jest.mock("@/hooks/use-rides", () => ({
   useRecentRides: () => ({ data: mockRides.recent }),
   useRidePages: (_d: unknown, _s: unknown, enabled: boolean) => ({
@@ -162,16 +174,23 @@ jest.mock("@/hooks/use-rides", () => ({
     isFetchNextPageError: false,
   }),
   useRideTrack: (_d: unknown, window: unknown) => ({
-    data: window ? { points: mockRides.track, summary: null } : undefined,
-    isError: false,
+    data:
+      window && !mockRides.trackError
+        ? { points: mockRides.track, summary: null }
+        : undefined,
+    isError: mockRides.trackError,
     isPending: !window,
+    refetch: mockRefetch.track,
   }),
   useRideEvents: (_d: unknown, window: unknown) => ({
     data: window
-      ? { items: mockRides.events, total: mockRides.events.length }
+      ? {
+          items: mockRides.events,
+          total: mockRides.eventsTotal ?? mockRides.events.length,
+        }
       : undefined,
-    isError: false,
-    refetch: jest.fn(),
+    isError: mockRides.eventsError,
+    refetch: mockRefetch.events,
   }),
   useRideMonth: () => ({
     data: mockRides.month,
@@ -260,6 +279,9 @@ beforeEach(() => {
     pages: [],
     track: [],
     events: [],
+    eventsTotal: null,
+    trackError: false,
+    eventsError: false,
     month: [],
     at: null,
   });
@@ -659,5 +681,281 @@ describe("带参数进来", () => {
     routerState.params = { deviceId: "h1", at };
     r = await mount();
     await waitFor(() => expect(r.allText()).toContain(tr("map.moment.none")));
+  });
+});
+
+describe("一趟里的回放、事件与抽屉", () => {
+  /** 9 个点，9:00 起每 2 分钟一个 */
+  const at = (min: number, sec = 0) =>
+    new Date(2026, 9, 15, 9, min, sec).toISOString();
+  const TRACK = Array.from({ length: 9 }, (_, i) =>
+    loc({ timestamp: at(i * 2), latitude: 22.5 + i * 0.001 }),
+  );
+  const replay = (r: Rendered) => r.root.findByType(RideReplay).props;
+  const openRide = async () => {
+    mockRides.pages = [ride(9)];
+    mockRides.track = TRACK;
+    const r = await mount();
+    r.press(tr("map.rides.title"));
+    const row = r.root.find(
+      (n) =>
+        n.type === Tappable &&
+        String(n.props.accessibilityLabel ?? "").includes("公里"),
+    );
+    act(() => {
+      row.props.onPress();
+    });
+    return r;
+  };
+
+  it("事件落到轨迹上最近的点，名字按类型（不认识的写「标记」），挨得近的合成一处带数字；还有没列出来的写条数", async () => {
+    mockRides.events = [
+      { eventId: "e1", eventType: "collision_risk", timestamp: at(4) },
+      { eventId: "e2", eventType: "obstacle_risk", timestamp: at(4, 30) },
+      { eventId: "e3", eventType: "mystery", timestamp: at(12) },
+    ];
+    mockRides.eventsTotal = 5;
+    const r = await openRide();
+    const p = replay(r);
+    expect(p.status).toBe("ready");
+    expect(
+      (
+        p.events as {
+          key: string;
+          index: number;
+          name: string;
+          count: number;
+        }[]
+      ).map((e) => [e.key, e.index, e.name, e.count]),
+    ).toEqual([
+      ["e1", 2, tr("events.type.collision_risk"), 2],
+      ["e3", 6, tr("map.moment.mark"), 1],
+    ]);
+    expect(p.moreEvents).toBe(2);
+    expect(p.activeEventKey).toBeNull();
+    expect(mockMap.setMarks).toHaveBeenLastCalledWith([
+      expect.objectContaining({ kind: "start" }),
+      expect.objectContaining({ kind: "end" }),
+      expect.objectContaining({ kind: "event", label: "2" }),
+      expect.objectContaining({ kind: "event", label: undefined }),
+    ]);
+  });
+
+  it("拖进度条：停在那一处（越界的夹回两头），走到事件附近把它标出来；倍速 1→2→4→1；播放中再点就暂停", async () => {
+    mockRides.events = [
+      { eventId: "e1", eventType: "collision_risk", timestamp: at(4) },
+      { eventId: "e3", eventType: "possible_fall", timestamp: at(12) },
+    ];
+    const r = await openRide();
+    act(() => replay(r).onSeek(4));
+    expect(replay(r).replayIdx).toBe(4);
+    expect(replay(r).activeEventKey).toBeNull();
+    act(() => replay(r).onSeek(3));
+    expect(replay(r).activeEventKey).toBe("e1");
+    act(() => replay(r).onSeek(7));
+    expect(replay(r).activeEventKey).toBe("e3");
+    expect(replay(r).events[1].name).toBe(tr("safety.risk.fall"));
+    act(() => replay(r).onSeek(-5));
+    expect(replay(r).replayIdx).toBe(0);
+    act(() => replay(r).onSeek(100));
+    expect(replay(r).replayIdx).toBe(8);
+    // 回放位置上画头盔
+    expect(mockMap.setHelmet).toHaveBeenLastCalledWith(
+      expect.objectContaining({ latitude: expect.any(Number) }),
+    );
+
+    expect(replay(r).speed).toBe(1);
+    act(() => replay(r).onCycleSpeed());
+    expect(replay(r).speed).toBe(2);
+    act(() => replay(r).onCycleSpeed());
+    expect(replay(r).speed).toBe(4);
+    act(() => replay(r).onCycleSpeed());
+    expect(replay(r).speed).toBe(1);
+
+    // 停在最后一点时点播放：从头放
+    act(() => replay(r).onTogglePlay());
+    expect(replay(r).playing).toBe(true);
+    expect(replay(r).replayIdx).toBe(0);
+    act(() => replay(r).onTogglePlay());
+    expect(replay(r).playing).toBe(false);
+    // 拖的时候停下
+    act(() => replay(r).onTogglePlay());
+    act(() => replay(r).onSeek(5));
+    expect(replay(r).playing).toBe(false);
+  });
+
+  it("从安全记录跳到某一刻、那一刻正好有个事件：单独标出来、用那个事件的名字，不和旁边的并在一起", async () => {
+    const moment = at(8);
+    mockRides.at = ride(9);
+    mockRides.track = TRACK;
+    mockRides.events = [
+      { eventId: "e1", eventType: "collision_risk", timestamp: at(7, 50) },
+      { eventId: "e2", eventType: "manual_sos", timestamp: at(8, 1) },
+    ];
+    routerState.params = { deviceId: "h1", at: moment };
+    // 和真的路由一样：清参数之后下一次渲染就读不到了（不然头盔列表回来、effect 重跑时又会把参数用一遍）
+    m(mockRouter.setParams).mockImplementation((p: unknown) => {
+      routerState.params = {
+        ...routerState.params,
+        ...(p as Record<string, undefined>),
+      };
+    });
+    const r = await mount();
+    await waitFor(() => expect(replay(r).status).toBe("ready"));
+    const events = replay(r).events as {
+      key: string;
+      name: string;
+      index: number;
+    }[];
+    expect(events.map((e) => [e.key, e.name, e.index])).toEqual([
+      ["e1", tr("events.type.collision_risk"), 4],
+      ["moment", tr("safety.manualSos"), 4],
+    ]);
+    // 回放停在那一刻，标的是它
+    expect(replay(r).replayIdx).toBe(4);
+    expect(replay(r).activeEventKey).toBe("moment");
+  });
+
+  it("轨迹拉取失败：写失败、不能放；重试重拉轨迹，事件也失败时一起重拉；事件单独失败可单独重拉", async () => {
+    mockRides.trackError = true;
+    mockRides.eventsError = true;
+    const r = await openRide();
+    expect(replay(r).status).toBe("error");
+    expect(replay(r).eventsFailed).toBe(true);
+    act(() => replay(r).onTogglePlay());
+    expect(replay(r).playing).toBe(false);
+    act(() => replay(r).onSeek(3));
+    expect(replay(r).replayIdx).toBeNull();
+    act(() => replay(r).onRetry());
+    expect(mockRefetch.track).toHaveBeenCalledTimes(1);
+    expect(mockRefetch.events).toHaveBeenCalledTimes(1);
+    act(() => replay(r).onRetryEvents());
+    expect(mockRefetch.events).toHaveBeenCalledTimes(2);
+    mockRides.eventsError = false;
+    r.rerender(
+      <QueryClientProvider client={makeQueryClient()}>
+        <MapScreen />
+      </QueryClientProvider>,
+    );
+    act(() => replay(r).onRetry());
+    expect(mockRefetch.track).toHaveBeenCalledTimes(2);
+    expect(mockRefetch.events).toHaveBeenCalledTimes(2);
+  });
+
+  it("看一趟时：抽屉变高按新高度再收一次视野，用户自己拖过地图就不再替他收（也不退出跟随）；地图重新就绪时把这一趟和回放位置重推", async () => {
+    const r = await openRide();
+    const content = r.root.findAll(
+      (n) =>
+        typeof n.type === "string" &&
+        typeof n.props.onLayout === "function" &&
+        n.findAll((c) => isHost(c, "GestureDetector")).length > 0,
+    )[0];
+    const fits = () => mockMap.setTrack.mock.calls.length;
+    const before = fits();
+    act(() =>
+      content.props.onLayout({ nativeEvent: { layout: { height: 320 } } }),
+    );
+    expect(fits()).toBe(before + 1);
+    act(() => (mockMapProps.current.onUserPan as () => void)());
+    act(() =>
+      content.props.onLayout({ nativeEvent: { layout: { height: 380 } } }),
+    );
+    expect(fits()).toBe(before + 1);
+    // 高度没真变（不到半个点）不重排
+    act(() =>
+      content.props.onLayout({ nativeEvent: { layout: { height: 380.2 } } }),
+    );
+    act(() =>
+      content.props.onLayout({ nativeEvent: { layout: { height: 0 } } }),
+    );
+
+    act(() => replay(r).onSeek(2));
+    jest.clearAllMocks();
+    act(() => (mockMapProps.current.onReady as () => void)());
+    expect(mockMap.setTrack).toHaveBeenCalledWith(expect.any(Array), {
+      pad: expect.any(Array),
+    });
+    expect(mockMap.setHelmet).toHaveBeenCalledTimes(1);
+    expect(mockMap.setHelmetOnline).toHaveBeenCalledWith(true);
+    expect(mockMap.setHelmetReplay).toHaveBeenCalledWith(true);
+    // 还在看这一趟（没有退回实时）
+    expect(r.allText()).toContain(tr("map.ride.duration"));
+  });
+
+  it("抽屉：点抓手 / 第一行收起、再点展开；拖着跟手，松手按速度和位置决定收还是展；收着时整张卡都能上滑展开；换内容时自动展开", async () => {
+    const r = await mount();
+    await waitFor(() => expect(r.allText()).toContain(tr("map.still")));
+    const detectors = () =>
+      r.root
+        .findAll((n) => isHost(n, "GestureDetector"))
+        .map((n) => n.props.gesture as RecordedGesture);
+    // 外层 = 整张卡，里层 = 抓手 + 第一行 + 数据格
+    const card = () => detectors()[0];
+    const sheet = () => detectors()[1];
+    const enabled = () => [card().config.enabled[0], sheet().config.enabled[0]];
+    const maxHeight = () =>
+      r.root
+        .findAll(
+          (n) =>
+            typeof n.type === "string" &&
+            flat(n.props.style).maxHeight !== undefined,
+        )
+        .map((n) => flat(n.props.style).maxHeight as number)[0];
+    const isGrabber = (c: ReactTestInstance) =>
+      typeof c.type !== "string" &&
+      c.props.hitSlop !== undefined &&
+      typeof c.props.onPress === "function";
+    const withLayout = (n: ReactTestInstance) =>
+      typeof n.type === "string" && typeof n.props.onLayout === "function";
+    // 卡里内容那一层（里面套着抽屉手势区）、第一行（抓手所在、里面没有手势区）
+    const content = r.root.findAll(
+      (n) =>
+        withLayout(n) &&
+        n.findAll((c) => isHost(c, "GestureDetector")).length > 0,
+    )[0];
+    const header = r.root.findAll(
+      (n) =>
+        withLayout(n) &&
+        n.findAll((c) => isHost(c, "GestureDetector")).length === 0 &&
+        n.findAll(isGrabber).length > 0,
+    )[0];
+    act(() =>
+      content.props.onLayout({ nativeEvent: { layout: { height: 300 } } }),
+    );
+    act(() =>
+      header.props.onLayout({ nativeEvent: { layout: { height: 60 } } }),
+    );
+    expect(enabled()).toEqual([false, true]);
+    const grabber = () => r.root.findAll(isGrabber)[0];
+
+    act(() => grabber().props.onPress());
+    expect(enabled()).toEqual([true, false]);
+    const collapsed = maxHeight();
+    act(() => grabber().props.onPress());
+    expect(enabled()).toEqual([false, true]);
+    // 展开 / 收起两种高度只差内容高度 − 第一行高度
+    expect(maxHeight() - collapsed).toBeCloseTo(300 - 60);
+
+    // 拖：往下拖 100（没过一半）松手 → 展开；拖 150（过了一半）→ 收起
+    const drag = (g: () => RecordedGesture, dy: number, vy = 0) => {
+      act(() => {
+        g().handlers.onStart();
+        g().handlers.onUpdate({ translationY: dy });
+        g().handlers.onEnd({ velocityY: vy });
+      });
+    };
+    drag(sheet, 100);
+    expect(enabled()).toEqual([false, true]);
+    drag(sheet, 150);
+    expect(enabled()).toEqual([true, false]);
+    // 收着：整张卡上滑（快速往上甩）展开
+    drag(card, -20, -900);
+    expect(enabled()).toEqual([false, true]);
+    // 快速往下甩：哪怕只拖了一点也收起
+    drag(sheet, 10, 900);
+    expect(enabled()).toEqual([true, false]);
+    // 收着时打开行程列表：抽屉自动展开
+    r.press(tr("map.rides.title"));
+    expect(enabled()).toEqual([false, true]);
   });
 });
