@@ -1,7 +1,9 @@
 // 状态小标：图标 + 文字。图标带语义色，文字用正文色——状态不只靠颜色区分，小字也保持足够对比度。
-import { Ionicons } from "@expo/vector-icons";
+// 图标用描边款：实心圆排成一排看着像贴纸（负责人 2026-10-15）。变档时图标淡入淡出并弹一下，不硬切。
+import type { Ionicons } from "@expo/vector-icons";
 import { StyleSheet, View } from "react-native";
 
+import { CrossfadeIcon } from "@/components/motion";
 import { ThemedText } from "@/components/themed-text";
 import { useTheme } from "@/hooks/use-theme";
 import type { CheckLevel } from "@/services/safety-status";
@@ -13,10 +15,10 @@ import type { CheckLevel } from "@/services/safety-status";
 export type ChipLevel = CheckLevel;
 
 const ICONS: Record<ChipLevel, keyof typeof Ionicons.glyphMap> = {
-  ok: "checkmark-circle",
-  warn: "alert-circle",
-  unknown: "help-circle",
-  bad: "close-circle",
+  ok: "checkmark-circle-outline",
+  warn: "alert-circle-outline",
+  unknown: "help-circle-outline",
+  bad: "close-circle-outline",
 };
 
 export function StatusChip({
@@ -35,7 +37,7 @@ export function StatusChip({
         : theme.warning;
   return (
     <View style={styles.chip}>
-      <Ionicons name={ICONS[level]} size={16} color={color} />
+      <CrossfadeIcon name={ICONS[level]} size={16} color={color} pop />
       <ThemedText type="small" style={styles.label}>
         {label}
       </ThemedText>

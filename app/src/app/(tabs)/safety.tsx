@@ -42,7 +42,7 @@ import { AnimatedPressable } from "@/components/animated-pressable";
 import { PrimaryButton, SecondaryButton } from "@/components/form";
 import { IntercomMiniBar } from "@/components/intercom-mini-bar";
 import { Card, IconCircle, type IconName } from "@/components/list";
-import { useJello } from "@/components/motion";
+import { CrossfadeIcon, useJello, useTintStyle } from "@/components/motion";
 import { Skeleton } from "@/components/skeleton";
 import { StatusChip, type ChipLevel } from "@/components/status-chip";
 import { SwitchHelmetPrompt } from "@/components/switch-helmet-prompt";
@@ -103,6 +103,9 @@ function StatusCard({
       : tone === "warning"
         ? theme.warningBg
         : theme.dangerBg;
+  // 结论变了（加完联系人、头盔连上）：图标圆的底色和图标都过渡，和首页「安全」格、下面的核对项同一个节奏。
+  // 卡片本身保持中性底：整卡涂色看着像模板（负责人 2026-10-15）
+  const iconTint = useTintStyle({ backgroundColor: bg });
   return (
     <Card style={styles.statusCard}>
       {/* 只有一句结论时和图标居中对齐；带说明时标题与图标顶端对齐 */}
@@ -112,13 +115,9 @@ function StatusCard({
           body === undefined && { alignItems: "center" },
         ]}
       >
-        <IconCircle
-          icon={icon}
-          size={44}
-          iconSize={24}
-          color={theme[tone]}
-          bg={bg}
-        />
+        <Animated.View style={[styles.statusIcon, iconTint]}>
+          <CrossfadeIcon name={icon} size={24} color={theme[tone]} pop />
+        </Animated.View>
         <View style={styles.statusText}>
           <ThemedText type="smallBold" style={styles.statusTitle}>
             {title}
@@ -741,6 +740,13 @@ const styles = StyleSheet.create({
   },
   statusCard: { padding: 18, gap: 14 },
   statusHead: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  statusIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   statusText: { flex: 1, gap: 4, minWidth: 0 },
   statusTitle: { fontSize: 18, lineHeight: 24 },
   statusBody: { fontSize: 13, lineHeight: 19 },

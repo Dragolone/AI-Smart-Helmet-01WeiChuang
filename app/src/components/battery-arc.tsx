@@ -59,6 +59,15 @@ export function BatteryArc({
     const v = value === null ? 0 : Math.max(0, Math.min(100, value)) / 100;
     p.set(withTiming(v, { duration: 700, easing: Easing.out(Easing.cubic) }));
   }, [value, p]);
+  // 颜色（连上 / 断开、电量跨档）和淡化都是过渡的，不硬切（负责人 2026-10-15 画板口径）
+  const stroke = useSharedValue(color);
+  useEffect(() => {
+    stroke.set(withTiming(color, { duration: 240 }));
+  }, [color, stroke]);
+  const dim = useSharedValue(dimmed ? 0.45 : 1);
+  useEffect(() => {
+    dim.set(withTiming(dimmed ? 0.45 : 1, { duration: 240 }));
+  }, [dimmed, dim]);
 
   // 尺寸全部落在整像素上：几层弧是各自排版的，带小数时各取各的整，叠在一起会错开一像素
   const snap = PixelRatio.roundToNearestPixel;
@@ -81,16 +90,16 @@ export function BatteryArc({
   // 底环两头在 ±135°（自正上方起顺时针）
   const capX = r * Math.SQRT1_2;
 
-  const shown = dimmed ? 0.45 : 1;
   const visible = useAnimatedStyle(() => ({
-    opacity: p.get() > 0 ? shown : 0,
+    opacity: p.get() > 0 ? dim.get() : 0,
   }));
   const full = useAnimatedStyle(() => {
     const v = p.get();
+    const c = stroke.get();
     return {
-      borderTopColor: arcSegment(v, 0) >= 1 ? color : "transparent",
-      borderRightColor: arcSegment(v, 1) >= 1 ? color : "transparent",
-      borderBottomColor: arcSegment(v, 2) >= 1 ? color : "transparent",
+      borderTopColor: arcSegment(v, 0) >= 1 ? c : "transparent",
+      borderRightColor: arcSegment(v, 1) >= 1 ? c : "transparent",
+      borderBottomColor: arcSegment(v, 2) >= 1 ? c : "transparent",
     };
   });
   // 起始角退 0.5°：进度很小时这段弧整个在裁剪盒外，边缘不会漏出一条细线
@@ -98,6 +107,7 @@ export function BatteryArc({
     const a = arcSegment(p.get(), 0);
     return {
       opacity: a < 1 ? 1 : 0,
+      borderTopColor: stroke.get(),
       transform: [{ rotate: `${-45.5 + 90.5 * a}deg` }],
     };
   });
@@ -105,11 +115,15 @@ export function BatteryArc({
     const deg = p.get() * SWEEP;
     return {
       opacity: deg > 90 ? 1 : 0,
+      borderTopColor: stroke.get(),
       transform: [{ rotate: `${deg - 45}deg` }],
     };
   });
   const end = useAnimatedStyle(() => ({
     transform: [{ rotate: `${p.get() * SWEEP}deg` }],
+  }));
+  const capStyle = useAnimatedStyle(() => ({
+    backgroundColor: stroke.get(),
   }));
 
   return (
@@ -192,28 +206,14 @@ export function BatteryArc({
           ]}
         >
           <Animated.View
-            style={[
-              styles.abs,
-              ring,
-              { left: off - half, top: off, borderTopColor: color },
-              first,
-            ]}
+            style={[styles.abs, ring, { left: off - half, top: off }, first]}
           />
         </View>
         <Animated.View
-          style={[
-            styles.abs,
-            ring,
-            { left: off, top: off, borderTopColor: color },
-            rest,
-          ]}
+          style={[styles.abs, ring, { left: off, top: off }, rest]}
         />
-        <View
-          style={[
-            styles.abs,
-            dot,
-            { left: half - w / 2, top: off, backgroundColor: color },
-          ]}
+        <Animated.View
+          style={[styles.abs, dot, { left: half - w / 2, top: off }, capStyle]}
         />
         <Animated.View
           style={[
@@ -222,11 +222,12 @@ export function BatteryArc({
             end,
           ]}
         >
-          <View
+          <Animated.View
             style={[
               styles.abs,
               dot,
-              { left: half - w / 2, top: off, backgroundColor: color },
+              { left: half - w / 2, top: off },
+              capStyle,
             ]}
           />
         </Animated.View>
