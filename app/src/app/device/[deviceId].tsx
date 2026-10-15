@@ -346,35 +346,40 @@ export default function DeviceDetailScreen() {
   };
 
   const unbind = () => {
-    Alert.alert(t("device.unbind"), t("device.unbindBody", { id: deviceId }), [
-      { text: t("common.cancel"), style: "cancel" },
-      {
-        text: t("device.unbindAction"),
-        style: "destructive",
-        onPress: () => {
-          setUnbinding(true);
-          devLog("DEVICE", "解绑：发请求");
-          devicesApi
-            .unbind(deviceId)
-            .then(() => {
-              devLog("DEVICE", "解绑：服务端成功，返回");
-              // 服务端一确认就收尾，不等列表重新拉取（2026-10-06 iPhone 实测：等待期间页面不动，
-              // 还能再点一次解绑，得到「设备不存在」）。先把这台从列表缓存里拿掉，再后台刷新。
-              queryClient.setQueryData<DevicePublic[]>(["devices"], (prev) =>
-                prev?.filter((d) => d.deviceId !== deviceId),
-              );
-              void queryClient.invalidateQueries({ queryKey: ["devices"] });
-              showToast(t("device.unbindDone"));
-              router.back();
-              // unbinding 不复位：页面正在关闭，「解除绑定」保持不可点
-            })
-            .catch((e) => {
-              setUnbinding(false);
-              Alert.alert(t("device.unbindFailed"), toUserMessage(e));
-            });
+    // 写用户起的名字：绑了几顶时只写编号认不出是哪一顶（负责人 10-15：有重命名一定先显示重命名）
+    Alert.alert(
+      t("device.unbind"),
+      t("device.unbindBody", { id: detail.data?.name ?? deviceId }),
+      [
+        { text: t("common.cancel"), style: "cancel" },
+        {
+          text: t("device.unbindAction"),
+          style: "destructive",
+          onPress: () => {
+            setUnbinding(true);
+            devLog("DEVICE", "解绑：发请求");
+            devicesApi
+              .unbind(deviceId)
+              .then(() => {
+                devLog("DEVICE", "解绑：服务端成功，返回");
+                // 服务端一确认就收尾，不等列表重新拉取（2026-10-06 iPhone 实测：等待期间页面不动，
+                // 还能再点一次解绑，得到「设备不存在」）。先把这台从列表缓存里拿掉，再后台刷新。
+                queryClient.setQueryData<DevicePublic[]>(["devices"], (prev) =>
+                  prev?.filter((d) => d.deviceId !== deviceId),
+                );
+                void queryClient.invalidateQueries({ queryKey: ["devices"] });
+                showToast(t("device.unbindDone"));
+                router.back();
+                // unbinding 不复位：页面正在关闭，「解除绑定」保持不可点
+              })
+              .catch((e) => {
+                setUnbinding(false);
+                Alert.alert(t("device.unbindFailed"), toUserMessage(e));
+              });
+          },
         },
-      },
-    ]);
+      ],
+    );
   };
 
   const s = status.data;

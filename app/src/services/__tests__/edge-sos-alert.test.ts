@@ -107,6 +107,17 @@ describe("刷新档的 3 秒门槛（剩余时间由服务端 deadline 与本机
     },
   );
 
+  it("标题带上头盔名（用户改过名就用改过的名字）；不知道名字时只写类型（负责人 10-15）", async () => {
+    const title = async (name?: string) => {
+      mockSchedule.mockClear();
+      const m = load();
+      await m.showSosAlertIfBackground("s1", "d1", deadlineIn(40), undefined, name);
+      return (mockSchedule.mock.calls[0][0] as { content: { title: string } }).content.title;
+    };
+    expect(await title("测试头盔1")).toBe('sosAlert.titleWithHelmet:{"name":"测试头盔1"}');
+    expect(await title()).toBe("sosAlert.title");
+  });
+
   it("30 秒档被跳过时，结束后仍要撤掉单独编号的 10 秒档（不留一条迟到的「还剩 10 秒」）", async () => {
     const m = load();
     await m.showSosAlertIfBackground("s1", "d1", deadlineIn(32));
