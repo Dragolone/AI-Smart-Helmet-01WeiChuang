@@ -273,7 +273,9 @@ export function PrimaryButton({
       onPress={onPress}
     >
       {/* 平时的内容留在正常排版里：按内容收缩的按钮（空态、行内）靠它定宽 */}
-      <Animated.View style={[styles.idle, idleStyle]}>
+      <Animated.View
+        style={[styles.idle, compact && styles.idleCompact, idleStyle]}
+      >
         {loading ? (
           <DotsLoader color={fg} />
         ) : (
@@ -443,10 +445,13 @@ const styles = StyleSheet.create({
     // 撑满宽度时无感；按内容收缩（空态里的按钮、行内按钮）时文字不能顶着药丸两端（2026-09-26 iPhone 实测）
     paddingHorizontal: 20,
   },
-  buttonCompact: { minHeight: 46 },
+  // 半宽并排的小按钮：内边距收一点，1 倍字体下「导航到上次位置」能放进一行（20 时 360dp 宽的手机上「置」单独掉到第二行，
+  // 2026-10-15 华为）；字体放大后照样可以折行
+  buttonCompact: { minHeight: 46, paddingHorizontal: 10, gap: 6 },
   buttonText: { flexShrink: 1, textAlign: "center" },
   // 成功态：从中间往里收，收缩中多出来的旧内容裁掉
   buttonDone: { alignSelf: "center", overflow: "hidden" },
+  idleCompact: { gap: 6 },
   idle: {
     // 能收窄：字放大时文字在药丸里折行，而不是把整行撑出按钮
     flexShrink: 1,
