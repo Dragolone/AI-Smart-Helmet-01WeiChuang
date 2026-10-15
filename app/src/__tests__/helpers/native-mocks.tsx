@@ -102,6 +102,86 @@ export function reanimatedMock() {
   };
 }
 
+/** 「会反应」的替身里记下的一条 useAnimatedReaction */
+type Reaction = {
+  prepare: () => unknown;
+  react: (now: unknown, prev: unknown) => void;
+  prev: unknown;
+};
+/** 挂着的组件登记的反应；pumpReactions() 逐条看 prepare 的结果变没变 */
+export const reactions = new Set<Reaction>();
+/** 像 UI 线程那样过一遍反应：prepare 的结果和上次不同才调 react(现在, 上次) */
+export function pumpReactions(): void {
+  for (const r of [...reactions]) {
+    const now = r.prepare();
+    if (Object.is(now, r.prev)) continue;
+    const prev = r.prev;
+    r.prev = now;
+    r.react(now, prev);
+  }
+}
+/** useFrameCallback 记下的逐帧回调与开关；测试自己喊 cb 来走一帧 */
+export const frameClock: {
+  cb:
+    | ((info: {
+        timestamp: number;
+        timeSincePreviousFrame: number | null;
+      }) => void)
+    | null;
+  active: boolean;
+} = { cb: null, active: false };
+/**
+ * 逐帧驱动的组件（开屏）用的 reanimated 替身：在 reanimatedMock 上改两样——
+ * useAnimatedReaction 不再每次渲染都喊，而是登记下来，挂上时喊一次（上次为 null），之后由 pumpReactions() 按值变化喊；
+ * useFrameCallback 记下回调，setActive 只改 frameClock.active。
+ */
+export function reactiveReanimatedMock() {
+  return {
+    ...reanimatedMock(),
+    useAnimatedReaction: (
+      prepare: () => unknown,
+      react: (now: unknown, prev: unknown) => void,
+    ) => {
+      const [entry] = useState<Reaction>(() => ({
+        prepare,
+        react,
+        prev: null,
+      }));
+      entry.prepare = prepare;
+      entry.react = react;
+      useEffect(() => {
+        reactions.add(entry);
+        const now = entry.prepare();
+        entry.prev = now;
+        entry.react(now, null);
+        return () => {
+          reactions.delete(entry);
+        };
+      }, [entry]);
+    },
+    useFrameCallback: (
+      cb: NonNullable<(typeof frameClock)["cb"]>,
+      autostart = true,
+    ) => {
+      const [handle] = useState(() => ({
+        setActive: (on: boolean) => {
+          frameClock.active = on;
+        },
+        callbackId: 1,
+      }));
+      frameClock.cb = cb;
+      useEffect(() => {
+        frameClock.active = autostart;
+        return () => {
+          frameClock.cb = null;
+          frameClock.active = false;
+        };
+      }, [autostart]);
+      return handle;
+    },
+  };
+}
+
 /** 万能替身：任何属性、任何调用都给回一个替身；参与算术时当 0（不当成 thenable） */
 export function anyStub(): unknown {
   const fn = function () {};
