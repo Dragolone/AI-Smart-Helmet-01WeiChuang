@@ -21,9 +21,9 @@
 | B5 | 低 | 未知 schemaVersion、未知 eventType 的事件出现在 App 事件历史和详情里（schemaVersion=999 的摔倒显示「疑似摔倒」但没建单）；未知 eventType 入库时也没有告警日志 | 有 |
 | B6 | 低 | `DELETE /users/me` 的 password 没有 72 字节上限：超过 72 字节、前 72 字节对就能注销（改密 / 换号 / 登录都按字节拒） | 有 |
 | B7 | 低 | `PATCH /devices/{id}` 不传 `name`（空对象）也会把自定义名清空 | 无（契约要定） |
+| B8 | 低 | EMQX 认证回调 `username` / `password` 不是字符串时 500（带 ERROR 堆栈）；只有持内部令牌的调用方能触发，结果从不为 allow | 有 |
 | B9 | 中 | 请求体 JSON 嵌套约 4000 层（20KB 出头）时 ValidationPipe 栈溢出 → 500；公开的登录 / 发码 / 管理员登录不带令牌也能稳定打出来 | 有 |
 | B10 | 低 | 同一用户并发绑同一台头盔（App 连点）：输家偶发 409 DEVICE_ALREADY_BOUND「设备已被其他用户绑定」，而设备其实绑在自己名下 | 有 |
-| B8 | 低 | EMQX 认证回调 `username` / `password` 不是字符串时 500（带 ERROR 堆栈）；只有持内部令牌的调用方能触发，结果从不为 allow | 有 |
 
 ---
 
@@ -83,6 +83,15 @@
 - **影响**：App 目前只在改名时带 `name` 调用，不会触发；但任何「只想改别的字段」的调用（将来加字段时）都会把名字抹掉。
 - **建议**：要 Draven / 负责人定口径——「不传不改、传 null 或空串才清」（推荐，同 PATCH /users/me 与联系人 PATCH 的现状），定了再改控制器和 API.md。没开修复分支。
 
+### B8 EMQX 认证回调的类型混淆 → 500
+
+- **现象**：`POST /internal/emqx/authenticate`（带正确内部令牌）body 里 `username` 为数组 / 对象 / 布尔 → Prisma 校验异常；`password` 为数字 / 数组 / 对象 → `createHash().update()` 抛 TypeError；统一过滤器回 500 并打 ERROR 堆栈。`authorize` 同样的输入是 200 deny（正则对非字符串做了隐式转换）。
+- **复现**：`curl -X POST '/api/v1/internal/emqx/authenticate' -H 'X-Internal-Token: …' -d '{"username":["helmet_001"],"password":"x"}'` → 500。
+- **期望**：认证回调对任何畸形输入回 `200 { result: "deny" }`（与缺字段同口径，`AUTHN-EMPTY`）；EMQX 把非 200 当作「忽略」交给下一个认证器，行为依赖 EMQX 配置，不如明确 deny。
+- **影响**：EMQX 只会按模板发字符串，正常链路触发不到；持内部令牌的人可以刷 ERROR 日志。结果从不为 allow（`edge-emqx` 已钉住这个不变式）。
+- **位置**：`backend/src/emqx/emqx-hook.controller.ts`（body 只有 interface，没有 DTO 校验）。
+- **修法**：控制器里非字符串字段按缺失处理（`typeof x === 'string' ? x : undefined`）再交给服务；authorize 同样收口。
+
 ### B9 请求体嵌套过深 → 500（未登录可触发）
 
 - **现象**：`POST /api/v1/auth/login` body `{"phone":"13800000000","password":"x","junk":{"a":{"a":…}}}`，`junk` 嵌套 4500 层（约 22KB，远低于 100KB 体积上限）→ `500 INTERNAL_ERROR`，日志 `RangeError: Maximum call stack size exceeded`。`/auth/sms-code`、`/admin/auth/login` 同样；带令牌时 `PATCH /users/me`、`PUT …/settings`、`POST /ingest/app-relay`（整批）同理。4000 层以内正常。
@@ -98,15 +107,6 @@
 - **原因**：`devices.service.ts` `bind()` 先读 `bindUserId`（都读到 null）→ 事务里条件更新 `bindUserId: null → userId`，输家 `count = 0` 直接抛 409，没有再看一眼「现在是不是绑在我名下」。同类问题对讲频道加入修过（审计 VOICE-01）。
 - **期望**：API.md §4 / devices e2e「A 重复绑定 → 幂等成功」。
 - **修法**：条件更新落空时在同一事务里重读；若已是本人，按幂等返回现状，否则照旧 409。
-
-### B8 EMQX 认证回调的类型混淆 → 500
-
-- **现象**：`POST /internal/emqx/authenticate`（带正确内部令牌）body 里 `username` 为数组 / 对象 / 布尔 → Prisma 校验异常；`password` 为数字 / 数组 / 对象 → `createHash().update()` 抛 TypeError；统一过滤器回 500 并打 ERROR 堆栈。`authorize` 同样的输入是 200 deny（正则对非字符串做了隐式转换）。
-- **复现**：`curl -X POST '/api/v1/internal/emqx/authenticate' -H 'X-Internal-Token: …' -d '{"username":["helmet_001"],"password":"x"}'` → 500。
-- **期望**：认证回调对任何畸形输入回 `200 { result: "deny" }`（与缺字段同口径，`AUTHN-EMPTY`）；EMQX 把非 200 当作「忽略」交给下一个认证器，行为依赖 EMQX 配置，不如明确 deny。
-- **影响**：EMQX 只会按模板发字符串，正常链路触发不到；持内部令牌的人可以刷 ERROR 日志。结果从不为 allow（`edge-emqx` 已钉住这个不变式）。
-- **位置**：`backend/src/emqx/emqx-hook.controller.ts`（body 只有 interface，没有 DTO 校验）。
-- **修法**：控制器里非字符串字段按缺失处理（`typeof x === 'string' ? x : undefined`）再交给服务；authorize 同样收口。
 
 ---
 
@@ -132,6 +132,9 @@
 18. EMQX 授权的 topic 若是单元素数组，会被隐式转成同一个字符串、等价于原 topic（不构成越权）；多元素数组 deny。
 19. SOS 短信参数里的昵称按 UTF-16 码元截前 10 个（`slice(0, 10)`）：第 10 个码元落在 emoji 中间时会留下半个代理对。短信现在是固定文案（决策 #46）、不用这个参数，将来接入带变量的渠道（语音 / 分享链接）时要改成按码点截。
 20. 短信参数的坐标用 `toFixed(5)`，按二进制值舍入：151.209295 写成 151.20929（亚米级，无实际影响）。`edge-sos-notify`。
+21. 媒体 storageKey 的备份前缀拦截（`isSignableStorageKey`）只去掉开头的 `/`、只认 `..` 段：`./backups/…` 这种写法能过检查。实际难利用（备份已改放独立的桶；客户端会把 `/./` 规范化、签名路径对不上），但拦截可以顺手先做一次点段规范化。
+22. 设备名、频道名、昵称允许换行 / 制表等控制字符，原样进推送正文（「头盔 a⏎b 检测到疑似摔倒」）。App 端显示与推送渲染可接受的话无需处理。
+23. 本机跑全量 e2e 时若机器负载很高（10-16 另一个会话的 Android 模拟器占 220% CPU），`admin.e2e` / `locations.e2e` 这类 `app.init()` 后不 `listen`、每个请求由 supertest 临时起端口的老套件偶发 ECONNRESET（一次还出现过拿到不属于本应用的 200）；单独重跑全过，CI（Linux）上未见。`hardening.ts` 的 `buildApp` 已经先 `listen(0)`，老套件可逐步改用它。
 
 ## 不稳定测试
 
