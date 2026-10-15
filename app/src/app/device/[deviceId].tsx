@@ -28,6 +28,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { devicesApi } from "@/api/devices";
 import { showToast } from "@/components/toast";
+import { ApiRequestError } from "@/api/client";
 import { toUserMessage } from "@/api/error-messages";
 import { devLog } from "@/services/dev-log";
 import type { DevicePublic } from "@helmet/shared";
@@ -48,6 +49,7 @@ import {
   VolumeSlider,
   VOLUME_LOUD_THRESHOLD,
 } from "@/components/volume-slider";
+import { EmptyState } from "@/components/empty-state";
 import { FormInput, PrimaryButton } from "@/components/form";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
@@ -404,6 +406,24 @@ export default function DeviceDetailScreen() {
       .filter((x) => x !== null)
       .join(" · ") || t("device.cat.alertsSummary");
 
+  // 这顶头盔已不在本账号下（别的手机解绑了、点了旧推送 / 深链）：服务端 404 DEVICE_NOT_FOUND。
+  // 原来只在顶上写一行「找不到头盔」，下面照样画改名、常用控制、实时画面、解除绑定，点了全都报错（2026-10-15）
+  const gone = [status.error, detail.error].some(
+    (e) => e instanceof ApiRequestError && e.code === "DEVICE_NOT_FOUND",
+  );
+  if (gone)
+    return (
+      <ThemedView style={[styles.flex, styles.goneWrap]}>
+        <EmptyState
+          icon="help-circle-outline"
+          title={t("device.goneTitle")}
+          body={t("device.goneBody", { id: deviceId })}
+          actionLabel={t("device.goneBack")}
+          onAction={() => router.navigate("/")}
+        />
+      </ThemedView>
+    );
+
   return (
     <ThemedView style={styles.flex}>
       {/* 内容会超出一屏,必须可滚动(Android 实证:小屏下半截不可见且无法下滑) */}
@@ -684,6 +704,7 @@ export default function DeviceDetailScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  goneWrap: { justifyContent: "center", paddingHorizontal: 24 },
   container: { padding: 20, gap: 12, paddingBottom: 28 },
   identity: { gap: 4, marginBottom: 4 },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 10 },

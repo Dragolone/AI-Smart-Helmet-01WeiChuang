@@ -169,6 +169,11 @@ function RootNavigator() {
         name="ble-bench"
         options={{ headerShown: true, title: t("nav.bleBench") }}
       />
+      {/* 链接对不上任何页面时（登录前后都可能）：自己的空态页代替路由库自带的英文页 */}
+      <Stack.Screen
+        name="+not-found"
+        options={{ headerShown: true, title: t("notFound.title") }}
+      />
     </Stack>
   );
 }

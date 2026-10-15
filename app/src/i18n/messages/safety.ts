@@ -97,6 +97,8 @@ export const safety = {
     "records.truncated": "已显示最近 {n} 条，共 {total} 条。",
     "records.loadMore": "加载更多",
     "records.loadingMore": "正在加载…",
+    "records.gone.title": "找不到这条记录",
+    "records.gone.body": "链接可能有误，或这条记录不属于你的头盔。",
     "records.noHelmetBody": "绑定头盔后，可查看风险提醒与 SOS 记录。",
     "records.pending": "{device} 正在求救",
     "records.sos.fall": "疑似摔倒 · SOS",
@@ -224,6 +226,8 @@ export const safety = {
     "records.truncated": "已顯示最近 {n} 筆，共 {total} 筆。",
     "records.loadMore": "載入更多",
     "records.loadingMore": "正在載入…",
+    "records.gone.title": "找不到這筆記錄",
+    "records.gone.body": "連結可能有誤，或這筆記錄不屬於你的頭盔。",
     "records.noHelmetBody": "綁定頭盔後，可查看風險提醒與 SOS 紀錄。",
     "records.pending": "{device} 正在求救",
     "records.sos.fall": "疑似跌倒 · SOS",
@@ -361,6 +365,9 @@ export const safety = {
     "records.truncated": "Showing the latest {n} of {total}.",
     "records.loadMore": "Load more",
     "records.loadingMore": "Loading…",
+    "records.gone.title": "Record not found",
+    "records.gone.body":
+      "The link may be wrong, or this record isn't from your helmet.",
     "records.noHelmetBody":
       "Add a helmet to view its risk alerts and SOS records.",
     "records.pending": "{device} has an active SOS",

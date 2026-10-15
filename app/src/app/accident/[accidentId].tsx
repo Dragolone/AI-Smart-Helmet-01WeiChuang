@@ -6,10 +6,12 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 
+import { ApiRequestError } from "@/api/client";
 import { devicesApi } from "@/api/devices";
 import { toUserMessage } from "@/api/error-messages";
 import { sosApi } from "@/api/sos";
 import { Badge } from "@/components/badge";
+import { EmptyState } from "@/components/empty-state";
 import { AmapView, type AmapViewHandle } from "@/components/map/amap-view";
 import { isPlausibleFix, toGcj02 } from "@/components/map/coords";
 import { openAmapNavigation } from "@/components/map/nav-links";
@@ -20,6 +22,9 @@ import { useTheme } from "@/hooks/use-theme";
 import { readableEventFields } from "@/services/event-fields";
 import { useLocale, useT } from "@/i18n";
 import { fullDateTime, shortTime } from "@/i18n/format";
+
+const isNotFound = (e: unknown) =>
+  e instanceof ApiRequestError && e.status === 404;
 
 function Row({ label, value }: { label: string; value: string }) {
   const theme = useTheme();
@@ -49,6 +54,8 @@ export default function AccidentDetailScreen() {
   const detail = useQuery({
     queryKey: ["accident", accidentId],
     queryFn: () => sosApi.accidentDetail(accidentId),
+    // 记录不存在（链接里的编号有误 / 不是自己头盔的）重试也一样，直接给空态
+    retry: (n, e) => !isNotFound(e) && n < 1,
   });
   // 来源头盔显示用户起的名字（与安全页同一份设备列表缓存）；已解绑的头盔查不到名字，退回设备号
   const devices = useQuery({ queryKey: ["devices"], queryFn: devicesApi.list });
@@ -67,6 +74,23 @@ export default function AccidentDetailScreen() {
     if (gcjPos) mapRef.current?.setHelmet(gcjPos, { follow: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gcjPos?.longitude, gcjPos?.latitude]);
+
+  // 以前这里只写一行「操作失败（NOT_FOUND）」，用户不知道发生了什么、也没有回去的按钮（2026-10-15 边界测试）
+  if (isNotFound(detail.error)) {
+    return (
+      <ThemedView style={[styles.flex, styles.goneWrap]}>
+        <EmptyState
+          icon="document-text-outline"
+          title={t("records.gone.title")}
+          body={t("records.gone.body")}
+          actionLabel={t("nav.back")}
+          onAction={() =>
+            router.canGoBack() ? router.back() : router.navigate("/")
+          }
+        />
+      </ThemedView>
+    );
+  }
 
   return (
     <ThemedView style={styles.flex}>
@@ -242,6 +266,7 @@ export default function AccidentDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  goneWrap: { justifyContent: "center", paddingHorizontal: 24 },
   mapCard: {
     height: 240,
     borderRadius: Radius.card,

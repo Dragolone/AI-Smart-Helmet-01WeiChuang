@@ -3,7 +3,6 @@
 // Android 进程绑在头盔热点期间连不上云端，所以只在前台持有，离开 / 退后台 / 摔倒求救入队时立即释放。
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { File, Paths } from "expo-file-system";
-import { useKeepAwake } from "expo-keep-awake";
 import type { ComponentType, Ref } from "react";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import {
@@ -25,6 +24,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
 import { flushRelayQueue, onSosRelayEvent } from "@/services/ble-relay-uplink";
 import { devLog } from "@/services/dev-log";
+import { useKeepAwakeSafe } from "@/hooks/use-keep-awake-safe";
 import {
   HELMET_HOTSPOT,
   JOIN_TIMEOUT_MS,
@@ -64,7 +64,7 @@ export default function VideoPreviewScreen() {
   const t = useT();
   const theme = useTheme();
   const { width } = useWindowDimensions();
-  useKeepAwake();
+  useKeepAwakeSafe("video-preview");
 
   // 开发期无头盔测试（DEVELOPMENT.md「视频预览无硬件测试」）：
   //   ?url=rtsp://<电脑IP>:8554/ch0 换成 tools/rtsp-mock 的测试流；仍会先连名为 X821cam 的热点

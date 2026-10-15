@@ -11,7 +11,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { setAudioModeAsync, useAudioPlayer } from "expo-audio";
 import * as Haptics from "expo-haptics";
-import { useKeepAwake } from "expo-keep-awake";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -55,12 +54,14 @@ import { toUserMessage } from "@/api/error-messages";
 import { buildRelayEnvelope, relayApi } from "@/api/relay";
 import { sosApi } from "@/api/sos";
 import { Badge } from "@/components/badge";
+import { EmptyState } from "@/components/empty-state";
 import { CountdownRing } from "@/components/countdown-ring";
 import { SlideToCancel } from "@/components/slide-to-cancel";
 import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
 import { Radius } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useKeepAwakeSafe } from "@/hooks/use-keep-awake-safe";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
 import {
@@ -175,6 +176,10 @@ export default function SosActiveScreen() {
   return <SosActiveContent key={sosId ?? "drill"} />;
 }
 
+/** 服务端明确说没有这一单（404） */
+const isNotFound = (e: unknown) =>
+  e instanceof ApiRequestError && e.status === 404;
+
 function SosActiveContent() {
   const { sosId, deviceId, drill } = useLocalSearchParams<{
     sosId: string;
@@ -222,7 +227,10 @@ function SosActiveContent() {
           sosId,
           await sosApi.snapshot(sosId, deviceId),
         );
-      } catch {
+      } catch (e) {
+        // 服务端明确说没有这一单（404：单号是瞎编的 / 不是你的头盔）——不是「状态未知」，交给页面收掉。
+        // 原来一律当未知，一个假链接 app://sos-active?sosId=xxx 就能打开一张永远停在「—」秒的倒计时页（2026-10-15）
+        if (e instanceof ApiRequestError && e.status === 404) throw e;
         // 两条 REST 都失败（离线）才信缓存；有网时缓存可能是迟到的 pending（2026-09-24 实测卡死）
         return (
           (queryClient.getQueryData(["sos", sosId]) as Sos | undefined) ?? null
@@ -231,7 +239,9 @@ function SosActiveContent() {
     },
     // WS 断线时的兜底；正常时由推送更新缓存。单子结束后停止轮询——结束态不会再变，
     // 而 snapshot 一次是两个请求（评审 2026-09-26）。状态未知（null）不算结束，见 sos-sync
-    refetchInterval: (q) => countdownPollInterval(q.state.data),
+    refetchInterval: (q) =>
+      isNotFound(q.state.error) ? false : countdownPollInterval(q.state.data),
+    retry: (n, e) => !isNotFound(e) && n < 1,
     enabled: !isDrill,
   });
   const drillSos: Sos | null = isDrill
@@ -273,7 +283,7 @@ function SosActiveContent() {
   }, [deadlineMs]);
 
   // 倒计时期间保持亮屏——摔倒场景手机可能放在口袋/车把,锁屏会错过取消窗口
-  useKeepAwake();
+  useKeepAwakeSafe("sos-active");
 
   // 警报音 + 振动:倒计时进行中每秒触发,取消/通知后停止
   const alarm = useAudioPlayer(require("@/assets/sos-alarm.wav"));
@@ -573,6 +583,22 @@ function SosActiveContent() {
       <ThemedText style={styles.doneBtnText}>{t("sos.close")}</ThemedText>
     </Tappable>
   );
+
+  // 没有这一单：不画倒计时，说明一句、给关闭（页面是从链接直接打开、栈里没东西时回设备页）
+  if (!isDrill && !sos && isNotFound(sosQuery.error))
+    return (
+      <View style={[styles.goneWrap, { backgroundColor: theme.background }]}>
+        <EmptyState
+          icon="help-circle-outline"
+          title={t("sos.gone.title")}
+          body={t("sos.gone.body")}
+          actionLabel={t("sos.close")}
+          onAction={() =>
+            router.canGoBack() ? router.back() : router.navigate("/")
+          }
+        />
+      </View>
+    );
 
   return (
     // 这一页是全屏弹出的。iPhone 上 SafeAreaView 在这里拿到的留白是 0，内容顶到了灵动岛上、
@@ -927,6 +953,7 @@ function SosActiveContent() {
 }
 
 const styles = StyleSheet.create({
+  goneWrap: { flex: 1, justifyContent: "center", paddingHorizontal: 24 },
   flex: { flex: 1 },
   wash: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
   container: {
