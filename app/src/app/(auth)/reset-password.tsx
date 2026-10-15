@@ -26,7 +26,13 @@ import { showToast } from "@/components/toast";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { Radius } from "@/constants/theme";
-import { useSmsCode, isValidPhone } from "@/hooks/use-sms-code";
+import {
+  PHONE_INPUT_MAX,
+  isValidPhone,
+  normalizePhone,
+  normalizeSmsCode,
+  useSmsCode,
+} from "@/hooks/use-sms-code";
 import { isPasswordTooLong } from "@/services/password-rules";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
@@ -56,12 +62,13 @@ export default function ResetPasswordScreen() {
   const sendCode = async () => {
     setError(null);
     setFieldError(null);
-    if (!isValidPhone(phone)) {
+    const cleanPhone = normalizePhone(phone);
+    if (!isValidPhone(cleanPhone)) {
       fail("phone", t("auth.invalidPhone"));
       return;
     }
     try {
-      await sms.send(phone);
+      await sms.send(cleanPhone);
     } catch (e) {
       const field = errorField(e);
       if (field) fail(field, toUserMessage(e));
@@ -72,7 +79,8 @@ export default function ResetPasswordScreen() {
   const submit = async () => {
     setError(null);
     setFieldError(null);
-    if (!/^\d{6}$/.test(code)) {
+    const cleanCode = normalizeSmsCode(code);
+    if (!/^\d{6}$/.test(cleanCode)) {
       fail("code", t("auth.invalidCode"));
       return;
     }
@@ -92,8 +100,8 @@ export default function ResetPasswordScreen() {
     setBusy(true);
     try {
       await authApi.resetPassword({
-        phone: phone.trim(),
-        code,
+        phone: normalizePhone(phone),
+        code: cleanCode,
         newPassword: password,
       });
       // 成功即全端会话作废(API.md §2)：按钮画完勾再回登录页用新密码登录
@@ -141,7 +149,8 @@ export default function ResetPasswordScreen() {
               value={phone}
               onChangeText={setPhone}
               keyboardType="phone-pad"
-              maxLength={11}
+              // 留出 +86 / 空格 / 横线的位置（自动填充、粘贴），提交前再规整成 11 位
+              maxLength={PHONE_INPUT_MAX}
               placeholder={t("auth.phonePlaceholder")}
               autoComplete="tel"
             />

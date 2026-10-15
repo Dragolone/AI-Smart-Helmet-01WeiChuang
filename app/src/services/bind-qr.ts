@@ -66,3 +66,35 @@ export function bindLinkInManualInput(raw: string): BindQr | null {
   if (!/^\s*(?:https?:\/\/|helmet:\/\/)/i.test(raw)) return null;
   return parseBindQr(raw);
 }
+
+/** 全角 ASCII（中文输入法全角状态打出的字母、数字、下划线、横线）换成半角 */
+const toHalfWidth = (s: string) =>
+  s.replace(/[\uFF01-\uFF5E]/g, (c) =>
+    String.fromCharCode(c.charCodeAt(0) - 0xfee0),
+  );
+/** 复制时夹带的看不见的字符：零宽空格 / 连接符、方向标记与嵌入、BOM */
+const COPIED_INVISIBLE =
+  /[\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/g;
+
+/**
+ * 手输的设备号：全角换半角、去掉看不见的字符、去掉首尾空白。
+ * 中文输入法全角状态打出的「ｈｅｌｍｅｔ＿００１」、从聊天里复制夹带零宽字符的设备号，
+ * 原来原样提交，服务端判「deviceId 格式不正确」，用户只看到「输入格式不正确」。
+ */
+export function normalizeManualDeviceId(raw: string): string {
+  return toHalfWidth(raw).replace(COPIED_INVISIBLE, "").trim();
+}
+
+/**
+ * 手输的绑定码：全角数字换半角，去掉空白、横线和看不见的字符。
+ * 说明卡上 8 位码常按「1234 5678」分组印、复制来的带横线，原来输入框卡 8 位，粘进来被截成「1234 567」，
+ * 提交后是「绑定码不正确」——还白占一次限频（同 IP 10 次 / 分）。
+ */
+export function normalizeManualBindCode(raw: string): string {
+  return toHalfWidth(raw)
+    .replace(COPIED_INVISIBLE, "")
+    .replace(/[\s\-\u2010-\u2015\u2212]/g, "");
+}
+
+/** 绑定码输入框的长度上限：8 位码加分组用的空格 / 横线（「1234 5678」「12 34 56 78」）留到 12 */
+export const BIND_CODE_INPUT_MAX = 12;

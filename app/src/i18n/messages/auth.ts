@@ -69,6 +69,7 @@ export const auth = {
     "auth.newPhone": "新手机号",
     "auth.newPhonePlaceholder": "11 位大陆手机号",
     "auth.samePhone": "新手机号与当前手机号相同",
+    "auth.phoneUsedByOther": "这个手机号已被其他账号使用，请换一个号码",
     "auth.changePhoneDone": "手机号已更换",
     "auth.deleteLead": "注销后将无法恢复，请确认你已了解以下影响：",
     "auth.deleteConsequenceDevices": "已绑定的头盔将全部解绑",
@@ -183,6 +184,7 @@ export const auth = {
     "auth.newPhone": "新手機號碼",
     "auth.newPhonePlaceholder": "11 位中國大陸手機號碼",
     "auth.samePhone": "新手機號碼與目前手機號碼相同",
+    "auth.phoneUsedByOther": "這個手機號碼已被其他帳號使用，請換一個號碼",
     "auth.changePhoneDone": "手機號碼已更換",
     "auth.deleteLead": "註銷後將無法復原，請確認你已了解以下影響：",
     "auth.deleteConsequenceDevices": "已綁定的安全帽將全部解除綁定",
@@ -300,6 +302,8 @@ export const auth = {
     "auth.newPhone": "New phone",
     "auth.newPhonePlaceholder": "11-digit mainland China number",
     "auth.samePhone": "The new number is the same as the current one",
+    "auth.phoneUsedByOther":
+      "This number is already used by another account. Please use a different number.",
     "auth.changePhoneDone": "Phone number changed",
     "auth.deleteLead":
       "This cannot be undone. Please make sure you understand what happens:",

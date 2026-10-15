@@ -2,18 +2,27 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useState } from "react";
-import { StyleSheet } from "react-native";
+import { Alert, StyleSheet } from "react-native";
+import type { EmergencyContact } from "@helmet/shared";
 
 import { contactsApi } from "@/api/contacts";
 import { toUserMessage } from "@/api/error-messages";
 import { FormError, FormInput, PrimaryButton } from "@/components/form";
 import { ThemedView } from "@/components/themed-view";
-import { isValidPhone, normalizePhone } from "@/hooks/use-sms-code";
+import {
+  PHONE_INPUT_MAX,
+  isValidPhone,
+  normalizePhone,
+} from "@/hooks/use-sms-code";
 import { useT } from "@/i18n";
+import { contactPhoneProblem } from "@/services/contact-phone";
+import { cleanNickname } from "@/services/user-name";
+import { useAuthStore } from "@/stores/auth-store";
 
 export default function AddContactScreen() {
   const queryClient = useQueryClient();
   const t = useT();
+  const selfPhone = useAuthStore((s) => s.user?.phone);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [relation, setRelation] = useState("");
@@ -24,7 +33,10 @@ export default function AddContactScreen() {
 
   const submit = async () => {
     setError(null);
-    if (!name.trim() || !phone.trim()) {
+    // 名字 / 关系提交前和显示时同一套整理：只含零宽字符、换行的名字原来照提交，列表里是一片空白
+    const cleanName = cleanNickname(name);
+    const cleanRelation = cleanNickname(relation);
+    if (!cleanName || !phone.trim()) {
       setError(t("contacts.required"));
       return;
     }
@@ -34,13 +46,42 @@ export default function AddContactScreen() {
       setError(t("contacts.invalidPhone"));
       return;
     }
+    // 服务端不查重复、不拦本人号码：重复的号码求救时收两条短信还占名额；本人号码等于没人收到
+    const problem = contactPhoneProblem(
+      cleanPhone,
+      queryClient.getQueryData<EmergencyContact[]>(["contacts"]) ?? [],
+      selfPhone,
+    );
+    if (problem === "duplicate") {
+      setError(t("contacts.duplicatePhone"));
+      return;
+    }
+    const contact = {
+      name: cleanName,
+      phone: cleanPhone,
+      ...(cleanRelation && { relation: cleanRelation }),
+    };
+    if (problem === "self") {
+      Alert.alert(t("contacts.selfPhoneTitle"), t("contacts.selfPhoneBody"), [
+        { text: t("common.cancel"), style: "cancel" },
+        {
+          text: t("contacts.selfPhoneConfirm"),
+          onPress: () => void save(contact),
+        },
+      ]);
+      return;
+    }
+    await save(contact);
+  };
+
+  const save = async (contact: {
+    name: string;
+    phone: string;
+    relation?: string;
+  }) => {
     setBusy(true);
     try {
-      await contactsApi.create({
-        name: name.trim(),
-        phone: cleanPhone,
-        ...(relation.trim() && { relation: relation.trim() }),
-      });
+      await contactsApi.create(contact);
       await queryClient.invalidateQueries({ queryKey: ["contacts"] });
       setDone(true);
     } catch (e) {
@@ -67,7 +108,7 @@ export default function AddContactScreen() {
         onChangeText={setPhone}
         keyboardType="phone-pad"
         // 留出空格 / 横线 / +86 的位置（「+86 138 0000 0000」17 位），提交前再规整成 11 位
-        maxLength={20}
+        maxLength={PHONE_INPUT_MAX}
         placeholder={t("contacts.phonePlaceholder")}
       />
       <FormInput

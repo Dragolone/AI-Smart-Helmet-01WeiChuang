@@ -131,3 +131,22 @@ export function combinePages<T>(
     loadingMore,
   };
 }
+
+/**
+ * 跨头盔合并的列表里一条记录的键。eventId 只在一顶头盔内唯一（决策 #54：服务端按 (deviceId, eventId) 幂等），
+ * 两顶头盔可以各有一条同号事件——只拿 eventId 当 key，「全部头盔」里两行 key 相同，React 会把其中一行当成另一行复用
+ *（点开的详情、进出场动画串到别的行上）。deviceId 只含字母数字、下划线、横线，冒号分隔不会有歧义。
+ */
+export const recordKeyOf = (deviceId: string, id: string): string =>
+  `${deviceId}:${id}`;
+
+/**
+ * 详情接口只按 eventId 查（API.md §6 GET /events/{eventId}，服务端在本人名下所有头盔里找第一条），
+ * 两顶头盔有同号事件时可能拿回另一顶的那条。点的是哪一顶的就只认哪一顶的，对不上不当成这一条显示。
+ */
+export function detailBelongsTo(
+  detail: { deviceId: string } | null | undefined,
+  target: { deviceId: string } | null | undefined,
+): boolean {
+  return !!detail && !!target && detail.deviceId === target.deviceId;
+}

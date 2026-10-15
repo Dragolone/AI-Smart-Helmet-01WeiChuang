@@ -1,7 +1,14 @@
 // 边界补测（2026-10-03）：落在 SecureStore 里的三份状态（会话 / 隐私同意 / 语言）在
 // 存储损坏、读写抛错、存了不认识的值时的表现。此前 stores/ 下没有任何单测。
 // 每个用例用 jest.isolateModules 取全新 store；SecureStore 用内存假件，可按 key 注入读写失败。
-import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+} from "@jest/globals";
 import type { AuthResponse, UserProfile } from "@helmet/shared";
 
 type AuthStore = typeof import("../auth-store");
@@ -15,7 +22,9 @@ const mockSetOptions: unknown[] = [];
 const mockMe = jest.fn(async (): Promise<UserProfile> => {
   throw new Error("offline");
 });
-const mockLogout = jest.fn(async (_refreshToken: string): Promise<void> => undefined);
+const mockLogout = jest.fn(
+  async (_refreshToken: string): Promise<void> => undefined,
+);
 
 jest.mock("expo-secure-store", () => ({
   AFTER_FIRST_UNLOCK: "AFTER_FIRST_UNLOCK",
@@ -82,7 +91,11 @@ afterEach(() => {
 
 describe("auth-store.hydrate：存储损坏", () => {
   it.each([
-    ["token 是截断的 JSON", () => mockKv.set(TOKEN_KEY, '{"accessToken":"acc'), true],
+    [
+      "token 是截断的 JSON",
+      () => mockKv.set(TOKEN_KEY, '{"accessToken":"acc'),
+      true,
+    ],
     [
       "token 正常但用户档案是坏 JSON",
       () => {
@@ -107,7 +120,11 @@ describe("auth-store.hydrate：存储损坏", () => {
       const { store } = loadAuth();
       await store.getState().hydrate();
       await flush();
-      expect(store.getState()).toMatchObject({ hydrated: true, tokens: null, user: null });
+      expect(store.getState()).toMatchObject({
+        hydrated: true,
+        tokens: null,
+        user: null,
+      });
       expect(mockMe).not.toHaveBeenCalled();
     },
   );
@@ -119,7 +136,10 @@ describe("auth-store.hydrate：存储损坏", () => {
     await store.getState().hydrate();
     expect(store.getState().tokens).toEqual(tokens);
     await flush();
-    expect(store.getState().user).toMatchObject({ id: "u1", avatarUrl: AVATAR });
+    expect(store.getState().user).toMatchObject({
+      id: "u1",
+      avatarUrl: AVATAR,
+    });
   });
 
   it("/users/me 失败（离线冷启动）：保留钥匙串里的最小档案，不掉登录", async () => {
@@ -129,7 +149,11 @@ describe("auth-store.hydrate：存储损坏", () => {
     await store.getState().hydrate();
     await flush();
     expect(mockMe).toHaveBeenCalledTimes(1);
-    expect(store.getState()).toMatchObject({ hydrated: true, tokens, user: { id: "u1" } });
+    expect(store.getState()).toMatchObject({
+      hydrated: true,
+      tokens,
+      user: { id: "u1" },
+    });
   });
 
   it("/users/me 在途时登出并登录了另一个账号：迟到的旧档案不落到新会话上（token 是 B 的、user 也得是 B 的）", async () => {
@@ -153,8 +177,14 @@ describe("auth-store.hydrate：存储损坏", () => {
     await store.getState().signIn(b);
     landMe(user({ avatarUrl: AVATAR }));
     await flush();
-    expect(store.getState().tokens).toEqual({ accessToken: "acc_b", refreshToken: "ref_b" });
-    expect(store.getState().user).toMatchObject({ id: "u2", phone: "13900005678" });
+    expect(store.getState().tokens).toEqual({
+      accessToken: "acc_b",
+      refreshToken: "ref_b",
+    });
+    expect(store.getState().user).toMatchObject({
+      id: "u2",
+      phone: "13900005678",
+    });
   });
 
   it("/users/me 在途时登出：迟到的档案不会给已登出的状态凭空写出一个 user", async () => {
@@ -188,10 +218,15 @@ describe("auth-store.hydrate：存储损坏", () => {
     const { store } = loadAuth();
     await store.getState().hydrate();
     await store.getState().signOut();
-    await store.getState().signIn({ accessToken: "acc_2", refreshToken: "ref_2", user: user() });
+    await store
+      .getState()
+      .signIn({ accessToken: "acc_2", refreshToken: "ref_2", user: user() });
     landMe(user({ avatarUrl: AVATAR }));
     await flush();
-    expect(store.getState().user).toMatchObject({ id: "u1", avatarUrl: AVATAR });
+    expect(store.getState().user).toMatchObject({
+      id: "u1",
+      avatarUrl: AVATAR,
+    });
   });
 });
 
@@ -274,8 +309,13 @@ describe("auth-store：落盘内容", () => {
   it("setUser（改昵称 / 换头像）同样不把头像写进钥匙串，也不动 token", async () => {
     const { store } = loadAuth();
     await store.getState().signIn({ ...tokens, user: user() });
-    await store.getState().setUser(user({ nickname: "新名字", avatarUrl: AVATAR }));
-    expect(store.getState().user).toMatchObject({ nickname: "新名字", avatarUrl: AVATAR });
+    await store
+      .getState()
+      .setUser(user({ nickname: "新名字", avatarUrl: AVATAR }));
+    expect(store.getState().user).toMatchObject({
+      nickname: "新名字",
+      avatarUrl: AVATAR,
+    });
     expect(JSON.parse(mockKv.get(USER_KEY) ?? "{}")).toMatchObject({
       nickname: "新名字",
       avatarUrl: null,
@@ -294,6 +334,27 @@ describe("auth-store：登出", () => {
     expect(store.getState()).toMatchObject({ tokens: null, user: null });
     expect(mockKv.has(TOKEN_KEY)).toBe(false);
     expect(mockKv.has(USER_KEY)).toBe(false);
+  });
+
+  it("作废请求挂起（服务端连不上、要等超时）时 signOut 也立刻完成、本地已清空（10-16 第二轮：原来要等约 19 秒）", async () => {
+    mockLogout.mockImplementation(() => new Promise<void>(() => undefined));
+    const { store } = loadAuth();
+    await store.getState().signIn({ ...tokens, user: user() });
+    await expect(store.getState().signOut()).resolves.toBeUndefined();
+    expect(mockLogout).toHaveBeenCalledWith("ref");
+    expect(store.getState()).toMatchObject({ tokens: null, user: null });
+    expect(mockKv.has(TOKEN_KEY)).toBe(false);
+    expect(mockKv.has(USER_KEY)).toBe(false);
+  });
+
+  it("作废请求同步抛错也不拦住本地登出", async () => {
+    mockLogout.mockImplementation(() => {
+      throw new Error("boom");
+    });
+    const { store } = loadAuth();
+    await store.getState().signIn({ ...tokens, user: user() });
+    await expect(store.getState().signOut()).resolves.toBeUndefined();
+    expect(store.getState().tokens).toBeNull();
   });
 
   it("本来就没登录时 signOut：不调服务端；dropSession（账号已注销）也不调", async () => {
@@ -321,9 +382,14 @@ describe("auth-store：被动登出要留下原因（BLE 中转随登录态停�
     const { store, client } = loadAuth();
     await store.getState().signIn({ ...tokens, user: user() });
     expect(store.getState().sessionExpired).toBe(false);
-    (globalThis as { fetch: unknown }).fetch = jest.fn(async () => res(401, { code: "UNAUTHORIZED" }));
+    (globalThis as { fetch: unknown }).fetch = jest.fn(async () =>
+      res(401, { code: "UNAUTHORIZED" }),
+    );
     await expect(client.api("/devices")).rejects.toMatchObject({ status: 401 });
-    expect(store.getState()).toMatchObject({ tokens: null, sessionExpired: true });
+    expect(store.getState()).toMatchObject({
+      tokens: null,
+      sessionExpired: true,
+    });
     await store.getState().signIn({ ...tokens, user: user() });
     expect(store.getState().sessionExpired).toBe(false);
   });
@@ -333,7 +399,9 @@ describe("auth-store：被动登出要留下原因（BLE 中转随登录态停�
     await store.getState().signIn({ ...tokens, user: user() });
     await store.getState().signOut();
     expect(store.getState().sessionExpired).toBe(false);
-    (globalThis as { fetch: unknown }).fetch = jest.fn(async () => res(401, { code: "UNAUTHORIZED" }));
+    (globalThis as { fetch: unknown }).fetch = jest.fn(async () =>
+      res(401, { code: "UNAUTHORIZED" }),
+    );
     await expect(client.api("/devices")).rejects.toMatchObject({ status: 401 });
     expect(store.getState().sessionExpired).toBe(false);
   });
@@ -341,7 +409,9 @@ describe("auth-store：被动登出要留下原因（BLE 中转随登录态停�
   it("被动登出后用户又点了一次退出（dropSession）：标记清掉", async () => {
     const { store, client } = loadAuth();
     await store.getState().signIn({ ...tokens, user: user() });
-    (globalThis as { fetch: unknown }).fetch = jest.fn(async () => res(401, { code: "UNAUTHORIZED" }));
+    (globalThis as { fetch: unknown }).fetch = jest.fn(async () =>
+      res(401, { code: "UNAUTHORIZED" }),
+    );
     await expect(client.api("/devices")).rejects.toMatchObject({ status: 401 });
     await store.getState().dropSession();
     expect(store.getState().sessionExpired).toBe(false);
@@ -407,7 +477,10 @@ describe("consent-store：同意标记带版本", () => {
       mockKv.set(KEY, saved);
       const { useConsentStore } = loadConsent();
       await useConsentStore.getState().hydrate();
-      expect(useConsentStore.getState()).toMatchObject({ hydrated: true, privacyAccepted: false });
+      expect(useConsentStore.getState()).toMatchObject({
+        hydrated: true,
+        privacyAccepted: false,
+      });
     }
   });
 
@@ -423,7 +496,10 @@ describe("consent-store：同意标记带版本", () => {
     const { useConsentStore } = loadConsent();
     await useConsentStore.getState().hydrate();
     await expect(useConsentStore.getState().accept()).resolves.toBeUndefined();
-    expect(useConsentStore.getState()).toMatchObject({ hydrated: true, privacyAccepted: true });
+    expect(useConsentStore.getState()).toMatchObject({
+      hydrated: true,
+      privacyAccepted: true,
+    });
     expect(mockKv.has(KEY)).toBe(false);
   });
 
@@ -431,7 +507,9 @@ describe("consent-store：同意标记带版本", () => {
     const mod = loadConsent();
     await mod.useConsentStore.getState().accept();
     expect(mockKv.get(KEY)).toBe(mod.PRIVACY_VERSION);
-    expect(mockSetOptions).toEqual([{ keychainAccessible: "AFTER_FIRST_UNLOCK" }]);
+    expect(mockSetOptions).toEqual([
+      { keychainAccessible: "AFTER_FIRST_UNLOCK" },
+    ]);
   });
 
   it("升级前同意过的（只有旧条目）：仍算已同意，并搬一份到新条目；旧版本号的旧条目不搬", async () => {
@@ -439,9 +517,14 @@ describe("consent-store：同意标记带版本", () => {
     mockKv.set(LEGACY_KEY, mod.PRIVACY_VERSION);
     await mod.useConsentStore.getState().hydrate();
     await flush();
-    expect(mod.useConsentStore.getState()).toMatchObject({ hydrated: true, privacyAccepted: true });
+    expect(mod.useConsentStore.getState()).toMatchObject({
+      hydrated: true,
+      privacyAccepted: true,
+    });
     expect(mockKv.get(KEY)).toBe(mod.PRIVACY_VERSION);
-    expect(mockSetOptions).toEqual([{ keychainAccessible: "AFTER_FIRST_UNLOCK" }]);
+    expect(mockSetOptions).toEqual([
+      { keychainAccessible: "AFTER_FIRST_UNLOCK" },
+    ]);
 
     mockKv.clear();
     mockKv.set(LEGACY_KEY, "2026-09-11");
@@ -455,8 +538,12 @@ describe("consent-store：同意标记带版本", () => {
   it("读取抛错（锁屏下被 BLE 拉起）≠ 没同意：保持「还没读完」，不弹「请同意否则退出登录」；回到前台重读", async () => {
     const listeners: ((s: string) => void)[] = [];
     const removed: boolean[] = [];
-    const { AppState } = require("react-native") as typeof import("react-native");
-    jest.spyOn(AppState, "addEventListener").mockImplementation(((_: string, cb: (s: string) => void) => {
+    const { AppState } =
+      require("react-native") as typeof import("react-native");
+    jest.spyOn(AppState, "addEventListener").mockImplementation(((
+      _: string,
+      cb: (s: string) => void,
+    ) => {
       listeners.push(cb);
       return { remove: () => removed.push(true) };
     }) as never);
@@ -465,7 +552,10 @@ describe("consent-store：同意标记带版本", () => {
     mockFail.get = true;
     await mod.useConsentStore.getState().hydrate();
     // 原来这里是 hydrated: true + 未同意 → 已同意的用户被要求重新勾选，极光本进程不初始化
-    expect(mod.useConsentStore.getState()).toMatchObject({ hydrated: false, privacyAccepted: false });
+    expect(mod.useConsentStore.getState()).toMatchObject({
+      hydrated: false,
+      privacyAccepted: false,
+    });
     expect(listeners).toHaveLength(1);
     // 再失败一次不重复挂监听
     await mod.useConsentStore.getState().hydrate();
@@ -478,18 +568,27 @@ describe("consent-store：同意标记带版本", () => {
     mockFail.get = false;
     listeners[0]("active");
     await flush();
-    expect(mod.useConsentStore.getState()).toMatchObject({ hydrated: true, privacyAccepted: true });
+    expect(mod.useConsentStore.getState()).toMatchObject({
+      hydrated: true,
+      privacyAccepted: true,
+    });
     expect(removed).toEqual([true]);
   });
 
   it("读取抛错期间用户在登录页勾选并同意了：迟到的重读失败不把它翻回去", async () => {
-    const { AppState } = require("react-native") as typeof import("react-native");
-    jest.spyOn(AppState, "addEventListener").mockImplementation((() => ({ remove: () => undefined })) as never);
+    const { AppState } =
+      require("react-native") as typeof import("react-native");
+    jest
+      .spyOn(AppState, "addEventListener")
+      .mockImplementation((() => ({ remove: () => undefined })) as never);
     mockFail.get = true;
     const { useConsentStore } = loadConsent();
     await useConsentStore.getState().accept();
     await useConsentStore.getState().hydrate();
-    expect(useConsentStore.getState()).toMatchObject({ hydrated: true, privacyAccepted: true });
+    expect(useConsentStore.getState()).toMatchObject({
+      hydrated: true,
+      privacyAccepted: true,
+    });
   });
 });
 
@@ -554,7 +653,10 @@ describe("locale-store", () => {
     mockFail.get = true;
     const { useLocaleStore } = loadLocale();
     await useLocaleStore.getState().hydrate();
-    expect(useLocaleStore.getState()).toMatchObject({ locale: "zh-TW", hydrated: true });
+    expect(useLocaleStore.getState()).toMatchObject({
+      locale: "zh-TW",
+      hydrated: true,
+    });
   });
 });
 
