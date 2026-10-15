@@ -8,6 +8,7 @@ import {
   MAX_PLAUSIBLE_BACKFILL_MS,
 } from '../common/device-time';
 import { helmetLabel } from '../common/helmet-label';
+import { BindingScopeService } from '../devices/binding-scope.service';
 import { sleep } from '../common/sleep';
 import type { ValidEnvelope } from '../ingest/envelope';
 import { PrismaService } from '../prisma/prisma.service';
@@ -119,6 +120,7 @@ export class SosTriggerService {
     private readonly notifier: SosNotifierService,
     private readonly realtime: RealtimePushService,
     @Inject(PUSH_PROVIDER) private readonly push: PushProvider,
+    private readonly scope: BindingScopeService,
   ) {}
 
   async handleTrigger(
@@ -185,7 +187,7 @@ export class SosTriggerService {
       return;
     }
 
-    const snapshot = await this.resolveSnapshot(e);
+    const snapshot = await this.resolveSnapshot(e, userId);
     try {
       const created = await this.prisma.sosCase.create({
         data: {
@@ -358,17 +360,25 @@ export class SosTriggerService {
    */
   private async resolveSnapshot(
     e: ValidEnvelope,
+    userId: string,
   ): Promise<(SosSnapshot & { source: string }) | null> {
     const fromEvent = extractSosLocation(e.payload);
     if (fromEvent) return { ...fromEvent, source: 'event' };
 
     try {
+      // 只回落到建单用户绑定区间内到达的点（决策 #39，与 locations latest 同口径）：
+      // 换绑后新主人的事故位置 / 联系人短信不能用前主人的最后位置（边界测试 B3）
+      const intervals = await this.scope.intervals(e.deviceId, userId);
       const lastPoint = await this.prisma.locationPoint.findFirst({
         where: {
           deviceId: e.deviceId,
           timestamp: { lte: latestPlausibleTime() },
+          // 精确 (0,0) 是「没定到位」的哨兵（同 extractSosLocation）：跳过它找上一个真实点，
+          // 否则短信里的位置是 0,0（边界测试 B2）
+          NOT: { latitude: 0, longitude: 0 },
+          AND: [this.scope.scopeWhere('receivedAt', intervals)],
         },
-        orderBy: { timestamp: 'desc' },
+        orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
         select: {
           latitude: true,
           longitude: true,

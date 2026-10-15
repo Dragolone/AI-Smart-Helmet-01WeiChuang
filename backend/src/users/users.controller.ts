@@ -16,6 +16,7 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { MAX_PASSWORD_BYTES, MaxBytes } from '../auth/auth.dto';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
 import { PASSWORD_CHECK_LIMITS, RateLimit } from '../common/rate-limit.guard';
 import { PrismaService } from '../prisma/prisma.service';
@@ -42,9 +43,11 @@ class UpdateMeDto {
 }
 
 class DeleteAccountDto {
+  // 与登录 / 改密 / 换号同口径按字节挡：bcrypt 只比前 72 字节，超长时「前 72 字节对」就能注销（边界测试 B6）
   @IsString()
   @MinLength(1)
   @MaxLength(72)
+  @MaxBytes(MAX_PASSWORD_BYTES)
   password!: string;
 }
 
