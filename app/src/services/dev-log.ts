@@ -3,18 +3,30 @@
 // 只看环境变量不看 __DEV__：Release 构建测后台链路时也要能看到日志；正式环境的 .env 不设该变量即为空操作
 const SINK = process.env.EXPO_PUBLIC_BLE_LOG_URL || undefined;
 
+/**
+ * 一个参数写成一段文字。写日志绝不能抛：循环引用的对象（BLE 设备对象挂着 manager）、BigInt 会让
+ * JSON.stringify 抛错，原来这会从 devLog 一路抛进调用它的 BLE / 中转回调里
+ */
+function stringifyArg(a: unknown): string {
+  if (typeof a === "string") return a;
+  if (a instanceof Error) return a.stack ?? a.message;
+  try {
+    const json = JSON.stringify(a);
+    // undefined / 函数 / Symbol 序列化出来是 undefined
+    return json ?? String(a);
+  } catch {
+    try {
+      return String(a);
+    } catch {
+      return "[unprintable]";
+    }
+  }
+}
+
 export function devLog(tag: string, ...args: unknown[]): void {
   console.log(`[${tag}]`, ...args);
   if (!SINK) return;
-  const line = args
-    .map((a) =>
-      typeof a === "string"
-        ? a
-        : a instanceof Error
-          ? (a.stack ?? a.message)
-          : JSON.stringify(a),
-    )
-    .join(" ");
+  const line = args.map(stringifyArg).join(" ");
   fetch(SINK, { method: "POST", body: `[${tag}] ${line}` }).catch(
     () => undefined,
   );
