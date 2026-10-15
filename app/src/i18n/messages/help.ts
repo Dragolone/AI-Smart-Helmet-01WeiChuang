@@ -29,7 +29,7 @@ export const help = {
     "help.a8":
       "在「对讲」页选择「输入邀请码加入」，输入收到的 6 位邀请码。进入频道后，可使用「按住说话」或「持续通话」。使用头盔收发语音前，请确认头盔音频已连接到手机。对讲需要可用的网络。",
     "help.email": "发送反馈邮件",
-    "help.emailSubject": "零一唯创 App 反馈（版本 {v}）",
+    "help.emailSubject": "零一智行 App 反馈（版本 {v}）",
     "help.site": "官网",
     "help.openFailed": "无法打开，请稍后重试",
   },

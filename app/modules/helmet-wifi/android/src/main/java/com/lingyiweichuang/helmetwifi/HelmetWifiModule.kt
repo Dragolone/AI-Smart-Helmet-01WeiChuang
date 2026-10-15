@@ -82,7 +82,7 @@ class HelmetWifiModule : Module() {
       )
     }
 
-    /** 把截图文件存进系统相册「Pictures/零一唯创」。Android 10 以下需存储权限（已被合规屏蔽），不支持 */
+    /** 把截图文件存进系统相册「Pictures/零一智行」。Android 10 以下需存储权限（已被合规屏蔽），不支持 */
     AsyncFunction("saveImage") { path: String, promise: Promise ->
       if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
         promise.reject("UNSUPPORTED", "Android 10 以下暂不支持保存到相册", null)
@@ -97,7 +97,7 @@ class HelmetWifiModule : Module() {
       val values = ContentValues().apply {
         put(MediaStore.Images.Media.DISPLAY_NAME, "helmet_${System.currentTimeMillis()}.png")
         put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-        put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/零一唯创")
+        put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/零一智行")
         put(MediaStore.Images.Media.IS_PENDING, 1)
       }
       val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)

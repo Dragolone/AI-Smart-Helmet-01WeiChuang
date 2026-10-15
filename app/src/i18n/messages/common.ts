@@ -3,7 +3,7 @@ export const common = {
   "zh-CN": {
     "contacts.tell": "分享联系人说明",
     "contacts.tellMessage":
-      "{name}，我已在「零一唯创」智能头盔 App 中将你设为紧急联系人。触发求救后，如果倒计时结束前未取消，系统会尝试向你发送短信提醒。收到后请先联系我；若无法联系，请协助求助。谢谢！",
+      "{name}，我已在「零一智行」智能头盔 App 中将你设为紧急联系人。触发求救后，如果倒计时结束前未取消，系统会尝试向你发送短信提醒。收到后请先联系我；若无法联系，请协助求助。谢谢！",
     "app.crashTitle": "页面暂时无法显示",
     "app.crashBody": "请重试或重新打开 App。",
     "app.crashRetry": "重试",
@@ -13,7 +13,7 @@ export const common = {
     "ble.onboarding.bluetooth": "打开手机蓝牙",
     "ble.onboarding.bluetoothHint":
       "iPhone 在控制中心打开；安卓在系统设置里打开",
-    "ble.onboarding.permission": "允许「零一唯创」使用蓝牙",
+    "ble.onboarding.permission": "允许「零一智行」使用蓝牙",
     "ble.onboarding.permissionHint": "之前拒绝过，需要到系统设置里重新允许",
     "ble.onboarding.whitelist": "允许后台运行",
     "ble.onboarding.whitelistHint": "关闭省电限制，减少后台连接中断",

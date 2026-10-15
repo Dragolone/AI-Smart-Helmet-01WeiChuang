@@ -18,7 +18,7 @@ export const profile = {
     "profile.clearCache": "清除本地缓存",
     "profile.clearCacheBody": "清除页面数据与图片缓存，不影响已保存的数据。",
     "profile.clearCacheDone": "缓存已清除",
-    "profile.about": "关于零一唯创",
+    "profile.about": "关于零一智行",
     "profile.aboutBody":
       "AI 赋能，智能守护每一次骑行安全。\n深圳零一唯创科技有限公司",
     "profile.version": "版本 {v}",
