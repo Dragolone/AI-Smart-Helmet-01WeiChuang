@@ -63,6 +63,8 @@ export default function ProfileScreen() {
   const [nickDraft, setNickDraft] = useState("");
   const [avatarDraft, setAvatarDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // 保存成功：按钮先画勾，画完再关弹层（弹层一关内容就卸掉，下次打开从头来）
+  const [saved, setSaved] = useState(false);
 
   const openEdit = () => {
     setNickDraft(user?.nickname ?? "");
@@ -108,8 +110,7 @@ export default function ProfileScreen() {
           : {}),
       });
       await setUser(updated);
-      setEditOpen(false);
-      showToast(translate("common.saved"));
+      setSaved(true);
     } catch (e) {
       Alert.alert(translate("profile.saveFailed"), toUserMessage(e));
     } finally {
@@ -377,6 +378,11 @@ export default function ProfileScreen() {
                   title={t("common.save")}
                   onPress={() => void saveProfile()}
                   loading={saving}
+                  success={saved}
+                  onSuccessShown={() => {
+                    setEditOpen(false);
+                    setSaved(false);
+                  }}
                 />
               </Tappable>
             </ReAnimated.View>
