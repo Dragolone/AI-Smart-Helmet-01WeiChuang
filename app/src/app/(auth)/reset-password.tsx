@@ -48,6 +48,8 @@ export default function ResetPasswordScreen() {
   const fail = (field: FormField, message: string) =>
     setFieldError({ field, message });
   const [busy, setBusy] = useState(false);
+  // 重置成功：按钮先画勾（「已重置」），画完再提示并回登录页
+  const [done, setDone] = useState(false);
   const sms = useSmsCode("reset_password");
 
   const sendCode = async () => {
@@ -88,9 +90,8 @@ export default function ResetPasswordScreen() {
         code,
         newPassword: password,
       });
-      // 成功即全端会话作废(API.md §2),回登录页用新密码登录
-      showToast(t("auth.resetDone"));
-      router.back();
+      // 成功即全端会话作废(API.md §2)：按钮画完勾再回登录页用新密码登录
+      setDone(true);
     } catch (e) {
       const field = errorField(e);
       if (field) fail(field, toUserMessage(e));
@@ -204,6 +205,12 @@ export default function ResetPasswordScreen() {
               title={t("auth.resetPassword")}
               onPress={submit}
               loading={busy}
+              success={done}
+              successTitle={t("auth.resetDoneShort")}
+              onSuccessShown={() => {
+                showToast(t("auth.resetDone"));
+                router.back();
+              }}
             />
 
             <Pressable
