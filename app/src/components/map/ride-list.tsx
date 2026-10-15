@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/skeleton";
 import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
 import { useTheme } from "@/hooks/use-theme";
+import { plausibleSpeed } from "@/components/map/coords";
 import { useLocale, useT, type Locale } from "@/i18n";
 import { dayTitle, formatKm, sameLocalDay, shortTime } from "@/i18n/format";
 import {
@@ -208,13 +209,12 @@ export function RideList({
             {day.rides.map((ride, i) => {
               const time = rideTimeRange(ride, locale, t);
               const dur = durationText(rideSeconds(ride), t);
+              // 最高速度是服务端取的原始速度：GPS 漂移时会出现「最高 1440 km/h」，不像真的就不写
+              const max = plausibleSpeed(ride.maxSpeed);
               const sub = ride.ongoing
                 ? t("map.rides.live", { dur })
-                : ride.maxSpeed !== null
-                  ? t("map.rides.rowMax", {
-                      dur,
-                      max: Math.round(ride.maxSpeed * 3.6),
-                    })
+                : max !== null
+                  ? t("map.rides.rowMax", { dur, max: Math.round(max * 3.6) })
                   : dur;
               const km = formatKm(ride.distanceMeters);
               return (

@@ -60,7 +60,12 @@ import {
   type AmapViewHandle,
   type MapMark,
 } from "@/components/map/amap-view";
-import { isPlausibleFix, toGcj02, type LngLat } from "@/components/map/coords";
+import {
+  isPlausibleFix,
+  plausibleSpeed,
+  toGcj02,
+  type LngLat,
+} from "@/components/map/coords";
 import { HelmetPicker } from "@/components/map/helmet-picker";
 import { openAmapNavigation } from "@/components/map/nav-links";
 import { RideCalendar } from "@/components/map/ride-calendar";
@@ -1502,8 +1507,10 @@ export default function MapScreen() {
                           <Stat
                             label={t("map.ride.max")}
                             value={
-                              summary?.maxSpeed != null
-                                ? (summary.maxSpeed * 3.6).toFixed(0)
+                              plausibleSpeed(summary?.maxSpeed) != null
+                                ? (
+                                    plausibleSpeed(summary?.maxSpeed)! * 3.6
+                                  ).toFixed(0)
                                 : "—"
                             }
                             unit="km/h"
