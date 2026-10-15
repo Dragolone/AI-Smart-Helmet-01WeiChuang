@@ -178,7 +178,11 @@ export function skiaMock() {
 export function iconsMock() {
   const Ionicons = (props: AnyProps) => createElement("Ionicons", props);
   Ionicons.glyphMap = {};
-  return { Ionicons, MaterialCommunityIcons: Ionicons };
+  return {
+    Ionicons,
+    MaterialIcons: Ionicons,
+    MaterialCommunityIcons: Ionicons,
+  };
 }
 
 /** react-native-safe-area-context：固定的安全区（上 47、下 34） */
