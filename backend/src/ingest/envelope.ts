@@ -50,9 +50,11 @@ export function buildInvalidRecord(
 export const MAX_RAW_BYTES = 65_536;
 
 /** EVENTS.md §1：timestamp 必须为 ISO 8601 且带显式时区（Z 或 ±hh:mm）。
- *  缺时区的字符串 JS 会按服务器本地时区解释，导致静默偏移数小时落库。 */
+ *  缺时区的字符串 JS 会按服务器本地时区解释，导致静默偏移数小时落库。
+ *  小数秒不限 3 位：ISO 8601 允许任意位，Python isoformat / Go RFC3339Nano 默认是 6 / 9 位，
+ *  只收 3 位会让这类上游的摔倒事件整条进 _invalid、不建单（边界测试 B4）；Date 解析时截到毫秒 */
 const ISO8601_WITH_TZ =
-  /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/;
+  /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
 
 /** raw_events.schema_version 是 int4：超出范围的值入库必炸，在校验层挡住 */
 const INT32_MAX = 2_147_483_647;

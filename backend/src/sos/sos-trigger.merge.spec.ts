@@ -1,6 +1,7 @@
 // 10-06 并发评审 #1：倒计时中收到实体键 manual_sos → 升级立即通知；若升级那一刻那一单刚被本人取消，
 // 这次明确的人为求救不能被静默吞掉——按终态后的新事件建新单。另钉住建单推送的重试节奏。
 import { Test } from '@nestjs/testing';
+import { BindingScopeService } from '../devices/binding-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PUSH_PROVIDER } from '../providers/push.provider';
 import { RealtimePushService } from '../realtime/realtime-push.service';
@@ -41,6 +42,7 @@ describe('SosTriggerService：升级与取消撞车 / 建单推送重试', () =>
   const prismaMock = {
     sosCase: { findFirst: jest.fn(), findUnique: jest.fn(), create: jest.fn() },
     locationPoint: { findFirst: jest.fn() },
+    deviceBinding: { findMany: jest.fn() },
   };
   const notifierMock = { finalizeNotified: jest.fn() };
   const realtimeMock = { pushSosUpdate: jest.fn() };
@@ -52,10 +54,12 @@ describe('SosTriggerService：升级与取消撞车 / 建单推送重试', () =>
     jest.resetAllMocks();
     process.env.SOS_CREATED_PUSH_RETRY_DELAYS_SECONDS = '';
     prismaMock.locationPoint.findFirst.mockResolvedValue(null);
+    prismaMock.deviceBinding.findMany.mockResolvedValue([]);
     pushMock.send.mockResolvedValue(undefined);
     const moduleRef = await Test.createTestingModule({
       providers: [
         SosTriggerService,
+        BindingScopeService,
         { provide: PrismaService, useValue: prismaMock },
         { provide: SosNotifierService, useValue: notifierMock },
         { provide: RealtimePushService, useValue: realtimeMock },

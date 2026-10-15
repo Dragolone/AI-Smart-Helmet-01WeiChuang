@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { EVENT_TYPES } from '@helmet/shared';
 import { CLOCK_SKEW_THRESHOLD_MS } from '../common/device-time';
 import { errorMessage } from '../common/error-text';
 import { isUniqueViolation } from '../common/prisma-errors';
@@ -43,6 +44,8 @@ const SEQ_ROLLBACK_WATCH_TYPES = new Set([
 ]);
 /** 未校时的头盔补传同一事件时 App 会填收到时刻，几分钟内的差异不算；超过它才像是两次不同的事件 */
 const SEQ_ROLLBACK_GAP_MS = 5 * 60_000;
+
+const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set(EVENT_TYPES);
 
 const DEVICE_EVENT_TYPES = new Set([
   'sleep_entered',
@@ -147,6 +150,12 @@ export class IngestService {
       return 'stored_invalid';
     }
     if (stored) {
+      if (!KNOWN_EVENT_TYPES.has(result.envelope.eventType)) {
+        // EVENTS.md §1 / §2：未知类型进原始事件表并告警（不进任何业务表，App 查询也看不到）
+        this.logger.warn(
+          `未知 eventType「${result.envelope.eventType}」已原样留档（入口 ${source}）：${result.envelope.eventId}（device=${topicDeviceId}）`,
+        );
+      }
       await this.dispatchStored(result.envelope);
     }
     return stored ? 'stored' : 'duplicate';
