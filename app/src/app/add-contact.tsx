@@ -10,6 +10,7 @@ import { FormError, FormInput, PrimaryButton } from "@/components/form";
 import { ThemedView } from "@/components/themed-view";
 import { isValidPhone, normalizePhone } from "@/hooks/use-sms-code";
 import { useT } from "@/i18n";
+import { cleanNickname } from "@/services/user-name";
 
 export default function AddContactScreen() {
   const queryClient = useQueryClient();
@@ -24,7 +25,10 @@ export default function AddContactScreen() {
 
   const submit = async () => {
     setError(null);
-    if (!name.trim() || !phone.trim()) {
+    // 名字 / 关系提交前和显示时同一套整理：只含零宽字符、换行的名字原来照提交，列表里是一片空白
+    const cleanName = cleanNickname(name);
+    const cleanRelation = cleanNickname(relation);
+    if (!cleanName || !phone.trim()) {
       setError(t("contacts.required"));
       return;
     }
@@ -37,9 +41,9 @@ export default function AddContactScreen() {
     setBusy(true);
     try {
       await contactsApi.create({
-        name: name.trim(),
+        name: cleanName,
         phone: cleanPhone,
-        ...(relation.trim() && { relation: relation.trim() }),
+        ...(cleanRelation && { relation: cleanRelation }),
       });
       await queryClient.invalidateQueries({ queryKey: ["contacts"] });
       setDone(true);

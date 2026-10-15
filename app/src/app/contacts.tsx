@@ -19,7 +19,11 @@ import Animated from "react-native-reanimated";
 import { listEntering } from "@/components/motion";
 import { EmptyState } from "@/components/empty-state";
 import { showNotice } from "@/services/notice";
-import { avatarInitial, cleanNickname } from "@/services/user-name";
+import {
+  avatarInitial,
+  cleanNickname,
+  contactNameOf,
+} from "@/services/user-name";
 
 const MAX_CONTACTS = 5;
 
@@ -34,6 +38,7 @@ function ContactRow({
 }) {
   const theme = useTheme();
   const t = useT();
+  const relation = cleanNickname(contact.relation);
   return (
     <View
       style={[
@@ -54,11 +59,11 @@ function ContactRow({
       <View style={styles.body}>
         <ThemedText type="default" style={{ lineHeight: 22 }} numberOfLines={1}>
           {/* 名字整理后为空（只含零宽字符等）就写号码，别留一片空白 */}
-          {cleanNickname(contact.name) || contact.phone}
-          {contact.relation ? (
+          {contactNameOf(contact)}
+          {relation ? (
             <ThemedText type="small" themeColor="textSecondary">
               {"  "}
-              {contact.relation}
+              {relation}
             </ThemedText>
           ) : null}
         </ThemedText>
@@ -75,7 +80,9 @@ function ContactRow({
         accessibilityLabel={t("contacts.tell")}
         onPress={() =>
           void Share.share({
-            message: t("contacts.tellMessage", { name: contact.name }),
+            message: t("contacts.tellMessage", {
+              name: contactNameOf(contact),
+            }),
           }).catch(() => undefined)
         }
         hitSlop={8}
@@ -108,7 +115,7 @@ export default function ContactsScreen() {
   const remove = (c: EmergencyContact) => {
     Alert.alert(
       translate("contacts.deleteTitle"),
-      translate("contacts.deleteBody", { name: c.name }),
+      translate("contacts.deleteBody", { name: contactNameOf(c) }),
       [
         { text: translate("common.cancel"), style: "cancel" },
         {

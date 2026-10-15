@@ -69,7 +69,12 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useBleStore } from "@/stores/ble-store";
 import { useIntercomStore } from "@/stores/intercom-store";
 import { showNotice } from "@/services/notice";
-import { avatarInitial, personNameOf } from "@/services/user-name";
+import {
+  avatarInitial,
+  channelNameOf,
+  cleanNickname,
+  personNameOf,
+} from "@/services/user-name";
 
 const SPEAKING_THRESHOLD = 10; // onUserVoiceVolume 0–100
 /** 屏幕常亮的标记：只管对讲页自己开的这一份，不影响地图页开的 */
@@ -438,7 +443,7 @@ export default function IntercomScreen() {
 
   // 给别的标签页上的「对讲中」小条看的摘要
   const micOpen = inRoom && mode === "open" && micOn;
-  const sessionName = channel?.name;
+  const sessionName = channel ? channelNameOf(channel.name) : undefined;
   useEffect(() => {
     useIntercomStore.getState().setSession(
       inRoom && activeId && sessionName
@@ -537,14 +542,15 @@ export default function IntercomScreen() {
   const switchTo = (next: VoiceChannel) => {
     setSheet(null);
     if (next.channelId === activeId) return;
-    if (channel) showToast(t("intercom.leftRoom", { name: channel.name }));
+    if (channel)
+      showToast(t("intercom.leftRoom", { name: channelNameOf(channel.name) }));
     void join(next.channelId);
   };
 
   const leaveChannel = (c: VoiceChannel) => {
     Alert.alert(
       t("intercom.leaveChannel"),
-      t("intercom.leaveChannelBody", { name: c.name }),
+      t("intercom.leaveChannelBody", { name: channelNameOf(c.name) }),
       [
         { text: t("common.cancel"), style: "cancel" },
         {
@@ -571,17 +577,19 @@ export default function IntercomScreen() {
   const shareInvite = (c: VoiceChannel) => {
     void Share.share({
       message: t("intercom.shareMessage", {
-        name: c.name,
+        name: channelNameOf(c.name),
         code: c.inviteCode,
       }),
     });
   };
 
+  // 提交前和显示时同一套整理：只剩看不见的字符 / 空白就不提交（按钮本来也是灰的）
+  const createName = cleanNickname(nameDraft);
   const submitCreate = () => {
-    if (!nameDraft.trim()) return;
+    if (!createName) return;
     setSubmitting(true);
     channelsApi
-      .create({ name: nameDraft.trim() })
+      .create({ name: createName })
       .then(() => {
         setCreateOpen(false);
         setNameDraft("");
@@ -726,7 +734,9 @@ export default function IntercomScreen() {
         ? t("intercom.add.title")
         : sheet?.kind === "openMic"
           ? t("intercom.mode.open")
-          : (moreChannel?.name ?? "");
+          : moreChannel
+            ? channelNameOf(moreChannel.name)
+            : "";
   const sheetLead =
     sheet?.kind === "switch"
       ? t("intercom.switch.lead")
@@ -748,7 +758,7 @@ export default function IntercomScreen() {
       <View style={styles.channelBody}>
         <View style={styles.roomNameRow}>
           <ThemedText numberOfLines={1} style={styles.channelName}>
-            {channel?.name ?? ""}
+            {channel ? channelNameOf(channel.name) : ""}
           </ThemedText>
           {list.length > 1 && (
             <Ionicons
@@ -793,7 +803,7 @@ export default function IntercomScreen() {
                   feedback="opacity"
                   accessibilityRole="button"
                   accessibilityLabel={t("intercom.switch.a11y", {
-                    name: channel?.name ?? "",
+                    name: channel ? channelNameOf(channel.name) : "",
                   })}
                   onPress={() => setSheet({ kind: "switch" })}
                   style={styles.roomHeadMain}
@@ -1216,7 +1226,7 @@ export default function IntercomScreen() {
                     </View>
                     <View style={styles.channelBody}>
                       <ThemedText numberOfLines={1} style={styles.chanName}>
-                        {c.name}
+                        {channelNameOf(c.name)}
                       </ThemedText>
                       <ThemedText
                         type="small"
@@ -1231,7 +1241,7 @@ export default function IntercomScreen() {
                       feedback="opacity"
                       accessibilityRole="button"
                       accessibilityLabel={t("intercom.more.a11y", {
-                        name: c.name,
+                        name: channelNameOf(c.name),
                       })}
                       onPress={() =>
                         setSheet({ kind: "more", channelId: c.channelId })
@@ -1249,7 +1259,7 @@ export default function IntercomScreen() {
                       haptic
                       accessibilityRole="button"
                       accessibilityLabel={t("intercom.enter.a11y", {
-                        name: c.name,
+                        name: channelNameOf(c.name),
                       })}
                       disabled={joining && !busy}
                       onPress={() => void join(c.channelId)}
@@ -1382,7 +1392,7 @@ export default function IntercomScreen() {
                             numberOfLines={1}
                             style={styles.sheetRowTitle}
                           >
-                            {c.name}
+                            {channelNameOf(c.name)}
                           </ThemedText>
                           <ThemedText
                             type="small"
@@ -1603,6 +1613,7 @@ export default function IntercomScreen() {
                   <PrimaryButton
                     title={t("intercom.createAction")}
                     onPress={submitCreate}
+                    disabled={!createName}
                     loading={submitting}
                   />
                 </Pressable>

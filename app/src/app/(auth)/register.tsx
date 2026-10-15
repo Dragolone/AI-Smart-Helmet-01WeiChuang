@@ -27,6 +27,7 @@ import { ThemedView } from "@/components/themed-view";
 import { Radius } from "@/constants/theme";
 import { useSmsCode, isValidPhone } from "@/hooks/use-sms-code";
 import { isPasswordTooLong } from "@/services/password-rules";
+import { cleanNickname } from "@/services/user-name";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
 import { useAuthStore } from "@/stores/auth-store";
@@ -103,7 +104,8 @@ export default function RegisterScreen() {
         phone: phone.trim(),
         code,
         password,
-        ...(nickname.trim() && { nickname: nickname.trim() }),
+        // 昵称按显示时的规则整理：只含零宽字符 / 换行的昵称原来照提交，资料卡、对讲格子里没有名字
+        ...(cleanNickname(nickname) && { nickname: cleanNickname(nickname) }),
       });
       // 勾选 + 提交成功 = 同意成立；先记同意再登录，登录态钩子里的推送 SDK 初始化才放行
       await acceptPrivacy();

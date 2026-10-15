@@ -8,6 +8,7 @@ export const intercom = {
     "intercom.joinWithCode": "输入邀请码加入",
     "intercom.channelName": "频道名",
     "intercom.channelNamePlaceholder": "如：周末骑行队",
+    "intercom.unnamedChannel": "未命名频道",
     "intercom.inviteCode": "邀请码",
     "intercom.inviteCodePlaceholder": "6 位字母或数字",
     "intercom.inviteCodeFormat": "邀请码是 6 位字母或数字，不分大小写",
@@ -92,6 +93,7 @@ export const intercom = {
     "intercom.joinWithCode": "輸入邀請碼加入",
     "intercom.channelName": "頻道名",
     "intercom.channelNamePlaceholder": "如：週末騎行隊",
+    "intercom.unnamedChannel": "未命名頻道",
     "intercom.inviteCode": "邀請碼",
     "intercom.inviteCodePlaceholder": "6 位字母或數字",
     "intercom.inviteCodeFormat": "邀請碼是 6 位字母或數字，不分大小寫",
@@ -177,6 +179,7 @@ export const intercom = {
     "intercom.joinWithCode": "Join with invite code",
     "intercom.channelName": "Channel name",
     "intercom.channelNamePlaceholder": "e.g. Weekend ride",
+    "intercom.unnamedChannel": "Untitled channel",
     "intercom.inviteCode": "Invite code",
     "intercom.inviteCodePlaceholder": "6 letters or digits",
     "intercom.inviteCodeFormat":
