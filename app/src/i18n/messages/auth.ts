@@ -55,6 +55,7 @@ export const auth = {
     "auth.resetPassword": "重置密码",
     "auth.backToLogin": "返回登录",
     "auth.resetDone": "密码已重置，请重新登录",
+    "auth.resetDoneShort": "已重置",
     "auth.passwordTooLong": "密码最多 72 位",
     "auth.changePasswordLead":
       "验证当前密码后设置新密码；其他已登录设备将需要重新登录，本机保持登录。",
@@ -162,6 +163,7 @@ export const auth = {
     "auth.resetPassword": "重設密碼",
     "auth.backToLogin": "返回登入",
     "auth.resetDone": "密碼已重設，請重新登入",
+    "auth.resetDoneShort": "已重設",
     "auth.passwordTooLong": "密碼最多 72 位",
     "auth.changePasswordLead":
       "驗證目前密碼後設定新密碼；其他已登入的裝置將需要重新登入，本機保持登入。",
@@ -273,6 +275,7 @@ export const auth = {
     "auth.resetPassword": "Reset password",
     "auth.backToLogin": "Back to log in",
     "auth.resetDone": "Password reset. Please log in again.",
+    "auth.resetDoneShort": "Reset",
     "auth.passwordTooLong": "Password must be at most 72 characters",
     "auth.changePasswordLead":
       "Confirm your current password, then set a new one. Other signed-in devices will need to log in again; this device stays signed in.",
