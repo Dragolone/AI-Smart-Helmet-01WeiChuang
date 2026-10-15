@@ -30,6 +30,7 @@ import {
   sleep,
   sosByEvent,
   sosSmsCalls,
+  waitForPushTitled,
 } from './helpers/audit-sos';
 
 jest.setTimeout(60000);
@@ -115,6 +116,8 @@ describe('审计 §4 SOS 故障注入 (e2e, 手动 tick)', () => {
       await prisma.rawEvent.findFirst({ where: { eventId } }),
     ).not.toBeNull();
     expect(await sosByEvent(prisma, eventId)).not.toBeNull();
+    // 倒计时 Push 是建单后的后台任务：等它发出再数
+    await waitForPushTitled(mocks, 'SOS 倒计时已开始');
     expect(pushCallsTitled(mocks, 'SOS 倒计时已开始')).toHaveLength(1);
   });
 

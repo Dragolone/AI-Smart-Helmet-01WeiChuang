@@ -37,6 +37,7 @@ import {
   sleep,
   sosByEvent,
   sosSmsCalls,
+  waitForPushTitled,
   WsCollector,
 } from './helpers/audit-sos';
 
@@ -186,6 +187,8 @@ describe('审计 §4 SOS 全链路与状态机 (e2e, 手动 tick)', () => {
     });
     // 层 3：建单阶段无通知行；本人倒计时 Push 恰 1 次
     expect(await notificationsOf(prisma, c!.id)).toHaveLength(0);
+    // 倒计时 Push 是建单后的后台任务：等它发出再数，不能入口一返回就查 mock
+    await waitForPushTitled(mocks, 'SOS 倒计时已开始');
     expect(pushCallsTitled(mocks, 'SOS 倒计时已开始')).toHaveLength(1);
     // iOS：带 App 注册的 "sos" 类别（远程推送上才有「取消」按钮）与时效性（穿透专注模式）
     expect(pushCallsTitled(mocks, 'SOS 倒计时已开始')[0][4]).toEqual({
@@ -565,6 +568,7 @@ describe('审计 §4 SOS 全链路与状态机 (e2e, 手动 tick)', () => {
     expect(await prisma.sosCase.count({ where: { deviceId: devRace } })).toBe(
       1,
     );
+    await waitForPushTitled(mocks, 'SOS 倒计时已开始');
     expect(pushCallsTitled(mocks, 'SOS 倒计时已开始')).toHaveLength(1);
   });
 

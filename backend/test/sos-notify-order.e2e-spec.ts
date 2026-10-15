@@ -24,6 +24,7 @@ import {
   makeProviderMocks,
   resetMocks,
   sosByEvent,
+  waitForPushTitled,
 } from './helpers/audit-sos';
 
 jest.setTimeout(60_000);
@@ -62,6 +63,8 @@ describe('SOS 通知投递顺序（push 正文依赖短信结果）', () => {
     const e = fallEnvelope(deviceId);
     await ingest.ingestRaw(JSON.stringify(e), deviceId, 'mqtt');
     const c = (await sosByEvent(prisma, e.eventId as string))!;
+    // 建单后的「倒计时已开始」Push 是后台任务：等它发完再往下走，免得它落在下面 resetMocks 之后、被算进投递顺序的断言
+    await waitForPushTitled(mocks, 'SOS 倒计时已开始');
     await confirmSos(http, owner.token, c.id);
     const base = new Date();
     for (const channel of ['sms', 'push'] as const) {

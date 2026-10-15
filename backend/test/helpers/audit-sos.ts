@@ -184,6 +184,25 @@ export async function waitUntil<T>(
   return last;
 }
 
+/**
+ * 等到某标题的 Push 至少发出 n 条。「SOS 倒计时已开始」是建单后 void 起的后台任务（先查头盔名再发，#194），
+ * 入口返回 / WS 到达时它可能还没调到 provider——直接数 mock 调用会抢跑。返回当时的调用列表。
+ */
+export const waitForPushTitled = (
+  m: ProviderMocks,
+  title: string,
+  n = 1,
+  timeoutMs = 3000,
+): Promise<
+  Array<[string, string, string, Record<string, string>?, PushOptions?]>
+> =>
+  waitUntil(
+    () => Promise.resolve(pushCallsTitled(m, title)),
+    (calls) => calls.length >= n,
+    timeoutMs,
+    20,
+  );
+
 export interface WsMsg {
   type: string;
   data: Record<string, unknown>;
