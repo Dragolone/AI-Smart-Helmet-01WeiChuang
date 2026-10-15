@@ -104,7 +104,7 @@
 - **现实概率**：iOS 没权限时排通知不抛错（静默不显示）；Android 13+ 未授权、系统通知服务偶发异常时可能抛。
   用户在倒计时期间去设置里打开通知、再锁屏，这一单仍不会补弹。
 - **期望**：第一条（会响铃的那条）没排上时把这一单从去重表里撤掉，下次还能再试。
-- **代码位置**：`showSosAlertIfBackground` 的 `alerts.set(sosId, entry)`（约第 382 行）与末尾 catch。
+- **代码位置**：`showSosAlertIfBackground` 的 `alerts.set(sosId, entry)`（第 375 行）与末尾 catch。
 - **建议修法**：catch 里 `if (entry.ids.length <= 1 && alerts.get(sosId) === entry) alerts.delete(sosId)`
   （只在第一条都没排上时撤；刷新档失败不影响已经响过的那条）。
 
@@ -115,5 +115,17 @@
   用户要白等 17 秒才看到结果，倒计时页显示的是「这条求救不存在」。
 - **复现**：`edge-sos-alert-1016.test.ts`「这单不存在 / 不是自己的（404）也按 2 / 5 / 10 秒重试三次」。
 - **期望**：404 / 403 这类服务端明确拒绝的不重试，直接撤掉通知并说明（与上行队列 `isUnrecoverable` 同口径）。
-- **代码位置**：`cancelFromNotification` 的 catch 分支（约第 292 行起）。
+- **代码位置**：`cancelFromNotification` 的 catch 分支（第 292 行起）。
 - **建议修法**：`status === 404 || status === 403` 时按「这单已不在」收尾：结束在途标记、撤通知，不排重试。低优先级。
+
+## A11 绑了 20 顶以上时，BLE 只盯服务端列表的前 20 顶，可能把「当前头盔」排除在外（`services/ble-link.ts`）
+
+- **现象**：`setBleTargets` 去重后 `slice(0, 20)`，注释说「服务端按绑定时间排，当前头盔在前」；但 `GET /devices` 是
+  `orderBy: { boundAt: 'desc' }`（最新绑的在前），而「当前头盔」是用户在设备页「设为当前」选的，可以是很早绑的那顶。
+  绑了 21 顶以上、当前头盔又排在 20 名以后时，这顶头盔不在扫描目标里，摔倒事件不会经 BLE 中转。
+- **复现**：`ble-link.test.ts`「绑定上千顶时链路只盯列表最前面的 20 顶」已钉住「取列表前 20」这一现状；
+  把当前头盔放到第 21 位即可看到它不在 `currentBleTargets()` 里。
+- **现实概率**：真实用户绑不到 20 顶，几乎不会发生；记下是因为注释与实际排序不符。
+- **期望**：截断前先把当前头盔（以及在线的）挪到最前。
+- **代码位置**：`setBleTargets` 第 777–787 行；调用方 `use-realtime.ts` 的 `bleTargetsOf`。
+- **建议修法**：调用方传目标时按 `currentHelmetOf` 的结果把当前头盔排第一；或者只改注释说明「取最新绑定的 20 顶」。
