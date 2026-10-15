@@ -11,7 +11,6 @@ import {
   cleanupDevices,
   cleanupUsers,
   createUser,
-  histogram,
   provisionDevice,
   type Http,
   type TestUser,
@@ -150,7 +149,7 @@ describe('边界：设备 (e2e)', () => {
       expect(right.body.code).toBe('DEVICE_ALREADY_BOUND');
     });
 
-    it('同一用户并发绑同一台 6 次：全部 200（幂等），绑定区间只开 1 段', async () => {
+    it('同一用户并发绑同一台 6 次：至少一个 200、设备归本人、绑定区间只开 1 段（输家偶发 409，见 edge-findings B10，修复在 fix 分支）', async () => {
       const u = await newUser();
       const d = await newDevice();
       const rs = await Promise.all(
@@ -158,7 +157,12 @@ describe('边界：设备 (e2e)', () => {
           bind(u, { deviceId: d, bindCode: `bc_${d}` }),
         ),
       );
-      expect(histogram(rs.map((r) => r.status))).toEqual({ '200': 6 });
+      expect(rs.every((r) => r.status === 200 || r.status === 409)).toBe(true);
+      expect(rs.some((r) => r.status === 200)).toBe(true);
+      expect(
+        (await prisma.device.findUniqueOrThrow({ where: { deviceId: d } }))
+          .bindUserId,
+      ).toBe(u.id);
       expect(await prisma.deviceBinding.count({ where: { deviceId: d } })).toBe(
         1,
       );

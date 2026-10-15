@@ -1,8 +1,8 @@
 # 后端边界测试发现（2026-10-16）
 
-> 范围：本地 PostgreSQL + 完整应用（与 main.ts 同管线），`test/edge-*.e2e-spec.ts` 十四个套件。
+> 范围：本地 PostgreSQL + 完整应用（与 main.ts 同管线），`test/edge-*.e2e-spec.ts` 十五个套件。
 > 不涉及云端 dev、不发真短信 / 推送。10-15 云端那一轮（S1–S5、F1–F27）不重复。
-> 失败的测试一律没有提交到 `test/backend-edge-1016`（CI 必须绿）；B1–B6、B8 的复现测试和修复在 `fix/backend-edge-1016`（叠在测试分支之上，只推分支不合并，后端归 Draven 审）。
+> 失败的测试一律没有提交到 `test/backend-edge-1016`（CI 必须绿）；B1–B6、B8–B10 的复现测试和修复在 `fix/backend-edge-1016`（叠在测试分支之上，只推分支不合并，后端归 Draven 审）。
 
 ## 严重度口径
 
@@ -21,6 +21,8 @@
 | B5 | 低 | 未知 schemaVersion、未知 eventType 的事件出现在 App 事件历史和详情里（schemaVersion=999 的摔倒显示「疑似摔倒」但没建单）；未知 eventType 入库时也没有告警日志 | 有 |
 | B6 | 低 | `DELETE /users/me` 的 password 没有 72 字节上限：超过 72 字节、前 72 字节对就能注销（改密 / 换号 / 登录都按字节拒） | 有 |
 | B7 | 低 | `PATCH /devices/{id}` 不传 `name`（空对象）也会把自定义名清空 | 无（契约要定） |
+| B9 | 中 | 请求体 JSON 嵌套约 4000 层（20KB 出头）时 ValidationPipe 栈溢出 → 500；公开的登录 / 发码 / 管理员登录不带令牌也能稳定打出来 | 有 |
+| B10 | 低 | 同一用户并发绑同一台头盔（App 连点）：输家偶发 409 DEVICE_ALREADY_BOUND「设备已被其他用户绑定」，而设备其实绑在自己名下 | 有 |
 | B8 | 低 | EMQX 认证回调 `username` / `password` 不是字符串时 500（带 ERROR 堆栈）；只有持内部令牌的调用方能触发，结果从不为 allow | 有 |
 
 ---
@@ -81,6 +83,22 @@
 - **影响**：App 目前只在改名时带 `name` 调用，不会触发；但任何「只想改别的字段」的调用（将来加字段时）都会把名字抹掉。
 - **建议**：要 Draven / 负责人定口径——「不传不改、传 null 或空串才清」（推荐，同 PATCH /users/me 与联系人 PATCH 的现状），定了再改控制器和 API.md。没开修复分支。
 
+### B9 请求体嵌套过深 → 500（未登录可触发）
+
+- **现象**：`POST /api/v1/auth/login` body `{"phone":"13800000000","password":"x","junk":{"a":{"a":…}}}`，`junk` 嵌套 4500 层（约 22KB，远低于 100KB 体积上限）→ `500 INTERNAL_ERROR`，日志 `RangeError: Maximum call stack size exceeded`。`/auth/sms-code`、`/admin/auth/login` 同样；带令牌时 `PATCH /users/me`、`PUT …/settings`、`POST /ingest/app-relay`（整批）同理。4000 层以内正常。
+- **原因**：全局 `ValidationPipe({ transform: true })` 里 class-transformer 逐层递归处理整个请求体——DTO 没声明、随后会被 `whitelist` 丢掉的字段也先递归一遍。`NulGuard` 只看 64 层、不拦深度。
+- **期望**：API.md §1.1——请求体校验失败 400 VALIDATION_FAILED；未预期异常才 500。公开接口能被匿名请求稳定打出 500 + ERROR 堆栈，属于可刷日志的面（限频只挡单 IP 每分钟 100 次）。
+- **位置**：`backend/src/app.module.ts`（全局守卫）、`main.ts` 的 ValidationPipe。
+- **修法**：新增全局 `JsonDepthGuard`（APP_GUARD，在 Pipe 之前、迭代遍历不递归）：请求体超过 2000 层 → 400。2000 = 既有口径「设备入口 payload 嵌套 1000 层也照收」（audit-ingest-entries 坏输入矩阵）的两倍、栈溢出点的一半。
+- **要 Draven 定**：`/ingest/*` 在这一种极端输入下变成整批 400，而不是「脏 envelope 留档为 invalid」（API.md §1.1 的设备入口例外）——单条 envelope 根本到不了 Ingest 层（Pipe 先崩），想逐条留档得让这两个入口绕开 class-transformer，改动更大。
+
+### B10 同一用户并发绑定 → 偶发 409「已被其他用户绑定」
+
+- **现象**：同一账号对同一台未绑定头盔并发 `POST /devices/bind` 6 次，偶发 `5 × 200 + 1 × 409 DEVICE_ALREADY_BOUND`（10-16 全量跑复现一次，单独跑多数全 200）。设备确实绑在本人名下、绑定区间只有一段——只是那个 409 的 message 是「设备已被其他用户绑定」，App 连点「绑定」时会弹出错误提示。
+- **原因**：`devices.service.ts` `bind()` 先读 `bindUserId`（都读到 null）→ 事务里条件更新 `bindUserId: null → userId`，输家 `count = 0` 直接抛 409，没有再看一眼「现在是不是绑在我名下」。同类问题对讲频道加入修过（审计 VOICE-01）。
+- **期望**：API.md §4 / devices e2e「A 重复绑定 → 幂等成功」。
+- **修法**：条件更新落空时在同一事务里重读；若已是本人，按幂等返回现状，否则照旧 409。
+
 ### B8 EMQX 认证回调的类型混淆 → 500
 
 - **现象**：`POST /internal/emqx/authenticate`（带正确内部令牌）body 里 `username` 为数组 / 对象 / 布尔 → Prisma 校验异常；`password` 为数字 / 数组 / 对象 → `createHash().update()` 抛 TypeError；统一过滤器回 500 并打 ERROR 堆栈。`authorize` 同样的输入是 200 deny（正则对非字符串做了隐式转换）。
@@ -112,7 +130,10 @@
 16. 设备快照（lastSeenAt / firmwareVersion / 电量）按**到达顺序**覆盖，不比设备时间：App 补传 2 小时前、旧固件号的心跳会把固件号和电量回写成旧值，直到下一条实时心跳。`edge-ingest-business`。
 17. EMQX 内部令牌：header 存在（哪怕是空串）就以 header 为准，query 里对的令牌不再看；令牌走 query 时会进访问日志。
 18. EMQX 授权的 topic 若是单元素数组，会被隐式转成同一个字符串、等价于原 topic（不构成越权）；多元素数组 deny。
+19. SOS 短信参数里的昵称按 UTF-16 码元截前 10 个（`slice(0, 10)`）：第 10 个码元落在 emoji 中间时会留下半个代理对。短信现在是固定文案（决策 #46）、不用这个参数，将来接入带变量的渠道（语音 / 分享链接）时要改成按码点截。
+20. 短信参数的坐标用 `toFixed(5)`，按二进制值舍入：151.209295 写成 151.20929（亚米级，无实际影响）。`edge-sos-notify`。
 
 ## 不稳定测试
 
-`sos.e2e-spec.ts`「possible_fall → 建单 pending…」本机必挂：#194 后建单先发 WS、再 `void pushCreated()`（先查头盔名再 `push.send`），测试拿到 WS 就断言 `pushMock.send` 被调用。改为 `waitFor` 轮询等到这单的推送发出（只改测试）。同类写法一并改稳：`audit-sos`（链路层 3、25 并发）、`audit-sos-faults` ①、`sos-reliability` 补传说明三条、`sos-notify-order` 的 `arm`（先等建单推送发完再 `resetMocks`）。新增 `helpers/audit-sos.ts` 的 `waitForPushTitled`。
+1. `sos.e2e-spec.ts`「possible_fall → 建单 pending…」本机必挂：#194 后建单先发 WS、再 `void pushCreated()`（先查头盔名再 `push.send`），测试拿到 WS 就断言 `pushMock.send` 被调用。改为 `waitFor` 轮询等到这单的推送发出（只改测试）。同类写法一并改稳：`audit-sos`（链路层 3、25 并发）、`audit-sos-faults` ①、`sos-reliability` 补传说明三条、`sos-notify-order` 的 `arm`（先等建单推送发完再 `resetMocks`）。新增 `helpers/audit-sos.ts` 的 `waitForPushTitled`。
+2. `audit-sos.e2e-spec.ts`「换绑后新主头盔的 manual_sos 不把旧主的 pending 单升级…【SOS-03】」偶发：上一用例之后该设备上有两张 pending（旧主的 + 新主的，决策 #40 两单并存），`findFirst({ deviceId, status: 'pending' })` 没排序、取到哪张由执行计划决定，10-16 全量跑时取到了新主那张。查询加 `userId: owner.id`。

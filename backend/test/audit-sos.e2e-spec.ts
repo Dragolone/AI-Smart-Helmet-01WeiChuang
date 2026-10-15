@@ -773,8 +773,10 @@ describe('审计 §4 SOS 全链路与状态机 (e2e, 手动 tick)', () => {
 
   it('换绑后新主头盔的 manual_sos 不把旧主的 pending 单升级、不通知旧主联系人【SOS-03 修复验证，决策 #40】', async () => {
     // 前一用例留下：devRebind2 上 owner 的 pending 单（若前一用例已失败，单仍 pending）
+    // 上一用例之后该设备上有两张 pending（旧主的 + 新主的，决策 #40 两单并存）：按旧主筛，
+    // 不加 userId 时 findFirst 无排序、取到哪张由执行计划决定（10-16 全量跑偶发取到新主那张）
     const pending = await prisma.sosCase.findFirst({
-      where: { deviceId: devRebind2, status: 'pending' },
+      where: { deviceId: devRebind2, status: 'pending', userId: owner.id },
     });
     expect(pending).not.toBeNull();
     expect(pending!.userId).toBe(owner.id);
