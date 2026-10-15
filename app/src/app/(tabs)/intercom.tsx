@@ -433,7 +433,11 @@ export default function IntercomScreen() {
       const res = await PermissionsAndroid.request(
         PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
       );
-      if (res !== PermissionsAndroid.RESULTS.GRANTED) return;
+      if (res !== PermissionsAndroid.RESULTS.GRANTED) {
+        // 拒了不能静默退回列表（2026-10-15）：说清为什么没进去、去哪开
+        setJoinError(translate("intercom.micDenied"));
+        return;
+      }
     }
     setActiveId(channelId);
     setJoining(true);
@@ -860,23 +864,26 @@ export default function IntercomScreen() {
 
             <View style={styles.bottomRow}>
               {/* 左：离开房间 */}
-              <View style={styles.sideCol}>
-                <Tappable
-                  haptic
-                  accessibilityRole="button"
-                  accessibilityLabel={t("intercom.leaveRoom")}
-                  onPress={leaveRoom}
+              {/* 整列（圆钮 + 下面的字）都是点击区：原来只有圆钮能点，点字没反应（2026-10-15） */}
+              <Tappable
+                haptic
+                accessibilityRole="button"
+                accessibilityLabel={t("intercom.leaveRoom")}
+                onPress={leaveRoom}
+                style={styles.sideCol}
+              >
+                <View
                   style={[
                     styles.roundBtn,
                     { backgroundColor: theme.backgroundSelected },
                   ]}
                 >
                   <Ionicons name="exit-outline" size={20} color={theme.text} />
-                </Tappable>
+                </View>
                 <ThemedText themeColor="textSecondary" style={styles.sideLabel}>
                   {t("intercom.leave")}
                 </ThemedText>
-              </View>
+              </Tappable>
 
               {/* 中：大按钮。按住说话 = 按着才开麦；一直开麦 = 点一下开 / 关。掉线时变淡、按了没反应 */}
               <View style={[styles.pttCol, netDown && styles.dimmed]}>
@@ -980,14 +987,16 @@ export default function IntercomScreen() {
               </View>
 
               {/* 右：音频路由 */}
-              <View style={styles.sideCol}>
-                <Tappable
-                  haptic
-                  accessibilityRole="button"
-                  accessibilityLabel={
-                    speakerOn ? t("intercom.speaker") : t("intercom.headset")
-                  }
-                  onPress={() => void toggleRoute()}
+              <Tappable
+                haptic
+                accessibilityRole="button"
+                accessibilityLabel={
+                  speakerOn ? t("intercom.speaker") : t("intercom.headset")
+                }
+                onPress={() => void toggleRoute()}
+                style={styles.sideCol}
+              >
+                <View
                   style={[
                     styles.roundBtn,
                     { backgroundColor: theme.backgroundSelected },
@@ -998,11 +1007,11 @@ export default function IntercomScreen() {
                     size={20}
                     color={theme.text}
                   />
-                </Tappable>
+                </View>
                 <ThemedText themeColor="textSecondary" style={styles.sideLabel}>
                   {speakerOn ? t("intercom.speaker") : t("intercom.headset")}
                 </ThemedText>
-              </View>
+              </Tappable>
             </View>
             <ThemedText
               themeColor="textSecondary"

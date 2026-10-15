@@ -5,14 +5,7 @@
 // 紧急联系人是账号级的（emergency_contacts.user_id，API.md §3），所有头盔共用。
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
-import {
-  Linking,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  View,
-} from "react-native";
+import { Platform, ScrollView, StyleSheet, Switch, View } from "react-native";
 
 import { contactsApi } from "@/api/contacts";
 import { devicesApi } from "@/api/devices";
@@ -24,6 +17,7 @@ import { useNotifyPermission, useSosDrill } from "@/hooks/use-safety";
 import { useSwitchReminderSetting } from "@/hooks/use-switch-reminder";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
+import { openNotificationSettings } from "@/services/notification-settings";
 
 const MAX_CONTACTS = 5; // API.md §3 定稿
 
@@ -87,7 +81,7 @@ export default function SafetySettingsScreen() {
             title={t("safetySettings.notify")}
             // 还没查到、系统没问过、查询失败，都如实写出来，不显示成已开启
             subtitle={t(`safetySettings.notify.${notify ?? "unknown"}`)}
-            onPress={() => void Linking.openSettings()}
+            onPress={() => void openNotificationSettings()}
             last={!whitelist}
           />
           {whitelist && (

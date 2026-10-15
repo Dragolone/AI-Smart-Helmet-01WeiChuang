@@ -42,6 +42,8 @@ export interface AmapViewHandle {
   setHelmetReplay(replay: boolean): void;
   /** 换掉轨迹上的全部标记；传空数组 = 清空 */
   setMarks(marks: MapMark[]): void;
+  /** 整页重新加载（高德脚本没拉到、初始化失败后重来）；之后的命令排队等新的 ready */
+  reload(): void;
 }
 
 interface Props {
@@ -425,6 +427,12 @@ export function AmapView({
             label: m.label ?? "",
           })),
         }),
+      // 断网冷启动进地图页，高德脚本拉不到就一直「地图异常」，联网也不会自己好（2026-10-15）：
+      // 重载整页，就绪标志复位，期间来的命令先排队，新 ready 到了再冲刷；onReady 不重复回调
+      reload: () => {
+        readyRef.current = false;
+        webRef.current?.reload();
+      },
     };
     return () => {
       controllerRef.current = null;

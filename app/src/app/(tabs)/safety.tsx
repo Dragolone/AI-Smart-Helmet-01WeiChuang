@@ -15,7 +15,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { Alert, Linking, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Animated, {
   Easing,
@@ -62,6 +62,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { translate, useLocale, useT } from "@/i18n";
 import { shortDate } from "@/i18n/format";
 import { whenForegroundSettled } from "@/services/foreground-settled";
+import { openNotificationSettings } from "@/services/notification-settings";
 import {
   helmetNameOf,
   isLinkFault,
@@ -246,7 +247,7 @@ export default function SafetyScreen() {
         { text: t("safety.notifyLater"), style: "cancel" },
         {
           text: t("safety.notifyGoSettings"),
-          onPress: () => void Linking.openSettings(),
+          onPress: () => void openNotificationSettings(),
         },
       ]);
     });
@@ -458,7 +459,7 @@ export default function SafetyScreen() {
             body={t("safety.state.notifyOffBody")}
             checks={checks}
             actionLabel={t("safety.action.notifySettings")}
-            onAction={() => void Linking.openSettings()}
+            onAction={() => void openNotificationSettings()}
           />
         );
       case "noContacts":

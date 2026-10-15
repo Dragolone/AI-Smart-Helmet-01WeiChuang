@@ -25,6 +25,7 @@ import {
 } from "react";
 import {
   Animated,
+  AppState,
   BackHandler,
   type LayoutChangeEvent,
   Platform,
@@ -292,6 +293,19 @@ export default function MapScreen() {
   // Marker 徽章显示本人头像（无头像回落头盔图标）
   const avatarUrl = useAuthStore((s) => s.user?.avatarUrl ?? null);
   const [mapError, setMapError] = useState<string | null>(null);
+  // 高德脚本没拉到 / 初始化失败（断网冷启动进来就是这样）：不会自己好，给一个「重新加载」，
+  // 并且回到前台时自动重来一次（人多半是去开了网络）——2026-10-15 模拟器正式包
+  const reloadMap = useCallback(() => {
+    setMapError(null);
+    mapRef.current?.reload();
+  }, []);
+  useEffect(() => {
+    if (!mapError) return;
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") reloadMap();
+    });
+    return () => sub.remove();
+  }, [mapError, reloadMap]);
 
   const [stage, setStage] = useState<Stage>("live");
   const [detail, setDetail] = useState<Detail | null>(null);
@@ -1094,6 +1108,20 @@ export default function MapScreen() {
               >
                 {t("map.error", { msg: mapError })}
               </ThemedText>
+              <Tappable
+                feedback="opacity"
+                accessibilityRole="button"
+                accessibilityLabel={t("map.errorRetry")}
+                onPress={reloadMap}
+                style={styles.bannerAction}
+              >
+                <ThemedText
+                  type="smallBold"
+                  style={[styles.bannerActionText, { color: theme.danger }]}
+                >
+                  {t("map.errorRetry")}
+                </ThemedText>
+              </Tappable>
             </View>
           )}
 
@@ -1693,6 +1721,8 @@ const styles = StyleSheet.create({
     maxWidth: "100%",
   },
   bannerText: { fontSize: 13, lineHeight: 18, flexShrink: 1 },
+  bannerAction: { paddingHorizontal: 6, paddingVertical: 2, marginLeft: 2 },
+  bannerActionText: { fontSize: 13, lineHeight: 18 },
   miniBar: { alignSelf: "stretch" },
   emptyWrap: {
     position: "absolute",
