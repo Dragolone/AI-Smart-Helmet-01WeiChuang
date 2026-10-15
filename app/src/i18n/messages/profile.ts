@@ -23,7 +23,8 @@ export const profile = {
       "AI 赋能，智能守护每一次骑行安全。\n深圳零一唯创科技有限公司",
     "profile.version": "版本 {v}",
     "profile.signOut": "退出登录",
-    "profile.signOutBody": "退出后，App 将停止转发头盔事件。请重新登录后再使用头盔。",
+    "profile.signOutBody":
+      "退出后，App 将停止转发头盔事件。请重新登录后再使用头盔。",
     "profile.signOutConfirm": "退出",
     "profile.edit": "个人资料",
     "profile.changeAvatar": "点击更换头像",
@@ -68,7 +69,8 @@ export const profile = {
       "AI 賦能，智慧守護每一次騎行安全。\n深圳零一唯創科技有限公司",
     "profile.version": "版本 {v}",
     "profile.signOut": "登出",
-    "profile.signOutBody": "登出後，App 將停止轉送頭盔事件。請重新登入後再使用頭盔。",
+    "profile.signOutBody":
+      "登出後，App 將停止轉送頭盔事件。請重新登入後再使用頭盔。",
     "profile.signOutConfirm": "登出",
     "profile.edit": "個人資料",
     "profile.changeAvatar": "點擊更換頭像",
@@ -114,7 +116,8 @@ export const profile = {
       "AI-powered protection for every ride.\nShenzhen Lingyi Weichuang Technology Co., Ltd.",
     "profile.version": "Version {v}",
     "profile.signOut": "Sign out",
-    "profile.signOutBody": "Signing out stops the app from relaying helmet events. Sign in again before using your helmet.",
+    "profile.signOutBody":
+      "Signing out stops the app from relaying helmet events. Sign in again before using your helmet.",
     "profile.signOutConfirm": "Sign out",
     "profile.edit": "Profile",
     "profile.changeAvatar": "Tap to change photo",
