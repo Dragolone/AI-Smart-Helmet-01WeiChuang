@@ -1,4 +1,9 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  focusManager,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
+import { AppState } from "react-native";
 import { useEffect } from "react";
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
@@ -34,6 +39,16 @@ const queryClient = new QueryClient({
     // 移动端弱网常态：失败重试一次即可，避免错误提示被长时间重试拖延
     queries: { retry: 1, staleTime: 10_000 },
   },
+});
+
+// App 回到前台时，把过期的数据重新拉一遍。React Native 没有「窗口获得焦点」事件，不接 AppState 的话
+// 不轮询的数据（紧急联系人、设备列表等）只在页面第一次挂上时拉一次：在另一台手机上删光联系人，这台的
+// 「安全」格一直显示「配置正常」，切后台再回来也不变，直到重开 App（2026-10-15 iPhone 实测）。
+focusManager.setEventListener((setFocused) => {
+  const sub = AppState.addEventListener("change", (state) =>
+    setFocused(state === "active"),
+  );
+  return () => sub.remove();
 });
 
 // 登出或换账号时清空查询缓存：query key 不含用户 id，staleTime 内新账号会直接看到上一账号的
