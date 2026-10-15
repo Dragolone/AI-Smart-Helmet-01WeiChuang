@@ -102,6 +102,21 @@ export function reanimatedMock() {
   };
 }
 
+/** 万能替身：任何属性、任何调用都给回一个替身；参与算术时当 0（不当成 thenable） */
+export function anyStub(): unknown {
+  const fn = function () {};
+  return new Proxy(fn, {
+    get(_t, prop) {
+      if (prop === Symbol.toPrimitive) return () => 0;
+      if (prop === "then") return undefined;
+      return anyStub();
+    },
+    apply() {
+      return anyStub();
+    },
+  });
+}
+
 /** Skia：组件渲染成宿主元素 Skia<名字>；Skia.Path 等工厂返回能被组件当成「有路径」的普通对象 */
 export function skiaMock() {
   const host = (name: string) => {
@@ -115,7 +130,7 @@ export function skiaMock() {
     copy: () => path(),
     getBounds: () => ({ x: 0, y: 0, width: 24, height: 24 }),
   });
-  const Skia = {
+  const known: Record<string, unknown> = {
     Path: {
       MakeFromSVGString: (svg: string) =>
         mockFlags.skiaPathNull ? null : { ...path(), svg },
@@ -129,7 +144,23 @@ export function skiaMock() {
       height,
     }),
   };
-  return new Proxy({ Skia, __esModule: true } as Record<string, unknown>, {
+  // 其余的工厂（PictureRecorder / PathBuilder / Paint / MaskFilter …）给一个万能替身：
+  // 什么属性都有、调用什么都返回替身，录图的代码能原样跑完（画出来什么不在这里断言）
+  const Skia = new Proxy(known, {
+    get(target, prop: string) {
+      return prop in target ? target[prop] : anyStub();
+    },
+  });
+  const base: Record<string, unknown> = {
+    Skia,
+    __esModule: true,
+    // 录一张图：把替身画布交给回调跑一遍，交回一个占位的图
+    createPicture: (cb: (canvas: unknown) => void) => {
+      cb(anyStub());
+      return { kind: "picture" };
+    },
+  };
+  return new Proxy(base, {
     get(target, prop: string) {
       if (prop in target) return target[prop];
       if (typeof prop !== "string") return undefined;
