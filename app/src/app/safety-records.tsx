@@ -258,6 +258,7 @@ export default function SafetyRecordsScreen() {
     first: PageResult<T>[],
     plan: { i: number; page: number }[],
     extra: PageResult<T>[],
+    keyOf: (item: T) => string,
   ) =>
     list.map((d, i) =>
       combinePages(
@@ -268,10 +269,22 @@ export default function SafetyRecordsScreen() {
           .filter((p) => p.i === i)
           .sort((a, b) => a.page - b.page)
           .map((p) => p.q),
+        keyOf,
       ),
     );
-  const alertSources = withPages(alertQueries, alertExtraPlan, alertExtra);
-  const sosSources = withPages(sosQueries, sosExtraPlan, sosExtra);
+  // 两页刷新之间来了新记录时，同一条会暂时同时出现在两页里：按编号去重（见 combinePages）
+  const alertSources = withPages(
+    alertQueries,
+    alertExtraPlan,
+    alertExtra,
+    (e: EventListItem) => e.eventId,
+  );
+  const sosSources = withPages(
+    sosQueries,
+    sosExtraPlan,
+    sosExtra,
+    (a: AccidentListItem) => a.sosId,
+  );
   const shown = (i: number) => !only || list[i].deviceId === only.deviceId;
   const alerts = mergeRecords(
     alertSources.filter((_, i) => shown(i)),
