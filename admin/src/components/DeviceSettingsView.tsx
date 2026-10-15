@@ -31,7 +31,9 @@ const formatValue = (key: DeviceSettingKey, value: unknown): string => {
   const choice = typeof value === 'number' ? DISPLAY[key].choices?.[value] : undefined
   if (choice) return choice
   const unit = 'unit' in spec ? spec.unit : ''
-  return `${String(value)}${unit === '%' ? '%' : unit ? ` ${unit}` : ''}`
+  // 对象 / 数组用 String() 只会得到「[object Object]」，照实列出要按 JSON 显示
+  const raw = typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value)
+  return `${raw}${unit === '%' ? '%' : unit ? ` ${unit}` : ''}`
 }
 
 export interface SettingsSummary {
@@ -43,8 +45,17 @@ export interface SettingsSummary {
   defaultCount: number
 }
 
-export function summarizeSettings(settings: Record<string, unknown> | null | undefined): SettingsSummary {
-  const s = settings ?? {}
+export function summarizeSettings(settings: unknown): SettingsSummary {
+  // JSON 列可以存进任何 JSON 值：对字符串 / 数字 / 布尔用 `in` 会抛 TypeError，整个详情页白屏。
+  // 整体照实列成一条，且不声称其余项是出厂默认——这时设备上到底是什么并不知道
+  if (settings !== null && settings !== undefined && typeof settings !== 'object') {
+    return {
+      changed: [],
+      unknown: [{ key: '(整体)', text: `设置数据格式异常：${JSON.stringify(settings)}` }],
+      defaultCount: 0,
+    }
+  }
+  const s = (settings ?? {}) as Record<string, unknown>
   const changed: SettingsSummary['changed'] = []
   for (const key of DEVICE_SETTING_KEYS) {
     if (!(key in s) || s[key] === DEVICE_SETTINGS[key].default) continue

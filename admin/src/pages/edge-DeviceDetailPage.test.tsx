@@ -155,6 +155,13 @@ describe('DeviceDetailPage：描述项', () => {
     await waitFor(() => expect(descItem('当前生效设置')).toBe('全部为出厂默认'))
   })
 
+  it('settings 列存成了字符串（二次编码的旧数据）→ 详情页照常显示，设置项写明格式异常', async () => {
+    stubApi(() => jsonResponse(200, { ...deviceDetail({ online: true }), settings: '{"volume":70}' }))
+    renderDetail('/devices/helmet_001')
+    await waitFor(() => expect(descItem('当前生效设置')).toBe('设置数据格式异常："{\\"volume\\":70}"'))
+    expect(descItem('状态')).toBe('在线')
+  })
+
   it('64 字符的 deviceId 在标题里整段显示', async () => {
     const longId = `helmet_${'f'.repeat(57)}`
     stubApi(() => jsonResponse(200, deviceDetail({ deviceId: longId })))

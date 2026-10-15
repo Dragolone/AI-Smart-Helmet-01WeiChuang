@@ -109,4 +109,28 @@ describe('DeviceSettingsView：边界', () => {
     expect(screen.getByText('后方雷达 关')).toBeInTheDocument()
     expect(screen.getByText('其余 13 项为出厂默认')).toBeInTheDocument()
   })
+
+  it.each([
+    ['被二次编码成字符串的 JSON', '{"volume":70}'],
+    ['数字', 42],
+    ['布尔 true', true],
+    ['布尔 false', false],
+  ])('settings 整体不是对象（%s）→ 照实列一条「格式异常」，不白屏、也不声称其余为出厂默认', (_name, settings) => {
+    const s = summarizeSettings(settings)
+    expect(s).toEqual({
+      changed: [],
+      unknown: [{ key: '(整体)', text: `设置数据格式异常：${JSON.stringify(settings)}` }],
+      defaultCount: 0,
+    })
+    render(<DeviceSettingsView settings={settings as unknown as Record<string, unknown>} />)
+    expect(screen.getByText(`设置数据格式异常：${JSON.stringify(settings)}`)).toBeInTheDocument()
+    expect(screen.queryByText(/其余/)).not.toBeInTheDocument()
+    expect(screen.queryByText('全部为出厂默认')).not.toBeInTheDocument()
+  })
+
+  it('已知项的值是对象 / 数组（异常上报）→ 按 JSON 显示，不是「[object Object]」', () => {
+    const s = summarizeSettings({ light: { level: 2 }, volume: [70] })
+    expect(s.changed.map((c) => c.text)).toEqual(['蜂鸣音量 [70]%', '大灯 {"level":2}'])
+    expect(s.changed.some((c) => c.text.includes('[object Object]'))).toBe(false)
+  })
 })
