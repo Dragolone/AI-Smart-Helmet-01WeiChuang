@@ -285,7 +285,7 @@ export const map = {
     "map.ride.eventChip": "{time} {name}",
     "map.ride.eventAtMany": "{time} · {name} ×{n}",
     "map.ride.eventChipMany": "{time} {name} ×{n}",
-    "map.ride.moreEvents": "{n} additional events are not shown",
+    "map.ride.moreEvents": "{n} more event(s) not shown",
     "map.ride.eventsFailed": "Could not load safety events. Tap to retry.",
     "map.ride.trackLoading": "Loading ride route…",
     "map.ride.trackFailed":

@@ -223,7 +223,7 @@ export const intercom = {
       "Helmet audio disconnected. Playback switched to the phone.",
     "intercom.banner.helmetMuted":
       "Helmet audio disconnected. Playback switched to the phone and the microphone was muted automatically.",
-    "intercom.memberTotal": "{n} members",
+    "intercom.memberTotal": "Members: {n}",
     "intercom.enter": "Enter",
     "intercom.enter.a11y": "Enter “{name}”",
     "intercom.invite": "Invite",
@@ -239,7 +239,7 @@ export const intercom = {
     "intercom.add.a11y": "Create or join a channel",
     "intercom.add.create": "Create channel",
     "intercom.add.join": "Join channel",
-    "intercom.more.lead": "{n} members · Up to 20",
+    "intercom.more.lead": "Members: {n} · Up to 20",
     "intercom.more.a11y": "Members, invite and leave for “{name}”",
     "intercom.more.quit": "Leave channel",
     "intercom.mode.open": "Open mic",

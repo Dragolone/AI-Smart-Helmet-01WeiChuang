@@ -93,7 +93,7 @@ export const profile = {
   },
   en: {
     "profile.title": "Me",
-    "profile.devicesCount": "{n} devices",
+    "profile.devicesCount": "Devices: {n}",
     "profile.setNickname": "Set a nickname and photo",
     "profile.groupSafety": "Safety",
     "profile.groupGeneral": "General",

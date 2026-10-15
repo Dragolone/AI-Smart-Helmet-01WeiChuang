@@ -287,7 +287,7 @@ export const safety = {
     "safety.check.notify": "Notifications",
     "safety.check.notifyOff": "Notifications off",
     "safety.check.notifyUnknown": "Notifications unconfirmed",
-    "safety.check.contacts": "{n} contacts",
+    "safety.check.contacts": "Contacts: {n}",
     "safety.check.contactsNone": "No contacts",
     "safety.check.contactsUnknown": "Contacts unconfirmed",
     "safety.state.ready": "Connection and notifications are set up",
