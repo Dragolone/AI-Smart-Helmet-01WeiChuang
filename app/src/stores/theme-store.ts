@@ -45,6 +45,8 @@ export const useThemeStore = create<ThemeState>((set) => ({
   setMode: async (mode) => {
     applyNative(mode);
     set({ mode });
-    await SecureStore.setItemAsync(KEY, mode);
+    // 落盘失败只影响下次启动（回到默认深色），不抛给调用方：「我的」页是 `void setMode(m)`，
+    // 抛出来就是一个没人接的 Promise 拒绝（与 current-helmet-store 等同一口径）
+    await SecureStore.setItemAsync(KEY, mode).catch(() => undefined);
   },
 }));
