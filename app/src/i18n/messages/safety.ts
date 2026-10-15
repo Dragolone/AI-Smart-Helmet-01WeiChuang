@@ -107,6 +107,8 @@ export const safety = {
     "records.detail.helmet": "来源头盔",
     "records.detail.note": "该记录来自头盔的风险提醒，不等同于已发生事故。",
     "records.detail.failed": "详情加载失败",
+    "records.detail.mismatch":
+      "另一顶头盔有编号相同的提醒，暂时打不开这一条的详情。时间和头盔见列表。",
     "safetySettings.groupContacts": "求救通知",
     "safetySettings.contactsUnknown": "待确认",
     "safetySettings.groupPhone": "手机提醒与后台运行",
@@ -236,6 +238,8 @@ export const safety = {
     "records.detail.helmet": "來源頭盔",
     "records.detail.note": "此記錄來自頭盔的風險提醒，不等同於已發生事故。",
     "records.detail.failed": "詳情載入失敗",
+    "records.detail.mismatch":
+      "另一頂頭盔有編號相同的提醒，暫時無法開啟這一則的詳情。時間和頭盔見列表。",
     "safetySettings.groupContacts": "求救通知",
     "safetySettings.contactsUnknown": "待確認",
     "safetySettings.groupPhone": "手機提醒與背景執行",
@@ -378,6 +382,8 @@ export const safety = {
     "records.detail.note":
       "This record comes from a helmet risk alert. It does not mean an accident happened.",
     "records.detail.failed": "Couldn't load details",
+    "records.detail.mismatch":
+      "Another helmet has an alert with the same ID, so these details can't be opened for now. See the list for the time and helmet.",
     "safetySettings.groupContacts": "SOS notifications",
     "safetySettings.contactsUnknown": "Unconfirmed",
     "safetySettings.groupPhone": "Phone alerts and background running",
