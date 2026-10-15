@@ -5,7 +5,7 @@ export const auth = {
     "sos.drillDoneTitle": "演练结束",
     "sos.drillNotifiedBody": "真实求救时，系统会尝试通过短信通知紧急联系人。",
     "sos.drillCancelledBody": "已在倒计时内取消。真实求救时，取消后不会发送联系人通知。",
-    "auth.appName": "零一唯创",
+    "auth.appName": "零一智行",
     "auth.slogan": "AI 赋能，智能守护每一次骑行安全",
     "auth.phone": "手机号",
     "auth.phonePlaceholder": "11 位大陆手机号",
