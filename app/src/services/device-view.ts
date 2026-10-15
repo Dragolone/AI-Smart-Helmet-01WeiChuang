@@ -42,6 +42,24 @@ export function isBatteryLow(battery: number | null | undefined): boolean {
   return typeof battery === "number" && battery <= LOW_BATTERY;
 }
 
+/** 电量极低的口径：≤ 10%，红色；与低电量提醒的第二档（services/battery-alert）是同一条线 */
+export const CRITICAL_BATTERY = 10;
+
+export type BatteryTier = "ok" | "low" | "critical" | "none";
+
+/**
+ * 电量分三档（负责人 2026-10-15）：≤10% 红（critical）、≤20% 黄（low）、其余正常；没有电量数据是 none。
+ * 大图的环 / 光晕 / 数字、其他设备行的电量条都按这个取色。
+ */
+export function batteryTierOf(
+  battery: number | null | undefined,
+): BatteryTier {
+  if (typeof battery !== "number" || Number.isNaN(battery)) return "none";
+  if (battery <= CRITICAL_BATTERY) return "critical";
+  if (battery <= LOW_BATTERY) return "low";
+  return "ok";
+}
+
 /**
  * 最近一条下发命令改没改这一项。改了，回执才显示在这一项旁边；
  * 没改的项旁边什么都不显示——不能让别的项的「已生效」看起来像是在说它。

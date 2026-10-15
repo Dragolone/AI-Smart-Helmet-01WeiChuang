@@ -8,6 +8,7 @@ import type { Colors } from "@/constants/theme";
 import type { MessageKey } from "@/i18n";
 import { mixHex } from "@/services/color";
 import { linkPillOf } from "@/services/device-home";
+import { batteryTierOf } from "@/services/device-view";
 import type { HelmetLink } from "@/services/safety-status";
 
 export type HeroSplash = {
@@ -35,7 +36,6 @@ export type HeroSplash = {
   valueColor: string;
 };
 
-export const LOW_BATTERY = 20;
 /** 头盔图占环内 80%、水平居中，整体比环心略高一点（下面要给电量数字让位） */
 export const HELMET_BOX = { left: 0.1, top: 0.075, size: 0.8 };
 /** 电量那一行在大图里的高度 */
@@ -55,15 +55,23 @@ export function heroSplashOf(input: {
   const { device, theme, dark, t } = input;
   const linked = linkPillOf(input.link).linked;
   const battery = device.battery;
-  const low = battery !== null && battery <= LOW_BATTERY;
-  // 连上时环和光晕是绿色，电量低变黄；没连上只剩灰色的环（显示的是上次电量），不发光
-  const accent = !linked ? null : low ? theme.warning : theme.success;
+  const tier = batteryTierOf(battery);
+  const low = tier === "low" || tier === "critical";
+  // 连上时环和光晕是绿色，电量 ≤20% 变黄、≤10% 变红（services/device-view 的三档）；
+  // 没连上只剩灰色的环（显示的是上次电量），不发光
+  const accent = !linked
+    ? null
+    : tier === "critical"
+      ? theme.danger
+      : low
+        ? theme.warning
+        : theme.success;
   // 光晕的浓度。浅色底上同样的浓度几乎看不出来，所以浅色给得更足、往外也退得更慢
   const alpha = dark ? 0.32 : 0.34;
   const valueColor = !linked
     ? theme.textSecondary
     : low
-      ? theme.warning
+      ? (accent ?? theme.text)
       : theme.text;
   return {
     battery,
@@ -86,7 +94,7 @@ export function heroSplashOf(input: {
         : low
           ? t("devices.batteryLow")
           : t("devices.battery"),
-    labelColor: linked && low ? theme.warning : theme.textSecondary,
+    labelColor: linked && low ? (accent ?? theme.warning) : theme.textSecondary,
     value: battery === null ? "—" : String(battery),
     unit: battery === null ? "" : "%",
     valueColor,

@@ -4,8 +4,12 @@
 // - PulseDot：进行中状态的呼吸点（搜索/连接中）；静态时不动
 // - DotsLoader：三点波浪 loader（按钮 loading 态）
 // - useJello：长按未满松手时的果冻抖动（提示"要按住"，不是装饰）
+// 2026-10-15 联动批次（负责人画板口径：状态翻转时整块一起过渡，不硬切）：
+// - useTintStyle：底色 / 描边 / 文字颜色变化时过渡
+// - CrossfadeIcon：换图标 / 换颜色时淡入淡出，可选弹一下
+import { Ionicons } from "@expo/vector-icons";
 import type { ReactNode } from "react";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import {
   StyleSheet,
   View,
@@ -15,11 +19,15 @@ import {
 } from "react-native";
 import Animated, {
   Easing,
+  FadeIn,
   FadeInDown,
+  FadeOut,
   FadeOutUp,
+  LayoutAnimationConfig,
   interpolateColor,
   useAnimatedStyle,
   useDerivedValue,
+  useReducedMotion,
   useSharedValue,
   withDelay,
   withRepeat,
@@ -32,6 +40,86 @@ import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
 
 const COLOR_MS = 180;
+/** 状态色过渡的时长：连上 / 断开、电量跨档、核对项变档都用它 */
+export const TINT_MS = 240;
+
+/**
+ * 底色 / 描边 / 文字颜色变化时过渡（TINT_MS），不硬切。交给 Animated.View / Animated.Text 的 style。
+ * 只过渡颜色：位置、大小这类布局属性不走这里（Android 上持续变 transform 会不停发无障碍事件）。
+ */
+export function useTintStyle(tint: {
+  backgroundColor?: string;
+  borderColor?: string;
+  color?: string;
+}) {
+  const { backgroundColor, borderColor, color } = tint;
+  return useAnimatedStyle(() => {
+    const out: {
+      backgroundColor?: string;
+      borderColor?: string;
+      color?: string;
+    } = {};
+    if (backgroundColor !== undefined)
+      out.backgroundColor = withTiming(backgroundColor, { duration: TINT_MS });
+    if (borderColor !== undefined)
+      out.borderColor = withTiming(borderColor, { duration: TINT_MS });
+    if (color !== undefined) out.color = withTiming(color, { duration: TINT_MS });
+    return out;
+  }, [backgroundColor, borderColor, color]);
+}
+
+/**
+ * 换图标 / 换颜色时淡入淡出（旧的在快照上淡出、新的淡入），pop 时再弹一下；不硬切。
+ * 核对项变档、「安全」格的结论、状态卡的图标都用它。首次挂上不动。
+ */
+export function CrossfadeIcon({
+  name,
+  size,
+  color,
+  pop = false,
+  style,
+}: {
+  name: keyof typeof Ionicons.glyphMap;
+  size: number;
+  color: string;
+  /** 换的时候弹一下（1 → 1.25 → 1）；系统开了「减弱动态效果」时不弹 */
+  pop?: boolean;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const reduced = useReducedMotion();
+  const scale = useSharedValue(1);
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    if (!pop || reduced) return;
+    scale.set(
+      withSequence(
+        withTiming(1.25, { duration: 110 }),
+        withSpring(1, { damping: 12, stiffness: 320 }),
+      ),
+    );
+  }, [name, color, pop, reduced, scale]);
+  const popStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.get() }],
+  }));
+  return (
+    <Animated.View style={[{ width: size, height: size }, style, popStyle]}>
+      <LayoutAnimationConfig skipEntering>
+        <Animated.View
+          key={`${name}|${color}`}
+          entering={FadeIn.duration(TINT_MS)}
+          exiting={FadeOut.duration(TINT_MS)}
+          style={styles.fillAbs}
+        >
+          <Ionicons name={name} size={size} color={color} />
+        </Animated.View>
+      </LayoutAnimationConfig>
+    </Animated.View>
+  );
+}
 
 export function AnimatedChip({
   active,
@@ -276,4 +364,13 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 13, fontWeight: "700" },
   shrink: { flexShrink: 1, minWidth: 0 },
   dotsRow: { flexDirection: "row", alignItems: "center", gap: 5, height: 20 },
+  fillAbs: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });
