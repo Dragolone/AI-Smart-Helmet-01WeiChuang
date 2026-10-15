@@ -9,7 +9,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon-brand.png",
-    "scheme": "app",
+    "scheme": "lingyizhixing",
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.lingyiweichuang.app",

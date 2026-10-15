@@ -232,7 +232,7 @@ function SosActiveContent() {
         );
       } catch (e) {
         // 服务端明确说没有这一单（404：单号是瞎编的 / 不是你的头盔）——不是「状态未知」，交给页面收掉。
-        // 原来一律当未知，一个假链接 app://sos-active?sosId=xxx 就能打开一张永远停在「—」秒的倒计时页（2026-10-15）
+        // 原来一律当未知，一个假链接 lingyizhixing://sos-active?sosId=xxx 就能打开一张永远停在「—」秒的倒计时页（2026-10-15）
         if (e instanceof ApiRequestError && e.status === 404) throw e;
         // 两条 REST 都失败（离线）才信缓存；有网时缓存可能是迟到的 pending（2026-09-24 实测卡死）
         return (
