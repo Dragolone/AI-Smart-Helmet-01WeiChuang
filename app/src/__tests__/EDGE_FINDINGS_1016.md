@@ -62,3 +62,35 @@
 - **期望**：终态只清掉「进行中缓存里正是这一单」的情况。
 - **代码位置**：`applySosUpdate` 第 65–67 行。
 - **建议修法**：终态时先读 `["sos-active", deviceId]`，只有其中 `sosId === sos.sosId`（或为空）才写 `null`。
+
+## A6 档案晚到时，匿名分区里的高危事件被丢下（`hooks/use-realtime.ts` + `services/ble-relay-uplink.ts`）
+
+- **现象**：钥匙串里只有 token、用户档案没落上盘时（上次登录档案落盘失败），冷启动先以匿名分区启动上行队列；
+  `/users/me` 回来后 `onUserReady` 先 `stopRelayUplink()` 再 `startRelayUplink(uid)`。这段时间里收到的摔倒 / 求救如果首发失败
+  （深睡刚醒、弱网），会留在**匿名**分区文件里，本人分区不会补传它；而头盔那边 App 一入队就回了 ACK、事件已擦除——这次摔倒就丢了。
+  同一账号、同一把 token，只是档案晚到，被当成了「换了一个人」。
+- **复现**：`edge-ble-relay-uplink-1016.test.ts`「匿名期间收到的摔倒首发失败，换到本人分区后不再补传」。
+- **现实概率**：要同时满足「档案没落盘」「档案回来前的几秒里摔倒」「首发失败」，很低；但后果是静默丢失。
+- **期望**：同一会话里从匿名换到本人名下时，把匿名队列里的事件带过去（它们就是这个 token 下收到的）；真正的「未登录 → 别人登录」仍不带。
+- **代码位置**：`use-realtime.ts` `onUserReady`（第 113–116 行）；`ble-relay-uplink.ts` `startRelayUplink` / `stopRelayUplink`。
+- **建议修法**：uplink 加一个 `adoptRelayUplinkOwner(uid)`：只在当前 owner 是匿名时调用，直接把内存队列改记到 uid 名下并落盘，
+  再删掉匿名文件；`onUserReady` 在「上一次是匿名」时用它代替 stop + start。
+
+## A7 413（请求体超 100 KB）时每轮重发同一批，这台头盔永远卡住（`services/ble-relay-uplink.ts`）
+
+- **现象**：`flushRelayQueue` 把 413 当成「可能恢复」，整批保留、下轮原样重发；同一批永远超限，这台头盔的积压
+  （高危排在批首，正是摔倒 / 求救）再也送不出去。别的头盔靠轮转不受影响。
+- **复现**：`edge-ble-relay-uplink-1016.test.ts`「413 每轮重发同一批」。现有 `edge-ble-relay-uplink.test.ts` 把 413 和 429 / 5xx 归为一类。
+- **现实概率**：今天一条中转事件约 300–400 字节，100 条约 35 KB，离 100 KB 还有余量；载荷以后加字段（原始字节、更长的固件版本）就可能撞上。
+- **期望**：413 时把这台头盔的批次减半重试（至少保证高危事件能单条送出），而不是原样重发。
+- **代码位置**：`flushRelayQueue` 第 255–258 行（`.slice(0, MAX_BATCH)`）与第 294–306 行的错误分支。
+- **建议修法**：模块级记一个「这台头盔当前批量上限」，413 时减半（下限 1），成功后逐步恢复到 100。
+
+## A8 2xx 但响应体是 null 时，「高危已接受」回调没走、网络锁没放（`services/ble-relay-uplink.ts`）
+
+- **现象**：`relayApi.push` 返回 `null`（网关把响应体改成 `null`）时，这一批先出队，随后读 `counts.invalid` 抛 TypeError，
+  落进 catch：日志写「提交失败,保留缓存」（其实已出队），`notifyCriticalAccepted` 不调（倒计时页少了这条拉起路径，仍有 WS / 推送兜底），
+  `releaseNetwork` 不调（锁要等 90 秒超时）。
+- **复现**：`edge-ble-relay-uplink-1016.test.ts`「响应体是 null」。
+- **现实概率**：极低（服务端 202 一定带计数）；记下是因为日志会误导排查。
+- **建议修法**：`const counts = (await relayApi.push(...)) ?? { accepted: 0, duplicate: 0, invalid: 0 }`，并按「已消化」走后续分支。
