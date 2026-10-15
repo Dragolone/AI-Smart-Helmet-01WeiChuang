@@ -363,6 +363,8 @@ export async function showSosAlertIfBackground(
   deviceId: string,
   deadline: string,
   triggeredAt?: string,
+  /** 头盔显示名（用户改过名用改过的名字）；不知道时只写类型 */
+  helmetName?: string,
 ): Promise<void> {
   if (AppState.currentState === "active") return;
   if (alerts.has(sosId)) return;
@@ -378,7 +380,10 @@ export async function showSosAlertIfBackground(
   // 补传的旧事件：正文点明「约 3 小时前的事件，刚补传到」（决策 #52；此前只在远程推送里，iOS 上那条会被撤掉）
   const late = lateEventNote(triggeredAt, serverNow());
   const content = (seconds: number | null, sound: boolean) => ({
-    title: translate("sosAlert.title"),
+    // 带上是哪顶头盔：iPhone 上远程推送会被这条替换掉，绑了几顶时只看标题分不清是谁（负责人 10-15）
+    title: helmetName
+      ? translate("sosAlert.titleWithHelmet", { name: helmetName })
+      : translate("sosAlert.title"),
     body:
       (seconds === null
         ? translate("sosAlert.body")

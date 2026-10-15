@@ -25,6 +25,7 @@ import {
   resetBatteryAlerts,
 } from "@/services/battery-alert";
 import { devLog } from "@/services/dev-log";
+import { helmetNameOf } from "@/services/safety-status";
 import { setPushArrivalHandler, startPush, stopPush } from "@/services/push";
 import { handleDeviceCommand } from "@/services/ble-relay";
 import {
@@ -133,7 +134,20 @@ export function useRealtimeUpdates(): void {
       openCountdown: (sosId, deviceId) =>
         router.push(`/sos-active?sosId=${sosId}&deviceId=${deviceId}`),
       showLockScreenAlert: (sosId, deviceId, deadline, triggeredAt) =>
-        void showSosAlertIfBackground(sosId, deviceId, deadline, triggeredAt),
+        void showSosAlertIfBackground(
+          sosId,
+          deviceId,
+          deadline,
+          triggeredAt,
+          helmetNameOf(
+            queryClient
+              .getQueryData<DevicePublic[]>(["devices"])
+              ?.find((d) => d.deviceId === deviceId) ?? {
+              name: null,
+              deviceId,
+            },
+          ),
+        ),
       clearLockScreenAlert: (sosId) => void clearSosAlert(sosId),
       log: (m) => devLog("SOS", m),
     };

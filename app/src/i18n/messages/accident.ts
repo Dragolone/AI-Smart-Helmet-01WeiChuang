@@ -5,14 +5,14 @@ export const accident = {
     "accident.device": "来源头盔",
     "sosAlert.channel": "紧急求助",
     "sosAlert.title": "疑似摔倒或紧急求救",
+    "sosAlert.titleWithHelmet": "疑似摔倒或紧急求救 · {name}",
     "sosAlert.body": "60 秒后将自动通知紧急联系人，如无需帮助请打开 App 取消",
     "sosAlert.bodyCountdown":
       "{seconds} 秒后将自动通知紧急联系人，如无需帮助请取消求救",
     "sosAlert.cancelAction": "我没事，取消",
     "sosAlert.openAction": "打开 App",
     "sosAlert.cancelFailedTitle": "取消请求发送失败",
-    "sosAlert.cancelFailedBody":
-      "取消请求未送达服务器，请打开求救页面重试。",
+    "sosAlert.cancelFailedBody": "取消请求未送达服务器，请打开求救页面重试。",
     "accident.triggeredAt": "求救创建时间",
     "accident.helmetTriggeredAt": "头盔上的触发时间",
     "accident.deadline": "倒计时截止",
@@ -35,13 +35,13 @@ export const accident = {
     "accident.device": "來源頭盔",
     "sosAlert.channel": "緊急求助",
     "sosAlert.title": "疑似跌倒或緊急求救",
+    "sosAlert.titleWithHelmet": "疑似跌倒或緊急求救 · {name}",
     "sosAlert.body": "60 秒後將自動通知緊急聯絡人，如無需協助請開啟 App 取消",
     "sosAlert.bodyCountdown":
       "{seconds} 秒後將自動通知緊急聯絡人，如無需協助請取消求救",
     "sosAlert.cancelAction": "我沒事，取消",
     "sosAlert.cancelFailedTitle": "取消請求傳送失敗",
-    "sosAlert.cancelFailedBody":
-      "取消請求未送達伺服器，請開啟求救頁面重試。",
+    "sosAlert.cancelFailedBody": "取消請求未送達伺服器，請開啟求救頁面重試。",
     "sosAlert.openAction": "開啟 App",
     "accident.triggeredAt": "求救建立時間",
     "accident.helmetTriggeredAt": "頭盔上的觸發時間",
@@ -65,6 +65,7 @@ export const accident = {
     "accident.device": "Helmet",
     "sosAlert.channel": "Emergency SOS",
     "sosAlert.title": "Possible fall or SOS",
+    "sosAlert.titleWithHelmet": "Possible fall or SOS · {name}",
     "sosAlert.body":
       "Emergency contacts will be notified in 60 seconds. Open the app to cancel if you do not need help.",
     "sosAlert.bodyCountdown":
