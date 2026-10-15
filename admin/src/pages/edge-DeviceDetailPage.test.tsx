@@ -22,6 +22,7 @@ const renderDetail = (history: string | string[]) =>
   renderWithProviders(
     <Routes>
       <Route path="/devices" element={<div>设备列表页</div>} />
+      <Route path="/events" element={<div>事件页</div>} />
       <Route path="/devices/:deviceId" element={<DeviceDetailPage />} />
     </Routes>,
     history,
@@ -206,6 +207,22 @@ describe('DeviceDetailPage：导航与轮询', () => {
     expect(await screen.findByText('设备列表页')).toBeInTheDocument()
   })
 
+  it('从别的页面（事件页）点进来 → 「返回」回到来处，而不是固定回设备列表', async () => {
+    stubApi(() => jsonResponse(200, deviceDetail({})))
+    renderDetail(['/events', '/devices/helmet_001'])
+    await screen.findByText('设备详情：helmet_001')
+    fireEvent.click(screen.getByText(/返\s?回/).closest('button') as HTMLElement)
+    expect(await screen.findByText('事件页')).toBeInTheDocument()
+  })
+
+  it('直接打开详情链接（新标签页 / 收藏，没有上一页）→ 「返回」回设备列表，不是没反应', async () => {
+    stubApi(() => jsonResponse(200, deviceDetail({})))
+    renderDetail('/devices/helmet_001')
+    await screen.findByText('设备详情：helmet_001')
+    fireEvent.click(screen.getByText(/返\s?回/).closest('button') as HTMLElement)
+    expect(await screen.findByText('设备列表页')).toBeInTheDocument()
+  })
+
   it('路由里没有 deviceId → 不发请求（查询被禁用），只剩空标题', async () => {
     const apiStub = stubApi(() => jsonResponse(200, deviceDetail({})))
     renderWithProviders(<DeviceDetailPage />, '/devices')
@@ -222,4 +239,23 @@ describe('DeviceDetailPage：导航与轮询', () => {
     await vi.advanceTimersByTimeAsync(30_500)
     await waitFor(() => expect(apiStub.count()).toBe(2))
   })
+})
+
+describe('DeviceDetailPage：deviceId 编码', () => {
+  it.each([
+    ['#', '/devices/helmet%23x', 'helmet#x', '/api/v1/admin/devices/helmet%23x'],
+    ['? 与 =', '/devices/helmet%3Fq%3D1', 'helmet?q=1', '/api/v1/admin/devices/helmet%3Fq%3D1'],
+    ['/', '/devices/a%2Fb', 'a/b', '/api/v1/admin/devices/a%2Fb'],
+    ['%', '/devices/100%25', '100%', '/api/v1/admin/devices/100%25'],
+    ['中文与空格', '/devices/%E5%A4%B4%E7%9B%94%201', '头盔 1', '/api/v1/admin/devices/%E5%A4%B4%E7%9B%94%201'],
+  ])(
+    '地址里的 deviceId 含 %s → 标题显示解码后的原值，请求路径重新编码、不被截断成别的设备',
+    async (_name, route, shown, requested) => {
+      const apiStub = stubApi(() => jsonResponse(404, { code: 'NOT_FOUND', message: '设备不存在' }))
+      renderDetail(route)
+      expect(await screen.findByText(`设备详情：${shown}`)).toBeInTheDocument()
+      await waitFor(() => expect(apiStub.count()).toBe(1))
+      expect(apiStub.rawLast()).toBe(requested)
+    },
+  )
 })

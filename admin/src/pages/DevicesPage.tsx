@@ -13,7 +13,7 @@ const columns: ColumnsType<AdminDeviceRow> = [
   {
     title: '设备 ID',
     dataIndex: 'deviceId',
-    render: (id: string) => <Link to={`/devices/${id}`}>{id}</Link>,
+    render: (id: string) => <Link to={`/devices/${encodeURIComponent(id)}`}>{id}</Link>,
   },
   {
     title: '绑定用户',

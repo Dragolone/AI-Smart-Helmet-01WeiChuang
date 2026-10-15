@@ -1,6 +1,7 @@
 // 设备列表页的状态与交互边界：加载中 / 报错重试 / 断网 / 空列表、搜索词编码、在线筛选的清除、
 // 改每页条数回第 1 页、单元格的 0 / null / 100 / 充电分支、30 秒轮询。
 import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { Route, Routes } from 'react-router-dom'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { AdminDeviceRow } from '@helmet/shared'
 import { getToken, saveSession } from '../api/client'
@@ -11,6 +12,7 @@ import {
   changePageSize,
   clickRetry,
   device,
+  deviceDetail,
   page,
   pending,
   search,
@@ -19,6 +21,7 @@ import {
   tableSpinning,
 } from '../test/fixtures'
 import { jsonResponse, renderWithProviders, textResponse } from '../test/render'
+import DeviceDetailPage from './DeviceDetailPage'
 import DevicesPage from './DevicesPage'
 
 const PLACEHOLDER = '按设备 ID / 绑定手机号搜索'
@@ -252,5 +255,27 @@ describe('DevicesPage：轮询', () => {
     expect(apiStub.count()).toBe(1)
     await vi.advanceTimersByTimeAsync(1_500)
     await waitFor(() => expect(apiStub.count()).toBe(2))
+  })
+})
+
+describe('DevicesPage：详情链接编码', () => {
+  it('deviceId 含 `#` `?` → 链接编码；点进去详情页请求的仍是同一台设备', async () => {
+    const apiStub = stubApi((url) =>
+      url.pathname === '/api/v1/admin/devices'
+        ? page([device({ deviceId: 'a#b?c' })])
+        : jsonResponse(200, deviceDetail({ deviceId: 'a#b?c' })),
+    )
+    renderWithProviders(
+      <Routes>
+        <Route path="/devices" element={<DevicesPage />} />
+        <Route path="/devices/:deviceId" element={<DeviceDetailPage />} />
+      </Routes>,
+      '/devices',
+    )
+    const link = (await screen.findByText('a#b?c')).closest('a') as HTMLElement
+    expect(link).toHaveAttribute('href', '/devices/a%23b%3Fc')
+    fireEvent.click(link)
+    expect(await screen.findByText('设备详情：a#b?c')).toBeInTheDocument()
+    await waitFor(() => expect(apiStub.rawLast()).toBe('/api/v1/admin/devices/a%23b%3Fc'))
   })
 })
