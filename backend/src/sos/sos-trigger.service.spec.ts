@@ -56,6 +56,18 @@ describe('createdPushBody（「SOS 倒计时已开始」正文，秒数按 deadl
     ).toBe('头盔 helmet_001 检测到疑似摔倒，未取消将于 60 秒后通知紧急联系人');
   });
 
+  it('头盔写传进来的称呼（调用方给的是名字优先的 helmetLabel）', () => {
+    expect(
+      createdPushBody(
+        '测试头盔1',
+        'possible_fall',
+        new Date(now),
+        deadline,
+        now,
+      ),
+    ).toBe('头盔 测试头盔1 检测到疑似摔倒，未取消将于 60 秒后通知紧急联系人');
+  });
+
   it('首投超时后第三次重试（约 45 秒后）：只剩 15 秒就写 15 秒，不再写 60', () => {
     const body = createdPushBody(
       'helmet_001',
