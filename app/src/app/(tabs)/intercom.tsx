@@ -283,6 +283,9 @@ export default function IntercomScreen() {
       { queryKey: ["voice-channels"], type: "active" },
       { cancelRefetch: false },
     );
+    // 离开这一页就收起上次进房的报错：断网时点「进入」报的「网络连接失败」，
+    // 原来联网后切走再切回还一直挂在底部（2026-10-16 华为）；再点「进入」本来也会清掉
+    return () => setJoinError(null);
   }, [focused, queryClient]);
   const loadedCount = members.data?.length;
   useEffect(() => {
