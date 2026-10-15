@@ -25,8 +25,9 @@ describe('位置与轨迹 (e2e)', () => {
 
   const deviceId = `e2e_loc_${Date.now()}`;
   const bindCode = '13572468';
-  // 固定基准时间：断言排序与范围过滤不依赖运行时刻
-  const base = new Date('2026-08-15T01:00:00Z').getTime();
+  // 基准取「2 小时前、对齐到整分」：断言排序与范围过滤只依赖相对偏移。
+  // 不能写死日期——超过离线缓存窗口（72 h）的设备时间会被当成时钟错乱、改按收到时间入库（DEVICE_PROTOCOL §8）
+  const base = Math.floor((Date.now() - 2 * 3_600_000) / 60_000) * 60_000;
   let ownerToken: string;
   let otherToken: string;
 

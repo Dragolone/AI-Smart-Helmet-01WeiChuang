@@ -308,8 +308,13 @@ describe('边缘情况补测 (e2e)', () => {
     });
   });
 
-  describe('设备时钟跑到未来的位置点', () => {
-    it('一条两年后的位置点不能把「最新位置」和 SOS 位置快照永久钉死', async () => {
+  describe('设备时钟错乱的位置点（DEVICE_PROTOCOL §8：非补传时以收到时间兜底）', () => {
+    const pointOf = (eventId: string) =>
+      prisma.locationPoint.findFirstOrThrow({ where: { eventId } });
+    const nearNow = (d: Date) =>
+      expect(Math.abs(d.getTime() - Date.now())).toBeLessThan(60_000);
+
+    it('两年后的位置点按收到时间入轨迹表，之后来的正常点照常成为「最新位置」与 SOS 位置快照', async () => {
       const future = new Date(Date.now() + 2 * 365 * 24 * 3_600_000);
       const bogus = envelope(
         clockDeviceId,
@@ -317,12 +322,13 @@ describe('边缘情况补测 (e2e)', () => {
         { ...validLocation(), latitude: 10, longitude: 10 },
         { timestamp: future.toISOString() },
       );
+      await relay(http, owner.token, clockDeviceId, [bogus]).expect(202);
+      // 原来按设备时间入库：一条 2099 年的点会永远排在最前（latestPlausibleTime 只是查询端的挡板）
+      nearNow((await pointOf(bogus.eventId as string)).timestamp);
+
+      await new Promise((r) => setTimeout(r, 20));
       const real = envelope(clockDeviceId, 'location_update', validLocation());
-      const relayed = await relay(http, owner.token, clockDeviceId, [
-        bogus,
-        real,
-      ]).expect(202);
-      expect(relayed.body.accepted).toBe(2);
+      await relay(http, owner.token, clockDeviceId, [real]).expect(202);
 
       const latest = await request(http)
         .get(`/api/v1/devices/${clockDeviceId}/locations/latest`)
@@ -330,7 +336,7 @@ describe('边缘情况补测 (e2e)', () => {
         .expect(200);
       expect(latest.body.location.latitude).toBeCloseTo(31.2, 3);
 
-      // 摔倒事件不带位置 → 回落最新轨迹点，同样不能取到未来那条
+      // 摔倒事件不带位置 → 回落最新轨迹点，同样取到后来的正常点
       await relay(http, owner.token, clockDeviceId, [
         envelope(clockDeviceId, 'possible_fall', { confidence: 0.9 }),
       ]).expect(202);
@@ -339,6 +345,37 @@ describe('边缘情况补测 (e2e)', () => {
       });
       expect(sos.locationSource).toBe('last_point');
       expect(sos.latitude).toBeCloseTo(31.2, 3);
+    });
+
+    it('RTC 归零报 1970 年的点按收到时间入库（按时间段的查询能看到）；2 小时前的正常补传保留设备时间', async () => {
+      const epoch = envelope(
+        clockDeviceId,
+        'location_update',
+        validLocation(),
+        {
+          timestamp: '1970-01-01T00:03:00Z',
+        },
+      );
+      const twoHoursAgo = new Date(Date.now() - 2 * 3_600_000);
+      const backfill = envelope(
+        clockDeviceId,
+        'location_update',
+        validLocation(),
+        { timestamp: twoHoursAgo.toISOString() },
+      );
+      await relay(http, owner.token, clockDeviceId, [epoch, backfill]).expect(
+        202,
+      );
+      nearNow((await pointOf(epoch.eventId as string)).timestamp);
+      expect((await pointOf(backfill.eventId as string)).timestamp).toEqual(
+        twoHoursAgo,
+      );
+      // 原始时间照常留档，并标 clock_skew
+      const raw = await prisma.rawEvent.findFirstOrThrow({
+        where: { eventId: epoch.eventId as string },
+      });
+      expect(raw.timestamp.toISOString()).toBe('1970-01-01T00:03:00.000Z');
+      expect(raw.clockSkew).toBe(true);
     });
   });
 

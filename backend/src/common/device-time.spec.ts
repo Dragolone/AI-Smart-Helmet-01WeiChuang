@@ -1,6 +1,8 @@
 import {
+  businessTime,
   CLOCK_SKEW_THRESHOLD_MS,
   latestPlausibleTime,
+  MAX_PLAUSIBLE_BACKFILL_MS,
   parseDeviceTime,
 } from './device-time';
 
@@ -40,5 +42,28 @@ describe('latestPlausibleTime', () => {
     const bound = latestPlausibleTime().getTime();
     expect(bound).toBeGreaterThanOrEqual(before + CLOCK_SKEW_THRESHOLD_MS);
     expect(bound).toBeLessThanOrEqual(Date.now() + CLOCK_SKEW_THRESHOLD_MS);
+  });
+});
+
+describe('businessTime（DEVICE_PROTOCOL §8：时钟错乱且非补传时以收到时间兜底）', () => {
+  const receivedAt = new Date('2026-10-15T12:00:00.000Z');
+  const at = (offsetMs: number) => new Date(receivedAt.getTime() + offsetMs);
+
+  it.each([
+    ['刚发生', 0],
+    ['设备快 4 分钟（阈值内）', 4 * 60_000],
+    ['正常补传：2 小时前', -2 * 3_600_000],
+    ['离线缓存上限附近：71 小时前', -71 * 3_600_000],
+  ])('%s → 用设备时间', (_, offset) => {
+    expect(businessTime(at(offset), receivedAt)).toEqual(at(offset));
+  });
+
+  it.each([
+    ['设备时间跑到 2099 年', new Date('2099-01-01T00:00:00Z')],
+    ['超前刚过阈值', at(CLOCK_SKEW_THRESHOLD_MS + 1)],
+    ['RTC 归零：1970 年', new Date('1970-01-01T00:00:42Z')],
+    ['比离线缓存能保留的还早', at(-MAX_PLAUSIBLE_BACKFILL_MS - 1)],
+  ])('%s → 用收到时间', (_, deviceTime) => {
+    expect(businessTime(deviceTime, receivedAt)).toBe(receivedAt);
   });
 });
