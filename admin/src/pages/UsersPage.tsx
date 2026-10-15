@@ -19,7 +19,8 @@ const columns: ColumnsType<AdminUserRow> = [
   {
     title: '昵称',
     dataIndex: 'nickname',
-    render: (v: string | null) => v ?? '—',
+    // 后端不 trim 昵称：空串 / 纯空格与 null 一样显示「—」，否则是一格看不出内容的空白
+    render: (v: string | null) => (v?.trim() ? v : '—'),
   },
   {
     title: '注销时间',

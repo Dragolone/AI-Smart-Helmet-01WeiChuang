@@ -31,6 +31,11 @@ describe('formatTime', () => {
     expect(formatTime('2026-10-16T15:59:59.999Z')).toBe('2026-10-16 23:59:59')
   })
 
+  it('解析不了的字符串原样显示，不显示成「Invalid Date」', () => {
+    expect(formatTime('not-a-date')).toBe('not-a-date')
+    expect(formatTime('Invalid Date')).toBe('Invalid Date')
+  })
+
   it('1970 纪元零点（设备未对时的时间戳）照实显示，不当空值', () => {
     expect(formatTime('1970-01-01T00:00:00.000Z')).toBe('1970-01-01 08:00:00')
   })
@@ -41,6 +46,13 @@ describe('formatUserLabel', () => {
     expect(formatUserLabel({ phone: '13800001111', nickname: '小李' })).toBe('13800001111（小李）')
     expect(formatUserLabel({ phone: '13800001111', nickname: null })).toBe('13800001111')
     expect(formatUserLabel({ phone: '13800001111', nickname: '' })).toBe('13800001111')
+  })
+
+  it('昵称是纯空格（后端不 trim）→ 当作没有昵称，不出现「（  ）」', () => {
+    expect(formatUserLabel({ phone: '13800001111', nickname: '   ' })).toBe('13800001111')
+    expect(formatUserLabel({ phone: 'deleted:u_1', nickname: '\t' })).toBe('已注销')
+    // 前后带空格但有内容的昵称原样保留
+    expect(formatUserLabel({ phone: '13800001111', nickname: ' 小李 ' })).toBe('13800001111（ 小李 ）')
   })
 
   it('已注销账号（deleted:<id>）显示「已注销」，昵称照带，内部 id 不露出', () => {

@@ -89,6 +89,21 @@ describe('UsersPage：单元格', () => {
   })
 })
 
+describe('UsersPage：空白昵称', () => {
+  it('昵称为空串或纯空格 → 与 null 一样显示「—」，不是一格空白', async () => {
+    stubApi(() =>
+      page([
+        user({ id: 'u_1', phone: '13800000001', nickname: '' }),
+        user({ id: 'u_2', phone: '13800000002', nickname: '   ' }),
+        user({ id: 'u_3', phone: '13800000003', nickname: null }),
+      ]),
+    )
+    renderWithProviders(<UsersPage />)
+    await screen.findByText('13800000001')
+    expect(['13800000001', '13800000002', '13800000003'].map((p) => cellsOf(p)[1])).toEqual(['—', '—', '—'])
+  })
+})
+
 describe('UsersPage：搜索与筛选', () => {
   it('中文昵称、LIKE 通配符 `%` `_`、emoji、带 + 的手机号都整段作为一个 keyword 发出', async () => {
     const apiStub = stubApi(() => page<AdminUserRow>([]))

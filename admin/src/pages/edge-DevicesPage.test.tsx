@@ -253,6 +253,15 @@ describe('DevicesPage：数据变少后的页码', () => {
   })
 })
 
+describe('DevicesPage：空白昵称', () => {
+  it('绑定用户的昵称是纯空格 → 只显示手机号，不出现「（   ）」', async () => {
+    stubApi(() => page([device({ bindUser: { id: 'u', phone: '13800001111', nickname: '   ' } })]))
+    renderWithProviders(<DevicesPage />)
+    await screen.findByText('helmet_001')
+    expect(cellsOf('helmet_001')[1]).toBe('13800001111')
+  })
+})
+
 describe('DevicesPage：轮询', () => {
   it('停留在页面上每 30 秒自动刷新一次（在线状态基于 90 秒心跳窗口）', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
