@@ -94,10 +94,12 @@ describe("两份清单入口（LAUNCH_CHECKLIST A-6）", () => {
     expect(parseLegalDoc(undefined)).toBe("privacy");
   });
 
-  it("「我的」页有两份清单的入口，三语都有文案", () => {
+  it("「我的」→「帮助与关于」两步可达两份清单，三语都有文案", () => {
     const profile = read("app/(tabs)/profile.tsx");
-    expect(profile).toContain('router.navigate("/legal/collection")');
-    expect(profile).toContain('router.navigate("/legal/sharing")');
+    expect(profile).toContain('router.navigate("/about")');
+    const about = read("app/about.tsx");
+    expect(about).toContain('router.navigate("/legal/collection")');
+    expect(about).toContain('router.navigate("/legal/sharing")');
     const dict = read("i18n/messages/legal.ts");
     expect(dict.match(/"legal\.collection\.title"/g)).toHaveLength(3);
     expect(dict.match(/"legal\.sharing\.title"/g)).toHaveLength(3);

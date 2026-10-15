@@ -65,6 +65,8 @@ export const common = {
     "nav.changePassword": "修改密码",
     "nav.changePhone": "更换手机号",
     "nav.deleteAccount": "注销账号",
+    "nav.account": "账号与安全",
+    "nav.about": "帮助与关于",
     "nav.help": "帮助与反馈",
     "nav.privacy": "隐私政策",
     "contacts.lead":
@@ -147,6 +149,8 @@ export const common = {
     "nav.changePassword": "修改密碼",
     "nav.changePhone": "更換手機號碼",
     "nav.deleteAccount": "註銷帳號",
+    "nav.account": "帳號與安全",
+    "nav.about": "說明與關於",
     "nav.help": "說明與意見回饋",
     "nav.privacy": "隱私權政策",
     "contacts.lead":
@@ -234,6 +238,8 @@ export const common = {
     "nav.changePassword": "Change Password",
     "nav.changePhone": "Change Phone Number",
     "nav.deleteAccount": "Delete Account",
+    "nav.account": "Account & Security",
+    "nav.about": "Help & About",
     "nav.help": "Help & Feedback",
     "nav.privacy": "Privacy Policy",
     "contacts.lead":

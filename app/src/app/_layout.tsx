@@ -110,6 +110,14 @@ function RootNavigator() {
           options={{ headerShown: true, title: t("nav.contacts") }}
         />
         <Stack.Screen
+          name="account/index"
+          options={{ headerShown: true, title: t("nav.account") }}
+        />
+        <Stack.Screen
+          name="about"
+          options={{ headerShown: true, title: t("nav.about") }}
+        />
+        <Stack.Screen
           name="account/change-password"
           options={{ headerShown: true, title: t("nav.changePassword") }}
         />
