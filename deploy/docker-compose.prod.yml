@@ -206,6 +206,46 @@ services:
       LOCATION_INTERVAL_MS: ${MOCK4_LOCATION_INTERVAL_MS:-10000}
       MOCK_CMD_RESULT: ${MOCK4_CMD_RESULT:-success}
 
+  # 第五顶常驻 Mock 头盔（profile demo5，2026-10-15 负责人要求）：负责人看「绑了多顶头盔」的界面用，剧本默认 riding（别设 fall / sos）。
+  # 凭证同样来自 provision:device；COMPOSE_PROFILES 里加 demo5。
+  mock5:
+    build:
+      context: ..
+      dockerfile: mock-device/Dockerfile
+    restart: unless-stopped
+    logging: *default-logging
+    profiles: ["demo5"]
+    depends_on:
+      backend:
+        condition: service_started
+    environment:
+      MQTT_URL: mqtt://emqx:1883
+      DEVICE_ID: ${MOCK5_DEVICE_ID:-}
+      DEVICE_SECRET: ${MOCK5_DEVICE_SECRET:-}
+      SCENARIO: ${MOCK5_SCENARIO:-}
+      LOCATION_INTERVAL_MS: ${MOCK5_LOCATION_INTERVAL_MS:-10000}
+      MOCK_CMD_RESULT: ${MOCK5_CMD_RESULT:-success}
+
+  # 第六顶常驻 Mock 头盔（profile demo6，2026-10-15 负责人要求）：负责人看「绑了多顶头盔」的界面用，剧本默认 riding（别设 fall / sos）。
+  # 凭证同样来自 provision:device；COMPOSE_PROFILES 里加 demo6。
+  mock6:
+    build:
+      context: ..
+      dockerfile: mock-device/Dockerfile
+    restart: unless-stopped
+    logging: *default-logging
+    profiles: ["demo6"]
+    depends_on:
+      backend:
+        condition: service_started
+    environment:
+      MQTT_URL: mqtt://emqx:1883
+      DEVICE_ID: ${MOCK6_DEVICE_ID:-}
+      DEVICE_SECRET: ${MOCK6_DEVICE_SECRET:-}
+      SCENARIO: ${MOCK6_SCENARIO:-}
+      LOCATION_INTERVAL_MS: ${MOCK6_LOCATION_INTERVAL_MS:-10000}
+      MOCK_CMD_RESULT: ${MOCK6_CMD_RESULT:-success}
+
   gateway:
     build:
       context: ..
