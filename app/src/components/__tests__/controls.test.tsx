@@ -26,6 +26,7 @@ import {
   makeQueryClient,
   render,
   rootJson,
+  waitFor,
   type Rendered,
 } from "@/__tests__/helpers/render";
 import { devicesApi } from "@/api/devices";
@@ -896,8 +897,9 @@ describe("设置分类页", () => {
     );
     const r = mount(<DeviceContext deviceId="h1" />);
     expect(r.texts()).toEqual(["h1"]);
-    await flush();
-    expect(r.texts()).toEqual(["通勤头盔", tr("device.offlineNote")]);
+    await waitFor(() =>
+      expect(r.texts()).toEqual(["通勤头盔", tr("device.offlineNote")]),
+    );
     expect(r.icons()).toEqual(["cloud-offline-outline"]);
   });
 
@@ -909,6 +911,11 @@ describe("设置分类页", () => {
       Promise.resolve({ online: true }),
     );
     const r = mount(<DeviceContext deviceId="h9" />);
+    // 两个查询都落地之后（status 回来了）仍然只有设备号
+    await waitFor(() =>
+      expect(devicesApi.status as jest.Mock).toHaveBeenCalled(),
+    );
+    await flush();
     await flush();
     expect(r.texts()).toEqual(["h9"]);
   });

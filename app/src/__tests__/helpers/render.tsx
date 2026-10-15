@@ -156,3 +156,20 @@ export function makeQueryClient(): QueryClient {
   clients.add(qc);
   return qc;
 }
+
+/** 等到 check 不再抛错（每次让出一轮宏任务，查询 / Promise 有机会落地）；到次数还不行就把最后的错抛出来 */
+export async function waitFor(check: () => void, tries = 50): Promise<void> {
+  let last: unknown;
+  for (let i = 0; i < tries; i++) {
+    try {
+      check();
+      return;
+    } catch (e) {
+      last = e;
+      await act(async () => {
+        await new Promise((res) => setTimeout(res, 0));
+      });
+    }
+  }
+  throw last;
+}
