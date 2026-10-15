@@ -111,14 +111,32 @@ describe('DevicesService（单测，mock 数据层）', () => {
     );
   });
 
-  it('并发绑定输家（条件更新命中 0 行）→ DEVICE_ALREADY_BOUND', async () => {
+  it('并发绑定输家（条件更新命中 0 行、重读是别人）→ DEVICE_ALREADY_BOUND', async () => {
     prismaMock.device.findUnique.mockResolvedValue({ ...baseDevice });
     prismaMock.device.updateMany.mockResolvedValue({ count: 0 });
+    prismaMock.device.findUniqueOrThrow.mockResolvedValue({
+      ...baseDevice,
+      bindUserId: 'someone-else',
+    });
     await expect(
       service.bind('u1', 'helmet_001', '12345678'),
     ).rejects.toMatchObject({
       response: { code: 'DEVICE_ALREADY_BOUND' },
     });
+  });
+
+  it('并发绑定输家但重读已是自己（同一账号连点，边界测试 B10）→ 幂等返回，不开第二段绑定区间', async () => {
+    prismaMock.device.findUnique.mockResolvedValue({ ...baseDevice });
+    prismaMock.device.updateMany.mockResolvedValue({ count: 0 });
+    prismaMock.device.findUniqueOrThrow.mockResolvedValue({
+      ...baseDevice,
+      bindUserId: 'u1',
+      boundAt: new Date(),
+    });
+    await expect(
+      service.bind('u1', 'helmet_001', '12345678'),
+    ).resolves.toMatchObject({ deviceId: 'helmet_001' });
+    expect(prismaMock.deviceBinding.create).not.toHaveBeenCalled();
   });
 
   it('查看非本人设备 → DEVICE_NOT_FOUND（不泄露存在性）', async () => {
