@@ -10,6 +10,10 @@ export const accident = {
     "sosAlert.bodyCountdown":
       "{seconds} 秒后将自动通知紧急联系人，如无需帮助请取消求救",
     "sosAlert.cancelAction": "我没事，取消",
+    "sosAlert.lateSuffix": "（{note}）",
+    "sosAlert.cancelGoneTitle": "这条求救已不在你的账号下",
+    "sosAlert.cancelGoneBody":
+      "头盔可能已在别的手机上解除绑定，或你已切换账号。请打开 App 确认。",
     "sosAlert.openAction": "打开 App",
     "sosAlert.cancelFailedTitle": "取消请求发送失败",
     "sosAlert.cancelFailedBody": "取消请求未送达服务器，请打开求救页面重试。",
@@ -40,6 +44,10 @@ export const accident = {
     "sosAlert.bodyCountdown":
       "{seconds} 秒後將自動通知緊急聯絡人，如無需協助請取消求救",
     "sosAlert.cancelAction": "我沒事，取消",
+    "sosAlert.lateSuffix": "（{note}）",
+    "sosAlert.cancelGoneTitle": "這條求救已不在你的帳號下",
+    "sosAlert.cancelGoneBody":
+      "頭盔可能已在別的手機上解除綁定，或你已切換帳號。請開啟 App 確認。",
     "sosAlert.cancelFailedTitle": "取消請求傳送失敗",
     "sosAlert.cancelFailedBody": "取消請求未送達伺服器，請開啟求救頁面重試。",
     "sosAlert.openAction": "開啟 App",
@@ -71,6 +79,10 @@ export const accident = {
     "sosAlert.bodyCountdown":
       "Emergency contacts will be notified in {seconds} seconds. Cancel the SOS if you do not need help.",
     "sosAlert.cancelAction": "I'm OK, cancel",
+    "sosAlert.lateSuffix": " ({note})",
+    "sosAlert.cancelGoneTitle": "This SOS is no longer under your account",
+    "sosAlert.cancelGoneBody":
+      "The helmet may have been unbound on another phone, or you switched accounts. Open the app to check.",
     "sosAlert.cancelFailedTitle": "Could not send cancellation request",
     "sosAlert.cancelFailedBody":
       "The cancellation request did not reach the server. Open the SOS page and try again.",

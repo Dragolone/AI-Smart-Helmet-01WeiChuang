@@ -34,6 +34,11 @@ const PERIODIC_HOLD_MS = 20_000;
 let lastFlushOkAt = Date.now();
 /** Contract 硬上限（API.md §12.1） */
 const MAX_BATCH = 100;
+/**
+ * 这一轮每批最多送几条：413（请求体超 100 KB）时减半重试、成功后翻倍恢复，下限 1——
+ * 原来 413 整批原样重发，排在批首的摔倒永远送不出去（10-16 A7）
+ */
+let batchLimit = MAX_BATCH;
 const FLUSH_INTERVAL_MS = 5_000;
 /** 未登录/未知归属时的分区名：仍可入队，但不与任何真实账号的文件混用 */
 const ANONYMOUS_OWNER = "anonymous";
@@ -255,9 +260,15 @@ export async function flushRelayQueue(): Promise<void> {
     const batch = [
       ...mine.filter((e) => CRITICAL_TYPES.has(e.eventType)),
       ...mine.filter((e) => !CRITICAL_TYPES.has(e.eventType)),
-    ].slice(0, MAX_BATCH);
+    ].slice(0, batchLimit);
     try {
-      const counts = await relayApi.push({ deviceId: dev, envelopes: batch });
+      // 2xx 但响应体是 null（网关改写）：服务端已消化这一批，按全部接受走后续——原来读 counts.invalid 抛 TypeError，
+      // 「高危已接受」回调没走、网络锁没放（10-16 A8）
+      const counts = (await relayApi.push({
+        deviceId: dev,
+        envelopes: batch,
+      })) ?? { accepted: batch.length, duplicate: 0, invalid: 0 };
+      batchLimit = Math.min(MAX_BATCH, batchLimit * 2);
       // 202 = 整批已消化(accepted/duplicate 入库,invalid 服务端留档不重试)→ 整批出队
       const sent = new Set(batch);
       queue = queue.filter((e) => !sent.has(e));
@@ -292,7 +303,15 @@ export async function flushRelayQueue(): Promise<void> {
             : ""),
       );
     } catch (e) {
-      if (isUnrecoverable(e)) {
+      if ((e as { status?: unknown })?.status === 413 && batch.length > 1) {
+        batchLimit = Math.max(1, Math.floor(batch.length / 2));
+        rerunAfterFlush = true;
+        devLog(
+          "BLE-RELAY",
+          `${dev} 这一批太大(413)，批量减到 ${batchLimit} 条立即重试`,
+          e,
+        );
+      } else if (isUnrecoverable(e)) {
         // 这台设备在当前账号下永远送不出去（已解绑/换账号）：丢掉它的积压，别拖住其他设备
         const doomed = new Set(mine);
         queue = queue.filter((x) => !doomed.has(x));
@@ -326,12 +345,37 @@ export function startRelayUplink(ownerKey: string = ANONYMOUS_OWNER): void {
   void store.load(ownerKey).then((saved) => {
     // 恢复期间可能已 stop/换账号：只在归属仍是自己时合并；按 eventId 去重，重入不会出现两份（审计 BLE-07）
     if (owner !== ownerKey || saved.length === 0) return;
-    const known = new Set(queue.map((e) => e.eventId));
-    queue = [...saved.filter((e) => !known.has(e.eventId)), ...queue];
+    const known = new Set(queue.map(dedupeKey));
+    queue = [...saved.filter((e) => !known.has(dedupeKey(e))), ...queue];
   });
   flushTimer = setInterval(() => void flushRelayQueue(), FLUSH_INTERVAL_MS);
   // Node/jest 里不让定时器拖住进程退出；RN 的 setInterval 返回数字，无此方法
   (flushTimer as unknown as { unref?: () => void }).unref?.();
+}
+
+/** eventId 只在一台头盔内唯一（决策 #54）：去重键带上头盔号，与服务端 (device_id, event_id) 幂等同口径（10-16 A13） */
+const dedupeKey = (e: Envelope): string => `${e.deviceId}:${e.eventId}`;
+
+/**
+ * 同一会话里档案晚到（钥匙串只有 token、user 要等 /users/me）：匿名分区里已收到的事件都是这个 token 下的，
+ * 换到本人名下时带过去，再并入本人分区之前落盘的积压。真正的「未登录 → 别人登录」走 stop + start，不经这里。
+ * 原来是 stop（落到匿名文件）再 start(uid)，匿名期间首发失败的摔倒就留在匿名文件里不再补传（10-16 A6）
+ */
+export function adoptRelayUplinkOwner(ownerKey: string): boolean {
+  if (ownerKey === ANONYMOUS_OWNER || owner !== ANONYMOUS_OWNER) return false;
+  owner = ownerKey;
+  // 先读本人分区再落盘：save 不等待、同步就写文件，先 persist 会把上次没送完的那份覆盖掉。
+  // 匿名文件等合并落盘之后再清，中途被杀也不丢
+  void store.load(ownerKey).then((saved) => {
+    if (owner !== ownerKey) return;
+    if (saved.length > 0) {
+      const known = new Set(queue.map(dedupeKey));
+      queue = [...saved.filter((e) => !known.has(dedupeKey(e))), ...queue];
+    }
+    persist();
+    void store.save(ANONYMOUS_OWNER, []);
+  });
+  return true;
 }
 
 /** 退出登录/切换账号：落盘到本账号分区并清空内存，下一个账号从自己的分区开始 */
@@ -343,5 +387,6 @@ export function stopRelayUplink(): void {
   persist();
   queue = [];
   deviceCursor = 0;
+  batchLimit = MAX_BATCH;
   owner = ANONYMOUS_OWNER;
 }

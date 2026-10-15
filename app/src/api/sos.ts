@@ -6,8 +6,8 @@ import type {
   ActiveSosResponse,
   Paginated,
   Sos,
-} from '@helmet/shared';
-import { api } from './client';
+} from "@helmet/shared";
+import { api } from "./client";
 
 export const sosApi = {
   /** 无进行中 SOS 时返回 { sos: null } */
@@ -17,11 +17,11 @@ export const sosApi = {
     ),
 
   cancel: (sosId: string) =>
-    api<Sos>(`/sos/${encodeURIComponent(sosId)}/cancel`, { method: 'POST' }),
+    api<Sos>(`/sos/${encodeURIComponent(sosId)}/cancel`, { method: "POST" }),
 
   /** "立即求救"：跳过剩余倒计时立即通知 */
   confirm: (sosId: string) =>
-    api<Sos>(`/sos/${encodeURIComponent(sosId)}/confirm`, { method: 'POST' }),
+    api<Sos>(`/sos/${encodeURIComponent(sosId)}/confirm`, { method: "POST" }),
 
   accidents: (deviceId: string, page = 1, pageSize = 20) =>
     api<Paginated<AccidentListItem>>(
@@ -37,11 +37,18 @@ export const sosApi = {
    * 覆盖了 WS 推的 cancelled，之后 active 查不到这单、旧代码却信缓存，倒计时页永远停在 pending，
    * 点取消一直报 SOS_ALREADY_FINALIZED。事故记录也拿不到（网络失败）才返回 null，由调用方决定兜底。
    */
-  snapshot: async (sosId: string, deviceId: string): Promise<Sos | null> => {
-    const { sos } = await api<ActiveSosResponse>(
-      `/devices/${encodeURIComponent(deviceId)}/sos/active`,
-    );
-    if (sos && sos.sosId === sosId) return sos;
+  snapshot: async (
+    sosId: string,
+    deviceId?: string | null,
+  ): Promise<Sos | null> => {
+    // 只带 sosId 的外部深链没有 deviceId：直接按单号查，别去请求 /devices/undefined/sos/active 然后把一单
+    // 还在倒数的求救当成「不存在」收掉（10-16 C1）
+    if (deviceId) {
+      const { sos } = await api<ActiveSosResponse>(
+        `/devices/${encodeURIComponent(deviceId)}/sos/active`,
+      );
+      if (sos && sos.sosId === sosId) return sos;
+    }
     return api<AccidentDetail>(`/accidents/${encodeURIComponent(sosId)}`);
   },
 };

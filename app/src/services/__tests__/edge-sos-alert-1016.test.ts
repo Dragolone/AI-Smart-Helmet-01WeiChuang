@@ -156,7 +156,7 @@ describe("锁屏提醒的内容", () => {
 });
 
 describe("排通知失败", () => {
-  it("现状（A9）：第一条通知没排上（scheduleNotificationAsync 抛错）后，这一单留在去重表里——之后再叫也不再排", async () => {
+  it("改后（10-16 A9）：第一条通知没排上（scheduleNotificationAsync 抛错）就把这一单从去重表里放掉——用户打开通知权限后 App 再离开前台会补弹", async () => {
     const m = load();
     mockSchedule.mockRejectedValueOnce(
       new Error("Notifications not permitted"),
@@ -165,17 +165,25 @@ describe("排通知失败", () => {
     expect(mockSchedule).toHaveBeenCalledTimes(1);
     // 用户随后在系统设置里打开了通知、或刚才只是偶发失败；App 再次离开前台时补弹
     await m.showSosAlertIfBackground("s1", "d1", deadlineIn(50));
-    expect(mockSchedule).toHaveBeenCalledTimes(1);
-    // 只有这一单结束（clear）之后同一 sosId 才能再排
-    await m.clearSosAlert("s1");
-    await m.showSosAlertIfBackground("s1", "d1", deadlineIn(40));
     expect(mockSchedule.mock.calls.length).toBeGreaterThan(1);
+    await m.clearSosAlert("s1");
+  });
+
+  it("第一条排上了、后面的静默刷新没排上：这一单仍在去重表里（已经有通知在，不重复弹）", async () => {
+    const m = load();
+    mockSchedule
+      .mockResolvedValueOnce("id-1")
+      .mockRejectedValueOnce(new Error("quota"));
+    await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
+    const n = mockSchedule.mock.calls.length;
+    await m.showSosAlertIfBackground("s1", "d1", deadlineIn(50));
+    expect(mockSchedule).toHaveBeenCalledTimes(n);
     await m.clearSosAlert("s1");
   });
 });
 
 describe("通知按钮「取消」遇到不可重试的错误", () => {
-  it("现状（A10）：这单不存在 / 不是自己的（404）也按 2 / 5 / 10 秒重试三次，最后弹「取消没送达」并带到倒计时页", async () => {
+  it("改后（10-16 A10）：这单不存在 / 不是自己的（404）：不重试，撤掉通知、弹一句说明、不跳倒计时页", async () => {
     jest.useFakeTimers({ now: NOW });
     const alert = jest
       .spyOn(Alert, "alert")
@@ -188,11 +196,31 @@ describe("通知按钮「取消」遇到不可重试的错误", () => {
     for (const ms of [2_000, 5_000, 10_000]) {
       await jest.advanceTimersByTimeAsync(ms);
     }
-    expect(mockCancel).toHaveBeenCalledTimes(4);
+    expect(mockCancel).toHaveBeenCalledTimes(1);
     expect(alert).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledWith(
-      "/sos-active?sosId=s404&deviceId=d1",
+    expect(alert.mock.calls[0][0]).toBe("sosAlert.cancelGoneTitle");
+    expect(mockNavigate).not.toHaveBeenCalled();
+    await m.resetSosAlerts();
+  });
+
+  it("403 同样不重试；500 仍按 2 / 5 / 10 秒重试三次", async () => {
+    jest.useFakeTimers({ now: NOW });
+    jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
+    mockCancel.mockRejectedValue(
+      Object.assign(new Error("403"), { status: 403 }),
     );
+    const m = load();
+    await m.cancelFromNotification("s403", 0, "d1");
+    for (const ms of [2_000, 5_000, 10_000])
+      await jest.advanceTimersByTimeAsync(ms);
+    expect(mockCancel).toHaveBeenCalledTimes(1);
+    mockCancel.mockRejectedValue(
+      Object.assign(new Error("500"), { status: 500 }),
+    );
+    await m.cancelFromNotification("s500", 0, "d1");
+    for (const ms of [2_000, 5_000, 10_000])
+      await jest.advanceTimersByTimeAsync(ms);
+    expect(mockCancel).toHaveBeenCalledTimes(1 + 4);
     await m.resetSosAlerts();
   });
 

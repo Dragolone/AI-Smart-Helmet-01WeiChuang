@@ -5,6 +5,16 @@
 // 没学到之前就是手机时钟，不会更差。
 let offsetMs = 0;
 let samples = 0;
+/** 最近几个样本：Date 头是服务端发出时刻，网络越慢样本越小，所以取最近几个里最大的那个最接近真值 */
+let recent: number[] = [];
+const WINDOW = 5;
+/**
+ * 样本和当前偏移差得超过它就当手机时钟跳变（手动改时间、长时间离线后系统校时）——直接采信新样本。
+ * 网络再慢也慢不过请求超时（15 s），所以 30 s 以上不可能是网络造成的（10-16 A1）
+ */
+const JUMP_MS = 30_000;
+/** 比这早的 Date 头不是真实时间（V8 把「0」解析成 2000 年；服务器时钟没对上） */
+const EARLIEST_PLAUSIBLE_MS = Date.UTC(2024, 0, 1);
 
 /** 收到一个响应时调用：header 是 `Date` 头原文，receivedAt 是本机收到的时刻 */
 export function noteServerDate(
@@ -13,10 +23,16 @@ export function noteServerDate(
 ): void {
   if (!header) return;
   const serverMs = Date.parse(header);
-  if (Number.isNaN(serverMs)) return;
+  if (Number.isNaN(serverMs) || serverMs < EARLIEST_PLAUSIBLE_MS) return;
   const sample = serverMs - receivedAt;
-  // 第一次直接采信；之后平滑一下，单个慢响应（Date 是发送时刻，网络慢时偏早）别把偏移带偏
-  offsetMs = samples === 0 ? sample : Math.round(offsetMs * 0.7 + sample * 0.3);
+  if (samples === 0 || Math.abs(sample - offsetMs) > JUMP_MS) {
+    // 第一次直接采信；时钟跳变也直接采信，不然要二十多个响应才追得上（10-16 A1）
+    recent = [sample];
+  } else {
+    recent = [...recent.slice(-(WINDOW - 1)), sample];
+  }
+  // 慢响应只会让样本偏小，取窗口里最大的：冷启动第一个慢响应不再把偏移压低几秒（10-16 8.10 实测 52→55 跳）
+  offsetMs = Math.max(...recent);
   samples += 1;
 }
 
@@ -34,4 +50,5 @@ export function serverClockOffsetMs(): number {
 export function __resetServerClockForTests(): void {
   offsetMs = 0;
   samples = 0;
+  recent = [];
 }

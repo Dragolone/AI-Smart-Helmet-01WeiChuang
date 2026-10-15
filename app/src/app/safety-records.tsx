@@ -20,6 +20,7 @@ import {
 import Animated, { FadeInDown } from "react-native-reanimated";
 import type { AccidentListItem, EventListItem } from "@helmet/shared";
 
+import { accidentHref, sosActiveHref } from "@/services/sos-routes";
 import { toUserMessage } from "@/api/error-messages";
 import { eventsApi, eventsListQuery } from "@/api/events";
 import { sosApi } from "@/api/sos";
@@ -431,7 +432,7 @@ export default function SafetyRecordsScreen() {
         key={a.sosId}
         feedback="fill"
         accessibilityRole="button"
-        onPress={() => router.navigate(`/accident/${a.sosId}`)}
+        onPress={() => router.navigate(accidentHref(a.sosId))}
         style={[styles.row, rowBorder(last)]}
       >
         <IconCircle
@@ -688,9 +689,7 @@ export default function SafetyRecordsScreen() {
             feedback="opacity"
             accessibilityRole="button"
             onPress={() =>
-              router.navigate(
-                `/sos-active?sosId=${sos.sosId}&deviceId=${sos.deviceId}`,
-              )
+              router.navigate(sosActiveHref(sos.sosId, sos.deviceId))
             }
             style={[
               styles.pending,

@@ -2,8 +2,12 @@
 // 不在进行中的单必须去事故记录拿最终状态，不能回退到可能被迟到 pending 污染的本地缓存。
 import { afterEach, describe, expect, it, jest } from "@jest/globals";
 
-const mockApi = jest.fn(async (_path: string, _init?: unknown): Promise<unknown> => null);
-jest.mock("../client", () => ({ api: (p: string, i?: unknown) => mockApi(p, i) }));
+const mockApi = jest.fn(
+  async (_path: string, _init?: unknown): Promise<unknown> => null,
+);
+jest.mock("../client", () => ({
+  api: (p: string, i?: unknown) => mockApi(p, i),
+}));
 
 import { sosApi } from "../sos";
 
@@ -23,7 +27,9 @@ describe("sosApi.snapshot", () => {
   });
 
   it("active 为空（已取消/已通知）→ 去事故记录拿最终状态", async () => {
-    mockApi.mockResolvedValueOnce({ sos: null }).mockResolvedValueOnce(cancelled);
+    mockApi
+      .mockResolvedValueOnce({ sos: null })
+      .mockResolvedValueOnce(cancelled);
     expect(await sosApi.snapshot("s1", "d1")).toEqual(cancelled);
     expect(mockApi.mock.calls[1][0]).toBe("/accidents/s1");
   });
@@ -33,6 +39,16 @@ describe("sosApi.snapshot", () => {
       .mockResolvedValueOnce({ sos: { ...pending, sosId: "s2" } })
       .mockResolvedValueOnce(cancelled);
     expect(await sosApi.snapshot("s1", "d1")).toEqual(cancelled);
+  });
+
+  it("没有 deviceId（推送 / 深链只带 sosId）→ 不查 /devices/undefined/sos/active，直接去事故记录（2026-10-16 C1）", async () => {
+    mockApi.mockResolvedValueOnce(cancelled);
+    expect(await sosApi.snapshot("s1")).toEqual(cancelled);
+    expect(await sosApi.snapshot("s1", null).catch(() => "x")).not.toBe("x");
+    expect(mockApi.mock.calls.map((c) => c[0])).toEqual([
+      "/accidents/s1",
+      "/accidents/s1",
+    ]);
   });
 
   it("两条都失败 → 抛出，由页面决定是否信缓存", async () => {

@@ -62,7 +62,7 @@ afterEach(() => {
 });
 
 describe("同一台头盔前后两单的消息乱序", () => {
-  it("现状（A5）：新单 s2 的 pending 先到、旧单 s1 的 notified 后到——s2 被从进行中缓存里清掉，离开前台时也不再补弹锁屏通知", () => {
+  it("改后（10-16 A5）：新单 s2 的 pending 先到、旧单 s1 的 notified 后到——别的单的终态不碰进行中缓存，s2 仍在，离开前台照样补弹锁屏通知", () => {
     applySosUpdate(qc, sos({ sosId: "s2" }), presented, deps);
     expect(active("d1")?.sosId).toBe("s2");
     applySosUpdate(
@@ -71,12 +71,23 @@ describe("同一台头盔前后两单的消息乱序", () => {
       presented,
       deps,
     );
-    // s2 仍是 pending（详情缓存没动），但「进行中」缓存已被旧单的终态写成 null
+    expect(qc.getQueryData<Sos>(["sos", "s1"])?.status).toBe("notified");
     expect(qc.getQueryData<Sos>(["sos", "s2"])?.status).toBe("pending");
+    expect(active("d1")?.sosId).toBe("s2");
+    expect(alertPendingOnBackground(qc, "background", ["d1"], deps)).toBe(1);
+    expect(deps.openCountdown).toHaveBeenCalledWith("s2", "d1");
+  });
+
+  it("同一单自己的终态仍然把进行中缓存清掉", () => {
+    applySosUpdate(qc, sos({ sosId: "s2" }), presented, deps);
+    applySosUpdate(
+      qc,
+      sos({ sosId: "s2", status: "cancelled" }),
+      presented,
+      deps,
+    );
     expect(active("d1")).toBeNull();
     expect(alertPendingOnBackground(qc, "background", ["d1"], deps)).toBe(0);
-    // s2 的倒计时页已经拉起过一次，不受影响
-    expect(deps.openCountdown).toHaveBeenCalledWith("s2", "d1");
   });
 
   it("按正常顺序（旧单终态在前、新单 pending 在后）：进行中缓存指向新单", () => {

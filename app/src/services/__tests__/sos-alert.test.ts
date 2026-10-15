@@ -155,8 +155,9 @@ describe("sos-alert", () => {
       const triggeredAt = new Date(Date.now() - 3 * 3_600_000).toISOString();
       await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60), triggeredAt);
       const r = reqs();
+      // 括号跟界面语言走（10-16 A14）：中文全角「（…）」、英文半角「 (…)」，由 sosAlert.lateSuffix 文案决定
       expect(r[0].content.body).toBe(
-        'sosAlert.bodyCountdown:{"seconds":60}（sos.lateEventHours:{"n":3}）',
+        'sosAlert.bodyCountdown:{"seconds":60}sosAlert.lateSuffix:{"note":"sos.lateEventHours:{\\"n\\":3}"}',
       );
       // 静默刷新那两条也带
       expect(r[1].content.body).toContain("sos.lateEventHours");

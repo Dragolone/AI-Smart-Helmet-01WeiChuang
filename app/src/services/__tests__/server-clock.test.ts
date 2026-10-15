@@ -39,12 +39,12 @@ describe("serverNow", () => {
     expect(serverNow()).toBe(LOCAL - 85_000); // 偏移恒定，时间照走
   });
 
-  it("之后的采样平滑合入：一个慢响应（Date 偏早）不会把偏移带偏太多", () => {
+  it("之后的慢响应（Date 偏早）不把偏移带偏：取最近几个样本里最大的（2026-10-16 A1，华为 8.10 实测倒计时 52→55 往上跳）", () => {
     noteServerDate(new Date(LOCAL).toUTCString(), LOCAL);
     noteServerDate(new Date(LOCAL - 10_000).toUTCString(), LOCAL); // 一次慢响应
-    expect(serverClockOffsetMs()).toBe(-3_000);
+    expect(serverClockOffsetMs()).toBe(0);
     noteServerDate(new Date(LOCAL).toUTCString(), LOCAL);
-    expect(Math.abs(serverClockOffsetMs())).toBeLessThan(3_000);
+    expect(serverClockOffsetMs()).toBe(0);
   });
 
   it("Date 头缺失或不是合法日期：忽略", () => {

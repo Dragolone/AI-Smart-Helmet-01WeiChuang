@@ -30,6 +30,7 @@ import type {
   EventType,
 } from "@helmet/shared";
 
+import { sosActiveHref } from "@/services/sos-routes";
 import { contactsApi } from "@/api/contacts";
 import { toUserMessage } from "@/api/error-messages";
 import { buildRelayEnvelope, relayApi } from "@/api/relay";
@@ -562,9 +563,7 @@ export default function SafetyScreen() {
                     icon="warning-outline"
                     title={t("safety.action.openCountdown")}
                     onPress={() =>
-                      router.navigate(
-                        `/sos-active?sosId=${sos.sosId}&deviceId=${sos.deviceId}`,
-                      )
+                      router.navigate(sosActiveHref(sos.sosId, sos.deviceId))
                     }
                   />
                 </Card>

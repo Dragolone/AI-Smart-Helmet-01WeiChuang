@@ -107,13 +107,13 @@ describe("landFromPush：extras 的形态", () => {
     );
   });
 
-  it("现状：编号原样拼进路径，没做 URL 编码——编号里有 & / ? / 斜杠时落到别的参数或别的页面（A4）", async () => {
+  it("改后（10-16 A4）：编号经 URL 编码再拼进路径——编号里有 & / ? / 斜杠也落不到别的参数或别的页面", async () => {
     mockActive.mockRejectedValueOnce(new Error("network"));
     expect(
       await landFromPush({ sosId: "a&deviceId=x", deviceId: "helmet_1" }),
-    ).toBe("/sos-active?sosId=a&deviceId=x&deviceId=helmet_1");
+    ).toBe("/sos-active?sosId=a%26deviceId%3Dx&deviceId=helmet_1");
     expect(await landFromPush({ sosId: "../device/helmet_1" })).toBe(
-      "/accident/../device/helmet_1",
+      "/accident/..%2Fdevice%2Fhelmet_1",
     );
   });
 });

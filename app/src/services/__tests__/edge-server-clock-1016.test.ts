@@ -36,14 +36,22 @@ describe("第一次样本", () => {
     expect(serverNow()).toBe(LOCAL - 5_000);
   });
 
-  it("现状：之后的快响应按 30% 一次拉回，第 1 / 2 / 3 次后分别剩 -3.5 / -2.45 / -1.715 秒", () => {
+  it("改后（10-16 A1）：第一个响应慢了 5 秒，之后一个快响应就把偏移拉回 0——取窗口里最大的样本，不再按 30% 慢慢追", () => {
     noteServerDate(header(LOCAL - 5_000), LOCAL);
     const after: number[] = [];
     for (let i = 0; i < 3; i += 1) {
       noteServerDate(header(LOCAL), LOCAL);
       after.push(serverClockOffsetMs());
     }
-    expect(after).toEqual([-3_500, -2_450, -1_715]);
+    expect(after).toEqual([0, 0, 0]);
+  });
+
+  it("窗口只记最近 5 个：一个快响应之后连来 5 个慢 2 秒的，偏移跟着到 -2 秒（第 4 个时还钉在 0）", () => {
+    noteServerDate(header(LOCAL), LOCAL);
+    for (let i = 0; i < 4; i += 1) noteServerDate(header(LOCAL - 2_000), LOCAL);
+    expect(serverClockOffsetMs()).toBe(0);
+    noteServerDate(header(LOCAL - 2_000), LOCAL);
+    expect(serverClockOffsetMs()).toBe(-2_000);
   });
 
   it("Date 头只有秒：同一秒内收到的毫秒数不影响，偏移是整秒减去收到时的毫秒", () => {
@@ -78,10 +86,14 @@ describe("坏头", () => {
     expect(serverClockOffsetMs()).toBe(10_000);
   });
 
-  it("现状：只要 Date.parse 认得出就采信，不判断离谱程度（V8 把「0」解析成 2000 年）", () => {
+  it("改后（10-16 A1）：Date 头早于 2024 年的不采信（V8 把「0」解析成 2000 年；服务器时钟没对上）", () => {
     noteServerDate("0", LOCAL);
-    expect(serverClockOffsetMs()).toBe(Date.parse("0") - LOCAL);
-    expect(serverClockOffsetMs()).toBeLessThan(-20 * 365 * 86_400_000);
+    expect(serverClockOffsetMs()).toBe(0);
+    noteServerDate("Mon, 01 Jan 2018 00:00:00 GMT", LOCAL);
+    expect(serverClockOffsetMs()).toBe(0);
+    // 之后一个正常的照样按「第一次」采信
+    noteServerDate(header(LOCAL - 4_000), LOCAL);
+    expect(serverClockOffsetMs()).toBe(-4_000);
   });
 });
 
@@ -100,19 +112,18 @@ describe("平滑与时钟跳变", () => {
     }
   });
 
-  it("现状：学到偏移后手机时间被往前拨 1 小时（手动改时间 / 长时间离线后自动校时），第一个响应只追回 30%——serverNow 仍快 42 分钟", () => {
+  it("改后（10-16 A1）：学到偏移后手机时间被往前拨 1 小时（手动改时间 / 长时间离线后自动校时）——差 30 秒以上当跳变，第一个响应就直接采信，serverNow 立刻对上", () => {
     noteServerDate(header(LOCAL), LOCAL);
     expect(serverClockOffsetMs()).toBe(0);
     // 手机时钟往前跳 1 小时：同一时刻的服务器时间，在手机上读成 LOCAL + 1h 收到
     const jumped = LOCAL + 3_600_000;
     jest.setSystemTime(jumped);
     noteServerDate(header(LOCAL), jumped);
-    expect(serverClockOffsetMs()).toBe(-1_080_000);
-    // 按服务端时钟算的「此刻」比真实服务器时间快 0.7 小时：倒计时页会显示得比实际少 42 分钟（直接到 0）
-    expect(serverNow() - LOCAL).toBe(2_520_000);
+    expect(serverClockOffsetMs()).toBe(-3_600_000);
+    expect(serverNow()).toBe(LOCAL);
   });
 
-  it("现状：跳变后要连续好几个响应才追回到 1 秒以内", () => {
+  it("改后（10-16 A1）：跳变后一个响应就追回（原来要 23 个）", () => {
     noteServerDate(header(LOCAL), LOCAL);
     const jumped = LOCAL + 3_600_000;
     let n = 0;
@@ -120,15 +131,26 @@ describe("平滑与时钟跳变", () => {
       noteServerDate(header(LOCAL), jumped);
       n += 1;
     }
-    expect(n).toBe(23);
+    expect(n).toBe(1);
   });
 
-  it("收到时刻倒退（两个响应乱序到达处理）：照样按样本平滑，不抛", () => {
+  it("往回拨也直接采信；跳变后窗口重新开始，紧接着慢 25 秒的样本不算跳变、取最大仍是新值", () => {
+    noteServerDate(header(LOCAL), LOCAL);
+    noteServerDate(header(LOCAL + 3_600_000), LOCAL);
+    expect(serverClockOffsetMs()).toBe(3_600_000);
+    noteServerDate(header(LOCAL + 3_600_000 - 25_000), LOCAL);
+    expect(serverClockOffsetMs()).toBe(3_600_000);
+    // 差 31 秒就当跳变
+    noteServerDate(header(LOCAL + 3_600_000 - 31_000), LOCAL);
+    expect(serverClockOffsetMs()).toBe(3_600_000 - 31_000);
+  });
+
+  it("收到时刻倒退（两个响应乱序到达处理）：照样记样本、取窗口最大，不抛", () => {
     noteServerDate(header(LOCAL), LOCAL);
     expect(() =>
       noteServerDate(header(LOCAL - 1_000), LOCAL - 10_000),
     ).not.toThrow();
-    expect(serverClockOffsetMs()).toBe(2_700);
+    expect(serverClockOffsetMs()).toBe(9_000);
   });
 });
 
