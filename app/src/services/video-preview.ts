@@ -101,7 +101,12 @@ export function previewReducer(
         phase: "error",
         attempt: s.attempt,
         stalled: false,
-        errorKey: JOIN_ERROR_KEYS[a.code ?? ""] ?? "video.err.notFound",
+        // 只认表里自己的键：码叫 toString / constructor 时普通下标会取到原型上的函数，当成文案 key 显示成空白
+        errorKey:
+          (a.code !== undefined &&
+            Object.prototype.hasOwnProperty.call(JOIN_ERROR_KEYS, a.code) &&
+            JOIN_ERROR_KEYS[a.code]) ||
+          "video.err.notFound",
       };
     case "manualNoWifi":
       return s.phase === "manual" ? { ...s, errorKey: "video.err.noWifi" } : s;
