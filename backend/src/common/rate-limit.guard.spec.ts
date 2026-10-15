@@ -163,4 +163,43 @@ describe('RateLimitGuard', () => {
     expect(buckets.has('short:1.1.1.1')).toBe(true);
     expect(hit({ ip: '1.1.1.1' })).toBe(true);
   });
+
+  describe('桶数量上限（5 万）淘汰', () => {
+    const fill = (rule: string, n: number) => {
+      for (let i = 0; i < n; i += 1) hit({ ip: `${rule}-${i}` });
+    };
+    const bucketsOf = () =>
+      (guard as unknown as { buckets: Map<string, number[]> }).buckets;
+
+    it('超过上限时先删已出各自窗口的桶：1 分钟规则的过期桶清掉，24 小时规则（发码日限）的桶保留', () => {
+      rules = [{ name: 'sms_day', limit: 1, windowMs: 24 * 3_600_000 }];
+      hit({ ip: 'victim' }); // 日限桶：被拒的人今天已发过一次
+      rules = [{ name: 'min', limit: 5, windowMs: 60_000 }];
+      jest.advanceTimersByTime(1); // 与日限桶错开，避免同一毫秒
+      fill('flood', 50_000);
+      expect(bucketsOf().size).toBe(50_001);
+      jest.advanceTimersByTime(61_000); // 1 分钟桶全部过期
+      hit({ ip: 'trigger' }); // 触发容量淘汰
+      expect(bucketsOf().has('sms_day:victim')).toBe(true);
+      expect(bucketsOf().size).toBe(2); // 日限桶 + 本次新建的桶
+      rules = [{ name: 'sms_day', limit: 1, windowMs: 24 * 3_600_000 }];
+      expect(rejected({ ip: 'victim' }).err).toBeDefined();
+    });
+
+    it('都还在窗口内仍超限：淘汰最先到期的 10%，最新的桶留下', () => {
+      rules = [{ name: 'min', limit: 5, windowMs: 60_000 }];
+      hit({ ip: 'oldest' });
+      jest.advanceTimersByTime(10);
+      fill('mid', 49_999);
+      jest.advanceTimersByTime(10);
+      hit({ ip: 'newest' });
+      expect(bucketsOf().size).toBe(50_001);
+      hit({ ip: 'trigger' });
+      // 50001 个里淘汰 ceil(50001 × 0.1) = 5001 个，再加上触发请求新建的 1 个
+      expect(bucketsOf().size).toBe(50_001 - 5_001 + 1);
+      expect(bucketsOf().has('min:oldest')).toBe(false);
+      expect(bucketsOf().has('min:newest')).toBe(true);
+      expect(bucketsOf().has('min:trigger')).toBe(true);
+    });
+  });
 });

@@ -2,6 +2,7 @@
 import { ConflictException, Logger } from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
+import { verifyUserSig } from './trtc-sig';
 import { VoiceService } from './voice.service';
 
 const uniqueErr = () =>
@@ -50,6 +51,8 @@ describe('VoiceService', () => {
     'VOICE_CHANNEL_MEMBER_LIMIT',
     'TRTC_SDK_APP_ID',
     'TRTC_SECRET_KEY',
+    'TRTC_SIG_EXPIRE_SECONDS',
+    'TRTC_ROOM_KEY_EXPIRE_SECONDS',
   ];
 
   beforeEach(() => {
@@ -167,6 +170,58 @@ describe('VoiceService', () => {
     });
   });
 
+  describe('listMine / join 早退 / leave', () => {
+    it('listMine：按加入时间倒序，映射成线上格式', async () => {
+      prisma.voiceChannelMember.findMany.mockResolvedValue([
+        { channel: channelRow({ id: 'a' }) },
+        { channel: channelRow({ id: 'b', _count: { members: 3 } }) },
+      ]);
+      const list = await svc.listMine('u1');
+      expect(list.map((c) => [c.channelId, c.memberCount])).toEqual([
+        ['a', 1],
+        ['b', 3],
+      ]);
+      expect(prisma.voiceChannelMember.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'u1' },
+          orderBy: { joinedAt: 'desc' },
+        }),
+      );
+    });
+
+    it('join：邀请码不存在 → 404，不开事务', async () => {
+      prisma.voiceChannel.findUnique.mockResolvedValue(null);
+      prisma.$transaction.mockClear();
+      await expect(svc.join('u2', 'ZZZZZZ')).rejects.toMatchObject({
+        status: 404,
+        response: { message: '频道不存在' },
+      });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('join：已经是成员 → 直接幂等返回，不开事务（也不受满员影响）', async () => {
+      prisma.voiceChannel.findUnique.mockResolvedValue(channelRow());
+      prisma.voiceChannelMember.findUnique.mockResolvedValue({ id: 'm1' });
+      prisma.$transaction.mockClear();
+      await expect(svc.join('u1', 'ABC234')).resolves.toMatchObject({
+        channelId: 'ch1',
+      });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('leave：删到了就成功；不是成员（删了 0 行）→ 404', async () => {
+      prisma.voiceChannelMember.deleteMany.mockResolvedValueOnce({ count: 1 });
+      await expect(svc.leave('u1', 'ch1')).resolves.toBeUndefined();
+      expect(prisma.voiceChannelMember.deleteMany).toHaveBeenCalledWith({
+        where: { channelId: 'ch1', userId: 'u1' },
+      });
+      prisma.voiceChannelMember.deleteMany.mockResolvedValueOnce({ count: 0 });
+      await expect(svc.leave('u1', 'ch1')).rejects.toMatchObject({
+        status: 404,
+      });
+    });
+  });
+
   describe('members', () => {
     it('成员的用户行查不到：昵称 / 头像为 null、手机号空串，其余照常；有用户行的手机号脱敏', async () => {
       prisma.voiceChannelMember.findUnique.mockResolvedValue({
@@ -220,6 +275,45 @@ describe('VoiceService', () => {
       await expect(svc.token('u1', 'ch1')).rejects.toMatchObject({
         response: { code: 'TRTC_NOT_CONFIGURED' },
       });
+    });
+
+    it('配置齐全：签发绑定本用户的 UserSig（默认 24h）与只对本房间有效的房间钥匙（默认 10 分钟）', async () => {
+      jest.useFakeTimers({ now: new Date('2026-10-16T00:00:00Z') });
+      process.env.TRTC_SDK_APP_ID = '1400000000';
+      process.env.TRTC_SECRET_KEY = 'fake-secret-for-test';
+      const t = await svc.token('u1', 'ch1');
+      expect(t).toMatchObject({
+        sdkAppId: 1400000000,
+        userId: 'u1',
+        roomId: 1_234_567_890,
+        expiresAt: '2026-10-17T00:00:00.000Z',
+      });
+      const cfg = {
+        sdkAppId: 1400000000,
+        secretKey: 'fake-secret-for-test',
+        expireSeconds: 86400,
+      };
+      expect(verifyUserSig(cfg, t.userSig)).toMatchObject({
+        identifier: 'u1',
+        sdkAppId: 1400000000,
+        expire: 86400,
+      });
+      const key = verifyUserSig(cfg, t.privateMapKey);
+      expect(key.room).toMatchObject({ roomId: 1_234_567_890 });
+      expect(key.room!.expireAt - key.time).toBe(600);
+      jest.useRealTimers();
+    });
+
+    it('有效期可由环境变量调', async () => {
+      process.env.TRTC_SDK_APP_ID = '1400000000';
+      process.env.TRTC_SECRET_KEY = 'k';
+      process.env.TRTC_SIG_EXPIRE_SECONDS = '3600';
+      process.env.TRTC_ROOM_KEY_EXPIRE_SECONDS = '60';
+      const t = await svc.token('u1', 'ch1');
+      const cfg = { sdkAppId: 1400000000, secretKey: 'k', expireSeconds: 0 };
+      expect(verifyUserSig(cfg, t.userSig).expire).toBe(3600);
+      const key = verifyUserSig(cfg, t.privateMapKey);
+      expect(key.room!.expireAt - key.time).toBe(60);
     });
 
     it('非成员：404，不签发', async () => {

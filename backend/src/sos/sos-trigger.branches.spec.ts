@@ -55,6 +55,7 @@ describe('SosTriggerService：剩余分支', () => {
   let logSpy: jest.SpyInstance;
   let warnSpy: jest.SpyInstance;
   let debugSpy: jest.SpyInstance;
+  let errorSpy: jest.SpyInstance;
   const saved = process.env.SOS_CREATED_PUSH_RETRY_DELAYS_SECONDS;
   const savedCountdown = process.env.SOS_COUNTDOWN_SECONDS;
 
@@ -74,7 +75,7 @@ describe('SosTriggerService：剩余分支', () => {
     logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
     warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
     debugSpy = jest.spyOn(Logger.prototype, 'debug').mockImplementation();
-    jest.spyOn(Logger.prototype, 'error').mockImplementation();
+    errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation();
   });
   afterEach(() => {
     jest.useRealTimers();
@@ -230,6 +231,87 @@ describe('SosTriggerService：剩余分支', () => {
       prisma.sosCase.create.mock.calls[0] as [{ data: Record<string, unknown> }]
     )[0].data;
     expect(data).not.toHaveProperty('latitude');
+  });
+
+  it('设备未绑定：只留档不建单（没人可通知、可取消），记 warn', async () => {
+    await svc.handleTrigger(env('possible_fall'), null);
+    expect(prisma.sosCase.findFirst).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      'possible_fall 来自未绑定设备 helmet_001，不建 SOS 单（raw 已留档）：ev-new',
+    );
+  });
+
+  it('建单瞬时失败：200ms、400ms 两次退避重试，第三次成功', async () => {
+    jest.useFakeTimers({ now: NOW });
+    prisma.sosCase.findFirst
+      .mockRejectedValueOnce(new Error('connection reset'))
+      .mockRejectedValueOnce(new Error('connection reset'))
+      .mockResolvedValueOnce(null);
+    prisma.sosCase.create.mockResolvedValue(pending({ id: 'c7' }));
+    const p = svc.handleTrigger(env('possible_fall'), 'u1');
+    await flush();
+    expect(warnSpy).toHaveBeenCalledWith(
+      'SOS 建单失败（第 1 次），200ms 后重试：connection reset',
+    );
+    await jest.advanceTimersByTimeAsync(200);
+    expect(warnSpy).toHaveBeenCalledWith(
+      'SOS 建单失败（第 2 次），400ms 后重试：connection reset',
+    );
+    await jest.advanceTimersByTimeAsync(400);
+    await p;
+    expect(prisma.sosCase.create).toHaveBeenCalledTimes(1);
+    expect(realtime.pushSosUpdate).toHaveBeenCalledWith(
+      'u1',
+      expect.objectContaining({ sosId: 'c7' }),
+    );
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it('重试耗尽：不向上抛（raw 已落库、重投会被幂等挡掉），记 error 等对账补建', async () => {
+    jest.useFakeTimers({ now: NOW });
+    prisma.sosCase.findFirst.mockRejectedValue(new Error('db down'));
+    const p = svc.handleTrigger(env('manual_sos'), 'u1');
+    await jest.advanceTimersByTimeAsync(1_000);
+    await expect(p).resolves.toBeUndefined();
+    expect(prisma.sosCase.findFirst).toHaveBeenCalledTimes(3);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'SOS 触发处理失败（raw 已留档，等待对账补建）event=ev-new device=helmet_001：Error: db down',
+      ),
+    );
+  });
+
+  it('触发事件自带合法位置：快照取事件里的（source=event），不查轨迹表', async () => {
+    prisma.sosCase.findFirst.mockResolvedValueOnce(null);
+    prisma.sosCase.create.mockResolvedValue(pending({ id: 'c8' }));
+    await svc.handleTrigger(
+      {
+        ...env('possible_fall'),
+        payload: {
+          location: {
+            latitude: 22.5,
+            longitude: 114.1,
+            coordinateSystem: 'gcj02',
+            accuracy: 8,
+          },
+        },
+      },
+      'u1',
+    );
+    expect(prisma.locationPoint.findFirst).not.toHaveBeenCalled();
+    expect(
+      (
+        prisma.sosCase.create.mock.calls[0] as [
+          { data: Record<string, unknown> },
+        ]
+      )[0].data,
+    ).toMatchObject({
+      latitude: 22.5,
+      longitude: 114.1,
+      coordinateSystem: 'gcj02',
+      accuracy: 8,
+      locationSource: 'event',
+    });
   });
 
   describe('describeEventAge 默认时钟', () => {

@@ -17,8 +17,17 @@ const p2002 = () =>
 describe('AuthService：剩余分支', () => {
   const prisma = {
     user: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
-    refreshToken: { create: jest.fn(), updateMany: jest.fn() },
-    $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
+    refreshToken: {
+      create: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+      findUnique: jest.fn(),
+    },
+    $transaction: jest.fn((arg: unknown): Promise<unknown> =>
+      typeof arg === 'function'
+        ? (arg as (t: unknown) => Promise<unknown>)(prisma)
+        : Promise.all(arg as Promise<unknown>[]),
+    ),
   };
   const smsCodes = { verifyAndConsume: jest.fn() };
   let svc: AuthService;
@@ -150,6 +159,90 @@ describe('AuthService：剩余分支', () => {
         svc.changePassword('u1', 'nope', 'new-password'),
       ).rejects.toMatchObject({ response: { code: 'PASSWORD_INCORRECT' } });
       expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('login', () => {
+    it.each([
+      ['手机号不存在', null],
+      ['账号已注销', { id: 'u1', deletedAt: new Date(), passwordHash: 'x' }],
+    ])(
+      '%s：401「手机号或密码错误」（与密码错误同一响应），不签发',
+      async (_n, row) => {
+        prisma.user.findUnique.mockResolvedValue(row);
+        await expect(
+          svc.login('13800138000', 'old-password'),
+        ).rejects.toMatchObject({
+          status: 401,
+          response: { code: 'UNAUTHORIZED', message: '手机号或密码错误' },
+        });
+        expect(prisma.refreshToken.create).not.toHaveBeenCalled();
+      },
+    );
+
+    it('成功：返回安全用户对象（不含密码哈希）与 token 对，refresh 只存哈希', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'u1',
+        phone: '13800138000',
+        nickname: null,
+        avatarUrl: null,
+        createdAt: new Date(0),
+        deletedAt: null,
+        passwordHash,
+      });
+      prisma.refreshToken.create.mockResolvedValue({ id: 'rt1' });
+      const r = await svc.login('13800138000', 'old-password');
+      expect(r.user).toEqual({
+        id: 'u1',
+        phone: '13800138000',
+        nickname: null,
+        avatarUrl: null,
+        createdAt: new Date(0),
+      });
+      expect(r.accessToken).toBe('jwt');
+      const data = (
+        prisma.refreshToken.create.mock.calls[0] as [
+          { data: { tokenHash: string; expiresAt: Date } },
+        ]
+      )[0].data;
+      expect(data.tokenHash).toBe(
+        createHash('sha256').update(r.refreshToken).digest('hex'),
+      );
+      expect(data.tokenHash).not.toBe(r.refreshToken);
+      const ttl = data.expiresAt.getTime() - Date.now();
+      expect(ttl).toBeGreaterThan(29 * 24 * 3_600_000);
+      expect(ttl).toBeLessThanOrEqual(30 * 24 * 3_600_000);
+    });
+  });
+
+  describe('refresh / logout', () => {
+    it('同一 token 并发刷新、事务里条件轮换没抢到：401「已被使用」，不签发、不触发全局撤销', async () => {
+      prisma.refreshToken.findUnique.mockResolvedValue({
+        id: 'rt1',
+        userId: 'u1',
+        revokedAt: null,
+        replacedById: null,
+        expiresAt: new Date(Date.now() + 3_600_000),
+        user: { deletedAt: null },
+      });
+      prisma.refreshToken.updateMany.mockResolvedValue({ count: 0 });
+      await expect(svc.refresh('rt-raw')).rejects.toMatchObject({
+        response: { message: 'refresh token 已被使用，请用最新的 token' },
+      });
+      expect(prisma.refreshToken.create).not.toHaveBeenCalled();
+      expect(prisma.refreshToken.updateMany).toHaveBeenCalledTimes(1);
+    });
+
+    it('logout：按哈希作废（幂等，不存在也不报错）', async () => {
+      prisma.refreshToken.updateMany.mockResolvedValue({ count: 0 });
+      await expect(svc.logout('rt-raw')).resolves.toBeUndefined();
+      expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: {
+          tokenHash: createHash('sha256').update('rt-raw').digest('hex'),
+          revokedAt: null,
+        },
+        data: { revokedAt: expect.any(Date) },
+      });
     });
   });
 

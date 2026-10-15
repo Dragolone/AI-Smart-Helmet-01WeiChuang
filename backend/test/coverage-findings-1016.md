@@ -44,3 +44,14 @@
   };
   ```
   （`segs[0] !== 'backups'` 等价于原来的前缀判断；再拒掉所有 `.` / `..` 段。改后把上面那条测试的期望改成 false。）
+
+## BC3（低）：对讲频道名全空白也能建（联系人名 / 设备名都先 trim，频道名没有）
+
+- **现象**：`CreateChannelDto.name` 只有 `@IsString() @MinLength(1) @MaxLength(30)`，`"   "` 能通过，`VoiceService.create` 也不 trim，
+  频道列表 / 邀请页上就是一个看不见名字的频道。同仓库里联系人名（`CreateContactDto` 先 `@Transform(trim)` 再验，注释「全空白名不能入库」）、
+  设备名（`DevicesService.rename` trim 后空串视为清除）都处理过这种输入。
+- **复现**（单测，已提交，断言现状）：`src/controller-dtos.spec.ts`「频道名 1–30；现状：全空白名也能过」。
+- **期望**：与联系人同口径，trim 后再验 1–30。API.md §13（`POST /voice/channels`，body `{ name }`）没写长度与空白规则，改时顺手补上。
+- **代码位置**：`backend/src/voice/voice.controller.ts` `CreateChannelDto`（约第 17–22 行）。
+- **建议修法**：照 `contacts.controller.ts` 加 `@Transform(trim)`（同文件里那个 `trim` 函数），一行改动；昵称（`UpdateMeDto.nickname`、注册 `nickname`）
+  同样没有 trim，可一并定口径（昵称为空白时下游 SOS 文案已回落脱敏手机号，影响更小）。
