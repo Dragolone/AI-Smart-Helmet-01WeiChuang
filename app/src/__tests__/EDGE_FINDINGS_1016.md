@@ -94,3 +94,26 @@
 - **复现**：`edge-ble-relay-uplink-1016.test.ts`「响应体是 null」。
 - **现实概率**：极低（服务端 202 一定带计数）；记下是因为日志会误导排查。
 - **建议修法**：`const counts = (await relayApi.push(...)) ?? { accepted: 0, duplicate: 0, invalid: 0 }`，并按「已消化」走后续分支。
+
+## A9 锁屏提醒：第一条通知没排上之后，同一单再也不排（`services/sos-alert.ts`）
+
+- **现象**：`showSosAlertIfBackground` 一进来就把 sosId 记进 `alerts` 去重表，再去 `scheduleNotificationAsync`。
+  排通知抛错时只打日志，表里的记录不撤——之后同一单再叫（`alertPendingOnBackground` 离开前台补弹、补拉、WS 重推）都在
+  `alerts.has(sosId)` 那一行直接返回，这一单直到结束都不会再有锁屏提醒（不变式 ③）。
+- **复现**：`edge-sos-alert-1016.test.ts`「第一条通知没排上……之后再叫也不再排」。
+- **现实概率**：iOS 没权限时排通知不抛错（静默不显示）；Android 13+ 未授权、系统通知服务偶发异常时可能抛。
+  用户在倒计时期间去设置里打开通知、再锁屏，这一单仍不会补弹。
+- **期望**：第一条（会响铃的那条）没排上时把这一单从去重表里撤掉，下次还能再试。
+- **代码位置**：`showSosAlertIfBackground` 的 `alerts.set(sosId, entry)`（约第 382 行）与末尾 catch。
+- **建议修法**：catch 里 `if (entry.ids.length <= 1 && alerts.get(sosId) === entry) alerts.delete(sosId)`
+  （只在第一条都没排上时撤；刷新档失败不影响已经响过的那条）。
+
+## A10 通知按钮「取消」遇到 404 / 403 也重试三次（`services/sos-alert.ts`）
+
+- **现象**：`cancelFromNotification` 只把 `SOS_ALREADY_FINALIZED` 当成功，其余错误一律按 2 / 5 / 10 秒重试三次，
+  用尽后弹「取消没送达」并带到倒计时页。这单不存在 / 不是本账号的（404，比如换账号后点了旧通知）时，重试注定失败，
+  用户要白等 17 秒才看到结果，倒计时页显示的是「这条求救不存在」。
+- **复现**：`edge-sos-alert-1016.test.ts`「这单不存在 / 不是自己的（404）也按 2 / 5 / 10 秒重试三次」。
+- **期望**：404 / 403 这类服务端明确拒绝的不重试，直接撤掉通知并说明（与上行队列 `isUnrecoverable` 同口径）。
+- **代码位置**：`cancelFromNotification` 的 catch 分支（约第 292 行起）。
+- **建议修法**：`status === 404 || status === 403` 时按「这单已不在」收尾：结束在途标记、撤通知，不排重试。低优先级。
