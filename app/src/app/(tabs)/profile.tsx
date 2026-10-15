@@ -395,7 +395,9 @@ export default function ProfileScreen() {
                     value={nickDraft}
                     onChangeText={setNickDraft}
                     placeholder={t("profile.nicknamePlaceholder")}
-                    maxLength={20}
+                    // 与注册页、服务端（UpdateMeDto ≤ 30）一致。原来这里是 20：注册时起的 21–30 字昵称预填进来，
+                    // Android 的长度过滤会把显示截到 20 字，改一个字再保存就把后面几个字丢了
+                    maxLength={30}
                   />
                   <PrimaryButton
                     title={t("common.save")}
