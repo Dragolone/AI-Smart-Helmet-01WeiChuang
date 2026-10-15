@@ -81,6 +81,13 @@ export class DevicesService {
         data: { bindUserId: userId, boundAt: now },
       });
       if (won.count === 0) {
+        // 没抢到：可能是自己的另一个并发请求刚绑上（App 连点「绑定」）——那是幂等成功，
+        // 不能回「设备已被其他用户绑定」（边界测试 B10；同 VOICE-01 同人并发加入频道）
+        const current = await tx.device.findUniqueOrThrow({
+          where: { deviceId },
+          select: DEVICE_PUBLIC_SELECT,
+        });
+        if (current.bindUserId === userId) return current;
         throw new ConflictException({
           code: 'DEVICE_ALREADY_BOUND',
           message: '设备已被其他用户绑定',

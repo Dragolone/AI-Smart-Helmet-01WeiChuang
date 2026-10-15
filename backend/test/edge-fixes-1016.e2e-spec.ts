@@ -433,4 +433,45 @@ describe('边界测试发现的修复 (e2e)', () => {
     );
     expect(me.status).toBe(200);
   });
+
+  it('B10 同一用户并发绑同一台（App 连点）：5 轮 × 8 并发全部 200、设备归本人、每台只开一段绑定区间；别人并发抢仍只有一方成功', async () => {
+    const u = await newUser();
+    for (let round = 0; round < 5; round++) {
+      seq += 1;
+      const id = `edge_fix_${run}_bind_${seq}`;
+      devices.push(id);
+      await provisionDevice(prisma, id);
+      const rs = await Promise.all(
+        Array.from({ length: 8 }, () =>
+          request(http)
+            .post('/api/v1/devices/bind')
+            .set(auth(u.token))
+            .send({ deviceId: id, bindCode: `bc_${id}` }),
+        ),
+      );
+      expect(rs.map((r) => r.status)).toEqual(Array(8).fill(200));
+      expect(rs.every((r) => r.body.deviceId === id)).toBe(true);
+      expect(
+        await prisma.deviceBinding.count({ where: { deviceId: id } }),
+      ).toBe(1);
+    }
+    // 两个不同用户并发抢：仍然一方 200、另一方 409（不被这次修复放宽）
+    const v = await newUser();
+    seq += 1;
+    const contested = `edge_fix_${run}_bind_${seq}`;
+    devices.push(contested);
+    await provisionDevice(prisma, contested);
+    const [r1, r2] = await Promise.all(
+      [u, v].map((who) =>
+        request(http)
+          .post('/api/v1/devices/bind')
+          .set(auth(who.token))
+          .send({ deviceId: contested, bindCode: `bc_${contested}` }),
+      ),
+    );
+    expect([r1.status, r2.status].sort()).toEqual([200, 409]);
+    expect([r1, r2].find((r) => r.status === 409)!.body.code).toBe(
+      'DEVICE_ALREADY_BOUND',
+    );
+  });
 });
