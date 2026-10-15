@@ -37,6 +37,7 @@ import {
   sleep,
   sosByEvent,
   sosSmsCalls,
+  waitForPushTitled,
   WsCollector,
 } from './helpers/audit-sos';
 
@@ -186,6 +187,8 @@ describe('审计 §4 SOS 全链路与状态机 (e2e, 手动 tick)', () => {
     });
     // 层 3：建单阶段无通知行；本人倒计时 Push 恰 1 次
     expect(await notificationsOf(prisma, c!.id)).toHaveLength(0);
+    // 倒计时 Push 是建单后的后台任务：等它发出再数，不能入口一返回就查 mock
+    await waitForPushTitled(mocks, 'SOS 倒计时已开始');
     expect(pushCallsTitled(mocks, 'SOS 倒计时已开始')).toHaveLength(1);
     // iOS：带 App 注册的 "sos" 类别（远程推送上才有「取消」按钮）与时效性（穿透专注模式）
     expect(pushCallsTitled(mocks, 'SOS 倒计时已开始')[0][4]).toEqual({
@@ -565,6 +568,7 @@ describe('审计 §4 SOS 全链路与状态机 (e2e, 手动 tick)', () => {
     expect(await prisma.sosCase.count({ where: { deviceId: devRace } })).toBe(
       1,
     );
+    await waitForPushTitled(mocks, 'SOS 倒计时已开始');
     expect(pushCallsTitled(mocks, 'SOS 倒计时已开始')).toHaveLength(1);
   });
 
@@ -769,8 +773,10 @@ describe('审计 §4 SOS 全链路与状态机 (e2e, 手动 tick)', () => {
 
   it('换绑后新主头盔的 manual_sos 不把旧主的 pending 单升级、不通知旧主联系人【SOS-03 修复验证，决策 #40】', async () => {
     // 前一用例留下：devRebind2 上 owner 的 pending 单（若前一用例已失败，单仍 pending）
+    // 上一用例之后该设备上有两张 pending（旧主的 + 新主的，决策 #40 两单并存）：按旧主筛，
+    // 不加 userId 时 findFirst 无排序、取到哪张由执行计划决定（10-16 全量跑偶发取到新主那张）
     const pending = await prisma.sosCase.findFirst({
-      where: { deviceId: devRebind2, status: 'pending' },
+      where: { deviceId: devRebind2, status: 'pending', userId: owner.id },
     });
     expect(pending).not.toBeNull();
     expect(pending!.userId).toBe(owner.id);

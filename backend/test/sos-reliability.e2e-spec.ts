@@ -15,6 +15,7 @@ import {
   makeProviderMocks,
   resetMocks,
   sosByEvent,
+  waitUntil,
 } from './helpers/audit-sos';
 import {
   bindDevice,
@@ -222,11 +223,22 @@ describe('SOS 可靠性：重试退避 / 周期对账 / 补传说明 (e2e)', () 
   });
 
   describe('补传的旧事件：照常倒计时并通知，只在给本人的推送里说明（决策 #52）', () => {
-    const countdownPushBody = (deviceId: string): string | undefined =>
-      mocks.push.send.mock.calls.find(
-        ([, title, , data]) =>
-          title === 'SOS 倒计时已开始' && data?.deviceId === deviceId,
-      )?.[2];
+    // 倒计时 Push 是建单后 void 起的后台任务（先查头盔名再发）：入口返回时可能还没发，轮询等到这台的那条
+    const countdownPushBody = async (deviceId: string): Promise<string> => {
+      const call = await waitUntil(
+        () =>
+          Promise.resolve(
+            mocks.push.send.mock.calls.find(
+              ([, title, , data]) =>
+                title === 'SOS 倒计时已开始' && data?.deviceId === deviceId,
+            ),
+          ),
+        (v) => v !== undefined,
+        3000,
+        20,
+      );
+      return call![2];
+    };
 
     const relayFallAt = async (deviceId: string, at: Date) => {
       const fall = envelope(
@@ -249,7 +261,7 @@ describe('SOS 可靠性：重试退避 / 周期对账 / 补传说明 (e2e)', () 
       expect(sos).toMatchObject({ status: 'pending' });
       // deadline 按服务器时间起算，不因事件旧而缩短
       expect(sos!.deadline.getTime() - Date.now()).toBeGreaterThan(590_000);
-      expect(countdownPushBody(devices.stale)).toContain(
+      expect(await countdownPushBody(devices.stale)).toContain(
         '（约 3 小时前的事件，刚补传到）',
       );
     });
@@ -257,7 +269,7 @@ describe('SOS 可靠性：重试退避 / 周期对账 / 补传说明 (e2e)', () 
     it('刚发生的摔倒：推送正文不带补传说明', async () => {
       const sos = await relayFallAt(devices.fresh, new Date());
       expect(sos).toMatchObject({ status: 'pending' });
-      const body = countdownPushBody(devices.fresh);
+      const body = await countdownPushBody(devices.fresh);
       expect(body).toContain('检测到疑似摔倒');
       expect(body).not.toContain('补传');
     });
@@ -268,7 +280,7 @@ describe('SOS 可靠性：重试退避 / 周期对账 / 补传说明 (e2e)', () 
         new Date(Date.now() - 100 * 24 * 3_600_000),
       );
       expect(sos).toMatchObject({ status: 'pending' });
-      expect(countdownPushBody(devices.ancient)).not.toContain('补传');
+      expect(await countdownPushBody(devices.ancient)).not.toContain('补传');
     });
   });
 
