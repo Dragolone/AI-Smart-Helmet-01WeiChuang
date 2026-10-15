@@ -25,7 +25,13 @@ import {
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { Radius } from "@/constants/theme";
-import { useSmsCode, isValidPhone } from "@/hooks/use-sms-code";
+import {
+  PHONE_INPUT_MAX,
+  isValidPhone,
+  normalizePhone,
+  normalizeSmsCode,
+  useSmsCode,
+} from "@/hooks/use-sms-code";
 import { isPasswordTooLong } from "@/services/password-rules";
 import { cleanNickname } from "@/services/user-name";
 import { useTheme } from "@/hooks/use-theme";
@@ -61,12 +67,13 @@ export default function RegisterScreen() {
   const sendCode = async () => {
     setError(null);
     setFieldError(null);
-    if (!isValidPhone(phone)) {
+    const cleanPhone = normalizePhone(phone);
+    if (!isValidPhone(cleanPhone)) {
       fail("phone", t("auth.invalidPhone"));
       return;
     }
     try {
-      await sms.send(phone);
+      await sms.send(cleanPhone);
     } catch (e) {
       const field = errorField(e);
       if (field) fail(field, toUserMessage(e));
@@ -81,7 +88,8 @@ export default function RegisterScreen() {
       setError(t("auth.consentRequired"));
       return;
     }
-    if (!/^\d{6}$/.test(code)) {
+    const cleanCode = normalizeSmsCode(code);
+    if (!/^\d{6}$/.test(cleanCode)) {
       fail("code", t("auth.invalidCode"));
       return;
     }
@@ -101,8 +109,8 @@ export default function RegisterScreen() {
     setBusy(true);
     try {
       const auth = await authApi.register({
-        phone: phone.trim(),
-        code,
+        phone: normalizePhone(phone),
+        code: cleanCode,
         password,
         // 昵称按显示时的规则整理：只含零宽字符 / 换行的昵称原来照提交，资料卡、对讲格子里没有名字
         ...(cleanNickname(nickname) && { nickname: cleanNickname(nickname) }),
@@ -150,7 +158,8 @@ export default function RegisterScreen() {
               value={phone}
               onChangeText={setPhone}
               keyboardType="phone-pad"
-              maxLength={11}
+              // 留出 +86 / 空格 / 横线的位置（自动填充、粘贴），提交前再规整成 11 位
+              maxLength={PHONE_INPUT_MAX}
               placeholder={t("auth.phonePlaceholder")}
             />
             <View style={styles.codeRow}>

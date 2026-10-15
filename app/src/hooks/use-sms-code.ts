@@ -11,6 +11,12 @@ export const PHONE_PATTERN = /^1[3-9]\d{9}$/;
 export const isValidPhone = (value: string): boolean =>
   PHONE_PATTERN.test(value.trim());
 
+/**
+ * 手机号输入框的长度上限：「+86 138 0000 0000」17 个字、「0086-138-0000-0000」18 个字，留到 20。
+ * 原来注册 / 登录 / 找回密码 / 换手机号卡 11 位，系统自动填充或粘贴的带前缀号码被截成「+86 138 000」。
+ */
+export const PHONE_INPUT_MAX = 20;
+
 /** 号码里可以直接去掉的分隔符：空白、各种横线（半角 / 全角 / 连字符 / 破折号 / 减号）、半角与全角括号 */
 const PHONE_SEPARATORS = /[\s\-\u2010-\u2015\u2212\uFF0D()（）]/g;
 /**
@@ -34,6 +40,19 @@ export function normalizePhone(value: string): string {
     .replace(PHONE_SEPARATORS, "");
   const m = /^(?:\+86|0086|86)(\d{11})$/.exec(digits);
   return m ? m[1] : digits;
+}
+
+/**
+ * 验证码输入框里的值规整成 6 位半角数字：中文输入法全角状态打出的「１２３４５６」、
+ * 从短信里复制带的空格 / 横线（「123 456」「123-456」）原来都被判成「验证码格式不正确」。
+ */
+export function normalizeSmsCode(value: string): string {
+  return value
+    .replace(/[\uFF10-\uFF19]/g, (c) =>
+      String.fromCharCode(c.charCodeAt(0) - 0xfee0),
+    )
+    .replace(PHONE_INVISIBLE, "")
+    .replace(PHONE_SEPARATORS, "");
 }
 
 /**
@@ -73,7 +92,8 @@ export function useSmsCode(purpose: SmsCodePurpose): {
   const send = async (phone: string): Promise<void> => {
     setSending(true);
     try {
-      await authApi.sendSmsCode({ phone: phone.trim(), purpose });
+      // 页面一般已经规整过；这里再过一遍（幂等），保证发出去的一定是 11 位纯数字
+      await authApi.sendSmsCode({ phone: normalizePhone(phone), purpose });
       const sentAt = Date.now();
       setNow(sentAt);
       setCooldownUntil(sentAt + RESEND_SECONDS * 1000);

@@ -8,7 +8,11 @@ import { contactsApi } from "@/api/contacts";
 import { toUserMessage } from "@/api/error-messages";
 import { FormError, FormInput, PrimaryButton } from "@/components/form";
 import { ThemedView } from "@/components/themed-view";
-import { isValidPhone, normalizePhone } from "@/hooks/use-sms-code";
+import {
+  PHONE_INPUT_MAX,
+  isValidPhone,
+  normalizePhone,
+} from "@/hooks/use-sms-code";
 import { useT } from "@/i18n";
 import { cleanNickname } from "@/services/user-name";
 
@@ -71,7 +75,7 @@ export default function AddContactScreen() {
         onChangeText={setPhone}
         keyboardType="phone-pad"
         // 留出空格 / 横线 / +86 的位置（「+86 138 0000 0000」17 位），提交前再规整成 11 位
-        maxLength={20}
+        maxLength={PHONE_INPUT_MAX}
         placeholder={t("contacts.phonePlaceholder")}
       />
       <FormInput
