@@ -21,3 +21,26 @@
 - **建议修法**：在 `extractLocation` 里与 SOS 一样 `if (p.latitude === 0 && p.longitude === 0) return null`（raw 已留档，不丢证据），
   一处改动同时堵住快照回落、最新位置、轨迹三条路；若担心误杀真实 (0,0)，也可只在 `resolveSnapshot` / `latest` 的查询里加
   `NOT: { latitude: 0, longitude: 0 }`。改哪种需要 B 线定口径（涉及 EVENTS.md 4.2 值域说明）。
+
+## BC2：媒体换链接的备份前缀拦截漏了 `./backups/…` 这类带 `.` 段的写法（第二道防线，需在 COS 上确认能否利用）
+
+- **现象**：`isSignableStorageKey` 只拦「去掉开头 `/` 后以 `backups/` 开头」和「含整段 `..`」两种。
+  `./backups/x.dump`、`.//backups/x.dump`、`././backups/x.dump` 都会被放行并送去签名。
+  而 COS SDK 自己的 `util.simplifyPath`（`getObject` 的 `ObjectKeySimplifyCheck`，注释写的是「对象键需要格式化，避免调用成 getBucket」，
+  说明 COS 服务端会合并 `.` / `..` 段）会把这三种都归一成 `/backups/x.dump`。
+- **复现**（单测，已提交，断言现状）：`src/media/media.service.spec.ts`「'./backups/x.dump' 现状放行…」。
+  媒体行的 storageKey 来自设备上报的 `video_ready`，拿到任意一台设备凭证的人可以写进去。
+- **能否真的换到备份**：没验证（规则不碰云端）。签名链接里路径是 `/./backups/x.dump`，若下载端或 COS 在验签前把 `/./` 规整掉，
+  就可能拿到备份；若验签用原始路径，则会 403。需要 B 线在 development 的 COS 上用一个假备份对象试一次。
+- **缓解因素**：根治手段（备份放单独的桶 `TENCENT_COS_BACKUP_BUCKET`，2026-10-14）已上线时这条只是第二道防线；
+  没配单独备份桶的环境（`backup-upload` 会打 ⚠️）才有实际风险。
+- **期望**：凡是含 `.` 段、`..` 段的键一律不签；或先按与 SDK 相同的规则归一再判前缀。
+- **代码位置**：`backend/src/media/media.service.ts` `isSignableStorageKey`（第 28–30 行）。
+- **建议修法**：
+  ```ts
+  export const isSignableStorageKey = (key: string): boolean => {
+    const segs = key.replace(/^\/+/, '').split('/');
+    return segs[0] !== 'backups' && !segs.some((s) => s === '.' || s === '..');
+  };
+  ```
+  （`segs[0] !== 'backups'` 等价于原来的前缀判断；再拒掉所有 `.` / `..` 段。改后把上面那条测试的期望改成 false。）
