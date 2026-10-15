@@ -925,7 +925,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
-    height: 26,
+    minHeight: 26,
+    paddingVertical: 2,
     paddingLeft: 10,
     paddingRight: 11,
     borderRadius: 13,
@@ -976,15 +977,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     marginBottom: 8,
   },
+  // 行高、药丸高都是「最小」：系统字体放大时名字和状态两行会超过 60，定高时字叠到下一行上
+  //（2026-10-15 边界测试，2 倍字体）。1 倍字体下高度不变；放不下时页面本来就会改成滚动
   otherRow: {
     flexDirection: "row",
-    alignItems: "center",
-    height: OTHER_ROW_HEIGHT,
+    minHeight: OTHER_ROW_HEIGHT,
   },
   otherMain: {
     flex: 1,
     minWidth: 0,
-    height: "100%",
+    paddingVertical: 6,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
@@ -1014,7 +1016,7 @@ const styles = StyleSheet.create({
   },
   batteryTrack: { width: 44, height: 5, borderRadius: 3, overflow: "hidden" },
   batteryFill: { height: 5, borderRadius: 3 },
-  setCurrent: { height: "100%", justifyContent: "center", paddingRight: 10 },
+  setCurrent: { justifyContent: "center", paddingRight: 10 },
   setCurrentPill: {
     height: 32,
     paddingHorizontal: 12,

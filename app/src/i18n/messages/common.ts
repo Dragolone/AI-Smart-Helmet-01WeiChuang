@@ -84,6 +84,7 @@ export const common = {
     "contacts.relation": "关系（可选）",
     "contacts.relationPlaceholder": "如：家人 / 朋友 / 教练",
     "contacts.required": "姓名和手机号必填",
+    "contacts.invalidPhone": "请输入正确的 11 位手机号",
     "common.failed": "操作失败",
   },
   "zh-TW": {
@@ -170,6 +171,7 @@ export const common = {
     "contacts.relation": "關係（選填）",
     "contacts.relationPlaceholder": "如：家人 / 朋友 / 教練",
     "contacts.required": "姓名和手機號碼為必填",
+    "contacts.invalidPhone": "請輸入正確的 11 位手機號碼",
     "common.failed": "操作失敗",
   },
   en: {
@@ -262,6 +264,8 @@ export const common = {
     "contacts.relation": "Relationship (optional)",
     "contacts.relationPlaceholder": "e.g. Family / Friend / Coach",
     "contacts.required": "Name and phone are required",
+    "contacts.invalidPhone":
+      "Enter a valid 11-digit mainland China mobile number",
     "common.failed": "Something went wrong",
   },
 } as const;

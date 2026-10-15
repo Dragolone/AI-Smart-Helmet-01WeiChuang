@@ -527,13 +527,14 @@ function SosActiveContent() {
 
   // 环随屏幕高度缩，两个操作始终留在屏幕里。环以外要放下的东西按 1 倍字体算是 446；
   // 系统字体放大时标题、说明、联系人那几行跟着长高。矮屏（或字体放得很大）放不下时，
-  // 先去掉顶上那个警示图标，环再缩，最小 140（2026-10-08 模拟器 360×640 + 1.3 倍字体：不这样联系人那行会被挤掉）
+  // 先去掉顶上那个警示图标，环再缩，最小 140（2026-10-08 模拟器 360×640 + 1.3 倍字体：不这样联系人那行会被挤掉）。
+  // 字体每放大 1 倍按多长 220 算：按 110 算时 2 倍字体下「未添加紧急联系人」那条警告有一半落在按钮后面（2026-10-15 边界测试）
   const room =
     windowHeight -
     insets.top -
     insets.bottom -
     446 -
-    Math.max(0, fontScale - 1) * 110 -
+    Math.max(0, fontScale - 1) * 220 -
     (isDrill ? 44 : 0) -
     (lateNote ? 26 : 0);
   const compact = room < 200;
@@ -626,7 +627,11 @@ function SosActiveContent() {
       <View style={styles.container}>
         {!finished ? (
           <>
-            <View style={styles.top}>
+            <ScrollView
+              style={styles.top}
+              contentContainerStyle={styles.topContent}
+              bounces={false}
+            >
               <View style={styles.grow} />
               <View style={styles.head}>
                 {drillBadge}
@@ -782,7 +787,7 @@ function SosActiveContent() {
                 )}
               </View>
               <View style={styles.grow} />
-            </View>
+            </ScrollView>
 
             <View style={styles.actions}>
               <Tappable
@@ -963,8 +968,10 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   // 上半截（图标到联系人）在顶部和两个操作之间上下居中：高屏上不再全挤在顶上、下面空一大截
-  //（负责人 2026-10-08：太上面了）。放不下时两头的留白收成 0，被裁的是它的下沿；两个操作不会被挤出屏幕
-  top: { flex: 1, alignItems: "center", overflow: "hidden" },
+  //（负责人 2026-10-08：太上面了）。放不下时两头的留白收成 0，多出来的可以往上滑；两个操作不会被挤出屏幕。
+  // 以前是直接裁掉下沿：系统字体 2 倍时「未添加紧急联系人」那条警告被底部按钮盖住半截、又滑不动（2026-10-15 边界测试）
+  top: { flex: 1 },
+  topContent: { flexGrow: 1, alignItems: "center" },
   grow: { flexGrow: 1 },
   head: { alignSelf: "stretch", alignItems: "center", gap: 10 },
   drillBadge: {

@@ -683,7 +683,12 @@ export default function SafetyScreen() {
               ]}
             >
               <Animated.View style={[styles.sosFill, sosFillStyle]} />
-              <ThemedText type="display" style={styles.sosWord}>
+              {/* 「SOS」三个字是标志，说明在右边那列：系统字体放大时它最多放大 1.5 倍，把宽度让给说明 */}
+              <ThemedText
+                type="display"
+                maxFontSizeMultiplier={1.5}
+                style={styles.sosWord}
+              >
                 SOS
               </ThemedText>
               <View style={styles.sosDivider} />
@@ -790,6 +795,8 @@ const styles = StyleSheet.create({
   sosBtn: {
     minHeight: 72,
     paddingVertical: 12,
+    // 字放大到一行放不下时内容会顶到两端，被胶囊的圆角裁掉（2026-10-15 边界测试：2 倍字体「SOS」被切）
+    paddingHorizontal: 24,
     borderRadius: Radius.pill,
     flexDirection: "row",
     alignItems: "center",

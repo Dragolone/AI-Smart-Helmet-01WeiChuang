@@ -185,7 +185,10 @@ export function PrimaryButton({
               )}
           <ThemedText
             type="smallBold"
-            style={{ color: fg, fontSize: compact ? 15 : 16 }}
+            style={[
+              styles.buttonText,
+              { color: fg, fontSize: compact ? 15 : 16 },
+            ]}
           >
             {title}
           </ThemedText>
@@ -260,7 +263,10 @@ export function SecondaryButton({
               )}
           <ThemedText
             type="smallBold"
-            style={{ color: theme.text, fontSize: compact ? 15 : 16 }}
+            style={[
+              styles.buttonText,
+              { color: theme.text, fontSize: compact ? 15 : 16 },
+            ]}
           >
             {title}
           </ThemedText>
@@ -299,12 +305,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
     borderRadius: Radius.pill,
-    height: 52,
+    // 最小高度而不是定高：系统字体放大、字折成两行时按钮跟着长高，定高时第二行被切掉
+    //（2026-10-15 边界测试：2 倍字体地图页「导航到最后位置」只剩半行）。1 倍字体下高度不变
+    minHeight: 52,
+    paddingVertical: 6,
     alignItems: "center",
     justifyContent: "center",
     // 撑满宽度时无感；按内容收缩（空态里的按钮、行内按钮）时文字不能顶着药丸两端（2026-09-26 iPhone 实测）
     paddingHorizontal: 20,
   },
-  buttonCompact: { height: 46 },
+  buttonCompact: { minHeight: 46 },
+  buttonText: { flexShrink: 1, textAlign: "center" },
   secondary: { borderWidth: 1 },
 });

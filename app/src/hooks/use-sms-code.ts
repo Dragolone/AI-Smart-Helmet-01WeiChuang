@@ -11,6 +11,16 @@ export const PHONE_PATTERN = /^1[3-9]\d{9}$/;
 export const isValidPhone = (value: string): boolean =>
   PHONE_PATTERN.test(value.trim());
 
+/**
+ * 从通讯录 / 聊天里复制来的号码常带空格、横线、括号或 +86 / 0086 前缀（「+86 138-0000-0000」）：
+ * 去掉这些再交给 isValidPhone。只认大陆手机号，去掉前缀后不是 11 位就原样留着（照样不合法）。
+ */
+export function normalizePhone(value: string): string {
+  const digits = value.replace(/[\s\-()（）]/g, "");
+  const m = /^(?:\+86|0086|86)(\d{11})$/.exec(digits);
+  return m ? m[1] : digits;
+}
+
 /** 重发还要等几秒（截止时间戳 − 此刻，向上取整，不为负） */
 export const resendCooldown = (cooldownUntil: number, now: number): number =>
   Math.max(0, Math.ceil((cooldownUntil - now) / 1000));
