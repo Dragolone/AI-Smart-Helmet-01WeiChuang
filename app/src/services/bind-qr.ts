@@ -57,3 +57,12 @@ export function classifyScan(
     ? { kind: "bind", deviceId: parsed.deviceId, bindCode: parsed.bindCode }
     : { kind: "needCode", deviceId: parsed.deviceId };
 }
+
+/**
+ * 手动输入框里粘进来的是一条绑定链接（微信 / 系统相机扫码会落到网页，用户把那条链接复制过来）时，
+ * 把里面的设备号和绑定码拆出来；粘的不是链接（就是设备号本身、或别的文字）返回 null，输入框照原样显示。
+ */
+export function bindLinkInManualInput(raw: string): BindQr | null {
+  if (!/^\s*(?:https?:\/\/|helmet:\/\/)/i.test(raw)) return null;
+  return parseBindQr(raw);
+}

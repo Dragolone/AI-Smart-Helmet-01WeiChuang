@@ -1,8 +1,11 @@
 // 绑定二维码解析与扫码分流的边界补测（2026-10-16）。edge-bind-qr-push.test.ts 已钉长度、绑定码、空白 / BOM、
 // 编码、子域名、裸码注入；这里补出码脚本可配的地址写法（结尾斜杠）、片段 / 多余参数、像而不是的地址、分流的边。
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "@jest/globals";
 
-import { classifyScan, parseBindQr } from "../bind-qr";
+import { bindLinkInManualInput, classifyScan, parseBindQr } from "../bind-qr";
 
 const OK = { deviceId: "helmet_94173f", bindCode: "94041564" };
 
@@ -151,5 +154,59 @@ describe("classifyScan 的边", () => {
       kind: "bind",
       ...OK,
     });
+  });
+});
+
+describe("bindLinkInManualInput：手动输入框里粘进绑定链接", () => {
+  it("https / helmet:// 链接：拆出设备号和绑定码", () => {
+    expect(
+      bindLinkInManualInput(
+        "https://01weichuang.com/bind?d=helmet_94173f&c=94041564",
+      ),
+    ).toEqual(OK);
+    expect(
+      bindLinkInManualInput("  helmet://bind?d=helmet_94173f&c=94041564\n"),
+    ).toEqual(OK);
+  });
+
+  it("链接里只有设备号：拆出设备号，绑定码为空（输入框里已填的绑定码不动）", () => {
+    expect(
+      bindLinkInManualInput("https://01weichuang.com/bind?d=helmet_94173f"),
+    ).toEqual({
+      deviceId: "helmet_94173f",
+      bindCode: null,
+    });
+  });
+
+  it("就是设备号本身、半截输入、别的文字：返回 null，输入框照原样显示", () => {
+    for (const raw of [
+      "helmet_94173f",
+      "helm",
+      "",
+      "设备编号：helmet_94173f",
+      "http",
+    ]) {
+      expect(bindLinkInManualInput(raw)).toBeNull();
+    }
+  });
+
+  it("别的网站的链接：认不出（null），不会把整条链接拆成设备号", () => {
+    expect(
+      bindLinkInManualInput(
+        "https://example.com/bind?d=helmet_94173f&c=94041564",
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("接线：绑定页手动输入（源码不变式）", () => {
+  it("设备号输入框粘进链接时拆开填", () => {
+    const src = readFileSync(
+      join(__dirname, "..", "..", "app", "bind-device.tsx"),
+      "utf8",
+    );
+    expect(src).toMatch(/const link = bindLinkInManualInput\(v\);/);
+    expect(src).toMatch(/setIdVal\(link\.deviceId\);/);
+    expect(src).toMatch(/if \(link\.bindCode\) setCodeVal\(link\.bindCode\);/);
   });
 });
