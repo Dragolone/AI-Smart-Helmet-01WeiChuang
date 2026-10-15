@@ -335,7 +335,10 @@ export default function ProfileScreen() {
                 ]}
                 onPress={() => undefined}
               >
-                <ThemedText type="smallBold" style={{ fontSize: 20 }}>
+                <ThemedText
+                  type="smallBold"
+                  style={{ fontSize: 20, lineHeight: 26 }}
+                >
                   {t("profile.edit")}
                 </ThemedText>
                 <Tappable
@@ -413,7 +416,10 @@ export default function ProfileScreen() {
                 ]}
                 onPress={() => undefined}
               >
-                <ThemedText type="smallBold" style={{ fontSize: 20 }}>
+                <ThemedText
+                  type="smallBold"
+                  style={{ fontSize: 20, lineHeight: 26 }}
+                >
                   {t("profile.chooseAppearance")}
                 </ThemedText>
                 <View>
@@ -475,7 +481,10 @@ export default function ProfileScreen() {
                 ]}
                 onPress={() => undefined}
               >
-                <ThemedText type="smallBold" style={{ fontSize: 20 }}>
+                <ThemedText
+                  type="smallBold"
+                  style={{ fontSize: 20, lineHeight: 26 }}
+                >
                   {t("profile.chooseLanguage")}
                 </ThemedText>
                 <View>

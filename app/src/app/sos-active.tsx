@@ -64,7 +64,7 @@ import { Radius } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useKeepAwakeSafe } from "@/hooks/use-keep-awake-safe";
 import { useTheme } from "@/hooks/use-theme";
-import { useT } from "@/i18n";
+import { useLocale, useT } from "@/i18n";
 import {
   enqueueRelayEvent,
   notifyCriticalAccepted,
@@ -197,6 +197,7 @@ function SosActiveContent() {
   }, [isDrill, sosId]);
   const theme = useTheme();
   const t = useT();
+  const locale = useLocale();
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState<"cancel" | "confirm" | null>(null);
   // 通知按钮的取消还在路上（被杀状态下点「我没事，取消」拉起 App，页面要过启动动画才出来）：
@@ -553,11 +554,41 @@ function SosActiveContent() {
     (isDrill ? 44 : 0) -
     (sourceName ? 26 : 0) -
     (lateNote ? 26 : 0);
-  const compact = room < 200;
-  const ringSize = Math.round(
-    Math.max(140, Math.min(252, room + (compact ? 66 : 0))),
+  const estimateCompact = room < 200;
+  const estimateRing = Math.round(
+    Math.max(140, Math.min(252, room + (estimateCompact ? 66 : 0))),
   );
+  // 估算只是起点：英文比中文多折一两行、没有联系人时的那条警告、来源头盔那一行，都会让上半截比估算高。
+  // 量出上半截实际溢出多少，就把环再缩多少（环是这里唯一能伸缩的东西）；环缩到 140 还放不下才收起顶上的图标，
+  // 再放不下（字体放得很大）才靠滚动兜底。2026-10-15 华为 P30 Pro 英文、没有联系人时上半截能上下滑（负责人发现）
+  // 量出来的结果连同当时的布局条件一起存：条件一变（转屏、改字体、换语言、联系人加载出来）就当作没量过，从估算重新来
+  const layoutKey = `${windowHeight}|${fontScale}|${locale}|${isDrill}|${sourceName ?? ""}|${lateNote ?? ""}|${contacts.data?.length ?? "?"}`;
+  const [fitState, setFitState] = useState({
+    key: layoutKey,
+    shrink: 0,
+    compact: false,
+  });
+  const fit =
+    fitState.key === layoutKey
+      ? fitState
+      : { key: layoutKey, shrink: 0, compact: false };
+  const compact = estimateCompact || fit.compact;
+  const ringSize = Math.max(140, estimateRing - fit.shrink);
   const numberSize = Math.round((112 * ringSize) / 252);
+  const topBox = useRef({ viewport: 0, content: 0 });
+  const fitTop = () => {
+    const { viewport, content } = topBox.current;
+    const over = content - viewport;
+    if (!viewport || !content || over <= 1) return;
+    if (ringSize > 140) {
+      setFitState({
+        ...fit,
+        shrink: fit.shrink + Math.ceil(Math.min(over, ringSize - 140)),
+      });
+    } else if (!compact) {
+      setFitState({ ...fit, compact: true });
+    }
+  };
 
   const notifiedTitle = isDrill
     ? t("sos.drillDoneTitle")
@@ -647,6 +678,14 @@ function SosActiveContent() {
               style={styles.top}
               contentContainerStyle={styles.topContent}
               bounces={false}
+              onLayout={(e) => {
+                topBox.current.viewport = e.nativeEvent.layout.height;
+                fitTop();
+              }}
+              onContentSizeChange={(_, h) => {
+                topBox.current.content = h;
+                fitTop();
+              }}
             >
               <View style={styles.grow} />
               <View style={styles.head}>

@@ -74,7 +74,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 6,
   },
-  title: { fontSize: 17, textAlign: "center" },
+  title: { fontSize: 17, lineHeight: 23, textAlign: "center" },
   body: { textAlign: "center", lineHeight: 20, maxWidth: 300 },
   action: { marginTop: 12, minWidth: 200 },
 });
