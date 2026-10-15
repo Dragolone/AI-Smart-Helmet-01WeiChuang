@@ -111,7 +111,7 @@ export const profile = {
     "profile.clearCacheBody":
       "Clear cached page data and images. Saved data is unaffected.",
     "profile.clearCacheDone": "Cache cleared",
-    "profile.about": "About Lingyi Weichuang",
+    "profile.about": "About 零一智行",
     "profile.aboutBody":
       "AI-powered protection for every ride.\nShenzhen Lingyi Weichuang Technology Co., Ltd.",
     "profile.version": "Version {v}",

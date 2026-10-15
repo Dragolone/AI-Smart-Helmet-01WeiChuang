@@ -177,7 +177,7 @@ export const common = {
   en: {
     "contacts.tell": "Share contact information",
     "contacts.tellMessage":
-      "{name}, I have added you as an emergency contact in the Lingyi Weichuang helmet app. If an SOS countdown ends without being cancelled, the app will attempt to send you a text alert. Please contact me if you receive one. If you cannot reach me, please help me get assistance. Thank you.",
+      "{name}, I have added you as an emergency contact in the 零一智行 helmet app. If an SOS countdown ends without being cancelled, the app will attempt to send you a text alert. Please contact me if you receive one. If you cannot reach me, please help me get assistance. Thank you.",
     "app.crashTitle": "Unable to display this page",
     "app.crashBody": "Try again or reopen the app.",
     "app.crashRetry": "Try again",

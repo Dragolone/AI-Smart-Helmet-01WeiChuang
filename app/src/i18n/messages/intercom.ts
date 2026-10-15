@@ -189,7 +189,7 @@ export const intercom = {
     "intercom.onlineCount": "{n} online",
     "intercom.shareInvite": "Share invite code",
     "intercom.shareMessage":
-      'Join my ride channel "{name}" in the Lingyi Weichuang app with invite code {code}',
+      'Join my ride channel "{name}" in the 零一智行 app with invite code {code}',
     "intercom.holdToTalk": "Hold to talk",
     "intercom.talking": "Talking…",
     "intercom.speaking": "Speaking",

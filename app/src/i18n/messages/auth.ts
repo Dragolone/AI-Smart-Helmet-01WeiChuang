@@ -238,7 +238,7 @@ export const auth = {
       "During a real SOS, the system attempts to send text alerts to your emergency contacts.",
     "sos.drillCancelledBody":
       "You cancelled during the countdown. In a real SOS, cancelling prevents contact alerts from being sent.",
-    "auth.appName": "Lingyi Weichuang",
+    "auth.appName": "零一智行",
     "auth.slogan": "AI-powered protection for every ride",
     "auth.phone": "Phone",
     "auth.phonePlaceholder": "11-digit mainland China number",

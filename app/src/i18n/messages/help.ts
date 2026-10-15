@@ -96,7 +96,7 @@ export const help = {
     "help.a8":
       "Select “Join with invite code” on the Intercom tab and enter the 6-character code you received. Enter the channel to use hold-to-talk or open mic. To send and receive audio through your helmet, make sure helmet audio is connected to your phone. Intercom requires an internet connection.",
     "help.email": "Send feedback by email",
-    "help.emailSubject": "Lingyi Weichuang app feedback (version {v})",
+    "help.emailSubject": "零一智行 app feedback (version {v})",
     "help.site": "Website",
     "help.openFailed": "Could not open. Please try again later.",
   },
