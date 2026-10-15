@@ -17,6 +17,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PUSH_PROVIDER } from '../src/providers/push.provider';
 import { SMS_PROVIDER, type SmsMessage } from '../src/providers/sms.provider';
 import { SosSchedulerService } from '../src/sos/sos-scheduler.service';
+import { waitFor } from './helpers/audit-ingest';
 import { registerUser } from './helpers/register';
 
 jest.setTimeout(30000);
@@ -312,6 +313,14 @@ describe('SOS 状态机 (e2e)', () => {
     // 触发事件在头盔上发生的时间（设备时钟，早 1 小时）原样下发：App 据此写「约 1 小时前的事件，刚补传到」（10-07）
     expect(msg.data.triggeredAt).toBe(
       new Date(before - 3600_000).toISOString(),
+    );
+    // 「倒计时已开始」Push 是建单后 void 起的后台任务（先查头盔名再发，#194），晚于 WS 到达：
+    // 等到它真的发出再断言，不能拿到 WS 就立刻查 mock（本机曾稳定抢跑失败）
+    await waitFor(() =>
+      pushMock.send.mock.calls.some(
+        (call: unknown[]) =>
+          (call[3] as { sosId?: string } | undefined)?.sosId === sosCase.id,
+      ),
     );
     expect(pushMock.send).toHaveBeenCalledWith(
       ownerId,
