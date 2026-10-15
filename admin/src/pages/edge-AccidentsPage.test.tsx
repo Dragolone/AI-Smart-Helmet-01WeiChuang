@@ -237,6 +237,15 @@ describe('AccidentsPage：数据变少后的页码', () => {
   })
 })
 
+describe('AccidentsPage：搜索框长度', () => {
+  it('搜索框限 64 字（后端上限，超出会整页 400）', async () => {
+    const apiStub = stubApi(() => page<AdminAccidentRow>([]))
+    renderWithProviders(<AccidentsPage />)
+    await waitFor(() => expect(apiStub.count()).toBe(1))
+    expect(screen.getByPlaceholderText(PLACEHOLDER)).toHaveAttribute('maxlength', '64')
+  })
+})
+
 describe('AccidentsPage：分页与轮询', () => {
   it('停在第 4 页时改成 10 条/页 → 回第 1 页', async () => {
     const apiStub = stubApi(() => page([accident({})], 120))

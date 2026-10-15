@@ -80,6 +80,8 @@ export default function DevicesPage() {
         <Input.Search
           placeholder="按设备 ID / 绑定手机号搜索"
           allowClear
+          // 后端 keyword / deviceId 上限 64 字，超出整页报 400，这里直接限住
+          maxLength={64}
           style={{ width: 320 }}
           onSearch={(value) => {
             setPage(1)

@@ -170,6 +170,15 @@ describe('DevicesPage：搜索与筛选', () => {
   })
 })
 
+describe('DevicesPage：搜索框长度', () => {
+  it('搜索框限 64 字（后端上限，超出会整页 400）', async () => {
+    const apiStub = stubApi(() => page<AdminDeviceRow>([]))
+    renderWithProviders(<DevicesPage />)
+    await waitFor(() => expect(apiStub.count()).toBe(1))
+    expect(screen.getByPlaceholderText(PLACEHOLDER)).toHaveAttribute('maxlength', '64')
+  })
+})
+
 describe('DevicesPage：分页', () => {
   it('停在第 3 页时改成 50 条/页 → 回第 1 页；之后翻页保留新的条数', async () => {
     const apiStub = stubApi(() => page([device({})], 200))

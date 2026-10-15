@@ -107,6 +107,8 @@ export default function EventsPage() {
         <Input.Search
           placeholder="按设备 ID 精确筛选"
           allowClear
+          // 后端 keyword / deviceId 上限 64 字，超出整页报 400，这里直接限住
+          maxLength={64}
           style={{ width: 260 }}
           onSearch={(value) => {
             setPage(1)

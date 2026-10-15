@@ -65,6 +65,8 @@ export default function UsersPage() {
         <Input.Search
           placeholder="按手机号 / 昵称搜索"
           allowClear
+          // 后端 keyword / deviceId 上限 64 字，超出整页报 400，这里直接限住
+          maxLength={64}
           style={{ width: 320 }}
           onSearch={(value) => {
             setPage(1)
