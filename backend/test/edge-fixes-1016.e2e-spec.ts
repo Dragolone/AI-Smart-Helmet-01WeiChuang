@@ -371,4 +371,66 @@ describe('边界测试发现的修复 (e2e)', () => {
       result: 'allow',
     });
   });
+
+  it('B9 请求体嵌套 5000 层（约 25KB）：公开接口与带令牌的写接口一律 400 VALIDATION_FAILED（原 500 栈溢出）；设备入口 payload 嵌套 1990 层仍照收', async () => {
+    const u = await newUser();
+    const d = await newDevice(u);
+    const deep = (n: number) => '{"a":'.repeat(n) + '1' + '}'.repeat(n);
+    const json = (r: request.Test, body: string) =>
+      r.set('Content-Type', 'application/json').send(body);
+    const d5000 = deep(5000);
+    const rs = [
+      await json(
+        request(http).post('/api/v1/auth/login'),
+        `{"phone":"13800000000","password":"x","junk":${d5000}}`,
+      ),
+      await json(
+        request(http).post('/api/v1/auth/sms-code'),
+        `{"phone":"13800000000","purpose":"register","junk":${d5000}}`,
+      ),
+      await json(
+        request(http).post('/api/v1/admin/auth/login'),
+        `{"username":"x","password":"y","junk":${d5000}}`,
+      ),
+      await json(
+        request(http).patch('/api/v1/users/me').set(auth(u.token)),
+        `{"nickname":"x","junk":${d5000}}`,
+      ),
+      await json(
+        request(http).put(`/api/v1/devices/${d}/settings`).set(auth(u.token)),
+        `{"settings":${d5000}}`,
+      ),
+      await json(
+        request(http).post('/api/v1/ingest/app-relay').set(auth(u.token)),
+        `{"deviceId":"${d}","envelopes":[${'['.repeat(5000)}${']'.repeat(5000)}]}`,
+      ),
+    ];
+    expect(rs.map((r) => r.status)).toEqual(Array(6).fill(400));
+    expect(rs.every((r) => r.body.code === 'VALIDATION_FAILED')).toBe(true);
+    // 设备入口：payload 嵌套 1990 层（总深度约 1993，2000 上限之内）仍照收，且不栈溢出
+    const eventId = `edge_fix_deep_${run}`;
+    const ok = await json(
+      request(http).post('/api/v1/ingest/app-relay').set(auth(u.token)),
+      `{"deviceId":"${d}","envelopes":[{"schemaVersion":1,"eventId":"${eventId}","deviceId":"${d}","eventType":"device_status","timestamp":"${new Date().toISOString()}","firmwareVersion":"1","payload":${deep(1990)}}]}`,
+    );
+    expect(ok.status).toBe(202);
+    expect(ok.body).toEqual({ accepted: 1, duplicate: 0, invalid: 0 });
+    // 上限之内的深度不会把 Pipe 打爆：登录照常 401、设置照常按校验 400、资料照常 200
+    const d1995 = deep(1995);
+    const login = await json(
+      request(http).post('/api/v1/auth/login'),
+      `{"phone":"13800000000","password":"x","junk":${d1995}}`,
+    );
+    expect(login.status).toBe(401);
+    const settings = await json(
+      request(http).put(`/api/v1/devices/${d}/settings`).set(auth(u.token)),
+      `{"settings":${d1995}}`,
+    );
+    expect(settings.status).toBe(400);
+    const me = await json(
+      request(http).patch('/api/v1/users/me').set(auth(u.token)),
+      `{"nickname":"深","junk":${d1995}}`,
+    );
+    expect(me.status).toBe(200);
+  });
 });
