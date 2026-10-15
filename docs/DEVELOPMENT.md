@@ -265,16 +265,16 @@ npx tsx scripts/splash-frames.ts <目录> 300,980,1500   # 把某几个时刻画
 
 ```bash
 # ① 只测播放器：手机和电脑在同一个普通 Wi-Fi 下，跳过连热点
-xcrun simctl openurl booted "app://video-preview?url=rtsp://<电脑IP>:8554/ch0&join=0"   # iOS 模拟器
-adb shell am start -a android.intent.action.VIEW -d "app://video-preview?url=rtsp://<电脑IP>:8554/ch0\&join=0"   # Android 真机
+xcrun simctl openurl booted "lingyizhixing://video-preview?url=rtsp://<电脑IP>:8554/ch0&join=0"   # iOS 模拟器
+adb shell am start -a android.intent.action.VIEW -d "lingyizhixing://video-preview?url=rtsp://<电脑IP>:8554/ch0\&join=0"   # Android 真机
 # ② 连接 + 绑定整条路径（最接近真头盔）：用另一台手机开热点，名称 X821cam、密码 Aa123456，并关掉它的移动数据
 #    （模拟头盔热点没有互联网）；电脑连上这个热点后起测试流，被测手机打开：
-app://video-preview?url=rtsp://<电脑在该热点下的IP>:8554/ch0
+lingyizhixing://video-preview?url=rtsp://<电脑在该热点下的IP>:8554/ch0
 ```
 
 iPhone 真机没有 adb：在备忘录里写下深链长按打开，或用 Safari 地址栏打开。不带 `url` 参数时就是正式行为（连 `X821cam`，拉 `192.168.176.1`）。
 
-方式 ② 不想把另一台手机改名成 `X821cam` 的话，再加 `&ssid=<那台手机的热点名>&pass=<密码>`（2026-10-14 加，同样只在开发包生效）：`app://video-preview?url=rtsp://<电脑在该热点下的IP>:8554/ch0&ssid=<热点名>&pass=<密码>`。Android 上深链里的 `&` 要用单引号包住整个地址传给 `am start -d`，否则被设备的 shell 当成后台符吃掉。**Android 10 + iPhone 热点再加 `&wpa3=1`**：iPhone 热点是 WPA2/WPA3 混合，Android 10 把它归为 WPA3，按头盔协议的 WPA2 去请求永远匹配不上（系统弹窗一直转圈，30 s 后报「该应用已取消」）；`wpa3=1` 走模块的 `connectSae`（只在 Android 上有，真头盔纯 WPA2 不受影响）。
+方式 ② 不想把另一台手机改名成 `X821cam` 的话，再加 `&ssid=<那台手机的热点名>&pass=<密码>`（2026-10-14 加，同样只在开发包生效）：`lingyizhixing://video-preview?url=rtsp://<电脑在该热点下的IP>:8554/ch0&ssid=<热点名>&pass=<密码>`。Android 上深链里的 `&` 要用单引号包住整个地址传给 `am start -d`，否则被设备的 shell 当成后台符吃掉。**Android 10 + iPhone 热点再加 `&wpa3=1`**：iPhone 热点是 WPA2/WPA3 混合，Android 10 把它归为 WPA3，按头盔协议的 WPA2 去请求永远匹配不上（系统弹窗一直转圈，30 s 后报「该应用已取消」）；`wpa3=1` 走模块的 `connectSae`（只在 Android 上有，真头盔纯 WPA2 不受影响）。
 
 方式 ③ **用一台安卓手机当假头盔**（2026-10-14 搭成，热点 + 推流都在同一台手机上，电脑和被测手机都不用改网络）：找一台能开热点的安卓手机（EMUI 的华为没插 SIM 也能把 Wi-Fi 桥成热点），装 Termux，`pkg upgrade -y && pkg install -y ffmpeg`，再下载 mediamtx 的 linux/arm64 版放到 `~/mediamtx`。配置只留一个接收路径（**别用 `runOnInit` 拉子进程，Android 10 的 seccomp 会把 Go 的 `faccessat2` 杀掉、mediamtx 直接崩**）：
 
@@ -291,7 +291,7 @@ paths:
     source: publisher
 ```
 
-起法：`termux-wake-lock; ./mediamtx mediamtx.yml &`，再用 ffmpeg 推彩条进去：`ffmpeg -re -stream_loop -1 -f lavfi -i "testsrc=size=640x360:rate=15" -f lavfi -i "sine=frequency=440:sample_rate=16000" -c:v libx264 -preset ultrafast -tune zerolatency -g 15 -pix_fmt yuv420p -b:v 400k -c:a aac -ar 16000 -ac 1 -f rtsp -rtsp_transport tcp rtsp://127.0.0.1:8554/ch0 &`。热点名密码随意（全小写省事），被测手机深链 `app://video-preview?ssid=<热点名>&pass=<密码>&url=rtsp://192.168.43.1:8554/ch0`（安卓热点网关固定 192.168.43.1；热点要纯 WPA2）。注意：① 手机单射频桥接带宽小，720p/1.5 Mbps 会丢帧，用 640×360/400k；② 这种热点经手机的 Wi-Fi 能上网，iOS 不会把它判成「无互联网」，9.3 那种差别测不出；③ iPhone 真机的系统弹窗（加入 Wi-Fi、相册授权）可以用 WebDriverAgent 驱动，A 线本机有现成脚本。
+起法：`termux-wake-lock; ./mediamtx mediamtx.yml &`，再用 ffmpeg 推彩条进去：`ffmpeg -re -stream_loop -1 -f lavfi -i "testsrc=size=640x360:rate=15" -f lavfi -i "sine=frequency=440:sample_rate=16000" -c:v libx264 -preset ultrafast -tune zerolatency -g 15 -pix_fmt yuv420p -b:v 400k -c:a aac -ar 16000 -ac 1 -f rtsp -rtsp_transport tcp rtsp://127.0.0.1:8554/ch0 &`。热点名密码随意（全小写省事），被测手机深链 `lingyizhixing://video-preview?ssid=<热点名>&pass=<密码>&url=rtsp://192.168.43.1:8554/ch0`（安卓热点网关固定 192.168.43.1；热点要纯 WPA2）。注意：① 手机单射频桥接带宽小，720p/1.5 Mbps 会丢帧，用 640×360/400k；② 这种热点经手机的 Wi-Fi 能上网，iOS 不会把它判成「无互联网」，9.3 那种差别测不出；③ iPhone 真机的系统弹窗（加入 Wi-Fi、相册授权）可以用 WebDriverAgent 驱动，A 线本机有现成脚本。
 
 ## 平台限制清单（持续维护）
 

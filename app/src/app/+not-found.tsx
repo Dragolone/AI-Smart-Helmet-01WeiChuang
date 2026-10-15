@@ -1,4 +1,4 @@
-// 链接对不上任何页面时显示这一页（App 的链接前缀 app:// 别的 App 也在用，外面传进来什么都有可能）。
+// 链接对不上任何页面时显示这一页（App 的链接前缀 lingyizhixing:// 任何 App 都能登记，外面传进来什么都有可能）。
 // 不放这一页时是路由库自带的英文「Unmatched Route」：不跟语言、把整条链接原样印出来、也没有回首页的按钮（2026-10-15 边界测试）。
 import { router } from "expo-router";
 import { StyleSheet } from "react-native";
