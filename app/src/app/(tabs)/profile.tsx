@@ -1,8 +1,8 @@
-// 我的（底部标签，2026-09-10 重设计；09-11 重分组）：账号卡 → 「安全」「账号与安全」「通用」「帮助与关于」四组紧凑设置行 → 底部文字「退出登录」。
+// 我的（底部标签，2026-09-10 重设计；09-11 重分组；10-15 分层）：账号卡 → 「安全」「通用」两组常用项 →
+// 「账号与安全」「帮助与关于」两个子页入口（改密 / 换号 / 注销、法律文档这类用得少的挪进子页，负责人要求）→ 底部文字「退出登录」。
 // 图标统一单色描边（此前多彩方块与其他页不一致）；语言切换（简/繁/英）在这里落地。
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import Constants from "expo-constants";
 import { Image } from "expo-image";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
@@ -12,7 +12,7 @@ import { Alert, Modal, ScrollView, StyleSheet, View } from "react-native";
 import ReAnimated, { FadeInDown } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { authApi, maskPhone } from "@/api/auth";
+import { authApi } from "@/api/auth";
 import { contactsApi } from "@/api/contacts";
 import { devicesApi } from "@/api/devices";
 import { toUserMessage } from "@/api/error-messages";
@@ -136,13 +136,6 @@ export default function ProfileScreen() {
     );
   };
 
-  const appVersion = Constants.expoConfig?.version ?? "—";
-  const about = () =>
-    Alert.alert(
-      translate("profile.about"),
-      `${translate("profile.version", { v: appVersion })}\n\n${translate("profile.aboutBody")}`,
-    );
-
   const confirmSignOut = () => {
     Alert.alert(
       translate("profile.signOut"),
@@ -255,30 +248,6 @@ export default function ProfileScreen() {
             />
           </Card>
 
-          <GroupTitle title={t("profile.groupAccount")} />
-          <Card>
-            <ListRow
-              compact
-              icon="key-outline"
-              title={t("profile.changePassword")}
-              onPress={() => router.navigate("/account/change-password")}
-            />
-            <ListRow
-              compact
-              icon="phone-portrait-outline"
-              title={t("profile.changePhone")}
-              value={maskPhone(user?.phone)}
-              onPress={() => router.navigate("/account/change-phone")}
-            />
-            <ListRow
-              compact
-              icon="person-remove-outline"
-              title={t("profile.deleteAccount")}
-              onPress={() => router.navigate("/account/delete")}
-              last
-            />
-          </Card>
-
           <GroupTitle title={t("profile.groupGeneral")} />
           <Card>
             <ListRow
@@ -310,45 +279,19 @@ export default function ProfileScreen() {
             />
           </Card>
 
-          <GroupTitle title={t("profile.groupHelp")} />
+          {/* 用得少的收进子页：账号与安全（改密 / 换号 / 注销）、帮助与关于（帮助、四份法律文档、版本） */}
           <Card>
             <ListRow
               compact
+              icon="person-circle-outline"
+              title={t("profile.groupAccount")}
+              onPress={() => router.navigate("/account")}
+            />
+            <ListRow
+              compact
               icon="help-circle-outline"
-              title={t("profile.help")}
-              onPress={() => router.navigate("/help")}
-            />
-            <ListRow
-              compact
-              icon="shield-checkmark-outline"
-              title={t("profile.privacy")}
-              onPress={() => router.navigate("/legal/privacy")}
-            />
-            <ListRow
-              compact
-              icon="document-text-outline"
-              title={t("profile.terms")}
-              onPress={() => router.navigate("/legal/terms")}
-            />
-            {/* 两份清单：华为 / 小米隐私检测与 App 备案都要求 App 内可查（LAUNCH_CHECKLIST A-6） */}
-            <ListRow
-              compact
-              icon="list-outline"
-              title={t("profile.collection")}
-              onPress={() => router.navigate("/legal/collection")}
-            />
-            <ListRow
-              compact
-              icon="share-social-outline"
-              title={t("profile.sharing")}
-              onPress={() => router.navigate("/legal/sharing")}
-            />
-            <ListRow
-              compact
-              icon="information-circle-outline"
-              title={t("profile.about")}
-              value={appVersion}
-              onPress={about}
+              title={t("profile.groupHelp")}
+              onPress={() => router.navigate("/about")}
               last
             />
           </Card>
