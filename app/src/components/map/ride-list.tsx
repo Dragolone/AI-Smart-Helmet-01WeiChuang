@@ -10,7 +10,7 @@ import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
 import { useTheme } from "@/hooks/use-theme";
 import { useLocale, useT, type Locale } from "@/i18n";
-import { dayTitle, formatKm, shortTime } from "@/i18n/format";
+import { dayTitle, formatKm, sameLocalDay, shortTime } from "@/i18n/format";
 import {
   durationParts,
   rideSeconds,
@@ -28,14 +28,32 @@ export function durationText(seconds: number, t: Translate): string {
     : t("map.rides.durMin", { m: minutes });
 }
 
-/** 「18:05 – 18:41」；进行中的写「19:02 – 现在」 */
+/** 「18:05 – 18:41」；进行中的写「19:02 – 现在」；跨过零点的写「15:00 – 次日 15:00」 */
 export function rideTimeRange(
   ride: RideSummary,
   locale: Locale,
   t: Translate,
 ): string {
-  const end = ride.ongoing ? t("map.rides.now") : shortTime(ride.endAt, locale);
+  const end = ride.ongoing
+    ? t("map.rides.now")
+    : endTimeLabel(ride.startAt, ride.endAt, locale, t);
   return `${shortTime(ride.startAt, locale)} – ${end}`;
+}
+
+/**
+ * 结束时刻：和开始不在同一天就加「次日」。行程最长 24 小时（后端按天网格切），所以最多跨一天；
+ * 原来只写钟点，「15:00 – 15:00 · 24 小时」看着像零时长（2026-10-15 边界测试）
+ */
+export function endTimeLabel(
+  startIso: string,
+  endIso: string,
+  locale: Locale,
+  t: Translate,
+): string {
+  const time = shortTime(endIso, locale);
+  return sameLocalDay(startIso, endIso)
+    ? time
+    : t("map.rides.nextDay", { time });
 }
 
 export type RideListStatus = "loading" | "error" | "empty" | "ready";

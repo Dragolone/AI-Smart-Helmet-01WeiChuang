@@ -2,7 +2,13 @@
 // 这里用外部公开向量钉住偏移算法本身，再补国界框四条边、跨 180° 经线、未知坐标系。
 import { describe, expect, it } from "@jest/globals";
 
-import { cumulativeMeters, haversineMeters, toGcj02, wgs84ToGcj02 } from "../coords";
+import {
+  cumulativeMeters,
+  haversineMeters,
+  isPlausibleFix,
+  toGcj02,
+  wgs84ToGcj02,
+} from "../coords";
 
 describe("wgs84ToGcj02", () => {
   it("与开源 coordtransform 的公开样例一致（同一套克拉索夫斯基参数）", () => {
@@ -19,7 +25,10 @@ describe("wgs84ToGcj02", () => {
       [91.1322, 29.6604],
       [121.5654, 25.033],
     ]) {
-      const drift = haversineMeters({ longitude: lng, latitude: lat }, wgs84ToGcj02(lng, lat));
+      const drift = haversineMeters(
+        { longitude: lng, latitude: lat },
+        wgs84ToGcj02(lng, lat),
+      );
       expect(drift).toBeGreaterThan(50);
       expect(drift).toBeLessThan(1000);
     }
@@ -57,7 +66,11 @@ describe("toGcj02：坐标系字段不是 gcj02 时", () => {
   it.each(["bd09", "GCJ02", "", undefined])(
     "coordinateSystem=%j 按 wgs84 处理（只有精确的小写 gcj02 才跳过偏移）",
     (cs) => {
-      const p = { longitude: 113.95, latitude: 22.53, coordinateSystem: cs as "wgs84" };
+      const p = {
+        longitude: 113.95,
+        latitude: 22.53,
+        coordinateSystem: cs as "wgs84",
+      };
       expect(toGcj02(p)).toEqual(wgs84ToGcj02(113.95, 22.53));
     },
   );
@@ -65,7 +78,10 @@ describe("toGcj02：坐标系字段不是 gcj02 时", () => {
 
 describe("haversineMeters", () => {
   it("跨 180° 经线走短弧：179.9°E → 179.9°W 约 22 km，而不是绕地球一圈", () => {
-    const d = haversineMeters({ longitude: 179.9, latitude: 0 }, { longitude: -179.9, latitude: 0 });
+    const d = haversineMeters(
+      { longitude: 179.9, latitude: 0 },
+      { longitude: -179.9, latitude: 0 },
+    );
     expect(d).toBeGreaterThan(22_000);
     expect(d).toBeLessThan(22_500);
   });
@@ -74,13 +90,19 @@ describe("haversineMeters", () => {
     const a = { longitude: 113.94, latitude: 22.52 };
     const b = { longitude: 116.4, latitude: 39.9 };
     expect(haversineMeters(a, b)).toBe(haversineMeters(b, a));
-    const half = haversineMeters({ longitude: 0, latitude: 45 }, { longitude: 180, latitude: -45 });
+    const half = haversineMeters(
+      { longitude: 0, latitude: 45 },
+      { longitude: 180, latitude: -45 },
+    );
     expect(half).toBeCloseTo(Math.PI * 6371000, 3);
   });
 
   it("极点处不同经度是同一个点：距离约为 0", () => {
     expect(
-      haversineMeters({ longitude: 0, latitude: 90 }, { longitude: 123, latitude: 90 }),
+      haversineMeters(
+        { longitude: 0, latitude: 90 },
+        { longitude: 123, latitude: 90 },
+      ),
     ).toBeLessThan(0.001);
   });
 });
@@ -112,7 +134,28 @@ describe("cumulativeMeters", () => {
     }));
     const c = cumulativeMeters(path);
     expect(c).toHaveLength(2000);
-    for (let i = 1; i < c.length; i += 1) expect(c[i]).toBeGreaterThanOrEqual(c[i - 1]);
+    for (let i = 1; i < c.length; i += 1)
+      expect(c[i]).toBeGreaterThanOrEqual(c[i - 1]);
     expect(Number.isFinite(c[1999])).toBe(true);
+  });
+});
+
+// 2026-10-15 边界测试：(0,0) 是 GPS 没定位时常见的占位值，不能当真位置画 / 导航
+describe("isPlausibleFix", () => {
+  it("正常位置、极点附近、南半球都算", () => {
+    expect(isPlausibleFix({ latitude: 22.53, longitude: 113.94 })).toBe(true);
+    expect(isPlausibleFix({ latitude: 89.9, longitude: 179.9 })).toBe(true);
+    expect(isPlausibleFix({ latitude: -33.87, longitude: 151.21 })).toBe(true);
+    expect(isPlausibleFix({ latitude: 0, longitude: 113.94 })).toBe(true);
+  });
+  it("(0,0)、越界、NaN / Infinity 不算", () => {
+    expect(isPlausibleFix({ latitude: 0, longitude: 0 })).toBe(false);
+    expect(isPlausibleFix({ latitude: 0.0000001, longitude: -0.0000001 })).toBe(
+      false,
+    );
+    expect(isPlausibleFix({ latitude: 91, longitude: 10 })).toBe(false);
+    expect(isPlausibleFix({ latitude: 10, longitude: -181 })).toBe(false);
+    expect(isPlausibleFix({ latitude: Number.NaN, longitude: 10 })).toBe(false);
+    expect(isPlausibleFix({ latitude: 10, longitude: Infinity })).toBe(false);
   });
 });

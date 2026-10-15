@@ -11,7 +11,7 @@ import { toUserMessage } from "@/api/error-messages";
 import { sosApi } from "@/api/sos";
 import { Badge } from "@/components/badge";
 import { AmapView, type AmapViewHandle } from "@/components/map/amap-view";
-import { toGcj02 } from "@/components/map/coords";
+import { isPlausibleFix, toGcj02 } from "@/components/map/coords";
 import { openAmapNavigation } from "@/components/map/nav-links";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
@@ -58,7 +58,9 @@ export default function AccidentDetailScreen() {
     (x) => x.deviceId === d?.deviceId,
   )?.name;
   const mapRef = useRef<AmapViewHandle>(null);
-  const gcjPos = d?.location ? toGcj02(d.location) : null;
+  // (0,0) 这类没定位时的占位值不当成事故地点：不画小地图、不给导航，写「没有位置」
+  const loc = d?.location && isPlausibleFix(d.location) ? d.location : null;
+  const gcjPos = loc ? toGcj02(loc) : null;
 
   // 位置就绪后落点(小地图 ready 前命令会排队,双保险:数据到达时也推一次)
   useEffect(() => {
@@ -142,9 +144,9 @@ export default function AccidentDetailScreen() {
             <Row
               label={t("accident.location")}
               value={
-                d.location
-                  ? `${d.location.latitude.toFixed(5)}, ${d.location.longitude.toFixed(5)} (${
-                      d.location.source === "event"
+                loc
+                  ? `${loc.latitude.toFixed(5)}, ${loc.longitude.toFixed(5)} (${
+                      loc.source === "event"
                         ? t("accident.locationSource.event")
                         : t("accident.locationSource.track")
                     })`
@@ -153,7 +155,7 @@ export default function AccidentDetailScreen() {
             />
 
             {/* 事故地点小地图 + 一键导航(监护场景核心:赶到现场) */}
-            {d.location && gcjPos && (
+            {loc && gcjPos && (
               <View style={[styles.mapCard, { borderColor: theme.border }]}>
                 <AmapView
                   style={styles.map}

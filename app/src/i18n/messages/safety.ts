@@ -10,7 +10,8 @@ export const safety = {
       "通知权限已关闭，锁屏时无法显示摔倒和求救提醒，也无法通过通知取消求救。请在系统设置中开启通知。",
     "safety.notifyGoSettings": "去设置",
     "safety.notifyLater": "暂不",
-    "safety.helmet.sharedContacts": "本账号绑定的所有头盔使用同一组紧急联系人。",
+    "safety.helmet.sharedContacts":
+      "本账号绑定的所有头盔使用同一组紧急联系人。",
     "safety.link.connected": "头盔已连接",
     "safety.link.online": "头盔在线",
     "safety.link.searching": "头盔未连接，正在搜索",
@@ -29,8 +30,7 @@ export const safety = {
     "safety.check.contactsUnknown": "联系人待确认",
     "safety.state.ready": "连接与通知配置正常",
     "safety.state.unknown": "正在确认连接与通知状态",
-    "safety.state.unknownBody":
-      "正在获取头盔连接、通知权限和紧急联系人信息。",
+    "safety.state.unknownBody": "正在获取头盔连接、通知权限和紧急联系人信息。",
     "safety.state.loadFailed": "连接与通知状态获取失败",
     "safety.state.loadFailedBody": "无法连接服务器，请检查网络后重试。",
     "safety.state.staleBody": "暂时无法连接服务器，以下为上次获取的状态。",
@@ -94,7 +94,9 @@ export const safety = {
     "records.filterA11y": "只看某一顶头盔的记录",
     "records.partialFailed": "部分头盔记录加载失败：{reason}",
     "records.loadFailed": "记录加载失败",
-    "records.truncated": "仅显示最近 {n} 条，共 {total} 条。",
+    "records.truncated": "已显示最近 {n} 条，共 {total} 条。",
+    "records.loadMore": "加载更多",
+    "records.loadingMore": "正在加载…",
     "records.noHelmetBody": "绑定头盔后，可查看风险提醒与 SOS 记录。",
     "records.pending": "{device} 正在求救",
     "records.sos.fall": "疑似摔倒 · SOS",
@@ -121,8 +123,7 @@ export const safety = {
     "switchReminder.body":
       "检测到该头盔正在移动，「{current}」处于静止状态。切换后，设备首页和手动求救将关联所选头盔。",
     "switchReminder.mute": "以后不再提醒",
-    "switchReminder.where":
-      "可在 {tab} → {settings} → {item} 中重新开启。",
+    "switchReminder.where": "可在 {tab} → {settings} → {item} 中重新开启。",
     "switchReminder.switch": "切换至 {name}",
     "switchReminder.keep": "保持不变",
     "switchReminder.switched": "当前头盔已切换为 {name}",
@@ -136,7 +137,8 @@ export const safety = {
       "通知權限已關閉，鎖定螢幕時無法顯示跌倒和求救提醒，也無法透過通知取消求救。請在系統設定中開啟通知。",
     "safety.notifyGoSettings": "去設定",
     "safety.notifyLater": "暫不",
-    "safety.helmet.sharedContacts": "本帳號綁定的所有頭盔使用同一組緊急聯絡人。",
+    "safety.helmet.sharedContacts":
+      "本帳號綁定的所有頭盔使用同一組緊急聯絡人。",
     "safety.link.connected": "頭盔已連接",
     "safety.link.online": "頭盔在線",
     "safety.link.searching": "頭盔未連接，正在搜尋",
@@ -155,8 +157,7 @@ export const safety = {
     "safety.check.contactsUnknown": "聯絡人待確認",
     "safety.state.ready": "連接與通知設定正常",
     "safety.state.unknown": "正在確認連線與通知狀態",
-    "safety.state.unknownBody":
-      "正在取得頭盔連線、通知權限和緊急聯絡人資訊。",
+    "safety.state.unknownBody": "正在取得頭盔連線、通知權限和緊急聯絡人資訊。",
     "safety.state.loadFailed": "連線與通知狀態取得失敗",
     "safety.state.loadFailedBody": "無法連接伺服器，請檢查網路後重試。",
     "safety.state.staleBody": "暫時無法連接伺服器，以下為上次取得的狀態。",
@@ -220,7 +221,9 @@ export const safety = {
     "records.filterA11y": "只看某一頂頭盔的記錄",
     "records.partialFailed": "部分頭盔紀錄載入失敗：{reason}",
     "records.loadFailed": "記錄載入失敗",
-    "records.truncated": "僅顯示最近 {n} 筆，共 {total} 筆。",
+    "records.truncated": "已顯示最近 {n} 筆，共 {total} 筆。",
+    "records.loadMore": "載入更多",
+    "records.loadingMore": "正在載入…",
     "records.noHelmetBody": "綁定頭盔後，可查看風險提醒與 SOS 紀錄。",
     "records.pending": "{device} 正在求救",
     "records.sos.fall": "疑似跌倒 · SOS",
@@ -247,8 +250,7 @@ export const safety = {
     "switchReminder.body":
       "偵測到此頭盔正在移動，「{current}」處於靜止狀態。切換後，設備首頁和手動求救將關聯所選頭盔。",
     "switchReminder.mute": "以後不再提醒",
-    "switchReminder.where":
-      "可在 {tab} → {settings} → {item} 中重新開啟。",
+    "switchReminder.where": "可在 {tab} → {settings} → {item} 中重新開啟。",
     "switchReminder.switch": "切換至 {name}",
     "switchReminder.keep": "保持不變",
     "switchReminder.switched": "目前頭盔已切換為 {name}",
@@ -284,7 +286,8 @@ export const safety = {
     "safety.state.unknown": "Checking connection and notification settings",
     "safety.state.unknownBody":
       "Checking the helmet connection, notification permission and emergency contacts.",
-    "safety.state.loadFailed": "Could not check connection and notification settings",
+    "safety.state.loadFailed":
+      "Could not check connection and notification settings",
     "safety.state.loadFailedBody":
       "Unable to connect to the server. Check your internet connection and try again.",
     "safety.state.staleBody":
@@ -353,10 +356,11 @@ export const safety = {
     "records.sosEmptyAll": "No SOS records",
     "records.allHelmets": "All helmets",
     "records.filterA11y": "Show records for one helmet only",
-    "records.partialFailed":
-      "Could not load some helmets’ records: {reason}",
+    "records.partialFailed": "Could not load some helmets’ records: {reason}",
     "records.loadFailed": "Couldn't load records",
     "records.truncated": "Showing the latest {n} of {total}.",
+    "records.loadMore": "Load more",
+    "records.loadingMore": "Loading…",
     "records.noHelmetBody":
       "Add a helmet to view its risk alerts and SOS records.",
     "records.pending": "{device} has an active SOS",
@@ -377,7 +381,8 @@ export const safety = {
     "safetySettings.notify.unknown": "Unconfirmed",
     "safetySettings.background": "About running in the background",
     "safetySettings.drill": "SOS drill",
-    "safetySettings.drillHint": "Simulates the flow without sending notifications",
+    "safetySettings.drillHint":
+      "Simulates the flow without sending notifications",
     "safetySettings.switchReminder": "Helmet switch reminder",
     "safetySettings.switchReminderHint":
       "Suggests switching the current helmet when it is stationary and another helmet is moving.",

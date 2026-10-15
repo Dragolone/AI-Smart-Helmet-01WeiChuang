@@ -529,9 +529,23 @@ function OtherRow({
           </View>
         </View>
         <View style={styles.otherBattery}>
-          <ThemedText style={[styles.otherBatteryText, { color: bColor }]}>
-            {battery !== null ? `${battery}%` : "—"}
-          </ThemedText>
+          {/* 充电中在数字前加一道闪电（读屏读「充电中」）：原来 100% 充电中和 100% 没充看不出区别（2026-10-15） */}
+          <View
+            style={styles.otherBatteryValue}
+            accessible
+            accessibilityLabel={
+              device.charging
+                ? `${t("devices.charging")} ${battery ?? "—"}%`
+                : undefined
+            }
+          >
+            {device.charging === true && (
+              <Ionicons name="flash" size={12} color={bColor} />
+            )}
+            <ThemedText style={[styles.otherBatteryText, { color: bColor }]}>
+              {battery !== null ? `${battery}%` : "—"}
+            </ThemedText>
+          </View>
           <View
             style={[
               styles.batteryTrack,
@@ -991,6 +1005,7 @@ const styles = StyleSheet.create({
   dot: { width: 6, height: 6, borderRadius: 3 },
   otherSub: { fontSize: 13, lineHeight: 18, fontWeight: 500, flexShrink: 1 },
   otherBattery: { alignItems: "flex-end", gap: 4 },
+  otherBatteryValue: { flexDirection: "row", alignItems: "center", gap: 2 },
   otherBatteryText: {
     fontSize: 13,
     lineHeight: 16,

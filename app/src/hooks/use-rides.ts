@@ -8,6 +8,7 @@ import {
 import type { EventListItem, RideSummary } from "@helmet/shared";
 
 import { devicesApi } from "@/api/devices";
+import { isPlausibleFix } from "@/components/map/coords";
 import { eventsApi } from "@/api/events";
 import {
   AFTER_RIDE_MS,
@@ -149,6 +150,15 @@ export function useRecentRides(
  * @param keepPrevious 换范围时先留着上一份。只给「进行中的那一趟」用——它的结束时间一直在变，
  *   不留的话每次刷新线都要闪一下；看历史行程时不能留，否则会把上一趟的线当成这一趟的画出来
  */
+/** 轨迹里混着 (0,0) 这类没定位的点时去掉它：否则线会从深圳拉到几内亚湾再拉回来。统计（summary）是服务端算的，不动 */
+function dropImplausibleFixes<
+  T extends { points: { latitude: number; longitude: number }[] },
+>(data: T): T {
+  return data.points.every(isPlausibleFix)
+    ? data
+    : { ...data, points: data.points.filter(isPlausibleFix) };
+}
+
 export function useRideTrack(
   deviceId: string | undefined,
   window: { from: string; to: string } | null,
@@ -157,6 +167,7 @@ export function useRideTrack(
   return useQuery({
     queryKey: ["ride-track", deviceId, window?.from, window?.to],
     queryFn: () => devicesApi.track(deviceId!, window!.from, window!.to),
+    select: dropImplausibleFixes,
     enabled: !!deviceId && !!window,
     placeholderData: keepPrevious ? keepPreviousData : undefined,
     retry: 1,

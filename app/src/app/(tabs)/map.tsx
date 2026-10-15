@@ -60,7 +60,7 @@ import {
   type AmapViewHandle,
   type MapMark,
 } from "@/components/map/amap-view";
-import { toGcj02, type LngLat } from "@/components/map/coords";
+import { isPlausibleFix, toGcj02, type LngLat } from "@/components/map/coords";
 import { HelmetPicker } from "@/components/map/helmet-picker";
 import { openAmapNavigation } from "@/components/map/nav-links";
 import { RideCalendar } from "@/components/map/ride-calendar";
@@ -570,7 +570,8 @@ export default function MapScreen() {
     enabled: !!deviceId,
     refetchInterval: 30_000,
   });
-  const liveLoc = live.data ?? null;
+  // (0,0) 这类没定位时的占位值按「没有位置」处理：不画头盔、不给导航（2026-10-15 边界测试）
+  const liveLoc = live.data && isPlausibleFix(live.data) ? live.data : null;
   const livePos = useMemo(() => (liveLoc ? toGcj02(liveLoc) : null), [liveLoc]);
 
   // 昨天零点以来的行程：第一条若是「进行中」，就是现在这一趟（本趟里程、实时模式下画的那条线）
