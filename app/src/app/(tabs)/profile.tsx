@@ -6,8 +6,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
-import { router } from "expo-router";
-import { useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useState } from "react";
 import { Alert, Modal, ScrollView, StyleSheet, View } from "react-native";
 import ReAnimated, { FadeInDown } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -42,6 +42,13 @@ export default function ProfileScreen() {
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
+  const refreshUser = useAuthStore((s) => s.refreshUser);
+  // 每次进「我的」重拉一次档案：别的手机改过的昵称 / 头像要能看到
+  useFocusEffect(
+    useCallback(() => {
+      void refreshUser();
+    }, [refreshUser]),
+  );
   const signOut = useAuthStore((s) => s.signOut);
   const locale = useLocaleStore((s) => s.locale);
   const setLocale = useLocaleStore((s) => s.setLocale);
