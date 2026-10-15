@@ -153,9 +153,13 @@ export default function ProfileScreen() {
     );
   };
 
-  const initial = (user?.nickname ?? user?.phone ?? "?")
-    .slice(0, 1)
-    .toUpperCase();
+  // 昵称清空后保存，服务端存的是空串（PATCH 只能传字符串）：空串 / 全空格都当没设过，
+  // 否则账号卡上名字那一行是空的、也不再提示「设置昵称与头像」
+  const nickname = user?.nickname?.trim() || null;
+  // 头像上的字按字符取（生僻字、表情占两个 UTF-16 码元，slice(0, 1) 只取到半个）
+  const initial = (
+    Array.from(nickname ?? user?.phone ?? "?")[0] ?? "?"
+  ).toUpperCase();
   const deviceCount = devices.data?.length ?? 0;
 
   return (
@@ -211,7 +215,7 @@ export default function ProfileScreen() {
                   style={{ fontSize: 18, lineHeight: 24 }}
                   numberOfLines={1}
                 >
-                  {user?.nickname ?? t("profile.setNickname")}
+                  {nickname ?? t("profile.setNickname")}
                 </ThemedText>
                 <ThemedText
                   type="small"
