@@ -30,6 +30,10 @@ export type Rendered = {
   icons: () => string[];
   /** 找到最里层文字含 label 的 Text，按下它自己或最近的带 onPress 的祖先 */
   press: (label: string) => void;
+  /** 往占位文字为 placeholder 的输入框里输入 */
+  type: (placeholder: string, text: string) => void;
+  /** 占位文字为 placeholder 的输入框当前的值 */
+  valueOf: (placeholder: string) => unknown;
   /** 带 accessibilityLabel 的第一个可点节点 */
   byLabel: (label: string) => ReactTestInstance;
   rerender: (el: ReactElement) => void;
@@ -97,6 +101,24 @@ export function render(el: ReactElement): Rendered {
         p.props.onPress({ nativeEvent: {} });
       });
     },
+    type: (placeholder, text) => {
+      const input = root().find(
+        (n) =>
+          typeof n.type !== "string" &&
+          n.props.placeholder === placeholder &&
+          typeof n.props.onChangeText === "function",
+      );
+      act(() => {
+        input.props.onChangeText(text);
+      });
+    },
+    valueOf: (placeholder) =>
+      root().find(
+        (n) =>
+          typeof n.type !== "string" &&
+          n.props.placeholder === placeholder &&
+          typeof n.props.onChangeText === "function",
+      ).props.value,
     byLabel: (label) => {
       const hit = root().findAll(
         (n) =>
