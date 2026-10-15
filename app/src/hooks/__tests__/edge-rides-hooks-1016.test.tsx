@@ -198,13 +198,14 @@ describe("useRidePages：按月往前翻", () => {
   });
 });
 
+let evSeq = 0;
 describe("useRideEvents：一趟路上的事件分页", () => {
   const win = {
     from: "2026-10-16T00:00:00.000Z",
     to: "2026-10-16T01:00:00.000Z",
   };
   const page = (n: number, total: number) => ({
-    items: Array.from({ length: n }, (_, i) => ({ id: `e${i}` })),
+    items: Array.from({ length: n }, () => ({ eventId: `e${++evSeq}` })),
     total,
     page: 1,
     pageSize: 100,
@@ -241,7 +242,7 @@ describe("useRideEvents：一趟路上的事件分页", () => {
   });
 
   it("350 条：最多取 3 页（300 条），总数照实给 350，页面据此写「还有 50 条没标出来」", async () => {
-    eventsMock.mockResolvedValue(page(100, 350));
+    eventsMock.mockImplementation(async () => page(100, 350));
     const r = await renderHook(() => useRideEvents("h1", win));
     await settle(() => r.current.isSuccess);
     expect(eventsMock).toHaveBeenCalledTimes(3);
@@ -257,6 +258,30 @@ describe("useRideEvents：一趟路上的事件分页", () => {
     await settle(() => r.current.isSuccess);
     expect(eventsMock).toHaveBeenCalledTimes(2);
     expect(r.current.data!.items).toHaveLength(107);
+  });
+
+  it("翻页途中来了新事件（上一页最后一条被挤到下一页）：按编号去重，不重复标", async () => {
+    const ev = (id: string) => ({ eventId: id });
+    eventsMock
+      .mockResolvedValueOnce({
+        items: Array.from({ length: 100 }, (_, i) => ev(`e${i}`)),
+        total: 150,
+      })
+      .mockResolvedValueOnce({
+        items: [
+          ev("e99"),
+          ...Array.from({ length: 50 }, (_, i) => ev(`e${100 + i}`)),
+        ],
+        total: 151,
+      });
+    const r = await renderHook(() => useRideEvents("h1", win));
+    await settle(() => r.current.isSuccess);
+    const got = (r.current.data!.items as unknown as { eventId: string }[]).map(
+      (e) => e.eventId,
+    );
+    expect(got).toHaveLength(150);
+    expect(new Set(got).size).toBe(150);
+    expect(r.current.data!.total).toBe(151);
   });
 
   it("没有范围：不发请求", async () => {
