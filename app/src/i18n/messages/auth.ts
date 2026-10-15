@@ -109,6 +109,7 @@ export const auth = {
     "sos.slideHint": "向右滑到底取消",
     "sos.sendNow": "立即求救",
     "sos.close": "关闭",
+    "sos.fromHelmet": "来自 {name}",
     "sos.gone.title": "这条求救不存在",
     "sos.gone.body":
       "可能是链接有误，或这条求救不属于你的头盔。正在进行的求救会自动弹出，不需要从链接打开。",
@@ -221,6 +222,7 @@ export const auth = {
     "sos.slideHint": "向右滑到底取消",
     "sos.sendNow": "立即求救",
     "sos.close": "關閉",
+    "sos.fromHelmet": "來自 {name}",
     "sos.gone.title": "這則求救不存在",
     "sos.gone.body":
       "可能是連結有誤，或這則求救不屬於你的頭盔。進行中的求救會自動彈出，不需要從連結開啟。",
@@ -345,6 +347,7 @@ export const auth = {
     "sos.slideHint": "Slide all the way right to cancel",
     "sos.sendNow": "Send SOS now",
     "sos.close": "Close",
+    "sos.fromHelmet": "From {name}",
     "sos.gone.title": "This SOS doesn't exist",
     "sos.gone.body":
       "The link may be wrong, or this SOS isn't from your helmet. An active SOS opens automatically — you don't need a link.",

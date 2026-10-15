@@ -49,6 +49,7 @@ import type { EventEnvelope, EventType, Sos } from "@helmet/shared";
 
 import { ApiRequestError } from "@/api/client";
 import { contactsApi } from "@/api/contacts";
+import { devicesApi } from "@/api/devices";
 import { clearSosAlert } from "@/services/sos-alert";
 import { toUserMessage } from "@/api/error-messages";
 import { buildRelayEnvelope, relayApi } from "@/api/relay";
@@ -70,6 +71,7 @@ import {
 } from "@/services/ble-relay-uplink";
 import { msToNextSecond } from "@/services/countdown";
 import { lateEventNote } from "@/services/sos-age";
+import { helmetNameOf } from "@/services/safety-status";
 import {
   deliveryPollInterval,
   deliveryStateOf,
@@ -411,6 +413,19 @@ function SosActiveContent() {
     enabled: !isDrill && sos?.status === "notified",
     refetchInterval: (q) => deliveryPollInterval(q.state.data?.notifications),
   });
+  // 哪顶头盔发起的：账号下有两顶以上时写出来。两顶同时求救会叠两页倒计时，不写的话分不清哪页是谁
+  //（2026-10-15 边界测试）。与设备页同一份设备列表缓存；已解绑查不到名字时写设备号
+  const devices = useQuery({ queryKey: ["devices"], queryFn: devicesApi.list });
+  const sourceId = sos?.deviceId ?? deviceId;
+  const sourceName =
+    !isDrill && sourceId && (devices.data?.length ?? 0) >= 2
+      ? helmetNameOf(
+          devices.data?.find((d) => d.deviceId === sourceId) ?? {
+            name: null,
+            deviceId: sourceId,
+          },
+        )
+      : null;
   const delivery = deliveryStateOf(detail.data?.notifications);
   const sentTo = smsRows(detail.data?.notifications);
 
@@ -536,6 +551,7 @@ function SosActiveContent() {
     446 -
     Math.max(0, fontScale - 1) * 220 -
     (isDrill ? 44 : 0) -
+    (sourceName ? 26 : 0) -
     (lateNote ? 26 : 0);
   const compact = room < 200;
   const ringSize = Math.round(
@@ -654,6 +670,14 @@ function SosActiveContent() {
                     ? t("safety.manualSos")
                     : t("sos.fall")}
                 </ThemedText>
+                {sourceName ? (
+                  <ThemedText
+                    numberOfLines={1}
+                    style={[styles.source, { color: P.text }]}
+                  >
+                    {t("sos.fromHelmet", { name: sourceName })}
+                  </ThemedText>
+                ) : null}
                 <ThemedText style={[styles.subtitle, { color: P.sub }]}>
                   {t("sos.pendingBody")}
                 </ThemedText>
@@ -996,6 +1020,12 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   subtitle: { fontSize: 14, lineHeight: 20, textAlign: "center" },
+  source: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: 600,
+    textAlign: "center",
+  },
   ring: { marginTop: 20 },
   number: {
     fontWeight: 800,
