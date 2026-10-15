@@ -90,6 +90,7 @@ import {
 import { batteryTierOf } from "@/services/device-view";
 import {
   currentHelmetOf,
+  helmetNameOf,
   linkLevelOf,
   protectionStateOf,
   type HelmetLink,
@@ -178,7 +179,7 @@ function Hero({
       : low
         ? theme.warning
         : theme.success;
-  const name = device.name ?? device.deviceId;
+  const name = helmetNameOf(device);
   const status = t(pill.text);
 
   // 光晕缓慢呼吸（5 s 一个来回），只在这一页显示着的时候跑。
@@ -529,7 +530,7 @@ function OtherRow({
         : pill.linked
           ? theme.text
           : theme.textSecondary;
-  const name = device.name ?? device.deviceId;
+  const name = helmetNameOf(device);
   const bText = useTintStyle({ color: bColor });
   // 电量条的长度和颜色都过渡，和大图的电量环一个节奏
   const pct = Math.max(2, Math.min(100, battery ?? 0));

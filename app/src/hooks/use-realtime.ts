@@ -255,7 +255,11 @@ export function useRealtimeUpdates(): void {
           const dev = queryClient
             .getQueryData<DevicePublic[]>(["devices"])
             ?.find((d) => d.deviceId === deviceId);
-          checkBatteryAlert(deviceId, dev?.name ?? deviceId, status);
+          checkBatteryAlert(
+            deviceId,
+            dev ? helmetNameOf(dev) : deviceId,
+            status,
+          );
           break;
         }
         case "risk_event":

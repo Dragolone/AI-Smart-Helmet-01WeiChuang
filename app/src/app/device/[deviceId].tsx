@@ -65,6 +65,7 @@ import {
   isBatteryLow,
   type BleRowState,
 } from "@/services/device-view";
+import { cleanHelmetName } from "@/services/safety-status";
 import { useBleStore } from "@/stores/ble-store";
 
 type RowTone = "ok" | "warn" | "bad" | "neutral";
@@ -190,6 +191,8 @@ export default function DeviceDetailScreen() {
     queryKey: ["device-detail", deviceId],
     queryFn: () => devicesApi.detail(deviceId),
   });
+  // 用户起的名字整理成一行（零宽字符 / 换行见 cleanHelmetName）；空串 = 没起名，显示设备号
+  const shownName = cleanHelmetName(detail.data?.name);
 
   // 设备设置（§8 命令+回执状态机）：与分类页共用，见 hooks/use-device-settings
   const settings = useDeviceSettings(deviceId);
@@ -322,7 +325,7 @@ export default function DeviceDetailScreen() {
   const [renamed, setRenamed] = useState(false);
 
   const openRename = () => {
-    setNameDraft(detail.data?.name ?? "");
+    setNameDraft(shownName);
     setRenamed(false);
     setRenameOpen(true);
   };
@@ -330,7 +333,8 @@ export default function DeviceDetailScreen() {
   const submitRename = () => {
     setRenaming(true);
     devicesApi
-      .rename(deviceId, { name: nameDraft })
+      // 提交前同样整理：只剩看不见的字符 / 空白时是空串，接口按「清除名字」处理（API.md §4）
+      .rename(deviceId, { name: cleanHelmetName(nameDraft) })
       .then(async () => {
         setRenamed(true);
         // 列表/详情/地图药丸同步刷新
@@ -349,7 +353,7 @@ export default function DeviceDetailScreen() {
     // 写用户起的名字：绑了几顶时只写编号认不出是哪一顶（负责人 10-15：有重命名一定先显示重命名）
     Alert.alert(
       t("device.unbind"),
-      t("device.unbindBody", { id: detail.data?.name ?? deviceId }),
+      t("device.unbindBody", { id: shownName || deviceId }),
       [
         { text: t("common.cancel"), style: "cancel" },
         {
@@ -446,7 +450,7 @@ export default function DeviceDetailScreen() {
         <View style={styles.identity}>
           <View style={styles.titleRow}>
             <ThemedText type="title" style={styles.title}>
-              {detail.data?.name ?? deviceId}
+              {shownName || deviceId}
             </ThemedText>
             <Tappable
               feedback="opacity"
@@ -463,7 +467,7 @@ export default function DeviceDetailScreen() {
               <Ionicons name="pencil" size={16} color={theme.textSecondary} />
             </Tappable>
           </View>
-          {detail.data?.name && (
+          {shownName !== "" && (
             <ThemedText type="code" themeColor="textSecondary">
               {deviceId}
             </ThemedText>
