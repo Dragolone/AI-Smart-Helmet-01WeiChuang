@@ -1,7 +1,14 @@
 // 边界补测（2026-10-03）：ble-relay-uplink 现有用例没碰到的角落。
 // 与 audit-ble-uplink 的差别：假文件系统按「文件名」分开存（原假件只有一份内容，
 // 验不出「B 登录后把 A 的分区文件覆盖掉」这类退化），并且把 helmet-link-service 的持锁调用也接出来断言。
-import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+} from "@jest/globals";
 import type { Mock } from "jest-mock";
 import type { EventEnvelope, EventType } from "@helmet/shared";
 
@@ -158,9 +165,7 @@ describe("按账号分区：文件名层面的隔离", () => {
     up.startRelayUplink("../a/b");
     up.enqueueRelayEvent(env("device_status"));
     up.stopRelayUplink();
-    expect([...mockFiles.keys()]).toEqual([
-      "ble-relay-queue...%2Fa%2Fb.json",
-    ]);
+    expect([...mockFiles.keys()]).toEqual(["ble-relay-queue...%2Fa%2Fb.json"]);
   });
 
   it("未登录（匿名分区）积压的事件不会被随后登录的真实账号带走", async () => {
@@ -191,7 +196,9 @@ describe("持久化：先写临时文件再原子改名（10-06 不变式评审 
     up.startRelayUplink("user_A");
     await tick();
     up.enqueueRelayEvent(env("possible_fall"));
-    expect(mockFsMoves.at(-1)).toBe(`${fileOf("user_A")}.tmp -> ${fileOf("user_A")}`);
+    expect(mockFsMoves.at(-1)).toBe(
+      `${fileOf("user_A")}.tmp -> ${fileOf("user_A")}`,
+    );
     expect(mockFiles.has(`${fileOf("user_A")}.tmp`)).toBe(false);
     expect(savedIds("user_A")).toHaveLength(1);
   });
@@ -212,7 +219,11 @@ describe("持久化：先写临时文件再原子改名（10-06 不变式评审 
     await tick();
     await up.flushRelayQueue();
     expect(push).toHaveBeenCalledTimes(1);
-    expect((push.mock.calls[0][0].envelopes as EventEnvelope[]).map((e) => e.eventId)).toEqual([fall.eventId]);
+    expect(
+      (push.mock.calls[0][0].envelopes as EventEnvelope[]).map(
+        (e) => e.eventId,
+      ),
+    ).toEqual([fall.eventId]);
   });
 
   it(".tmp 写到一半被杀（残缺 JSON）：忽略它，从正式文件恢复", async () => {
@@ -221,13 +232,20 @@ describe("持久化：先写临时文件再原子改名（10-06 不变式评审 
       fileOf("user_A"),
       JSON.stringify({ v: 2, owner: "user_A", events: [fall] }),
     );
-    mockFiles.set(`${fileOf("user_A")}.tmp`, '{"v":2,"owner":"user_A","events":[{"ev');
+    mockFiles.set(
+      `${fileOf("user_A")}.tmp`,
+      '{"v":2,"owner":"user_A","events":[{"ev',
+    );
     const { up, push } = load();
     push.mockResolvedValue({ accepted: 1, duplicate: 0, invalid: 0 });
     up.startRelayUplink("user_A");
     await tick();
     await up.flushRelayQueue();
-    expect((push.mock.calls[0][0].envelopes as EventEnvelope[]).map((e) => e.eventId)).toEqual([fall.eventId]);
+    expect(
+      (push.mock.calls[0][0].envelopes as EventEnvelope[]).map(
+        (e) => e.eventId,
+      ),
+    ).toEqual([fall.eventId]);
   });
 
   it("改名失败：不抛、队列仍在内存里，下一次落盘再试", async () => {
@@ -240,7 +258,11 @@ describe("持久化：先写临时文件再原子改名（10-06 不变式评审 
     up.enqueueRelayEvent(fall);
     mockFsFail.move = false;
     await up.flushRelayQueue();
-    expect((push.mock.calls[0][0].envelopes as EventEnvelope[]).map((e) => e.eventId)).toEqual([fall.eventId]);
+    expect(
+      (push.mock.calls[0][0].envelopes as EventEnvelope[]).map(
+        (e) => e.eventId,
+      ),
+    ).toEqual([fall.eventId]);
   });
 });
 
@@ -420,7 +442,27 @@ describe("提交失败的状态码分流", () => {
     },
   );
 
-  it.each([401, 408, 413, 429, 500, 503, undefined])(
+  it("413（请求体太大）且这一批不止一条：批量减半立即重试，一条都不丢（2026-10-16 A7）", async () => {
+    const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+    const { up, push } = load();
+    const e1 = env("location_update");
+    const e2 = env("device_status");
+    up.enqueueRelayEvent(e1);
+    up.enqueueRelayEvent(e2);
+    push.mockRejectedValueOnce(httpError(413));
+    await up.flushRelayQueue();
+    await tick();
+    await up.flushRelayQueue();
+    await tick();
+    expect(sentIds(push)).toEqual([
+      [e1.eventId, e2.eventId],
+      [e1.eventId],
+      [e2.eventId],
+    ]);
+    expect(savedIds("anonymous")).toEqual([]);
+  });
+
+  it.each([401, 408, 429, 500, 503, undefined])(
     "%s 可能恢复：整批保留，下轮同一批按原 eventId 重发",
     async (status) => {
       const { up, push } = load();
@@ -533,7 +575,8 @@ describe("深睡持锁（Android holdNetwork / releaseNetwork）", () => {
     const { up, push } = load();
     let cReachable = false;
     push.mockImplementation(async (body) => {
-      if (body.deviceId === "helmet_c" && !cReachable) throw new Error("offline");
+      if (body.deviceId === "helmet_c" && !cReachable)
+        throw new Error("offline");
       return { accepted: body.envelopes.length, duplicate: 0, invalid: 0 };
     });
     up.enqueueRelayEvent(env("possible_fall", "helmet_c")); // 首发失败

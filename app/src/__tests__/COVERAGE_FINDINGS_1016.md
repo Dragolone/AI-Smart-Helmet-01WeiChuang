@@ -11,6 +11,8 @@
 
 ### C1 倒计时页只认路由里的 deviceId（低）
 
+> ✅ **2026-10-16 已修（#207）**：`sosApi.snapshot` 没有 deviceId 时直接查 `/accidents/:sosId`；`needHelp` 用 `sos?.deviceId ?? deviceId`。测试 `api/__tests__/sos-snapshot.test.ts`「没有 deviceId」。下面是当时的记录。
+
 - 位置：`app/src/app/sos-active.tsx`（`useLocalSearchParams` 取 `deviceId`；`sosApi.snapshot(sosId, deviceId)`；
   `needHelp` 第一行 `if (!deviceId) return;`）；`app/src/api/sos.ts` 的 `snapshot`。
 - 现象：用只带 `sosId` 的链接打开倒计时页（例如外部深链 `lingyizhixing://sos-active?sosId=…`）时：

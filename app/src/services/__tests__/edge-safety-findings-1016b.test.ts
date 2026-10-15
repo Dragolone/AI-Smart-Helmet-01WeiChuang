@@ -102,7 +102,7 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-describe("现状（A13）：恢复持久队列时只按 eventId 去重，没带上头盔号", () => {
+describe("改后（10-16 A13）：恢复持久队列按 头盔号:事件号 去重", () => {
   const writeSaved = (owner: string, events: EventEnvelope[]) =>
     mockFiles.set(queueFile(owner), JSON.stringify({ v: 2, owner, events }));
   const savedPairs = (owner: string): string[] =>
@@ -112,10 +112,24 @@ describe("现状（A13）：恢复持久队列时只按 eventId 去重，没带�
       }
     ).events.map((e) => `${e.deviceId}:${e.eventId}`);
 
-  it("持久队列里 helmet_b 的 same-1 与内存里 helmet_a 的 same-1 同号：恢复时 helmet_b 那条被当成重复丢掉", async () => {
+  it("持久队列里 helmet_b 的 same-1 与内存里 helmet_a 的 same-1 同号：两条都保留", async () => {
     // 决策 #54：eventId 只在一顶头盔内唯一。今天 BLE 的 eventId = UUID v5(命名空间, deviceId:序号)，
     // 两顶头盔不会撞号，所以这条只是纵深防御
     writeSaved("user_1", [env("possible_fall", "helmet_b", "same-1")]);
+    const { up, push } = load();
+    push.mockRejectedValue(new Error("offline"));
+    up.startRelayUplink("user_1");
+    up.enqueueRelayEvent(env("possible_fall", "helmet_a", "same-1"));
+    await tick();
+    up.stopRelayUplink();
+    expect(savedPairs("user_1").sort()).toEqual([
+      "helmet_a:same-1",
+      "helmet_b:same-1",
+    ]);
+  });
+
+  it("同一顶头盔同一编号：仍然只留一条", async () => {
+    writeSaved("user_1", [env("possible_fall", "helmet_a", "same-1")]);
     const { up, push } = load();
     push.mockRejectedValue(new Error("offline"));
     up.startRelayUplink("user_1");
@@ -140,18 +154,20 @@ describe("现状（A13）：恢复持久队列时只按 eventId 去重，没带�
   });
 });
 
-describe("现状（A12 / A14）：保命页面里的显示口径", () => {
+describe("改后（10-16 A12 / A14）：保命页面里的显示口径", () => {
   const read = (...p: string[]) =>
     readFileSync(join(__dirname, "..", "..", ...p), "utf8");
 
-  it("A12：倒计时页的联系人名原样显示（没走 contactNameOf：零宽名是空白、换行名只剩第一行）", () => {
+  it("A12：倒计时页的联系人名走 contactNameOf（零宽名显示「未命名」、换行名合成一行），头像首字走 initialOf", () => {
     const src = read("app", "sos-active.tsx");
-    expect(src).toMatch(/\{c\.name\}/);
-    expect(src).not.toContain("contactNameOf");
+    expect(src).not.toMatch(/\{c\.name\}/);
+    expect(src).toContain("contactNameOf(c)");
+    expect(src).toContain("initialOf(contactNameOf(c))");
   });
 
-  it("A14：锁屏求救提醒的「补传」说明用写死的全角括号拼接，英文界面也是「…help.（Event from about 3 hours ago, now synced）」", () => {
+  it("A14：锁屏求救提醒的「补传」说明括号跟界面语言走（sosAlert.lateSuffix），不写死全角括号", () => {
     const src = read("services", "sos-alert.ts");
-    expect(src).toContain('(late ? `（${late}）` : "")');
+    expect(src).not.toContain("`（${late}）`");
+    expect(src).toContain('translate("sosAlert.lateSuffix", { note: late })');
   });
 });

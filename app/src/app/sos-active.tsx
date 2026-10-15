@@ -77,6 +77,7 @@ import {
   initialOf,
   smsRows,
 } from "@/services/sos-delivery";
+import { contactNameOf } from "@/services/user-name";
 import { showNotice } from "@/services/notice";
 
 /** 读屏（VoiceOver / TalkBack）开没开 */
@@ -501,21 +502,23 @@ function SosActiveContent() {
   const askedForHelp = useRef(false);
   const [helpBusy, setHelpBusy] = useState(false);
   const needHelp = () => {
-    if (!deviceId) return;
+    // 外部深链只带 sosId 时路由里没有 deviceId，用这一单自己的（10-16 C1）
+    const helpDevice = sos?.deviceId ?? deviceId;
+    if (!helpDevice) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
     askedForHelp.current = true;
-    helpEnvelope.current ??= buildRelayEnvelope(deviceId, "manual_sos", {});
+    helpEnvelope.current ??= buildRelayEnvelope(helpDevice, "manual_sos", {});
     const envelope = helpEnvelope.current;
     setHelpBusy(true);
     relayApi
-      .push({ deviceId, envelopes: [envelope] })
+      .push({ deviceId: helpDevice, envelopes: [envelope] })
       .then((counts) => {
         // 服务端判 invalid 只留档不建单：不进队列（重发也不会变合法），但要明说，别让骑手以为求救已发出（10-15 复审 F-4）
         if (counts.invalid > 0) {
           showNotice(t("safety.sosSendFailed"), t("safety.sosRejected"));
           return;
         }
-        notifyCriticalAccepted(deviceId);
+        notifyCriticalAccepted(helpDevice);
       })
       .catch((e) => {
         // 没发出去：进持久队列，网络恢复后按原 eventId 自动补发（同一条只入队一次）
@@ -795,14 +798,14 @@ function SosActiveContent() {
                                 { color: P.avatarText },
                               ]}
                             >
-                              {initialOf(c.name)}
+                              {initialOf(contactNameOf(c))}
                             </ThemedText>
                           </View>
                           <ThemedText
                             numberOfLines={1}
                             style={[styles.chipText, { color: P.text }]}
                           >
-                            {c.name}
+                            {contactNameOf(c)}
                           </ThemedText>
                         </View>
                       ))}

@@ -12,6 +12,7 @@ import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
 import type { Sos } from "@helmet/shared";
 
+import { accidentHref, sosActiveHref } from "@/services/sos-routes";
 import { sosApi } from "@/api/sos";
 import { devLog } from "@/services/dev-log";
 import { presentedSos } from "@/services/sos-sync";
@@ -199,8 +200,8 @@ export async function landFromPush(extras: PushExtras): Promise<string | null> {
     }
   }
   const target = countdown
-    ? `/sos-active?sosId=${sosId}&deviceId=${deviceId}`
-    : `/accident/${sosId}`;
+    ? sosActiveHref(sosId, deviceId)
+    : accidentHref(sosId);
   // navigate 而不是 push：后台收到 WS 时倒计时页多半已经在栈上了（12:07 华为实测），
   // 再 push 一份会叠两页倒计时；navigate 对同一路由只聚焦不新建。登记后 WS / 补拉也不再重复拉起
   if (countdown) presentedSos.current.add(sosId);

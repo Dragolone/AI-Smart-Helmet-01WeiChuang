@@ -4,6 +4,26 @@
 非保命模块里修法小而明确的 bug 已直接修（见分支提交记录）；**这里只记保命链路里发现、按约定没有改行为的问题**。
 对应的测试只断言现状，测试名里标了「现状」和编号；以后改了行为，同步改那几条断言即可。
 
+> ✅ **2026-10-16 负责人要求「能修的都修」：A1–A14 全部已改行为（#207）**，对应测试改名「改后（10-16 Ax）」。各项怎么改的：
+>
+> | 编号 | 改法 | 测试 |
+> |---|---|---|
+> | A1 | 样本与当前偏移差 30 s 以上当时钟跳变直接采信；偏移取最近 5 个样本最大值；早于 2024 年的 Date 头不采信 | `edge-server-clock-1016`、`server-clock` |
+> | A2 / A12 | `initialOf` 走 `avatarInitial`，倒计时页名字走 `contactNameOf` | `edge-sos-display-1016`、`edge-safety-findings-1016b` |
+> | A3 | 契约外的状态按「还在发」：结论「发送中」、继续 3 s 轮询。**契约没改**（shared 仍是三种值） | `edge-sos-display-1016` |
+> | A4 | 新增 `services/sos-routes.ts`（`sosActiveHref` / `accidentHref`），8 处调用改用；`audit-navigation` 守护不许手写模板串 | `edge-push-1016`、`audit-navigation` |
+> | A5 | 别的单的终态不碰 `["sos-active", deviceId]` | `edge-sos-sync-1016` |
+> | A6 | 新增 `adoptRelayUplinkOwner(uid)`：匿名 → 本人带着队列认领（先读本人分区合并、落盘、再清匿名文件）；换账号仍 stop → start | `edge-ble-relay-uplink-1016`、`audit-realtime-wiring` |
+> | A7 | 413 且不止一条：批量减半立即重试，成功后翻倍；只剩一条仍整批保留 | `edge-ble-relay-uplink-1016`、`edge-ble-relay-uplink` |
+> | A8 | 2xx 响应体为空按整批已接受 | `edge-ble-relay-uplink-1016` |
+> | A9 | 第一条没排上就从去重表放掉 | `edge-sos-alert-1016` |
+> | A10 | 404 / 403 不重试：撤通知、`sosAlert.cancelGone*` 说明、不跳页 | `edge-sos-alert-1016` |
+> | A11 | 调用方（`use-realtime` 的 `prioritizeCurrent`）把当前头盔排最前再交给 `setBleTargets` 截 20；`ble-link` 本身没动 | `audit-realtime-wiring` |
+> | A13 | 持久队列恢复 / 认领合并按 `头盔号:事件号` 去重 | `edge-safety-findings-1016b` |
+> | A14 | 括号走文案 `sosAlert.lateSuffix` | `sos-alert`、`edge-safety-findings-1016b` |
+>
+> 下面各节是当时的记录，「现状」「建议修法」按上表为准。
+
 ---
 
 ## A1 服务端时钟：手机时间中途跳变后，偏移要二十多个响应才追上（`services/server-clock.ts`）

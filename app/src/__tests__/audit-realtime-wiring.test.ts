@@ -153,10 +153,16 @@ describe("B 线 10-06 评审 F8 / F-7 / F-10（接线断言）", () => {
       hook.indexOf("const onUserReady = () => {"),
       hook.indexOf("onUserReady();"),
     );
+    // 匿名 → 本人用认领（队列带着走，10-16 A6）；换账号才 stop 再 start
+    expect(fn).toContain("adoptRelayUplinkOwner(uid)");
     expect(fn).toContain("stopRelayUplink();");
     expect(fn).toContain("startRelayUplink(uid);");
     expect(fn).toContain("loadCachedTargets(uid)");
-    expect(fn).toContain("setBleTargets(ids);");
+    // 目标顺序把「当前头盔」排到最前（10-16 A11）：缓存目标和实时目标都经 prioritizeCurrent
+    expect(fn).toContain("setBleTargets(prioritizeCurrent(queryClient, ids));");
+    expect(hook).toMatch(
+      /const bleTargetsOf = \(\) =>\s*prioritizeCurrent\(queryClient, liveTargets\(queryClient\) \?\? known\)/,
+    );
     expect(hook).toContain("useAuthStore.subscribe(onUserReady)");
   });
 

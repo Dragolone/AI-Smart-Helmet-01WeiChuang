@@ -2,7 +2,7 @@
 // 原来挂在 (tabs) 布局里，根栈上一旦多出第二个 (tabs)（扫码绑定成功后的跳转就会）或某一页渲染崩了，
 // 卸载时的清理会把 WS、BLE 中转、上行队列、推送别名一起停掉，而用户仍在登录态（2026-10-05 评审）。
 // WS 只负责"更快"；已有的 REST 轮询保持不变作为可靠性兜底（API.md §11）。
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useEffect } from "react";
 import { AppState } from "react-native";
@@ -15,6 +15,7 @@ import type {
   WsSosData,
 } from "@helmet/shared";
 
+import { sosActiveHref } from "@/services/sos-routes";
 import { forceRefreshTokens } from "@/api/client";
 import { devicesApi } from "@/api/devices";
 import { realtimeClient } from "@/api/realtime";
@@ -25,10 +26,11 @@ import {
   resetBatteryAlerts,
 } from "@/services/battery-alert";
 import { devLog } from "@/services/dev-log";
-import { helmetNameOf } from "@/services/safety-status";
+import { currentHelmetOf, helmetNameOf } from "@/services/safety-status";
 import { setPushArrivalHandler, startPush, stopPush } from "@/services/push";
 import { handleDeviceCommand } from "@/services/ble-relay";
 import {
+  adoptRelayUplinkOwner,
   setCriticalAcceptedHandler,
   startRelayUplink,
   stopRelayUplink,
@@ -55,6 +57,7 @@ import {
   type SosSyncDeps,
 } from "@/services/sos-sync";
 import { useAuthStore } from "@/stores/auth-store";
+import { useCurrentHelmetStore } from "@/stores/current-helmet-store";
 
 /**
  * 每次启动拿一个号；清理时只有自己仍是最新的那次，才拆掉共享的连接 / 链路 / 推送别名。
@@ -63,6 +66,17 @@ import { useAuthStore } from "@/stores/auth-store";
  * 之后直到重开 App 都收不到实时推送和远程推送、倒计时页弹不出来（2026-10-15 华为真机：改字体后挂起的求救一直没弹）。
  * 退出登录时清理的是最新那次，照常全部拆掉。
  */
+/** 把当前头盔挪到目标列表最前（设备列表不在缓存里时按原序） */
+function prioritizeCurrent(qc: QueryClient, ids: string[]): string[] {
+  const devices = qc.getQueryData<DevicePublic[]>(["devices"]);
+  if (!Array.isArray(devices)) return ids;
+  const uid = useAuthStore.getState().user?.id;
+  const chosen = uid ? useCurrentHelmetStore.getState().chosen[uid] : null;
+  const current = currentHelmetOf(devices, chosen ?? null)?.deviceId;
+  if (!current || ids[0] === current || !ids.includes(current)) return ids;
+  return [current, ...ids.filter((id) => id !== current)];
+}
+
 let bridgeGeneration = 0;
 
 export function useRealtimeUpdates(): void {
@@ -93,7 +107,9 @@ export function useRealtimeUpdates(): void {
     // BLE 近场链路：目标 = 已绑定设备；绑定/解绑后随 ['devices'] 缓存变化同步目标。
     // 列表还没拉到（或拉失败）时用上次存下的那份，见 services/ble-targets.ts
     let known: string[] = [];
-    const bleTargetsOf = () => liveTargets(queryClient) ?? known;
+    // 当前头盔排第一：绑了 20 顶以上时链路只盯前 20 顶，服务端列表按绑定时间排，当前那顶可能排在后面（10-16 A11）
+    const bleTargetsOf = () =>
+      prioritizeCurrent(queryClient, liveTargets(queryClient) ?? known);
     const cachedReady = loadCachedTargets(
       useAuthStore.getState().user?.id,
     ).then((ids) => {
@@ -111,13 +127,17 @@ export function useRealtimeUpdates(): void {
         startPush(uid);
       }
       if (uplinkOwner !== uid) {
+        // 从匿名换到本人：带着匿名期间的队列走（同一个 token 下收到的），不是 stop 再 start（10-16 A6）
+        const adopted = uplinkOwner === undefined && adoptRelayUplinkOwner(uid);
         uplinkOwner = uid;
-        stopRelayUplink();
-        startRelayUplink(uid);
+        if (!adopted) {
+          stopRelayUplink();
+          startRelayUplink(uid);
+        }
         void loadCachedTargets(uid).then((ids) => {
           if (cancelled || liveTargets(queryClient) !== null) return;
           known = ids;
-          setBleTargets(ids);
+          setBleTargets(prioritizeCurrent(queryClient, ids));
         });
       }
     };
@@ -132,7 +152,7 @@ export function useRealtimeUpdates(): void {
       // 全仓只有这里用 push：两顶头盔同时有进行中的单时要各开各的倒计时页（同一单只开一次由 presentedSos 管）。
       // 别处点了开页面一律用 navigate——同一页已经在最上面时不再叠一页（连点两下不会开出两页）
       openCountdown: (sosId, deviceId) =>
-        router.push(`/sos-active?sosId=${sosId}&deviceId=${deviceId}`),
+        router.push(sosActiveHref(sosId, deviceId)),
       showLockScreenAlert: (sosId, deviceId, deadline, triggeredAt) =>
         void showSosAlertIfBackground(
           sosId,

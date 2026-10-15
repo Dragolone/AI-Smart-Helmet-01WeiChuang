@@ -32,8 +32,18 @@ describe("打开页面的写法", () => {
   it("拉起求救倒计时页仍然是 push", () => {
     const src = readFileSync(join(SRC, "hooks/use-realtime.ts"), "utf8");
     expect(src).toMatch(
-      /openCountdown: \(sosId, deviceId\) =>\s*router\.push\(`\/sos-active\?sosId=\$\{sosId\}&deviceId=\$\{deviceId\}`\)/,
+      /openCountdown: \(sosId, deviceId\) =>\s*router\.push\(sosActiveHref\(sosId, deviceId\)\)/,
     );
+  });
+
+  it("求救相关的路径一律走 sosActiveHref / accidentHref 拼接并编码，不手写模板串（2026-10-16 A4）", () => {
+    const hits = sources(SRC)
+      .filter((f) => !f.endsWith("services/sos-routes.ts"))
+      .filter((f) =>
+        /`\/(sos-active\?|accident\/)/.test(readFileSync(f, "utf8")),
+      )
+      .map((f) => relative(SRC, f));
+    expect(hits).toEqual([]);
   });
 });
 
