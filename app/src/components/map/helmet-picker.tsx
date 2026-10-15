@@ -3,7 +3,14 @@
 // 这一点写在面板上，免得用户以为在这里点了就换了求救的对象。
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import { Modal, Pressable, StyleSheet, View } from "react-native";
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { DevicePublic } from "@helmet/shared";
@@ -43,6 +50,9 @@ export function HelmetPicker({
   const t = useT();
   const locale = useLocale();
   const insets = useSafeAreaInsets();
+  // 顶数多时列表在面板里滚，面板本身不能长过屏幕：9 顶就把标题顶出状态栏（2026-10-15 边界测试）
+  const { height: windowHeight } = useWindowDimensions();
+  const listMaxHeight = Math.max(200, windowHeight * 0.55);
   return (
     <Modal
       visible={visible}
@@ -98,99 +108,104 @@ export function HelmetPicker({
             {t("map.picker.lead")}
           </ThemedText>
 
-          {devices.map((d) => {
-            const on = d.deviceId === viewedId;
-            const pill = linkPillOf(links[d.deviceId] ?? "unknown");
-            // 多久前断开的写在状态那一行（和设备页「其他设备」同一个写法），这一行不会被长编号挤掉
-            const battery =
-              d.battery === null
-                ? null
-                : t("map.picker.battery", { n: d.battery });
-            return (
-              <Tappable
-                key={d.deviceId}
-                feedback="scale"
-                accessibilityRole="button"
-                accessibilityState={{ selected: on }}
-                onPress={() => onPick(d.deviceId)}
-                style={[
-                  styles.row,
-                  {
-                    borderColor: on ? theme.borderStrong : theme.border,
-                    backgroundColor: on
-                      ? theme.backgroundSelected
-                      : "transparent",
-                  },
-                ]}
-              >
-                <View
+          <ScrollView
+            style={{ maxHeight: listMaxHeight }}
+            bounces={false}
+            showsVerticalScrollIndicator
+          >
+            {devices.map((d) => {
+              const on = d.deviceId === viewedId;
+              const pill = linkPillOf(links[d.deviceId] ?? "unknown");
+              // 多久前断开的写在状态那一行（和设备页「其他设备」同一个写法），这一行不会被长编号挤掉
+              const battery =
+                d.battery === null
+                  ? null
+                  : t("map.picker.battery", { n: d.battery });
+              return (
+                <Tappable
+                  key={d.deviceId}
+                  feedback="scale"
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: on }}
+                  onPress={() => onPick(d.deviceId)}
                   style={[
-                    styles.thumb,
+                    styles.row,
                     {
+                      borderColor: on ? theme.borderStrong : theme.border,
                       backgroundColor: on
-                        ? theme.backgroundElement
-                        : theme.backgroundSelected,
+                        ? theme.backgroundSelected
+                        : "transparent",
                     },
                   ]}
                 >
-                  <Image
-                    source={helmetImageFor(d.deviceId)}
-                    contentFit="contain"
-                    style={styles.thumbImage}
-                  />
-                </View>
-                <View style={styles.body}>
-                  <View style={styles.nameRow}>
-                    <ThemedText numberOfLines={1} style={styles.name}>
-                      {helmetNameOf(d)}
-                    </ThemedText>
-                    {d.deviceId === currentId && (
-                      <View
-                        style={[styles.tag, { backgroundColor: theme.brand }]}
-                      >
-                        <ThemedText
-                          style={[styles.tagText, { color: theme.onBrand }]}
-                        >
-                          {t("map.picker.currentTag")}
-                        </ThemedText>
-                      </View>
-                    )}
-                  </View>
-                  <ThemedText
-                    themeColor="textSecondary"
-                    numberOfLines={1}
-                    style={styles.sub}
+                  <View
+                    style={[
+                      styles.thumb,
+                      {
+                        backgroundColor: on
+                          ? theme.backgroundElement
+                          : theme.backgroundSelected,
+                      },
+                    ]}
                   >
-                    {battery ? `${d.deviceId} · ${battery}` : d.deviceId}
-                  </ThemedText>
-                  <View style={styles.linkRow}>
-                    <View
-                      style={[
-                        styles.dot,
-                        {
-                          backgroundColor: pill.linked
-                            ? theme.success
-                            : theme.textSecondary,
-                        },
-                      ]}
+                    <Image
+                      source={helmetImageFor(d.deviceId)}
+                      contentFit="contain"
+                      style={styles.thumbImage}
                     />
-                    <ThemedText numberOfLines={1} style={styles.link}>
-                      {pill.linked
-                        ? t(pill.text)
-                        : `${t("common.offline")} · ${relativeTime(d.lastSeenAt, locale)}`}
-                    </ThemedText>
                   </View>
-                </View>
-                <Ionicons
-                  name="checkmark"
-                  size={22}
-                  color={theme.text}
-                  style={{ opacity: on ? 1 : 0 }}
-                />
-              </Tappable>
-            );
-          })}
-
+                  <View style={styles.body}>
+                    <View style={styles.nameRow}>
+                      <ThemedText numberOfLines={1} style={styles.name}>
+                        {helmetNameOf(d)}
+                      </ThemedText>
+                      {d.deviceId === currentId && (
+                        <View
+                          style={[styles.tag, { backgroundColor: theme.brand }]}
+                        >
+                          <ThemedText
+                            style={[styles.tagText, { color: theme.onBrand }]}
+                          >
+                            {t("map.picker.currentTag")}
+                          </ThemedText>
+                        </View>
+                      )}
+                    </View>
+                    <ThemedText
+                      themeColor="textSecondary"
+                      numberOfLines={1}
+                      style={styles.sub}
+                    >
+                      {battery ? `${d.deviceId} · ${battery}` : d.deviceId}
+                    </ThemedText>
+                    <View style={styles.linkRow}>
+                      <View
+                        style={[
+                          styles.dot,
+                          {
+                            backgroundColor: pill.linked
+                              ? theme.success
+                              : theme.textSecondary,
+                          },
+                        ]}
+                      />
+                      <ThemedText numberOfLines={1} style={styles.link}>
+                        {pill.linked
+                          ? t(pill.text)
+                          : `${t("common.offline")} · ${relativeTime(d.lastSeenAt, locale)}`}
+                      </ThemedText>
+                    </View>
+                  </View>
+                  <Ionicons
+                    name="checkmark"
+                    size={22}
+                    color={theme.text}
+                    style={{ opacity: on ? 1 : 0 }}
+                  />
+                </Tappable>
+              );
+            })}
+          </ScrollView>
         </Animated.View>
       </View>
     </Modal>

@@ -92,6 +92,7 @@ export const map = {
     "map.emptyBody": "绑定并连接头盔后，可查看位置与骑行记录。",
     "map.bindNew": "绑定头盔",
     "map.error": "地图异常：{msg}",
+    "map.errorRetry": "重新加载",
     "map.shareMessage": "头盔 {name} 最近记录的位置：{url}",
     "map.err.scriptLoad": "地图脚本加载失败（网络不可达或 Key 服务异常）",
     "map.err.noAmap": "地图未加载成功",
@@ -192,6 +193,7 @@ export const map = {
     "map.emptyBody": "綁定並連接頭盔後，可查看位置與騎行紀錄。",
     "map.bindNew": "綁定頭盔",
     "map.error": "地圖異常：{msg}",
+    "map.errorRetry": "重新載入",
     "map.shareMessage": "頭盔 {name} 最近記錄的位置：{url}",
     "map.err.scriptLoad": "地圖腳本載入失敗（網路無法連線或 Key 服務異常）",
     "map.err.noAmap": "地圖未載入成功",
@@ -298,6 +300,7 @@ export const map = {
       "Add and connect a helmet to view its location and ride records.",
     "map.bindNew": "Add helmet",
     "map.error": "Map error: {msg}",
+    "map.errorRetry": "Reload",
     "map.shareMessage": "Last recorded location of helmet {name}: {url}",
     "map.err.scriptLoad":
       "Map script failed to load (no network or key service error)",

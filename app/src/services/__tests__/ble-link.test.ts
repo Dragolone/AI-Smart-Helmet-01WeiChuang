@@ -260,6 +260,7 @@ import {
 } from "@/services/server-clock";
 import {
   bleStackReleased,
+  currentBleTargets,
   isHelmetConnected,
   retryBleLink,
   setBleTargets,
@@ -490,6 +491,17 @@ describe("握手第 6 步：上报头盔实际设置（决策 #45）", () => {
   it("上报失败不影响链路（离线/服务端报错都照常连上）", async () => {
     reportMock.mockRejectedValueOnce(new Error("network"));
     await expect(connectHelmet()).resolves.toBeUndefined();
+  });
+});
+
+describe("目标上限", () => {
+  it("绑定上千顶时链路只盯列表最前面的 20 顶（2026-10-15 边界测试：1 万顶把 App 撑死）", () => {
+    const ids = Array.from({ length: 10_000 }, (_, i) => `helmet_e${i}`);
+    setBleTargets(ids);
+    expect(currentBleTargets()).toHaveLength(20);
+    expect(currentBleTargets()[0]).toBe("helmet_e0");
+    expect(currentBleTargets()[19]).toBe("helmet_e19");
+    setBleTargets([]);
   });
 });
 

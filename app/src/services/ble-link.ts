@@ -79,12 +79,10 @@ export function getBleManager(): BleManager {
 /** Android 12+ 需要运行时 BLUETOOTH_SCAN/CONNECT;旧版本靠定位权限;iOS 由系统在首次使用时弹窗 */
 export async function requestBlePermissions(): Promise<boolean> {
   if (Platform.OS !== "android") return true;
-  if (Platform.Version >= 33) {
-    // Android 13+ 前台服务的常驻通知需要通知权限；拒绝也不阻塞链路（服务照跑，只是通知不显示）
-    await PermissionsAndroid.request(
-      PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
-    ).catch(() => undefined);
-  }
+  // Android 13+ 前台服务的常驻通知需要通知权限，但这里**不再申请**：登录后 ensureSosAlertPermission
+  // 已经问过一次（use-realtime 里先等它有结果再起链路）。原来这里再问一次，用户点了「不允许」紧接着
+  // 又弹同一个框，两次都拒就被系统永久拒绝、之后只能去设置里开（2026-10-15 模拟器正式包）。
+  // 没授权也不阻塞链路：服务照跑，只是常驻通知不显示
   if (Platform.Version >= 31) {
     const r = await PermissionsAndroid.requestMultiple([
       PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
@@ -125,6 +123,8 @@ export async function bleReady(): Promise<boolean> {
 // 链路管理
 // ——————————————————————————————————————————————————————————————
 
+/** 链路同时盯住的目标上限：超出的编号不进扫描过滤（见 setBleTargets） */
+const MAX_BLE_TARGETS = 20;
 const COMMAND_TIMEOUT_MS = 3_000;
 /** 补传每批条数：手册建议 ≤20，头盔每条间隔 30–50ms */
 const RESEND_BATCH = 10;
@@ -775,7 +775,13 @@ export async function startBleLink(deviceIds: string[]): Promise<void> {
 
 /** 绑定/解绑后同步目标；被移除的设备立即断开 */
 export function setBleTargets(deviceIds: string[]): void {
-  const next = Array.from(new Set(deviceIds));
+  const all = Array.from(new Set(deviceIds));
+  // 一个账号绑几千顶（压测 / 误操作）时不能把全部编号都塞进扫描过滤：过滤名单本身要拷进原生层，
+  // 页面同时渲染全部列表，1 万顶时 App 被系统按内存压力杀掉（2026-10-15 边界测试）。
+  // 只盯列表最前面的几顶（服务端按绑定时间排，当前头盔在前），手机本来也同时连不了更多
+  const next = all.slice(0, MAX_BLE_TARGETS);
+  if (all.length > next.length)
+    log("绑定设备过多，链路只盯前", MAX_BLE_TARGETS, "顶，共", all.length);
   const unchanged =
     next.length === targets.length && next.every((id) => targets.includes(id));
   if (unchanged && running) return;

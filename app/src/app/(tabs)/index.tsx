@@ -812,6 +812,14 @@ export default function DevicesScreen() {
               )}
               <View style={styles.spaceBelow} />
             </View>
+          ) : devices.data === undefined ? (
+            // 列表没拉到（断网冷启动）≠ 没绑头盔：原来这里也写「尚未绑定头盔」+ 绑定按钮，
+            // 绑着两顶的人断网开 App 会以为被解绑了（2026-10-15 模拟器正式包）
+            <EmptyState
+              icon="cloud-offline-outline"
+              title={t("devices.loadFailedTitle")}
+              body={t("devices.loadFailedBody")}
+            />
           ) : (
             <EmptyState
               icon="bicycle-outline"
@@ -825,7 +833,7 @@ export default function DevicesScreen() {
         <IntercomMiniBar style={styles.miniBar} />
 
         {/* 一台都没有时，绑定是这一页的主操作：除了右上角的「+」，底部再放一个品牌色按钮 */}
-        {list.length === 0 && !guideOn && !guidePending && (
+        {noHelmet && !guideOn && !guidePending && (
           <View style={styles.bottomCta}>
             <PrimaryButton
               title={t("devices.bindNew")}
