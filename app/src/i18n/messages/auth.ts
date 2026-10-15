@@ -121,7 +121,7 @@ export const auth = {
     "sos.drillNotifiedBody": "真實求救時，系統會嘗試透過簡訊通知緊急聯絡人。",
     "sos.drillCancelledBody":
       "已在倒數期間取消。真實求救時，取消後不會傳送聯絡人通知。",
-    "auth.appName": "零一唯創",
+    "auth.appName": "零一智行",
     "auth.slogan": "AI 賦能，智慧守護每一次騎行安全",
     "auth.phone": "手機號碼",
     "auth.phonePlaceholder": "11 位中國大陸手機號碼",

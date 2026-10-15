@@ -63,7 +63,7 @@ export const profile = {
     "profile.clearCache": "清除本機快取",
     "profile.clearCacheBody": "清除頁面資料與圖片快取，不影響已儲存的資料。",
     "profile.clearCacheDone": "快取已清除",
-    "profile.about": "關於零一唯創",
+    "profile.about": "關於零一智行",
     "profile.aboutBody":
       "AI 賦能，智慧守護每一次騎行安全。\n深圳零一唯創科技有限公司",
     "profile.version": "版本 {v}",

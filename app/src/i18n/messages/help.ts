@@ -62,7 +62,7 @@ export const help = {
     "help.a8":
       "在「對講」頁選擇「輸入邀請碼加入」，輸入收到的 6 位邀請碼。進入頻道後，可使用「按住說話」或「持續通話」。使用頭盔收發語音前，請確認頭盔音訊已連接至手機。對講需要可用的網路。",
     "help.email": "寄送回饋郵件",
-    "help.emailSubject": "零一唯創 App 回饋（版本 {v}）",
+    "help.emailSubject": "零一智行 App 回饋（版本 {v}）",
     "help.site": "官方網站",
     "help.openFailed": "無法開啟，請稍後再試",
   },
