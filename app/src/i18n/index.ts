@@ -88,8 +88,10 @@ export function translate(
   locale?: Locale,
 ): string {
   const loc = locale ?? useLocaleStore.getState().locale;
-  // 缺译时回落简体，绝不显示 key
-  const raw = dictionaries[loc][key] ?? zhCN[key];
+  // 缺译时回落简体，绝不显示 key。连简体都没有（用服务端值拼出来的 key，如 `safety.status.${status}`
+  // 遇到契约外的新状态）时给空串：原来返回 undefined，带参数时 .replace 直接抛 TypeError 把页面带崩，
+  // 不带参数时被插进别的文案里显示成「undefined」
+  const raw = (dictionaries[loc] ?? zhCN)[key] ?? zhCN[key] ?? "";
   if (!params) return raw;
   return raw.replace(/\{(\w+)\}/g, (_, name: string) =>
     name in params ? String(params[name]) : `{${name}}`,
