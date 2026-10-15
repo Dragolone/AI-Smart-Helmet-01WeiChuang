@@ -33,12 +33,19 @@ type LocaleState = {
   setLocale: (locale: Locale) => Promise<void>;
 };
 
+/** 读盘期间用户已经选过：迟到的旧值不把它盖回去 */
+let chosenBeforeHydrate = false;
+
 export const useLocaleStore = create<LocaleState>((set) => ({
   locale: detectLocale(),
   hydrated: false,
   hydrate: async () => {
     try {
       const saved = await SecureStore.getItemAsync(KEY);
+      if (chosenBeforeHydrate) {
+        set({ hydrated: true });
+        return;
+      }
       if (saved && (LOCALES as readonly string[]).includes(saved)) {
         set({ locale: saved as Locale, hydrated: true });
         return;
@@ -49,7 +56,13 @@ export const useLocaleStore = create<LocaleState>((set) => ({
     set({ hydrated: true });
   },
   setLocale: async (locale) => {
+    chosenBeforeHydrate = true;
     set({ locale });
-    await SecureStore.setItemAsync(KEY, locale);
+    // 落盘失败不抛：本次运行照样生效（调用方是 `void setLocale(loc)`）
+    try {
+      await SecureStore.setItemAsync(KEY, locale);
+    } catch {
+      /* 下次改的时候再写 */
+    }
   },
 }));
