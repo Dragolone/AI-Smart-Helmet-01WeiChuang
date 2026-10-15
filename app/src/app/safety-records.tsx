@@ -25,9 +25,9 @@ import { eventsApi, eventsListQuery } from "@/api/events";
 import { sosApi } from "@/api/sos";
 import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
+import { FluidSegmented } from "@/components/fluid-segmented";
 import { PrimaryButton } from "@/components/form";
 import { Card, IconCircle, type IconName } from "@/components/list";
-import { AnimatedChip } from "@/components/motion";
 import { Skeleton } from "@/components/skeleton";
 import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
@@ -51,6 +51,8 @@ import { helmetNameOf, linkLevelOf } from "@/services/safety-status";
 type Translate = ReturnType<typeof useT>;
 type Tone = "danger" | "warning" | "success" | "neutral";
 type RecordTab = "alerts" | "sos";
+/** 筛选 chip 里「全部头盔」那一项的值（deviceId 不会长这样） */
+const ALL_HELMETS = "__all__";
 
 /** 事件类型元数据(标题 key/图标/配色);标题在渲染时经 t() 解析,模块级不绑定语言。riskLevel 具体值在详情 payload 中 */
 const EVENT_META: Record<
@@ -520,21 +522,27 @@ export default function SafetyRecordsScreen() {
             style={styles.chipsScroll}
             contentContainerStyle={styles.chips}
           >
-            {chips.map((c) => (
-              <AnimatedChip
-                key={c.id ?? "all"}
-                active={(only?.deviceId ?? null) === c.id}
-                onPress={() => setPicked(c.id)}
-                label={c.label}
-                activeBg={theme.text}
-                inactiveBg={theme.background}
-                activeFg={theme.background}
-                inactiveFg={theme.text}
-                borderActive={theme.text}
-                borderInactive={theme.borderStrong}
-                style={styles.chip}
-              />
-            ))}
+            {/* 高亮是一颗滑块，在 chip 之间滑过去；「全部」用一个占位值，deviceId 不会长这样 */}
+            <FluidSegmented
+              equal={false}
+              options={chips.map((c) => ({
+                value: c.id ?? ALL_HELMETS,
+                label: c.label,
+              }))}
+              current={only?.deviceId ?? ALL_HELMETS}
+              onSelect={(v) => setPicked(v === ALL_HELMETS ? null : v)}
+              palette={{
+                thumb: theme.text,
+                activeText: theme.background,
+                text: theme.text,
+                tentativeText: theme.text,
+                outline: theme.borderStrong,
+                border: theme.borderStrong,
+              }}
+              style={styles.chipRow}
+              segmentStyle={styles.chip}
+              thumbStyle={styles.chipThumb}
+            />
           </ScrollView>
         )}
         {tab === "alerts"
@@ -753,7 +761,8 @@ const styles = StyleSheet.create({
   },
   // 左右各伸出 20 到屏幕边：头盔多了横向滑动时不被页面内边距切一刀
   chipsScroll: { marginHorizontal: -20, flexGrow: 0 },
-  chips: { paddingHorizontal: 20, gap: 8, alignItems: "center", minHeight: 44 },
+  chips: { paddingHorizontal: 20, alignItems: "center", minHeight: 44 },
+  chipRow: { gap: 8, alignItems: "center" },
   chip: {
     height: 34,
     paddingHorizontal: 14,
@@ -761,6 +770,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     justifyContent: "center",
   },
+  chipThumb: { borderRadius: 17 },
   group: { gap: 8 },
   dayHeader: { fontSize: 12, lineHeight: 16, paddingHorizontal: 4 },
   row: {

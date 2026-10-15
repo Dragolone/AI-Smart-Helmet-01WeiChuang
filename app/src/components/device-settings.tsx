@@ -16,7 +16,7 @@ import { StyleSheet, View } from "react-native";
 
 import { helmetErrorText } from "@/api/error-messages";
 import { CheckDraw } from "@/components/check-draw";
-import { AnimatedChip } from "@/components/motion";
+import { FluidSegmented } from "@/components/fluid-segmented";
 import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
 import { useTheme } from "@/hooks/use-theme";
@@ -335,7 +335,8 @@ export function DeviceSettingList({
 }
 
 /**
- * 圆角分段控件：一条圆角底槽里并排几段，高亮的是头盔确认过的那一段。
+ * 圆角分段控件：一条圆角底槽里并排几段，高亮是一颗滑块，停在头盔确认过的那一段；
+ * 回执 success 后才滑到新的一段（components/fluid-segmented，负责人 2026-10-15 画板口径）。
  * 档位型（3–4 段）铺满整行、各段等宽；开 / 关两段用 compact，贴在行右侧。
  * 每段最小高度 42，戴手套也点得中。
  */
@@ -357,40 +358,28 @@ function Segmented({
 }) {
   const theme = useTheme();
   return (
-    <View
-      accessibilityRole="radiogroup"
+    <FluidSegmented
+      options={options}
+      current={current}
+      tentative={tentative}
+      disabled={disabled}
+      onSelect={onSelect}
+      palette={{
+        thumb: theme.brand,
+        activeText: theme.onBrand,
+        text: theme.textSecondary,
+        tentativeText: theme.text,
+        outline: theme.brand,
+      }}
       style={[
         styles.segments,
         { backgroundColor: theme.backgroundSelected },
         compact && styles.segmentsCompact,
       ]}
-    >
-      {options.map((o) => (
-        // AnimatedChip 的可点区域不带样式入口：外面包一层等宽的格子，里面那段自然撑满
-        <View key={String(o.value)} style={styles.segmentSlot}>
-          <AnimatedChip
-            label={o.label}
-            active={current === o.value}
-            disabled={disabled}
-            onPress={() => onSelect(o.value)}
-            style={styles.segment}
-            textStyle={styles.segmentText}
-            activeBg={theme.brand}
-            inactiveBg={theme.backgroundSelected}
-            activeFg={theme.onBrand}
-            inactiveFg={
-              o.value === tentative ? theme.text : theme.textSecondary
-            }
-            borderActive={theme.brand}
-            borderInactive={
-              o.value === tentative && current !== o.value
-                ? theme.brand
-                : "transparent"
-            }
-          />
-        </View>
-      ))}
-    </View>
+      segmentStyle={styles.segment}
+      textStyle={styles.segmentText}
+      thumbStyle={styles.thumb}
+    />
   );
 }
 
@@ -467,7 +456,7 @@ const styles = StyleSheet.create({
   hint: { fontSize: 12, lineHeight: 16, opacity: 0.85 },
   segments: { flexDirection: "row", gap: 4, padding: 4, borderRadius: 12 },
   segmentsCompact: { width: 124, flexShrink: 0 },
-  segmentSlot: { flex: 1 },
+  thumb: { borderRadius: 9 },
   segment: {
     minHeight: 42,
     borderRadius: 9,
