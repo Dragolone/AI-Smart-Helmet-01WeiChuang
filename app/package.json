@@ -77,6 +77,10 @@
       "**/*.test.ts",
       "**/*.test.tsx"
     ],
+    "coveragePathIgnorePatterns": [
+      "/node_modules/",
+      "/__tests__/"
+    ],
     "moduleNameMapper": {
       "^@/assets/(.*)$": "<rootDir>/assets/$1",
       "^react$": "<rootDir>/node_modules/react",
