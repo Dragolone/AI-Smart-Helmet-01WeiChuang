@@ -1,0 +1,448 @@
+// 实时视频预览页（只测不改：它和求救上报争网络，见 10-15 评审 F-1）：
+// 连头盔热点的几条路（自动连 / 要手动连 / 连失败 / 连上时人已离开）、首帧与没画面提示、播放器出错与断流、
+// 截图（成功 / 失败 / 没回调 / 不支持 / 没权限），以及什么时候必须把热点还回去：
+// 求救入队、退后台（连热点途中的系统弹窗除外）、失焦（被倒计时页盖住）、卸载、出错。
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+} from "@jest/globals";
+import { Animated as RNAnimated, AppState, Platform } from "react-native";
+import { act } from "react-test-renderer";
+import { routerState } from "@/__tests__/helpers/native-mocks";
+import { isHost, render, type Rendered } from "@/__tests__/helpers/render";
+import { translate, useLocaleStore, type MessageKey } from "@/i18n";
+import { useThemeStore } from "@/stores/theme-store";
+import VideoPreviewScreen from "@/app/video-preview";
+import { ToastHost } from "@/components/toast";
+
+jest.mock("@/global.css", () => ({}));
+jest.mock("@expo/vector-icons", () =>
+  jest
+    .requireActual<typeof import("@/__tests__/helpers/native-mocks")>(
+      "@/__tests__/helpers/native-mocks",
+    )
+    .iconsMock(),
+);
+jest.mock("react-native-worklets", () =>
+  jest
+    .requireActual<typeof import("@/__tests__/helpers/native-mocks")>(
+      "@/__tests__/helpers/native-mocks",
+    )
+    .workletsMock(),
+);
+jest.mock("react-native-reanimated", () =>
+  jest
+    .requireActual<typeof import("@/__tests__/helpers/native-mocks")>(
+      "@/__tests__/helpers/native-mocks",
+    )
+    .reanimatedMock(),
+);
+jest.mock("@shopify/react-native-skia", () =>
+  jest
+    .requireActual<typeof import("@/__tests__/helpers/native-mocks")>(
+      "@/__tests__/helpers/native-mocks",
+    )
+    .skiaMock(),
+);
+jest.mock("react-native-safe-area-context", () =>
+  jest
+    .requireActual<typeof import("@/__tests__/helpers/native-mocks")>(
+      "@/__tests__/helpers/native-mocks",
+    )
+    .safeAreaMock(),
+);
+jest.mock("expo-router", () =>
+  jest
+    .requireActual<typeof import("@/__tests__/helpers/native-mocks")>(
+      "@/__tests__/helpers/native-mocks",
+    )
+    .expoRouterMock(),
+);
+jest.mock("expo-haptics", () => ({
+  impactAsync: jest.fn(() => Promise.resolve()),
+  notificationAsync: jest.fn(() => Promise.resolve()),
+  ImpactFeedbackStyle: { Light: "light" },
+  NotificationFeedbackType: { Success: "success" },
+}));
+jest.mock("@/hooks/use-keep-awake-safe", () => ({
+  useKeepAwakeSafe: jest.fn(),
+}));
+jest.mock("@/services/dev-log", () => ({ devLog: jest.fn() }));
+const mockSos: ((type: string) => void)[] = [];
+jest.mock("@/services/ble-relay-uplink", () => ({
+  flushRelayQueue: jest.fn(() => Promise.resolve()),
+  onSosRelayEvent: (l: (type: string) => void) => {
+    mockSos.push(l);
+    return () => mockSos.splice(mockSos.indexOf(l), 1);
+  },
+}));
+const mockWifi = {
+  available: true,
+  programmatic: true,
+  connect:
+    jest.fn<
+      (ssid: string, pass: string, ms: number, o?: unknown) => Promise<void>
+    >(),
+  release: jest.fn(),
+  bind: jest.fn(() => true),
+  openSettings: jest.fn(),
+  saveImage: jest.fn<(uri: string) => Promise<void>>(() => Promise.resolve()),
+  lost: [] as (() => void)[],
+};
+jest.mock("helmet-wifi", () => ({
+  HelmetWifi: {
+    get available() {
+      return mockWifi.available;
+    },
+    canConnectProgrammatically: () => mockWifi.programmatic,
+    connect: (...a: [string, string, number, unknown]) =>
+      mockWifi.connect(...a),
+    release: () => mockWifi.release(),
+    bindToWifi: () => mockWifi.bind(),
+    openWifiSettings: () => mockWifi.openSettings(),
+    saveImage: (uri: string) => mockWifi.saveImage(uri),
+    onWifiLost: (l: () => void) => {
+      mockWifi.lost.push(l);
+      return { remove: () => undefined };
+    },
+  },
+}));
+const mockFiles = { exists: true, deleted: [] as string[] };
+jest.mock("expo-file-system", () => ({
+  Paths: { cache: { uri: "file:///cache/" } },
+  File: class {
+    uri: string;
+    constructor(a: { uri?: string } | string, b?: string) {
+      this.uri = typeof a === "string" ? a : `${a.uri}${b}`;
+    }
+    get exists() {
+      return mockFiles.exists;
+    }
+    delete() {
+      mockFiles.deleted.push(this.uri);
+    }
+  },
+}));
+const mockPlayer = { snapshot: jest.fn() };
+jest.mock("react-native-vlc-media-player", () => {
+  const React = jest.requireActual<typeof import("react")>("react");
+  const VLCPlayer = React.forwardRef(function VLCPlayer(
+    props: Record<string, unknown>,
+    ref,
+  ) {
+    React.useImperativeHandle(ref, () => ({
+      snapshot: (p: string) => mockPlayer.snapshot(p),
+    }));
+    return React.createElement("VLCPlayer", props);
+  });
+  return { VLCPlayer };
+});
+
+const tr = (key: MessageKey, params?: Record<string, string | number>) =>
+  translate(key, params, "zh-CN");
+const SSID = "X821cam";
+let appListener: ((s: string) => void) | null = null;
+let appSub: ReturnType<typeof jest.spyOn>;
+let timing: ReturnType<typeof jest.spyOn>;
+let resolveJoin: () => void = () => undefined;
+let rejectJoin: (e: unknown) => void = () => undefined;
+
+const mount = () =>
+  render(
+    <>
+      <VideoPreviewScreen />
+      <ToastHost />
+    </>,
+  );
+const player = (r: Rendered) =>
+  r.root.findAll((n) => isHost(n, "VLCPlayer"))[0];
+const join = async () => {
+  await act(async () => {
+    resolveJoin();
+    await Promise.resolve();
+  });
+};
+
+beforeEach(() => {
+  jest.useFakeTimers();
+  useThemeStore.setState({ mode: "dark" });
+  useLocaleStore.setState({ locale: "zh-CN" });
+  routerState.params = {};
+  routerState.focused = true;
+  Object.assign(mockWifi, { available: true, programmatic: true, lost: [] });
+  mockWifi.connect.mockImplementation(
+    () =>
+      new Promise<void>((res, rej) => {
+        resolveJoin = res;
+        rejectJoin = rej;
+      }),
+  );
+  mockFiles.exists = true;
+  mockFiles.deleted = [];
+  mockSos.length = 0;
+  // 轻提示的 RN Animated：start 时直接跳到终值（不依赖 jest 里 Animated 的计时）
+  timing = jest.spyOn(RNAnimated, "timing").mockImplementation(
+    (value, config) =>
+      ({
+        start: (cb?: (r: { finished: boolean }) => void) => {
+          (value as RNAnimated.Value).setValue(
+            (config as { toValue: number }).toValue,
+          );
+          cb?.({ finished: true });
+        },
+        stop: jest.fn(),
+        reset: jest.fn(),
+      }) as never,
+  );
+  appSub = jest
+    .spyOn(AppState, "addEventListener")
+    .mockImplementation((_e, l) => {
+      appListener = l as (s: string) => void;
+      return { remove: jest.fn() } as never;
+    });
+});
+afterEach(() => {
+  appSub.mockRestore();
+  timing.mockRestore();
+  jest.clearAllMocks();
+  jest.useRealTimers();
+  routerState.focused = true;
+});
+
+describe("连头盔热点", () => {
+  it("自动连：先写正在连哪个热点；连上后挂播放器（RTSP + 预设参数），首帧后去掉遮罩并能截图", async () => {
+    const r = mount();
+    expect(r.allText()).toContain(tr("video.joining", { ssid: SSID }));
+    expect(r.allText()).toContain(tr("video.joiningHint"));
+    expect(mockWifi.connect).toHaveBeenCalledWith(SSID, "Aa123456", 30_000, {
+      wpa3: false,
+    });
+    await join();
+    const p = player(r);
+    expect((p.props.source as { uri: string }).uri).toBe(
+      "rtsp://192.168.176.1:8554/ch0",
+    );
+    expect(r.allText()).toContain(tr("video.connecting"));
+    act(() => (p.props.onPlaying as () => void)());
+    expect(r.allText()).not.toContain(tr("video.connecting"));
+    expect(r.allText()).toContain(tr("video.snapshot"));
+    expect(r.allText()).toContain(tr("video.note.hotspot", { ssid: SSID }));
+  });
+
+  it("连上后 5 秒还没画面：提示检查 Wi-Fi，并给重新连接", async () => {
+    const r = mount();
+    await join();
+    act(() => {
+      jest.advanceTimersByTime(5000);
+    });
+    expect(r.allText()).toContain(tr("video.stalled", { ssid: SSID }));
+    r.press(tr("video.retry"));
+    expect(r.allText()).toContain(tr("video.joining", { ssid: SSID }));
+    expect(mockWifi.connect).toHaveBeenCalledTimes(2);
+  });
+
+  it("连失败：写原因（用户取消）、把热点还回去、可重新连接", async () => {
+    const r = mount();
+    await act(async () => {
+      rejectJoin({ code: "USER_DENIED" });
+      await Promise.resolve();
+    });
+    expect(r.allText()).toContain(tr("video.err.denied"));
+    expect(mockWifi.release).toHaveBeenCalled();
+    expect(r.allText()).toContain(tr("video.retry"));
+  });
+
+  it("系统不支持自动连：引导手动连；Android 多一个去设置；连上了继续，没连上提示先连", () => {
+    const os = Platform.OS;
+    Object.defineProperty(Platform, "OS", {
+      value: "android",
+      configurable: true,
+    });
+    mockWifi.programmatic = false;
+    const r = mount();
+    expect(r.allText()).toContain(
+      tr("video.manual", { ssid: SSID, pass: "Aa123456" }),
+    );
+    r.press(tr("video.manual.openSettings"));
+    expect(mockWifi.openSettings).toHaveBeenCalled();
+    mockWifi.bind.mockReturnValueOnce(false);
+    r.press(tr("video.manual.continue"));
+    expect(r.allText()).toContain(tr("video.err.noWifi", { ssid: SSID }));
+    r.press(tr("video.manual.continue"));
+    expect(player(r)).toBeTruthy();
+    Object.defineProperty(Platform, "OS", { value: os, configurable: true });
+  });
+
+  it("没有 Wi-Fi 原生模块（模拟器）：跳过连热点直接拉流", () => {
+    mockWifi.available = false;
+    const r = mount();
+    expect(mockWifi.connect).not.toHaveBeenCalled();
+    expect(player(r)).toBeTruthy();
+  });
+
+  it("连上那一刻人已经离开页面（失焦）：拿到的热点立刻还回去", async () => {
+    const r = mount();
+    routerState.focused = false;
+    r.rerender(
+      <>
+        <VideoPreviewScreen />
+        <ToastHost />
+      </>,
+    );
+    mockWifi.release.mockClear();
+    await join();
+    expect(mockWifi.release).toHaveBeenCalled();
+  });
+});
+
+describe("什么时候把热点还回去", () => {
+  it("求救入队：同步释放热点、补传积压的中转事件、暂停并说明原因，可重新连接", async () => {
+    const { flushRelayQueue } = jest.requireMock<{
+      flushRelayQueue: jest.Mock;
+    }>("@/services/ble-relay-uplink");
+    const r = mount();
+    await join();
+    act(() => (player(r).props.onPlaying as () => void)());
+    act(() => mockSos.forEach((l) => l("possible_fall")));
+    expect(mockWifi.release).toHaveBeenCalledTimes(1);
+    expect(flushRelayQueue).toHaveBeenCalled();
+    expect(r.allText()).toContain(tr("video.paused.sos"));
+    expect(r.root.findAll((n) => isHost(n, "VLCPlayer"))).toHaveLength(0);
+    r.press(tr("video.retry"));
+    expect(r.allText()).toContain(tr("video.joining", { ssid: SSID }));
+  });
+
+  it("退后台：释放并暂停，回前台自动重连；连热点途中（系统选 Wi-Fi 弹窗）的 background 不算离开", async () => {
+    const r = mount();
+    act(() => appListener!("background"));
+    expect(mockWifi.release).not.toHaveBeenCalled();
+    await join();
+    act(() => appListener!("background"));
+    expect(mockWifi.release).toHaveBeenCalledTimes(1);
+    expect(r.allText()).toContain(tr("video.connecting"));
+    act(() => appListener!("active"));
+    expect(mockWifi.connect).toHaveBeenCalledTimes(2);
+  });
+
+  it("连上 2 秒后仍在后台（人按了 HOME）：照退后台处理", async () => {
+    const desc = Object.getOwnPropertyDescriptor(AppState, "currentState");
+    Object.defineProperty(AppState, "currentState", {
+      value: "background",
+      configurable: true,
+    });
+    mount();
+    await join();
+    act(() => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockWifi.release).toHaveBeenCalledTimes(1);
+    if (desc) Object.defineProperty(AppState, "currentState", desc);
+    else delete (AppState as { currentState?: unknown }).currentState;
+  });
+
+  it("被别的页面盖住（失焦）：释放并暂停；回到本页重新连", async () => {
+    // 每次都给一个新元素：同一个元素对象 React 会直接跳过重渲染
+    const el = () => (
+      <>
+        <VideoPreviewScreen />
+        <ToastHost />
+      </>
+    );
+    const r = mount();
+    await join();
+    routerState.focused = false;
+    r.rerender(el());
+    expect(mockWifi.release).toHaveBeenCalledTimes(1);
+    routerState.focused = true;
+    r.rerender(el());
+    expect(mockWifi.connect).toHaveBeenCalledTimes(2);
+  });
+
+  it("头盔 Wi-Fi 断了：报错并释放；播放器出错 / 断流也一样", async () => {
+    let r = mount();
+    await join();
+    act(() => mockWifi.lost.forEach((l) => l()));
+    expect(r.allText()).toContain(tr("video.err.wifiLost"));
+    expect(mockWifi.release).toHaveBeenCalledTimes(1);
+    r.unmount();
+    mockWifi.release.mockClear();
+    r = mount();
+    await join();
+    act(() => (player(r).props.onError as () => void)());
+    expect(r.allText()).toContain(tr("video.err.stream"));
+    expect(mockWifi.release).toHaveBeenCalledTimes(1);
+  });
+
+  it("离开页面（卸载）：释放", async () => {
+    const r = mount();
+    await join();
+    r.unmount();
+    expect(mockWifi.release).toHaveBeenCalled();
+  });
+});
+
+describe("截图", () => {
+  const playing = async () => {
+    const r = mount();
+    await join();
+    act(() => (player(r).props.onPlaying as () => void)());
+    return r;
+  };
+
+  it("成功：存进相册、提示已保存、删掉缓存文件", async () => {
+    const r = await playing();
+    r.press(tr("video.snapshot"));
+    expect(mockPlayer.snapshot).toHaveBeenCalledWith(
+      expect.stringMatching(/^\/cache\/helmet-shot-\d+\.png$/),
+    );
+    await act(async () => {
+      await (player(r).props.onSnapshot as (e: unknown) => Promise<void>)({
+        success: true,
+      });
+    });
+    expect(mockWifi.saveImage).toHaveBeenCalled();
+    expect(r.allText()).toContain(tr("video.snapshot.saved"));
+    expect(mockFiles.deleted).toHaveLength(1);
+  });
+
+  it("原生回调说失败 / 不支持 / 没权限：各自的提示", async () => {
+    const r = await playing();
+    const shoot = async (e: unknown) => {
+      r.press(tr("video.snapshot"));
+      await act(async () => {
+        await (player(r).props.onSnapshot as (x: unknown) => Promise<void>)(e);
+      });
+    };
+    await shoot({ success: false, error: "x" });
+    expect(r.allText()).toContain(tr("video.snapshot.failed"));
+    mockWifi.saveImage.mockImplementationOnce(() =>
+      Promise.reject({ code: "UNSUPPORTED" }),
+    );
+    await shoot({ success: true });
+    expect(r.allText()).toContain(tr("video.snapshot.unsupported"));
+    mockWifi.saveImage.mockImplementationOnce(() =>
+      Promise.reject({ code: "PERMISSION_DENIED" }),
+    );
+    await shoot({ success: true });
+    expect(r.allText()).toContain(tr("video.snapshot.denied"));
+  });
+
+  it("原生侧一直没回调：4 秒后按钮不再转圈并提示失败；迟到的回调不再处理", async () => {
+    const r = await playing();
+    r.press(tr("video.snapshot"));
+    act(() => {
+      jest.advanceTimersByTime(4000);
+    });
+    expect(r.allText()).toContain(tr("video.snapshot.failed"));
+    await act(async () => {
+      await (player(r).props.onSnapshot as (e: unknown) => Promise<void>)({
+        success: true,
+      });
+    });
+    expect(mockWifi.saveImage).not.toHaveBeenCalled();
+  });
+});
