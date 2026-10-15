@@ -12,8 +12,10 @@ const CODE_RE = /^\d{8}$/;
 export function parseBindQr(raw: string): BindQr | null {
   const text = raw.trim();
   if (!text) return null;
+  // bind 后面允许多一个斜杠：出码脚本的 --qr-base 是可配的，写成 …/bind/ 时整批码都是 …/bind/?d=…，
+  // 原来一张都扫不出来（只能手输）
   const m =
-    /^(?:https?:\/\/[^/]*01weichuang\.com\/bind|helmet:\/\/bind)\??(.*)$/i.exec(
+    /^(?:https?:\/\/[^/]*01weichuang\.com\/bind|helmet:\/\/bind)\/?\??(.*)$/i.exec(
       text,
     );
   if (m) {
