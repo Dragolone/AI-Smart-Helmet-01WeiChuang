@@ -46,7 +46,8 @@ function ContactRow({
         style={[styles.avatar, { backgroundColor: theme.backgroundSelected }]}
       >
         <ThemedText type="smallBold" style={{ fontSize: 17 }}>
-          {contact.name.slice(0, 1)}
+          {/* 按字符取第一个字，不按 UTF-16 码元：生僻字（扩展区）和表情是两个码元，slice(0, 1) 只取到半个，显示成乱码方块 */}
+          {Array.from(contact.name)[0] ?? ""}
         </ThemedText>
       </View>
       <View style={styles.body}>
