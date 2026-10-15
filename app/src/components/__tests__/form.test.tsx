@@ -299,7 +299,18 @@ describe("PrimaryButton", () => {
       />,
     );
     expect(buttonOf(r).props.accessibilityLabel).toBe("已更新");
+    // 成功层在 effect 里直接置为不透明（减弱动态效果不播）：再渲染一次就看得见
+    r.rerender(
+      <PrimaryButton
+        title="保存"
+        success
+        successTitle="已更新"
+        onPress={() => undefined}
+        onSuccessShown={shown}
+      />,
+    );
     expect(r.texts()).toContain("已更新");
+    expect(r.texts()).not.toContain("保存");
     act(() => {
       jest.advanceTimersByTime(200);
     });

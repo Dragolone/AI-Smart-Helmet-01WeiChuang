@@ -165,22 +165,26 @@ afterEach(() => {
   mockStateListeners.length = 0;
 });
 
-describe("ToastHost / showToast", () => {
-  // jest 里的 Animated.timing 一启动就同步走完，回调立刻触发：换成「start 时调回调」的假动画，只看逻辑
-  let spy: ReturnType<typeof jest.spyOn>;
-  beforeEach(() => {
-    spy = jest.spyOn(RNAnimated, "timing").mockImplementation(
-      () =>
-        ({
-          start: (cb?: (r: { finished: boolean }) => void) =>
-            cb?.({ finished: true }),
-          stop: jest.fn(),
-          reset: jest.fn(),
-        }) as never,
-    );
-  });
-  afterEach(() => spy.mockRestore());
+// 轻提示用的 RN Animated：换成「start 时直接跳到终值并回调」的假动画：不依赖 jest 里 Animated 的计时，只看逻辑
+let spy: ReturnType<typeof jest.spyOn>;
+beforeEach(() => {
+  spy = jest.spyOn(RNAnimated, "timing").mockImplementation(
+    (value, config) =>
+      ({
+        start: (cb?: (r: { finished: boolean }) => void) => {
+          (value as RNAnimated.Value).setValue(
+            (config as { toValue: number }).toValue,
+          );
+          cb?.({ finished: true });
+        },
+        stop: jest.fn(),
+        reset: jest.fn(),
+      }) as never,
+  );
+});
+afterEach(() => spy.mockRestore());
 
+describe("ToastHost / showToast", () => {
   it("没挂 Host 时静默丢弃；挂上后显示，2 秒后收起", () => {
     jest.useFakeTimers();
     expect(() => showToast("丢掉")).not.toThrow();

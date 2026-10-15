@@ -50,7 +50,9 @@ export function render(el: ReactElement): Rendered {
   });
   mounted.add(tree);
   const root = () => tree.root;
-  const hostTexts = () => root().findAll((n) => isHost(n, "Text"));
+  // 看得见的 Text：自己或祖先的样式里不透明度为 0 的不算（主按钮平时叠着一层透明的「已保存」）
+  const hostTexts = () =>
+    root().findAll((n) => isHost(n, "Text") && !hiddenByOpacity(n));
   const pressable = (n: ReactTestInstance | null): ReactTestInstance | null => {
     let cur: ReactTestInstance | null = n;
     while (cur) {
@@ -74,15 +76,20 @@ export function render(el: ReactElement): Rendered {
         .findAll((n) => isHost(n, "Ionicons"))
         .map((n) => String(n.props.name)),
     press: (label) => {
-      // 取最里层那个含这段文字的 Text（嵌套 Text 里的链接要点到它自己，不是外层那行）
-      const hit = hostTexts()
+      // 取最里层那个含这段文字的 Text（嵌套 Text 里的链接要点到它自己，不是外层那行）；
+      // 文字正好等于 label 的优先（「重试」不要点到「加载失败，请重试」那一行上）
+      const inner = hostTexts()
         .filter((n) => textOf(n).includes(label))
-        .find(
+        .filter(
           (n) =>
             !n.findAll(
               (c) => c !== n && isHost(c, "Text") && textOf(c).includes(label),
             ).length,
         );
+      const hit =
+        inner.find((n) => textOf(n) === label && pressable(n)) ??
+        inner.find((n) => pressable(n)) ??
+        inner[0];
       if (!hit) throw new Error(`没有文字含「${label}」的节点`);
       const p = pressable(hit);
       if (!p) throw new Error(`「${label}」不可点`);
@@ -111,6 +118,17 @@ export function render(el: ReactElement): Rendered {
       mounted.delete(tree);
     },
   };
+}
+
+/** 自己或某个祖先的样式不透明度为 0 */
+function hiddenByOpacity(n: ReactTestInstance): boolean {
+  let cur: ReactTestInstance | null = n;
+  while (cur) {
+    if (typeof cur.type === "string" && flat(cur.props.style).opacity === 0)
+      return true;
+    cur = cur.parent;
+  }
+  return false;
 }
 
 /** 是不是名为 name 的宿主元素（替身渲染出的 "Ionicons"、"SkiaPath" 也算） */
