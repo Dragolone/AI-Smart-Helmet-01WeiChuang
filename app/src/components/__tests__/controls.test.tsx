@@ -312,13 +312,13 @@ describe("VolumeSlider", () => {
     expect(VOLUME_LOUD_THRESHOLD).toBe(VOLUME_RECOMMENDED);
   });
 
-  it("普通音量：品牌色、显示百分比，刻度写推荐上限", () => {
+  it("普通音量：品牌色、显示头盔上的实际百分比（不按拖动档位取整），刻度写推荐上限", () => {
     const r = render(
       <VolumeSlider value={62} {...props()} icon="volume-high" />,
     );
     expect(r.texts()).toEqual([
       tr("device.volume"),
-      "60%",
+      "62%",
       "10%",
       tr("device.volumeRecommended", { n: VOLUME_RECOMMENDED }),
       "100%",
@@ -328,7 +328,7 @@ describe("VolumeSlider", () => {
       (n) =>
         typeof n.type === "string" &&
         flat(n.props.style).position === "absolute" &&
-        flat(n.props.style).width === "60%",
+        flat(n.props.style).width === "62%",
     );
     expect(flat(fill.props.style).backgroundColor).toBe(dark.brand);
   });

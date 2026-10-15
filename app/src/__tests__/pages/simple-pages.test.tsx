@@ -119,6 +119,8 @@ jest.mock("@/hooks/use-switch-reminder", () => ({
   useSwitchHelmetWatcher: () => mockWatcher(),
 }));
 
+/** 只有一个按钮的提示统一走 services/notice 的 showNotice：第三个参数是一个「确定」 */
+const NOTICE_OK = [{ text: translate("common.confirm", undefined, "zh-CN") }];
 const tr = (key: MessageKey, params?: Record<string, string | number>) =>
   translate(key, params, "zh-CN");
 let alertSpy: ReturnType<typeof jest.spyOn>;
@@ -180,6 +182,7 @@ describe("帮助与关于（about）", () => {
     expect(alertSpy).toHaveBeenCalledWith(
       translate("profile.about"),
       `${translate("profile.version", { v: "1.2.3" })}\n\n${translate("profile.aboutBody")}`,
+      NOTICE_OK,
     );
   });
 
@@ -236,7 +239,11 @@ describe("帮助与反馈（help）", () => {
     const r = render(<HelpScreen />);
     r.press(tr("help.site"));
     await waitFor(() =>
-      expect(alertSpy).toHaveBeenCalledWith(translate("help.openFailed")),
+      expect(alertSpy).toHaveBeenCalledWith(
+        translate("help.openFailed"),
+        undefined,
+        NOTICE_OK,
+      ),
     );
   });
 });

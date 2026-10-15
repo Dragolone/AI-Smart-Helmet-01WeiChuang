@@ -132,6 +132,8 @@ jest.mock("@/hooks/use-safety", () => ({
   }),
 }));
 
+/** 只有一个按钮的提示统一走 services/notice 的 showNotice：第三个参数是一个「确定」 */
+const NOTICE_OK = [{ text: translate("common.confirm", undefined, "zh-CN") }];
 const tr = (key: MessageKey, params?: Record<string, string | number>) =>
   translate(key, params, "zh-CN");
 const m = <T,>(fn: T) => fn as unknown as jest.Mock;
@@ -435,6 +437,7 @@ describe("长按求救", () => {
     expect(alert).toHaveBeenCalledWith(
       translate("safety.sosSendFailed"),
       `${translate("error.internal")}\n${translate("safety.sosQueued")}`,
+      NOTICE_OK,
     );
     expect(notifyCriticalAccepted).not.toHaveBeenCalled();
   });
@@ -478,6 +481,7 @@ describe("开发测试入口（DEV 构建）", () => {
       expect(alert).toHaveBeenCalledWith(
         translate("safety.dev.failed"),
         translate("error.network"),
+        NOTICE_OK,
       ),
     );
   });

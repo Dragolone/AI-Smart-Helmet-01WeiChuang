@@ -187,6 +187,8 @@ jest.mock("trtc-react-native", () => {
   };
 });
 
+/** 只有一个按钮的提示统一走 services/notice 的 showNotice：第三个参数是一个「确定」 */
+const NOTICE_OK = [{ text: translate("common.confirm", undefined, "zh-CN") }];
 const tr = (key: MessageKey, params?: Record<string, string | number>) =>
   translate(key, params, "zh-CN");
 const m = <T,>(fn: T) => fn as unknown as jest.Mock;
@@ -422,6 +424,7 @@ describe("频道列表三态", () => {
       expect(alert).toHaveBeenCalledWith(
         tr("intercom.createFailed"),
         toUserMessage(err),
+        NOTICE_OK,
       ),
     );
     expect(r.valueOf(placeholder)).toBe("车队");
@@ -444,7 +447,7 @@ describe("频道列表三态", () => {
     expect(() => r.valueOf(placeholder)).toThrow();
   });
 
-  it("输入邀请码加入：不是 6 位字母数字先提示、不发请求；对了去空格提交，成功关弹层重拉；失败弹窗", async () => {
+  it("输入邀请码加入：不是 6 位字母数字先提示、不发请求；对了去空格提交，成功关弹层重拉；码没找到 / 其它失败分别说明", async () => {
     m(channelsApi.list).mockImplementation(() => Promise.resolve([]));
     const r = mount();
     await waitFor(() => expect(r.texts()).toContain(tr("intercom.emptyBody")));
@@ -455,23 +458,39 @@ describe("频道列表三态", () => {
     expect(alert).toHaveBeenCalledWith(
       tr("intercom.inviteCode"),
       tr("intercom.inviteCodeFormat"),
+      NOTICE_OK,
     );
     r.type(placeholder, "AB-12C");
     await press(r, tr("intercom.join"));
     expect(channelsApi.join).not.toHaveBeenCalled();
 
-    const err = new ApiRequestError(404, { code: "INVITE_CODE_INVALID" });
-    m(channelsApi.join).mockImplementationOnce(() => Promise.reject(err));
+    // 码对不上任何频道（后端回 404）：明说是邀请码没找到
+    m(channelsApi.join).mockImplementationOnce(() =>
+      Promise.reject(new ApiRequestError(404, { code: "NOT_FOUND" })),
+    );
     r.type(placeholder, " ab12cd ");
     await press(r, tr("intercom.join"));
     await waitFor(() =>
       expect(alert).toHaveBeenLastCalledWith(
         tr("intercom.joinError"),
-        toUserMessage(err),
+        tr("intercom.inviteNotFound"),
+        NOTICE_OK,
       ),
     );
     expect(channelsApi.join).toHaveBeenCalledWith({ inviteCode: "ab12cd" });
-    expect(r.valueOf(placeholder)).toBe(" ab12cd ");
+    // 输入框收到能认出的邀请码时就整理好（去掉空格等）；失败了弹层不关、码留着
+    expect(r.valueOf(placeholder)).toBe("ab12cd");
+    // 其它失败：按错误码说原因
+    const err = new ApiRequestError(500, { code: "INTERNAL" });
+    m(channelsApi.join).mockImplementationOnce(() => Promise.reject(err));
+    await press(r, tr("intercom.join"));
+    await waitFor(() =>
+      expect(alert).toHaveBeenLastCalledWith(
+        tr("intercom.joinError"),
+        toUserMessage(err),
+        NOTICE_OK,
+      ),
+    );
 
     const before = m(channelsApi.list).mock.calls.length;
     await press(r, tr("intercom.join"));
@@ -621,6 +640,7 @@ describe("频道列表三态", () => {
       expect(alert).toHaveBeenLastCalledWith(
         tr("intercom.leaveFailed"),
         toUserMessage(err),
+        NOTICE_OK,
       ),
     );
   });

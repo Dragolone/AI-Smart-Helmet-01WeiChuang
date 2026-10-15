@@ -127,6 +127,8 @@ jest.mock("@/hooks/use-device-settings", () => ({
   useDeviceSettings: jest.fn(),
 }));
 
+/** 只有一个按钮的提示统一走 services/notice 的 showNotice：第三个参数是一个「确定」 */
+const NOTICE_OK = [{ text: translate("common.confirm", undefined, "zh-CN") }];
 const tr = (key: MessageKey, params?: Record<string, string | number>) =>
   translate(key, params, "zh-CN");
 const m = <T,>(fn: T) => fn as unknown as jest.Mock;
@@ -548,6 +550,7 @@ describe("重命名与解除绑定", () => {
       expect(alert).toHaveBeenCalledWith(
         tr("device.renameFailed"),
         tr("error.validationFailed"),
+        NOTICE_OK,
       ),
     );
   });
@@ -594,6 +597,7 @@ describe("重命名与解除绑定", () => {
       expect(alert).toHaveBeenLastCalledWith(
         tr("device.unbindFailed"),
         tr("error.deviceNotFound"),
+        NOTICE_OK,
       ),
     );
     expect(r.allText()).toContain(tr("device.unbind"));

@@ -374,9 +374,11 @@ describe("多顶头盔", () => {
           ? new ApiRequestError(503, { code: "INTERNAL_ERROR" })
           : { items: [], total: 0 };
     const r = mount();
+    // 头盔名单独一段（太长时截断），时间跟在后面
     await waitFor(() =>
-      expect(r.allText()).toContain(`通勤 · ${shortTime(today(9), "zh-CN")}`),
+      expect(r.texts()).toContain(` · ${shortTime(today(9), "zh-CN")}`),
     );
+    expect(r.texts()).toContain("通勤");
     await waitFor(
       () =>
         expect(r.allText()).toContain(

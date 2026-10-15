@@ -137,6 +137,8 @@ jest.mock("@/services/notification-settings", () => ({
 }));
 
 const dark = Colors.dark;
+/** 只有一个按钮的提示统一走 services/notice 的 showNotice：第三个参数是一个「确定」 */
+const NOTICE_OK = [{ text: translate("common.confirm", undefined, "zh-CN") }];
 const tr = (key: MessageKey, params?: Record<string, string | number>) =>
   translate(key, params, "zh-CN");
 const m = <T,>(fn: T) => fn as unknown as jest.Mock;
@@ -255,6 +257,7 @@ describe("紧急联系人列表", () => {
     expect(alert).toHaveBeenLastCalledWith(
       translate("common.failed"),
       translate("error.internal"),
+      NOTICE_OK,
     );
   });
 

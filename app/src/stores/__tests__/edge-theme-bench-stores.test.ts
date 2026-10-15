@@ -1,5 +1,7 @@
 // 外观设置（跟随系统 / 深色 / 浅色）和蓝牙工程模式的展示状态。
-// 外观：读到合法值才用、读失败或乱值按品牌默认深色；每次都同步给原生（iOS 标签条和系统弹窗只认 App 级配色）。
+// 外观这里只留 stores/__tests__/edge-theme-locale-1016.test.ts 没覆盖到的几条：存过的合法值读回来用、
+// 改外观先同步原生和内存再落盘、旧版 RN 没有 setColorScheme 也能切。默认深色、乱值 / 读失败、落盘失败不抛那几条在那边。
+// 注意：theme-store 记着「读盘前用户已经选过」（模块级），所以这个文件里读盘的用例要排在 setMode 的用例前面。
 import {
   afterEach,
   beforeEach,
@@ -41,15 +43,6 @@ afterEach(() => {
 });
 
 describe("外观设置", () => {
-  it("没存过：默认深色，并同步给原生", async () => {
-    await useThemeStore.getState().hydrate();
-    expect(useThemeStore.getState()).toMatchObject({
-      mode: "dark",
-      hydrated: true,
-    });
-    expect(native).toHaveBeenCalledWith("dark");
-  });
-
   it.each(THEME_MODES.map((m) => [m]))(
     "存过 %s：读回来用它；跟随系统时原生设为 unspecified",
     async (mode) => {
@@ -61,20 +54,6 @@ describe("外观设置", () => {
       );
     },
   );
-
-  it("存的是认不出的值、或读失败：按默认深色", async () => {
-    mockKv.set("helmet.theme", "sepia");
-    await useThemeStore.getState().hydrate();
-    expect(useThemeStore.getState().mode).toBe("dark");
-    useThemeStore.setState({ mode: "light", hydrated: false });
-    mockFail.get = true;
-    await useThemeStore.getState().hydrate();
-    expect(useThemeStore.getState()).toMatchObject({
-      mode: "light",
-      hydrated: true,
-    });
-    expect(native).toHaveBeenLastCalledWith("dark");
-  });
 
   it("改外观：先同步原生和内存，再落盘", async () => {
     await useThemeStore.getState().setMode("light");
@@ -90,15 +69,6 @@ describe("外观设置", () => {
     await useThemeStore.getState().setMode("system");
     expect(useThemeStore.getState().mode).toBe("system");
     await expect(useThemeStore.getState().hydrate()).resolves.toBeUndefined();
-  });
-
-  it("落盘失败：这次照样切换，不把错误抛给调用方（页面是 void setMode，抛出来没人接）", async () => {
-    mockFail.set = true;
-    await expect(
-      useThemeStore.getState().setMode("light"),
-    ).resolves.toBeUndefined();
-    expect(useThemeStore.getState().mode).toBe("light");
-    expect(mockKv.has("helmet.theme")).toBe(false);
   });
 });
 

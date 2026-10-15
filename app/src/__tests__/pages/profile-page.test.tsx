@@ -116,6 +116,8 @@ jest.mock("@/api/auth", () => ({
 jest.mock("@/api/contacts", () => ({ contactsApi: { list: jest.fn() } }));
 jest.mock("@/api/devices", () => ({ devicesApi: { list: jest.fn() } }));
 
+/** 只有一个按钮的提示统一走 services/notice 的 showNotice：第三个参数是一个「确定」 */
+const NOTICE_OK = [{ text: translate("common.confirm", undefined, "zh-CN") }];
 const tr = (key: MessageKey, params?: Record<string, string | number>) =>
   translate(key, params, "zh-CN");
 const m = <T,>(fn: T) => fn as unknown as jest.Mock;
@@ -365,9 +367,9 @@ describe("编辑资料", () => {
       ).toBe(true),
     );
     r.press(tr("common.save"));
+    // 只发改过的字段：只换了头像就不带昵称（本机存的昵称可能是旧的，带上会盖掉别处的修改）
     await waitFor(() =>
       expect(authApi.updateMe).toHaveBeenCalledWith({
-        nickname: "小李",
         avatarUrl: "data:image/jpeg;base64,QUJD",
       }),
     );
@@ -406,8 +408,25 @@ describe("编辑资料", () => {
       expect(alert).toHaveBeenCalledWith(
         translate("profile.pickFailed"),
         "no permission",
+        NOTICE_OK,
       ),
     );
+  });
+
+  it("什么都没改就保存：不发请求，照样画勾关掉弹层", async () => {
+    jest.useFakeTimers();
+    const r = mount();
+    act(() => accountCard(r).props.onPress());
+    r.press(tr("common.save"));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(authApi.updateMe).not.toHaveBeenCalled();
+    expect(setUser).not.toHaveBeenCalled();
+    act(() => {
+      jest.advanceTimersByTime(1100);
+    });
+    expect(modals(r)[0]).toBe(false);
   });
 
   it("保存失败：弹窗说明原因，弹层不关", async () => {
@@ -416,11 +435,13 @@ describe("编辑资料", () => {
     );
     const r = mount();
     act(() => accountCard(r).props.onPress());
+    r.type(nickBox, "老李");
     r.press(tr("common.save"));
     await waitFor(() =>
       expect(alert).toHaveBeenCalledWith(
         translate("profile.saveFailed"),
         translate("error.validationFailed"),
+        NOTICE_OK,
       ),
     );
     expect(modals(r)[0]).toBe(true);

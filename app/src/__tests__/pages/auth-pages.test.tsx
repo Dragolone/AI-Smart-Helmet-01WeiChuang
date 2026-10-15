@@ -685,7 +685,7 @@ describe("更换手机号", () => {
     r.type(P.phone, "13800000001");
     r.press(tr("auth.getCode"));
     await waitFor(() =>
-      expect(pageErrors(r)).toEqual([tr("error.phoneAlreadyRegistered")]),
+      expect(pageErrors(r)).toEqual([tr("auth.phoneUsedByOther")]),
     );
     r.type(P.code, "111222");
     r.type(P.pwd, "mypassword");

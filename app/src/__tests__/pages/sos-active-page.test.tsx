@@ -134,6 +134,8 @@ jest.mock("@/api/relay", () => ({
   relayApi: { push: jest.fn() },
 }));
 
+/** 只有一个按钮的提示统一走 services/notice 的 showNotice：第三个参数是一个「确定」 */
+const NOTICE_OK = [{ text: translate("common.confirm", undefined, "zh-CN") }];
 const tr = (key: MessageKey, params?: Record<string, string | number>) =>
   translate(key, params, "zh-CN");
 const m = <T,>(fn: T) => fn as unknown as jest.Mock;
@@ -462,6 +464,7 @@ describe("取消 / 立即求救", () => {
     expect(alert).toHaveBeenCalledWith(
       tr("common.failed"),
       tr("error.network"),
+      NOTICE_OK,
     );
     expect(number(r)).toBe("45");
   });
@@ -594,6 +597,7 @@ describe("已取消后「我还是需要帮助」", () => {
     expect(alert).toHaveBeenCalledWith(
       tr("safety.sosSendFailed"),
       tr("safety.sosRejected"),
+      NOTICE_OK,
     );
     expect(enqueueRelayEvent).not.toHaveBeenCalled();
     expect(notifyCriticalAccepted).not.toHaveBeenCalled();
@@ -618,6 +622,7 @@ describe("已取消后「我还是需要帮助」", () => {
     expect(alert).toHaveBeenLastCalledWith(
       tr("safety.sosSendFailed"),
       `${tr("error.network")}\n${tr("safety.sosQueued")}`,
+      NOTICE_OK,
     );
   });
 
