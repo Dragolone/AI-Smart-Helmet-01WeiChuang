@@ -204,6 +204,14 @@ describe('SosNotifierService', () => {
       });
     });
 
+    it('单子还没有终态时间（内联首投前被读到）：触发时间按当下算', async () => {
+      queueRows([row('sms', {}, sosCase({ finalizedAt: null }))]);
+      await svc.deliverPending();
+      expect(sentParams().params.triggeredAt).toMatch(
+        /^\d{2}-\d{2} \d{2}:\d{2}$/,
+      );
+    });
+
     it('发送失败：记 failed + lastError，日志里手机号打码', async () => {
       sms.send.mockRejectedValue(new Error('LimitExceeded'));
       queueRows([row('sms', { attempts: 2 })]);

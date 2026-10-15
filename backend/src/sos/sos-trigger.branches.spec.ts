@@ -111,6 +111,16 @@ describe('SosTriggerService：剩余分支', () => {
     expect(notifier.finalizeNotified).not.toHaveBeenCalled();
   });
 
+  it('建单撞唯一约束，再查却没有进行中的单（同 triggerEventId 重放、那单已终态）：按重复跳过，不抛', async () => {
+    prisma.sosCase.findFirst.mockResolvedValue(null);
+    prisma.sosCase.create.mockRejectedValue(p2002());
+    await expect(
+      svc.handleTrigger(env('possible_fall'), 'u1'),
+    ).resolves.toBeUndefined();
+    expect(debugSpy).toHaveBeenCalledWith('SOS 重复触发已跳过：ev-new');
+    expect(prisma.sosCase.create).toHaveBeenCalledTimes(1);
+  });
+
   it('manual_sos 升级没抢到、回查那单已经查不到：记「已是 未知」，不建第二单', async () => {
     prisma.sosCase.findFirst.mockResolvedValueOnce(pending());
     notifier.finalizeNotified.mockResolvedValue(false);
@@ -169,6 +179,57 @@ describe('SosTriggerService：剩余分支', () => {
       { sosId: 'c2', deviceId: 'helmet_001' },
       { category: 'sos', timeSensitive: true },
     );
+  });
+
+  it('事件位置是 (0,0) 被当缺失、回落的最新轨迹点也是 (0,0) 时，现状：快照仍钉在 (0,0)——轨迹查询没排除哨兵，见 coverage-findings-1016.md BC1', async () => {
+    prisma.sosCase.findFirst.mockResolvedValueOnce(null);
+    prisma.locationPoint.findFirst.mockResolvedValue({
+      latitude: 0,
+      longitude: 0,
+      coordinateSystem: 'wgs84',
+      accuracy: 5,
+    });
+    prisma.sosCase.create.mockImplementation(
+      ({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve(pending({ id: 'c0', ...data })),
+    );
+    await svc.handleTrigger(
+      {
+        ...env('possible_fall'),
+        payload: {
+          location: { latitude: 0, longitude: 0, coordinateSystem: 'wgs84' },
+        },
+      },
+      'u1',
+    );
+    const data = (
+      prisma.sosCase.create.mock.calls[0] as [{ data: Record<string, unknown> }]
+    )[0].data;
+    expect(data).toMatchObject({
+      latitude: 0,
+      longitude: 0,
+      locationSource: 'last_point',
+    });
+    const where = (
+      prisma.locationPoint.findFirst.mock.calls[0] as [
+        { where: Record<string, unknown> },
+      ]
+    )[0].where;
+    expect(Object.keys(where).sort()).toEqual(['deviceId', 'timestamp']);
+  });
+
+  it('位置快照查询失败：按空快照照常建单（不能因为缺位置不建单）', async () => {
+    prisma.sosCase.findFirst.mockResolvedValueOnce(null);
+    prisma.locationPoint.findFirst.mockRejectedValue(new Error('timeout'));
+    prisma.sosCase.create.mockResolvedValue(pending({ id: 'c3' }));
+    await svc.handleTrigger(env('possible_fall'), 'u1');
+    expect(warnSpy).toHaveBeenCalledWith(
+      'SOS 位置快照查询失败，按空快照建单 device=helmet_001：timeout',
+    );
+    const data = (
+      prisma.sosCase.create.mock.calls[0] as [{ data: Record<string, unknown> }]
+    )[0].data;
+    expect(data).not.toHaveProperty('latitude');
   });
 
   describe('describeEventAge 默认时钟', () => {

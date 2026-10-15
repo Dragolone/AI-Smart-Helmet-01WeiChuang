@@ -112,6 +112,13 @@ describe('LocationRecorderService', () => {
     ).resolves.not.toBeNull();
   });
 
+  it('精确 (0,0)（「没定到位」的哨兵）现状：照常入轨迹表——与 SOS 快照把它当缺失的口径不一致，见 coverage-findings-1016.md BC1', async () => {
+    await expect(
+      svc.record(env({ ...goodPayload, latitude: 0, longitude: 0 })),
+    ).resolves.toMatchObject({ latitude: 0, longitude: 0 });
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
   it('头盔时钟报 1970：轨迹表按收到时间入库（设备原始时间只在 raw 留档）', async () => {
     const before = Date.now();
     await svc.record(env(goodPayload, new Date(0)));
