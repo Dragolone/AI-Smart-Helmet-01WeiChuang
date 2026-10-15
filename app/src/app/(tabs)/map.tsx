@@ -62,6 +62,7 @@ import {
 } from "@/components/map/amap-view";
 import {
   isPlausibleFix,
+  liveSpeedOf,
   plausibleSpeed,
   toGcj02,
   type LngLat,
@@ -126,6 +127,7 @@ import {
   type RideFilter,
 } from "@/services/rides";
 import { currentHelmetOf, helmetNameOf } from "@/services/safety-status";
+import { serverNow } from "@/services/server-clock";
 import { MOVING_MPS } from "@/services/switch-reminder";
 import { useAuthStore } from "@/stores/auth-store";
 
@@ -586,9 +588,24 @@ export default function MapScreen() {
     poll: online,
   });
   const currentRide = recent.data?.[0]?.ongoing ? recent.data[0] : null;
+  // 定位停住不再来时（隧道、室内），「这个点还算不算此刻」要靠时间推着重算：看着实时页时每 10 秒取一次此刻
+  const [clockMs, setClockMs] = useState(() => serverNow());
+  const watchingLive = focused && stage === "live" && liveLoc !== null;
+  useEffect(() => {
+    if (!watchingLive) return;
+    const tick = () => setClockMs(serverNow());
+    const first = setTimeout(tick, 0);
+    const timer = setInterval(tick, 10_000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(timer);
+    };
+  }, [watchingLive]);
+  // 最后一个点超过 2 分钟就不再当「此刻的速度」（coords.LIVE_FIX_MAX_AGE_MS）
+  const liveSpeed = liveSpeedOf(liveLoc, clockMs);
   // 服务器说这一趟还没结束（路口停着也算），或者此刻就在动（刚出发，服务器那边还没刷新到）
   const riding =
-    online && (currentRide !== null || (liveLoc?.speed ?? 0) >= MOVING_MPS);
+    online && (currentRide !== null || (liveSpeed ?? 0) >= MOVING_MPS);
   const liveTrack = useRideTrack(
     deviceId,
     currentRide ? trackWindowOf(currentRide) : null,
@@ -1441,8 +1458,8 @@ export default function MapScreen() {
                           <Stat
                             label={t("map.speed")}
                             value={
-                              online && liveLoc
-                                ? (liveLoc.speed * 3.6).toFixed(0)
+                              online && liveSpeed !== null
+                                ? (liveSpeed * 3.6).toFixed(0)
                                 : "—"
                             }
                             unit="km/h"

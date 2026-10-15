@@ -39,6 +39,40 @@ export function plausibleSpeed(mps: number | null | undefined): number | null {
     : null;
 }
 
+/**
+ * 实时定位多久以内算「此刻」：头盔运动时 5 秒、静止时 30 秒报一个点（DEVICE_PROTOCOL §1.1 上报周期），
+ * 2 分钟一个点都没来，动着的头盔至少漏了 24 个点——不是停了就是 GPS 丢了（隧道、室内）。
+ * 这时最后一个点的速度只是 2 分钟前的速度，不能再当「现在的速度」显示，也不能凭它说「骑行中」。
+ */
+export const LIVE_FIX_MAX_AGE_MS = 2 * 60_000;
+/** 头盔时钟比服务器快 5 分钟以内的点，服务端照设备时间入库（DEVICE_PROTOCOL §8），这段「来自未来」的点仍算新 */
+export const LIVE_FIX_MAX_AHEAD_MS = 5 * 60_000;
+
+/** 定位时间（ISO）离 nowMs 够不够近；认不出的时间不算新 */
+export function isFreshFix(
+  timestamp: string | null | undefined,
+  nowMs: number,
+): boolean {
+  if (!timestamp || !Number.isFinite(nowMs)) return false;
+  const at = Date.parse(timestamp);
+  if (Number.isNaN(at)) return false;
+  const age = nowMs - at;
+  return age <= LIVE_FIX_MAX_AGE_MS && age >= -LIVE_FIX_MAX_AHEAD_MS;
+}
+
+/**
+ * 地图页「此刻的速度」（m/s）：定位够新、速度像真的才给，否则 null（统计栏写「—」，也不凭它判「骑行中」）。
+ * 原来直接用最后一个点的 speed：头盔在线但定位停在 25 分钟前时，状态写「骑行中」、旁边写「位置更新：25 分钟前」、
+ * 速度写 18 km/h，自相矛盾（2026-10-16 模拟器 + 本地后端）。
+ */
+export function liveSpeedOf(
+  fix: Pick<LocationPoint, "speed" | "timestamp"> | null | undefined,
+  nowMs: number,
+): number | null {
+  if (!fix || !isFreshFix(fix.timestamp, nowMs)) return null;
+  return plausibleSpeed(fix.speed);
+}
+
 const EARTH_M = 6_371_000;
 function metersBetween(a: LngLat, b: LngLat): number {
   const rad = (d: number) => (d * PI) / 180;
