@@ -151,12 +151,14 @@ describe("接线：显示头盔名的地方不直接读 device.name", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("设备详情：标题、解绑确认、改名预填和提交都过 cleanHelmetName", () => {
+  it("设备详情：标题、解绑确认、改名预填和提交都过名字整理", () => {
     const src = readFileSync(join(SRC, "app/device/[deviceId].tsx"), "utf8");
     expect(src).toMatch(
       /const shownName = cleanHelmetName\(detail\.data\?\.name\);/,
     );
-    expect(src).toMatch(/\{shownName \|\| deviceId\}/);
+    expect(src).toMatch(
+      /\{helmetNameOf\(\{ name: detail\.data\?\.name \?\? null, deviceId \}\)\}/,
+    );
     expect(src).toMatch(/id: shownName \|\| deviceId/);
     expect(src).toMatch(/setNameDraft\(shownName\)/);
     expect(src).toMatch(

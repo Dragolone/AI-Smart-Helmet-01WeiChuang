@@ -63,9 +63,10 @@ import { retryBleLink } from "@/services/ble-link";
 import {
   bleRowOf,
   isBatteryLow,
+  shortDeviceId,
   type BleRowState,
 } from "@/services/device-view";
-import { cleanHelmetName } from "@/services/safety-status";
+import { cleanHelmetName, helmetNameOf } from "@/services/safety-status";
 import { useBleStore } from "@/stores/ble-store";
 
 type RowTone = "ok" | "warn" | "bad" | "neutral";
@@ -429,7 +430,8 @@ export default function DeviceDetailScreen() {
         <EmptyState
           icon="help-circle-outline"
           title={t("device.goneTitle")}
-          body={t("device.goneBody", { id: deviceId })}
+          // 链接里的编号可以是任意长的一串（华为真机：600 个 x 铺满整屏），正文里只留前 32 个字
+          body={t("device.goneBody", { id: shortDeviceId(deviceId) })}
           actionLabel={t("device.goneBack")}
           onAction={() => router.navigate("/")}
         />
@@ -449,23 +451,27 @@ export default function DeviceDetailScreen() {
       >
         <View style={styles.identity}>
           <View style={styles.titleRow}>
-            <ThemedText type="title" style={styles.title}>
-              {shownName || deviceId}
+            {/* 数据回来之前标题是链接里的编号，可以任意长：最多两行 */}
+            <ThemedText type="title" style={styles.title} numberOfLines={2}>
+              {helmetNameOf({ name: detail.data?.name ?? null, deviceId })}
             </ThemedText>
-            <Tappable
-              feedback="opacity"
-              accessibilityRole="button"
-              accessibilityLabel={t("device.renameTitle")}
-              hitSlop={8}
-              disabled={unbinding}
-              onPress={openRename}
-              style={[
-                styles.renameBtn,
-                { backgroundColor: theme.backgroundSelected },
-              ]}
-            >
-              <Ionicons name="pencil" size={16} color={theme.textSecondary} />
-            </Tappable>
+            {/* 详情回来之前不给改名：那时预填的是空串，一点保存就把原来的名字清掉了 */}
+            {detail.data !== undefined && (
+              <Tappable
+                feedback="opacity"
+                accessibilityRole="button"
+                accessibilityLabel={t("device.renameTitle")}
+                hitSlop={8}
+                disabled={unbinding}
+                onPress={openRename}
+                style={[
+                  styles.renameBtn,
+                  { backgroundColor: theme.backgroundSelected },
+                ]}
+              >
+                <Ionicons name="pencil" size={16} color={theme.textSecondary} />
+              </Tappable>
+            )}
           </View>
           {shownName !== "" && (
             <ThemedText type="code" themeColor="textSecondary">
