@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@jest/globals";
 
-import { cleanNickname, personNameOf } from "../user-name";
+import { avatarInitial, cleanNickname, personNameOf } from "../user-name";
 
 describe("personNameOf：昵称为空时回退（10-16）", () => {
   it("正常昵称原样用", () => {
@@ -33,5 +33,31 @@ describe("personNameOf：昵称为空时回退（10-16）", () => {
     expect(cleanNickname("  ​ ")).toBe("");
     expect(cleanNickname(null)).toBe("");
     expect(cleanNickname(" 骑手 ")).toBe("骑手");
+  });
+});
+
+describe("avatarInitial：头像圆里的那个字（10-16）", () => {
+  it.each([
+    ["骑手", "骑"],
+    ["alice", "A"],
+    ["👨\u200d👩\u200d👧\u200d👦🚴", "👨"],
+    ["🚴骑行", "🚴"],
+    ["\u200b\u200b李四", "李"],
+    ["ßeta", "ß"],
+    ["  bob", "B"],
+  ])("%p → %p", (name, expected) => {
+    expect(avatarInitial(name)).toBe(expected);
+  });
+
+  it("整理后为空：用 fallback", () => {
+    expect(avatarInitial("\u200b\u200b")).toBe("?");
+    expect(avatarInitial("", "我")).toBe("我");
+    expect(avatarInitial(null)).toBe("?");
+  });
+
+  it("不会切出半个代理对", () => {
+    const first = avatarInitial("😀abc");
+    expect(first).toBe("😀");
+    expect(first.length).toBe(2);
   });
 });

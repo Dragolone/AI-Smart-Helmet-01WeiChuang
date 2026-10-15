@@ -69,7 +69,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useBleStore } from "@/stores/ble-store";
 import { useIntercomStore } from "@/stores/intercom-store";
 import { showNotice } from "@/services/notice";
-import { personNameOf } from "@/services/user-name";
+import { avatarInitial, personNameOf } from "@/services/user-name";
 
 const SPEAKING_THRESHOLD = 10; // onUserVoiceVolume 0–100
 /** 屏幕常亮的标记：只管对讲页自己开的这一份，不影响地图页开的 */
@@ -131,7 +131,7 @@ function MemberCell({
               ]}
             >
               <ThemedText type="smallBold" style={{ fontSize: 18 }}>
-                {name.slice(0, 1).toUpperCase()}
+                {avatarInitial(name)}
               </ThemedText>
             </View>
           )}
@@ -1493,7 +1493,7 @@ export default function IntercomScreen() {
                               ]}
                             >
                               <ThemedText type="smallBold">
-                                {display.slice(0, 1).toUpperCase()}
+                                {avatarInitial(display)}
                               </ThemedText>
                             </View>
                           )}

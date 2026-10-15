@@ -35,7 +35,11 @@ import {
 } from "@/stores/theme-store";
 import { showNotice } from "@/services/notice";
 import { profilePatch } from "@/services/profile-patch";
-import { cleanNickname, personNameOf } from "@/services/user-name";
+import {
+  avatarInitial,
+  cleanNickname,
+  personNameOf,
+} from "@/services/user-name";
 
 export default function ProfileScreen() {
   const theme = useTheme();
@@ -165,7 +169,7 @@ export default function ProfileScreen() {
     );
   };
 
-  const initial = personNameOf(user, "?").slice(0, 1).toUpperCase();
+  const initial = avatarInitial(personNameOf(user, "?"));
   const deviceCount = devices.data?.length ?? 0;
 
   return (
