@@ -336,6 +336,27 @@ describe("auth-store：登出", () => {
     expect(mockKv.has(USER_KEY)).toBe(false);
   });
 
+  it("作废请求挂起（服务端连不上、要等超时）时 signOut 也立刻完成、本地已清空（10-16 第二轮：原来要等约 19 秒）", async () => {
+    mockLogout.mockImplementation(() => new Promise<void>(() => undefined));
+    const { store } = loadAuth();
+    await store.getState().signIn({ ...tokens, user: user() });
+    await expect(store.getState().signOut()).resolves.toBeUndefined();
+    expect(mockLogout).toHaveBeenCalledWith("ref");
+    expect(store.getState()).toMatchObject({ tokens: null, user: null });
+    expect(mockKv.has(TOKEN_KEY)).toBe(false);
+    expect(mockKv.has(USER_KEY)).toBe(false);
+  });
+
+  it("作废请求同步抛错也不拦住本地登出", async () => {
+    mockLogout.mockImplementation(() => {
+      throw new Error("boom");
+    });
+    const { store } = loadAuth();
+    await store.getState().signIn({ ...tokens, user: user() });
+    await expect(store.getState().signOut()).resolves.toBeUndefined();
+    expect(store.getState().tokens).toBeNull();
+  });
+
   it("本来就没登录时 signOut：不调服务端；dropSession（账号已注销）也不调", async () => {
     const { store } = loadAuth();
     await store.getState().signOut();

@@ -107,11 +107,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   signOut: async () => {
-    const tokens = get().tokens;
-    // 尽力作废服务端 refreshToken；失败（如离线）不阻塞本地登出
-    if (tokens) {
+    const refreshToken = get().tokens?.refreshToken;
+    // 尽力作废服务端 refreshToken，但不等它：/auth/logout 是公开接口（不带 access token），不需要本地会话还在。
+    // 原来先 await 作废请求再清本地，服务端连不上时要等请求超时（约 19 秒）才回到登录页（2026-10-16 模拟器）
+    if (refreshToken) {
       try {
-        await authApi.logout(tokens.refreshToken);
+        void authApi.logout(refreshToken).catch(() => undefined);
       } catch {
         /* 离线登出允许 */
       }
