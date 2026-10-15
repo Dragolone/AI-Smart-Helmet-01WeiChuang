@@ -8,6 +8,7 @@ import { contactsApi } from "@/api/contacts";
 import { toUserMessage } from "@/api/error-messages";
 import { FormError, FormInput, PrimaryButton } from "@/components/form";
 import { ThemedView } from "@/components/themed-view";
+import { isValidPhone, normalizePhone } from "@/hooks/use-sms-code";
 import { useT } from "@/i18n";
 
 export default function AddContactScreen() {
@@ -27,11 +28,17 @@ export default function AddContactScreen() {
       setError(t("contacts.required"));
       return;
     }
+    // 先在本地规整、校验：以前原样提交，带空格的正确号码也被后端拒，只回一句「输入格式不正确」（2026-10-15 边界测试）
+    const cleanPhone = normalizePhone(phone);
+    if (!isValidPhone(cleanPhone)) {
+      setError(t("contacts.invalidPhone"));
+      return;
+    }
     setBusy(true);
     try {
       await contactsApi.create({
         name: name.trim(),
-        phone: phone.trim(),
+        phone: cleanPhone,
         ...(relation.trim() && { relation: relation.trim() }),
       });
       await queryClient.invalidateQueries({ queryKey: ["contacts"] });
@@ -59,7 +66,8 @@ export default function AddContactScreen() {
         value={phone}
         onChangeText={setPhone}
         keyboardType="phone-pad"
-        maxLength={11}
+        // 留出空格 / 横线 / +86 的位置（「+86 138 0000 0000」17 位），提交前再规整成 11 位
+        maxLength={20}
         placeholder={t("contacts.phonePlaceholder")}
       />
       <FormInput

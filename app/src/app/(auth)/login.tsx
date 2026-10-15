@@ -314,7 +314,11 @@ const styles = StyleSheet.create({
   consentText: { flex: 1, lineHeight: 20 },
   linkRow: {
     flexDirection: "row",
+    // 放不下就把「忘记密码」换到下一行：系统字体 2 倍时两个链接挤在一行、后一个被切掉（2026-10-15 边界测试）
+    flexWrap: "wrap",
     justifyContent: "space-between",
+    rowGap: 8,
+    columnGap: 16,
     marginTop: 8,
     paddingHorizontal: 4,
   },

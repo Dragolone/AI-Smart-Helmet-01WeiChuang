@@ -229,8 +229,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 6,
   },
-  // 文字让开左端的圆钮
-  labelIdle: { paddingLeft: THUMB - 8, paddingRight: 16 },
+  // 文字让开左端的圆钮：要让开整颗（INSET + THUMB），只让开 THUMB - 8 时字一长（系统字体放大）开头就被圆钮盖住（2026-10-15 边界测试）
+  labelIdle: { paddingLeft: INSET + THUMB + 6, paddingRight: 16 },
   labelText: { fontSize: 17, lineHeight: 24, fontWeight: 700, flexShrink: 1 },
   thumb: {
     position: "absolute",

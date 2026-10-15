@@ -4,7 +4,8 @@ export const auth = {
     "sos.drillBadge": "演练模式 · 不会通知任何人",
     "sos.drillDoneTitle": "演练结束",
     "sos.drillNotifiedBody": "真实求救时，系统会尝试通过短信通知紧急联系人。",
-    "sos.drillCancelledBody": "已在倒计时内取消。真实求救时，取消后不会发送联系人通知。",
+    "sos.drillCancelledBody":
+      "已在倒计时内取消。真实求救时，取消后不会发送联系人通知。",
     "auth.appName": "零一智行",
     "auth.slogan": "AI 赋能，智能守护每一次骑行安全",
     "auth.phone": "手机号",
@@ -90,7 +91,8 @@ export const auth = {
     "sos.notified.sending": "正在通知紧急联系人",
     "sos.notified.none": "未发送联系人通知",
     "sos.notified.failed": "求救短信发送失败",
-    "sos.notified.body": "请查看下方各联系人的发送结果。已发送不代表对方已收到，请保持手机畅通；若无人回应，请直接拨打电话求助。",
+    "sos.notified.body":
+      "请查看下方各联系人的发送结果。已发送不代表对方已收到，请保持手机畅通；若无人回应，请直接拨打电话求助。",
     "sos.notified.noneBody": "未添加紧急联系人。请直接拨打电话求助。",
     "sos.notified.failedBody": "请直接拨打电话求助。",
     "sos.viaSms": "短信通知",
@@ -108,12 +110,17 @@ export const auth = {
     "sos.slideHint": "向右滑到底取消",
     "sos.sendNow": "立即求救",
     "sos.close": "关闭",
+    "sos.fromHelmet": "来自 {name}",
+    "sos.gone.title": "这条求救不存在",
+    "sos.gone.body":
+      "可能是链接有误，或这条求救不属于你的头盔。正在进行的求救会自动弹出，不需要从链接打开。",
   },
   "zh-TW": {
     "sos.drillBadge": "演練模式 · 不會通知任何人",
     "sos.drillDoneTitle": "演練結束",
     "sos.drillNotifiedBody": "真實求救時，系統會嘗試透過簡訊通知緊急聯絡人。",
-    "sos.drillCancelledBody": "已在倒數期間取消。真實求救時，取消後不會傳送聯絡人通知。",
+    "sos.drillCancelledBody":
+      "已在倒數期間取消。真實求救時，取消後不會傳送聯絡人通知。",
     "auth.appName": "零一唯創",
     "auth.slogan": "AI 賦能，智慧守護每一次騎行安全",
     "auth.phone": "手機號碼",
@@ -198,7 +205,8 @@ export const auth = {
     "sos.notified.sending": "正在通知緊急聯絡人",
     "sos.notified.none": "未傳送聯絡人通知",
     "sos.notified.failed": "求救簡訊傳送失敗",
-    "sos.notified.body": "請查看下方各聯絡人的傳送結果。已傳送不代表對方已收到，請保持手機暢通；若無人回應，請直接撥打電話求助。",
+    "sos.notified.body":
+      "請查看下方各聯絡人的傳送結果。已傳送不代表對方已收到，請保持手機暢通；若無人回應，請直接撥打電話求助。",
     "sos.notified.noneBody": "未新增緊急聯絡人。請直接撥打電話求助。",
     "sos.notified.failedBody": "請直接撥打電話求助。",
     "sos.viaSms": "簡訊通知",
@@ -216,6 +224,10 @@ export const auth = {
     "sos.slideHint": "向右滑到底取消",
     "sos.sendNow": "立即求救",
     "sos.close": "關閉",
+    "sos.fromHelmet": "來自 {name}",
+    "sos.gone.title": "這則求救不存在",
+    "sos.gone.body":
+      "可能是連結有誤，或這則求救不屬於你的頭盔。進行中的求救會自動彈出，不需要從連結開啟。",
   },
   en: {
     "sos.drillBadge": "Drill · nobody will be notified",
@@ -319,8 +331,7 @@ export const auth = {
       "Check each contact’s sending result below. Sent does not confirm receipt. Keep your phone available; if no one responds, call for help.",
     "sos.notified.noneBody":
       "No emergency contacts were added. Please call for help.",
-    "sos.notified.failedBody":
-      "Please call for help.",
+    "sos.notified.failedBody": "Please call for help.",
     "sos.viaSms": "Text message",
     "sos.pendingBody":
       "Emergency contacts are notified when the countdown ends",
@@ -331,15 +342,17 @@ export const auth = {
     "sos.noContactsDrill":
       "No emergency contacts were added. Contact alerts cannot be sent during a real SOS.",
     "sos.autoSendSuffix": "seconds",
-    "sos.lateEventMinutes":
-      "Event from about {n} minutes ago, now synced",
-    "sos.lateEventHours":
-      "Event from about {n} hours ago, now synced",
+    "sos.lateEventMinutes": "Event from about {n} minutes ago, now synced",
+    "sos.lateEventHours": "Event from about {n} hours ago, now synced",
     "sos.cancelling": "Cancelling…",
     "sos.slide": "Slide to cancel · I'm OK",
     "sos.slideA11y": "I'm OK, cancel this SOS",
     "sos.slideHint": "Slide all the way right to cancel",
     "sos.sendNow": "Send SOS now",
     "sos.close": "Close",
+    "sos.fromHelmet": "From {name}",
+    "sos.gone.title": "This SOS doesn't exist",
+    "sos.gone.body":
+      "The link may be wrong, or this SOS isn't from your helmet. An active SOS opens automatically — you don't need a link.",
   },
 } as const;

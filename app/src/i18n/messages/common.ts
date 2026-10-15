@@ -9,8 +9,7 @@ export const common = {
     "app.crashRetry": "重试",
     "common.close": "关闭",
     "ble.onboarding.title": "设置头盔连接",
-    "ble.onboarding.body":
-      "头盔通过蓝牙向手机发送安全事件。请完成以下设置。",
+    "ble.onboarding.body": "头盔通过蓝牙向手机发送安全事件。请完成以下设置。",
     "ble.onboarding.bluetooth": "打开手机蓝牙",
     "ble.onboarding.bluetoothHint":
       "iPhone 在控制中心打开；安卓在系统设置里打开",
@@ -42,6 +41,9 @@ export const common = {
     "nav.safetySettings": "安全设置",
     "nav.back": "返回",
     "nav.bleBench": "蓝牙工程模式",
+    "notFound.title": "页面不存在",
+    "notFound.body": "这个链接在 App 里打不开，可能已经失效。",
+    "notFound.home": "回到首页",
     "nav.videoPreview": "实时画面",
     "common.cancel": "取消",
     "common.showPassword": "显示密码",
@@ -82,6 +84,7 @@ export const common = {
     "contacts.relation": "关系（可选）",
     "contacts.relationPlaceholder": "如：家人 / 朋友 / 教练",
     "contacts.required": "姓名和手机号必填",
+    "contacts.invalidPhone": "请输入正确的 11 位手机号",
     "common.failed": "操作失败",
   },
   "zh-TW": {
@@ -93,8 +96,7 @@ export const common = {
     "app.crashRetry": "重試",
     "common.close": "關閉",
     "ble.onboarding.title": "設定頭盔連線",
-    "ble.onboarding.body":
-      "頭盔透過藍牙向手機傳送安全事件。請完成以下設定。",
+    "ble.onboarding.body": "頭盔透過藍牙向手機傳送安全事件。請完成以下設定。",
     "ble.onboarding.bluetooth": "打開手機藍牙",
     "ble.onboarding.bluetoothHint":
       "iPhone 在控制中心打開；Android 在系統設定裡打開",
@@ -126,6 +128,9 @@ export const common = {
     "nav.safetySettings": "安全設定",
     "nav.back": "返回",
     "nav.bleBench": "藍牙工程模式",
+    "notFound.title": "頁面不存在",
+    "notFound.body": "這個連結在 App 裡打不開，可能已經失效。",
+    "notFound.home": "回到首頁",
     "nav.videoPreview": "即時畫面",
     "common.cancel": "取消",
     "common.showPassword": "顯示密碼",
@@ -166,6 +171,7 @@ export const common = {
     "contacts.relation": "關係（選填）",
     "contacts.relationPlaceholder": "如：家人 / 朋友 / 教練",
     "contacts.required": "姓名和手機號碼為必填",
+    "contacts.invalidPhone": "請輸入正確的 11 位手機號碼",
     "common.failed": "操作失敗",
   },
   en: {
@@ -173,8 +179,7 @@ export const common = {
     "contacts.tellMessage":
       "{name}, I have added you as an emergency contact in the Lingyi Weichuang helmet app. If an SOS countdown ends without being cancelled, the app will attempt to send you a text alert. Please contact me if you receive one. If you cannot reach me, please help me get assistance. Thank you.",
     "app.crashTitle": "Unable to display this page",
-    "app.crashBody":
-      "Try again or reopen the app.",
+    "app.crashBody": "Try again or reopen the app.",
     "app.crashRetry": "Try again",
     "common.close": "Close",
     "ble.onboarding.title": "Set up helmet connection",
@@ -215,6 +220,10 @@ export const common = {
     "nav.safetySettings": "Safety Settings",
     "nav.back": "Back",
     "nav.bleBench": "BLE Bench",
+    "notFound.title": "Page not found",
+    "notFound.body":
+      "This link can't be opened in the app. It may have expired.",
+    "notFound.home": "Go to home",
     "nav.videoPreview": "Live view",
     "common.cancel": "Cancel",
     "common.showPassword": "Show password",
@@ -255,6 +264,8 @@ export const common = {
     "contacts.relation": "Relationship (optional)",
     "contacts.relationPlaceholder": "e.g. Family / Friend / Coach",
     "contacts.required": "Name and phone are required",
+    "contacts.invalidPhone":
+      "Enter a valid 11-digit mainland China mobile number",
     "common.failed": "Something went wrong",
   },
 } as const;

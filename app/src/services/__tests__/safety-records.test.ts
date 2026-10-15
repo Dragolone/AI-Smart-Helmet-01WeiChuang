@@ -1,7 +1,11 @@
 // 安全记录页把几顶头盔的列表合成一份：按时间排、带上是哪一顶、没拿到的不当成「没有」。
 import { describe, expect, it } from "@jest/globals";
 
-import { mergeRecords, type RecordSource } from "../safety-records";
+import {
+  combinePages,
+  mergeRecords,
+  type RecordSource,
+} from "../safety-records";
 
 type Row = { id: string; at: string };
 const at = (r: Row) => r.at;
@@ -57,7 +61,10 @@ describe("mergeRecords", () => {
       at,
     );
     expect(m.total).toBe(123);
-    expect(m.rows).toHaveLength(2);
+    // 2026-10-15 起：a 还有 119 条更早的没取，b1（10-06）比 a 已取到的最早一条（10-07）还早，
+    // 中间可能夹着 a 没取到的记录，先不显示；「加载更多」取到之后才露出来（见下面「截断线」两条）
+    expect(m.rows.map((r) => r.item.id)).toEqual(["a1"]);
+    expect(m.hasMore).toBe(true);
   });
 
   it("一份都还没拿到：加载中；其中有失败的：加载失败", () => {
@@ -117,5 +124,80 @@ describe("mergeRecords", () => {
       status: "loading",
       incomplete: false,
     });
+  });
+
+  it("截断线：只有一顶头盔时取到的全显示，还有更早的就给加载更多", () => {
+    const m = mergeRecords(
+      [
+        ok(
+          "a",
+          [
+            { id: "a2", at: "2026-10-07T08:00:00Z" },
+            { id: "a1", at: "2026-10-06T08:00:00Z" },
+          ],
+          1000,
+        ),
+      ],
+      at,
+    );
+    expect(m.rows.map((r) => r.item.id)).toEqual(["a2", "a1"]);
+    expect(m.hasMore).toBe(true);
+  });
+
+  it("截断线：两顶都取完了就全显示、不再给加载更多", () => {
+    const m = mergeRecords(
+      [
+        ok("a", [{ id: "a1", at: "2026-10-07T08:00:00Z" }]),
+        ok("b", [{ id: "b1", at: "2026-10-01T08:00:00Z" }]),
+      ],
+      at,
+    );
+    expect(m.rows.map((r) => r.item.id)).toEqual(["a1", "b1"]);
+    expect(m.hasMore).toBe(false);
+  });
+});
+
+describe("combinePages", () => {
+  const page = (items: Row[], total: number) => ({
+    data: { items, total },
+    isError: false,
+    error: null,
+  });
+  it("连续拿到的页按顺序拼起来，总数取第 1 页的", () => {
+    const s = combinePages(
+      "a",
+      page([{ id: "a3", at: "2026-10-07T00:00:00Z" }], 3),
+      [
+        page([{ id: "a2", at: "2026-10-06T00:00:00Z" }], 3),
+        page([{ id: "a1", at: "2026-10-05T00:00:00Z" }], 3),
+      ],
+    );
+    expect(s.data?.items.map((x) => x.id)).toEqual(["a3", "a2", "a1"]);
+    expect(s.data?.total).toBe(3);
+    expect(s.loadingMore).toBe(false);
+  });
+
+  it("中间一页还没到：后面的先不拼，标成正在加载", () => {
+    const s = combinePages(
+      "a",
+      page([{ id: "a3", at: "2026-10-07T00:00:00Z" }], 3),
+      [
+        { isError: false, error: null },
+        page([{ id: "a1", at: "2026-10-05T00:00:00Z" }], 3),
+      ],
+    );
+    expect(s.data?.items.map((x) => x.id)).toEqual(["a3"]);
+    expect(s.loadingMore).toBe(true);
+  });
+
+  it("后面某页失败：已拿到的照常给，错误带出去", () => {
+    const s = combinePages(
+      "a",
+      page([{ id: "a3", at: "2026-10-07T00:00:00Z" }], 3),
+      [{ isError: true, error: new Error("boom") }],
+    );
+    expect(s.data?.items).toHaveLength(1);
+    expect(s.isError).toBe(true);
+    expect(s.loadingMore).toBe(false);
   });
 });

@@ -26,7 +26,7 @@ import { sosApi } from "@/api/sos";
 import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
 import { FluidSegmented } from "@/components/fluid-segmented";
-import { PrimaryButton } from "@/components/form";
+import { PrimaryButton, SecondaryButton } from "@/components/form";
 import { Card, IconCircle, type IconName } from "@/components/list";
 import { Skeleton } from "@/components/skeleton";
 import { Tappable } from "@/components/tappable";
@@ -45,10 +45,22 @@ import {
 } from "@/i18n";
 import { fullDateTime, shortDate, shortTime } from "@/i18n/format";
 import { readableEventFields } from "@/services/event-fields";
-import { mergeRecords, type MergedRecords } from "@/services/safety-records";
+import {
+  combinePages,
+  mergeRecords,
+  type MergedRecords,
+  type PageResult,
+} from "@/services/safety-records";
 import { helmetNameOf, linkLevelOf } from "@/services/safety-status";
 
 type Translate = ReturnType<typeof useT>;
+
+/** 每页条数：风险提醒一页 50、SOS 记录一页 20（与以前首屏一样）；「加载更多」每点一次每顶头盔多取一页 */
+const ALERT_PAGE = 50;
+const SOS_PAGE = 20;
+/** 第 2 页到第 n 页（n < 2 时为空） */
+const pagesAfterFirst = (n: number) =>
+  Array.from({ length: Math.max(0, n - 1) }, (_, i) => i + 2);
 type Tone = "danger" | "warning" | "success" | "neutral";
 type RecordTab = "alerts" | "sos";
 /** 筛选 chip 里「全部头盔」那一项的值（deviceId 不会长这样） */
@@ -191,12 +203,12 @@ export default function SafetyRecordsScreen() {
     ? (list.find((d) => d.deviceId === picked) ?? null)
     : (list[0] ?? null);
 
-  // 每顶头盔各取一份（缓存键与此前相同：实时通道按前缀失效，use-realtime）；筛选只决定显示哪几份
+  // 每顶头盔各取一份（第 1 页的缓存键与此前相同：实时通道按前缀失效，use-realtime）；筛选只决定显示哪几份
   const alertQueries = useQueries({
     queries: list.map((d) => ({
       ...eventsListQuery(d.deviceId, {
         type: RISK_ALERT_TYPE_PARAM,
-        pageSize: 50,
+        pageSize: ALERT_PAGE,
       }),
       refetchInterval: 30_000,
     })),
@@ -207,19 +219,72 @@ export default function SafetyRecordsScreen() {
       queryFn: () => sosApi.accidents(d.deviceId),
     })),
   });
+  // 「加载更多」：原来只取第 1 页，1000 条只看得到最近 20 / 50 条（2026-10-15 边界测试）。
+  // 每点一次把要取的页数加一；只给第 1 页说还有的头盔取后面的页
+  const [alertPages, setAlertPages] = useState(1);
+  const [sosPages, setSosPages] = useState(1);
+  const extraPagesOf = (
+    total: number | undefined,
+    pageSize: number,
+    want: number,
+  ) => pagesAfterFirst(Math.min(want, Math.ceil((total ?? 0) / pageSize)));
+  const alertExtraPlan = list.flatMap((d, i) =>
+    extraPagesOf(alertQueries[i]?.data?.total, ALERT_PAGE, alertPages).map(
+      (page) => ({ i, page }),
+    ),
+  );
+  const alertExtra = useQueries({
+    queries: alertExtraPlan.map(({ i, page }) =>
+      eventsListQuery(list[i].deviceId, {
+        type: RISK_ALERT_TYPE_PARAM,
+        pageSize: ALERT_PAGE,
+        page,
+      }),
+    ),
+  });
+  const sosExtraPlan = list.flatMap((d, i) =>
+    extraPagesOf(sosQueries[i]?.data?.total, SOS_PAGE, sosPages).map(
+      (page) => ({ i, page }),
+    ),
+  );
+  const sosExtra = useQueries({
+    queries: sosExtraPlan.map(({ i, page }) => ({
+      queryKey: ["accidents", list[i].deviceId, page],
+      queryFn: () => sosApi.accidents(list[i].deviceId, page, SOS_PAGE),
+    })),
+  });
+  /** 一顶头盔的第 1 页 + 已取的后面几页拼成一份 */
+  const withPages = <T,>(
+    first: PageResult<T>[],
+    plan: { i: number; page: number }[],
+    extra: PageResult<T>[],
+  ) =>
+    list.map((d, i) =>
+      combinePages(
+        d.deviceId,
+        first[i],
+        plan
+          .map((p, k) => ({ ...p, q: extra[k] }))
+          .filter((p) => p.i === i)
+          .sort((a, b) => a.page - b.page)
+          .map((p) => p.q),
+      ),
+    );
+  const alertSources = withPages(alertQueries, alertExtraPlan, alertExtra);
+  const sosSources = withPages(sosQueries, sosExtraPlan, sosExtra);
   const shown = (i: number) => !only || list[i].deviceId === only.deviceId;
   const alerts = mergeRecords(
-    alertQueries
-      .map((q, i) => ({ ...q, deviceId: list[i].deviceId }))
-      .filter((_, i) => shown(i)),
+    alertSources.filter((_, i) => shown(i)),
     (e: EventListItem) => e.timestamp,
   );
   const sosRecords = mergeRecords(
-    sosQueries
-      .map((q, i) => ({ ...q, deviceId: list[i].deviceId }))
-      .filter((_, i) => shown(i)),
+    sosSources.filter((_, i) => shown(i)),
     (a: AccidentListItem) => a.createdAt,
   );
+  const alertsLoadingMore = alertSources.some(
+    (s, i) => shown(i) && s.loadingMore,
+  );
+  const sosLoadingMore = sosSources.some((s, i) => shown(i) && s.loadingMore);
   const refetchRecords = () =>
     Promise.all(
       (tab === "alerts" ? alertQueries : sosQueries)
@@ -396,6 +461,8 @@ export default function SafetyRecordsScreen() {
     renderRow: (x: T, deviceId: string, last: boolean) => ReactNode;
     emptyTitle: MessageKey;
     notes: string[];
+    loadingMore: boolean;
+    onLoadMore: () => void;
   }) {
     const { merged } = opts;
     const failedState = (
@@ -446,6 +513,16 @@ export default function SafetyRecordsScreen() {
               total: merged.total,
             }),
           )}
+        {merged.hasMore && (
+          <SecondaryButton
+            compact
+            title={t(
+              opts.loadingMore ? "records.loadingMore" : "records.loadMore",
+            )}
+            loading={opts.loadingMore}
+            onPress={opts.onLoadMore}
+          />
+        )}
         {opts.notes.map(note)}
       </>
     );
@@ -554,6 +631,8 @@ export default function SafetyRecordsScreen() {
                 ? "records.alertsEmpty"
                 : "records.alertsEmptyAll",
               notes: linkDown ? [t("records.linkDownNote")] : [],
+              loadingMore: alertsLoadingMore,
+              onLoadMore: () => setAlertPages((n) => n + 1),
             })
           : recordList({
               merged: sosRecords,
@@ -561,6 +640,8 @@ export default function SafetyRecordsScreen() {
               renderRow: sosRow,
               emptyTitle: only ? "records.sosEmpty" : "records.sosEmptyAll",
               notes: [t("records.sosNote")],
+              loadingMore: sosLoadingMore,
+              onLoadMore: () => setSosPages((n) => n + 1),
             })}
       </>
     );

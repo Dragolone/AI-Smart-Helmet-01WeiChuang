@@ -11,7 +11,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { setAudioModeAsync, useAudioPlayer } from "expo-audio";
 import * as Haptics from "expo-haptics";
-import { useKeepAwake } from "expo-keep-awake";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -50,17 +49,20 @@ import type { EventEnvelope, EventType, Sos } from "@helmet/shared";
 
 import { ApiRequestError } from "@/api/client";
 import { contactsApi } from "@/api/contacts";
+import { devicesApi } from "@/api/devices";
 import { clearSosAlert } from "@/services/sos-alert";
 import { toUserMessage } from "@/api/error-messages";
 import { buildRelayEnvelope, relayApi } from "@/api/relay";
 import { sosApi } from "@/api/sos";
 import { Badge } from "@/components/badge";
+import { EmptyState } from "@/components/empty-state";
 import { CountdownRing } from "@/components/countdown-ring";
 import { SlideToCancel } from "@/components/slide-to-cancel";
 import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
 import { Radius } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useKeepAwakeSafe } from "@/hooks/use-keep-awake-safe";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
 import {
@@ -69,6 +71,7 @@ import {
 } from "@/services/ble-relay-uplink";
 import { msToNextSecond } from "@/services/countdown";
 import { lateEventNote } from "@/services/sos-age";
+import { helmetNameOf } from "@/services/safety-status";
 import {
   deliveryPollInterval,
   deliveryStateOf,
@@ -175,6 +178,10 @@ export default function SosActiveScreen() {
   return <SosActiveContent key={sosId ?? "drill"} />;
 }
 
+/** 服务端明确说没有这一单（404） */
+const isNotFound = (e: unknown) =>
+  e instanceof ApiRequestError && e.status === 404;
+
 function SosActiveContent() {
   const { sosId, deviceId, drill } = useLocalSearchParams<{
     sosId: string;
@@ -222,7 +229,10 @@ function SosActiveContent() {
           sosId,
           await sosApi.snapshot(sosId, deviceId),
         );
-      } catch {
+      } catch (e) {
+        // 服务端明确说没有这一单（404：单号是瞎编的 / 不是你的头盔）——不是「状态未知」，交给页面收掉。
+        // 原来一律当未知，一个假链接 app://sos-active?sosId=xxx 就能打开一张永远停在「—」秒的倒计时页（2026-10-15）
+        if (e instanceof ApiRequestError && e.status === 404) throw e;
         // 两条 REST 都失败（离线）才信缓存；有网时缓存可能是迟到的 pending（2026-09-24 实测卡死）
         return (
           (queryClient.getQueryData(["sos", sosId]) as Sos | undefined) ?? null
@@ -231,7 +241,9 @@ function SosActiveContent() {
     },
     // WS 断线时的兜底；正常时由推送更新缓存。单子结束后停止轮询——结束态不会再变，
     // 而 snapshot 一次是两个请求（评审 2026-09-26）。状态未知（null）不算结束，见 sos-sync
-    refetchInterval: (q) => countdownPollInterval(q.state.data),
+    refetchInterval: (q) =>
+      isNotFound(q.state.error) ? false : countdownPollInterval(q.state.data),
+    retry: (n, e) => !isNotFound(e) && n < 1,
     enabled: !isDrill,
   });
   const drillSos: Sos | null = isDrill
@@ -273,7 +285,7 @@ function SosActiveContent() {
   }, [deadlineMs]);
 
   // 倒计时期间保持亮屏——摔倒场景手机可能放在口袋/车把,锁屏会错过取消窗口
-  useKeepAwake();
+  useKeepAwakeSafe("sos-active");
 
   // 警报音 + 振动:倒计时进行中每秒触发,取消/通知后停止
   const alarm = useAudioPlayer(require("@/assets/sos-alarm.wav"));
@@ -401,6 +413,19 @@ function SosActiveContent() {
     enabled: !isDrill && sos?.status === "notified",
     refetchInterval: (q) => deliveryPollInterval(q.state.data?.notifications),
   });
+  // 哪顶头盔发起的：账号下有两顶以上时写出来。两顶同时求救会叠两页倒计时，不写的话分不清哪页是谁
+  //（2026-10-15 边界测试）。与设备页同一份设备列表缓存；已解绑查不到名字时写设备号
+  const devices = useQuery({ queryKey: ["devices"], queryFn: devicesApi.list });
+  const sourceId = sos?.deviceId ?? deviceId;
+  const sourceName =
+    !isDrill && sourceId && (devices.data?.length ?? 0) >= 2
+      ? helmetNameOf(
+          devices.data?.find((d) => d.deviceId === sourceId) ?? {
+            name: null,
+            deviceId: sourceId,
+          },
+        )
+      : null;
   const delivery = deliveryStateOf(detail.data?.notifications);
   const sentTo = smsRows(detail.data?.notifications);
 
@@ -517,14 +542,16 @@ function SosActiveContent() {
 
   // 环随屏幕高度缩，两个操作始终留在屏幕里。环以外要放下的东西按 1 倍字体算是 446；
   // 系统字体放大时标题、说明、联系人那几行跟着长高。矮屏（或字体放得很大）放不下时，
-  // 先去掉顶上那个警示图标，环再缩，最小 140（2026-10-08 模拟器 360×640 + 1.3 倍字体：不这样联系人那行会被挤掉）
+  // 先去掉顶上那个警示图标，环再缩，最小 140（2026-10-08 模拟器 360×640 + 1.3 倍字体：不这样联系人那行会被挤掉）。
+  // 字体每放大 1 倍按多长 220 算：按 110 算时 2 倍字体下「未添加紧急联系人」那条警告有一半落在按钮后面（2026-10-15 边界测试）
   const room =
     windowHeight -
     insets.top -
     insets.bottom -
     446 -
-    Math.max(0, fontScale - 1) * 110 -
+    Math.max(0, fontScale - 1) * 220 -
     (isDrill ? 44 : 0) -
+    (sourceName ? 26 : 0) -
     (lateNote ? 26 : 0);
   const compact = room < 200;
   const ringSize = Math.round(
@@ -574,6 +601,22 @@ function SosActiveContent() {
     </Tappable>
   );
 
+  // 没有这一单：不画倒计时，说明一句、给关闭（页面是从链接直接打开、栈里没东西时回设备页）
+  if (!isDrill && !sos && isNotFound(sosQuery.error))
+    return (
+      <View style={[styles.goneWrap, { backgroundColor: theme.background }]}>
+        <EmptyState
+          icon="help-circle-outline"
+          title={t("sos.gone.title")}
+          body={t("sos.gone.body")}
+          actionLabel={t("sos.close")}
+          onAction={() =>
+            router.canGoBack() ? router.back() : router.navigate("/")
+          }
+        />
+      </View>
+    );
+
   return (
     // 这一页是全屏弹出的。iPhone 上 SafeAreaView 在这里拿到的留白是 0，内容顶到了灵动岛上、
     // 滑块贴着底部横条（2026-10-08 iPhone 截图量出来：上 16、下 12，正好只剩页面自己的边距）；
@@ -600,7 +643,11 @@ function SosActiveContent() {
       <View style={styles.container}>
         {!finished ? (
           <>
-            <View style={styles.top}>
+            <ScrollView
+              style={styles.top}
+              contentContainerStyle={styles.topContent}
+              bounces={false}
+            >
               <View style={styles.grow} />
               <View style={styles.head}>
                 {drillBadge}
@@ -623,6 +670,14 @@ function SosActiveContent() {
                     ? t("safety.manualSos")
                     : t("sos.fall")}
                 </ThemedText>
+                {sourceName ? (
+                  <ThemedText
+                    numberOfLines={1}
+                    style={[styles.source, { color: P.text }]}
+                  >
+                    {t("sos.fromHelmet", { name: sourceName })}
+                  </ThemedText>
+                ) : null}
                 <ThemedText style={[styles.subtitle, { color: P.sub }]}>
                   {t("sos.pendingBody")}
                 </ThemedText>
@@ -756,7 +811,7 @@ function SosActiveContent() {
                 )}
               </View>
               <View style={styles.grow} />
-            </View>
+            </ScrollView>
 
             <View style={styles.actions}>
               <Tappable
@@ -927,6 +982,7 @@ function SosActiveContent() {
 }
 
 const styles = StyleSheet.create({
+  goneWrap: { flex: 1, justifyContent: "center", paddingHorizontal: 24 },
   flex: { flex: 1 },
   wash: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
   container: {
@@ -936,8 +992,10 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   // 上半截（图标到联系人）在顶部和两个操作之间上下居中：高屏上不再全挤在顶上、下面空一大截
-  //（负责人 2026-10-08：太上面了）。放不下时两头的留白收成 0，被裁的是它的下沿；两个操作不会被挤出屏幕
-  top: { flex: 1, alignItems: "center", overflow: "hidden" },
+  //（负责人 2026-10-08：太上面了）。放不下时两头的留白收成 0，多出来的可以往上滑；两个操作不会被挤出屏幕。
+  // 以前是直接裁掉下沿：系统字体 2 倍时「未添加紧急联系人」那条警告被底部按钮盖住半截、又滑不动（2026-10-15 边界测试）
+  top: { flex: 1 },
+  topContent: { flexGrow: 1, alignItems: "center" },
   grow: { flexGrow: 1 },
   head: { alignSelf: "stretch", alignItems: "center", gap: 10 },
   drillBadge: {
@@ -962,6 +1020,12 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   subtitle: { fontSize: 14, lineHeight: 20, textAlign: "center" },
+  source: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: 600,
+    textAlign: "center",
+  },
   ring: { marginTop: 20 },
   number: {
     fontWeight: 800,
