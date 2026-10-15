@@ -47,6 +47,7 @@ import TRTCCloud, {
 import type { VoiceChannel, VoiceChannelMemberPublic } from "@helmet/shared";
 
 import { channelsApi } from "@/api/channels";
+import { inviteCodeFrom } from "@/services/invite-code";
 import { sameSpeakers } from "@/services/voice-volume";
 import { toUserMessage } from "@/api/error-messages";
 import { FormInput, PrimaryButton, SecondaryButton } from "@/components/form";
@@ -586,13 +587,14 @@ export default function IntercomScreen() {
   };
 
   const submitJoin = () => {
-    if (!/^[0-9A-Za-z]{6}$/.test(codeDraft.trim())) {
+    const inviteCode = inviteCodeFrom(codeDraft);
+    if (!inviteCode) {
       Alert.alert(t("intercom.inviteCode"), t("intercom.inviteCodeFormat"));
       return;
     }
     setSubmitting(true);
     channelsApi
-      .join({ inviteCode: codeDraft.trim() })
+      .join({ inviteCode })
       .then(() => {
         setJoinOpen(false);
         setCodeDraft("");
@@ -1629,12 +1631,13 @@ export default function IntercomScreen() {
                   <FormInput
                     label={t("intercom.inviteCode")}
                     value={codeDraft}
-                    onChangeText={setCodeDraft}
+                    // 粘进来一整句分享文案时直接换成里面的邀请码（原来 maxLength=6 把它截成「加入我的骑行」）
+                    onChangeText={(v) => setCodeDraft(inviteCodeFrom(v) ?? v)}
                     placeholder={t("intercom.inviteCodePlaceholder")}
                     autoCapitalize="characters"
                     autoCorrect={false}
                     autoComplete="off"
-                    maxLength={6}
+                    maxLength={200}
                     autoFocus
                   />
                   <PrimaryButton
