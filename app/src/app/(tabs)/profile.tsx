@@ -35,6 +35,7 @@ import {
 } from "@/stores/theme-store";
 import { showNotice } from "@/services/notice";
 import { profilePatch } from "@/services/profile-patch";
+import { cleanNickname, personNameOf } from "@/services/user-name";
 
 export default function ProfileScreen() {
   const theme = useTheme();
@@ -77,7 +78,7 @@ export default function ProfileScreen() {
   const [saved, setSaved] = useState(false);
 
   const openEdit = () => {
-    setNickDraft(user?.nickname ?? "");
+    setNickDraft(cleanNickname(user?.nickname));
     setAvatarDraft(user?.avatarUrl ?? null);
     setEditOpen(true);
   };
@@ -164,9 +165,7 @@ export default function ProfileScreen() {
     );
   };
 
-  const initial = (user?.nickname ?? user?.phone ?? "?")
-    .slice(0, 1)
-    .toUpperCase();
+  const initial = personNameOf(user, "?").slice(0, 1).toUpperCase();
   const deviceCount = devices.data?.length ?? 0;
 
   return (
@@ -222,7 +221,7 @@ export default function ProfileScreen() {
                   style={{ fontSize: 18, lineHeight: 24 }}
                   numberOfLines={1}
                 >
-                  {user?.nickname ?? t("profile.setNickname")}
+                  {cleanNickname(user?.nickname) || t("profile.setNickname")}
                 </ThemedText>
                 <ThemedText
                   type="small"

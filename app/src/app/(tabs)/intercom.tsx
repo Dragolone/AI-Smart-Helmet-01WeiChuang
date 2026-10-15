@@ -69,6 +69,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useBleStore } from "@/stores/ble-store";
 import { useIntercomStore } from "@/stores/intercom-store";
 import { showNotice } from "@/services/notice";
+import { personNameOf } from "@/services/user-name";
 
 const SPEAKING_THRESHOLD = 10; // onUserVoiceVolume 0–100
 /** 屏幕常亮的标记：只管对讲页自己开的这一份，不影响地图页开的 */
@@ -306,9 +307,8 @@ export default function IntercomScreen() {
   }, [members.data]);
 
   const nameOf = (id: string) => {
-    if (id === myId) return user?.nickname ?? user?.phone ?? t("intercom.me");
-    const m = memberMap.get(id);
-    return m?.nickname ?? m?.phone ?? id.slice(-4);
+    if (id === myId) return personNameOf(user, t("intercom.me"));
+    return personNameOf(memberMap.get(id), id.slice(-4));
   };
   const avatarOf = (id: string) =>
     id === myId ? user?.avatarUrl : memberMap.get(id)?.avatarUrl;
@@ -1477,7 +1477,7 @@ export default function IntercomScreen() {
                       const self = m.userId === myId;
                       const display = self
                         ? nameOf(myId)
-                        : (m.nickname ?? m.phone);
+                        : personNameOf(m, m.userId.slice(-4));
                       return (
                         <View key={m.userId} style={styles.memberRow}>
                           {m.avatarUrl ? (
