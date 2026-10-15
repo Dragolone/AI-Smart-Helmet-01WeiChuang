@@ -88,12 +88,15 @@ export type PageResult<T> = {
 
 /**
  * 同一顶头盔的第 1 页和后面几页拼成一份：只拼连续拿到的页（中间某页没到，后面的先不拼，免得跳着显示）。
- * 后面几页失败只算部分失败：已拿到的照常显示，错误交给页面提示
+ * 后面几页失败只算部分失败：已拿到的照常显示，错误交给页面提示。
+ * @param keyOf 记录的唯一键。分页是按偏移取的：两页刷新之间来了一条新记录，第 1 页最后一条会被挤到第 2 页，
+ *   两页一时都有它——同一条显示两遍、列表的 key 也撞了。给了 keyOf 就按它去重，留先出现（更靠前那页）的
  */
 export function combinePages<T>(
   deviceId: string,
   first: PageResult<T>,
   rest: readonly PageResult<T>[],
+  keyOf?: (item: T) => string,
 ): RecordSource<T> & { loadingMore: boolean } {
   if (!first.data)
     return {
@@ -103,13 +106,21 @@ export function combinePages<T>(
       loadingMore: false,
     };
   const items = [...first.data.items];
+  const seen = keyOf ? new Set(items.map(keyOf)) : null;
   let loadingMore = false;
   for (const p of rest) {
     if (!p.data) {
       loadingMore = !p.isError;
       break;
     }
-    items.push(...p.data.items);
+    for (const item of p.data.items) {
+      if (seen && keyOf) {
+        const k = keyOf(item);
+        if (seen.has(k)) continue;
+        seen.add(k);
+      }
+      items.push(item);
+    }
   }
   const failedPage = rest.find((p) => p.isError);
   return {

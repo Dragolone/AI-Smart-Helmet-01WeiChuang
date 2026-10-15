@@ -16,6 +16,7 @@ import { ThemedView } from "@/components/themed-view";
 import { useDeviceSettings } from "@/hooks/use-device-settings";
 import { useTheme } from "@/hooks/use-theme";
 import { useT, type MessageKey } from "@/i18n";
+import { helmetNameOf } from "@/services/safety-status";
 
 /** 这一页说的是哪顶头盔；头盔离线时如实说明修改不会送达（不禁用控件：下发与回执规则以服务端为准） */
 export function DeviceContext({ deviceId }: { deviceId: string }) {
@@ -33,7 +34,7 @@ export function DeviceContext({ deviceId }: { deviceId: string }) {
   return (
     <View style={styles.context}>
       <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-        {detail.data?.name ?? deviceId}
+        {helmetNameOf({ name: detail.data?.name ?? null, deviceId })}
       </ThemedText>
       {status.data && !status.data.online && (
         <View style={styles.offline}>

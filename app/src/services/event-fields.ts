@@ -18,6 +18,13 @@ const OBJECT_LABEL: Record<string, MessageKey> = {
   unknown: "events.obj.unknown",
 };
 
+/**
+ * 只认表里自己的键：载荷里的方向 / 目标叫 constructor / toString / __proto__ 时，普通下标会取到
+ * Object.prototype 上的函数或对象，交给翻译后显示成一片空白（同 api/error-messages 的 own）
+ */
+const own = (table: Record<string, MessageKey>, key: string) =>
+  Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
+
 /** 把 payload 里用户看得懂的字段挑出来（原始 JSON 不给用户看）；未知枚举值原样显示 */
 export function readableEventFields(
   payload: Record<string, unknown>,
@@ -25,14 +32,14 @@ export function readableEventFields(
 ): { label: string; value: string }[] {
   const out: { label: string; value: string }[] = [];
   if (typeof payload.direction === "string") {
-    const key = DIRECTION_LABEL[payload.direction];
+    const key = own(DIRECTION_LABEL, payload.direction);
     out.push({
       label: t("events.field.direction"),
       value: key ? t(key) : payload.direction,
     });
   }
   if (typeof payload.objectType === "string") {
-    const key = OBJECT_LABEL[payload.objectType];
+    const key = own(OBJECT_LABEL, payload.objectType);
     out.push({
       label: t("events.field.object"),
       value: key ? t(key) : payload.objectType,

@@ -63,9 +63,12 @@ import { retryBleLink } from "@/services/ble-link";
 import {
   bleRowOf,
   isBatteryLow,
+  shortDeviceId,
   type BleRowState,
 } from "@/services/device-view";
+import { cleanHelmetName, helmetNameOf } from "@/services/safety-status";
 import { useBleStore } from "@/stores/ble-store";
+import { showNotice } from "@/services/notice";
 
 type RowTone = "ok" | "warn" | "bad" | "neutral";
 
@@ -190,6 +193,8 @@ export default function DeviceDetailScreen() {
     queryKey: ["device-detail", deviceId],
     queryFn: () => devicesApi.detail(deviceId),
   });
+  // 用户起的名字整理成一行（零宽字符 / 换行见 cleanHelmetName）；空串 = 没起名，显示设备号
+  const shownName = cleanHelmetName(detail.data?.name);
 
   // 设备设置（§8 命令+回执状态机）：与分类页共用，见 hooks/use-device-settings
   const settings = useDeviceSettings(deviceId);
@@ -322,7 +327,7 @@ export default function DeviceDetailScreen() {
   const [renamed, setRenamed] = useState(false);
 
   const openRename = () => {
-    setNameDraft(detail.data?.name ?? "");
+    setNameDraft(shownName);
     setRenamed(false);
     setRenameOpen(true);
   };
@@ -330,7 +335,8 @@ export default function DeviceDetailScreen() {
   const submitRename = () => {
     setRenaming(true);
     devicesApi
-      .rename(deviceId, { name: nameDraft })
+      // 提交前同样整理：只剩看不见的字符 / 空白时是空串，接口按「清除名字」处理（API.md §4）
+      .rename(deviceId, { name: cleanHelmetName(nameDraft) })
       .then(async () => {
         setRenamed(true);
         // 列表/详情/地图药丸同步刷新
@@ -341,7 +347,7 @@ export default function DeviceDetailScreen() {
           queryClient.invalidateQueries({ queryKey: ["devices"] }),
         ]);
       })
-      .catch((e) => Alert.alert(t("device.renameFailed"), toUserMessage(e)))
+      .catch((e) => showNotice(t("device.renameFailed"), toUserMessage(e)))
       .finally(() => setRenaming(false));
   };
 
@@ -349,7 +355,7 @@ export default function DeviceDetailScreen() {
     // 写用户起的名字：绑了几顶时只写编号认不出是哪一顶（负责人 10-15：有重命名一定先显示重命名）
     Alert.alert(
       t("device.unbind"),
-      t("device.unbindBody", { id: detail.data?.name ?? deviceId }),
+      t("device.unbindBody", { id: shownName || deviceId }),
       [
         { text: t("common.cancel"), style: "cancel" },
         {
@@ -374,7 +380,7 @@ export default function DeviceDetailScreen() {
               })
               .catch((e) => {
                 setUnbinding(false);
-                Alert.alert(t("device.unbindFailed"), toUserMessage(e));
+                showNotice(t("device.unbindFailed"), toUserMessage(e));
               });
           },
         },
@@ -425,7 +431,8 @@ export default function DeviceDetailScreen() {
         <EmptyState
           icon="help-circle-outline"
           title={t("device.goneTitle")}
-          body={t("device.goneBody", { id: deviceId })}
+          // 链接里的编号可以是任意长的一串（华为真机：600 个 x 铺满整屏），正文里只留前 32 个字
+          body={t("device.goneBody", { id: shortDeviceId(deviceId) })}
           actionLabel={t("device.goneBack")}
           onAction={() => router.navigate("/")}
         />
@@ -445,25 +452,29 @@ export default function DeviceDetailScreen() {
       >
         <View style={styles.identity}>
           <View style={styles.titleRow}>
-            <ThemedText type="title" style={styles.title}>
-              {detail.data?.name ?? deviceId}
+            {/* 数据回来之前标题是链接里的编号，可以任意长：最多两行 */}
+            <ThemedText type="title" style={styles.title} numberOfLines={2}>
+              {helmetNameOf({ name: detail.data?.name ?? null, deviceId })}
             </ThemedText>
-            <Tappable
-              feedback="opacity"
-              accessibilityRole="button"
-              accessibilityLabel={t("device.renameTitle")}
-              hitSlop={8}
-              disabled={unbinding}
-              onPress={openRename}
-              style={[
-                styles.renameBtn,
-                { backgroundColor: theme.backgroundSelected },
-              ]}
-            >
-              <Ionicons name="pencil" size={16} color={theme.textSecondary} />
-            </Tappable>
+            {/* 详情回来之前不给改名：那时预填的是空串，一点保存就把原来的名字清掉了 */}
+            {detail.data !== undefined && (
+              <Tappable
+                feedback="opacity"
+                accessibilityRole="button"
+                accessibilityLabel={t("device.renameTitle")}
+                hitSlop={8}
+                disabled={unbinding}
+                onPress={openRename}
+                style={[
+                  styles.renameBtn,
+                  { backgroundColor: theme.backgroundSelected },
+                ]}
+              >
+                <Ionicons name="pencil" size={16} color={theme.textSecondary} />
+              </Tappable>
+            )}
           </View>
-          {detail.data?.name && (
+          {shownName !== "" && (
             <ThemedText type="code" themeColor="textSecondary">
               {deviceId}
             </ThemedText>

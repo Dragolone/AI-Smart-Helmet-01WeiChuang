@@ -16,7 +16,6 @@ import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
-  Alert,
   AppState,
   BackHandler,
   ScrollView,
@@ -78,6 +77,7 @@ import {
   initialOf,
   smsRows,
 } from "@/services/sos-delivery";
+import { showNotice } from "@/services/notice";
 
 /** 读屏（VoiceOver / TalkBack）开没开 */
 function useScreenReader(): boolean {
@@ -366,7 +366,7 @@ function SosActiveContent() {
           void sosQuery.refetch();
           return;
         }
-        Alert.alert(t("common.failed"), toUserMessage(e));
+        showNotice(t("common.failed"), toUserMessage(e));
       })
       .finally(() => setBusy(null));
   };
@@ -512,7 +512,7 @@ function SosActiveContent() {
       .then((counts) => {
         // 服务端判 invalid 只留档不建单：不进队列（重发也不会变合法），但要明说，别让骑手以为求救已发出（10-15 复审 F-4）
         if (counts.invalid > 0) {
-          Alert.alert(t("safety.sosSendFailed"), t("safety.sosRejected"));
+          showNotice(t("safety.sosSendFailed"), t("safety.sosRejected"));
           return;
         }
         notifyCriticalAccepted(deviceId);
@@ -523,7 +523,7 @@ function SosActiveContent() {
           helpQueued.current = true;
           enqueueRelayEvent(envelope as EventEnvelope<EventType>);
         }
-        Alert.alert(
+        showNotice(
           t("safety.sosSendFailed"),
           `${toUserMessage(e)}\n${t("safety.sosQueued")}`,
         );

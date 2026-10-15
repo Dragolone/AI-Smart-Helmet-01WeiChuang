@@ -6,8 +6,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
-import { router } from "expo-router";
-import { useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useState } from "react";
 import { Alert, Modal, ScrollView, StyleSheet, View } from "react-native";
 import ReAnimated, { FadeInDown } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -33,6 +33,9 @@ import {
   useThemeStore,
   type ThemeMode,
 } from "@/stores/theme-store";
+import { showNotice } from "@/services/notice";
+import { profilePatch } from "@/services/profile-patch";
+import { cleanNickname, personNameOf } from "@/services/user-name";
 
 export default function ProfileScreen() {
   const theme = useTheme();
@@ -40,6 +43,13 @@ export default function ProfileScreen() {
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
+  const refreshUser = useAuthStore((s) => s.refreshUser);
+  // 每次进「我的」重拉一次档案：别的手机改过的昵称 / 头像要能看到
+  useFocusEffect(
+    useCallback(() => {
+      void refreshUser();
+    }, [refreshUser]),
+  );
   const signOut = useAuthStore((s) => s.signOut);
   const locale = useLocaleStore((s) => s.locale);
   const setLocale = useLocaleStore((s) => s.setLocale);
@@ -68,7 +78,7 @@ export default function ProfileScreen() {
   const [saved, setSaved] = useState(false);
 
   const openEdit = () => {
-    setNickDraft(user?.nickname ?? "");
+    setNickDraft(cleanNickname(user?.nickname));
     setAvatarDraft(user?.avatarUrl ?? null);
     setEditOpen(true);
   };
@@ -94,7 +104,7 @@ export default function ProfileScreen() {
       });
       if (out.base64) setAvatarDraft(`data:image/jpeg;base64,${out.base64}`);
     } catch (e) {
-      Alert.alert(
+      showNotice(
         translate("profile.pickFailed"),
         e instanceof Error ? e.message : String(e),
       );
@@ -102,18 +112,20 @@ export default function ProfileScreen() {
   };
 
   const saveProfile = async () => {
+    // 只发改过的字段：user 是本机存着的会话，可能是旧的（别的手机改过昵称）。
+    // 原来只换头像也会把旧昵称一起写回去，把别处的修改覆盖掉（2026-10-16 华为实测）
+    const patch = profilePatch(user, nickDraft, avatarDraft);
+    if (!patch) {
+      setSaved(true);
+      return;
+    }
     setSaving(true);
     try {
-      const updated = await authApi.updateMe({
-        nickname: nickDraft.trim(),
-        ...(avatarDraft && avatarDraft !== user?.avatarUrl
-          ? { avatarUrl: avatarDraft }
-          : {}),
-      });
+      const updated = await authApi.updateMe(patch);
       await setUser(updated);
       setSaved(true);
     } catch (e) {
-      Alert.alert(translate("profile.saveFailed"), toUserMessage(e));
+      showNotice(translate("profile.saveFailed"), toUserMessage(e));
     } finally {
       setSaving(false);
     }
@@ -153,9 +165,7 @@ export default function ProfileScreen() {
     );
   };
 
-  const initial = (user?.nickname ?? user?.phone ?? "?")
-    .slice(0, 1)
-    .toUpperCase();
+  const initial = personNameOf(user, "?").slice(0, 1).toUpperCase();
   const deviceCount = devices.data?.length ?? 0;
 
   return (
@@ -211,7 +221,7 @@ export default function ProfileScreen() {
                   style={{ fontSize: 18, lineHeight: 24 }}
                   numberOfLines={1}
                 >
-                  {user?.nickname ?? t("profile.setNickname")}
+                  {cleanNickname(user?.nickname) || t("profile.setNickname")}
                 </ThemedText>
                 <ThemedText
                   type="small"

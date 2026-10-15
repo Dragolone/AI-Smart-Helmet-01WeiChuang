@@ -35,6 +35,11 @@ type AuthState = {
   /** 只清本地会话，不通知服务端——账号已注销 / 服务端已作废会话时用 */
   dropSession: () => Promise<void>;
   setUser: (user: UserProfile) => Promise<void>;
+  /**
+   * 重新拉一次本人档案。会话里的 user 原来只在冷启动时补拉一次：别的手机改了昵称 / 头像，
+   * 这台一直显示旧的，编辑资料时还拿旧值当初值（2026-10-16 华为实测）。失败静默（401 由 api 层处理）。
+   */
+  refreshUser: () => Promise<void>;
 };
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -129,6 +134,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       JSON.stringify(toPersistable(user)),
       KEYCHAIN,
     );
+  },
+
+  refreshUser: async () => {
+    if (!get().tokens) return;
+    let full: UserProfile;
+    try {
+      full = await authApi.me();
+    } catch {
+      return;
+    }
+    // 同 hydrate：请求在途时登出了、或换成了另一个账号，这份档案就不落
+    const now = get();
+    if (!now.tokens) return;
+    if (now.user && now.user.id !== full.id) return;
+    await get()
+      .setUser(full)
+      .catch(() => undefined);
   },
 }));
 

@@ -6,9 +6,38 @@ import type { DevicePublic } from "@helmet/shared";
 import type { MessageKey } from "@/i18n";
 import type { BleAdapterState, BleLinkPhase } from "@/stores/ble-store";
 
-/** 头盔显示的名字：用户起过名就用它，否则是设备号 */
+/**
+ * 名字里看不见的字符：控制符（换行、制表另按空白处理）、软连字符、零宽空格 / 零宽不连字、方向标记与嵌入、
+ * 字连接符与不可见运算符、BOM、韩文填充符这类专门用来「起空白名」的字符。
+ * 零宽连接符（U+200D）和变体选择符（U+FE00–FE0F）不在这里：表情组合（👨‍💻、❤️）要靠它们，下面单独处理。
+ */
+const INVISIBLE_IN_NAME =
+  /[\u0000-\u0008\u000E-\u001F\u007F-\u009F\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B\u200C\u200E\u200F\u202A-\u202E\u2060-\u206F\u3164\uFEFF\uFFA0\uFFF9-\uFFFB]/g;
+
+/**
+ * 用户起的头盔名整理成一行能显示的样子：去掉看不见的字符，换行、制表等连续空白压成一个空格，去掉首尾空白。
+ * 接口接受只含零宽字符或带换行的名字（2026-10-16 华为真机：「其他头盔」那一行一片空白；
+ * 换行名单行显示只剩「第一行…」）。整理完是空串就等于没起名。改名提交前也过一遍。
+ */
+export function cleanHelmetName(raw: string | null | undefined): string {
+  if (!raw) return "";
+  return (
+    raw
+      .replace(INVISIBLE_IN_NAME, "")
+      // 盲文空白（U+2800）显示出来也是空白，和空格同等对待
+      .replace(/[\s\u2800]+/g, " ")
+      // 零宽连接符 / 变体选择符只有跟在可见字符后面才有用：落在开头或空格后面的去掉，连接符落在结尾或空格前面的也去掉
+      .replace(/(^|\s)[\u200D\uFE00-\uFE0F]+/g, "$1")
+      .replace(/\u200D+(?=\s|$)/g, "")
+      // 去掉连接符后两边的空格会挨在一起
+      .replace(/ {2,}/g, " ")
+      .trim()
+  );
+}
+
+/** 头盔显示的名字：用户起过名就用它（整理后不为空），否则是设备号 */
 export const helmetNameOf = (d: Pick<DevicePublic, "name" | "deviceId">) =>
-  d.name ?? d.deviceId;
+  cleanHelmetName(d.name) || d.deviceId;
 
 /** 这顶头盔与手机 / 云端的连接结论 */
 export type HelmetLink =

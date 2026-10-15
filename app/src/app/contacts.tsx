@@ -18,6 +18,7 @@ import Animated from "react-native-reanimated";
 
 import { listEntering } from "@/components/motion";
 import { EmptyState } from "@/components/empty-state";
+import { showNotice } from "@/services/notice";
 
 const MAX_CONTACTS = 5;
 
@@ -118,7 +119,7 @@ export default function ContactsScreen() {
                 queryClient.invalidateQueries({ queryKey: ["contacts"] }),
               )
               .catch((e) =>
-                Alert.alert(translate("common.failed"), toUserMessage(e)),
+                showNotice(translate("common.failed"), toUserMessage(e)),
               ),
         },
       ],

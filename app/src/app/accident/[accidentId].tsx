@@ -20,6 +20,7 @@ import { ThemedView } from "@/components/themed-view";
 import { Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { readableEventFields } from "@/services/event-fields";
+import { cleanHelmetName } from "@/services/safety-status";
 import { useLocale, useT } from "@/i18n";
 import { fullDateTime, shortTime } from "@/i18n/format";
 
@@ -61,9 +62,9 @@ export default function AccidentDetailScreen() {
   const devices = useQuery({ queryKey: ["devices"], queryFn: devicesApi.list });
 
   const d = detail.data;
-  const helmetName = devices.data?.find(
-    (x) => x.deviceId === d?.deviceId,
-  )?.name;
+  const helmetName = cleanHelmetName(
+    devices.data?.find((x) => x.deviceId === d?.deviceId)?.name,
+  );
   const mapRef = useRef<AmapViewHandle>(null);
   // (0,0) 这类没定位时的占位值不当成事故地点：不画小地图、不给导航，写「没有位置」
   const loc = d?.location && isPlausibleFix(d.location) ? d.location : null;

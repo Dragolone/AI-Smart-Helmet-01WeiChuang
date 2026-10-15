@@ -58,7 +58,7 @@ import { Colors } from "@/constants/theme";
 import { useNotifyPermission } from "@/hooks/use-safety";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
-import { classifyScan } from "@/services/bind-qr";
+import { bindLinkInManualInput, classifyScan } from "@/services/bind-qr";
 import { withAlpha } from "@/services/color";
 
 const FRAME = 240;
@@ -902,7 +902,16 @@ export default function BindDeviceScreen() {
                   label={t("device.deviceId")}
                   icon="hardware-chip-outline"
                   value={idVal}
-                  onChangeText={setIdVal}
+                  // 粘进来的是绑定链接（微信扫码落到网页后复制的）：拆成设备号 + 绑定码，不把整条链接当设备号提交
+                  onChangeText={(v) => {
+                    const link = bindLinkInManualInput(v);
+                    if (!link) {
+                      setIdVal(v);
+                      return;
+                    }
+                    setIdVal(link.deviceId);
+                    if (link.bindCode) setCodeVal(link.bindCode);
+                  }}
                   autoCapitalize="none"
                   autoCorrect={false}
                   placeholder={t("device.deviceIdPlaceholder")}

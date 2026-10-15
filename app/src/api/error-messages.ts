@@ -20,6 +20,11 @@ const MESSAGE_KEYS: Record<string, MessageKey> = {
   PASSWORD_INCORRECT: "error.passwordIncorrect",
   RATE_LIMITED: "error.rateLimited",
   SOS_ALREADY_FINALIZED: "error.sosAlreadyFinalized",
+  // 下面四个原来没映射，界面上直接露出「操作失败（CHANNEL_FULL）」（2026-10-16 模拟器实测满员频道）
+  CHANNEL_FULL: "error.channelFull",
+  EMERGENCY_CONTACT_LIMIT_REACHED: "error.contactLimitReached",
+  MEDIA_NOT_READY: "error.mediaNotReady",
+  TRTC_NOT_CONFIGURED: "error.trtcNotConfigured",
   INTERNAL_ERROR: "error.internal",
 };
 

@@ -486,9 +486,12 @@ describe("toUserMessage 兜底", () => {
   });
 
   it("未收录的错误码：把原始 code 带进文案，便于用户截图报障", () => {
-    const m = toUserMessage(new ApiRequestError(409, { code: "CHANNEL_FULL" }));
-    expect(m).toBe(translate("error.unknown", { code: "CHANNEL_FULL" }));
-    expect(m).toContain("CHANNEL_FULL");
+    // CHANNEL_FULL 10-16 已补文案，这里换一个后端没有的码
+    const m = toUserMessage(
+      new ApiRequestError(409, { code: "SOME_FUTURE_CODE" }),
+    );
+    expect(m).toBe(translate("error.unknown", { code: "SOME_FUTURE_CODE" }));
+    expect(m).toContain("SOME_FUTURE_CODE");
   });
 
   it("错误码恰好是 Object.prototype 的成员名：照样按未收录的码给文案，不返回 undefined", () => {

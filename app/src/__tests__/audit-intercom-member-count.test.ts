@@ -24,4 +24,10 @@ describe("对讲页的频道人数", () => {
       /setQueryData<VoiceChannel\[\]>\(\["voice-channels"\][\s\S]{0,200}memberCount: loadedCount/,
     );
   });
+
+  it("离开这一页时收起上次进房的报错", () => {
+    expect(page).toMatch(
+      /if \(!focused\) return;[\s\S]{0,400}return \(\) => setJoinError\(null\);\s*\}, \[focused, queryClient\]\);/,
+    );
+  });
 });

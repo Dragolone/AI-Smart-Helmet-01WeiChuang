@@ -47,6 +47,8 @@ import TRTCCloud, {
 import type { VoiceChannel, VoiceChannelMemberPublic } from "@helmet/shared";
 
 import { channelsApi } from "@/api/channels";
+import { inviteCodeFrom } from "@/services/invite-code";
+import { ApiRequestError } from "@/api/client";
 import { sameSpeakers } from "@/services/voice-volume";
 import { toUserMessage } from "@/api/error-messages";
 import { FormInput, PrimaryButton, SecondaryButton } from "@/components/form";
@@ -66,6 +68,8 @@ import { playCue, prepareCues } from "@/services/intercom-cues";
 import { useAuthStore } from "@/stores/auth-store";
 import { useBleStore } from "@/stores/ble-store";
 import { useIntercomStore } from "@/stores/intercom-store";
+import { showNotice } from "@/services/notice";
+import { personNameOf } from "@/services/user-name";
 
 const SPEAKING_THRESHOLD = 10; // onUserVoiceVolume 0–100
 /** 屏幕常亮的标记：只管对讲页自己开的这一份，不影响地图页开的 */
@@ -280,6 +284,9 @@ export default function IntercomScreen() {
       { queryKey: ["voice-channels"], type: "active" },
       { cancelRefetch: false },
     );
+    // 离开这一页就收起上次进房的报错：断网时点「进入」报的「网络连接失败」，
+    // 原来联网后切走再切回还一直挂在底部（2026-10-16 华为）；再点「进入」本来也会清掉
+    return () => setJoinError(null);
   }, [focused, queryClient]);
   const loadedCount = members.data?.length;
   useEffect(() => {
@@ -300,9 +307,8 @@ export default function IntercomScreen() {
   }, [members.data]);
 
   const nameOf = (id: string) => {
-    if (id === myId) return user?.nickname ?? user?.phone ?? t("intercom.me");
-    const m = memberMap.get(id);
-    return m?.nickname ?? m?.phone ?? id.slice(-4);
+    if (id === myId) return personNameOf(user, t("intercom.me"));
+    return personNameOf(memberMap.get(id), id.slice(-4));
   };
   const avatarOf = (id: string) =>
     id === myId ? user?.avatarUrl : memberMap.get(id)?.avatarUrl;
@@ -554,7 +560,7 @@ export default function IntercomScreen() {
                 queryClient.invalidateQueries({ queryKey: ["voice-channels"] }),
               )
               .catch((e) =>
-                Alert.alert(t("intercom.leaveFailed"), toUserMessage(e)),
+                showNotice(t("intercom.leaveFailed"), toUserMessage(e)),
               );
           },
         },
@@ -581,24 +587,33 @@ export default function IntercomScreen() {
         setNameDraft("");
         return queryClient.invalidateQueries({ queryKey: ["voice-channels"] });
       })
-      .catch((e) => Alert.alert(t("intercom.createFailed"), toUserMessage(e)))
+      .catch((e) => showNotice(t("intercom.createFailed"), toUserMessage(e)))
       .finally(() => setSubmitting(false));
   };
 
   const submitJoin = () => {
-    if (!/^[0-9A-Za-z]{6}$/.test(codeDraft.trim())) {
-      Alert.alert(t("intercom.inviteCode"), t("intercom.inviteCodeFormat"));
+    const inviteCode = inviteCodeFrom(codeDraft);
+    if (!inviteCode) {
+      showNotice(t("intercom.inviteCode"), t("intercom.inviteCodeFormat"));
       return;
     }
     setSubmitting(true);
     channelsApi
-      .join({ inviteCode: codeDraft.trim() })
+      .join({ inviteCode })
       .then(() => {
         setJoinOpen(false);
         setCodeDraft("");
         return queryClient.invalidateQueries({ queryKey: ["voice-channels"] });
       })
-      .catch((e) => Alert.alert(t("intercom.joinError"), toUserMessage(e)))
+      .catch((e) =>
+        showNotice(
+          t("intercom.joinError"),
+          // 邀请码对不上任何频道时后端回通用 404，原来写「内容不存在或已删除」，看不出是码错了
+          e instanceof ApiRequestError && e.status === 404
+            ? t("intercom.inviteNotFound")
+            : toUserMessage(e),
+        ),
+      )
       .finally(() => setSubmitting(false));
   };
 
@@ -1462,7 +1477,7 @@ export default function IntercomScreen() {
                       const self = m.userId === myId;
                       const display = self
                         ? nameOf(myId)
-                        : (m.nickname ?? m.phone);
+                        : personNameOf(m, m.userId.slice(-4));
                       return (
                         <View key={m.userId} style={styles.memberRow}>
                           {m.avatarUrl ? (
@@ -1629,12 +1644,13 @@ export default function IntercomScreen() {
                   <FormInput
                     label={t("intercom.inviteCode")}
                     value={codeDraft}
-                    onChangeText={setCodeDraft}
+                    // 粘进来一整句分享文案时直接换成里面的邀请码（原来 maxLength=6 把它截成「加入我的骑行」）
+                    onChangeText={(v) => setCodeDraft(inviteCodeFrom(v) ?? v)}
                     placeholder={t("intercom.inviteCodePlaceholder")}
                     autoCapitalize="characters"
                     autoCorrect={false}
                     autoComplete="off"
-                    maxLength={6}
+                    maxLength={200}
                     autoFocus
                   />
                   <PrimaryButton

@@ -5,7 +5,7 @@
 // 服务端仍是 SOS 权威，这里只做提醒 + 把「误触取消」放到通知按钮上少一次解锁；不做任何判断。
 import { router } from "expo-router";
 import * as Notifications from "expo-notifications";
-import { Alert, AppState, Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 
 import { sosApi } from "@/api/sos";
 import { translate } from "@/i18n";
@@ -15,6 +15,7 @@ import { serverNow } from "@/services/server-clock";
 import { lateEventNote } from "@/services/sos-age";
 import { presentedSos } from "@/services/sos-sync";
 import { useSosCancelStore } from "@/stores/sos-cancel-store";
+import { showNotice } from "@/services/notice";
 
 const CHANNEL_ID = "sos";
 const CATEGORY_ID = "sos";
@@ -303,7 +304,7 @@ export async function cancelFromNotification(
           `/sos-active?sosId=${sosId}&deviceId=${deviceId}` as never,
         );
       }
-      Alert.alert(
+      showNotice(
         translate("sosAlert.cancelFailedTitle"),
         translate("sosAlert.cancelFailedBody"),
       );

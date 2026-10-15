@@ -27,6 +27,7 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { Radius } from "@/constants/theme";
 import { useSmsCode, isValidPhone } from "@/hooks/use-sms-code";
+import { isPasswordTooLong } from "@/services/password-rules";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
 
@@ -81,6 +82,11 @@ export default function ResetPasswordScreen() {
     }
     if (password.length < 8) {
       fail("password", t("auth.passwordTooShort"));
+      return;
+    }
+    // 上限按字节、与服务端同口径（超出时原来只回一句笼统的「输入格式不正确」）
+    if (isPasswordTooLong(password)) {
+      fail("password", t("auth.passwordTooLong"));
       return;
     }
     setBusy(true);

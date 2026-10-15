@@ -183,7 +183,10 @@ export function useRideEvents(
     queryKey: ["events", deviceId, "ride", window?.from, window?.to],
     queryFn: async () => {
       const items: EventListItem[] = [];
+      // 按偏移翻页：进行中的那一趟在翻页途中来了新事件，上一页最后一条会被挤到下一页、取到两次——按编号去重
+      const seen = new Set<string>();
       let total = 0;
+      let fetched = 0;
       for (let page = 1; page <= RIDE_EVENTS_MAX_PAGES; page += 1) {
         const res = await eventsApi.list(deviceId!, {
           type: RIDE_EVENT_TYPES,
@@ -192,9 +195,14 @@ export function useRideEvents(
           page,
           pageSize: RIDE_EVENTS_PAGE,
         });
-        items.push(...res.items);
+        for (const e of res.items) {
+          if (seen.has(e.eventId)) continue;
+          seen.add(e.eventId);
+          items.push(e);
+        }
+        fetched += res.items.length;
         total = res.total;
-        if (items.length >= total || res.items.length < RIDE_EVENTS_PAGE) break;
+        if (fetched >= total || res.items.length < RIDE_EVENTS_PAGE) break;
       }
       return { items, total };
     },

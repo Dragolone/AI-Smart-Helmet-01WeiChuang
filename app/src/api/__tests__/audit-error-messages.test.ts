@@ -32,16 +32,8 @@ const BACKEND_CODES = [
   "PAYLOAD_TOO_LARGE",
 ];
 
-/** 当前已知缺口：这些码只会显示「未知错误（CODE）」。补上文案后请从本数组移除（测试会提示）。 */
-const KNOWN_UNMAPPED = [
-  "CHANNEL_FULL",
-  "CONFLICT",
-  "EMERGENCY_CONTACT_LIMIT_REACHED",
-  "FORBIDDEN",
-  "MEDIA_NOT_READY",
-  "PAYLOAD_TOO_LARGE",
-  "TRTC_NOT_CONFIGURED",
-].sort();
+/** 当前已知缺口：这些码只会显示「未知错误（CODE）」。补上文案后请从本数组移除（测试会提示）。10-16 补了 CHANNEL_FULL 等 4 个。 */
+const KNOWN_UNMAPPED = ["CONFLICT", "FORBIDDEN", "PAYLOAD_TOO_LARGE"].sort();
 
 const msgFor = (code: string) =>
   toUserMessage(new ApiRequestError(400, { code, message: "x" }));

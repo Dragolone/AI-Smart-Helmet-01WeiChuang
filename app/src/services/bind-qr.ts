@@ -12,8 +12,10 @@ const CODE_RE = /^\d{8}$/;
 export function parseBindQr(raw: string): BindQr | null {
   const text = raw.trim();
   if (!text) return null;
+  // bind 后面允许多一个斜杠：出码脚本的 --qr-base 是可配的，写成 …/bind/ 时整批码都是 …/bind/?d=…，
+  // 原来一张都扫不出来（只能手输）
   const m =
-    /^(?:https?:\/\/[^/]*01weichuang\.com\/bind|helmet:\/\/bind)\??(.*)$/i.exec(
+    /^(?:https?:\/\/[^/]*01weichuang\.com\/bind|helmet:\/\/bind)\/?\??(.*)$/i.exec(
       text,
     );
   if (m) {
@@ -54,4 +56,13 @@ export function classifyScan(
   return parsed.bindCode
     ? { kind: "bind", deviceId: parsed.deviceId, bindCode: parsed.bindCode }
     : { kind: "needCode", deviceId: parsed.deviceId };
+}
+
+/**
+ * 手动输入框里粘进来的是一条绑定链接（微信 / 系统相机扫码会落到网页，用户把那条链接复制过来）时，
+ * 把里面的设备号和绑定码拆出来；粘的不是链接（就是设备号本身、或别的文字）返回 null，输入框照原样显示。
+ */
+export function bindLinkInManualInput(raw: string): BindQr | null {
+  if (!/^\s*(?:https?:\/\/|helmet:\/\/)/i.test(raw)) return null;
+  return parseBindQr(raw);
 }

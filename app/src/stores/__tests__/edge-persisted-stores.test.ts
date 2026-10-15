@@ -195,6 +195,66 @@ describe("auth-store.hydrate：存储损坏", () => {
   });
 });
 
+describe("auth-store.refreshUser：别处改过的档案要能拉回来（10-16）", () => {
+  it("已登录：拉回新档案并落盘", async () => {
+    mockKv.set(TOKEN_KEY, JSON.stringify(tokens));
+    mockKv.set(USER_KEY, JSON.stringify(user({ nickname: "   " })));
+    const { store } = loadAuth();
+    await store.getState().hydrate();
+    await flush();
+    mockMe.mockResolvedValue(user({ nickname: "新名字" }));
+    await store.getState().refreshUser();
+    expect(store.getState().user?.nickname).toBe("新名字");
+    expect(JSON.parse(mockKv.get(USER_KEY) ?? "{}").nickname).toBe("新名字");
+  });
+
+  it("没登录：不发请求", async () => {
+    const { store } = loadAuth();
+    await store.getState().hydrate();
+    mockMe.mockClear();
+    await store.getState().refreshUser();
+    expect(mockMe).not.toHaveBeenCalled();
+  });
+
+  it("拉取失败：静默，保留原档案", async () => {
+    mockKv.set(TOKEN_KEY, JSON.stringify(tokens));
+    mockKv.set(USER_KEY, JSON.stringify(user()));
+    const { store } = loadAuth();
+    await store.getState().hydrate();
+    await flush();
+    mockMe.mockRejectedValue(new Error("offline"));
+    await expect(store.getState().refreshUser()).resolves.toBeUndefined();
+    expect(store.getState().user?.nickname).toBe("骑手");
+  });
+
+  it("请求在途时换成另一个账号：迟到的旧账号档案不落", async () => {
+    mockKv.set(TOKEN_KEY, JSON.stringify(tokens));
+    mockKv.set(USER_KEY, JSON.stringify(user()));
+    const { store } = loadAuth();
+    await store.getState().hydrate();
+    await flush();
+    let landMe!: (u: UserProfile) => void;
+    mockMe.mockImplementation(
+      () =>
+        new Promise<UserProfile>((resolve) => {
+          landMe = resolve;
+        }),
+    );
+    const pending = store.getState().refreshUser();
+    await store.getState().signIn({
+      accessToken: "acc_b",
+      refreshToken: "ref_b",
+      user: user({ id: "u2", nickname: "另一个" }),
+    } as AuthResponse);
+    landMe(user({ nickname: "旧账号" }));
+    await pending;
+    expect(store.getState().user).toMatchObject({
+      id: "u2",
+      nickname: "另一个",
+    });
+  });
+});
+
 describe("auth-store：落盘内容", () => {
   it("signIn：内存里保留头像，钥匙串只存去掉头像的最小档案（iOS 单值 2KB 上限）且可在锁屏后读写", async () => {
     const { store } = loadAuth();
