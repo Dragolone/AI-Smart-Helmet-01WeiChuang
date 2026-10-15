@@ -6,7 +6,7 @@
 //   skiaMock() / iconsMock() 同理。
 // 图标、Skia 组件都渲染成同名的宿主元素（"Ionicons"、"SkiaPath"…），测试里按类型找、断言 props。
 import { jest } from "@jest/globals";
-import { createElement, useState, type ReactNode } from "react";
+import { createElement, useEffect, useState, type ReactNode } from "react";
 
 type AnyProps = Record<string, unknown> & { children?: ReactNode };
 
@@ -16,6 +16,34 @@ export const mockFlags = {
   /** Skia.Path.MakeFromSVGString 返回 null（走组件的兜底分支） */
   skiaPathNull: false,
 };
+
+/**
+ * react-native-worklets：官方替身的 scheduleOnRN / runOnJS 走微任务，测试里要 await 才看得到；
+ * 这里改成当场调用（UI 线程和 JS 线程在测试里本来就是同一个）。
+ */
+export function workletsMock() {
+  const real = jest.requireActual<Record<string, unknown>>(
+    "react-native-worklets/src/mock",
+  );
+  type Fn = (...args: unknown[]) => unknown;
+  return {
+    ...real,
+    scheduleOnRN: (fn: Fn, ...args: unknown[]) => {
+      fn(...args);
+    },
+    scheduleOnUI: (fn: Fn, ...args: unknown[]) => {
+      fn(...args);
+    },
+    runOnJS:
+      (fn: Fn) =>
+      (...args: unknown[]) =>
+        fn(...args),
+    runOnUI:
+      (fn: Fn) =>
+      (...args: unknown[]) =>
+        fn(...args),
+  };
+}
 
 /** 共享值：get / set / value，set 也接受函数 */
 function makeShared<T>(init: T) {
@@ -55,6 +83,13 @@ export function reanimatedMock() {
     useSharedValue: <T,>(init: T) => useState(() => makeShared(init))[0],
     // 官方替身的 withSequence 给 0；这里给最后一段的终值（序列走完停在哪就是哪）
     withSequence: (...steps: unknown[]) => steps[steps.length - 1],
+    // 官方替身里是空函数；这里每次渲染都把 prepare 的结果交给 react（UI 线程上的同步写共享值）
+    useAnimatedReaction: <T,>(
+      prepare: () => T,
+      react: (cur: T, prev: T | null) => void,
+    ) => {
+      react(prepare(), null);
+    },
     makeMutable: <T,>(init: T) => makeShared(init),
     useReducedMotion: () => mockFlags.reducedMotion,
     LayoutAnimationConfig,
@@ -113,4 +148,122 @@ export function iconsMock() {
   const Ionicons = (props: AnyProps) => createElement("Ionicons", props);
   Ionicons.glyphMap = {};
   return { Ionicons, MaterialCommunityIcons: Ionicons };
+}
+
+/** react-native-safe-area-context：固定的安全区（上 47、下 34） */
+export const mockInsets = { top: 47, bottom: 34, left: 0, right: 0 };
+export function safeAreaMock() {
+  const Pass = ({ children, ...props }: AnyProps) =>
+    createElement("SafeAreaView", props, children as ReactNode);
+  return {
+    useSafeAreaInsets: () => mockInsets,
+    SafeAreaView: Pass,
+    SafeAreaProvider: ({ children }: AnyProps) => children ?? null,
+    initialWindowMetrics: {
+      insets: mockInsets,
+      frame: { x: 0, y: 0, width: 390, height: 844 },
+    },
+  };
+}
+
+/**
+ * react-native-gesture-handler：Gesture.Pan() / Tap() 返回能链式调用的记录器，
+ * 把 onBegin / onStart / onUpdate / onEnd / onFinalize 存在 handlers 里、其余配置存在 config 里；
+ * GestureDetector 渲染成宿主元素 "GestureDetector"，props.gesture 就是记录器——测试里取出来直接调回调。
+ */
+export type RecordedGesture = {
+  kind: string;
+  handlers: Record<string, (...args: unknown[]) => void>;
+  config: Record<string, unknown[]>;
+  gestures?: RecordedGesture[];
+};
+export function gestureMock() {
+  const builder = (kind: string): RecordedGesture => {
+    const rec: RecordedGesture = { kind, handlers: {}, config: {} };
+    const proxy: RecordedGesture = new Proxy(rec, {
+      get(target, prop: string) {
+        if (prop in target) return target[prop as keyof RecordedGesture];
+        return (...args: unknown[]) => {
+          if (prop.startsWith("on") && typeof args[0] === "function")
+            target.handlers[prop] = args[0] as (...a: unknown[]) => void;
+          else target.config[prop] = args;
+          return proxy;
+        };
+      },
+    });
+    return proxy;
+  };
+  const compose =
+    (kind: string) =>
+    (...gestures: RecordedGesture[]): RecordedGesture => ({
+      kind,
+      handlers: {},
+      config: {},
+      gestures,
+    });
+  const GestureDetector = ({ gesture, children }: AnyProps) =>
+    createElement("GestureDetector", { gesture }, children as ReactNode);
+  return {
+    Gesture: {
+      Pan: () => builder("pan"),
+      Tap: () => builder("tap"),
+      LongPress: () => builder("longPress"),
+      Exclusive: compose("exclusive"),
+      Simultaneous: compose("simultaneous"),
+      Race: compose("race"),
+    },
+    GestureDetector,
+    GestureHandlerRootView: ({ children, ...props }: AnyProps) =>
+      createElement("GestureHandlerRootView", props, children as ReactNode),
+  };
+}
+
+/** expo-router：路由动作都是 jest.fn；路径 / 参数 / 是否在前台由测试改 routerState */
+export const routerState: {
+  pathname: string;
+  params: Record<string, string | string[] | undefined>;
+  focused: boolean;
+} = { pathname: "/", params: {}, focused: true };
+export const mockRouter = {
+  navigate: jest.fn(),
+  push: jest.fn(),
+  replace: jest.fn(),
+  back: jest.fn(),
+  dismiss: jest.fn(),
+  dismissTo: jest.fn(),
+  dismissAll: jest.fn(),
+  setParams: jest.fn(),
+  canGoBack: jest.fn(() => true),
+  canDismiss: jest.fn(() => false),
+};
+export const mockNavigation = {
+  setOptions: jest.fn(),
+  addListener: jest.fn(() => () => undefined),
+  goBack: jest.fn(),
+  isFocused: () => routerState.focused,
+};
+export function expoRouterMock() {
+  const Screen = (props: AnyProps) => createElement("StackScreen", props);
+  const Stack = Object.assign(
+    ({ children }: AnyProps) =>
+      createElement("Stack", null, children as ReactNode),
+    { Screen, Protected: ({ children }: AnyProps) => children ?? null },
+  );
+  return {
+    router: mockRouter,
+    useRouter: () => mockRouter,
+    useNavigation: () => mockNavigation,
+    usePathname: () => routerState.pathname,
+    useSegments: () => routerState.pathname.split("/").filter(Boolean),
+    useLocalSearchParams: () => routerState.params,
+    useGlobalSearchParams: () => routerState.params,
+    useIsFocused: () => routerState.focused,
+    useFocusEffect: (cb: () => void | (() => void)) => {
+      useEffect(() => (routerState.focused ? cb() : undefined), [cb]);
+    },
+    Stack,
+    Link: ({ children, ...props }: AnyProps) =>
+      createElement("Link", props, children as ReactNode),
+    Redirect: (props: AnyProps) => createElement("Redirect", props),
+  };
 }

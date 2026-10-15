@@ -78,6 +78,7 @@
       "**/*.test.tsx"
     ],
     "moduleNameMapper": {
+      "^@/assets/(.*)$": "<rootDir>/assets/$1",
       "^react$": "<rootDir>/node_modules/react",
       "^react/(.*)$": "<rootDir>/node_modules/react/$1"
     }

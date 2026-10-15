@@ -1,6 +1,7 @@
 // 渲染测试的小工具：建树、取全部文字、按文字找可点的节点、按名字找图标。
 // react-test-renderer 的 act/create；图标和 Skia 组件由 native-mocks 渲染成同名宿主元素。
 import { afterEach } from "@jest/globals";
+import { QueryClient } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import {
   act,
@@ -27,7 +28,7 @@ export type Rendered = {
   allText: () => string;
   /** 名字为 name 的图标（宿主元素 "Ionicons"） */
   icons: () => string[];
-  /** 找到第一个「自己或祖先带 onPress」且文字含 label 的节点并按下 */
+  /** 找到最里层文字含 label 的 Text，按下它自己或最近的带 onPress 的祖先 */
   press: (label: string) => void;
   /** 带 accessibilityLabel 的第一个可点节点 */
   byLabel: (label: string) => ReactTestInstance;
@@ -73,7 +74,15 @@ export function render(el: ReactElement): Rendered {
         .findAll((n) => isHost(n, "Ionicons"))
         .map((n) => String(n.props.name)),
     press: (label) => {
-      const hit = hostTexts().find((n) => textOf(n).includes(label));
+      // 取最里层那个含这段文字的 Text（嵌套 Text 里的链接要点到它自己，不是外层那行）
+      const hit = hostTexts()
+        .filter((n) => textOf(n).includes(label))
+        .find(
+          (n) =>
+            !n.findAll(
+              (c) => c !== n && isHost(c, "Text") && textOf(c).includes(label),
+            ).length,
+        );
       if (!hit) throw new Error(`没有文字含「${label}」的节点`);
       const p = pressable(hit);
       if (!p) throw new Error(`「${label}」不可点`);
@@ -126,4 +135,24 @@ export function flat(style: unknown): Record<string, unknown> {
   if (Array.isArray(style)) return Object.assign({}, ...style.map(flat));
   if (typeof style === "object") return style as Record<string, unknown>;
   return {};
+}
+
+/**
+ * 测试用的 QueryClient：不重试、不回收（gcTime 无穷大）——默认的 5 分钟回收计时器会让 jest 跑完不退出。
+ * 每个用例结束清掉建过的客户端。
+ */
+const clients = new Set<QueryClient>();
+afterEach(() => {
+  clients.forEach((c) => c.clear());
+  clients.clear();
+});
+export function makeQueryClient(): QueryClient {
+  const qc = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: Infinity, staleTime: Infinity },
+      mutations: { retry: false, gcTime: Infinity },
+    },
+  });
+  clients.add(qc);
+  return qc;
 }
