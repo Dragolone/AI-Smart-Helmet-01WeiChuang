@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { errorMessage } from '../common/error-text';
 import { withTimeout } from '../common/with-timeout';
+import { helmetLabel, pushClock } from '../common/helmet-label';
 import { PrismaService } from '../prisma/prisma.service';
 import { PUSH_PROVIDER, type PushProvider } from '../providers/push.provider';
 import {
@@ -253,11 +254,23 @@ export class SosNotifierService {
       where: { sosId: sosCase.id, channel: 'sms' },
       select: { status: true },
     });
-    const at = sosCase.finalizedAt?.toISOString() ?? '';
+    // 头盔写用户起的名字、时间写北京时间 HH:mm（原来是编号 + toISOString 的 UTC 原文，负责人 10-15）
+    const device = await this.prisma.device
+      .findUnique({
+        where: { deviceId: sosCase.deviceId },
+        select: { name: true },
+      })
+      .catch(() => null);
+    const helmet = helmetLabel({
+      name: device?.name,
+      deviceId: sosCase.deviceId,
+    });
+    const clock = pushClock(sosCase.finalizedAt);
+    const at = clock ? `已于 ${clock} ` : '';
     if (sms.length === 0) {
       return {
         title: PUSH_TITLE.noContacts,
-        body: `头盔 ${sosCase.deviceId} 的求救已于 ${at} 确认，但你尚未设置紧急联系人，无人会收到短信，请直接拨打电话求助`,
+        body: `头盔 ${helmet} 的求救${at}确认，但你尚未设置紧急联系人，无人会收到短信，请直接拨打电话求助`,
       };
     }
     const sent = sms.filter(
@@ -266,12 +279,12 @@ export class SosNotifierService {
     if (sent === 0) {
       return {
         title: PUSH_TITLE.contactsFailed,
-        body: `头盔 ${sosCase.deviceId} 的求救已于 ${at} 确认，向 ${sms.length} 位紧急联系人发送短信全部失败，系统会自动重试，请直接拨打电话求助`,
+        body: `头盔 ${helmet} 的求救${at}确认，向 ${sms.length} 位紧急联系人发送短信全部失败，系统会自动重试，请直接拨打电话求助`,
       };
     }
     return {
       title: PUSH_TITLE.contactsNotified,
-      body: `头盔 ${sosCase.deviceId} 的求救已于 ${at} 向 ${sent}/${sms.length} 位紧急联系人发出短信通知${sent < sms.length ? '（其余失败，系统会自动重试）' : ''}`,
+      body: `头盔 ${helmet} 的求救${at}向 ${sent}/${sms.length} 位紧急联系人发出短信通知${sent < sms.length ? '（其余失败，系统会自动重试）' : ''}`,
     };
   }
 

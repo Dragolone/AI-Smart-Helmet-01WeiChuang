@@ -6,6 +6,7 @@ import {
   CLOCK_SKEW_THRESHOLD_MS,
   latestPlausibleTime,
 } from '../common/device-time';
+import { helmetLabel } from '../common/helmet-label';
 import { sleep } from '../common/sleep';
 import type { ValidEnvelope } from '../ingest/envelope';
 import { PrismaService } from '../prisma/prisma.service';
@@ -92,7 +93,8 @@ export function describeEventAge(
  * 已到期返回 null（不再发，到期通知由扫描任务负责）。
  */
 export function createdPushBody(
-  deviceId: string,
+  /** 头盔称呼：名字优先、没有才用编号（helmetLabel） */
+  helmet: string,
   eventType: string,
   eventAt: Date,
   deadline: Date,
@@ -102,7 +104,7 @@ export function createdPushBody(
   if (remainingSec <= 0) return null;
   const action = eventType === 'manual_sos' ? '触发手动求救' : '检测到疑似摔倒';
   const age = describeEventAge(eventAt, now);
-  return `头盔 ${deviceId} ${action}${age ? `（${age}的事件，刚补传到）` : ''}，未取消将于 ${remainingSec} 秒后通知紧急联系人`;
+  return `头盔 ${helmet} ${action}${age ? `（${age}的事件，刚补传到）` : ''}，未取消将于 ${remainingSec} 秒后通知紧急联系人`;
 }
 
 /**
@@ -243,8 +245,9 @@ export class SosTriggerService {
     userId: string,
   ): Promise<void> {
     // 用户看不懂也不关心精确到毫秒的 UTC（10-07 A 线反馈）：写「N 秒后」，N = 发这一次时离 deadline 还剩几秒
+    const helmet = await this.helmetLabelOf(e.deviceId);
     const bodyNow = () =>
-      createdPushBody(e.deviceId, e.eventType, e.timestamp, created.deadline);
+      createdPushBody(helmet, e.eventType, e.timestamp, created.deadline);
     const delays = createdPushRetryDelaysMs();
     try {
       await this.pushCreatedWithRetry(
@@ -256,6 +259,19 @@ export class SosTriggerService {
       );
     } catch (err) {
       this.logger.warn(`SOS 创建 Push 重试中断：${errorMessage(err)}`);
+    }
+  }
+
+  /** 推送里怎么称呼这顶头盔；查不到 / 查询出错就用编号，推送照发 */
+  private async helmetLabelOf(deviceId: string): Promise<string> {
+    try {
+      const device = await this.prisma.device.findUnique({
+        where: { deviceId },
+        select: { name: true },
+      });
+      return helmetLabel({ name: device?.name, deviceId });
+    } catch {
+      return deviceId;
     }
   }
 
