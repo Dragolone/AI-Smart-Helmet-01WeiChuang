@@ -355,10 +355,25 @@ export default function SafetyRecordsScreen() {
     };
 
   // 绑了两顶以上时每条写明是哪一顶，名字放在时间前面：竖着扫一眼就能分出是谁的
-  const subOf = (deviceId: string, iso: string) =>
-    several
-      ? `${nameOfDevice(deviceId)} · ${shortTime(iso, locale)}`
-      : shortTime(iso, locale);
+  // 头盔名 + 时间：名字可以省略，时间不能被挤掉——原来拼成一串单行截断，右边有「通知已启动」
+  // 这类徽标时整段时间都看不到，只剩「helmet_night_a ·…」（2026-10-16 模拟器）
+  const subOf = (deviceId: string, iso: string) => (
+    <View style={styles.subLine}>
+      {several && (
+        <ThemedText
+          type="small"
+          themeColor="textSecondary"
+          style={[styles.rowSub, styles.subName]}
+          numberOfLines={1}
+        >
+          {nameOfDevice(deviceId)}
+        </ThemedText>
+      )}
+      <ThemedText type="small" themeColor="textSecondary" style={styles.rowSub}>
+        {several ? ` · ${shortTime(iso, locale)}` : shortTime(iso, locale)}
+      </ThemedText>
+    </View>
+  );
 
   const alertRow = (e: EventListItem, deviceId: string, last: boolean) => {
     const meta = EVENT_META[e.eventType];
@@ -381,14 +396,7 @@ export default function SafetyRecordsScreen() {
           <ThemedText type="small" style={styles.rowTitle} numberOfLines={1}>
             {meta ? t(meta.title) : e.eventType}
           </ThemedText>
-          <ThemedText
-            type="small"
-            themeColor="textSecondary"
-            style={styles.rowSub}
-            numberOfLines={1}
-          >
-            {subOf(deviceId, e.timestamp)}
-          </ThemedText>
+          {subOf(deviceId, e.timestamp)}
         </View>
         <Ionicons
           name="chevron-forward"
@@ -435,14 +443,7 @@ export default function SafetyRecordsScreen() {
                 : "records.sos.fall",
             )}
           </ThemedText>
-          <ThemedText
-            type="small"
-            themeColor="textSecondary"
-            style={styles.rowSub}
-            numberOfLines={1}
-          >
-            {subOf(deviceId, a.createdAt)}
-          </ThemedText>
+          {subOf(deviceId, a.createdAt)}
         </View>
         <Badge variant={status.variant} label={status.label} />
         <Ionicons
@@ -882,6 +883,8 @@ const styles = StyleSheet.create({
   rowBody: { flex: 1, minWidth: 0, gap: 2 },
   rowTitle: { fontSize: 15 },
   rowSub: { fontSize: 13, lineHeight: 18 },
+  subLine: { flexDirection: "row", alignItems: "center" },
+  subName: { flexShrink: 1 },
   note: { fontSize: 12, lineHeight: 19, paddingHorizontal: 2 },
   skeletonWrap: { gap: 12, paddingTop: 8 },
   skeletonRow: {
