@@ -68,6 +68,7 @@ import {
 } from "@/services/device-view";
 import { cleanHelmetName, helmetNameOf } from "@/services/safety-status";
 import { useBleStore } from "@/stores/ble-store";
+import { showNotice } from "@/services/notice";
 
 type RowTone = "ok" | "warn" | "bad" | "neutral";
 
@@ -346,7 +347,7 @@ export default function DeviceDetailScreen() {
           queryClient.invalidateQueries({ queryKey: ["devices"] }),
         ]);
       })
-      .catch((e) => Alert.alert(t("device.renameFailed"), toUserMessage(e)))
+      .catch((e) => showNotice(t("device.renameFailed"), toUserMessage(e)))
       .finally(() => setRenaming(false));
   };
 
@@ -379,7 +380,7 @@ export default function DeviceDetailScreen() {
               })
               .catch((e) => {
                 setUnbinding(false);
-                Alert.alert(t("device.unbindFailed"), toUserMessage(e));
+                showNotice(t("device.unbindFailed"), toUserMessage(e));
               });
           },
         },

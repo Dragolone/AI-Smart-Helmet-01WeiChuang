@@ -48,6 +48,7 @@ import type { VoiceChannel, VoiceChannelMemberPublic } from "@helmet/shared";
 
 import { channelsApi } from "@/api/channels";
 import { inviteCodeFrom } from "@/services/invite-code";
+import { ApiRequestError } from "@/api/client";
 import { sameSpeakers } from "@/services/voice-volume";
 import { toUserMessage } from "@/api/error-messages";
 import { FormInput, PrimaryButton, SecondaryButton } from "@/components/form";
@@ -67,6 +68,7 @@ import { playCue, prepareCues } from "@/services/intercom-cues";
 import { useAuthStore } from "@/stores/auth-store";
 import { useBleStore } from "@/stores/ble-store";
 import { useIntercomStore } from "@/stores/intercom-store";
+import { showNotice } from "@/services/notice";
 
 const SPEAKING_THRESHOLD = 10; // onUserVoiceVolume 0–100
 /** 屏幕常亮的标记：只管对讲页自己开的这一份，不影响地图页开的 */
@@ -555,7 +557,7 @@ export default function IntercomScreen() {
                 queryClient.invalidateQueries({ queryKey: ["voice-channels"] }),
               )
               .catch((e) =>
-                Alert.alert(t("intercom.leaveFailed"), toUserMessage(e)),
+                showNotice(t("intercom.leaveFailed"), toUserMessage(e)),
               );
           },
         },
@@ -582,14 +584,14 @@ export default function IntercomScreen() {
         setNameDraft("");
         return queryClient.invalidateQueries({ queryKey: ["voice-channels"] });
       })
-      .catch((e) => Alert.alert(t("intercom.createFailed"), toUserMessage(e)))
+      .catch((e) => showNotice(t("intercom.createFailed"), toUserMessage(e)))
       .finally(() => setSubmitting(false));
   };
 
   const submitJoin = () => {
     const inviteCode = inviteCodeFrom(codeDraft);
     if (!inviteCode) {
-      Alert.alert(t("intercom.inviteCode"), t("intercom.inviteCodeFormat"));
+      showNotice(t("intercom.inviteCode"), t("intercom.inviteCodeFormat"));
       return;
     }
     setSubmitting(true);
@@ -600,7 +602,15 @@ export default function IntercomScreen() {
         setCodeDraft("");
         return queryClient.invalidateQueries({ queryKey: ["voice-channels"] });
       })
-      .catch((e) => Alert.alert(t("intercom.joinError"), toUserMessage(e)))
+      .catch((e) =>
+        showNotice(
+          t("intercom.joinError"),
+          // 邀请码对不上任何频道时后端回通用 404，原来写「内容不存在或已删除」，看不出是码错了
+          e instanceof ApiRequestError && e.status === 404
+            ? t("intercom.inviteNotFound")
+            : toUserMessage(e),
+        ),
+      )
       .finally(() => setSubmitting(false));
   };
 

@@ -72,6 +72,7 @@ import {
   sosTargetOf,
   type HelmetLink,
 } from "@/services/safety-status";
+import { showNotice } from "@/services/notice";
 
 type Tone = "success" | "warning" | "danger";
 
@@ -307,7 +308,7 @@ export default function SafetyScreen() {
       .then(() => notifyCriticalAccepted(sosTargetId))
       .catch((e) => {
         enqueueRelayEvent(envelope as EventEnvelope<EventType>);
-        Alert.alert(
+        showNotice(
           translate("safety.sosSendFailed"),
           `${toUserMessage(e)}\n${translate("safety.sosQueued")}`,
         );
@@ -325,7 +326,7 @@ export default function SafetyScreen() {
           : { riskLevel: "high", direction: "rear" },
       )
       .catch((e) =>
-        Alert.alert(translate("safety.dev.failed"), toUserMessage(e)),
+        showNotice(translate("safety.dev.failed"), toUserMessage(e)),
       );
 
   // 三项核对：正常时字尽量少（头盔只写名字、通知只写「通知」），不正常的那一项写明是什么问题

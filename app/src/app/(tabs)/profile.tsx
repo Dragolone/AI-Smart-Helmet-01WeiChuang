@@ -33,6 +33,7 @@ import {
   useThemeStore,
   type ThemeMode,
 } from "@/stores/theme-store";
+import { showNotice } from "@/services/notice";
 
 export default function ProfileScreen() {
   const theme = useTheme();
@@ -94,7 +95,7 @@ export default function ProfileScreen() {
       });
       if (out.base64) setAvatarDraft(`data:image/jpeg;base64,${out.base64}`);
     } catch (e) {
-      Alert.alert(
+      showNotice(
         translate("profile.pickFailed"),
         e instanceof Error ? e.message : String(e),
       );
@@ -113,7 +114,7 @@ export default function ProfileScreen() {
       await setUser(updated);
       setSaved(true);
     } catch (e) {
-      Alert.alert(translate("profile.saveFailed"), toUserMessage(e));
+      showNotice(translate("profile.saveFailed"), toUserMessage(e));
     } finally {
       setSaving(false);
     }

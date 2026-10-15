@@ -192,7 +192,10 @@ describe("通知按钮「取消」的重试收尾", () => {
     await jest.advanceTimersByTimeAsync(10_000);
     expect(mockCancel).toHaveBeenCalledTimes(4);
     expect(mockNavigate).toHaveBeenCalledWith("/sos-active?sosId=s1&deviceId=d1");
-    expect(alertSpy).toHaveBeenCalledWith("sosAlert.cancelFailedTitle", "sosAlert.cancelFailedBody");
+    // 按钮文案自带（不传时 Android 显示英文 OK，10-16）
+    expect(alertSpy).toHaveBeenCalledWith("sosAlert.cancelFailedTitle", "sosAlert.cancelFailedBody", [
+      { text: "common.confirm" },
+    ]);
     alertSpy.mockRestore();
   });
 

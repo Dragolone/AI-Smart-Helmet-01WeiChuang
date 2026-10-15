@@ -4,7 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import { Stack } from "expo-router";
 import { useState } from "react";
-import { Alert, Linking, ScrollView, StyleSheet, View } from "react-native";
+import { Linking, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Card, GroupTitle, ListRow } from "@/components/list";
@@ -13,6 +13,7 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { useTheme } from "@/hooks/use-theme";
 import { translate, useT, type MessageKey } from "@/i18n";
+import { showNotice } from "@/services/notice";
 
 const FEEDBACK_EMAIL = "zhongqilong@01weichuang.com";
 const WEBSITE = "https://www.01weichuang.com";
@@ -92,7 +93,7 @@ export default function HelpScreen() {
     );
 
   const open = (url: string) =>
-    Linking.openURL(url).catch(() => Alert.alert(translate("help.openFailed")));
+    Linking.openURL(url).catch(() => showNotice(translate("help.openFailed")));
 
   const appVersion = Constants.expoConfig?.version ?? "—";
   const sendFeedback = () => {

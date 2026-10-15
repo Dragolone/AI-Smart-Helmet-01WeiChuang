@@ -6,12 +6,12 @@
 // - 下发只是把命令交给服务端，界面上的「当前值」始终是头盔确认过的值，不是用户刚点的值。
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Alert } from "react-native";
 import type { CommandPublic } from "@helmet/shared";
 
 import { devicesApi } from "@/api/devices";
 import { toUserMessage } from "@/api/error-messages";
 import { useT } from "@/i18n";
+import { showNotice } from "@/services/notice";
 
 export function useDeviceSettings(deviceId: string): {
   /** 当前生效设置（只含头盔确认过的值）；还没拿到时为 undefined */
@@ -43,7 +43,7 @@ export function useDeviceSettings(deviceId: string): {
           queryKey: ["device-settings", deviceId],
         }),
       )
-      .catch((e) => Alert.alert(t("device.sendFailed"), toUserMessage(e)))
+      .catch((e) => showNotice(t("device.sendFailed"), toUserMessage(e)))
       .finally(() => setSending(false));
   };
   return {
