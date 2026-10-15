@@ -1,6 +1,9 @@
 /** 设备时钟偏移阈值（DEVICE_PROTOCOL §8，默认 5 分钟） */
 export const CLOCK_SKEW_THRESHOLD_MS = 5 * 60_000;
 
+/** 头盔离线缓存的保留上限是 48 小时（DEVICE_PROTOCOL §6）；留一点余量，再早的时间戳只可能是头盔时钟不对 */
+export const MAX_PLAUSIBLE_BACKFILL_MS = 72 * 3_600_000;
+
 /** 设备自报时间可入库的年份范围：之外只可能是时钟坏了，且 PostgreSQL 直接拒收年份 0000 */
 const MIN_YEAR = 1970;
 const MAX_YEAR = 9999;
@@ -24,3 +27,18 @@ export function parseDeviceTime(value: unknown): Date | null {
  */
 export const latestPlausibleTime = (): Date =>
   new Date(Date.now() + CLOCK_SKEW_THRESHOLD_MS);
+
+/**
+ * 业务上用哪个时间（DEVICE_PROTOCOL §8：clock_skew 且非补传时以 receivedAt 兜底）。
+ * 补传暂时无法从报文识别（§6），所以按「可能是补传」的窗口判：
+ * - 比收到时晚超过偏移阈值：未来的时间不可能是补传 → 用收到时间；
+ * - 比收到时早超过离线缓存能保留的时长：不可能是补传 → 用收到时间（头盔 RTC 归零后报 1970 年就落在这里）；
+ * - 其余（含 5 分钟到 72 小时前的正常补传）保留设备时间，补传的轨迹形状不变。
+ * 设备原始时间始终在 raw_events 留档，这里只决定业务表按哪个时间排。
+ */
+export function businessTime(deviceTime: Date, receivedAt: Date): Date {
+  const aheadMs = deviceTime.getTime() - receivedAt.getTime();
+  if (aheadMs > CLOCK_SKEW_THRESHOLD_MS) return receivedAt;
+  if (-aheadMs > MAX_PLAUSIBLE_BACKFILL_MS) return receivedAt;
+  return deviceTime;
+}

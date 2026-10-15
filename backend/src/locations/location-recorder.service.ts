@@ -3,6 +3,7 @@ import type {
   LocationUpdatePayload,
   LocationPoint as WireLocationPoint,
 } from '@helmet/shared';
+import { businessTime } from '../common/device-time';
 import { errorMessage } from '../common/error-text';
 import { isUniqueViolation } from '../common/prisma-errors';
 import type { ValidEnvelope } from '../ingest/envelope';
@@ -66,12 +67,15 @@ export class LocationRecorderService {
       );
       return null;
     }
+    // 头盔时钟错乱（RTC 归零报 1970、跑到 2099）时按收到时间入轨迹表，否则这些点在所有按时间段的查询里都看不到
+    const receivedAt = new Date();
     try {
       const point = await this.prisma.locationPoint.create({
         data: {
           eventId: e.eventId,
           deviceId: e.deviceId,
-          timestamp: e.timestamp,
+          timestamp: businessTime(e.timestamp, receivedAt),
+          receivedAt,
           ...loc,
         },
       });

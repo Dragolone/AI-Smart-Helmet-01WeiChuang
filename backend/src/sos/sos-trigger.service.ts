@@ -5,6 +5,7 @@ import { isUniqueViolation } from '../common/prisma-errors';
 import {
   CLOCK_SKEW_THRESHOLD_MS,
   latestPlausibleTime,
+  MAX_PLAUSIBLE_BACKFILL_MS,
 } from '../common/device-time';
 import { helmetLabel } from '../common/helmet-label';
 import { sleep } from '../common/sleep';
@@ -64,9 +65,6 @@ export function extractSosLocation(
     accuracy: isFiniteNumber(p.accuracy) && p.accuracy >= 0 ? p.accuracy : null,
   };
 }
-
-/** 头盔离线缓存的保留上限是 48 小时（DEVICE_PROTOCOL §6）；留一点余量，再早的时间戳只可能是头盔时钟不对 */
-const MAX_PLAUSIBLE_BACKFILL_MS = 72 * 3_600_000;
 
 /**
  * 补传事件发生在多久之前（决策 #52：旧事件照常倒计时并通知，只在给本人的推送里说明，方便他判断要不要取消）。
