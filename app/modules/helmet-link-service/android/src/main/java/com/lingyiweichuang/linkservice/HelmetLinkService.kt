@@ -23,7 +23,7 @@ class HelmetLinkService : Service() {
       stopSelf()
       return START_NOT_STICKY
     }
-    val title = intent?.getStringExtra(EXTRA_TITLE) ?: "Helmet link"
+    val title = intent?.getStringExtra(EXTRA_TITLE) ?: getString(R.string.helmet_link_channel_name)
     val text = intent?.getStringExtra(EXTRA_TEXT) ?: ""
     ensureChannel()
     val notification = buildNotification(title, text)
@@ -45,9 +45,14 @@ class HelmetLinkService : Service() {
   private fun ensureChannel() {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
     val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-    if (manager.getNotificationChannel(CHANNEL_ID) != null) return
-    val channel = NotificationChannel(CHANNEL_ID, "Helmet link", NotificationManager.IMPORTANCE_LOW).apply {
-      description = "Keeps the helmet Bluetooth link alive in background"
+    // 每次都建：通道已存在时系统只更新名字和说明（重要程度等用户改过的设置不动），
+    // 这样老用户手机上原来的英文名「Helmet link」也会换成跟系统语言走的名字
+    val channel = NotificationChannel(
+      CHANNEL_ID,
+      getString(R.string.helmet_link_channel_name),
+      NotificationManager.IMPORTANCE_LOW,
+    ).apply {
+      description = getString(R.string.helmet_link_channel_description)
       setShowBadge(false)
     }
     manager.createNotificationChannel(channel)
