@@ -94,6 +94,7 @@ docker compose -f docker-compose.prod.yml exec backend npm run provision:device 
 # 第四顶常驻 Mock（负责人自测用，2026-10-14）：MOCK4_DEVICE_* / demo4 / mock4，剧本 tour：每轮 12 分钟依次演 8 条各不相同的安全事件
 #   （后方来车 / 左右侧车辆 / 前方行人 / 远近障碍物 / 后方不明目标，三档等级，4 条带录像，各自到点解除）、摔倒（下一轮换手动求救）、
 #   休眠→唤醒、蓝牙断开；每轮一次求救到期会真发短信，只绑自测账号。MOCK4_TOUR_CYCLE_POINTS 可改轮长（≥40 个点）
+# 第五、六顶常驻 Mock（负责人看多头盔界面用，2026-10-15）：MOCK5_DEVICE_* / demo5 / mock5、MOCK6_DEVICE_* / demo6 / mock6，剧本留空（riding）
 # 注意：`up -d --build mock2` 会连带重建 backend；backend 重启那十几秒里新连上的 MQTT 客户端（刚起的 mock）会被 EMQX 把
 # ACL 结果缓存成「拒绝」——日志「订阅 cmd 失败」、事件 not_authorized、设备一直离线。backend 起稳后 `restart mock2` 即可
 docker compose -f docker-compose.prod.yml exec backend npm run provision:batch -- --count 20   # 产线批量开通:CSV + 二维码,产物在容器 /repo/backend/provision-out/
