@@ -21,12 +21,13 @@ import {
 
 type Translate = ReturnType<typeof useT>;
 
-/** 「36 分钟」/「1 小时 46 分」 */
+/** 「36 分钟」/「1 小时 46 分」/ 整小时「2 小时」（原来写「2 小时 0 分」） */
 export function durationText(seconds: number, t: Translate): string {
   const { hours, minutes } = durationParts(seconds);
-  return hours > 0
-    ? t("map.rides.durHour", { h: hours, m: minutes })
-    : t("map.rides.durMin", { m: minutes });
+  if (hours === 0) return t("map.rides.durMin", { m: minutes });
+  return minutes === 0
+    ? t("map.rides.durHourOnly", { h: hours })
+    : t("map.rides.durHour", { h: hours, m: minutes });
 }
 
 /** 「18:05 – 18:41」；进行中的写「19:02 – 现在」；跨过零点的写「15:00 – 次日 15:00」 */

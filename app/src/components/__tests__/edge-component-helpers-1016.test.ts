@@ -42,7 +42,7 @@ describe("clampVolume：音量滑杆按 5% 一档、10–100", () => {
     expect(clampVolume(Number.NEGATIVE_INFINITY)).toBe(10);
   });
 
-  it("头盔上实际是 1–9 的小音量（设置清单允许 1）：滑杆显示成 10（现状：滑杆最低一档就是 10）", () => {
+  it("拖动档位最低一档是 10：1–9 拖动时落到 10（10-16 第二轮改：静止显示不再走这里，改走 restingVolume 照实显示 1–9）", () => {
     expect(DEVICE_SETTINGS.volume).toMatchObject({ min: 1, max: 100 });
     for (const v of [1, 3, 7, 9]) expect(clampVolume(v)).toBe(10);
   });
