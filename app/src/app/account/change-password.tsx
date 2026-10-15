@@ -24,6 +24,8 @@ export default function ChangePasswordScreen() {
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // 改好了：按钮先画勾，画完再提示并返回
+  const [done, setDone] = useState(false);
 
   const submit = async () => {
     setError(null);
@@ -47,8 +49,7 @@ export default function ChangePasswordScreen() {
     try {
       // 本机的 refreshToken 由 authApi 在发请求时现取（401 重试时要带轮换后的那把）
       await authApi.changePassword({ oldPassword, newPassword: password });
-      showToast(t("auth.changePasswordDone"));
-      router.back();
+      setDone(true);
     } catch (e) {
       setError(toUserMessage(e));
     } finally {
@@ -107,6 +108,11 @@ export default function ChangePasswordScreen() {
             title={t("common.save")}
             onPress={() => void submit()}
             loading={busy}
+            success={done}
+            onSuccessShown={() => {
+              showToast(t("auth.changePasswordDone"));
+              router.back();
+            }}
           />
         </View>
       </KeyboardAvoidingView>

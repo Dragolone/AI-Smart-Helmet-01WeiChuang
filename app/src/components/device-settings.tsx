@@ -15,6 +15,7 @@ import {
 import { StyleSheet, View } from "react-native";
 
 import { helmetErrorText } from "@/api/error-messages";
+import { CheckDraw } from "@/components/check-draw";
 import { AnimatedChip } from "@/components/motion";
 import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
@@ -128,7 +129,8 @@ export function CommandFeedback({
   const view: {
     text: string;
     color: string;
-    icon: keyof typeof Ionicons.glyphMap;
+    /** null = 已生效：勾是画出来的（CheckDraw），不是现成图标 */
+    icon: keyof typeof Ionicons.glyphMap | null;
   } =
     command.status === "pending"
       ? {
@@ -150,7 +152,7 @@ export function CommandFeedback({
                   })
                 : t("device.cmd.success"),
               color: theme.success,
-              icon: "checkmark-circle-outline",
+              icon: null,
             }
           : command.status === "failed"
             ? {
@@ -169,7 +171,17 @@ export function CommandFeedback({
               };
   return (
     <View accessibilityLiveRegion="polite" style={styles.feedback}>
-      <Ionicons name={view.icon} size={14} color={view.color} />
+      {view.icon ? (
+        <Ionicons name={view.icon} size={14} color={view.color} />
+      ) : (
+        // 回执变成 success 的那一刻挂上来、从头画一遍；和主按钮成功态是同一个勾
+        <CheckDraw
+          size={14}
+          strokeWidth={2.8}
+          ringOpacity={0.6}
+          color={view.color}
+        />
+      )}
       <ThemedText
         type="small"
         style={[styles.feedbackText, { color: view.color }]}
