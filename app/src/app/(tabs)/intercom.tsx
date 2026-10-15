@@ -152,6 +152,9 @@ function MemberCell({
         {speaking ? (
           <View style={[styles.speakPill, { backgroundColor: theme.brand }]}>
             <ThemedText
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
               style={[styles.speakPillText, { color: theme.onBrand }]}
             >
               {t("intercom.speaking")}
@@ -165,7 +168,12 @@ function MemberCell({
                 { backgroundColor: theme.backgroundSelected },
               ]}
             >
-              <ThemedText style={styles.speakPillText}>
+              <ThemedText
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+                style={styles.speakPillText}
+              >
                 {t("intercom.micOpen")}
               </ThemedText>
             </View>
@@ -263,6 +271,27 @@ export default function IntercomScreen() {
     // 新成员的档案(昵称/头像)15s 内出现;实时"在房"由 TRTC 事件驱动
     refetchInterval: 15_000,
   });
+
+  // 别人加入 / 退出频道不会推到这台手机：每次切回这一页重拉一次列表；
+  // 成员档案拉回来的人数和列表里的对不上时以档案为准（同一张弹层曾写「1 位成员」却列出两人）
+  useEffect(() => {
+    if (!focused) return;
+    void queryClient.refetchQueries(
+      { queryKey: ["voice-channels"], type: "active" },
+      { cancelRefetch: false },
+    );
+  }, [focused, queryClient]);
+  const loadedCount = members.data?.length;
+  useEffect(() => {
+    if (loadedCount == null || !membersOf) return;
+    queryClient.setQueryData<VoiceChannel[]>(["voice-channels"], (old) =>
+      old?.map((c) =>
+        c.channelId === membersOf && c.memberCount !== loadedCount
+          ? { ...c, memberCount: loadedCount }
+          : c,
+      ),
+    );
+  }, [loadedCount, membersOf, queryClient]);
 
   const memberMap = useMemo(() => {
     const map = new Map<string, VoiceChannelMemberPublic>();
@@ -1824,11 +1853,19 @@ const styles = StyleSheet.create({
     maxWidth: "100%",
     paddingHorizontal: 4,
   },
-  cellSlot: { height: 22, alignItems: "center", justifyContent: "center" },
+  cellSlot: {
+    height: 22,
+    alignSelf: "stretch",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  // 一格只有屏宽的四分之一：「麦克风已开启」「Microphone on」在 360dp 宽的手机上放不下，
+  // 原来折成两行、第二行被 20 高的药丸切掉（2026-10-15 华为）。限宽到格子、单行缩字
   speakPill: {
     height: 20,
+    maxWidth: "100%",
     borderRadius: Radius.pill,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     justifyContent: "center",
   },
   speakPillText: { fontSize: 11, lineHeight: 14, fontWeight: 600 },

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- 系统「设置 → 通知」里看到的通道名，跟系统语言走（App 内语言管不到这里） -->
+  <string name="helmet_link_channel_name">Helmet connection</string>
+  <string name="helmet_link_channel_description">Keeps the helmet Bluetooth link alive in the background</string>
+</resources>
