@@ -258,6 +258,40 @@ describe('IngestService：剩余分支', () => {
       expect(push.pushDeviceEvent).toHaveBeenCalledTimes(1);
     });
 
+    it('device_status：推刚刷新过的设备快照；location_update 推位置点；位置不合法（record 返回 null）不推', async () => {
+      const snap = { bindUserId: 'u1', battery: 50 };
+      applyEvent.mockResolvedValue(snap);
+      await service.ingestRaw(envelope(), 'helmet_001', 'mqtt');
+      expect(push.pushDeviceStatus).toHaveBeenCalledWith(
+        'u1',
+        'helmet_001',
+        snap,
+      );
+      record.mockResolvedValueOnce({ latitude: 1 }).mockResolvedValueOnce(null);
+      await service.ingestRaw(
+        envelope({
+          eventId: 'loc-1',
+          eventType: 'location_update',
+          payload: {},
+        }),
+        'helmet_001',
+        'mqtt',
+      );
+      expect(push.pushLocation).toHaveBeenCalledWith('u1', 'helmet_001', {
+        latitude: 1,
+      });
+      await service.ingestRaw(
+        envelope({
+          eventId: 'loc-2',
+          eventType: 'location_update',
+          payload: {},
+        }),
+        'helmet_001',
+        'mqtt',
+      );
+      expect(push.pushLocation).toHaveBeenCalledTimes(1);
+    });
+
     it('未列入任何推送集合的类型（如 future_type）：入库但不推送', async () => {
       await expect(
         service.ingestRaw(

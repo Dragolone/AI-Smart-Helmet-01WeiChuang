@@ -74,4 +74,56 @@ describe('EmqxHookService.authenticate：clientId 规则', () => {
       result: 'deny',
     });
   });
+
+  describe('authorize', () => {
+    it.each([
+      [undefined, 'helmet/helmet_001/event', 'publish'],
+      ['helmet_001', undefined, 'publish'],
+      ['helmet_001', 'helmet/helmet_001/event', undefined],
+    ])('缺参数（username=%p topic=%p action=%p）：deny', (u, t, a) => {
+      expect(svc.authorize(u, t, a)).toEqual({ result: 'deny' });
+    });
+
+    it('设备：只能发自己的上行叶子、订阅自己的 cmd；其余一律 deny 并告警', () => {
+      for (const leaf of ['status', 'location', 'event', 'cmd_ack']) {
+        expect(
+          svc.authorize('helmet_001', `helmet/helmet_001/${leaf}`, 'publish'),
+        ).toEqual({
+          result: 'allow',
+        });
+      }
+      expect(
+        svc.authorize('helmet_001', 'helmet/helmet_001/cmd', 'subscribe'),
+      ).toEqual({
+        result: 'allow',
+      });
+      expect(
+        svc.authorize('helmet_001', 'helmet/helmet_001/cmd', 'publish'),
+      ).toEqual({
+        result: 'deny',
+      });
+      expect(
+        svc.authorize('helmet_001', 'helmet/helmet_001/event', 'subscribe'),
+      ).toEqual({
+        result: 'deny',
+      });
+      expect(
+        svc.authorize('helmet_001', 'helmet/helmet_002/event', 'publish'),
+      ).toEqual({
+        result: 'deny',
+      });
+      expect(svc.authorize('helmet_001', 'other/topic', 'publish')).toEqual({
+        result: 'deny',
+      });
+      expect(warnSpy).toHaveBeenCalledWith(
+        'MQTT 越权拒绝：helmet_001 → publish helmet/helmet_002/event',
+      );
+    });
+
+    it('服务账号：任意 Topic 放行', () => {
+      expect(svc.authorize('svc', 'helmet/+/event', 'subscribe')).toEqual({
+        result: 'allow',
+      });
+    });
+  });
 });

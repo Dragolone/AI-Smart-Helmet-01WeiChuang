@@ -13,6 +13,9 @@
 - **复现**（单测，已提交，断言现状）：
   - `src/locations/location-recorder.service.spec.ts`「精确 (0,0)…现状：照常入轨迹表」
   - `src/sos/sos-trigger.branches.spec.ts`「事件位置是 (0,0) 被当缺失、回落的最新轨迹点也是 (0,0) 时，现状：快照仍钉在 (0,0)」
+  - 端到端（真库 + HTTP）：`test/cov-findings.e2e-spec.ts`「BC1 现状」——Ingest 一条 (0,0) 的 location_update 后，
+    `GET /devices/{id}/locations/latest` 返回 (0,0)；再来一条位置为 (0,0) 的 possible_fall，`GET /devices/{id}/accidents`
+    里事故地点是 `{ latitude: 0, longitude: 0, source: 'last_point' }`。
 - **期望**：同一个哨兵在全链路同一口径——要么位置表不收 (0,0)，要么所有「取最新位置」的查询都跳过它。
 - **代码位置**：`backend/src/locations/location-recorder.service.ts` `extractLocation`（约第 20–49 行）；
   `backend/src/sos/sos-trigger.service.ts` `resolveSnapshot`（约第 359–387 行）；`backend/src/locations/locations.service.ts` `latest`（约第 50–63 行）。
@@ -50,7 +53,8 @@
 - **现象**：`CreateChannelDto.name` 只有 `@IsString() @MinLength(1) @MaxLength(30)`，`"   "` 能通过，`VoiceService.create` 也不 trim，
   频道列表 / 邀请页上就是一个看不见名字的频道。同仓库里联系人名（`CreateContactDto` 先 `@Transform(trim)` 再验，注释「全空白名不能入库」）、
   设备名（`DevicesService.rename` trim 后空串视为清除）都处理过这种输入。
-- **复现**（单测，已提交，断言现状）：`src/controller-dtos.spec.ts`「频道名 1–30；现状：全空白名也能过」。
+- **复现**（已提交，断言现状）：单测 `src/controller-dtos.spec.ts`「频道名 1–30；现状：全空白名也能过」；
+  端到端 `test/cov-findings.e2e-spec.ts`「BC3 现状」——`POST /voice/channels { name: "   " }` → 201，名字原样存三个空格（同文件对照：联系人全空白名 → 400）。
 - **期望**：与联系人同口径，trim 后再验 1–30。API.md §13（`POST /voice/channels`，body `{ name }`）没写长度与空白规则，改时顺手补上。
 - **代码位置**：`backend/src/voice/voice.controller.ts` `CreateChannelDto`（约第 17–22 行）。
 - **建议修法**：照 `contacts.controller.ts` 加 `@Transform(trim)`（同文件里那个 `trim` 函数），一行改动；昵称（`UpdateMeDto.nickname`、注册 `nickname`）
