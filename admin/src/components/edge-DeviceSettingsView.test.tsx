@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { DEVICE_SETTINGS, DEVICE_SETTING_KEYS } from '@helmet/shared'
 import DeviceSettingsView, { summarizeSettings } from './DeviceSettingsView'
@@ -81,5 +81,32 @@ describe('DeviceSettingsView：边界', () => {
     const tags = Array.from(document.querySelectorAll('.ant-tag')).map((el) => el.textContent)
     expect(tags).toEqual(['心跳周期 10 s', '大灯 高亮', 'zzz = 1', 'aaa = 2'])
     expect(screen.getByText('其余 12 项为出厂默认')).toBeInTheDocument()
+  })
+
+  it('数值项存了布尔（旧数据）→ 按布尔显示开 / 关；负数、小数照实带单位', () => {
+    const s = summarizeSettings({ volume: true, heartbeatPeriod: -1, light: 1.5 })
+    expect(s.changed.map((c) => c.text)).toEqual(['心跳周期 -1 s', '蜂鸣音量 开', '大灯 1.5'])
+  })
+
+  it('档位项的每个已知档位都翻成中文：振动 0–3、大灯 0–3、灵敏度 1–3', () => {
+    const texts = (key: 'vibration' | 'light' | 'fallSensitivity', values: number[]) =>
+      values.map((v) => summarizeSettings({ [key]: v }).changed[0]?.text ?? `（${v} 是默认值）`)
+    expect(texts('vibration', [0, 1, 2, 3])).toEqual(['振动 关', '振动 弱', '（2 是默认值）', '振动 强'])
+    expect(texts('light', [0, 1, 2, 3])).toEqual(['（0 是默认值）', '大灯 低亮', '大灯 高亮', '大灯 爆闪'])
+    expect(texts('fallSensitivity', [1, 2, 3])).toEqual(['跌倒灵敏度 低', '（2 是默认值）', '跌倒灵敏度 灵敏'])
+  })
+
+  it('悬停改动项看到出厂值；悬停未知项看到「不在设置清单内（旧数据）」', async () => {
+    render(<DeviceSettingsView settings={{ volume: 30, beepVolume: 70 }} />)
+    fireEvent.mouseEnter(screen.getByText('蜂鸣音量 30%'))
+    expect(await screen.findByText('出厂 80%')).toBeInTheDocument()
+    fireEvent.mouseEnter(screen.getByText('beepVolume = 70'))
+    expect(await screen.findByText('不在设置清单内（旧数据）')).toBeInTheDocument()
+  })
+
+  it('只改了一项 → 「其余 13 项为出厂默认」', () => {
+    render(<DeviceSettingsView settings={{ radar: false }} />)
+    expect(screen.getByText('后方雷达 关')).toBeInTheDocument()
+    expect(screen.getByText('其余 13 项为出厂默认')).toBeInTheDocument()
   })
 })

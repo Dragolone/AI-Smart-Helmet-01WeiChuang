@@ -5,8 +5,12 @@ import zhCN from 'antd/locale/zh_CN'
 import type { ReactElement } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 
-/** 与 main.tsx 同一套 Provider 栈；重试关掉让失败用例立刻落到 isError */
-export function renderWithProviders(ui: ReactElement, route = '/') {
+/**
+ * 与 main.tsx 同一套 Provider 栈；重试关掉让失败用例立刻落到 isError。
+ * route 传数组时是一段浏览历史（停在最后一条），用来测「返回」这类依赖历史的行为
+ */
+export function renderWithProviders(ui: ReactElement, route: string | string[] = '/') {
+  const entries = Array.isArray(route) ? route : [route]
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false, gcTime: 0 },
@@ -17,7 +21,9 @@ export function renderWithProviders(ui: ReactElement, route = '/') {
     <ConfigProvider locale={zhCN}>
       <AntdApp>
         <QueryClientProvider client={client}>
-          <MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>
+          <MemoryRouter initialEntries={entries} initialIndex={entries.length - 1}>
+            {ui}
+          </MemoryRouter>
         </QueryClientProvider>
       </AntdApp>
     </ConfigProvider>,

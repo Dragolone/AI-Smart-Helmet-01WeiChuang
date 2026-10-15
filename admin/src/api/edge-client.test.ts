@@ -99,6 +99,85 @@ describe('admin api 客户端：边界', () => {
     await expect(api('/admin/users')).rejects.toBeInstanceOf(Error)
   })
 
+  it('令牌每次请求现读：过期后重新登录换了 token，下一次请求就用新的', async () => {
+    const fetchMock = stubFetch(() => jsonResponse(200, {}))
+    saveSession('tok_old', 'ops')
+    await api('/admin/users')
+    saveSession('tok_new', 'ops')
+    await api('/admin/users')
+    const auths = fetchMock.mock.calls.map(([, init]) => new Headers(init?.headers).get('authorization'))
+    expect(auths).toEqual(['Bearer tok_old', 'Bearer tok_new'])
+  })
+
+  it('调用方传 Headers 实例或二维数组形式的头 → 照样合并，不丢', async () => {
+    const fetchMock = stubFetch(() => jsonResponse(200, {}))
+    saveSession('tok_1', 'ops')
+    await api('/admin/users', { headers: new Headers({ 'X-Trace': 'a' }) })
+    await api('/admin/users', { headers: [['X-Trace', 'b']] })
+    const got = fetchMock.mock.calls.map(([, init]) => {
+      const h = new Headers(init?.headers)
+      return [h.get('x-trace'), h.get('authorization')]
+    })
+    expect(got).toEqual([
+      ['a', 'Bearer tok_1'],
+      ['b', 'Bearer tok_1'],
+    ])
+  })
+
+  it('路径原样拼接、客户端不替调用方编码：`#` 之后会被 fetch 当成片段丢掉，编码是调用处的责任', async () => {
+    const fetchMock = stubFetch(() => jsonResponse(200, {}))
+    await api('/admin/devices/a%23b')
+    await api('/admin/devices/a#b')
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      '/api/v1/admin/devices/a%23b',
+      '/api/v1/admin/devices/a#b',
+    ])
+  })
+
+  it('两个请求同时 401（列表轮询与详情同时过期）→ 都抛 ApiError、会话清空、跳登录不报错', async () => {
+    stubFetch(() => jsonResponse(401, { code: 'UNAUTHORIZED', message: 'jwt expired' }))
+    const assign = spyOnAssign()
+    saveSession('tok_expired', 'ops')
+    const results = await Promise.allSettled([api('/admin/devices'), api('/admin/stats/overview')])
+    for (const r of results) {
+      expect(r.status).toBe('rejected')
+      expect((r as PromiseRejectedResult).reason).toMatchObject({ code: 'UNAUTHORIZED', status: 401 })
+    }
+    expect(getToken()).toBeNull()
+    expect(assign).toHaveBeenCalledWith('/login')
+  })
+
+  it('错误体的 message 是数组（框架默认的校验错误格式）→ 拼成字符串放进 Error，不抛异常', async () => {
+    stubFetch(() =>
+      jsonResponse(400, {
+        code: 'VALIDATION_FAILED',
+        message: ['keyword must be shorter than or equal to 64 characters'],
+      }),
+    )
+    const err = await api('/admin/users?keyword=x').catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(ApiError)
+    expect(err).toMatchObject({ code: 'VALIDATION_FAILED', status: 400 })
+    expect((err as ApiError).message).toBe('keyword must be shorter than or equal to 64 characters')
+  })
+
+  it('200 但响应体为空（如 204 风格的空体）→ 抛 JSON 解析错误而不是返回 undefined（后台现有接口都带体）', async () => {
+    stubFetch(() => new Response('', { status: 200 }))
+    await expect(api('/admin/users')).rejects.toBeInstanceOf(SyntaxError)
+  })
+
+  it('200 且体为 JSON null → 原样返回 null，由调用处兜底', async () => {
+    stubFetch(() => jsonResponse(200, null))
+    await expect(api('/admin/users')).resolves.toBeNull()
+  })
+
+  it('body 为空串也算「有 body」→ 照样设 JSON Content-Type；不传 body 的 GET 不设', async () => {
+    const fetchMock = stubFetch(() => jsonResponse(200, {}))
+    await api('/admin/auth/login', { method: 'POST', body: '' })
+    await api('/admin/users', { method: 'GET' })
+    const types = fetchMock.mock.calls.map(([, init]) => new Headers(init?.headers).get('content-type'))
+    expect(types).toEqual(['application/json', null])
+  })
+
   it('会话存取：保存后可读回，clearSession 把 token 与用户名一起清掉', () => {
     expect(getToken()).toBeNull()
     expect(getUsername()).toBeNull()
