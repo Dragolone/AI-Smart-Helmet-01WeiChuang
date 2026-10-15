@@ -17,6 +17,8 @@ import { useTheme } from "@/hooks/use-theme";
 import { useLocale, useT } from "@/i18n";
 import { shortTime } from "@/i18n/format";
 
+import { endTimeLabel } from "./ride-list";
+
 /** 进度条上那颗点的半径：轨道两端各内缩这么多，点在 0%–100% 全程都落在条内 */
 const THUMB_R = 11;
 const BUBBLE_W = 52;
@@ -387,7 +389,14 @@ export function RideReplay({
             themeColor="textSecondary"
             style={styles.seekLabel}
           >
-            {ready ? shortTime(points[last].timestamp, locale) : "--:--"}
+            {ready
+              ? endTimeLabel(
+                  points[0].timestamp,
+                  points[last].timestamp,
+                  locale,
+                  t,
+                )
+              : "--:--"}
           </ThemedText>
         </View>
       </View>

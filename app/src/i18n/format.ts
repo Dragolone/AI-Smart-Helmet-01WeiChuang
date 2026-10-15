@@ -1,5 +1,5 @@
 // 相对时间 / 日期的本地化格式（各页共用，避免每页各写一套中文口径）
-import { translate, LOCALE_TAGS, type Locale } from "./index";
+import { translate, LOCALE_TAGS, useLocaleStore, type Locale } from "./index";
 
 /** 认不出的时间戳在日期 / 时间位置上的占位（与 maskPhone 的空值占位同一个符号） */
 const INVALID_TIME = "—";
@@ -23,10 +23,37 @@ export function relativeTime(iso: string | null, locale?: Locale): string {
       { n: Math.floor(diffSec / 3600) },
       locale,
     );
+  // 一个月以上直接写日期：「730 天前」读起来要换算（2026-10-15 边界测试），跨年时带上年份
+  if (diffSec >= 30 * 86400)
+    return dateMaybeYear(iso, locale ?? useLocaleStore.getState().locale);
   return translate(
     "common.daysAgo",
     { n: Math.floor(diffSec / 86400) },
     locale,
+  );
+}
+
+/** 日期；不是今年的带上年份：「9月10日」/「2024年10月15日」 */
+export function dateMaybeYear(iso: string, locale: Locale): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return INVALID_TIME;
+  const thisYear = at.getFullYear() === new Date(Date.now()).getFullYear();
+  return new Intl.DateTimeFormat(LOCALE_TAGS[locale], {
+    ...(thisYear ? {} : { year: "numeric" }),
+    month: "short",
+    day: "numeric",
+  }).format(at);
+}
+
+/** 两个时间在手机本地时区是不是同一天（认不出的时间按同一天处理，不额外加「次日」） */
+export function sameLocalDay(aIso: string, bIso: string): boolean {
+  const a = new Date(aIso);
+  const b = new Date(bIso);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return true;
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
   );
 }
 

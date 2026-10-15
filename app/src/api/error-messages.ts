@@ -14,6 +14,7 @@ const MESSAGE_KEYS: Record<string, MessageKey> = {
   SMS_CODE_DAILY_LIMIT: "error.smsCodeDailyLimit",
   SMS_SEND_FAILED: "error.smsSendFailed",
   DEVICE_NOT_FOUND: "error.deviceNotFound",
+  NOT_FOUND: "error.notFound",
   BIND_CODE_INVALID: "error.bindCodeInvalid",
   DEVICE_ALREADY_BOUND: "error.deviceAlreadyBound",
   PASSWORD_INCORRECT: "error.passwordIncorrect",

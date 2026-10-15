@@ -207,8 +207,9 @@ export function BleFirstConnectGuide() {
                 <ThemedText type="smallBold">
                   {t(`ble.onboarding.${step.key}`)}
                 </ThemedText>
+                {/* 说明是整句话：不用全大写的 label 样式（英文下一整句大写读起来费劲，2026-10-15） */}
                 {!step.done && (
-                  <ThemedText type="label" themeColor="textSecondary">
+                  <ThemedText type="small" themeColor="textSecondary">
                     {t(`ble.onboarding.${step.key}Hint`)}
                   </ThemedText>
                 )}

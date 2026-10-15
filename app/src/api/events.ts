@@ -1,6 +1,6 @@
 // 事件查询（docs/API.md §6；backend/src/events 已实现并验收）
-import type { EventDetail, EventListItem, Paginated } from '@helmet/shared';
-import { api } from './client';
+import type { EventDetail, EventListItem, Paginated } from "@helmet/shared";
+import { api } from "./client";
 
 export const eventsApi = {
   /** 设备事件历史（最新在前）；type 可多值逗号分隔（EVENTS.md §3 事件类型）；from / to 选填（API.md §6） */
@@ -15,11 +15,11 @@ export const eventsApi = {
     } = {},
   ) => {
     const params = new URLSearchParams();
-    if (opts.type) params.set('type', opts.type);
-    if (opts.from) params.set('from', opts.from);
-    if (opts.to) params.set('to', opts.to);
-    params.set('page', String(opts.page ?? 1));
-    params.set('pageSize', String(opts.pageSize ?? 20));
+    if (opts.type) params.set("type", opts.type);
+    if (opts.from) params.set("from", opts.from);
+    if (opts.to) params.set("to", opts.to);
+    params.set("page", String(opts.page ?? 1));
+    params.set("pageSize", String(opts.pageSize ?? 20));
     return api<Paginated<EventListItem>>(
       `/devices/${encodeURIComponent(deviceId)}/events?${params.toString()}`,
     );
@@ -37,8 +37,12 @@ export const eventsApi = {
  */
 export const eventsListQuery = (
   deviceId: string,
-  opts: { type: string; pageSize: number },
+  opts: { type: string; pageSize: number; page?: number },
 ) => ({
-  queryKey: ['events', deviceId, opts.type, opts.pageSize] as const,
+  // 第 1 页的键不带页码（和以前一样，别处的缓存不受影响）；第 2 页起追加页码
+  queryKey:
+    (opts.page ?? 1) > 1
+      ? (["events", deviceId, opts.type, opts.pageSize, opts.page] as const)
+      : (["events", deviceId, opts.type, opts.pageSize] as const),
   queryFn: () => eventsApi.list(deviceId, opts),
 });

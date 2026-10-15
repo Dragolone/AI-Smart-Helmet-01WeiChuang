@@ -595,9 +595,23 @@ function OtherRow({
           </View>
         </View>
         <View style={styles.otherBattery}>
-          <Animated.Text style={[styles.otherBatteryText, bText]}>
-            {battery !== null ? `${battery}%` : "—"}
-          </Animated.Text>
+          {/* 充电中在数字前加一道闪电（读屏读「充电中」）：原来 100% 充电中和 100% 没充看不出区别（2026-10-15） */}
+          <View
+            style={styles.otherBatteryValue}
+            accessible
+            accessibilityLabel={
+              device.charging
+                ? `${t("devices.charging")} ${battery ?? "—"}%`
+                : undefined
+            }
+          >
+            {device.charging === true && (
+              <Ionicons name="flash" size={12} color={bColor} />
+            )}
+            <Animated.Text style={[styles.otherBatteryText, bText]}>
+              {battery !== null ? `${battery}%` : "—"}
+            </Animated.Text>
+          </View>
           <View
             style={[
               styles.batteryTrack,
@@ -969,7 +983,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
-    height: 26,
+    minHeight: 26,
+    paddingVertical: 2,
     paddingLeft: 10,
     paddingRight: 11,
     borderRadius: 13,
@@ -1037,15 +1052,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     marginBottom: 8,
   },
+  // 行高、药丸高都是「最小」：系统字体放大时名字和状态两行会超过 60，定高时字叠到下一行上
+  //（2026-10-15 边界测试，2 倍字体）。1 倍字体下高度不变；放不下时页面本来就会改成滚动
   otherRow: {
     flexDirection: "row",
-    alignItems: "center",
-    height: OTHER_ROW_HEIGHT,
+    minHeight: OTHER_ROW_HEIGHT,
   },
   otherMain: {
     flex: 1,
     minWidth: 0,
-    height: "100%",
+    paddingVertical: 6,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
@@ -1066,6 +1082,7 @@ const styles = StyleSheet.create({
   dot: { width: 6, height: 6, borderRadius: 3 },
   otherSub: { fontSize: 13, lineHeight: 18, fontWeight: 500, flexShrink: 1 },
   otherBattery: { alignItems: "flex-end", gap: 4 },
+  otherBatteryValue: { flexDirection: "row", alignItems: "center", gap: 2 },
   otherBatteryText: {
     fontSize: 13,
     lineHeight: 16,
@@ -1079,7 +1096,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   batteryFill: { height: 5, borderRadius: 3 },
-  setCurrent: { height: "100%", justifyContent: "center", paddingRight: 10 },
+  setCurrent: { justifyContent: "center", paddingRight: 10 },
   setCurrentPill: {
     height: 32,
     paddingHorizontal: 12,
