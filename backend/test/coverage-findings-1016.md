@@ -3,6 +3,10 @@
 分支 `test/backend-coverage-1016`。只记补测过程中发现的问题，**没有改任何服务代码**（后端归 B 线审）；
 对应测试只断言现状，并在测试名里写了编号，修好后把那条测试的期望改过来即可。
 
+> 与同晚的接口边界测试（main 上 #200 的 `backend/test/edge-findings-1016.md`）对照：三条都被独立撞到——
+> BC1 = 其 **B2**（本文多了「最新位置接口同样返回 (0,0)」和在入库处一并修的建议）；BC2 = 其观察项 21；BC3 = 其观察项 1。
+> 修的时候按一条处理即可，两边的现状断言测试都要改期望。
+
 ## BC1：(0,0) 「没定到位」哨兵只在 SOS 事件快照里挡了，轨迹表照收，SOS 回落最新轨迹点时又把 (0,0) 捡回来
 
 - **现象**：`extractSosLocation` 把精确 (0,0) 当作「没定到位」的哨兵，按缺失处理、回落该设备最新轨迹点
@@ -57,5 +61,5 @@
   端到端 `test/cov-findings.e2e-spec.ts`「BC3 现状」——`POST /voice/channels { name: "   " }` → 201，名字原样存三个空格（同文件对照：联系人全空白名 → 400）。
 - **期望**：与联系人同口径，trim 后再验 1–30。API.md §13（`POST /voice/channels`，body `{ name }`）没写长度与空白规则，改时顺手补上。
 - **代码位置**：`backend/src/voice/voice.controller.ts` `CreateChannelDto`（约第 17–22 行）。
-- **建议修法**：照 `contacts.controller.ts` 加 `@Transform(trim)`（同文件里那个 `trim` 函数），一行改动；昵称（`UpdateMeDto.nickname`、注册 `nickname`）
+- **建议修法**：照 `contacts.controller.ts` 给 `name` 加 `@Transform(trim)`（那个 `trim` 小函数复制过来或抽到 `common/`），改动一两行；昵称（`UpdateMeDto.nickname`、注册 `nickname`）
   同样没有 trim，可一并定口径（昵称为空白时下游 SOS 文案已回落脱敏手机号，影响更小）。

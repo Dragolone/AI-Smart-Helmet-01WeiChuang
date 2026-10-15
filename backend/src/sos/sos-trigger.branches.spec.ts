@@ -267,6 +267,25 @@ describe('SosTriggerService：剩余分支', () => {
     expect(errorSpy).not.toHaveBeenCalled();
   });
 
+  it('建单本身（create）遇到非唯一约束错误：不当成重复，抛给外层按瞬时故障重试', async () => {
+    jest.useFakeTimers({ now: NOW });
+    prisma.sosCase.findFirst.mockResolvedValue(null);
+    prisma.sosCase.create
+      .mockRejectedValueOnce(new Error('deadlock detected'))
+      .mockResolvedValueOnce(pending({ id: 'c11' }));
+    const p = svc.handleTrigger(env('possible_fall'), 'u1');
+    await jest.advanceTimersByTimeAsync(200);
+    await p;
+    expect(prisma.sosCase.create).toHaveBeenCalledTimes(2);
+    expect(warnSpy).toHaveBeenCalledWith(
+      'SOS 建单失败（第 1 次），200ms 后重试：deadlock detected',
+    );
+    expect(realtime.pushSosUpdate).toHaveBeenCalledWith(
+      'u1',
+      expect.objectContaining({ sosId: 'c11' }),
+    );
+  });
+
   it('重试耗尽：不向上抛（raw 已落库、重投会被幂等挡掉），记 error 等对账补建', async () => {
     jest.useFakeTimers({ now: NOW });
     prisma.sosCase.findFirst.mockRejectedValue(new Error('db down'));
