@@ -6,7 +6,7 @@ import { api } from '../api/client'
 import QueryError from '../components/QueryError'
 import { useClampPage } from '../utils/use-clamp-page'
 import { formatTime, formatUserLabel } from '../utils/format'
-import type { AdminAccidentRow, Paginated, SosStatus } from '@helmet/shared'
+import type { AdminAccidentRow, Paginated, SosStatus, SosTriggerType } from '@helmet/shared'
 
 const STATUS_TAG: Record<SosStatus, { color: string; label: string }> = {
   pending: { color: 'orange', label: '倒计时中' },
@@ -17,6 +17,19 @@ const STATUS_TAG: Record<SosStatus, { color: string; label: string }> = {
 const STATUS_OPTIONS = (Object.keys(STATUS_TAG) as SosStatus[]).map(
   (value) => ({ value, label: STATUS_TAG[value].label }),
 )
+
+const TRIGGER_TAG: Record<SosTriggerType, { color: string; label: string }> = {
+  possible_fall: { color: 'gold', label: '疑似摔倒' },
+  manual_sos: { color: 'volcano', label: '手动求救' },
+}
+
+/**
+ * 库里 status / trigger_type 是自由字符串列：清单外的值照实显示原值——直接下标取会让整页白屏
+ *（undefined.color），按「不是手动就是摔倒」兜底又会把新触发方式误标成疑似摔倒。
+ * 用自有属性判断，免得 toString 这类原型上的键被当成已知值。
+ */
+const knownTag = (table: Record<string, { color: string; label: string }>, key: string) =>
+  Object.hasOwn(table, key) ? table[key] : undefined
 
 const columns: ColumnsType<AdminAccidentRow> = [
   { title: '时间', dataIndex: 'createdAt', width: 180, render: formatTime },
@@ -31,20 +44,19 @@ const columns: ColumnsType<AdminAccidentRow> = [
     title: '触发方式',
     dataIndex: 'triggerType',
     width: 110,
-    render: (t: string) =>
-      t === 'manual_sos' ? (
-        <Tag color="volcano">手动求救</Tag>
-      ) : (
-        <Tag color="gold">疑似摔倒</Tag>
-      ),
+    render: (t: string) => {
+      const tag = knownTag(TRIGGER_TAG, t)
+      return tag ? <Tag color={tag.color}>{tag.label}</Tag> : <Tag>{t}</Tag>
+    },
   },
   {
     title: '状态',
     dataIndex: 'status',
     width: 100,
-    render: (s: SosStatus) => (
-      <Tag color={STATUS_TAG[s].color}>{STATUS_TAG[s].label}</Tag>
-    ),
+    render: (s: string) => {
+      const tag = knownTag(STATUS_TAG, s)
+      return tag ? <Tag color={tag.color}>{tag.label}</Tag> : <Tag>{s}</Tag>
+    },
   },
   {
     title: '事故位置',

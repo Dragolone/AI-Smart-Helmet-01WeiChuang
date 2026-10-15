@@ -107,6 +107,67 @@ describe('AccidentsPage：单元格', () => {
   })
 })
 
+describe('AccidentsPage：清单外的状态与触发方式', () => {
+  const tagOf = (deviceId: string, col: number) => {
+    const row = screen.getByText(deviceId).closest('tr') as HTMLElement
+    const tag = row.querySelectorAll('td')[col].querySelector('.ant-tag') as HTMLElement
+    const color = Array.from(tag.classList).find((c) => /^ant-tag-(orange|red|gold|volcano)$/.test(c)) ?? null
+    return [tag.textContent, color]
+  }
+
+  it('已知取值的中文名与配色不变：倒计时中橙 / 已通知红 / 已取消默认；疑似摔倒金 / 手动求救火山橙', async () => {
+    stubApi(() =>
+      page([
+        accident({ sosId: 's1', deviceId: 'helmet_a', status: 'pending', triggerType: 'possible_fall' }),
+        accident({ sosId: 's2', deviceId: 'helmet_b', status: 'notified', triggerType: 'manual_sos' }),
+        accident({ sosId: 's3', deviceId: 'helmet_c', status: 'cancelled' }),
+      ]),
+    )
+    renderWithProviders(<AccidentsPage />)
+    await screen.findByText('helmet_a')
+    expect([tagOf('helmet_a', 4), tagOf('helmet_a', 3)]).toEqual([
+      ['倒计时中', 'ant-tag-orange'],
+      ['疑似摔倒', 'ant-tag-gold'],
+    ])
+    expect([tagOf('helmet_b', 4), tagOf('helmet_b', 3)]).toEqual([
+      ['已通知', 'ant-tag-red'],
+      ['手动求救', 'ant-tag-volcano'],
+    ])
+    expect(tagOf('helmet_c', 4)).toEqual(['已取消', null])
+  })
+
+  it('库里出现清单外的状态（如以后加的 escalated）→ 照实显示原值，整页不白屏', async () => {
+    stubApi(() =>
+      page([
+        accident({ sosId: 's1', deviceId: 'helmet_a', status: 'escalated' as never }),
+        accident({ sosId: 's2', deviceId: 'helmet_b', status: 'notified' }),
+      ]),
+    )
+    renderWithProviders(<AccidentsPage />)
+    expect(await screen.findByText('helmet_a')).toBeInTheDocument()
+    expect(tagOf('helmet_a', 4)).toEqual(['escalated', null])
+    expect(tagOf('helmet_b', 4)).toEqual(['已通知', 'ant-tag-red'])
+  })
+
+  it('清单外的触发方式照实显示原值，不再一律标成「疑似摔倒」', async () => {
+    stubApi(() => page([accident({ deviceId: 'helmet_a', triggerType: 'remote_sos' as never })]))
+    renderWithProviders(<AccidentsPage />)
+    await screen.findByText('helmet_a')
+    expect(tagOf('helmet_a', 3)).toEqual(['remote_sos', null])
+    expect(screen.queryByText('疑似摔倒')).not.toBeInTheDocument()
+  })
+
+  it('取值撞上原型键（toString / constructor）→ 也按清单外原值显示，不出空标签', async () => {
+    stubApi(() =>
+      page([accident({ deviceId: 'helmet_a', status: 'toString' as never, triggerType: 'constructor' as never })]),
+    )
+    renderWithProviders(<AccidentsPage />)
+    await screen.findByText('helmet_a')
+    expect(tagOf('helmet_a', 4)).toEqual(['toString', null])
+    expect(tagOf('helmet_a', 3)).toEqual(['constructor', null])
+  })
+})
+
 describe('AccidentsPage：筛选', () => {
   it.each([
     ['倒计时中', 'pending'],
