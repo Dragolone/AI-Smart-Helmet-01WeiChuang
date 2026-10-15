@@ -44,7 +44,7 @@ import {
   type MessageKey,
 } from "@/i18n";
 import { fullDateTime, shortDate, shortTime } from "@/i18n/format";
-import { readableEventFields } from "@/services/event-fields";
+import { readableEventFields, riskLevelOf } from "@/services/event-fields";
 import {
   combinePages,
   mergeRecords,
@@ -332,10 +332,8 @@ export default function SafetyRecordsScreen() {
           : { fg: theme.textSecondary, bg: theme.backgroundSelected };
 
   const d = detail.data;
-  const dRisk =
-    d && typeof d.payload.riskLevel === "string"
-      ? RISK_LABEL[d.payload.riskLevel]
-      : null;
+  const level = d ? riskLevelOf(d.payload) : null;
+  const dRisk = level ? RISK_LABEL[level] : null;
   const dFields = d
     ? [
         {

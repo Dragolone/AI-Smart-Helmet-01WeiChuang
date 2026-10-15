@@ -25,7 +25,35 @@ const OBJECT_LABEL: Record<string, MessageKey> = {
 const own = (table: Record<string, MessageKey>, key: string) =>
   Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
 
-/** 把 payload 里用户看得懂的字段挑出来（原始 JSON 不给用户看）；未知枚举值原样显示 */
+export type RiskLevel = "high" | "medium" | "low";
+const RISK_LEVELS: Record<string, RiskLevel> = {
+  high: "high",
+  medium: "medium",
+  low: "low",
+};
+
+/**
+ * 风险档位。EVENTS.md 4.5：App 收到未知档位按 high 兜底——原来未知值（如 "extreme"）详情页
+ * 干脆不显示档位（2026-10-16 模拟器实测）；不是字符串（缺省 / 坏数据）时没有档位。
+ */
+export function riskLevelOf(
+  payload: Record<string, unknown>,
+): RiskLevel | null {
+  const v = payload.riskLevel;
+  if (typeof v !== "string") return null;
+  return Object.prototype.hasOwnProperty.call(RISK_LEVELS, v)
+    ? RISK_LEVELS[v]
+    : "high";
+}
+
+/**
+ * 数值字段在合理范围内才显示：载荷原样落库，坏数据会显示成「-5.0 m」「1e+308 m」
+ *（2026-10-16 模拟器实测）。上限取 v0.6 载荷能表示的最大值。
+ */
+const inRange = (v: unknown, min: number, max: number): v is number =>
+  typeof v === "number" && Number.isFinite(v) && v >= min && v <= max;
+
+/** 把 payload 里用户看得懂的字段挑出来（原始 JSON 不给用户看）；未知枚举值原样显示，数值越界的不显示 */
 export function readableEventFields(
   payload: Record<string, unknown>,
   t: Translate,
@@ -45,28 +73,28 @@ export function readableEventFields(
       value: key ? t(key) : payload.objectType,
     });
   }
-  if (typeof payload.distance === "number")
+  if (inRange(payload.distance, 0, 6553.5))
     out.push({
       label: t("events.field.distance"),
       value: `${payload.distance.toFixed(1)} m`,
     });
   // v0.6 载荷里由 App 中转附上的硬件原始量（EVENTS.md 4.3–4.5）：有就显示，没有不占位
-  if (typeof payload.ttcSeconds === "number")
+  if (inRange(payload.ttcSeconds, 0, 6553.5))
     out.push({
       label: t("events.field.ttc"),
       value: `${payload.ttcSeconds.toFixed(1)} s`,
     });
-  if (typeof payload.approachSpeedKmh === "number")
+  if (inRange(payload.approachSpeedKmh, 0, 255))
     out.push({
       label: t("events.field.approachSpeed"),
       value: `${Math.round(payload.approachSpeedKmh)} km/h`,
     });
-  if (typeof payload.impactG === "number")
+  if (inRange(payload.impactG, 0, 6553.5))
     out.push({
       label: t("events.field.impact"),
       value: `${payload.impactG.toFixed(1)} g`,
     });
-  if (typeof payload.tiltDeg === "number")
+  if (inRange(payload.tiltDeg, 0, 360))
     out.push({
       label: t("events.field.tilt"),
       value: `${Math.round(payload.tiltDeg)}°`,
@@ -83,12 +111,12 @@ export function readableEventFields(
           : "events.trigger.doubleClick",
       ),
     });
-  if (typeof payload.pressDurationMs === "number")
+  if (inRange(payload.pressDurationMs, 0, 600_000))
     out.push({
       label: t("events.field.pressDuration"),
       value: `${(payload.pressDurationMs / 1000).toFixed(1)} s`,
     });
-  if (typeof payload.confidence === "number")
+  if (inRange(payload.confidence, 0, 1))
     out.push({
       label: t("events.field.confidence"),
       value: `${Math.round(payload.confidence * 100)}%`,
