@@ -21,13 +21,22 @@ import { ApiRequestError, forceRefreshTokens } from "@/api/client";
 import { devicesApi } from "@/api/devices";
 import { realtimeClient } from "@/api/realtime";
 import { sosApi } from "@/api/sos";
-import { setBleTargets, startBleLink, stopBleLink } from "@/services/ble-link";
+import {
+  setBleTargetNameResolver,
+  setBleTargets,
+  startBleLink,
+  stopBleLink,
+} from "@/services/ble-link";
 import {
   checkBatteryAlert,
   resetBatteryAlerts,
 } from "@/services/battery-alert";
 import { devLog } from "@/services/dev-log";
-import { currentHelmetOf, helmetNameOf } from "@/services/safety-status";
+import {
+  cleanHelmetName,
+  currentHelmetOf,
+  helmetNameOf,
+} from "@/services/safety-status";
 import { setPushArrivalHandler, startPush, stopPush } from "@/services/push";
 import { handleDeviceCommand } from "@/services/ble-relay";
 import {
@@ -111,6 +120,13 @@ export function useRealtimeUpdates(): void {
     // 当前头盔排第一：绑了 20 顶以上时链路只盯前 20 顶，服务端列表按绑定时间排，当前那顶可能排在后面（10-16 A11）
     const bleTargetsOf = () =>
       prioritizeCurrent(queryClient, liveTargets(queryClient) ?? known);
+    // 前台服务的常驻通知写用户起的头盔名，不写设备号（10-16 夜测 N23）
+    setBleTargetNameResolver((id) => {
+      const devices = queryClient.getQueryData<DevicePublic[]>(["devices"]);
+      if (!Array.isArray(devices)) return null;
+      const device = devices.find((d) => d.deviceId === id);
+      return device ? cleanHelmetName(device.name) || null : null;
+    });
     const cachedReady = loadCachedTargets(
       useAuthStore.getState().user?.id,
     ).then((ids) => {
@@ -364,6 +380,7 @@ export function useRealtimeUpdates(): void {
       realtimeClient.stop();
       stopRelayUplink();
       stopBleLink();
+      setBleTargetNameResolver(null);
       resetBatteryAlerts();
       setPushArrivalHandler(null);
       setCriticalAcceptedHandler(null);
