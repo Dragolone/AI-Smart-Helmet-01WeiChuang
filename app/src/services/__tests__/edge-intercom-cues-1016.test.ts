@@ -1,4 +1,4 @@
-// 对讲提示音的边界（2026-10-16）：声音文件第一次用到时写进缓存目录、之后复用；文件大小对不上就重写；
+// 对讲提示音的边界（2026-10-16）：声音文件第一次用到时写进缓存目录、之后复用；文件大小对不上 / 被清掉了就重写；
 // 交给 TRTC 音效接口时去掉 file:// 并解码；任何一步失败都只是没有提示音，绝不抛给通话。
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 
@@ -121,6 +121,21 @@ describe("prepareCues / playCue", () => {
     mockFiles.set("intercom-cue-blip.wav", size - 10);
     load().playCue("join");
     expect(mockFs.writes).toEqual(["intercom-cue-blip.wav"]);
+  });
+
+  it("缓存目录里的声音文件被清掉了：下次用到时重写，不会一直没声音到重启", () => {
+    const m = load();
+    m.playCue("join");
+    expect(mockFs.writes).toEqual(["intercom-cue-blip.wav"]);
+    m.playCue("join");
+    expect(mockFs.writes).toHaveLength(1);
+    mockFiles.delete("intercom-cue-blip.wav");
+    m.playCue("join");
+    expect(mockFs.writes).toEqual([
+      "intercom-cue-blip.wav",
+      "intercom-cue-blip.wav",
+    ]);
+    expect(mockPlay).toHaveBeenCalledTimes(3);
   });
 
   it("每种提示对应的声音：掉线和头盔断开是三声低音，按住说话两声各自不同", () => {

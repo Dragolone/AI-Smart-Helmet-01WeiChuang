@@ -167,6 +167,13 @@ export function previewReducer(
   }
 }
 
+/**
+ * iOS 第一次拉流会弹「本地网络」授权，拒过之后拉流永远失败、点重新连接也没用，只能去设置里开
+ * （DEVELOPMENT.md 平台限制清单 2026-09-30）：拉流失败时多一句提示和去设置的按钮
+ */
+export const suggestsLocalNetwork = (s: PreviewState, os: string): boolean =>
+  os === "ios" && s.phase === "error" && s.errorKey === "video.err.stream";
+
 /** 截图写到缓存目录的纯文件系统路径（播放器原生侧用 new File(path) / saveVideoSnapshotAt，不认 file://） */
 export const toFsPath = (uri: string): string =>
   uri.startsWith("file://") ? decodeURI(uri.slice("file://".length)) : uri;

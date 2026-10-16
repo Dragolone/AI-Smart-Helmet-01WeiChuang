@@ -12,11 +12,13 @@
 // 邀请码走系统分享面板、点成员头像对我静音、退出频道前的确认、音频输出切换、新建频道 / 输入邀请码两个弹层。
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { requestRecordingPermissionsAsync } from "expo-audio";
 import { Image } from "expo-image";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { useIsFocused } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  type AccessibilityActionEvent,
   Alert,
   Modal,
   PermissionsAndroid,
@@ -79,6 +81,14 @@ import {
 const SPEAKING_THRESHOLD = 10; // onUserVoiceVolume 0–100
 /** 屏幕常亮的标记：只管对讲页自己开的这一份，不影响地图页开的 */
 const KEEP_AWAKE_TAG = "intercom";
+/** 进了一个已经有人的房间，房里每个人都会补发一次「进来了」：这段时间内只记人、不响提示音 */
+const JOIN_CUE_QUIET_MS = 1000;
+
+/** 进房没成功（失败 / 超时 / 作废）：本地采集在进房回调之前就开了，停采集再退房，麦克风不能一直开着 */
+const abandonRoom = (cloud: TRTCCloud) => {
+  cloud.stopLocalAudio().catch(() => {});
+  cloud.exitRoom().catch(() => {});
+};
 
 type TalkMode = "hold" | "open";
 type Sheet =
@@ -111,6 +121,14 @@ function MemberCell({
 }) {
   const theme = useTheme();
   const t = useT();
+  // 读屏要能听出是谁、在不在说话、是不是被我静音了；格子里这几样原来只有图标和颜色
+  const a11yLabel = [
+    self ? `${name} (${t("intercom.me")})` : name,
+    speaking ? t("intercom.speaking") : micOpen ? t("intercom.micOpen") : "",
+    muted ? t("intercom.mutedForMe") : "",
+  ]
+    .filter(Boolean)
+    .join(t("common.a11ySep"));
   const body = (
     <>
       <View style={styles.cellRingBox}>
@@ -192,11 +210,26 @@ function MemberCell({
     </>
   );
   return onPress ? (
-    <Tappable onPress={onPress} style={styles.cell}>
+    <Tappable
+      accessibilityRole="button"
+      accessibilityLabel={a11yLabel}
+      accessibilityHint={t(
+        muted ? "intercom.member.unmuteHint" : "intercom.member.muteHint",
+      )}
+      onPress={onPress}
+      style={styles.cell}
+    >
       {body}
     </Tappable>
   ) : (
-    <View style={styles.cell}>{body}</View>
+    <View
+      accessible
+      accessibilityRole="text"
+      accessibilityLabel={a11yLabel}
+      style={styles.cell}
+    >
+      {body}
+    </View>
   );
 }
 
@@ -209,8 +242,12 @@ export default function IntercomScreen() {
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const trtc = useRef(TRTCCloud.sharedInstance());
-  /** 正在进 / 已经在里面的那个频道 */
-  const [activeId, setActiveId] = useState<string | null>(null);
+  /**
+   * 正在进 / 已经在里面的那个频道，进房时记下一份：通话中它从列表里消失（在另一台手机上退出了频道）时，
+   * 房间标题、邀请按钮和别的标签页上的小条照样有名字可显示（原来一起消失，TRTC 却还在房间里）
+   */
+  const [active, setActive] = useState<VoiceChannel | null>(null);
+  const activeId = active?.channelId ?? null;
   const [inRoom, setInRoom] = useState(false);
   const [talking, setTalking] = useState(false);
   /** 说话方式。每次进房都从「按住说话」开始 */
@@ -247,9 +284,9 @@ export default function IntercomScreen() {
   const myId = user?.id ?? "";
 
   // TRTC 监听器和蓝牙订阅里要读这几样的最新值，又不能因为它们变了就重注册——重注册的清理会退房
-  const live = useRef({ inRoom, mode, micOn, talking });
+  const live = useRef({ inRoom, mode, micOn, talking, activeId, joining });
   useEffect(() => {
-    live.current = { inRoom, mode, micOn, talking };
+    live.current = { inRoom, mode, micOn, talking, activeId, joining };
   });
 
   const openMicSeen = useIntercomStore((s) =>
@@ -265,7 +302,7 @@ export default function IntercomScreen() {
     queryFn: channelsApi.list,
   });
   const list = channels.data ?? [];
-  const channel = list.find((c) => c.channelId === activeId) ?? null;
+  const channel = list.find((c) => c.channelId === activeId) ?? active;
   const moreChannel =
     sheet?.kind === "more"
       ? (list.find((c) => c.channelId === sheet.channelId) ?? null)
@@ -325,30 +362,56 @@ export default function IntercomScreen() {
     if (joinTimer.current) clearTimeout(joinTimer.current);
     joinTimer.current = null;
   };
+  // 每次进房一个序号；超时、换频道、结束通话、退出这个频道、离开页面都让它作废，晚到的凭证 / 进房回调不再进房开麦
+  // （原来进房途中退出登录，凭证回来照样进房开麦，登录页上还在收发声音）
+  const joinSeq = useRef(0);
+  /** 已经调了 enterRoom、正等它回调的那一次的序号（0 = 没在等） */
+  const awaitingEnter = useRef(0);
+  const cancelJoin = () => {
+    joinSeq.current += 1;
+    awaitingEnter.current = 0;
+    clearJoinTimer();
+  };
+  /** 自己这次进房成功的时刻：之后一小段时间里房里已有的人补发的「进来了」不响提示音 */
+  const enteredAt = useRef(0);
 
   useEffect(() => {
     const cloud = trtc.current;
     // 监听器内用 translate 而非 t：避免语言切换时重注册监听并触发 cleanup 的 exitRoom
     const listener = (type: TRTCCloudListener, params: any) => {
       switch (type) {
-        case TRTCCloudListener.onEnterRoom:
+        case TRTCCloudListener.onEnterRoom: {
+          // 已经作废的那次进房晚到的回调：那边已经退房了，不能再把界面切进房间
+          if (
+            !awaitingEnter.current ||
+            awaitingEnter.current !== joinSeq.current
+          )
+            break;
+          awaitingEnter.current = 0;
           if (joinTimer.current) clearTimeout(joinTimer.current);
           joinTimer.current = null;
-          setInRoom(params.result >= 0);
+          const ok = params.result >= 0;
+          setInRoom(ok);
           setJoining(false);
           setJoinError(
-            params.result >= 0
+            ok
               ? null
               : translate("intercom.joinFailed", { code: params.result }),
           );
-          if (params.result >= 0) {
+          if (ok) {
+            enteredAt.current = Date.now();
             prepareCues();
             playCue("enter");
             Haptics.notificationAsync(
               Haptics.NotificationFeedbackType.Success,
             ).catch(() => {});
+          } else {
+            // 进房链后面的开麦不再执行；已经开了的采集停掉
+            joinSeq.current += 1;
+            abandonRoom(cloud);
           }
           break;
+        }
         case TRTCCloudListener.onExitRoom:
           setInRoom(false);
           setOnlineIds([]);
@@ -360,15 +423,42 @@ export default function IntercomScreen() {
           setTalking(false);
           setNetDown(false);
           setHelmetDown(false);
+          // 不是自己退的（1 = 被服务器移出，常见是同一账号在另一台手机进了对讲；2 = 房间被解散）：
+          // 原来一声不响回到列表，骑行中根本不知道通话断了
+          if (typeof params?.reason === "number" && params.reason !== 0) {
+            playCue("lost");
+            Haptics.notificationAsync(
+              Haptics.NotificationFeedbackType.Warning,
+            ).catch(() => {});
+            showToast(
+              translate(
+                params.reason === 2
+                  ? "intercom.exit.dismissed"
+                  : "intercom.exit.kicked",
+              ),
+            );
+          }
           break;
-        case TRTCCloudListener.onRemoteUserEnterRoom:
-          setOnlineIds((prev) =>
-            prev.includes(params.userId) ? prev : [...prev, params.userId],
-          );
-          playCue("join");
-          // 有人进房但档案可能还没拉到 → 立刻刷新成员列表
-          void queryClient.invalidateQueries({ queryKey: ["voice-members"] });
+        case TRTCCloudListener.onRemoteUserEnterRoom: {
+          const id: string = params.userId;
+          setOnlineIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+          if (
+            live.current.inRoom &&
+            Date.now() - enteredAt.current >= JOIN_CUE_QUIET_MS
+          )
+            playCue("join");
+          // 档案里没有这个人（刚用邀请码加入的新成员）才重拉；正在拉就不再起一次，一进房不会连拉 N 次
+          const key = ["voice-members", live.current.activeId];
+          const known = queryClient
+            .getQueryData<VoiceChannelMemberPublic[]>(key)
+            ?.some((m) => m.userId === id);
+          if (!known)
+            void queryClient.invalidateQueries(
+              { queryKey: key },
+              { cancelRefetch: false },
+            );
           break;
+        }
         case TRTCCloudListener.onRemoteUserLeaveRoom:
           setOnlineIds((prev) => prev.filter((m) => m !== params.userId));
           break;
@@ -405,12 +495,28 @@ export default function IntercomScreen() {
           playCue("back");
           showToast(translate("intercom.reconnected"));
           break;
+        case TRTCCloudListener.onError:
+          // 采集失败（麦克风被别的 App 占着）等不可恢复的错误：原来没有处理，界面还写着在说话 / 麦克风开着，
+          // 实际发不出声音。说出来，并把麦克风状态收回到关着（界面和实际一致）
+          showToast(
+            translate("intercom.error", { code: params?.errCode ?? "?" }),
+          );
+          if (live.current.talking || live.current.micOn)
+            void cloud.muteLocalAudio(true).catch(() => {});
+          setTalking(false);
+          setMicOn(false);
+          pttScale.set(withSpring(1, { damping: 12, stiffness: 200 }));
+          break;
       }
     };
     cloud.registerListener(listener);
     return () => {
+      // 进房还在半路时离开页面（含退出登录）：作废这一次，凭证回来也不再进房
+      joinSeq.current += 1;
+      awaitingEnter.current = 0;
       if (joinTimer.current) clearTimeout(joinTimer.current);
       joinTimer.current = null;
+      setJoining(false);
       cloud.unRegisterListener(listener);
       cloud.exitRoom();
     };
@@ -468,19 +574,31 @@ export default function IntercomScreen() {
     };
   }, [keepAwake]);
 
-  const join = async (channelId: string) => {
+  const join = async (target: VoiceChannel) => {
     if (joining) return;
-    if (Platform.OS === "android") {
-      const res = await PermissionsAndroid.request(
-        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-      );
-      if (res !== PermissionsAndroid.RESULTS.GRANTED) {
-        // 拒了不能静默退回列表（2026-10-15）：说清为什么没进去、去哪开
-        setJoinError(translate("intercom.micDenied"));
-        return;
-      }
+    const seq = (joinSeq.current += 1);
+    awaitingEnter.current = 0;
+    // 每个 await 之后都要问一句：这次进房还算不算数（超时 / 换了频道 / 离开了页面）
+    const stale = () => seq !== joinSeq.current;
+    // 拒了不能静默退回列表（2026-10-15）：说清为什么没进去、去哪开。iOS 原来不问，拒过的人进房后一声不出
+    const micGranted =
+      Platform.OS === "android"
+        ? (await PermissionsAndroid.request(
+            PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+          )) === PermissionsAndroid.RESULTS.GRANTED
+        : Platform.OS === "ios"
+          ? // 拿不到结果（原生模块异常）时不拦：交给 TRTC 自己申请，出错走 onError
+            await requestRecordingPermissionsAsync().then(
+              (p) => p.granted,
+              () => true,
+            )
+          : true;
+    if (stale()) return;
+    if (!micGranted) {
+      setJoinError(translate("intercom.micDenied"));
+      return;
     }
-    setActiveId(channelId);
+    setActive(target);
     setJoining(true);
     setJoinError(null);
     // 原生 TRTC 单例跨 JS 重载存活:先幂等退房清场,避免 -3340 already in room。
@@ -488,18 +606,21 @@ export default function IntercomScreen() {
     try {
       await trtc.current.exitRoom();
     } catch {}
-    // 进房兜底超时:回调丢失时 8s 后解除"进入中"
+    if (stale()) return;
+    // 进房兜底超时：回调丢失时 8s 后解除「进入中」，并且主动退房——凭证可能已经用上、采集已经开了
     clearJoinTimer();
     joinTimer.current = setTimeout(() => {
       joinTimer.current = null;
-      setJoining((j) => {
-        if (j) setJoinError(translate("intercom.joinTimeout"));
-        return false;
-      });
+      if (stale()) return;
+      cancelJoin();
+      abandonRoom(trtc.current);
+      setJoining(false);
+      setJoinError(translate("intercom.joinTimeout"));
     }, 8000);
     try {
       // UserSig 服务端签发（决策 #27⑥）,App 端不再持有 TRTC SecretKey
-      const tk = await channelsApi.token(channelId);
+      const tk = await channelsApi.token(target.channelId);
+      if (stale()) return;
       const params = new TRTCParams({
         sdkAppId: tk.sdkAppId,
         userId: tk.userId,
@@ -508,18 +629,25 @@ export default function IntercomScreen() {
         // 房间权限钥匙（决策 #56）：凭证只对这个房间有效，别人拿着自己频道的凭证进不来
         privateMapKey: tk.privateMapKey,
       });
+      awaitingEnter.current = seq;
       await trtc.current.enterRoom(
         params,
         TRTCCloudDef.TRTC_APP_SCENE_AUDIOCALL,
       );
+      if (stale()) return;
       await trtc.current.startLocalAudio(
         TRTCCloudDef.TRTC_AUDIO_QUALITY_SPEECH,
       );
+      if (stale()) return;
       await trtc.current.muteLocalAudio(true);
+      if (stale()) return;
       // 发言指示环所需：每 300ms 回调一次成员音量
       await trtc.current.enableAudioVolumeEvaluation(300);
     } catch (e) {
-      clearJoinTimer();
+      if (stale()) return;
+      // 半路出错也不能留个开着采集、可能已进房的半截状态
+      cancelJoin();
+      abandonRoom(trtc.current);
       setJoining(false);
       setJoinError(toUserMessage(e));
     }
@@ -529,6 +657,9 @@ export default function IntercomScreen() {
   const leaveRoom = () => {
     if (leaving.current) return;
     leaving.current = true;
+    // 换频道的进房还在半路时点了结束：那一次也作废，不然退完房它又进去了
+    cancelJoin();
+    setJoining(false);
     trtc.current.muteLocalAudio(true).catch(() => {});
     playCue("leave");
     // 留一点时间让提示音响完：退房会把 TRTC 的音频引擎一起停掉
@@ -544,7 +675,7 @@ export default function IntercomScreen() {
     if (next.channelId === activeId) return;
     if (channel)
       showToast(t("intercom.leftRoom", { name: channelNameOf(channel.name) }));
-    void join(next.channelId);
+    void join(next);
   };
 
   const leaveChannel = (c: VoiceChannel) => {
@@ -558,8 +689,14 @@ export default function IntercomScreen() {
           style: "destructive",
           onPress: () => {
             setSheet(null);
-            if (inRoom && activeId === c.channelId)
-              void trtc.current.exitRoom();
+            // 退的正是正在进 / 已经在里面的那个：先把这次通话停掉。原来进房途中退出频道，凭证回来照样进房，
+            // 人在一个列表里已经没有的频道里，房间标题、邀请和小条全空
+            const cur = live.current;
+            if (cur.activeId === c.channelId && (cur.inRoom || cur.joining)) {
+              cancelJoin();
+              setJoining(false);
+              abandonRoom(trtc.current);
+            }
             channelsApi
               .leave(c.channelId)
               .then(() =>
@@ -643,6 +780,11 @@ export default function IntercomScreen() {
     await trtc.current.muteLocalAudio(true);
     setTalking(false);
   };
+  // 读屏用户没法「按住」：读屏的双击（activate）当开关用，双击一次开始说话、再双击一次结束
+  const pttA11yAction = (e: AccessibilityActionEvent) => {
+    if (e.nativeEvent.actionName !== "activate") return;
+    void (talking ? pttUp() : pttDown());
+  };
 
   /** 一直开麦：点大按钮开 / 关麦克风 */
   const toggleMic = async () => {
@@ -683,6 +825,7 @@ export default function IntercomScreen() {
     else setSheet({ kind: "openMic" });
   };
 
+  // 关掉扬声器走的是手机听筒（TRTC_AUDIO_ROUTE_EARPIECE），不是耳机：原来写「耳机」，让人以为切到了头盔 / 耳机
   const toggleRoute = async () => {
     const next = !speakerOn;
     await trtc.current
@@ -695,7 +838,7 @@ export default function IntercomScreen() {
     setSpeakerOn(next);
     showToast(
       translate("intercom.routeToast", {
-        route: translate(next ? "intercom.speaker" : "intercom.headset"),
+        route: translate(next ? "intercom.speaker" : "intercom.earpiece"),
       }),
     );
   };
@@ -965,6 +1108,12 @@ export default function IntercomScreen() {
                       <Pressable
                         accessibilityRole="button"
                         accessibilityLabel={t("intercom.holdToTalk")}
+                        accessibilityHint={t("intercom.ptt.a11yHint")}
+                        accessibilityValue={
+                          talking ? { text: t("intercom.talking") } : undefined
+                        }
+                        accessibilityActions={[{ name: "activate" }]}
+                        onAccessibilityAction={pttA11yAction}
                         onPressIn={() => void pttDown()}
                         onPressOut={() => void pttUp()}
                         style={[
@@ -1046,7 +1195,7 @@ export default function IntercomScreen() {
                 haptic
                 accessibilityRole="button"
                 accessibilityLabel={
-                  speakerOn ? t("intercom.speaker") : t("intercom.headset")
+                  speakerOn ? t("intercom.speaker") : t("intercom.earpiece")
                 }
                 onPress={() => void toggleRoute()}
                 style={styles.sideCol}
@@ -1058,13 +1207,13 @@ export default function IntercomScreen() {
                   ]}
                 >
                   <Ionicons
-                    name={speakerOn ? "volume-high-outline" : "headset-outline"}
+                    name={speakerOn ? "volume-high-outline" : "ear-outline"}
                     size={20}
                     color={theme.text}
                   />
                 </View>
                 <ThemedText themeColor="textSecondary" style={styles.sideLabel}>
-                  {speakerOn ? t("intercom.speaker") : t("intercom.headset")}
+                  {speakerOn ? t("intercom.speaker") : t("intercom.earpiece")}
                 </ThemedText>
               </Tappable>
             </View>
@@ -1262,7 +1411,7 @@ export default function IntercomScreen() {
                         name: channelNameOf(c.name),
                       })}
                       disabled={joining && !busy}
-                      onPress={() => void join(c.channelId)}
+                      onPress={() => void join(c)}
                       // 只有第一个是品牌色：一页一个主操作
                       style={[
                         styles.enterBtn,

@@ -1,6 +1,7 @@
 // 对讲标签页：频道列表三态（加载中 / 拉取失败 / 没有频道 / 有频道）、新建与邀请码加入、某个频道的「更多」面板、
-// 进房（先退房清场、凭证、权限钥匙、超时与失败、Android 麦克风权限）、房间里（成员网格、说话指示、对我静音、
-// 按住说话、持续通话与第一次的说明、掉线与重连、头盔断开、音频输出、结束通话、切换频道），以及离开页面退房。
+// 进房（先退房清场、凭证、权限钥匙、超时与失败、双端麦克风权限、作废的进房不再进房开麦）、房间里（成员网格与进房时
+// 的提示音、说话指示、对我静音、读屏、按住说话、持续通话与第一次的说明、掉线与重连、被动退出、TRTC 报错、头盔断开、
+// 音频输出、结束通话、切换频道、频道从列表里消失），以及离开页面退房。
 // TRTC 换成记录调用的替身，监听器由测试直接发事件；提示音模块换成记录调用的替身。
 import {
   afterEach,
@@ -110,6 +111,12 @@ jest.mock("expo-image", () => {
     jest.requireActual<typeof import("react")>("react");
   return { Image: (props: Record<string, unknown>) => h("ExpoImage", props) };
 });
+const mockMic = {
+  ask: jest.fn(() => Promise.resolve({ granted: true, status: "granted" })),
+};
+jest.mock("expo-audio", () => ({
+  requestRecordingPermissionsAsync: () => mockMic.ask(),
+}));
 jest.mock("expo-secure-store", () => ({
   getItemAsync: jest.fn(() => Promise.resolve(null)),
   setItemAsync: jest.fn(() => Promise.resolve()),
@@ -150,6 +157,7 @@ const mockCloud = {
   exitRoom: jest.fn(() => Promise.resolve()),
   enterRoom: jest.fn((..._args: unknown[]) => Promise.resolve()),
   startLocalAudio: jest.fn((..._args: unknown[]) => Promise.resolve()),
+  stopLocalAudio: jest.fn(() => Promise.resolve()),
   muteLocalAudio: jest.fn((..._args: unknown[]) => Promise.resolve()),
   enableAudioVolumeEvaluation: jest.fn((..._args: unknown[]) =>
     Promise.resolve(),
@@ -172,6 +180,7 @@ jest.mock("trtc-react-native", () => {
     "onConnectionLost",
     "onTryToReconnect",
     "onConnectionRecovery",
+    "onError",
   ];
   return {
     __esModule: true,
@@ -281,13 +290,29 @@ const textOf = (n: ReactTestInstance | string): string =>
   typeof n === "string"
     ? n
     : n.children.map((c) => textOf(c as ReactTestInstance | string)).join("");
-/** 房间里某个成员的格子（只有别人的格子能点） */
+/** 房间里某个成员的格子（只有别人的格子能点；认它带的「对我静音」读屏提示） */
 const cellOf = (r: Rendered, name: string) =>
   r.root
-    .findAll((n) => n.type === Tappable && !n.props.accessibilityLabel)
+    .findAll(
+      (n) =>
+        n.type === Tappable &&
+        [
+          tr("intercom.member.muteHint"),
+          tr("intercom.member.unmuteHint"),
+        ].includes(n.props.accessibilityHint),
+    )
     .find(
       (n) => n.findAll((c) => isHost(c, "Text") && textOf(c) === name).length,
     )!;
+/** 自己的格子：不能点，但读屏能读到 */
+const selfCell = (r: Rendered) =>
+  r.root.find(
+    (n) =>
+      isHost(n, "View") &&
+      n.props.accessible === true &&
+      n.props.accessibilityRole === "text",
+  );
+const SEP = translate("common.a11ySep", undefined, "zh-CN");
 /** 说话方式的两段：[按住说话, 持续通话] */
 const modeSegs = (r: Rendered) =>
   r.root.findAll(
@@ -325,6 +350,13 @@ const enter = async (r: Rendered, name = C1.name) => {
 };
 const lastMute = () => mockCloud.muteLocalAudio.mock.calls.at(-1)?.[0];
 const cues = () => m(playCue).mock.calls.map((c) => c[0]);
+/** 让「现在」往后挪 ms（进房后头一秒房里已有的人补发的进房事件不响提示音） */
+let nowSpy: ReturnType<typeof jest.spyOn> | null = null;
+const later = (ms: number) => {
+  const at = Date.now() + ms;
+  nowSpy?.mockRestore();
+  nowSpy = jest.spyOn(Date, "now").mockReturnValue(at);
+};
 
 let alert: ReturnType<typeof jest.spyOn>;
 let share: ReturnType<typeof jest.spyOn>;
@@ -364,6 +396,8 @@ afterEach(() => {
   alert.mockRestore();
   share.mockRestore();
   loop.mockRestore();
+  nowSpy?.mockRestore();
+  nowSpy = null;
   Object.defineProperty(Platform, "OS", { value: os, configurable: true });
   jest.useRealTimers();
   jest.clearAllMocks();
@@ -729,6 +763,9 @@ describe("进房", () => {
     );
     fire("onEnterRoom", { result: -100018 });
     expect(r.texts()).toContain(tr("intercom.joinFailed", { code: -100018 }));
+    // 采集在进房回调之前就开了：失败时停掉并退房，麦克风不能一直开着
+    expect(mockCloud.stopLocalAudio).toHaveBeenCalledTimes(1);
+    expect(mockCloud.exitRoom).toHaveBeenCalledTimes(2);
     expect(r.texts()).toContain(C2.name);
     expect(count(r, tr("intercom.enter"))).toBe(2);
     expect(playCue).not.toHaveBeenCalled();
@@ -795,6 +832,7 @@ describe("进房", () => {
     expect(ask).toHaveBeenCalledWith(
       PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
     );
+    expect(mockMic.ask).not.toHaveBeenCalled();
     expect(mockCloud.exitRoom).not.toHaveBeenCalled();
     expect(channelsApi.token).not.toHaveBeenCalled();
 
@@ -802,6 +840,162 @@ describe("进房", () => {
     await waitFor(() => expect(channelsApi.token).toHaveBeenCalledWith("c1"));
     expect(r.allText()).not.toContain(tr("intercom.micDenied"));
     ask.mockRestore();
+  });
+
+  it("iOS：进房前也先问麦克风权限，拒了写清原因、不进房；允许了照常进；问不出结果（原生异常）不拦", async () => {
+    Object.defineProperty(Platform, "OS", { value: "ios", configurable: true });
+    mockMic.ask.mockImplementationOnce(() =>
+      Promise.resolve({ granted: false, status: "denied" }),
+    );
+    let r = mount();
+    await waitFor(() => expect(r.texts()).toContain(C1.name));
+    await tap(r, tr("intercom.enter.a11y", { name: C1.name }));
+    await waitFor(() => expect(r.texts()).toContain(tr("intercom.micDenied")));
+    expect(mockCloud.exitRoom).not.toHaveBeenCalled();
+    expect(channelsApi.token).not.toHaveBeenCalled();
+
+    await tap(r, tr("intercom.enter.a11y", { name: C1.name }));
+    await waitFor(() => expect(channelsApi.token).toHaveBeenCalledWith("c1"));
+    expect(r.allText()).not.toContain(tr("intercom.micDenied"));
+    expect(mockMic.ask).toHaveBeenCalledTimes(2);
+    r.unmount();
+
+    m(channelsApi.token).mockClear();
+    mockMic.ask.mockImplementationOnce(() => Promise.reject(new Error("x")));
+    r = mount();
+    await waitFor(() => expect(r.texts()).toContain(C1.name));
+    await tap(r, tr("intercom.enter.a11y", { name: C1.name }));
+    await waitFor(() => expect(channelsApi.token).toHaveBeenCalledWith("c1"));
+  });
+
+  it("进房途中离开页面（含退出登录）：凭证晚到不进房；已经在进房的，进房回来也不再开麦", async () => {
+    let give!: (t: VoiceTokenResponse) => void;
+    m(channelsApi.token).mockImplementation(
+      () => new Promise<VoiceTokenResponse>((res) => (give = res)),
+    );
+    let r = mount();
+    await waitFor(() => expect(r.texts()).toContain(C1.name));
+    await tap(r, tr("intercom.enter.a11y", { name: C1.name }));
+    await waitFor(() => expect(channelsApi.token).toHaveBeenCalled());
+    r.unmount();
+    await act(async () => {
+      give(TOKEN);
+    });
+    expect(mockCloud.enterRoom).not.toHaveBeenCalled();
+    expect(mockCloud.startLocalAudio).not.toHaveBeenCalled();
+
+    m(channelsApi.token).mockImplementation(() => Promise.resolve(TOKEN));
+    let entered!: () => void;
+    mockCloud.enterRoom.mockImplementationOnce(
+      () => new Promise<void>((res) => (entered = () => res())),
+    );
+    r = mount();
+    await waitFor(() => expect(r.texts()).toContain(C1.name));
+    await tap(r, tr("intercom.enter.a11y", { name: C1.name }));
+    await waitFor(() => expect(mockCloud.enterRoom).toHaveBeenCalled());
+    r.unmount();
+    await act(async () => {
+      entered();
+    });
+    expect(mockCloud.startLocalAudio).not.toHaveBeenCalled();
+  });
+
+  it("超时：停采集并主动退房；之后第一次的凭证才回来也不进房，换个频道照常进", async () => {
+    const gives: ((t: VoiceTokenResponse) => void)[] = [];
+    m(channelsApi.token).mockImplementation(
+      () => new Promise<VoiceTokenResponse>((res) => gives.push(res)),
+    );
+    const r = mount();
+    await waitFor(() => expect(r.texts()).toContain(C1.name));
+    jest.useFakeTimers();
+    const advance = async (ms: number) => {
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(ms);
+      });
+    };
+    await tap(r, tr("intercom.enter.a11y", { name: C1.name }));
+    await advance(0);
+    const exits = mockCloud.exitRoom.mock.calls.length;
+    await advance(8000);
+    expect(r.texts()).toContain(tr("intercom.joinTimeout"));
+    expect(mockCloud.exitRoom.mock.calls.length).toBe(exits + 1);
+    expect(mockCloud.stopLocalAudio).toHaveBeenCalledTimes(1);
+
+    await tap(r, tr("intercom.enter.a11y", { name: C2.name }));
+    await advance(0);
+    expect(gives).toHaveLength(2);
+    await act(async () => {
+      gives[0](TOKEN);
+    });
+    expect(mockCloud.enterRoom).not.toHaveBeenCalled();
+    await act(async () => {
+      gives[1]({ ...TOKEN, roomId: 202 });
+    });
+    await advance(0);
+    expect(mockCloud.enterRoom).toHaveBeenCalledTimes(1);
+    expect(
+      (mockCloud.enterRoom.mock.calls[0][0] as { roomId: number }).roomId,
+    ).toBe(202);
+  });
+
+  it("已经进了房、回调却一直没来：超时退房；之后才到的进房回调不把界面切进房间", async () => {
+    const r = mount();
+    await waitFor(() => expect(r.texts()).toContain(C1.name));
+    jest.useFakeTimers();
+    await tap(r, tr("intercom.enter.a11y", { name: C1.name }));
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(8000);
+    });
+    expect(mockCloud.enableAudioVolumeEvaluation).toHaveBeenCalled();
+    expect(r.texts()).toContain(tr("intercom.joinTimeout"));
+    expect(mockCloud.stopLocalAudio).toHaveBeenCalledTimes(1);
+    fire("onEnterRoom", { result: 120 });
+    expect(r.texts()).toContain(C2.name);
+    expect(cues()).not.toContain("enter");
+    expect(useIntercomStore.getState().session).toBeNull();
+  });
+
+  it("进房回调说失败时 enterRoom 还没返回：之后不再开采集", async () => {
+    let entered!: () => void;
+    mockCloud.enterRoom.mockImplementationOnce(
+      () => new Promise<void>((res) => (entered = () => res())),
+    );
+    const r = mount();
+    await waitFor(() => expect(r.texts()).toContain(C1.name));
+    await tap(r, tr("intercom.enter.a11y", { name: C1.name }));
+    await waitFor(() => expect(mockCloud.enterRoom).toHaveBeenCalled());
+    fire("onEnterRoom", { result: -3301 });
+    expect(r.texts()).toContain(tr("intercom.joinFailed", { code: -3301 }));
+    await act(async () => {
+      entered();
+    });
+    expect(mockCloud.startLocalAudio).not.toHaveBeenCalled();
+    expect(mockCloud.exitRoom).toHaveBeenCalledTimes(2);
+  });
+
+  it("进房途中在「更多」里退出这个频道：这次进房作废并退房，凭证晚到也不进房", async () => {
+    let give!: (t: VoiceTokenResponse) => void;
+    m(channelsApi.token).mockImplementation(
+      () => new Promise<VoiceTokenResponse>((res) => (give = res)),
+    );
+    const r = mount();
+    await waitFor(() => expect(r.texts()).toContain(C1.name));
+    await tap(r, tr("intercom.enter.a11y", { name: C1.name }));
+    await waitFor(() => expect(channelsApi.token).toHaveBeenCalled());
+    expect(r.root.findAllByType(DotsLoader)).toHaveLength(1);
+    await tap(r, tr("intercom.more.a11y", { name: C1.name }));
+    await press(r, tr("intercom.more.quit"));
+    const buttons = alert.mock.calls.at(-1)![2] as { onPress?: () => void }[];
+    await act(async () => {
+      buttons[1].onPress!();
+    });
+    expect(channelsApi.leave).toHaveBeenCalledWith("c1");
+    expect(mockCloud.exitRoom).toHaveBeenCalledTimes(2);
+    expect(r.root.findAllByType(DotsLoader)).toHaveLength(0);
+    await act(async () => {
+      give(TOKEN);
+    });
+    expect(mockCloud.enterRoom).not.toHaveBeenCalled();
   });
 });
 
@@ -811,20 +1005,34 @@ describe("房间里", () => {
     const r = mount();
     await waitFor(() => expect(r.texts()).toContain(C1.name));
     await enter(r);
-    await waitFor(() => expect(channelsApi.members).toHaveBeenCalledWith("c1"));
+    await waitFor(() =>
+      expect(qc.getQueryData(["voice-members", "c1"])).toBeDefined(),
+    );
     return r;
   };
 
-  it("成员网格：有人进来响提示音并重拉档案；名字依次取昵称 / 手机号（空昵称也算没设）/ id 后四位；离开的移除；在线人数跟着变", async () => {
+  it("成员网格：刚进房那一秒房里已有的人不响，之后有人进来才响；档案里没有的人才重拉档案（连着来几个只拉一次）；名字依次取昵称 / 手机号（空昵称也算没设）/ id 后四位；离开的移除；在线人数跟着变", async () => {
     const r = await inRoom();
     const pulls = m(channelsApi.members).mock.calls.length;
+    // 进了一个已经有人的房间：每个人都补发一次「进来了」，原来一进房就连响 N 声、连拉 N 次档案
     fire("onRemoteUserEnterRoom", { userId: "u2" });
-    expect(cues()).toContain("join");
+    expect(cues()).not.toContain("join");
+    await act(async () => undefined);
+    expect(m(channelsApi.members).mock.calls.length).toBe(pulls);
+    later(1000);
+    fire("onRemoteUserEnterRoom", { userId: "u3" });
+    expect(cues().filter((c) => c === "join")).toHaveLength(1);
+    // 档案里没有的人：重拉；同一时间来了两个也只拉一次
+    act(() => {
+      mockListener!("onRemoteUserEnterRoom", { userId: "stranger-9a7f" });
+      mockListener!("onRemoteUserEnterRoom", { userId: "stranger-0001" });
+    });
     await waitFor(() =>
       expect(m(channelsApi.members).mock.calls.length).toBe(pulls + 1),
     );
-    fire("onRemoteUserEnterRoom", { userId: "u3" });
-    fire("onRemoteUserEnterRoom", { userId: "stranger-9a7f" });
+    await act(async () => undefined);
+    expect(m(channelsApi.members).mock.calls.length).toBe(pulls + 1);
+    fire("onRemoteUserLeaveRoom", { userId: "stranger-0001" });
     // 同一个人重复进房事件不重复算
     fire("onRemoteUserEnterRoom", { userId: "u2" });
     await waitFor(() => expect(r.texts()).toContain("13800000003"));
@@ -889,12 +1097,28 @@ describe("房间里", () => {
     });
     expect(count(r, tr("intercom.speaking"))).toBe(1);
 
+    // 读屏：别人的格子是按钮，读出名字和在说话，提示点了是对我静音
+    const u2 = cellOf(r, "13800000002");
+    expect(u2.props.accessibilityRole).toBe("button");
+    expect(u2.props.accessibilityLabel).toBe(
+      `13800000002${SEP}${tr("intercom.speaking")}`,
+    );
+    expect(u2.props.accessibilityHint).toBe(tr("intercom.member.muteHint"));
+    expect(selfCell(r).props.accessibilityLabel).toBe(
+      `阿麦 (${tr("intercom.me")})`,
+    );
     await act(async () => {
       cellOf(r, "13800000002").props.onPress();
     });
     expect(mockCloud.muteRemoteAudio).toHaveBeenLastCalledWith("u2", true);
     expect(count(r, tr("intercom.speaking"))).toBe(0);
     expect(r.icons()).toContain("volume-mute");
+    expect(cellOf(r, "13800000002").props.accessibilityLabel).toBe(
+      `13800000002${SEP}${tr("intercom.mutedForMe")}`,
+    );
+    expect(cellOf(r, "13800000002").props.accessibilityHint).toBe(
+      tr("intercom.member.unmuteHint"),
+    );
     await act(async () => {
       cellOf(r, "13800000002").props.onPress();
     });
@@ -921,6 +1145,34 @@ describe("房间里", () => {
     expect(cues()).toEqual(["talkOn", "talkOff"]);
     expect(r.texts()).not.toContain(tr("intercom.talking"));
     expect(count(r, tr("intercom.speaking"))).toBe(0);
+  });
+
+  it("读屏：按住说话有提示，读屏的双击当开关——双击开始说话（读出正在说话），再双击结束；别的动作不管", async () => {
+    const r = await inRoom();
+    const ptt = () => node(r, tr("intercom.holdToTalk"));
+    expect(ptt().props.accessibilityHint).toBe(tr("intercom.ptt.a11yHint"));
+    expect(ptt().props.accessibilityActions).toEqual([{ name: "activate" }]);
+    expect(ptt().props.accessibilityValue).toBeUndefined();
+    const act11y = async (actionName: string) => {
+      await act(async () => {
+        ptt().props.onAccessibilityAction({ nativeEvent: { actionName } });
+      });
+    };
+    await act11y("activate");
+    expect(lastMute()).toBe(false);
+    expect(r.texts()).toContain(tr("intercom.talking"));
+    expect(ptt().props.accessibilityValue).toEqual({
+      text: tr("intercom.talking"),
+    });
+    expect(selfCell(r).props.accessibilityLabel).toBe(
+      `阿麦 (${tr("intercom.me")})${SEP}${tr("intercom.speaking")}`,
+    );
+    const mutes = mockCloud.muteLocalAudio.mock.calls.length;
+    await act11y("magicTap");
+    expect(mockCloud.muteLocalAudio.mock.calls.length).toBe(mutes);
+    await act11y("activate");
+    expect(lastMute()).toBe(true);
+    expect(r.texts()).not.toContain(tr("intercom.talking"));
   });
 
   it("持续通话第一次先看说明：暂不开启不切；开启后麦克风开、记住看过、小条标麦克风开、不再常亮；点大按钮静音 / 再开；切回按住说话关麦", async () => {
@@ -1057,6 +1309,53 @@ describe("房间里", () => {
     expect(r.texts()).toContain(tr("intercom.banner.net"));
   });
 
+  it("被动退出（被服务器移出 / 房间解散）：响掉线音、震动、说明原因、回到列表；自己退的不提示", async () => {
+    const r = await inRoom();
+    m(playCue).mockClear();
+    fire("onExitRoom", { reason: 1 });
+    expect(r.texts()).toContain(C2.name);
+    expect(cues()).toEqual(["lost"]);
+    expect(Haptics.notificationAsync).toHaveBeenLastCalledWith("warning");
+    expect(showToast).toHaveBeenLastCalledWith(tr("intercom.exit.kicked"));
+    expect(useIntercomStore.getState().session).toBeNull();
+
+    await enter(r);
+    fire("onExitRoom", { reason: 2 });
+    expect(showToast).toHaveBeenLastCalledWith(tr("intercom.exit.dismissed"));
+
+    await enter(r);
+    const toasts = m(showToast).mock.calls.length;
+    m(playCue).mockClear();
+    fire("onExitRoom", { reason: 0 });
+    expect(r.texts()).toContain(C2.name);
+    expect(m(showToast).mock.calls.length).toBe(toasts);
+    expect(cues()).toEqual([]);
+  });
+
+  it("TRTC 报错：提示错误码；正按着说话的当作松手、持续通话开着的麦克风也关上（界面和实际一致）", async () => {
+    const r = await inRoom();
+    await pttIn(r);
+    expect(r.texts()).toContain(tr("intercom.talking"));
+    fire("onError", { errCode: -1302, errMsg: "mic" });
+    expect(showToast).toHaveBeenLastCalledWith(
+      tr("intercom.error", { code: -1302 }),
+    );
+    expect(lastMute()).toBe(true);
+    expect(r.texts()).not.toContain(tr("intercom.talking"));
+
+    await act(async () => {
+      modeSegs(r)[1].props.onPress();
+    });
+    expect(lastMute()).toBe(false);
+    fire("onError", {});
+    expect(showToast).toHaveBeenLastCalledWith(
+      tr("intercom.error", { code: "?" }),
+    );
+    expect(lastMute()).toBe(true);
+    expect(r.texts()).toContain(tr("intercom.micOff"));
+    expect(useIntercomStore.getState().session?.micOpen).toBe(false);
+  });
+
   it("持续通话时掉线：麦克风不动（连上后照常开着），点大按钮没反应；没按着说话时掉线也不额外关麦", async () => {
     const r = await inRoom();
     fire("onConnectionLost");
@@ -1126,17 +1425,18 @@ describe("房间里", () => {
     expect(mockCloud.muteLocalAudio.mock.calls.length).toBe(mutes);
   });
 
-  it("音频输出：扬声器 ↔ 耳机，切完提示当前输出；邀请按钮走系统分享", async () => {
+  it("音频输出：扬声器 ↔ 听筒（切的是手机听筒，不叫「耳机」），切完提示当前输出；邀请按钮走系统分享", async () => {
     const r = await inRoom();
     expect(r.icons()).toContain("volume-high-outline");
     await tap(r, tr("intercom.speaker"));
     expect(mockDeviceManager.setAudioRoute).toHaveBeenLastCalledWith(1);
     expect(showToast).toHaveBeenLastCalledWith(
-      tr("intercom.routeToast", { route: tr("intercom.headset") }),
+      tr("intercom.routeToast", { route: tr("intercom.earpiece") }),
     );
-    expect(r.icons()).toContain("headset-outline");
-    expect(r.texts()).toContain(tr("intercom.headset"));
-    await tap(r, tr("intercom.headset"));
+    expect(tr("intercom.earpiece")).toBe("听筒");
+    expect(r.icons()).toContain("ear-outline");
+    expect(r.texts()).toContain(tr("intercom.earpiece"));
+    await tap(r, tr("intercom.earpiece"));
     expect(mockDeviceManager.setAudioRoute).toHaveBeenLastCalledWith(0);
     expect(showToast).toHaveBeenLastCalledWith(
       tr("intercom.routeToast", { route: tr("intercom.speaker") }),
@@ -1222,6 +1522,32 @@ describe("房间里", () => {
       expect(channelsApi.token).toHaveBeenLastCalledWith("c2"),
     );
     expect(mockCloud.exitRoom.mock.calls.length).toBe(exits + 1);
+  });
+
+  it("通话中这个频道从列表里消失（在另一台手机上退了频道）：房间标题、邀请按钮、小条照样在", async () => {
+    const r = await inRoom();
+    m(channelsApi.list).mockImplementation(() => Promise.resolve([C2]));
+    await act(async () => {
+      await qc.refetchQueries({ queryKey: ["voice-channels"] });
+    });
+    expect(qc.getQueryData<VoiceChannel[]>(["voice-channels"])).toEqual([C2]);
+    // 列表只剩一个：已经按新列表重画了（切换频道的下拉箭头没了）
+    await waitFor(() => expect(r.icons()).not.toContain("chevron-down"));
+    expect(r.texts()).toContain(C1.name);
+    expect(has(r, tr("intercom.shareInvite"))).toBe(true);
+    expect(useIntercomStore.getState().session).toEqual({
+      channelId: "c1",
+      channelName: C1.name,
+      micOpen: false,
+      reconnecting: false,
+    });
+    await tap(r, tr("intercom.shareInvite"));
+    expect(share).toHaveBeenCalledWith({
+      message: tr("intercom.shareMessage", {
+        name: C1.name,
+        code: C1.inviteCode,
+      }),
+    });
   });
 
   it("只有一个频道：频道名不是按钮，也没有下拉箭头", async () => {
