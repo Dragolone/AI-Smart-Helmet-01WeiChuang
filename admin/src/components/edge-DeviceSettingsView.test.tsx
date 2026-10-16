@@ -6,8 +6,8 @@ import DeviceSettingsView, { summarizeSettings } from './DeviceSettingsView'
 // settings 来自库里的 JSON 列：清单定稿（决策 #43）前写入的旧数据、头盔上报的异常值都可能出现，
 // 展示层的底线是「照实列出、不白屏」
 describe('DeviceSettingsView：边界', () => {
-  it('undefined / 空对象 / 空数组都当「全部为出厂默认」', () => {
-    for (const settings of [undefined, {}, [] as unknown as Record<string, unknown>]) {
+  it('undefined / null / 空对象都当「全部为出厂默认」', () => {
+    for (const settings of [undefined, null, {}]) {
       expect(summarizeSettings(settings)).toEqual({ changed: [], unknown: [], defaultCount: 14 })
     }
   })
@@ -25,6 +25,13 @@ describe('DeviceSettingsView：边界', () => {
     render(<DeviceSettingsView settings={all} />)
     expect(screen.queryByText(/其余/)).not.toBeInTheDocument()
     expect(screen.queryByText('全部为出厂默认')).not.toBeInTheDocument()
+  })
+
+  it('悬停「格式异常」那一条：说明无法逐项比对，不是「不在设置清单内（旧数据）」', async () => {
+    render(<DeviceSettingsView settings={42 as unknown as Record<string, unknown>} />)
+    fireEvent.mouseEnter(screen.getByText('设置数据格式异常：42'))
+    expect(await screen.findByText('设置不是一组键值，无法逐项比对')).toBeInTheDocument()
+    expect(screen.queryByText('不在设置清单内（旧数据）')).not.toBeInTheDocument()
   })
 
   it('只有清单外的键 → 原样列出，并说明其余 14 项为默认（不能显示成「全部为出厂默认」）', () => {
@@ -115,6 +122,9 @@ describe('DeviceSettingsView：边界', () => {
     ['数字', 42],
     ['布尔 true', true],
     ['布尔 false', false],
+    // typeof [] === 'object'：原来 [] 显示「全部为出厂默认」、['x'] 显示「0 = "x"」再加「其余 14 项为出厂默认」
+    ['空数组', []],
+    ['数组', ['x']],
   ])('settings 整体不是对象（%s）→ 照实列一条「格式异常」，不白屏、也不声称其余为出厂默认', (_name, settings) => {
     const s = summarizeSettings(settings)
     expect(s).toEqual({

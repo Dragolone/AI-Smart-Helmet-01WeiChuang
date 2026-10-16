@@ -1,13 +1,22 @@
 // 列表页 / 详情页共用的两个格式化函数：时间按北京时间展示、空值显示「—」；
 // 用户标签对已注销账号（phone 被改写成 deleted:<id>）不露出内部 id。
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { formatTime, formatUserLabel } from './format'
+import { formatMinute, formatTime, formatUserLabel } from './format'
 
 beforeAll(() => {
   vi.stubEnv('TZ', 'Asia/Shanghai')
 })
 afterAll(() => {
   vi.unstubAllEnvs()
+})
+
+describe('formatMinute', () => {
+  it('只到分钟；空值「—」；解析不了的原样显示（不是「Invalid Date」）', () => {
+    expect(formatMinute('2026-09-30T16:00:59.999Z')).toBe('2026-10-01 00:00')
+    expect(formatMinute(null)).toBe('—')
+    expect(formatMinute('')).toBe('—')
+    expect(formatMinute('not-a-date')).toBe('not-a-date')
+  })
 })
 
 describe('formatTime', () => {

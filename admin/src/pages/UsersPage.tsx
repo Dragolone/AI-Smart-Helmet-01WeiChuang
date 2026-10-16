@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Card, Checkbox, Input, Space, Table, Tag, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import dayjs from 'dayjs'
+import { formatMinute } from '../utils/format'
 import { useState } from 'react'
 import { api } from '../api/client'
 import QueryError from '../components/QueryError'
@@ -26,14 +26,14 @@ const columns: ColumnsType<AdminUserRow> = [
     title: '注销时间',
     dataIndex: 'deletedAt',
     width: 170,
-    render: (v: string | null) => (v ? dayjs(v).format('YYYY-MM-DD HH:mm') : '—'),
+    render: formatMinute,
   },
   { title: '绑定设备数', dataIndex: 'deviceCount', width: 110 },
   {
     title: '注册时间',
     dataIndex: 'createdAt',
     width: 180,
-    render: (v: string) => dayjs(v).format('YYYY-MM-DD HH:mm'),
+    render: formatMinute,
   },
 ]
 

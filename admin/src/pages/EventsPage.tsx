@@ -10,15 +10,13 @@ import {
   Typography,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import dayjs from 'dayjs'
 import { useState } from 'react'
 import { api } from '../api/client'
 import QueryError from '../components/QueryError'
+import { formatTime } from '../utils/format'
 import { useClampPage } from '../utils/use-clamp-page'
 import { EVENT_TYPES } from '@helmet/shared'
 import type { AdminEventRow, Paginated } from '@helmet/shared'
-
-const formatTime = (v: string): string => dayjs(v).format('YYYY-MM-DD HH:mm:ss')
 
 const EVENT_TYPE_OPTIONS = EVENT_TYPES.map((t) => ({ value: t, label: t }))
 
