@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { envPositiveInt } from '../common/env';
+import { envFlag, envPositiveInt } from '../common/env';
 import type { PushOptions, PushProvider } from './push.provider';
 
 /**
@@ -27,6 +27,8 @@ export interface JPushConfig {
 /**
  * `JPUSH_THIRD_PARTY_CHANNEL`：JSON 对象，键是厂商（huawei / xiaomi / oppo / vivo / honor），值原样透传给极光。
  * 不是合法 JSON 对象时整体忽略并出声——宁可少带参数（走极光自有通道），不能让一次解析错误拖垮推送。
+ * 例外：`REQUIRE_REAL_PROVIDERS` 打开时（生产）拒绝启动——厂商通道丢了，Android 被杀后收不到 SOS 推送，
+ * 只打一行日志没人会看见。
  */
 export const thirdPartyChannelFromEnv = ():
   Record<string, unknown> | undefined => {
@@ -44,6 +46,11 @@ export const thirdPartyChannelFromEnv = ():
   } catch {
     // 下面统一出声
   }
+  if (envFlag('REQUIRE_REAL_PROVIDERS')) {
+    throw new Error(
+      'JPUSH_THIRD_PARTY_CHANNEL 不是合法的 JSON 对象，而 REQUIRE_REAL_PROVIDERS 已打开：厂商通道参数丢了 Android 被杀后收不到 SOS 推送，拒绝启动',
+    );
+  }
   new Logger('JPushProvider').error(
     'JPUSH_THIRD_PARTY_CHANNEL 不是合法的 JSON 对象，已忽略：Android 被杀状态下的 SOS 推送将只走极光自有通道',
   );
@@ -59,7 +66,7 @@ export const jpushConfigFromEnv = (): JPushConfig | null => {
   return {
     appKey,
     masterSecret,
-    apnsProduction: process.env.JPUSH_APNS_PRODUCTION === 'true',
+    apnsProduction: envFlag('JPUSH_APNS_PRODUCTION'),
     apiUrl: process.env.JPUSH_API_URL || 'https://api.jpush.cn/v3/push',
     timeoutMs: envPositiveInt('PUSH_SEND_TIMEOUT_MS', 10_000),
     ...(thirdPartyChannel ? { thirdPartyChannel } : {}),

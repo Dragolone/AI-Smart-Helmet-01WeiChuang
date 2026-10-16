@@ -1,4 +1,5 @@
 import { Logger, Module } from '@nestjs/common';
+import { envFlag } from '../common/env';
 import { JPushProvider, jpushConfigFromEnv } from './jpush.provider';
 import {
   ConsolePushProvider,
@@ -30,7 +31,7 @@ import {
  * `TENCENT_SMS_*`，每一次真求救都会记成「已通知联系人」而一条短信都没发（10-06 不变式评审 F-2）。
  * development 不设：短信签名 / 推送账号审核期间就是要用 Mock 跑联调。
  */
-const requireReal = (): boolean => process.env.REQUIRE_REAL_PROVIDERS === '1';
+const requireReal = (): boolean => envFlag('REQUIRE_REAL_PROVIDERS');
 const refuseMock = (channel: string, missing: string): never => {
   throw new Error(
     `${channel}未配置（${missing}），而 REQUIRE_REAL_PROVIDERS=1 禁止回落 Mock——生产环境不能把假发送记成已通知。补齐配置或去掉该开关后重启`,

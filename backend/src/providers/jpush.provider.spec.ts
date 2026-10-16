@@ -53,6 +53,14 @@ describe('jpushConfigFromEnv', () => {
       apnsProduction: true,
       timeoutMs: 3000,
     });
+    // 原来只认精确的 'true'：写成 1 / TRUE 时静默走 APNs 沙盒，正式包 / TestFlight 收不到推送（10-17 评审）
+    for (const v of ['1', 'TRUE', 'yes']) {
+      process.env.JPUSH_APNS_PRODUCTION = v;
+      expect(jpushConfigFromEnv()?.apnsProduction).toBe(true);
+    }
+    process.env.JPUSH_APNS_PRODUCTION = 'prod';
+    expect(() => jpushConfigFromEnv()).toThrow('JPUSH_APNS_PRODUCTION');
+    delete process.env.JPUSH_APNS_PRODUCTION;
   });
 
   describe('厂商通道参数 JPUSH_THIRD_PARTY_CHANNEL', () => {
@@ -103,6 +111,16 @@ describe('jpushConfigFromEnv', () => {
         options: Record<string, unknown>;
       };
       expect(body.options).not.toHaveProperty('third_party_channel');
+    });
+
+    it('生产（REQUIRE_REAL_PROVIDERS 打开）时不是合法 JSON：拒绝启动，不只记一行日志', () => {
+      process.env.REQUIRE_REAL_PROVIDERS = '1';
+      process.env.JPUSH_THIRD_PARTY_CHANNEL = '{"huawei":';
+      try {
+        expect(() => jpushConfigFromEnv()).toThrow('拒绝启动');
+      } finally {
+        delete process.env.REQUIRE_REAL_PROVIDERS;
+      }
     });
 
     it('不是合法 JSON 对象（坏 JSON / 数组 / 字符串）：忽略并记 error，推送本身不受影响', () => {

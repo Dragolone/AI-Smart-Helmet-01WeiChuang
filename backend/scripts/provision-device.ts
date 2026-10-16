@@ -6,9 +6,18 @@ import { createHash, randomBytes, randomInt } from 'node:crypto';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../src/generated/prisma/client';
 
+/** DEVICE_PROTOCOL §3：deviceId 只含字母数字 _ -，4–64 位（同时是 MQTT 用户名与 topic 段，不能带 + # /） */
+const DEVICE_ID_PATTERN = /^[A-Za-z0-9_-]{4,64}$/;
+
 async function main() {
   const deviceId =
     process.argv[2] ?? `helmet_${randomBytes(3).toString('hex')}`;
+  if (!DEVICE_ID_PATTERN.test(deviceId)) {
+    // 手滑传了 `-- --count 5` 会开出一台叫 `--count` 的设备；叫 `+` 的设备在 EMQX 授权里能订到所有设备的命令
+    throw new Error(
+      `deviceId「${deviceId}」不合规：只能是字母数字 _ -，4–64 位（DEVICE_PROTOCOL §3）`,
+    );
+  }
   const deviceSecret = randomBytes(24).toString('base64url');
   // 绑定码：8 位数字，App 输入友好（真机形式待硬件确认后对齐）
   const bindCode = String(randomInt(10_000_000, 100_000_000));

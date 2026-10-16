@@ -35,5 +35,7 @@ ENV NODE_ENV=production
 WORKDIR /repo/backend
 EXPOSE 3000
 
-# 每次启动先应用未执行的 migration（幂等），再起服务——CLAUDE.md「Migration 必须能在空库从头跑通」的运行时兑现
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main"]
+# 每次启动先应用未执行的 migration（幂等），再起服务——CLAUDE.md「Migration 必须能在空库从头跑通」的运行时兑现。
+# 必须 exec：镜像里的 sh 是 dash，不 exec 的话它一直当 PID 1、不转发 SIGTERM，docker stop 等满 stop_grace_period
+# 后 SIGKILL——/health 503 排空、在途请求、通知投递的收尾全都不执行（2026-10-17 云端实测 PID 1 是 sh）
+CMD ["sh", "-c", "npx prisma migrate deploy && exec node dist/main"]
