@@ -48,6 +48,10 @@ beforeEach(() => {
     fetchActive: jest.fn<SosSyncDeps["fetchActive"]>(async () => ({
       sos: null,
     })),
+    // null = 服务端没有账号级接口：这里的用例测的是逐台查那条路（账号级的用例见 sos-sync.test 末尾）
+    fetchAccountActive: jest.fn<NonNullable<SosSyncDeps["fetchAccountActive"]>>(
+      async () => null,
+    ),
     openCountdown: jest.fn<SosSyncDeps["openCountdown"]>(),
     showLockScreenAlert: jest.fn<SosSyncDeps["showLockScreenAlert"]>(),
     clearLockScreenAlert: jest.fn<SosSyncDeps["clearLockScreenAlert"]>(),

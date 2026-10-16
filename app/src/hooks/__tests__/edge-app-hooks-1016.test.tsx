@@ -45,7 +45,9 @@ jest.mock("@/api/devices", () => ({
   },
 }));
 jest.mock("@/api/auth", () => ({ authApi: { sendSmsCode: jest.fn() } }));
-jest.mock("@/api/sos", () => ({ sosApi: { active: jest.fn() } }));
+jest.mock("@/api/sos", () => ({
+  sosApi: { active: jest.fn(), activeForAccount: jest.fn() },
+}));
 jest.mock("@/services/notify-permission", () => ({
   readNotifyPermissionAfterAsk: jest.fn(),
 }));
@@ -62,6 +64,7 @@ const settingsMock = devicesApi.settings as unknown as AnyMock;
 const putMock = devicesApi.putSettings as unknown as AnyMock;
 const smsMock = authApi.sendSmsCode as unknown as AnyMock;
 const activeMock = sosApi.active as unknown as AnyMock;
+const accountMock = sosApi.activeForAccount as unknown as AnyMock;
 const permMock = readNotifyPermissionAfterAsk as unknown as AnyMock;
 
 let qc: QueryClient;
@@ -121,7 +124,14 @@ beforeEach(() => {
       queries: { gcTime: Number.POSITIVE_INFINITY, retry: false },
     },
   });
-  for (const m of [settingsMock, putMock, smsMock, activeMock, permMock])
+  for (const m of [
+    settingsMock,
+    putMock,
+    smsMock,
+    activeMock,
+    accountMock,
+    permMock,
+  ])
     m.mockReset();
   useAuthStore.setState({ user: null });
   useBleStore.setState({ adapter: "on", links: {} });
@@ -373,29 +383,62 @@ describe("usePendingSos：所有头盔上进行中的求救", () => {
       ...over,
     }) as Sos;
 
-  it("只留 pending 的；查失败 / 没有单的不算；顺序按设备列表", async () => {
-    activeMock.mockImplementation(async (id: string) => {
-      if (id === "a") return { sos: sos({ sosId: "sa", deviceId: "a" }) };
-      if (id === "b")
-        return {
-          sos: sos({ sosId: "sb", deviceId: "b", status: "cancelled" }),
-        };
-      if (id === "c") throw new Error("offline");
-      if (id === "e") return { sos: sos({ sosId: "se", deviceId: "e" }) };
-      return { sos: null };
+  it("一个账号级请求拿全（不逐台查）：只留 pending 的、按到期先后；解绑后的头盔（不在设备列表里）也在（B 线第 12 项）", async () => {
+    accountMock.mockResolvedValue({
+      items: [
+        sos({
+          sosId: "se",
+          deviceId: "e",
+          deadline: "2026-10-16T01:00:30.000Z",
+        }),
+        sos({ sosId: "sa", deviceId: "a" }),
+        sos({ sosId: "sz", deviceId: "unbound" }),
+      ],
+      total: 3,
+      page: 1,
+      pageSize: 100,
     });
     const r = await renderHook(() => usePendingSos(["a", "b", "c", "d", "e"]));
-    await settle(() => r.current.length === 2);
-    expect(r.current.map((s) => s.sosId)).toEqual(["sa", "se"]);
+    await settle(() => r.current.length === 3);
+    expect(r.current.map((s) => s.sosId)).toEqual(["se", "sa", "sz"]);
+    expect(accountMock).toHaveBeenCalledTimes(1);
+    expect(activeMock).not.toHaveBeenCalled();
+    // 列表里没有的头盔写成「查过了、没有」
+    expect(qc.getQueryData(["sos-active", "b"])).toEqual({ sos: null });
+  });
+
+  it("WS 推来新单 / 倒计时页取消：不等下一轮轮询，跟着缓存变", async () => {
+    accountMock.mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 100,
+    });
+    const r = await renderHook(() => usePendingSos(["a"]));
+    await settle(() => accountMock.mock.calls.length > 0);
+    expect(r.current).toEqual([]);
+    await act(async () => {
+      qc.setQueryData(["sos-active", "a"], { sos: sos({ sosId: "sa" }) });
+    });
+    expect(r.current.map((s) => s.sosId)).toEqual(["sa"]);
+    await act(async () => {
+      qc.setQueryData(["sos", "sa"], sos({ sosId: "sa", status: "cancelled" }));
+    });
+    expect(r.current).toEqual([]);
   });
 
   it("轮询回来的 pending 但这单在本机已是终态（倒计时页刚取消）：不把卡片顶回来", async () => {
     qc.setQueryData(["sos", "sx"], sos({ sosId: "sx", status: "cancelled" }));
-    activeMock.mockResolvedValue({ sos: sos({ sosId: "sx" }) });
+    accountMock.mockResolvedValue({
+      items: [sos({ sosId: "sx" })],
+      total: 1,
+      page: 1,
+      pageSize: 100,
+    });
     const r = await renderHook(() => usePendingSos(["a"]));
     await settle(
       () =>
-        activeMock.mock.calls.length > 0 &&
+        accountMock.mock.calls.length > 0 &&
         qc.getQueryData(["sos-active", "a"]) !== undefined,
     );
     expect(r.current).toEqual([]);
@@ -404,6 +447,7 @@ describe("usePendingSos：所有头盔上进行中的求救", () => {
   it("没有头盔：空，不发请求", async () => {
     const r = await renderHook(() => usePendingSos([]));
     expect(r.current).toEqual([]);
+    expect(accountMock).not.toHaveBeenCalled();
     expect(activeMock).not.toHaveBeenCalled();
   });
 });

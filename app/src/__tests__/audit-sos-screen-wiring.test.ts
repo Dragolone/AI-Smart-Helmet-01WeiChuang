@@ -16,8 +16,12 @@ describe("倒计时页 app/sos-active.tsx", () => {
   });
 
   it("本页取消 / 确认成功后撤掉锁屏提醒与预排的刷新，不等 WS 推终态", () => {
-    expect(src).toMatch(/if \(finished && !isDrill\) void clearSosAlert\(sosId\);/);
-    expect(src).toContain('import { clearSosAlert } from "@/services/sos-alert";');
+    expect(src).toMatch(
+      /if \(finished && !isDrill\) void clearSosAlert\(sosId\);/,
+    );
+    expect(src).toContain(
+      'import { clearSosAlert } from "@/services/sos-alert";',
+    );
   });
 });
 
@@ -27,20 +31,25 @@ describe("安全页 app/(tabs)/safety.tsx", () => {
   it("长按求救：一次长按一个 eventId，失败按原 eventId 进持久队列，成功立刻核对拉起倒计时页", () => {
     // 10-07 安全页改版后目标变量名是 sosTargetId（sosTarget 是设备对象）
     expect(src).toContain('buildRelayEnvelope(sosTargetId, "manual_sos", {})');
-    expect(src).toMatch(/\.then\(\(\) => notifyCriticalAccepted\(sosTargetId\)\)/);
-    expect(src).toMatch(/enqueueRelayEvent\(envelope as EventEnvelope<EventType>\)/);
+    expect(src).toMatch(
+      /\.then\(\(\) => notifyCriticalAccepted\(sosTargetId\)\)/,
+    );
+    expect(src).toMatch(
+      /enqueueRelayEvent\(envelope as EventEnvelope<EventType>\)/,
+    );
     expect(src).not.toContain('pushEvent(sosTargetId, "manual_sos"');
   });
 
-  it("30 s 轮询的 /sos/active 结果过终态守卫，迟到的 pending 不让卡片回潮", () => {
-    // 10-07 安全页改版后轮询收进 hooks/use-safety.ts 的 usePendingSos；10-16 起经 fetchActiveFresh
-    //（内部先过 guardActiveResult，再挡在途期间 WS 写入被迟到应答冲掉，单测见 services/__tests__/sos-sync.test.ts）
+  it("30 s 轮询走账号级接口一次拿全，写回时过终态守卫（迟到的 pending 不让卡片回潮）和在途守卫", () => {
+    // 10-07 安全页改版后轮询收进 hooks/use-safety.ts 的 usePendingSos；10-17 起是账号级接口（B 线第 12 项），
+    // 写回逻辑在 services/sos-queue 的 applyAccountActive（单测见 services/__tests__/sos-queue.test.ts）
     const hook = read("hooks/use-safety.ts");
     expect(hook).toMatch(
-      /fetchActiveFresh\(queryClient, id, sosApi\.active\)/,
+      /pollAccountActive\(queryClient, deviceIds, \(\) =>\s*sosApi\.activeForAccount\(\)/,
     );
-    expect(read("services/sos-sync.ts")).toMatch(
-      /const result = guardActiveResult\(qc, await fetchActive\(deviceId\)\)/,
-    );
+    expect(hook).not.toMatch(/sosApi\.active\(/);
+    const queue = read("services/sos-queue.ts");
+    expect(queue).toMatch(/guardActiveResult\(qc, \{ sos: s \}\)/);
+    expect(queue).toMatch(/state\.dataUpdatedAt >= startedAt/);
   });
 });
