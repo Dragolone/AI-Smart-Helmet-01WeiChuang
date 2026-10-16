@@ -32,6 +32,8 @@ export const profile = {
     "profile.nicknamePlaceholder": "1-20 字符",
     "profile.saveFailed": "保存失败",
     "profile.pickFailed": "选择头像失败",
+    "profile.pickFailedBody":
+      "无法使用这张图片。请确认已允许访问相册，或换一张图片再试。",
     "profile.chooseLanguage": "选择语言",
     "profile.records": "安全记录",
     "profile.groupAccount": "账号与安全",
@@ -78,6 +80,8 @@ export const profile = {
     "profile.nicknamePlaceholder": "1-20 字元",
     "profile.saveFailed": "儲存失敗",
     "profile.pickFailed": "選擇頭像失敗",
+    "profile.pickFailedBody":
+      "無法使用這張圖片。請確認已允許存取相簿，或換一張圖片再試。",
     "profile.chooseLanguage": "選擇語言",
     "profile.records": "安全記錄",
     "profile.groupAccount": "帳號與安全",
@@ -125,6 +129,8 @@ export const profile = {
     "profile.nicknamePlaceholder": "1–20 characters",
     "profile.saveFailed": "Could not save",
     "profile.pickFailed": "Could not pick a photo",
+    "profile.pickFailedBody":
+      "This photo can't be used. Make sure photo access is allowed, or try a different photo.",
     "profile.chooseLanguage": "Choose language",
     "profile.records": "Safety records",
     "profile.groupAccount": "Account & security",

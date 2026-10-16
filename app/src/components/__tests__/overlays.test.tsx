@@ -115,11 +115,17 @@ jest.mock("expo-secure-store", () => ({
   AFTER_FIRST_UNLOCK: 0,
 }));
 const mockStateListeners: ((connected: boolean) => void)[] = [];
+const mockRealtime = { connected: false };
 jest.mock("@/api/realtime", () => ({
   realtimeClient: {
+    // 和真的一样：订阅时先回放一次当前状态，退订就不再收到
     subscribeState: (l: (connected: boolean) => void) => {
       mockStateListeners.push(l);
-      return () => undefined;
+      l(mockRealtime.connected);
+      return () => {
+        const i = mockStateListeners.indexOf(l);
+        if (i >= 0) mockStateListeners.splice(i, 1);
+      };
     },
   },
 }));
@@ -163,6 +169,7 @@ afterEach(() => {
     useConsentStore.setState({ hydrated: false, privacyAccepted: false });
   });
   mockStateListeners.length = 0;
+  mockRealtime.connected = false;
 });
 
 // 轻提示用的 RN Animated：换成「start 时直接跳到终值并回调」的假动画：不依赖 jest 里 Animated 的计时，只看逻辑
@@ -233,7 +240,10 @@ describe("ToastHost / showToast", () => {
 
 describe("ConnectionBanner", () => {
   const drop = (connected: boolean) =>
-    act(() => mockStateListeners.forEach((l) => l(connected)));
+    act(() => {
+      mockRealtime.connected = connected;
+      [...mockStateListeners].forEach((l) => l(connected));
+    });
 
   it("登录着、在标签根页：断开超过 4 秒才出现，恢复即收", () => {
     jest.useFakeTimers();
@@ -286,6 +296,9 @@ describe("ConnectionBanner", () => {
     });
     expect(r.tree.toJSON()).toBeNull();
     authed();
+    act(() => {
+      jest.advanceTimersByTime(4000);
+    });
     expect(r.texts()).toHaveLength(1);
     routerState.pathname = "/map";
     r.rerender(<ConnectionBanner />);
@@ -298,6 +311,43 @@ describe("ConnectionBanner", () => {
       r.rerender(<ConnectionBanner />);
       expect(r.texts()).toHaveLength(1);
     }
+  });
+
+  // 没登录时通道本来就断着：原来宽限期在登录页上就耗完了，一登录就闪「连接中断，重连中…」（10-17 评审）
+  it("刚登录：宽限期从登录那一刻起算，4 秒内连上就不出现；登出再登录也重新计", () => {
+    jest.useFakeTimers();
+    const r = render(<ConnectionBanner />);
+    act(() => {
+      jest.advanceTimersByTime(60_000); // 在登录页上停了一分钟
+    });
+    authed();
+    expect(r.tree.toJSON()).toBeNull();
+    act(() => {
+      jest.advanceTimersByTime(3000);
+    });
+    expect(r.tree.toJSON()).toBeNull();
+    drop(true);
+    act(() => {
+      jest.advanceTimersByTime(5000);
+    });
+    expect(r.tree.toJSON()).toBeNull();
+    // 断开显示出来之后登出，过一会儿再登录：不沿用上一次的断开时刻
+    drop(false);
+    act(() => {
+      jest.advanceTimersByTime(4000);
+    });
+    expect(r.texts()).toHaveLength(1);
+    set(() => useAuthStore.setState({ tokens: null, user: null }));
+    expect(r.tree.toJSON()).toBeNull();
+    act(() => {
+      jest.advanceTimersByTime(10_000);
+    });
+    authed();
+    expect(r.tree.toJSON()).toBeNull();
+    act(() => {
+      jest.advanceTimersByTime(4000);
+    });
+    expect(r.texts()).toHaveLength(1);
   });
 
   it("对讲页在房间里：房间有自己的重连条，全局这条不显示（压在频道名上，10-16 iPhone）；别的标签页照常", () => {

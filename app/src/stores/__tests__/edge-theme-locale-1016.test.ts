@@ -89,7 +89,9 @@ describe("外观设置", () => {
     const store = loadTheme();
     await store.getState().setMode("system");
     expect(mockSetScheme).toHaveBeenLastCalledWith("unspecified");
-    expect(mockKv.get("helmet.theme")).toBe("system");
+    // 写的是锁屏可读的新条目（2026-10-17），旧条目不再写
+    expect(mockKv.get("helmet.theme.v2")).toBe("system");
+    expect(mockKv.has("helmet.theme")).toBe(false);
   });
 
   it("存了不认识的值 / 空串 / 读失败：按默认深色，hydrated 照样为真", async () => {
@@ -152,6 +154,8 @@ describe("语言设置", () => {
     const a = loadLocale();
     await a.getState().hydrate();
     expect(a.getState().locale).toBe("zh-TW");
+    // 上面那次读顺手搬到了新条目：清掉再试一遍不认的写法
+    mockKv.clear();
     mockKv.set("helmet.locale", "ZH-tw");
     const b = loadLocale();
     const before = b.getState().locale;

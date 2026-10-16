@@ -347,6 +347,77 @@ describe("一顶头盔", () => {
     expect(pages.some((p) => p.includes("page=2"))).toBe(true);
   });
 
+  // 分页按偏移量取：第 1 页来了新记录，原来排在页尾的那条挤到第 2 页。原来轮询和下拉只重取第 1 页，
+  // 被挤走的那条就从列表里消失了（10-17 评审）
+  describe("分页之后的刷新", () => {
+    const pagedRoute = (total: () => number, pages: string[]) => (p: string) => {
+      if (!p.startsWith("/devices/h1/events")) return { items: [], total: 0 };
+      pages.push(p);
+      const page = Number(new URL(`http://x${p}`).searchParams.get("page"));
+      return page === 1
+        ? { items: [ev("e1", "collision_risk", today(9))], total: total() }
+        : { items: [ev("e2", "obstacle_risk", yesterday(9))], total: total() };
+    };
+    const page2 = (pages: string[]) =>
+      pages.filter((p) => p.includes("page=2")).length;
+
+    it("下拉刷新：已经取过的第 2 页也一起重取", async () => {
+      const pages: string[] = [];
+      mockRoutes.fn = pagedRoute(() => 60, pages);
+      const r = mount();
+      await waitFor(() =>
+        expect(r.allText()).toContain(tr("records.loadMore")),
+      );
+      r.press(tr("records.loadMore"));
+      await waitFor(() =>
+        expect(r.allText()).toContain(tr("events.type.obstacle_risk")),
+      );
+      expect(page2(pages)).toBe(1);
+      const rc = r.root.findByType(RefreshControl);
+      await act(async () => {
+        rc.props.onRefresh();
+        await Promise.resolve();
+      });
+      await waitFor(() => expect(page2(pages)).toBe(2));
+    });
+
+    it("第 1 页的总数变了（轮询拿到新记录）：第 2 页跟着重取；总数没变不重取", async () => {
+      const pages: string[] = [];
+      let total = 60;
+      mockRoutes.fn = pagedRoute(() => total, pages);
+      const qc = makeQueryClient();
+      const r = render(
+        <QueryClientProvider client={qc}>
+          <SafetyRecordsScreen />
+        </QueryClientProvider>,
+      );
+      await waitFor(() =>
+        expect(r.allText()).toContain(tr("records.loadMore")),
+      );
+      r.press(tr("records.loadMore"));
+      await waitFor(() =>
+        expect(r.allText()).toContain(tr("events.type.obstacle_risk")),
+      );
+      expect(page2(pages)).toBe(1);
+      const firstPage = (q: { queryKey: readonly unknown[] }) =>
+        q.queryKey[0] === "events" && q.queryKey.length === 4;
+      // 总数没变：只有第 1 页自己重取
+      await act(async () => {
+        await qc.refetchQueries({ predicate: firstPage });
+      });
+      await act(async () => {
+        await new Promise((res) => setTimeout(res, 0));
+      });
+      expect(page2(pages)).toBe(1);
+      // 来了一条新的：第 2 页跟着重取
+      total = 61;
+      await act(async () => {
+        await qc.refetchQueries({ predicate: firstPage });
+      });
+      await waitFor(() => expect(page2(pages)).toBe(2));
+    });
+  });
+
   it("下拉刷新：重新拉头盔列表和当前分类", async () => {
     const r = mount();
     await waitFor(() =>

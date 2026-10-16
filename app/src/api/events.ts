@@ -30,6 +30,15 @@ export const eventsApi = {
 };
 
 /**
+ * 同一份列表（同一顶头盔、同一类型、同一页大小）所有页共用的键前缀，也正是第 1 页的键。
+ * 按它失效 = 这份列表已取过的每一页一起重取（分页按偏移量取：新记录把旧的挤到后一页时，只重取第 1 页的话被挤走的那条就看不到了）
+ */
+export const eventsListPrefix = (
+  deviceId: string,
+  opts: { type: string; pageSize: number },
+) => ["events", deviceId, opts.type, opts.pageSize] as const;
+
+/**
  * 事件列表的查询配置：缓存键和请求参数从同一处生成，条数不同就是不同的缓存。
  * 安全页（每台 5 条）和事件页「全部」（每台 50 条）曾共用 ["events", id, type] 这个键，
  * 两页同时挂着各自 30 秒轮询，谁后轮询到就把对方的列表覆盖成自己的条数。
@@ -42,7 +51,7 @@ export const eventsListQuery = (
   // 第 1 页的键不带页码（和以前一样，别处的缓存不受影响）；第 2 页起追加页码
   queryKey:
     (opts.page ?? 1) > 1
-      ? (["events", deviceId, opts.type, opts.pageSize, opts.page] as const)
-      : (["events", deviceId, opts.type, opts.pageSize] as const),
+      ? ([...eventsListPrefix(deviceId, opts), opts.page] as const)
+      : eventsListPrefix(deviceId, opts),
   queryFn: () => eventsApi.list(deviceId, opts),
 });

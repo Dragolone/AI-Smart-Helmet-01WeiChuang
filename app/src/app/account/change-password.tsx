@@ -16,7 +16,10 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { showToast } from "@/components/toast";
 import { useT } from "@/i18n";
-import { isPasswordTooLong } from "@/services/password-rules";
+import {
+  isPasswordTooLong,
+  isPasswordTooShort,
+} from "@/services/password-rules";
 
 export default function ChangePasswordScreen() {
   const t = useT();
@@ -38,7 +41,8 @@ export default function ChangePasswordScreen() {
       setError(t("auth.passwordMismatch"));
       return;
     }
-    if (password.length < 8) {
+    // 按码点数、与服务端同口径（表情 / 生僻字原来各算两个）
+    if (isPasswordTooShort(password)) {
       setError(t("auth.passwordTooShort"));
       return;
     }

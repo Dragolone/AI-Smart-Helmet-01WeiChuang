@@ -21,7 +21,13 @@ import { ThemedView } from "@/components/themed-view";
 import { showToast } from "@/components/toast";
 import { useTheme } from "@/hooks/use-theme";
 import { translate, useT, type MessageKey } from "@/i18n";
+import { discardRelayQueue } from "@/services/ble-relay-uplink";
+import { bleTargetsKeyOf } from "@/services/ble-targets";
 import { useAuthStore } from "@/stores/auth-store";
+import { currentHelmetKeysOf } from "@/stores/current-helmet-store";
+import { drillSeenKeyOf } from "@/stores/drill-store";
+import { openMicSeenKeyOf } from "@/stores/intercom-store";
+import { switchReminderKeyOf } from "@/stores/switch-reminder-store";
 
 const CONSEQUENCES: {
   icon: keyof typeof Ionicons.glyphMap;
@@ -33,6 +39,24 @@ const CONSEQUENCES: {
   { icon: "phone-portrait-outline", key: "auth.deleteConsequencePhone" },
 ];
 
+/**
+ * 这个账号留在本机的东西：BLE 中转的积压队列文件、按账号存的几条设置（已绑头盔缓存、当前头盔、
+ * 演练 / 一直开麦说明看没看过、换头盔提醒开关）。账号已经不存在，留着就是一份没人管的个人数据（10-17 评审）。
+ * 删失败不影响注销本身。
+ */
+async function forgetAccountLocalData(userId: string): Promise<void> {
+  discardRelayQueue(userId);
+  await Promise.all(
+    [
+      bleTargetsKeyOf(userId),
+      ...currentHelmetKeysOf(userId),
+      drillSeenKeyOf(userId),
+      openMicSeenKeyOf(userId),
+      switchReminderKeyOf(userId),
+    ].map((key) => SecureStore.deleteItemAsync(key).catch(() => undefined)),
+  );
+}
+
 export default function DeleteAccountScreen() {
   const theme = useTheme();
   const t = useT();
@@ -43,6 +67,8 @@ export default function DeleteAccountScreen() {
 
   const deleteAccount = async () => {
     setBusy(true);
+    // 清会话之后就拿不到了：先记下是谁
+    const userId = useAuthStore.getState().user?.id;
     try {
       await authApi.deleteMe({ password });
       showToast(translate("auth.deleteDone"));
@@ -52,6 +78,8 @@ export default function DeleteAccountScreen() {
       );
       // 清会话即触发 Stack.Protected 切到登录组，无需手动导航
       await dropSession();
+      // 放在清会话之后：链路停下来时不再替这个账号落盘，设备列表也不会再替它存一份
+      if (userId) await forgetAccountLocalData(userId);
     } catch (e) {
       setError(toUserMessage(e));
     } finally {

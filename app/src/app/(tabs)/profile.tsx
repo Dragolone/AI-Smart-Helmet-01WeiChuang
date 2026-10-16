@@ -33,6 +33,7 @@ import {
   useThemeStore,
   type ThemeMode,
 } from "@/stores/theme-store";
+import { devLog } from "@/services/dev-log";
 import { showNotice } from "@/services/notice";
 import { profilePatch } from "@/services/profile-patch";
 import {
@@ -111,9 +112,11 @@ export default function ProfileScreen() {
       });
       if (out.base64) setAvatarDraft(`data:image/jpeg;base64,${out.base64}`);
     } catch (e) {
+      // 原生层的报错是给开发看的英文（权限、解码失败），不直接给用户看；原文留在日志里
+      devLog("profile", "选择头像失败", e);
       showNotice(
         translate("profile.pickFailed"),
-        e instanceof Error ? e.message : String(e),
+        translate("profile.pickFailedBody"),
       );
     }
   };
@@ -253,9 +256,12 @@ export default function ProfileScreen() {
               compact
               icon="call-outline"
               title={t("profile.contacts")}
-              value={t("profile.contactsValue", {
-                n: contacts.data?.length ?? 0,
-              })}
+              // 没拿到列表时写一横：写「0 人」会让人以为联系人被清掉了，回头又重复添加
+              value={
+                contacts.data
+                  ? t("profile.contactsValue", { n: contacts.data.length })
+                  : "—"
+              }
               onPress={() => router.navigate("/contacts")}
             />
             <ListRow

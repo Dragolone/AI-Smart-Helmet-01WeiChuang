@@ -24,6 +24,7 @@ import {
   isValidPhone,
   normalizePhone,
   normalizeSmsCode,
+  __resetSmsCooldownsForTests,
   useSmsCode,
 } from "../use-sms-code";
 
@@ -152,6 +153,7 @@ describe("useSmsCode.send：发出去的一定是 11 位纯数字", () => {
   const renderers: ReactTestRenderer[] = [];
   beforeEach(() => {
     sendMock.mockClear();
+    __resetSmsCooldownsForTests();
   });
   afterEach(() => {
     act(() => renderers.splice(0).forEach((r) => r.unmount()));
@@ -160,7 +162,7 @@ describe("useSmsCode.send：发出去的一定是 11 位纯数字", () => {
   async function mount() {
     const box = {} as { current: ReturnType<typeof useSmsCode> };
     function Probe() {
-      box.current = useSmsCode("register");
+      box.current = useSmsCode("register", "");
       return null;
     }
     await act(async () => {

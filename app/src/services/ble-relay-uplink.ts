@@ -143,9 +143,30 @@ let flushing = false;
 /** 多设备轮转的起点：每次 flush 只提交一台设备，下一次换下一台（审计 BLE-03） */
 let deviceCursor = 0;
 
+/** 已注销的账号：它的分区不再落盘（注销之后链路停下来时的那次落盘不能把文件写回来） */
+const discardedOwners = new Set<string>();
+
 const persist = (): void => {
+  if (discardedOwners.has(owner)) return;
   void store.save(owner, queue);
 };
+
+/**
+ * 注销账号之后：丢掉这个账号分区的积压、删掉它的文件。账号已不存在、名下头盔已全部解绑，
+ * 这些事件再也送不出去；留在手机上就是一份没人管的位置 / 事件记录（10-17 评审）。
+ */
+export function discardRelayQueue(ownerKey: string): void {
+  discardedOwners.add(ownerKey);
+  if (owner === ownerKey) queue = [];
+  for (const suffix of ["", TMP_SUFFIX]) {
+    try {
+      const f = fileFor(ownerKey, suffix);
+      if (f.exists) f.delete();
+    } catch (e) {
+      devLog("BLE-RELAY", "删除已注销账号的队列文件失败", e);
+    }
+  }
+}
 
 /** 求救类事件：入队时同步通知订阅方（视频预览页据此让出网络，见 onSosRelayEvent） */
 const SOS_TYPES = new Set<string>(["possible_fall", "manual_sos"]);

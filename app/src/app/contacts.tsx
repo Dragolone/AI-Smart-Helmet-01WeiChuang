@@ -6,7 +6,7 @@ import { Alert, ScrollView, Share, StyleSheet, View } from "react-native";
 import type { EmergencyContact } from "@helmet/shared";
 
 import { contactsApi } from "@/api/contacts";
-import { toUserMessage } from "@/api/error-messages";
+import { isSessionEnded, toUserMessage } from "@/api/error-messages";
 import { PrimaryButton } from "@/components/form";
 import { Card } from "@/components/list";
 import { Tappable } from "@/components/tappable";
@@ -111,6 +111,9 @@ export default function ContactsScreen() {
     queryFn: contactsApi.list,
   });
   const list = contacts.data ?? [];
+  // 列表没拿到（还在拉 / 拉失败）≠ 一个都没加：原来拉失败也显示「尚未添加」、添加照样可点，
+  // 用户以为丢了又加一遍，联系人重复（10-17 评审）
+  const known = contacts.data !== undefined;
 
   const remove = (c: EmergencyContact) => {
     Alert.alert(
@@ -127,9 +130,11 @@ export default function ContactsScreen() {
               .then(() =>
                 queryClient.invalidateQueries({ queryKey: ["contacts"] }),
               )
-              .catch((e) =>
-                showNotice(translate("common.failed"), toUserMessage(e)),
-              ),
+              .catch((e) => {
+                // 会话已失效、正被送回登录页：登录页顶部有说明，不再弹
+                if (isSessionEnded(e)) return;
+                showNotice(translate("common.failed"), toUserMessage(e));
+              }),
         },
       ],
     );
@@ -158,13 +163,22 @@ export default function ContactsScreen() {
               </Animated.View>
             ))}
           </Card>
+        ) : known ? (
+          // 空态只做引导：底部常驻的「添加联系人」才是唯一入口，这里再放一个按钮会出现两个添加
+          <EmptyState
+            icon="people-outline"
+            title={t("empty.contactsTitle")}
+            body={t("empty.contactsBody")}
+          />
         ) : (
-          !contacts.isLoading && (
-            // 空态只做引导：底部常驻的「添加联系人」才是唯一入口，这里再放一个按钮会出现两个添加
+          contacts.isError && (
             <EmptyState
-              icon="people-outline"
-              title={t("empty.contactsTitle")}
-              body={t("empty.contactsBody")}
+              icon="cloud-offline-outline"
+              title={t("contacts.loadFailed")}
+              body={t("contacts.loadFailedBody")}
+              actionLabel={t("contacts.retry")}
+              actionIcon="refresh"
+              onAction={() => void contacts.refetch()}
             />
           )
         )}
@@ -173,7 +187,7 @@ export default function ContactsScreen() {
         <PrimaryButton
           title={t("contacts.add")}
           icon="add"
-          disabled={list.length >= MAX_CONTACTS}
+          disabled={!known || list.length >= MAX_CONTACTS}
           onPress={() => router.navigate("/add-contact")}
         />
         {list.length >= MAX_CONTACTS && (

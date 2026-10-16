@@ -2,7 +2,11 @@
 // 只映射到文案 key，语言在调用时由 translate() 解析——模块级常量不得捕获 locale。
 import { translate, type MessageKey } from "@/i18n";
 
-import { ApiRequestError } from "./client";
+import {
+  ApiRequestError,
+  SessionCheckUnavailableError,
+  SessionEndedError,
+} from "./client";
 
 const MESSAGE_KEYS: Record<string, MessageKey> = {
   VALIDATION_FAILED: "error.validationFailed",
@@ -49,11 +53,17 @@ function rateLimitedMessage(seconds: number): string {
 }
 
 export function toUserMessage(err: unknown): string {
+  if (err instanceof SessionEndedError) return translate("error.sessionEnded");
+  if (err instanceof SessionCheckUnavailableError)
+    return translate("error.sessionCheckFailed");
   if (err instanceof ApiRequestError) {
     // 限频：服务端说了还要等几秒就照说（负责人 2026-10-07 iPhone 2.6 实测：只说「太频繁」用户不知道要等多久）
     if (err.code === "RATE_LIMITED" && err.retryAfterSec) {
       return rateLimitedMessage(err.retryAfterSec);
     }
+    // 「手机号或密码不正确」只属于登录接口；带着会话的请求被 401 是登录状态没核对上
+    if (err.code === "UNAUTHORIZED" && err.withSession)
+      return translate("error.sessionCheckFailed");
     const key = own(MESSAGE_KEYS, err.code);
     return key
       ? translate(key)
@@ -78,11 +88,16 @@ export function changePhoneErrorMessage(err: unknown): string {
   return toUserMessage(err);
 }
 
+/** 会话已被服务端否定、界面正被送回登录页：这时不再弹失败提示（登录页顶部自有说明） */
+export const isSessionEnded = (err: unknown): boolean =>
+  err instanceof SessionEndedError;
+
 /**
  * 这次失败是不是「原样再来一次可能就行」：没连上服务器（断网、超时）、被限频、服务器自己出错。
  * 服务端明确说不行的（绑定码不对、已被绑定……）不算——同样的请求再发多少次结果都一样。
  */
 export function isTransientFailure(err: unknown): boolean {
+  if (err instanceof SessionEndedError) return false;
   if (!(err instanceof ApiRequestError)) return true;
   return err.status === 429 || err.status >= 500;
 }

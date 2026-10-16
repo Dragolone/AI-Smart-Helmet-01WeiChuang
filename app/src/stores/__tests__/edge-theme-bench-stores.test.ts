@@ -59,7 +59,7 @@ describe("外观设置", () => {
     await useThemeStore.getState().setMode("light");
     expect(useThemeStore.getState().mode).toBe("light");
     expect(native).toHaveBeenCalledWith("light");
-    expect(mockKv.get("helmet.theme")).toBe("light");
+    expect(mockKv.get("helmet.theme.v2")).toBe("light");
   });
 
   it("旧版 RN 没有 setColorScheme（抛错）也不影响切换", async () => {

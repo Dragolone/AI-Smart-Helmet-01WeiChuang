@@ -24,17 +24,48 @@ export class ApiRequestError extends Error {
   readonly requestId?: string;
   /** 429 的 `Retry-After`（秒）：限频还要等多久（决策 #53）；没有或解析不了为 undefined */
   readonly retryAfterSec?: number;
+  /**
+   * 请求带着登录会话发出（auth: true）。同是 401 UNAUTHORIZED：登录接口的是「手机号或密码不正确」，
+   * 带会话的接口是「登录状态没核对上」——文案要分开（error-messages）
+   */
+  readonly withSession: boolean;
 
   constructor(
     status: number,
     body: Partial<ApiErrorBody>,
     retryAfterSec?: number,
+    withSession = false,
   ) {
     super(body.message ?? `HTTP ${status}`);
     this.code = body.code ?? "INTERNAL_ERROR";
     this.status = status;
     this.requestId = body.requestId;
     this.retryAfterSec = retryAfterSec;
+    this.withSession = withSession;
+  }
+}
+
+/**
+ * 原请求 401、这次却没换成新 token（刷新遇到 429 / 5xx / 超时 / 断网，或刷新途中换了账号）：
+ * 会话没有被否定，只是此刻核对不了——按「暂时失败、稍后再试」呈现。原来把原 401 抛出去，
+ * 页面显示的是登录页那句「手机号或密码不正确」（10-17 评审）。status 仍是 401，按状态码分流的调用方行为不变
+ */
+export class SessionCheckUnavailableError extends Error {
+  readonly status = 401;
+  readonly code = "SESSION_CHECK_UNAVAILABLE";
+  constructor() {
+    super("session check unavailable");
+    this.name = "SessionCheckUnavailableError";
+  }
+}
+
+/** 服务端否定了 refresh token：本地会话已清，界面正被送回登录页（登录页顶部有说明，页面不必再弹提示） */
+export class SessionEndedError extends Error {
+  readonly status = 401;
+  readonly code = "SESSION_ENDED";
+  constructor() {
+    super("session ended");
+    this.name = "SessionEndedError";
   }
 }
 
@@ -155,13 +186,16 @@ async function refreshTokens(): Promise<RefreshOutcome> {
   return refreshing;
 }
 
-async function parseError(res: Response): Promise<ApiRequestError> {
+async function parseError(
+  res: Response,
+  withSession: boolean,
+): Promise<ApiRequestError> {
   const retryAfter = parseRetryAfter(res.headers?.get?.("retry-after"));
   try {
     const body = (await res.json()) as Partial<ApiErrorBody>;
-    return new ApiRequestError(res.status, body, retryAfter);
+    return new ApiRequestError(res.status, body, retryAfter, withSession);
   } catch {
-    return new ApiRequestError(res.status, {}, retryAfter);
+    return new ApiRequestError(res.status, {}, retryAfter, withSession);
   }
 }
 
@@ -209,11 +243,14 @@ export async function api<T>(
       res = await doFetch();
     } else if (outcome === "invalid") {
       await session?.clearSession();
+      throw new SessionEndedError();
+    } else {
+      // stale：保留会话（下一次请求会再刷新），告诉调用方「暂时核对不了」而不是原 401
+      throw new SessionCheckUnavailableError();
     }
-    // stale：保留会话，把原 401 交给调用方（下一次请求会再刷新）
   }
 
-  if (!res.ok) throw await parseError(res);
+  if (!res.ok) throw await parseError(res, auth);
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }

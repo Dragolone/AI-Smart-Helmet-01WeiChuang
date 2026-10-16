@@ -31,15 +31,19 @@ export function ConnectionBanner() {
   // 断开时刻 + 「宽限期到点时对应的断开时刻」：两者相等才显示（不在 effect 里直接 setState）
   const [downSince, setDownSince] = useState<number | null>(null);
   const [elapsedFor, setElapsedFor] = useState<number | null>(null);
-  useEffect(
-    () =>
-      realtimeClient.subscribeState((connected) =>
-        setDownSince((prev) =>
-          connected ? null : prev === null ? Date.now() : prev,
-        ),
-      ),
-    [],
-  );
+  // 只在登录期间计时：没登录时通道本来就断着，原来宽限期在登录页上就耗完了，一登录就闪「连接中断」。
+  // 每次登录重新订阅，订阅时回放的那一次「断开」从此刻起算
+  useEffect(() => {
+    if (!authed) return;
+    let replay = true;
+    return realtimeClient.subscribeState((connected) => {
+      const fresh = replay;
+      replay = false;
+      setDownSince((prev) =>
+        connected ? null : fresh || prev === null ? Date.now() : prev,
+      );
+    });
+  }, [authed]);
   useEffect(() => {
     if (downSince === null) return;
     const id = setTimeout(() => setElapsedFor(downSince), GRACE_MS);

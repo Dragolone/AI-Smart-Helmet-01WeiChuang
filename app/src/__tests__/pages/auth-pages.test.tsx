@@ -22,6 +22,7 @@ import {
 import { authApi } from "@/api/auth";
 import { ApiRequestError } from "@/api/client";
 import { Colors } from "@/constants/theme";
+import { __resetSmsCooldownsForTests } from "@/hooks/use-sms-code";
 import { translate, useLocaleStore, type MessageKey } from "@/i18n";
 import { useAuthStore } from "@/stores/auth-store";
 import { useConsentStore } from "@/stores/consent-store";
@@ -101,6 +102,10 @@ jest.mock("expo-secure-store", () => ({
   deleteItemAsync: jest.fn(() => Promise.resolve()),
   AFTER_FIRST_UNLOCK: 0,
 }));
+const mockDiscardRelayQueue = jest.fn();
+jest.mock("@/services/ble-relay-uplink", () => ({
+  discardRelayQueue: (owner: string) => mockDiscardRelayQueue(owner),
+}));
 jest.mock("@/api/auth", () => ({
   ...jest.requireActual<typeof import("@/api/auth")>("@/api/auth"),
   authApi: {
@@ -158,6 +163,19 @@ const fieldErrors = (r: Rendered) => {
     });
 };
 
+/** 占位文字为 placeholder 的输入框（FormInput 及它透传到的 TextInput）上的属性 */
+const inputProps = (r: Rendered, placeholder: string) =>
+  r.root
+    .findAll(
+      (n) =>
+        typeof n.type !== "string" &&
+        n.props.placeholder === placeholder &&
+        typeof n.props.onChangeText === "function",
+    )
+    .map((n) => n.props as Record<string, unknown>);
+/** 7 个表情：14 个 UTF-16 单元，服务端按码点数只有 7 位 */
+const SEVEN_EMOJI = "😀".repeat(7);
+
 let signIn: jest.Mock;
 let accept: jest.Mock;
 let dismiss: ReturnType<typeof jest.spyOn>;
@@ -178,6 +196,8 @@ beforeEach(() => {
     accept,
   } as never);
   dismiss = jest.spyOn(Keyboard, "dismiss").mockImplementation(() => undefined);
+  // 重发读秒按号码记在模块里：每个用例从没发过开始
+  __resetSmsCooldownsForTests();
 });
 afterEach(() => {
   dismiss.mockRestore();
@@ -368,9 +388,14 @@ describe("注册页", () => {
     expect(fieldErrors(r)).toEqual([
       [tr("auth.smsCode"), tr("error.smsCodeTooFrequent")],
     ]);
+    // 服务端说这个号码刚发过：按钮照样读满 60 秒，不让人对着「太频繁」一直点
+    expect(r.allText()).toContain(tr("auth.resend", { n: 60 }));
+    // 换一个号码不受上一个号码的读秒影响
     api.sendSmsCode.mockImplementationOnce(() =>
       Promise.reject(apiError(409, "PHONE_ALREADY_REGISTERED")),
     );
+    fill(r, { phone: "13900000043" });
+    expect(r.allText()).toContain(tr("auth.getCode"));
     r.press(tr("auth.getCode"));
     await waitFor(() =>
       expect(fieldErrors(r)).toEqual([
@@ -459,6 +484,45 @@ describe("注册页", () => {
     );
   });
 
+  it("离开页面再进来：同一个号码接着读秒（服务端按号码 + 用途限 60 秒），不是清零", async () => {
+    api.sendSmsCode.mockImplementation(() => Promise.resolve());
+    const first = render(<RegisterScreen />);
+    fill(first, { phone: "13900000042" });
+    first.press(tr("auth.getCode"));
+    await flush();
+    expect(first.allText()).not.toContain(tr("auth.getCode"));
+    first.unmount();
+    const again = render(<RegisterScreen />);
+    fill(again, { phone: "13900000042" });
+    expect(again.allText()).not.toContain(tr("auth.getCode"));
+    fill(again, { phone: "13900000043" });
+    expect(again.allText()).toContain(tr("auth.getCode"));
+  });
+
+  it("系统自动填充：验证码框认短信里的验证码，两个密码框按「新密码」处理", () => {
+    const r = render(<RegisterScreen />);
+    for (const p of inputProps(r, P.code))
+      expect(p).toMatchObject({
+        autoComplete: "sms-otp",
+        textContentType: "oneTimeCode",
+      });
+    for (const ph of [P.pwd, P.confirm])
+      for (const p of inputProps(r, ph))
+        expect(p.autoComplete).toBe("new-password");
+    expect(inputProps(r, P.code).length).toBeGreaterThan(0);
+  });
+
+  it("密码长度按字数算、与服务端同口径：7 个表情（14 个 UTF-16 单元）不够 8 位", () => {
+    const r = render(<RegisterScreen />);
+    tick(r);
+    fill(r, { code: "123456", pwd: SEVEN_EMOJI, confirm: SEVEN_EMOJI });
+    r.press(tr("auth.registerAndLogin"));
+    expect(fieldErrors(r)).toEqual([
+      [tr("auth.password"), tr("auth.passwordTooShort")],
+    ]);
+    expect(api.register).not.toHaveBeenCalled();
+  });
+
   it("「已有账号」回到栈里的登录页（dismissTo），协议链接先收键盘", () => {
     const r = render(<RegisterScreen />);
     const link = r.root.find((n) => isHost(n, "Link"));
@@ -493,6 +557,24 @@ describe("找回密码", () => {
     r.type(P.confirm, "abc");
     r.press(tr("auth.resetPassword"));
     expect(r.allText()).toContain(tr("auth.passwordTooShort"));
+  });
+
+  it("自动填充提示：验证码框认短信验证码、新密码框是新密码；密码长度按字数算", () => {
+    const r = render(<ResetPasswordScreen />);
+    for (const p of inputProps(r, P.code))
+      expect(p).toMatchObject({
+        autoComplete: "sms-otp",
+        textContentType: "oneTimeCode",
+      });
+    for (const ph of [P.pwd, P.confirm])
+      for (const p of inputProps(r, ph))
+        expect(p.autoComplete).toBe("new-password");
+    r.type(P.code, "654321");
+    r.type(P.pwd, SEVEN_EMOJI);
+    r.type(P.confirm, SEVEN_EMOJI);
+    r.press(tr("auth.resetPassword"));
+    expect(r.allText()).toContain(tr("auth.passwordTooShort"));
+    expect(api.resetPassword).not.toHaveBeenCalled();
   });
 
   it("重置成功：按钮变成功态，画完提示并回登录页", async () => {
@@ -584,6 +666,11 @@ describe("修改密码", () => {
     r.type(P.confirm, long);
     r.press(tr("common.save"));
     expect(pageErrors(r)).toEqual([tr("auth.passwordTooLong")]);
+    // 按字数算：7 个表情是 14 个 UTF-16 单元，原来在这里过了、提交后被服务端拒
+    r.type(P.pwd, SEVEN_EMOJI);
+    r.type(P.confirm, SEVEN_EMOJI);
+    r.press(tr("common.save"));
+    expect(pageErrors(r)).toEqual([tr("auth.passwordTooShort")]);
     expect(api.changePassword).not.toHaveBeenCalled();
   });
 
@@ -678,6 +765,11 @@ describe("更换手机号", () => {
       password: "mypassword",
     });
     expect(setUser).toHaveBeenCalledWith(updated);
+    // 登录页下次预填新号（旧号已释放，可能被别人注册）
+    expect(SecureStore.setItemAsync).toHaveBeenCalledWith(
+      "last_login_phone",
+      "13800000001",
+    );
     act(() => {
       jest.advanceTimersByTime(1100);
     });
@@ -704,6 +796,10 @@ describe("更换手机号", () => {
       expect(pageErrors(r)).toEqual([tr("error.smsCodeInvalid")]),
     );
     expect(setUser).not.toHaveBeenCalled();
+    expect(SecureStore.setItemAsync).not.toHaveBeenCalledWith(
+      "last_login_phone",
+      expect.anything(),
+    );
   });
 });
 
@@ -766,6 +862,45 @@ describe("注销账号", () => {
     expect(pwdBox).toBeTruthy();
   });
 
+  it("注销成功后清掉这个账号留在本机的东西：中转积压队列和按账号存的各条设置；放在清会话之后", async () => {
+    useAuthStore.setState({ user: { id: "u1" } } as never);
+    api.deleteMe.mockImplementation(() => Promise.resolve());
+    const r = render(<DeleteAccountScreen />);
+    const input = r.root.find(
+      (n) =>
+        typeof n.type !== "string" &&
+        typeof n.props.onChangeText === "function" &&
+        n.props.secureTextEntry !== undefined,
+    );
+    act(() => input.props.onChangeText("mypassword"));
+    act(() => confirmButton(r).props.onPress());
+    const buttons = alert.mock.calls[0][2] as { onPress?: () => void }[];
+    act(() => buttons[1].onPress!());
+    await waitFor(() => expect(mockDiscardRelayQueue).toHaveBeenCalledWith("u1"));
+    await waitFor(() =>
+      expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith(
+        "helmet.switchReminder.u1",
+      ),
+    );
+    const deleted = (SecureStore.deleteItemAsync as jest.Mock).mock.calls.map(
+      (c) => c[0],
+    );
+    expect(deleted).toEqual(
+      expect.arrayContaining([
+        "helmet.ble.targets.u1",
+        "helmet.currentHelmet.v2.u1",
+        "helmet.currentHelmet.u1",
+        "helmet.sosDrillSeen.u1",
+        "helmet.intercomOpenMicSeen.u1",
+        "helmet.switchReminder.u1",
+      ]),
+    );
+    // 先清会话（链路停下）再丢队列：不然停链路时的那次落盘会把文件写回来
+    expect(dropSession.mock.invocationCallOrder[0]).toBeLessThan(
+      mockDiscardRelayQueue.mock.invocationCallOrder[0],
+    );
+  });
+
   it("密码错：页面级提示，不清会话", async () => {
     api.deleteMe.mockImplementation(() =>
       Promise.reject(apiError(400, "PASSWORD_INCORRECT")),
@@ -785,5 +920,6 @@ describe("注销账号", () => {
       expect(pageErrors(r)).toContain(tr("error.passwordIncorrect")),
     );
     expect(dropSession).not.toHaveBeenCalled();
+    expect(mockDiscardRelayQueue).not.toHaveBeenCalled();
   });
 });

@@ -32,7 +32,10 @@ import {
   normalizeSmsCode,
   useSmsCode,
 } from "@/hooks/use-sms-code";
-import { isPasswordTooLong } from "@/services/password-rules";
+import {
+  isPasswordTooLong,
+  isPasswordTooShort,
+} from "@/services/password-rules";
 import { cleanNickname } from "@/services/user-name";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
@@ -62,7 +65,7 @@ export default function RegisterScreen() {
   const fail = (field: FormField, message: string) =>
     setFieldError({ field, message });
   const [busy, setBusy] = useState(false);
-  const sms = useSmsCode("register");
+  const sms = useSmsCode("register", phone);
 
   const sendCode = async () => {
     setError(null);
@@ -97,7 +100,8 @@ export default function RegisterScreen() {
       fail("confirm", t("auth.passwordMismatch"));
       return;
     }
-    if (password.length < 8) {
+    // 按码点数、与服务端同口径（表情 / 生僻字原来各算两个）
+    if (isPasswordTooShort(password)) {
       fail("password", t("auth.passwordTooShort"));
       return;
     }
@@ -173,6 +177,9 @@ export default function RegisterScreen() {
                   keyboardType="number-pad"
                   maxLength={6}
                   placeholder={t("auth.smsCodePlaceholder")}
+                  // 系统从短信里读出验证码填进来（iOS 键盘上方的建议、Android 的短信验证码自动填充）
+                  autoComplete="sms-otp"
+                  textContentType="oneTimeCode"
                 />
               </View>
               <Pressable
@@ -212,6 +219,8 @@ export default function RegisterScreen() {
               onChangeText={setPassword}
               secureTextEntry
               placeholder={t("auth.passwordPlaceholder")}
+              // 让系统密码管理器给出「建议强密码」并存下，而不是把它当成登录密码去填
+              autoComplete="new-password"
             />
             <FormInput
               label={t("auth.confirmPassword")}
@@ -221,6 +230,7 @@ export default function RegisterScreen() {
               onChangeText={setConfirm}
               secureTextEntry
               placeholder={t("auth.confirmPlaceholder")}
+              autoComplete="new-password"
             />
             <FormInput
               label={t("auth.nickname")}

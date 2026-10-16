@@ -2,6 +2,7 @@
 // 成功即生效：用返回的档案刷新会话 store 后返回。
 import { useState } from "react";
 import { router } from "expo-router";
+import * as SecureStore from "expo-secure-store";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -41,7 +42,7 @@ export default function ChangePhoneScreen() {
   const [busy, setBusy] = useState(false);
   // 换好了：按钮先画勾，画完再提示并返回
   const [done, setDone] = useState(false);
-  const sms = useSmsCode("change_phone");
+  const sms = useSmsCode("change_phone", phone);
 
   // 与联系人页同一个 normalizePhone：「+86 139 …」、全角数字原来被判成格式不对；
   // 和当前号码比也按规整后的比，「+86 138…」不会被当成换了个新号
@@ -91,6 +92,10 @@ export default function ChangePhoneScreen() {
         password,
       });
       await setUser(updated);
+      // 登录页预填的是上次登录用的号码：换成新号，不然下次登录预填的是已经释放、可能被别人注册的旧号
+      SecureStore.setItemAsync("last_login_phone", cleanPhone).catch(
+        () => undefined,
+      );
       setDone(true);
     } catch (e) {
       setError(changePhoneErrorMessage(e));
@@ -170,6 +175,7 @@ export default function ChangePhoneScreen() {
                 maxLength={6}
                 placeholder={t("auth.smsCodePlaceholder")}
                 autoComplete="sms-otp"
+                textContentType="oneTimeCode"
               />
             </View>
             <Tappable

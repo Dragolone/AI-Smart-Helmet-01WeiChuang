@@ -33,7 +33,10 @@ import {
   normalizeSmsCode,
   useSmsCode,
 } from "@/hooks/use-sms-code";
-import { isPasswordTooLong } from "@/services/password-rules";
+import {
+  isPasswordTooLong,
+  isPasswordTooShort,
+} from "@/services/password-rules";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
 
@@ -57,7 +60,7 @@ export default function ResetPasswordScreen() {
   const [busy, setBusy] = useState(false);
   // 重置成功：按钮先画勾（「已重置」），画完再提示并回登录页
   const [done, setDone] = useState(false);
-  const sms = useSmsCode("reset_password");
+  const sms = useSmsCode("reset_password", phone);
 
   const sendCode = async () => {
     setError(null);
@@ -88,7 +91,8 @@ export default function ResetPasswordScreen() {
       fail("confirm", t("auth.passwordMismatch"));
       return;
     }
-    if (password.length < 8) {
+    // 按码点数、与服务端同口径（表情 / 生僻字原来各算两个）
+    if (isPasswordTooShort(password)) {
       fail("password", t("auth.passwordTooShort"));
       return;
     }
@@ -165,6 +169,9 @@ export default function ResetPasswordScreen() {
                   keyboardType="number-pad"
                   maxLength={6}
                   placeholder={t("auth.smsCodePlaceholder")}
+                  // 系统从短信里读出验证码填进来（iOS 键盘上方的建议、Android 的短信验证码自动填充）
+                  autoComplete="sms-otp"
+                  textContentType="oneTimeCode"
                 />
               </View>
               <Pressable
@@ -204,6 +211,8 @@ export default function ResetPasswordScreen() {
               onChangeText={setPassword}
               secureTextEntry
               placeholder={t("auth.passwordPlaceholder")}
+              // 让系统密码管理器给出「建议强密码」并更新存下的那条，而不是把它当成登录密码去填
+              autoComplete="new-password"
             />
             <FormInput
               label={t("auth.confirmNewPassword")}
@@ -213,6 +222,7 @@ export default function ResetPasswordScreen() {
               onChangeText={setConfirm}
               secureTextEntry
               placeholder={t("auth.confirmPlaceholder")}
+              autoComplete="new-password"
             />
 
             <FormError message={error} />

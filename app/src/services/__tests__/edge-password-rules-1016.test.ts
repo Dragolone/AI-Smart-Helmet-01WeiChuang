@@ -6,7 +6,10 @@ import { describe, expect, it } from "@jest/globals";
 
 import {
   PASSWORD_MAX_BYTES,
+  PASSWORD_MIN_LENGTH,
   isPasswordTooLong,
+  isPasswordTooShort,
+  passwordLength,
   utf8ByteLength,
 } from "../password-rules";
 
@@ -67,5 +70,48 @@ describe("接线：注册 / 找回密码 / 改密码三页都按字节查上限�
     const src = readFileSync(join(SRC, file), "utf8");
     expect(src).toMatch(/isPasswordTooLong\(password\)/);
     expect(src).not.toMatch(/password\.length > 72/);
+  });
+});
+
+// 下限按服务端的数法（class-validator MinLength → validator.isLength，2026-10-17）：数码点，
+// 紧跟在字符后面的变体选择符（U+FE0E / U+FE0F）不算。原来按 UTF-16 单元数，7 个表情在本地算 14 位
+describe("passwordLength / isPasswordTooShort：8 位下限", () => {
+  it("ASCII、汉字一字一位；表情、生僻字（代理对）也是一位", () => {
+    expect(passwordLength("abcdefgh")).toBe(8);
+    expect(passwordLength("密码很长的口令")).toBe(7);
+    expect(passwordLength("😀".repeat(7))).toBe(7);
+    expect("😀".repeat(7).length).toBe(14);
+    expect(passwordLength("𠮷野家")).toBe(3);
+  });
+
+  it("「❤️」这类带变体选择符的：选择符不算（和服务端一样）", () => {
+    const heart = "\u2764\uFE0F"; // ❤️
+    expect(heart.length).toBe(2);
+    expect(passwordLength(heart)).toBe(1);
+    expect(passwordLength("\u2764\uFE0E")).toBe(1);
+    expect(passwordLength("\u{1F3F3}\uFE0F")).toBe(1); // 🏳️：代理对 + 选择符
+    expect(passwordLength(heart.repeat(8))).toBe(8);
+    // 打头的孤立选择符前面没有字符：照样算一位
+    expect(passwordLength("\uFE0Fabc")).toBe(4);
+  });
+
+  it("7 位不够、8 位够；7 个表情不够（原来按 length 是 14，本地放过、服务端拒）", () => {
+    expect(PASSWORD_MIN_LENGTH).toBe(8);
+    expect(isPasswordTooShort("abcdefg")).toBe(true);
+    expect(isPasswordTooShort("abcdefgh")).toBe(false);
+    expect(isPasswordTooShort("😀".repeat(7))).toBe(true);
+    expect(isPasswordTooShort("😀".repeat(8))).toBe(false);
+    expect(isPasswordTooShort("\u2764\uFE0F".repeat(4))).toBe(true);
+    expect(isPasswordTooShort("")).toBe(true);
+  });
+
+  it.each([
+    "app/(auth)/register.tsx",
+    "app/(auth)/reset-password.tsx",
+    "app/account/change-password.tsx",
+  ])("接线：%s 的新密码按 isPasswordTooShort 查", (file) => {
+    const src = readFileSync(join(__dirname, "..", "..", file), "utf8");
+    expect(src).toMatch(/isPasswordTooShort\(password\)/);
+    expect(src).not.toMatch(/\bpassword\.length < 8/);
   });
 });
