@@ -299,6 +299,33 @@ describe("ConnectionBanner", () => {
       expect(r.texts()).toHaveLength(1);
     }
   });
+
+  it("对讲页在房间里：房间有自己的重连条，全局这条不显示（压在频道名上，10-16 iPhone）；别的标签页照常", () => {
+    jest.useFakeTimers();
+    authed();
+    act(() =>
+      useIntercomStore.getState().setSession({
+        channelId: "c1",
+        channelName: "emutest",
+        micOpen: false,
+        reconnecting: true,
+      }),
+    );
+    routerState.pathname = "/intercom";
+    const r = render(<ConnectionBanner />);
+    drop(false);
+    act(() => {
+      jest.advanceTimersByTime(5000);
+    });
+    expect(r.tree.toJSON()).toBeNull();
+    routerState.pathname = "/safety";
+    r.rerender(<ConnectionBanner />);
+    expect(r.texts()).toHaveLength(1);
+    act(() => useIntercomStore.getState().setSession(null));
+    routerState.pathname = "/intercom";
+    r.rerender(<ConnectionBanner />);
+    expect(r.texts()).toHaveLength(1);
+  });
 });
 
 describe("ThemeFade", () => {

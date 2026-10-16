@@ -79,6 +79,7 @@ import {
   FINISH_MS,
   SEARCH_SLOW_MS,
   guideAutoDone,
+  bodyPhase,
   guideBeat,
   guideCards,
   guideCurrent,
@@ -223,15 +224,22 @@ function Row({
     }
     if (of) {
       const b = of.motion.beat.get();
-      // 让位的那一件：共享值比页面重画早到一步，所以两边都认
-      if (of.role === "past" || of.motion.past.get() === of.step) {
+      const phase = bodyPhase(
+        of.role,
+        of.step,
+        of.motion.past.get(),
+        of.motion.enter.get(),
+      );
+      if (phase === "leave") {
         const q = clamp01(b / BEAT.leave);
         return steady(id, {
           opacity: 1 - smooth(b / 180),
           transform: [{ translateY: -10 * q * q }],
         });
       }
-      if (of.motion.enter.get() === of.step) {
+      if (phase === "gone")
+        return steady(id, { opacity: 0, transform: [{ translateY: 0 }] });
+      if (phase === "enter") {
         const p = b - BEAT.rise[of.order];
         return steady(id, {
           opacity: smooth(p / 300),
@@ -264,8 +272,7 @@ function Tick({ at, color }: { at: SharedValue<number>; color: string }) {
     steady(id, {
       transform: [
         {
-          scale:
-            1 + 0.16 * bump((at.get() - TICK.pop[0]) / TICK.pop[1], 0.45),
+          scale: 1 + 0.16 * bump((at.get() - TICK.pop[0]) / TICK.pop[1], 0.45),
         },
       ],
     }),

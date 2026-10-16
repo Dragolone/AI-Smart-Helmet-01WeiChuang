@@ -82,7 +82,7 @@ import {
   enqueueRelayEvent,
   notifyCriticalAccepted,
 } from "@/services/ble-relay-uplink";
-import { msToNextSecond } from "@/services/countdown";
+import { msToNextSecond, shownSeconds } from "@/services/countdown";
 import { lateEventNote } from "@/services/sos-age";
 import {
   activeSosQueue,
@@ -121,7 +121,7 @@ function useScreenReader(): boolean {
 }
 
 function secondsLeft(deadline: string, now: number): number {
-  return Math.max(0, Math.ceil((new Date(deadline).getTime() - now) / 1000));
+  return shownSeconds(Math.ceil((new Date(deadline).getTime() - now) / 1000));
 }
 
 /** 环走一圈对应的秒数（服务端的倒计时是 60 秒，决策 #8） */
@@ -466,17 +466,21 @@ function SosActiveContent() {
     );
   // 当前这单结束（本页取消 / 立即求救、别处取消、到期通知）且还有别的单在倒数：提示一句、切到最早到期的那单。
   // 没有别的单才停在结果页。新单盖上来（「我还是需要帮助」之后那单）也走这里
-  const nextId = finished ? (nextSos(queue, sosId)?.sosId ?? null) : null;
-  if (!isDrill && nextId && sos && nextId !== selected) {
-    setToast(
-      t(
-        sos.status === "cancelled"
-          ? "sos.switchedCancelled"
-          : "sos.switchedNotified",
-        { name: nameOf(sos.deviceId) },
-      ),
-    );
-    setSelected(nextId);
+  const next = finished ? nextSos(queue, sosId) : null;
+  const nextId = next?.sosId ?? null;
+  if (!isDrill && next && sos && next.sosId !== selected) {
+    // 同一顶头盔的新单（已取消页点了「我还是需要帮助」）：直接切回倒计时，不说「已取消，已切到下一单」
+    //（10-16 iPhone：切回时提示写成了「测试头盔1：已取消，已切到下一单」）
+    if (next.deviceId !== sos.deviceId)
+      setToast(
+        t(
+          sos.status === "cancelled"
+            ? "sos.switchedCancelled"
+            : "sos.switchedNotified",
+          { name: nameOf(sos.deviceId) },
+        ),
+      );
+    setSelected(next.sosId);
   }
   // 倒数中又来一顶：提示一句（不抢当前这单，用户正在处理它）。见过的单号记在 state 里，渲染期比对
   const [seen, setSeen] = useState<readonly string[]>([]);

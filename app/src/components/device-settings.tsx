@@ -118,9 +118,12 @@ function failureText(code: string, t: ReturnType<typeof useT>): string {
 export function CommandFeedback({
   command,
   settingKey,
+  online = false,
 }: {
   command: CommandPublic | null;
   settingKey: string;
+  /** 头盔此刻在线：离线时没送达的那条不再说「头盔离线」，改说上次没送达、可以再试（10-16 iPhone） */
+  online?: boolean;
 }) {
   const theme = useTheme();
   const t = useT();
@@ -164,8 +167,10 @@ export function CommandFeedback({
                 icon: "close-circle-outline",
               }
             : {
-                // 离线未送达：绝不显示为已生效
-                text: t("device.cmd.offline"),
+                // 离线未送达：绝不显示为已生效。头盔已经回来了就别再说它离线
+                text: t(
+                  online ? "device.cmd.expiredRetry" : "device.cmd.offline",
+                ),
                 color: theme.textSecondary,
                 icon: "cloud-offline-outline",
               };
@@ -199,6 +204,7 @@ export function DeviceSettingList({
   keys = EXPOSED_SETTINGS,
   lastCommand = null,
   icons,
+  online = false,
 }: {
   settings: Record<string, unknown> | undefined;
   disabled: boolean;
@@ -209,6 +215,8 @@ export function DeviceSettingList({
   lastCommand?: CommandPublic | null;
   /** 行首图标（只有详情首页的常用控制带） */
   icons?: Partial<Record<DeviceSettingKey, keyof typeof Ionicons.glyphMap>>;
+  /** 头盔此刻在线（服务端口径），给下发回执用 */
+  online?: boolean;
 }) {
   const theme = useTheme();
   const t = useT();
@@ -326,7 +334,11 @@ export function DeviceSettingList({
               {labelBlock}
               {control}
             </View>
-            <CommandFeedback command={lastCommand} settingKey={key} />
+            <CommandFeedback
+              command={lastCommand}
+              settingKey={key}
+              online={online}
+            />
           </View>
         );
       })}

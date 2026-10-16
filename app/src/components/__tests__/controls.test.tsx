@@ -733,6 +733,18 @@ describe("设备设置项", () => {
     else expect(r.root.findAll((n) => isHost(n, "SkiaPath"))).toHaveLength(2);
   });
 
+  it("离线没送达的那条：头盔已经回来在线时不再说「头盔离线」，改说上次没送达、请重试（10-16 iPhone）", () => {
+    const r = render(
+      <CommandFeedback
+        command={cmd({ status: "offline" })}
+        settingKey="light"
+        online
+      />,
+    );
+    expect(r.texts()).toEqual([tr("device.cmd.expiredRetry")]);
+    expect(r.icons()).toEqual(["cloud-offline-outline"]);
+  });
+
   it("已生效带执行时间：写上时间；命令没改这一项 / 没有命令：不显示", () => {
     const at = new Date().toISOString();
     const r = render(

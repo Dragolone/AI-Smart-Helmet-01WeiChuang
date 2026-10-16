@@ -275,6 +275,27 @@ export type GuideBeat = {
   out: boolean;
 };
 /** 第 step 件刚处理完（result）：换到下一件的那一段怎么演。cards 是这一刻三张卡各自写的东西 */
+/**
+ * 卡片上某一件内容此刻怎么显示（动画线程上调用）。卡片上最多同时挂两件：轮到的这件和刚让位的上一件。
+ * - leave：正在让位（共享值 past 指着它；它比页面重画早到一步，所以以它为准）：淡出、往上走
+ * - gone：更早让过位的那件——早就淡走了。换下一件时 beat 从 0 重来、页面还没重画，它还挂在卡片上，
+ *   要是也按「正在让位」算，透明度会回到 1，旧字叠在新字上（10-16 iPhone：第二件换第三件时第一件的
+ *   「已连上头盔 / 已绑定」叠上来约 4 帧）
+ * - enter：正在浮上来；still：停着
+ */
+export function bodyPhase(
+  role: "cur" | "past",
+  step: number,
+  leaving: number,
+  entering: number,
+): "leave" | "gone" | "enter" | "still" {
+  "worklet";
+  if (leaving === step) return "leave";
+  if (role === "past") return "gone";
+  if (entering === step) return "enter";
+  return "still";
+}
+
 export function guideBeat(
   s: GuideState,
   step: 1 | 2 | 3,

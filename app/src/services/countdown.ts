@@ -8,3 +8,15 @@ export function msToNextSecond(deadlineMs: number, nowMs: number): number {
   const rem = (((deadlineMs - nowMs) % 1000) + 1000) % 1000;
   return rem === 0 ? 1000 : rem;
 }
+
+/** 服务端的求救倒计时是 60 秒（决策 #8） */
+export const SOS_COUNTDOWN_S = 60;
+
+/**
+ * 页面 / 锁屏通知上显示的剩余秒数，封顶 60。服务端的 Date 头只到秒，学到的时钟偏移会偏小 0–1 秒
+ * （server-clock 取的是「最近几次里最大的」，只会偏早不会偏晚），刚拉起时按它算会显示 61
+ * （10-16 iPhone 实测）。截止时刻以服务端为准，这里只管显示
+ */
+export function shownSeconds(rawSeconds: number): number {
+  return Math.min(SOS_COUNTDOWN_S, Math.max(0, rawSeconds));
+}

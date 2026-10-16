@@ -337,7 +337,7 @@ export default function SafetyScreen() {
           {
             level: linkCheckLevelOf(link),
             label: helmetNameOf(sosTarget),
-            a11y: `${helmetNameOf(sosTarget)}，${t(linkLabelKey(link))}`,
+            a11y: `${helmetNameOf(sosTarget)}${t("common.a11ySep")}${t(linkLabelKey(link))}`,
           },
           notify === "granted"
             ? {
