@@ -1044,6 +1044,16 @@ describe("设备设置项", () => {
       lastCommand: success,
     });
     expect(r.allText()).not.toContain(tr("device.cmd.success"));
+    // 比对前按列表同一套规则规整：数值项里写成 true 的命令值等于 1，不当成「对不上」
+    expect(
+      render(
+        <CommandFeedback
+          command={cmd({ status: "success", params: { vibration: true } })}
+          settingKey="vibration"
+          confirmed={1}
+        />,
+      ).texts(),
+    ).toEqual([tr("device.cmd.success")]);
     // 失败 / 离线照常显示（那是「没生效」，和当前值无关）
     expect(
       render(

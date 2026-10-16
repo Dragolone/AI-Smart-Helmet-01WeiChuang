@@ -8,6 +8,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import {
   DEVICE_SETTINGS,
+  isDeviceSettingKey,
   type CommandPublic,
   type DeviceSettingKey,
   type DeviceSettingSpec,
@@ -139,10 +140,15 @@ export function CommandFeedback({
   const t = useT();
   const locale = useLocale();
   const touched = !!command && commandTouches(command, settingKey);
+  // 命令里的值按列表同一套规则规整后再比：数值项里的 true / false 规整成 1 / 0，原样比会把正常的「已生效」也藏掉
+  const sentRaw = command?.params[settingKey];
+  const sent = isDeviceSettingKey(settingKey)
+    ? normalize(settingKey, sentRaw)
+    : sentRaw;
   const stale =
     command?.status === "success" &&
     confirmed !== undefined &&
-    command.params[settingKey] !== confirmed;
+    sent !== confirmed;
   const view: {
     text: string;
     color: string;
