@@ -54,12 +54,14 @@ export const MAX_RAW_BYTES = 65_536;
  *  小数秒不限 3 位：ISO 8601 允许任意位，Python isoformat / Go RFC3339Nano 默认是 6 / 9 位，
  *  只收 3 位会让这类上游的摔倒事件整条进 _invalid、不建单（边界测试 B4）；Date 解析时截到毫秒 */
 const ISO8601_WITH_TZ =
-  /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
+  /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}(?::\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
 
 /** raw_events.schema_version 是 int4：超出范围的值入库必炸，在校验层挡住 */
 const INT32_MAX = 2_147_483_647;
 /** 设备时钟最早只可能回到 epoch（1970）；年份 0000 之类 PostgreSQL 直接拒绝 */
 const MIN_YEAR = 1970;
+/** PostgreSQL timestamp 能存、JS Date 能读回的上限年份 */
+const MAX_YEAR = 9999;
 
 const daysInMonth = (year: number, month: number): number =>
   new Date(Date.UTC(year, month, 0)).getUTCDate();
@@ -134,6 +136,12 @@ export function validateEnvelope(
   const ts = new Date(o.timestamp);
   if (Number.isNaN(ts.getTime())) {
     return { ok: false, reason: 'timestamp_unparseable' };
+  }
+  // 上面按字面校验的是本地日期；换算到 UTC 后可能跨进 10000 年（9999-12-31T24:00:00Z、…23:59:59-01:00）——
+  // PostgreSQL 照收，Prisma 读回来是 Invalid Date，之后这台设备的事件 / 求救 / 事故列表一读就 500，扫描循环也会被打断（10-17 评审）
+  const utcYear = ts.getUTCFullYear();
+  if (utcYear < MIN_YEAR || utcYear > MAX_YEAR) {
+    return { ok: false, reason: 'timestamp_out_of_range' };
   }
   // EVENTS.md §1：firmwareVersion 为必填字段
   if (typeof o.firmwareVersion !== 'string' || o.firmwareVersion.length === 0) {

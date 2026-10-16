@@ -4,6 +4,9 @@ import { Public } from '../common/public.decorator';
 import { IngestService } from './ingest.service';
 import { WebhookApiKeyGuard } from './webhook-api-key.guard';
 
+/** DEVICE_PROTOCOL §3 deviceId 规则 */
+const DEVICE_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
 /**
  * 云端算法服务 → 后端的 HTTP 入口（API.md §12，决策 #7：服务器对服务器，不经 EMQX）。
  * 请求体 = EVENTS.md §1 envelope 单条；与 MQTT / app-relay 在统一 Ingest 层汇合，
@@ -27,7 +30,12 @@ export class WebhookController {
       string,
       unknown
     >;
-    const deviceId = typeof o.deviceId === 'string' ? o.deviceId : 'unknown';
+    // 只认合规的 deviceId（DEVICE_PROTOCOL §3，同 app-relay DTO）：4 KB 的 deviceId 连「无效留档」那条都写不进
+    // (device_id, timestamp) 索引（超 btree 行上限）→ 500；不合规的按 unknown 留档，envelope 判 deviceId 不一致（10-17 评审）
+    const deviceId =
+      typeof o.deviceId === 'string' && DEVICE_ID_PATTERN.test(o.deviceId)
+        ? o.deviceId
+        : 'unknown';
     const eventId = typeof o.eventId === 'string' ? o.eventId : null;
 
     // 非 JSON Content-Type / 空请求体时 body 为 undefined，JSON.stringify 会得到 undefined 而不是字符串——

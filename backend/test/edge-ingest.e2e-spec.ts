@@ -42,6 +42,7 @@ describe('边界：Ingest envelope 与幂等 (e2e)', () => {
     };
   const ACCEPTED = { accepted: 1, duplicate: 0, invalid: 0 };
   const INVALID = { accepted: 0, duplicate: 0, invalid: 1 };
+  const DUPLICATE = { accepted: 0, duplicate: 1, invalid: 0 };
 
   beforeAll(async () => {
     ({ app, http, prisma } = await buildApp());
@@ -97,10 +98,10 @@ describe('边界：Ingest envelope 与幂等 (e2e)', () => {
       }
     });
 
-    it('未知版本的同一事件重传两次：两次都计 invalid，原始表里只有一条（幂等）', async () => {
+    it('未知版本的同一事件重传两次：第一次计 invalid、第二次计 duplicate（原来两次都计 invalid，观察项 11），原始表里只有一条（幂等）', async () => {
       const e = status({ schemaVersion: 7 });
       expect(await send(e)).toEqual(INVALID);
-      expect(await send(e)).toEqual(INVALID);
+      expect(await send(e)).toEqual(DUPLICATE);
       expect(
         await prisma.rawEvent.count({
           where: { deviceId: dev, eventId: e.eventId as string },
@@ -183,18 +184,21 @@ describe('边界：Ingest envelope 与幂等 (e2e)', () => {
       }
     });
 
-    it('缺时区 / 小写 t z / 时区不带冒号（+0800）/ 空格代替 T / 只到分钟 / 只有日期 / 数字时间戳 → invalid', async () => {
+    it('缺时区 / 小写 t z / 时区不带冒号（+0800）/ 空格代替 T / 只有日期 / 数字时间戳 → invalid；只到分钟（带时区）接受（ISO 8601 允许省略秒，观察项 10）', async () => {
       for (const timestamp of [
         '2026-10-15T03:00:00',
         '2026-10-15t03:00:00z',
         '2026-10-15T03:00:00+0800',
         '2026-10-15 03:00:00Z',
-        '2026-10-15T03:00Z',
+        '2026-10-15T03:00',
         '2026-10-15',
         Date.now(),
       ]) {
         expect(await send(status({ timestamp }))).toEqual(INVALID);
       }
+      expect(await send(status({ timestamp: '2026-10-15T03:00Z' }))).toEqual(
+        ACCEPTED,
+      );
     });
 
     it('闰秒 23:59:60 / 25 点 / 61 分 / 时区 +24:00 → invalid；24:00:00 被接受为次日零点（Date 可解析，按现状）', async () => {
@@ -229,14 +233,9 @@ describe('边界：Ingest envelope 与幂等 (e2e)', () => {
       );
     });
 
-    it('「1970-01-01T00:00:00+01:00」字面年份 1970 被接受，实际是 1969 年 23:00Z（年份按字面判，按现状）', async () => {
+    it('「1970-01-01T00:00:00+01:00」字面年份 1970、换算到 UTC 是 1969 年 23:00Z → invalid（年份按 UTC 判，与「年份 ≥ 1970」同口径；10-17 评审顺带收紧）', async () => {
       const e = status({ timestamp: '1970-01-01T00:00:00+01:00' });
-      expect(await send(e)).toEqual(ACCEPTED);
-      const row = await prisma.rawEvent.findFirstOrThrow({
-        where: { deviceId: dev, eventId: e.eventId as string },
-      });
-      expect(row.timestamp.toISOString()).toBe('1969-12-31T23:00:00.000Z');
-      expect(row.clockSkew).toBe(true);
+      expect(await send(e)).toEqual(INVALID);
     });
   });
 

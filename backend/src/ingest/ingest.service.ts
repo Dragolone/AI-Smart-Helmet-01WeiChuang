@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { EVENT_TYPES } from '@helmet/shared';
-import { CLOCK_SKEW_THRESHOLD_MS } from '../common/device-time';
-import { errorMessage } from '../common/error-text';
+import { CLOCK_SKEW_THRESHOLD_MS, isBackfill } from '../common/device-time';
 import { isUniqueViolation } from '../common/prisma-errors';
 import { DeviceSnapshotService } from '../devices/device-snapshot.service';
 import { LocationRecorderService } from '../locations/location-recorder.service';
@@ -31,20 +32,6 @@ const RISK_EVENT_TYPES = new Set([
   'obstacle_risk',
   'risk_cleared',
 ]);
-/**
- * eventId 重复本该是同一事件的重放（补传 / 重传），时间戳应当一致。下面这几类的 eventId 重复、
- * 时间戳却相差很远，多半是头盔的 Event_Seq 回退了（换电池 / 恢复出厂，DEVICE_PROTOCOL §10 第 20 条）：
- * eventId 由 deviceId + Event_Seq 派生，回退后新的摔倒会被当成旧事件静默丢弃（10-06 仿真头盔复现）。
- */
-const SEQ_ROLLBACK_WATCH_TYPES = new Set([
-  'possible_fall',
-  'manual_sos',
-  'collision_risk',
-  'obstacle_risk',
-]);
-/** 未校时的头盔补传同一事件时 App 会填收到时刻，几分钟内的差异不算；超过它才像是两次不同的事件 */
-const SEQ_ROLLBACK_GAP_MS = 5 * 60_000;
-
 const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set(EVENT_TYPES);
 
 const DEVICE_EVENT_TYPES = new Set([
@@ -63,17 +50,57 @@ const KNOWN_OBJECT_TYPES = new Set([
 ]);
 
 /**
- * 数据库对"这一条数据"的拒绝（列范围、编码、非法值）→ 返回原因码；
- * 连接类故障（P1xxx / 初始化失败）→ null，交给上层按真实 5xx 处理、MQTT 侧重试。
+ * 瞬时故障的 Prisma 错误码：P2024 连接池超时、P2028 事务 API、P2034 写冲突 / 死锁、P2036 / P2037 驱动适配器错误 / 连接数满。
+ * adapter-pg 下没有专门映射的 SQLSTATE 一律报 P2039——要再看原始 SQLSTATE 才分得清
  */
-function dbRejectionCode(err: unknown): string | null {
-  if (err instanceof Prisma.PrismaClientKnownRequestError) {
-    return err.code.startsWith('P1') ? null : err.code;
-  }
-  if (err instanceof Prisma.PrismaClientUnknownRequestError) return 'unknown';
+const TRANSIENT_PRISMA_CODES = new Set([
+  'P2024',
+  'P2028',
+  'P2034',
+  'P2036',
+  'P2037',
+]);
+/** 瞬时类 SQLSTATE：08 连接、40 事务回滚 / 死锁、53 资源不足、55 锁不可得、57 管理员关停 / 取消、58 系统、XX 内部 */
+const TRANSIENT_SQLSTATE = /^(08|40|53|55|57|58|XX)/;
+
+/**
+ * 数据库对"这一条数据"的拒绝（列范围、编码、非法值）→ 返回原因码，按 _invalid 留档；
+ * 瞬时故障（连接、死锁、关停、资源不足……）→ null，交给上层按真实 5xx 处理、App / MQTT 重试。
+ * 原来 P1 开头以外的已知错误码一律当「这条数据被拒」：adapter-pg 把后端被杀（57P01）、死锁（40P01）、连接数满（53300）
+ * 报成 P2039 / P2037，摔倒事件就被改记成随机 eventId 的 _invalid、202 回给 App（App 从队列删掉），对账也捞不到——求救永久丢失（10-17 评审）
+ */
+export function dbRejectionCode(err: unknown): string | null {
   if (err instanceof Prisma.PrismaClientValidationError) return 'validation';
-  return null;
+  // 引擎报不出码的未知错误照旧按这条数据留档：一律重抛的话，一条毒数据会让 App 整批反复重传、堵住后面的摔倒（队头阻塞）
+  if (err instanceof Prisma.PrismaClientUnknownRequestError) return 'unknown';
+  if (!(err instanceof Prisma.PrismaClientKnownRequestError)) return null;
+  if (err.code.startsWith('P1') || TRANSIENT_PRISMA_CODES.has(err.code)) {
+    return null;
+  }
+  const sqlState = (
+    err.meta?.driverAdapterError as
+      { cause?: { originalCode?: unknown } } | undefined
+  )?.cause?.originalCode;
+  if (typeof sqlState === 'string' && TRANSIENT_SQLSTATE.test(sqlState)) {
+    return null;
+  }
+  return err.code;
 }
+
+/** payload 的规范化 JSON（键排序）：给冲突事件另存时算摘要用 */
+const canonicalJson = (v: unknown): string =>
+  JSON.stringify(v, (_k, value: unknown) =>
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? Object.fromEntries(
+          Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
+            a < b ? -1 : a > b ? 1 : 0,
+          ),
+        )
+      : value,
+  );
+
+/** 冲突事件另存用的 eventId 分隔符（原 eventId 不含它时才另存，避免无限递归） */
+const COLLISION_SEPARATOR = '~';
 
 @Injectable()
 export class IngestService {
@@ -128,11 +155,17 @@ export class IngestService {
       this.logger.warn(
         `未知 schemaVersion=${result.envelope.schemaVersion}，只留档不进业务流程：${result.envelope.eventId}（device=${topicDeviceId}）`,
       );
-      await this.persistOrArchive(result.envelope, raw, topicDeviceId, source);
-      return 'stored_invalid';
+      const archived = await this.persistOrArchive(
+        result.envelope,
+        raw,
+        topicDeviceId,
+        source,
+      );
+      // 同一条重传：按重复算（原来每次都计 invalid，统计口径不对，观察项 11）
+      return archived ? 'stored_invalid' : 'duplicate';
     }
 
-    let stored: boolean;
+    let stored: ValidEnvelope | null;
     try {
       stored = await this.persist(result.envelope, source);
     } catch (err) {
@@ -150,13 +183,14 @@ export class IngestService {
       return 'stored_invalid';
     }
     if (stored) {
-      if (!KNOWN_EVENT_TYPES.has(result.envelope.eventType)) {
+      if (!KNOWN_EVENT_TYPES.has(stored.eventType)) {
         // EVENTS.md §1 / §2：未知类型进原始事件表并告警（不进任何业务表，App 查询也看不到）
         this.logger.warn(
-          `未知 eventType「${result.envelope.eventType}」已原样留档（入口 ${source}）：${result.envelope.eventId}（device=${topicDeviceId}）`,
+          `未知 eventType「${stored.eventType}」已原样留档（入口 ${source}）：${stored.eventId}（device=${topicDeviceId}）`,
         );
       }
-      await this.dispatchStored(result.envelope);
+      // 分发的是实际落库的那份（冲突另存时 eventId 带了摘要后缀，求救单按它幂等）
+      await this.dispatchStored(stored);
     }
     return stored ? 'stored' : 'duplicate';
   }
@@ -198,11 +232,14 @@ export class IngestService {
       }
     }
 
+    // 补传的旧状态 / 旧位置不当实时数据推（快照也没刷新，见 DeviceSnapshotService.applyEvent）：旧点会把 App 上的实时标记拽回去
+    const live = !isBackfill(e.timestamp, new Date());
     if (device.bindUserId) {
       if (e.eventType === 'device_status') {
-        this.push.pushDeviceStatus(device.bindUserId, e.deviceId, device);
+        if (live)
+          this.push.pushDeviceStatus(device.bindUserId, e.deviceId, device);
       } else if (point) {
-        this.push.pushLocation(device.bindUserId, e.deviceId, point);
+        if (live) this.push.pushLocation(device.bindUserId, e.deviceId, point);
       } else if (RISK_EVENT_TYPES.has(e.eventType)) {
         this.push.pushRiskEvent(device.bindUserId, e);
       } else if (DEVICE_EVENT_TYPES.has(e.eventType)) {
@@ -211,15 +248,15 @@ export class IngestService {
     }
   }
 
-  /** 留档但不分发：数据库拒绝单条数据时同样降级为 _invalid 留档，与主路径同口径 */
+  /** 留档但不分发：数据库拒绝单条数据时同样降级为 _invalid 留档，与主路径同口径。返回是否新写了一行（false = 重复） */
   private async persistOrArchive(
     e: ValidEnvelope,
     raw: string,
     topicDeviceId: string,
     source: IngestSource,
-  ): Promise<void> {
+  ): Promise<boolean> {
     try {
-      await this.persist(e, source);
+      return (await this.persist(e, source)) !== null;
     } catch (err) {
       const rejection = dbRejectionCode(err);
       if (!rejection) throw err;
@@ -227,14 +264,19 @@ export class IngestService {
         buildInvalidRecord(topicDeviceId, raw, `db_rejected_${rejection}`),
         source,
       );
+      return true;
     }
   }
 
-  /** eventId 幂等：唯一约束兜底并发，重复上报只存一次（EVENTS.md §2）。 */
+  /**
+   * eventId 幂等：唯一约束兜底并发，重复上报只存一次（EVENTS.md §2）。返回落库的那份 envelope，重复返回 null。
+   * 同一设备同一 eventId 再次出现、但类型或 payload 与库里那条不同：不是重传，是另一件事撞了号——按「原 eventId~内容摘要」另存
+   * 并照常分发（见 handleCollision）。
+   */
   private async persist(
     e: ValidEnvelope,
     source: IngestSource,
-  ): Promise<boolean> {
+  ): Promise<ValidEnvelope | null> {
     const receivedAt = new Date();
     // 补传事件本应豁免此标记，但补传语义待设备离线缓存实装后才能识别（DEVICE_PROTOCOL §6 ⚠️），当前一律按偏差判定
     const clockSkew =
@@ -262,37 +304,55 @@ export class IngestService {
         // 只要「写进去了」这个事实：不让数据库把整行（含 payload）再回传一遍
         select: { id: true },
       });
-      return true;
+      return e;
     } catch (err) {
-      if (isUniqueViolation(err)) {
-        this.logger.debug(`重复 eventId 已跳过：${e.eventId}`);
-        await this.warnIfSeqRolledBack(e);
-        return false;
-      }
+      if (isUniqueViolation(err)) return this.handleCollision(e, source);
       throw err;
     }
   }
 
-  /** 只能出声、不能建单：eventId 幂等是 Contract（EVENTS.md §2），这里是给运维和硬件对口径的信号 */
-  private async warnIfSeqRolledBack(e: ValidEnvelope): Promise<void> {
-    if (!SEQ_ROLLBACK_WATCH_TYPES.has(e.eventType)) return;
-    try {
-      const prior = await this.prisma.rawEvent.findUnique({
-        where: {
-          deviceId_eventId: { deviceId: e.deviceId, eventId: e.eventId },
-        },
-        select: { timestamp: true },
-      });
-      if (!prior) return;
-      const gapMs = Math.abs(e.timestamp.getTime() - prior.timestamp.getTime());
-      if (gapMs < SEQ_ROLLBACK_GAP_MS) return;
-      this.logger.error(
-        `疑似 Event_Seq 回退：设备 ${e.deviceId} 的 ${e.eventType} ${e.eventId} 与库中同 eventId 的事件时间相差 ${Math.round(gapMs / 60_000)} 分钟，本次上报已按重复丢弃——请核查头盔序号是否在掉电 / 恢复出厂后回退（DEVICE_PROTOCOL §10 第 20 条）`,
-      );
-    } catch (err) {
-      this.logger.warn(
-        `Event_Seq 回退检查失败（不影响入库结果）：${errorMessage(err)}`,
-      );
+  /**
+   * (deviceId, eventId) 已存在。类型与 payload 都和库里那条相同 → 重传（App 重发、MQTT 重投、Webhook 重试），按重复跳过；
+   * 否则是另一件事撞了号：头盔恢复出厂 / 掉电后 Event_Seq 回退（DEVICE_PROTOCOL §10 第 20 条），或头盔转手后前主人
+   * 用可推算的 UUIDv5(deviceId:seq) 预先占号——原来一律当重复，新主人的摔倒不建单、对账也补不回来（10-17 评审 R4-1）。
+   * 不比时间戳：没校时的头盔重传时 App 填的是收到时刻，几小时后同一事件重传时间会不同，比了反而重复建单。
+   */
+  private async handleCollision(
+    e: ValidEnvelope,
+    source: IngestSource,
+  ): Promise<ValidEnvelope | null> {
+    const prior = await this.prisma.rawEvent.findUnique({
+      where: {
+        deviceId_eventId: { deviceId: e.deviceId, eventId: e.eventId },
+      },
+      select: { eventType: true, payload: true },
+    });
+    if (
+      !prior ||
+      (prior.eventType === e.eventType &&
+        isDeepStrictEqual(prior.payload, e.payload))
+    ) {
+      this.logger.debug(`重复 eventId 已跳过：${e.eventId}`);
+      return null;
     }
+    if (e.eventId.includes(COLLISION_SEPARATOR)) {
+      // 另存的键本身又撞了（摘要碰撞，或上游 eventId 里就带分隔符）：不再递归，按重复处理并出声
+      this.logger.error(
+        `eventId 冲突且无法另存，按重复丢弃：设备 ${e.deviceId} 的 ${e.eventType} ${e.eventId}`,
+      );
+      return null;
+    }
+    const digest = createHash('sha256')
+      .update(`${e.eventType}${COLLISION_SEPARATOR}${canonicalJson(e.payload)}`)
+      .digest('hex')
+      .slice(0, 12);
+    const rekeyed = {
+      ...e,
+      eventId: `${e.eventId}${COLLISION_SEPARATOR}${digest}`,
+    };
+    this.logger.error(
+      `eventId 冲突：设备 ${e.deviceId} 的 ${e.eventType} ${e.eventId} 与库中同号事件（${prior.eventType}）内容不同，按 ${rekeyed.eventId} 另存并照常处理——请核查头盔序号是否回退（DEVICE_PROTOCOL §10 第 20 条）`,
+    );
+    return this.persist(rekeyed, source);
   }
 }
