@@ -1,10 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { Card, Input, Select, Space, Table, Tag, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { useState } from 'react'
 import { api } from '../api/client'
 import QueryError from '../components/QueryError'
 import { useClampPage } from '../utils/use-clamp-page'
+import { useListParams } from '../utils/use-list-params'
 import { formatTime, formatUserLabel } from '../utils/format'
 import type { AdminAccidentRow, Paginated, SosStatus, SosTriggerType } from '@helmet/shared'
 
@@ -69,10 +69,12 @@ const columns: ColumnsType<AdminAccidentRow> = [
 ]
 
 export default function AccidentsPage() {
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(20)
-  const [status, setStatus] = useState<SosStatus | undefined>()
-  const [deviceId, setDeviceId] = useState('')
+  // 页码 / 每页条数 / 筛选在地址栏里：翻页、筛选后刷新或返回不丢；状态只认四种
+  const list = useListParams()
+  const { page, pageSize, setPage } = list
+  const statusRaw = list.get('status')
+  const status = statusRaw in STATUS_TAG ? (statusRaw as SosStatus) : undefined
+  const deviceId = list.get('deviceId')
 
   const query = useQuery({
     queryKey: ['admin', 'accidents', page, pageSize, status, deviceId],
@@ -101,10 +103,8 @@ export default function AccidentsPage() {
           allowClear
           style={{ width: 140 }}
           options={STATUS_OPTIONS}
-          onChange={(value: SosStatus | undefined) => {
-            setPage(1)
-            setStatus(value)
-          }}
+          value={status}
+          onChange={(value: SosStatus | undefined) => list.update({ page: 1, status: value })}
         />
         <Input.Search
           placeholder="按设备 ID 精确筛选"
@@ -112,10 +112,8 @@ export default function AccidentsPage() {
           // 后端 keyword / deviceId 上限 64 字，超出整页报 400，这里直接限住
           maxLength={64}
           style={{ width: 260 }}
-          onSearch={(value) => {
-            setPage(1)
-            setDeviceId(value.trim())
-          }}
+          defaultValue={deviceId}
+          onSearch={(value) => list.update({ page: 1, deviceId: value.trim() })}
         />
       </Space>
       {query.isError && (
@@ -131,10 +129,8 @@ export default function AccidentsPage() {
           pageSize,
           total: query.data?.total ?? 0,
           showTotal: (t) => `共 ${t} 条记录`,
-          onChange: (p, ps) => {
-            setPage(ps !== pageSize ? 1 : p)
-            setPageSize(ps)
-          },
+          onChange: (p, ps) =>
+            list.update({ page: ps !== pageSize ? 1 : p, pageSize: ps }),
         }}
       />
     </Card>
