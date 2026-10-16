@@ -1,5 +1,6 @@
 // 事件查询服务（API.md §6）：类型白名单、时间窗、_invalid 隔离、绑定区间（决策 #39）、详情归属与关联媒体。
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { EVENT_TYPES } from '@helmet/shared';
 import { BindingScopeService } from '../devices/binding-scope.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import { EventsService } from './events.service';
@@ -9,6 +10,7 @@ const ev = (over: Record<string, unknown> = {}) => ({
   eventId: 'e1',
   deviceId: 'helmet_001',
   eventType: 'collision_risk',
+  schemaVersion: 1,
   timestamp: new Date('2026-10-16T00:00:00Z'),
   receivedAt: new Date('2026-10-16T00:00:01Z'),
   payload: { riskLevel: 'high' },
@@ -51,7 +53,7 @@ describe('EventsService', () => {
     )[0].where;
 
   describe('list', () => {
-    it('不带筛选：排除 _invalid，按绑定区间过滤，不带时间条件；最新在前 + id 兜底排序', async () => {
+    it('不带筛选：只列已知类型（也就排除了 _invalid）与受支持的结构版本，按绑定区间过滤，不带时间条件；最新在前 + id 兜底排序', async () => {
       prisma.rawEvent.count.mockResolvedValue(1);
       prisma.rawEvent.findMany.mockResolvedValue([ev()]);
       const res = await svc.list('u1', 'helmet_001', { page: 2, pageSize: 5 });
@@ -62,7 +64,8 @@ describe('EventsService', () => {
       });
       expect(listWhere()).toEqual({
         deviceId: 'helmet_001',
-        eventType: { not: '_invalid' },
+        eventType: { in: [...EVENT_TYPES] },
+        schemaVersion: { in: [1] },
         AND: [{ OR: [{ receivedAt: { gte: bound[0].boundAt } }] }],
       });
       expect(prisma.rawEvent.findMany).toHaveBeenCalledWith(
@@ -87,7 +90,7 @@ describe('EventsService', () => {
 
     it.each([['   '], [',,']])('type=%p 等于没筛', async (type) => {
       await svc.list('u1', 'helmet_001', { type, page: 1, pageSize: 20 });
-      expect(listWhere().eventType).toEqual({ not: '_invalid' });
+      expect(listWhere().eventType).toEqual({ in: [...EVENT_TYPES] });
     });
 
     it('type 含未知值（含 _invalid）：400 并点名', async () => {
@@ -185,6 +188,12 @@ describe('EventsService', () => {
     it.each([
       ['找不到', null],
       ['是 _invalid 占位', ev({ eventType: '_invalid' })],
+      // EVENTS.md §1：未知类型 / 未知版本只留档不进业务流程，App 查不到（10-16 边界测试 B5）
+      ['类型不在 EVENTS.md §3 里', ev({ eventType: 'foo_bar' })],
+      [
+        '结构版本不受支持',
+        ev({ eventType: 'possible_fall', schemaVersion: 999 }),
+      ],
     ])('%s：404', async (_n, found) => {
       prisma.rawEvent.findFirst.mockResolvedValue(found);
       await expect(svc.detail('u1', 'e1')).rejects.toBeInstanceOf(

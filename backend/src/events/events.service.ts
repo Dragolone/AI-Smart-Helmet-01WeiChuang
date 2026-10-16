@@ -3,10 +3,16 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { EventDetail, EventListItem, Paginated } from '@helmet/shared';
+import {
+  EVENT_TYPES,
+  type EventDetail,
+  type EventListItem,
+  type Paginated,
+} from '@helmet/shared';
 import { BindingScopeService } from '../devices/binding-scope.service';
 import { ensureDeviceOwned } from '../devices/device-access';
 import type { Prisma } from '../generated/prisma/client';
+import { SUPPORTED_SCHEMA_VERSIONS } from '../ingest/envelope';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   INVALID_EVENT_TYPE,
@@ -50,7 +56,10 @@ export class EventsService {
     const intervals = await this.scope.intervals(deviceId, userId);
     const where: Prisma.RawEventWhereInput = {
       deviceId,
-      eventType: types ? { in: types } : { not: INVALID_EVENT_TYPE },
+      // App 只看能正确解释的事件：已知类型（EVENTS.md §3，也就排除了 _invalid）且结构版本受支持——
+      // 未知版本「只留档不进业务流程」，列出来会出现一条「疑似摔倒」却没有求救单（边界测试 B5）。Admin 排查查询不受影响
+      eventType: { in: types ?? [...EVENT_TYPES] },
+      schemaVersion: { in: [...SUPPORTED_SCHEMA_VERSIONS] },
       ...(timeRange ? { timestamp: timeRange } : {}),
       AND: [this.scope.scopeWhere('receivedAt', intervals)],
     };
@@ -86,7 +95,12 @@ export class EventsService {
         : await this.prisma.rawEvent.findFirst({
             where: { eventId, deviceId: { in: owned.map((d) => d.deviceId) } },
           });
-    if (!event || event.eventType === INVALID_EVENT_TYPE) {
+    if (
+      !event ||
+      event.eventType === INVALID_EVENT_TYPE ||
+      !isKnownEventType(event.eventType) ||
+      !SUPPORTED_SCHEMA_VERSIONS.has(event.schemaVersion)
+    ) {
       throw eventNotFound();
     }
     const intervals = await this.scope.intervals(event.deviceId, userId);

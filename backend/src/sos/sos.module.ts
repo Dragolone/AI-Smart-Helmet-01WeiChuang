@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { DevicesModule } from '../devices/devices.module';
 import { ProvidersModule } from '../providers/providers.module';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { SosController } from './sos.controller';
@@ -8,7 +9,8 @@ import { SosService } from './sos.service';
 import { SosTriggerService } from './sos-trigger.service';
 
 @Module({
-  imports: [ProvidersModule, RealtimeModule],
+  // DevicesModule：位置快照回落按绑定区间取点（BindingScopeService，决策 #39）
+  imports: [ProvidersModule, RealtimeModule, DevicesModule],
   controllers: [SosController],
   providers: [
     SosService,
