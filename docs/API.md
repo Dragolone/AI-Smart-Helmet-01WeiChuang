@@ -10,7 +10,7 @@
 - 认证：`Authorization: Bearer <accessToken>`（JWT）。设备侧认证走 MQTT（DEVICE_PROTOCOL §3），不在本文件。
 - 时间：一律 ISO 8601 UTC 字符串（如 `2026-08-14T03:00:00Z`）；展示层转本地时区。
 - 业务主键：UUID v7 / cuid；设备用硬件团队的 `deviceId`。
-- 分页：`?page=1&pageSize=20`（pageSize 默认 20，最大 100）→ 响应 `{ "items": [...], "total": 0, "page": 1, "pageSize": 20 }`。
+- 分页：`?page=1&pageSize=20`（page 1–2147483647，超出 400 VALIDATION_FAILED（2026-10-16 #202）；pageSize 默认 20，最大 100）→ 响应 `{ "items": [...], "total": 0, "page": 1, "pageSize": 20 }`。
 - 统一错误格式：
 
 ```json
@@ -23,7 +23,7 @@
 
 | code | HTTP | 场景 |
 |------|------|------|
-| VALIDATION_FAILED | 400 | 请求体/参数校验失败（含任何字段带 NUL `\u0000`，PostgreSQL 不接受；设备入口 `/ingest/*` 例外——脏 envelope 留档为 invalid 不整批拒绝） |
+| VALIDATION_FAILED | 400 | 请求体/参数校验失败（含任何字段带 NUL `\u0000`，PostgreSQL 不接受；设备入口 `/ingest/*` 例外——脏 envelope 留档为 invalid 不整批拒绝）。**请求体 JSON 嵌套超过 2000 层一律 400，设备入口也整批 400**（2026-10-16 #202：否则校验管道递归栈溢出成 500，公开接口不带令牌也能打） |
 | UNAUTHORIZED | 401 | 未登录或 token 无效/过期 |
 | FORBIDDEN | 403 | 无权访问该资源（含资源归属校验失败、非 Admin 访问 Admin API） |
 | NOT_FOUND | 404 | 通用资源不存在 |
@@ -132,7 +132,7 @@ device 对象补充字段（2026-08-17，TS 类型见 `@helmet/shared` DevicePub
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | /devices/{deviceId}/events?type=&from=&to=&page=&pageSize= | 事件历史（最新在前）；`type` 可多值逗号分隔（取值 = EVENTS.md §3 eventType，未知值 400）；from/to 均选填（事件量级低，不设 §5 的 24h 上限），同给时须 from < to |
+| GET | /devices/{deviceId}/events?type=&from=&to=&page=&pageSize= | 事件历史（最新在前）；**只列 EVENTS.md §3 已知类型且 schemaVersion 受支持的事件**——未知类型 / 未知版本只留档、不进业务流程，App 查不到（列表与 `GET /events/{eventId}` 同口径，后者 404；Admin 事件查询不受影响；2026-10-16 #202）；`type` 可多值逗号分隔（取值 = EVENTS.md §3 eventType，未知值 400）；from/to 均选填（事件量级低，不设 §5 的 24h 上限），同给时须 from < to |
 | GET | /events/{eventId} | 事件详情（含原始 payload、关联媒体） |
 
 `event` 列表项（TS 类型见 `@helmet/shared` EventListItem）：`{ eventId, deviceId, eventType, timestamp, receivedAt, summary }`；详情（EventDetail）追加 `payload`（原样）与 `media: [{ mediaId, status, duration }]`。
