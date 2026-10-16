@@ -233,7 +233,10 @@ jest.mock("helmet-link-service", () => ({
     stop: () => mockSvcStop(),
   },
 }));
-jest.mock("@/i18n", () => ({ translate: (k: string) => k }));
+const mockTranslate = jest.fn((k: string, _p?: unknown) => k);
+jest.mock("@/i18n", () => ({
+  translate: (k: string, p?: unknown) => mockTranslate(k, p),
+}));
 jest.mock("@/services/dev-log", () => ({ devLog: jest.fn() }));
 import { devicesApi } from "@/api/devices";
 
@@ -263,6 +266,7 @@ import {
   currentBleTargets,
   isHelmetConnected,
   retryBleLink,
+  setBleTargetNameResolver,
   setBleTargets,
   startBleLink,
   stopBleLink,
@@ -762,6 +766,29 @@ describe("2026-10-05 评审：Android 前台服务在「搜索中」就要起来
     await tick();
     expect(mockSvcStart).toHaveBeenCalledTimes(1);
     expect(mockSvcStart.mock.calls[0][1]).toBe("device.ble.serviceSearching");
+  });
+
+  it("10-16 N23：通知里写用户起的头盔名；没起名 / 查不到写设备号后 6 位；最多列 3 顶、长名截断", async () => {
+    setBleTargetNameResolver((id) =>
+      id === "helmet_94173f"
+        ? "我的头盔"
+        : id === "helmet_aaaaaa"
+          ? "一二三四五六七八九十十一十二十三"
+          : null,
+    );
+    mockTranslate.mockClear();
+    await startBleLink([
+      "helmet_94173f",
+      "helmet_aaaaaa",
+      "helmet_bbbbbb",
+      "helmet_cccccc",
+    ]);
+    await tick();
+    expect(mockSvcStart).toHaveBeenCalledTimes(1);
+    expect(mockTranslate).toHaveBeenCalledWith("device.ble.serviceSearching", {
+      names: "我的头盔, 一二三四五六七八九十十一…, bbbbbb, …",
+    });
+    setBleTargetNameResolver(null);
   });
 
   it("启动时没有目标（设备列表还没拉到）不起服务；目标补上后起", async () => {

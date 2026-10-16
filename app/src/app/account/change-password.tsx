@@ -47,6 +47,11 @@ export default function ChangePasswordScreen() {
       setError(t("auth.passwordTooLong"));
       return;
     }
+    // 新旧相同：服务端照样「改」成功并踢掉其他设备上的登录，用户什么也没得到（10-16 夜测 N25）
+    if (password === oldPassword) {
+      setError(t("auth.passwordSameAsOld"));
+      return;
+    }
     setBusy(true);
     try {
       // 本机的 refreshToken 由 authApi 在发请求时现取（401 重试时要带轮换后的那把）

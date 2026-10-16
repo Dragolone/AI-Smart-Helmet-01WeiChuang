@@ -671,6 +671,35 @@ async function connect(
   }
 }
 
+/** 常驻通知里头盔写什么：用户起的名字，由 use-realtime 用设备列表缓存提供；查不到才用设备号后 6 位 */
+let nameOfTarget: (deviceId: string) => string | null = () => null;
+export function setBleTargetNameResolver(
+  fn: ((deviceId: string) => string | null) | null,
+): void {
+  nameOfTarget = fn ?? (() => null);
+}
+/** 常驻通知只有一两行：最多列几顶、每个名字最多几个字 */
+const SERVICE_NAMES_MAX = 3;
+const SERVICE_NAME_CHARS = 12;
+
+/**
+ * 通知里的头盔名单。原来只写设备号后 6 位：用户不认得「b3f8c2」，测试设备号还会截成「ight_a」
+ *（10-16 夜测 N23）；最多 20 顶目标时整串编号铺满通知。
+ */
+function serviceNames(): string {
+  const shown = targets.slice(0, SERVICE_NAMES_MAX).map((id) => {
+    const name = nameOfTarget(id);
+    if (!name) return id.slice(-6);
+    const chars = Array.from(name); // 按码点切，不把表情切成半个
+    return chars.length > SERVICE_NAME_CHARS
+      ? `${chars.slice(0, SERVICE_NAME_CHARS).join("")}…`
+      : name;
+  });
+  return (
+    shown.join(", ") + (targets.length > SERVICE_NAMES_MAX ? ", …" : "")
+  );
+}
+
 /**
  * Android 前台服务（决策 #41）：有任一头盔在连 → 起服务 + 常驻通知；链路停止 → 撤。
  * 掉线重连期间保持服务（否则退后台后的重连扫描会被系统掐掉）。iOS 上为空操作。
@@ -681,7 +710,7 @@ function syncForegroundService(): void {
   // 不能让它把正在进行的连接 / 握手一起带崩
   try {
     if (running && targets.length > 0) {
-      const names = targets.map((id) => id.slice(-6)).join(", ");
+      const names = serviceNames();
       HelmetLinkService.start(
         translate("device.ble.serviceTitle"),
         translate(

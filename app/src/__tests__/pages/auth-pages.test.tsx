@@ -587,6 +587,16 @@ describe("修改密码", () => {
     expect(api.changePassword).not.toHaveBeenCalled();
   });
 
+  it("新密码和当前密码相同：本地拦下，不发请求（服务端会照样改并踢掉其他设备，N25）", () => {
+    const r = render(<ChangePasswordScreen />);
+    r.type(P.old, "samepass12");
+    r.type(P.pwd, "samepass12");
+    r.type(P.confirm, "samepass12");
+    r.press(tr("common.save"));
+    expect(pageErrors(r)).toEqual([tr("auth.passwordSameAsOld")]);
+    expect(api.changePassword).not.toHaveBeenCalled();
+  });
+
   it("成功：画完勾提示并返回；旧密码错：页面级提示", async () => {
     jest.useFakeTimers();
     api.changePassword.mockImplementationOnce(() =>
