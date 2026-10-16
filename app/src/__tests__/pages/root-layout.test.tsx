@@ -375,7 +375,7 @@ describe("根布局", () => {
     expect(outside).toEqual(["legal/[doc]", "ble-bench", "+not-found"]);
   });
 
-  it("各页的标题都是翻译过的；求救页全屏、不许手势滑走，并按 sosId 各占一页（演练页没有 sosId 照默认）", () => {
+  it("各页的标题都是翻译过的；求救页全屏、不许手势滑走，真实的单共用一张页（演练页没有 sosId 照默认）", () => {
     const r = render(<RootLayout />);
     hydrateAll();
     const titled: [string, MessageKey][] = [
@@ -423,7 +423,13 @@ describe("根布局", () => {
       name: string,
       params: Record<string, unknown>,
     ) => string | undefined;
-    expect(singular("sos-active", { sosId: "s1", deviceId: "h1" })).toBe("s1");
+    // 10-16 N10：所有真实的单共用一张页（页内按头盔胶囊切换）
+    expect(singular("sos-active", { sosId: "s1", deviceId: "h1" })).toBe(
+      "sos-active",
+    );
+    expect(singular("sos-active", { sosId: "s2", deviceId: "h2" })).toBe(
+      "sos-active",
+    );
     expect(singular("sos-active", { drill: "1" })).toBeUndefined();
     expect(singular("sos-active", { sosId: ["s1", "s2"] })).toBeUndefined();
   });

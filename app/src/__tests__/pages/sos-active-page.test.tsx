@@ -37,6 +37,7 @@ import {
 } from "@/services/ble-relay-uplink";
 import { devLog } from "@/services/dev-log";
 import { clearSosAlert } from "@/services/sos-alert";
+import { sosScreen } from "@/services/sos-queue";
 import { presentedSos } from "@/services/sos-sync";
 import { useSosCancelStore } from "@/stores/sos-cancel-store";
 import { useThemeStore } from "@/stores/theme-store";
@@ -328,6 +329,29 @@ describe("倒数中", () => {
     expect(fontSize()).toBe(Math.round((112 * 140) / 252));
   });
 
+  it("联系人胶囊可换到第二排、名字最多约 6 个字再省略（10-16 N20：原来三个挤一行只剩 3 个字）", async () => {
+    m(contactsApi.list).mockImplementation(() =>
+      Promise.resolve([
+        { id: "c1", name: "张三丰师傅的头盔" },
+        { id: "c2", name: "李四" },
+        { id: "c3", name: "王五" },
+      ]),
+    );
+    const r = await mount();
+    const name = r.root.find(
+      (n) => isHost(n, "Text") && n.props.children === "张三丰师傅的头盔",
+    );
+    expect(flat(name.props.style).maxWidth).toBe(94);
+    expect(name.props.numberOfLines).toBe(1);
+    const rows = r.root.findAll(
+      (n) => isHost(n, "View") && flat(n.props.style).flexWrap === "wrap",
+    );
+    expect(rows).toHaveLength(1);
+    expect(
+      rows[0].findAll((n) => isHost(n, "Text")).length,
+    ).toBeGreaterThanOrEqual(3);
+  });
+
   it("没有紧急联系人：明说倒计时结束也通知不了人；超过 3 位只露 3 个和 +n", async () => {
     m(contactsApi.list).mockImplementation(() => Promise.resolve([]));
     let r = await mount();
@@ -481,8 +505,9 @@ describe("已通知页的标题", () => {
         : Promise.resolve({ notifications } as unknown as AccidentDetail),
     );
     const r = await mount();
-    await tick(0);
-    await tick(0);
+    // 假计时器下，依赖查询（enabled 由另一份缓存翻过来）拿到结果后要等下一次计时器推进才重画
+    //（和「立即求救」那条一样；10-16 N10 之后页面多了登记队列的渲染，两拍 0 ms 不够了，推进到下一次每秒刷新）
+    await tick(1100);
     return r;
   };
 
@@ -626,23 +651,213 @@ describe("已取消后「我还是需要帮助」", () => {
     );
   });
 
-  it("新一单的倒计时页盖上来又关掉之后，这张已取消页跟着关掉", async () => {
+  it("之后的新单到了（中转成功后核对写进缓存）：这张页自己切回倒计时，不另开一页；同一顶头盔的旧单被顶掉，结束后仍是单条结果页（10-16 N10）", async () => {
     m(relayApi.push).mockImplementation(() =>
       Promise.resolve({ accepted: 1, duplicate: 0, invalid: 0 }),
     );
     const r = await cancelled();
     r.press(tr("sos.needHelp"));
     await tick(0);
-    const el = () => (
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ sosId: "s3" })),
+    );
+    act(() => {
+      qc.setQueryData(["sos-active", "h1"], { sos: sosOf({ sosId: "s3" }) });
+    });
+    await tick(0);
+    await tick(0);
+    expect(number(r)).toBe("45");
+    expect(presentedSos.current.has("s3")).toBe(true);
+    expect(mockRouter.back).not.toHaveBeenCalled();
+    m(sosApi.cancel).mockImplementation(() =>
+      Promise.resolve(sosOf({ sosId: "s3", status: "cancelled" })),
+    );
+    act(() =>
+      slideButton(r).props.onAccessibilityAction({
+        nativeEvent: { actionName: "activate" },
+      }),
+    );
+    await tick(0);
+    expect(r.allText()).toContain(tr("sos.cancelledTitle"));
+    expect(r.allText()).not.toContain(tr("sos.multiDoneTitle", { n: 2 }));
+  });
+});
+
+describe("多顶头盔同时求救（10-16 N10：一张页 + 顶部胶囊点切）", () => {
+  const second = (sosId = "s2", deviceId = "h2", seconds = 50) =>
+    sosOf({
+      sosId,
+      deviceId,
+      deadline: new Date(Date.now() + seconds * 1000).toISOString(),
+    });
+  const twoHelmets = () => {
+    m(devicesApi.list).mockImplementation(() =>
+      Promise.resolve([
+        { deviceId: "h1", name: "通勤" },
+        { deviceId: "h2", name: "滑雪" },
+        { deviceId: "h3", name: "山地" },
+      ]),
+    );
+    m(sosApi.snapshot).mockImplementation((id: unknown) =>
+      Promise.resolve(
+        id === "s2" ? second() : id === "s3" ? second("s3", "h3", 55) : sosOf(),
+      ),
+    );
+  };
+  const arrive = (s: Sos) =>
+    act(() => {
+      qc.setQueryData(["sos-active", s.deviceId], { sos: s });
+    });
+  const slideCancel = (r: Rendered) =>
+    act(() =>
+      slideButton(r).props.onAccessibilityAction({
+        nativeEvent: { actionName: "activate" },
+      }),
+    );
+
+  it("在屏上时登记 sosScreen.mounted（新单不再叠页）；第二单从缓存进队列：顶部两个胶囊、提示一句、写「滑雪 也在倒计时」；点胶囊切过去", async () => {
+    twoHelmets();
+    const r = await mount();
+    expect(sosScreen.mounted).toBe(true);
+    arrive(second());
+    await tick(0);
+    expect(r.allText()).toContain(tr("sos.newAlarm", { name: "滑雪" }));
+    expect(r.allText()).toContain(tr("sos.alsoCounting", { name: "滑雪" }));
+    expect(r.allText()).toContain(tr("sos.allCancel"));
+    expect(r.allText()).toContain(tr("sos.allSendNow"));
+    expect(number(r)).toBe("45");
+    expect(
+      r.byLabel(`滑雪 · ${tr("sos.chipLeft", { n: 50 })}`).props
+        .accessibilityState,
+    ).toEqual({ selected: false });
+    r.press(tr("sos.chipLeft", { n: 50 }));
+    for (let i = 0; i < 3; i++) await tick(0);
+    expect(number(r)).toBe("50");
+    expect(presentedSos.current.has("s2")).toBe(true);
+    // 提示 4 秒后自己消失
+    await tick(4_100);
+    expect(r.allText()).not.toContain(tr("sos.newAlarm", { name: "滑雪" }));
+    r.unmount();
+    expect(sosScreen.mounted).toBe(false);
+  });
+
+  it("当前单取消后提示并自动切到下一单（页面仍在倒数）；两单都结束才进结果页，按头盔逐条列结论、已取消的各有「我还是需要帮助」", async () => {
+    twoHelmets();
+    m(sosApi.cancel).mockImplementation((id: unknown) =>
+      Promise.resolve(
+        sosOf({
+          sosId: id as string,
+          deviceId: id === "s2" ? "h2" : "h1",
+          status: "cancelled",
+        }),
+      ),
+    );
+    const r = await mount();
+    arrive(second());
+    await tick(0);
+    slideCancel(r);
+    for (let i = 0; i < 3; i++) await tick(0);
+    expect(sosApi.cancel).toHaveBeenCalledWith("s1");
+    expect(r.allText()).toContain(
+      tr("sos.switchedCancelled", { name: "通勤" }),
+    );
+    expect(number(r)).toBe("50");
+    expect(r.allText()).not.toContain(tr("sos.multiDoneTitle", { n: 2 }));
+    expect(clearSosAlert).toHaveBeenCalledWith("s1");
+    slideCancel(r);
+    for (let i = 0; i < 3; i++) await tick(0);
+    expect(sosApi.cancel).toHaveBeenCalledWith("s2");
+    expect(r.allText()).toContain(tr("sos.multiDoneTitle", { n: 2 }));
+    expect(r.allText()).toContain("通勤");
+    expect(r.allText()).toContain("滑雪");
+    expect(r.texts().filter((x) => x === tr("sos.needHelp"))).toHaveLength(2);
+    r.press(tr("sos.close"));
+    expect(mockRouter.back).toHaveBeenCalled();
+  });
+
+  it("三顶以上写「还有 2 顶头盔正在报警」；「全部取消」先确认，确认后每单都调取消接口；结果页列 3 条", async () => {
+    twoHelmets();
+    m(sosApi.cancel).mockImplementation((id: unknown) =>
+      Promise.resolve(
+        sosOf({
+          sosId: id as string,
+          deviceId: id === "s2" ? "h2" : id === "s3" ? "h3" : "h1",
+          status: "cancelled",
+        }),
+      ),
+    );
+    const r = await mount();
+    arrive(second());
+    arrive(second("s3", "h3", 55));
+    await tick(0);
+    expect(r.allText()).toContain(tr("sos.moreAlarms", { n: 2 }));
+    r.press(tr("sos.allCancel"));
+    expect(alert).toHaveBeenCalledTimes(1);
+    const buttons = alert.mock.calls[0][2] as {
+      text: string;
+      onPress?: () => void;
+    }[];
+    expect(buttons[0].text).toBe(tr("common.cancel"));
+    expect(sosApi.cancel).not.toHaveBeenCalled();
+    act(() => buttons[1].onPress?.());
+    for (let i = 0; i < 4; i++) await tick(0);
+    expect(
+      m(sosApi.cancel)
+        .mock.calls.map((c) => c[0])
+        .sort(),
+    ).toEqual(["s1", "s2", "s3"]);
+    expect(r.allText()).toContain(tr("sos.multiDoneTitle", { n: 3 }));
+    expect(r.allText()).toContain("山地");
+  });
+
+  it("「全部立即求救」：确认后每单都调确认接口；一单失败弹窗说明，其余照常", async () => {
+    twoHelmets();
+    m(sosApi.confirm).mockImplementation((id: unknown) =>
+      id === "s2"
+        ? Promise.reject(new Error("offline"))
+        : Promise.resolve(sosOf({ sosId: id as string, status: "notified" })),
+    );
+    m(sosApi.accidentDetail).mockImplementation(() =>
+      Promise.resolve({ notifications: [] } as unknown as AccidentDetail),
+    );
+    const r = await mount();
+    arrive(second());
+    await tick(0);
+    r.press(tr("sos.allSendNow"));
+    const buttons = alert.mock.calls[0][2] as {
+      text: string;
+      onPress?: () => void;
+    }[];
+    act(() => buttons[1].onPress?.());
+    for (let i = 0; i < 4; i++) await tick(0);
+    expect(
+      m(sosApi.confirm)
+        .mock.calls.map((c) => c[0])
+        .sort(),
+    ).toEqual(["s1", "s2"]);
+    expect(alert).toHaveBeenLastCalledWith(
+      tr("common.failed"),
+      expect.any(String),
+      NOTICE_OK,
+    );
+    // s2 没成功还在倒数：页面切到它
+    await tick(1100);
+    expect(number(r)).toBe("49");
+  });
+
+  it("点了另一单的通知：_layout 把这张页的参数改成那一单，页面切过去", async () => {
+    twoHelmets();
+    const r = await mount();
+    arrive(second());
+    await tick(0);
+    routerState.params = { sosId: "s2", deviceId: "h2" };
+    r.rerender(
       <QueryClientProvider client={qc}>
         <SosActiveScreen />
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
-    routerState.focused = false;
-    r.rerender(el());
-    routerState.focused = true;
-    r.rerender(el());
-    expect(mockRouter.back).toHaveBeenCalled();
+    for (let i = 0; i < 3; i++) await tick(0);
+    expect(number(r)).toBe("50");
   });
 });
 
