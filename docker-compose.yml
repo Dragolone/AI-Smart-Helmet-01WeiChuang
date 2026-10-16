@@ -31,6 +31,7 @@ services:
       - emqx_data:/opt/emqx/data
       # 设备认证 + Topic ACL（追加在官方默认配置之后，见 emqx/emqx.conf 尾部注释）
       - ./emqx/emqx.conf:/opt/emqx/etc/emqx.conf:ro
+      - ./emqx/acl-fallback.conf:/opt/emqx/etc/acl-fallback.conf:ro
     extra_hosts:
       # Linux 服务器上也能解析宿主机（Docker Desktop 自带，此行为部署兼容）
       - "host.docker.internal:host-gateway"

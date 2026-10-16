@@ -3,14 +3,25 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { mqttBackendClientId, mqttBackendUsername } from '../common/env';
 import { PrismaService } from '../prisma/prisma.service';
 
-/** EMQX HTTP 认证/授权的应答格式 */
-export type EmqxResult = { result: 'allow' | 'deny' };
+/** EMQX HTTP 认证/授权的应答格式；is_superuser 只在认证应答里出现 */
+export type EmqxResult = { result: 'allow' | 'deny'; is_superuser?: boolean };
 
 const ALLOW: EmqxResult = { result: 'allow' };
 const DENY: EmqxResult = { result: 'deny' };
+/**
+ * 服务账号标超级用户，EMQX 对它跳过授权。授权回调指向的就是后端自己：后端重启后，
+ * EMQX 侧的回调连接要等下一次健康检查（约 15 s）才恢复，这期间的拒绝结果还会按
+ * authorization.cache 缓存 1 分钟——订阅会被连续拒约一分钟（2026-10-17 云端实测重试 12 次）。
+ * 授权里服务账号本来就全部放行（见 authorize），跳过不改变权限。
+ */
+const SERVICE_ALLOW: EmqxResult = { result: 'allow', is_superuser: true };
 
-/** 设备可发布的 Topic 叶子（DEVICE_PROTOCOL §4） */
-const DEVICE_PUBLISH_LEAVES = new Set([
+/**
+ * 设备可发布的 Topic 叶子（DEVICE_PROTOCOL §4）。
+ * emqx/acl-fallback.conf 是同一套规则的 EMQX 本地副本（后端不可达时兜底），改这里要同步改那里，
+ * emqx-acl-fallback.spec 会对比两边。
+ */
+export const DEVICE_PUBLISH_LEAVES = new Set([
   'status',
   'location',
   'event',
@@ -57,7 +68,7 @@ export class EmqxHookService {
         );
         return DENY;
       }
-      return servicePass && password === servicePass ? ALLOW : DENY;
+      return servicePass && password === servicePass ? SERVICE_ALLOW : DENY;
     }
     if (clientid === backendClientId) {
       this.logger.warn(

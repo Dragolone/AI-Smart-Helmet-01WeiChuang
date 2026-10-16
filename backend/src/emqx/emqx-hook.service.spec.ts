@@ -21,10 +21,10 @@ describe('EmqxHookService（认证与 Topic 授权）', () => {
   });
 
   describe('authenticate', () => {
-    it('服务账号密码正确 → allow；错误 → deny', async () => {
+    it('服务账号密码正确 → allow 且标超级用户（EMQX 跳过授权）；错误 → deny', async () => {
       await expect(
         service.authenticate('backend_ingest', 'svc_pass'),
-      ).resolves.toEqual({ result: 'allow' });
+      ).resolves.toEqual({ result: 'allow', is_superuser: true });
       await expect(
         service.authenticate('backend_ingest', 'wrong'),
       ).resolves.toEqual({ result: 'deny' });

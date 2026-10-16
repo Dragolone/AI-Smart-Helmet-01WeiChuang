@@ -131,7 +131,7 @@ describe('审计 §7 EMQX 内部回调：认证 / 授权 / 内部令牌 (e2e in-
           password: SERVICE_PASS,
         }).expect(200)
       ).body,
-    ).toEqual({ result: 'allow' });
+    ).toEqual({ result: 'allow', is_superuser: true });
     expect(
       (await authn({ username: SERVICE_USER, password: 'wrong' }).expect(200))
         .body,

@@ -59,5 +59,10 @@ authorization {
       connect_timeout = "5s"
       request_timeout = "5s"
     }
+    ## 后端回调不可达时的本地兜底：规则同后端 authorize，原因见 emqx/acl-fallback.conf 文件头
+    {
+      type = file
+      path = "/opt/emqx/etc/acl-fallback.conf"
+    }
   ]
 }
