@@ -6,7 +6,8 @@ import {
   ProfileOutlined,
   UserOutlined,
 } from '@ant-design/icons'
-import { Button, Layout, Menu, Typography } from 'antd'
+import { Button, Layout, Menu, Spin, Typography } from 'antd'
+import { Suspense } from 'react'
 import {
   Navigate,
   Outlet,
@@ -74,7 +75,16 @@ export default function AdminLayout() {
           </Button>
         </Layout.Header>
         <Layout.Content style={{ padding: 24 }}>
-          <Outlet />
+          {/* 各页按需加载（App.tsx）：切页时只有内容区转圈，菜单和顶栏不跟着闪 */}
+          <Suspense
+            fallback={
+              <div style={{ padding: 48, textAlign: 'center' }}>
+                <Spin />
+              </div>
+            }
+          >
+            <Outlet />
+          </Suspense>
         </Layout.Content>
       </Layout>
     </Layout>

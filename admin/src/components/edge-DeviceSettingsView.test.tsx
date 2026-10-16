@@ -1,7 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { DEVICE_SETTINGS, DEVICE_SETTING_KEYS } from '@helmet/shared'
-import DeviceSettingsView, { summarizeSettings } from './DeviceSettingsView'
+import DeviceSettingsView from './DeviceSettingsView'
+import { summarizeSettings } from './settings-summary'
 
 // settings 来自库里的 JSON 列：清单定稿（决策 #43）前写入的旧数据、头盔上报的异常值都可能出现，
 // 展示层的底线是「照实列出、不白屏」

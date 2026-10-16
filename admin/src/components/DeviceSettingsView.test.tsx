@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import DeviceSettingsView, { summarizeSettings } from './DeviceSettingsView'
+import DeviceSettingsView from './DeviceSettingsView'
+import { summarizeSettings } from './settings-summary'
 
 describe('DeviceSettingsView', () => {
   it('没有设置 → 一句「全部为出厂默认」', () => {
