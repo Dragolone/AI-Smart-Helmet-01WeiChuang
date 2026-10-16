@@ -184,8 +184,9 @@ export function PrimaryButton({
   const p = useSharedValue(0);
   const width = useSharedValue(0);
   const textIn = useSharedValue(0);
-  // 整条时多宽、短药丸该多宽：都从布局量，不写死
-  const fullWidth = useRef(0);
+  // 整条时多宽、短药丸该多宽：都从布局量，不写死。整条宽要在渲染时用（成功那一帧先按整条宽定住，
+  // 再由动画收窄；不然这一帧按内容宽排版，按钮先缩成三个点那么宽再弹回来——闪一下），所以放 state
+  const [fullWidth, setFullWidth] = useState(0);
   const doneWidth = useRef(0);
   // 回调存在 ref 里：页面每次渲染都是新的箭头函数，不能让它触发下面那个 effect 重跑（会重放动画和触觉）
   const shown = useRef(onSuccessShown);
@@ -203,8 +204,8 @@ export function PrimaryButton({
       () => {},
     );
     const target =
-      fullWidth.current > 0 && doneWidth.current > 0
-        ? Math.min(fullWidth.current, doneWidth.current)
+      fullWidth > 0 && doneWidth.current > 0
+        ? Math.min(fullWidth, doneWidth.current)
         : 0;
     if (reduced) {
       p.set(1);
@@ -214,7 +215,7 @@ export function PrimaryButton({
       const ease = Easing.bezier(0.3, 0.9, 0.25, 1);
       p.set(withTiming(1, { duration: 280, easing: ease }));
       if (target > 0) {
-        width.set(fullWidth.current);
+        width.set(fullWidth);
         width.set(withTiming(target, { duration: 320, easing: ease }));
       }
       textIn.set(
@@ -229,7 +230,8 @@ export function PrimaryButton({
       reduced ? 200 : SUCCESS_SHOWN_MS,
     );
     return () => clearTimeout(timer);
-  }, [success, reduced, p, width, textIn]);
+    // fullWidth 只在不是成功态时更新（见 onLayout），成功期间不会让这里重跑、重放触觉
+  }, [success, reduced, fullWidth, p, width, textIn]);
 
   const boxStyle = useAnimatedStyle(() => {
     const w = width.get();
@@ -250,13 +252,15 @@ export function PrimaryButton({
     <AnimatedPressable
       onLayout={(e) => {
         // 量的是整条时的宽；收缩过程中的布局不算
-        if (!success) fullWidth.current = e.nativeEvent.layout.width;
+        const w = e.nativeEvent.layout.width;
+        if (!success && w !== fullWidth) setFullWidth(w);
       }}
       style={[
         styles.button,
         compact && styles.buttonCompact,
         { opacity: inactive && !success ? 0.55 : 1 },
-        success && styles.buttonDone,
+        // 量到过整条宽才居中收窄；没量到（还没排过版）就原样不收
+        success && fullWidth > 0 && [styles.buttonDone, { width: fullWidth }],
         style,
         boxStyle,
       ]}

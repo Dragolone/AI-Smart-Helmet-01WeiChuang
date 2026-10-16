@@ -265,6 +265,8 @@ describe("PrimaryButton", () => {
     // 成功态不变淡
     expect(flat(btn.props.style).opacity).toBe(1);
     expect(flat(btn.props.style).alignSelf).toBe("center");
+    // 成功那一帧就按整条宽定住，再由动画收窄：不会先按内容宽缩一下再弹回来（10-17 评审）
+    expect(flat(btn.props.style).width).toBeGreaterThan(0);
     expect(Haptics.notificationAsync).toHaveBeenCalledWith("success");
     // 成功那一层对读屏可见
     const layer = r.root.find(
@@ -283,6 +285,15 @@ describe("PrimaryButton", () => {
     expect(shown).toHaveBeenCalledTimes(1);
     // 收缩过程中的布局不覆盖整条宽度（不抛错即可：分支只记录宽度）
     act(() => p.props.onLayout({ nativeEvent: { layout: { width: 120 } } }));
+  });
+
+  it("成功态但还没量到整条宽：原样不收、不居中（不会缩成内容宽）", () => {
+    const r = render(
+      <PrimaryButton title="保存" success onPress={() => undefined} />,
+    );
+    const st = flat(buttonOf(r).props.style);
+    expect(st.alignSelf).toBeUndefined();
+    expect(st.width).toBeUndefined();
   });
 
   it("成功态 + 系统减弱动态效果：200 ms 就回调；自定义成功文字", () => {
