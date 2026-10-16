@@ -18,6 +18,9 @@ export const video = {
     "video.err.stream": "画面连接失败，请确认连的是头盔 Wi-Fi 后重试",
     "video.err.streamEnded": "画面中断了",
     "video.err.wifiLost": "与头盔 Wi-Fi 的连接断开了",
+    "video.err.localNetwork":
+      "如果之前拒绝过「本地网络」权限，画面会一直连不上：请到系统设置里找到「零一智行」，打开「本地网络」后重试",
+    "video.err.openSettings": "去设置开启本地网络",
     "video.paused.sos": "检测到摔倒或求救，已暂停预览，优先上报求救信息",
     "video.snapshot": "截图",
     "video.snapshot.saved": "已保存到相册",
@@ -46,6 +49,9 @@ export const video = {
     "video.err.stream": "畫面連接失敗，請確認連的是頭盔 Wi-Fi 後重試",
     "video.err.streamEnded": "畫面中斷了",
     "video.err.wifiLost": "與頭盔 Wi-Fi 的連接斷開了",
+    "video.err.localNetwork":
+      "如果之前拒絕過「區域網路」權限，畫面會一直連不上：請到系統設定裡找到「零一智行」，開啟「區域網路」後重試",
+    "video.err.openSettings": "前往設定開啟區域網路",
     "video.paused.sos": "偵測到摔倒或求救，已暫停預覽，優先上報求救資訊",
     "video.snapshot": "截圖",
     "video.snapshot.saved": "已儲存到相簿",
@@ -77,6 +83,9 @@ export const video = {
       "Couldn't connect to the camera. Check you're on the helmet Wi-Fi and retry",
     "video.err.streamEnded": "The video stopped",
     "video.err.wifiLost": "Lost connection to the helmet Wi-Fi",
+    "video.err.localNetwork":
+      "If you denied Local Network access before, the video can't connect. Turn on Local Network for this app in Settings, then retry",
+    "video.err.openSettings": "Open Settings",
     "video.paused.sos":
       "A fall or SOS was detected. Preview paused so the alert can be sent first",
     "video.snapshot": "Snapshot",

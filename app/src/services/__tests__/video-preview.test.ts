@@ -8,6 +8,7 @@ import {
   initialPreviewState,
   previewReducer,
   showsPlayer,
+  suggestsLocalNetwork,
   toFsPath,
   type PreviewAction,
   type PreviewState,
@@ -173,6 +174,25 @@ describe("阶段谓词", () => {
     expect(showsPlayer("playing")).toBe(true);
     expect(showsPlayer("joining")).toBe(false);
     expect(showsPlayer("error")).toBe(false);
+  });
+});
+
+describe("iOS「本地网络」权限提示", () => {
+  it("只在 iOS 拉流失败时提示；连热点失败、断流、Wi-Fi 断开、Android 都不提示", () => {
+    const streamFailed = run({ type: "joined" }, { type: "playerError" });
+    expect(suggestsLocalNetwork(streamFailed, "ios")).toBe(true);
+    expect(suggestsLocalNetwork(streamFailed, "android")).toBe(false);
+    for (const s of [
+      run({ type: "joinFailed", code: "USER_DENIED" }),
+      run({ type: "joined" }, { type: "firstFrame" }, { type: "streamEnded" }),
+      run({ type: "joined" }, { type: "wifiLost" }),
+      run({ type: "joined" }),
+    ])
+      expect(suggestsLocalNetwork(s, "ios")).toBe(false);
+    // 点了重新连接：提示随错误一起收起
+    expect(
+      suggestsLocalNetwork(previewReducer(streamFailed, { type: "retry" }), "ios"),
+    ).toBe(false);
   });
 });
 

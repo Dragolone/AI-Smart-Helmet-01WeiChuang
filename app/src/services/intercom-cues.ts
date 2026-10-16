@@ -65,13 +65,14 @@ const CUE_SOUND: Record<Cue, Sound> = {
   talkOff: "tickOff",
 };
 
-const paths: Partial<Record<Sound, string>> = {};
+const cache: Partial<Record<Sound, { file: File; path: string }>> = {};
 
 /** 这段声音的本地文件路径；没有就现做一个。做不出来返回 null */
 function pathOf(sound: Sound): string | null {
-  const cached = paths[sound];
-  if (cached) return cached;
   try {
+    // 缓存目录会被系统或用户清掉：只认还在的文件，不在了就重写，否则直到重启 App 都没有提示音
+    const cached = cache[sound];
+    if (cached?.file.exists) return cached.path;
     const bytes = synthWav(SOUNDS[sound].tones);
     const file = new File(Paths.cache, `intercom-cue-${sound}.wav`);
     // 大小对不上 = 上个版本留下的旧声音，或者上次没写完
@@ -81,7 +82,7 @@ function pathOf(sound: Sound): string | null {
     }
     // TRTC 要的是绝对路径，不带 file:// 前缀
     const path = decodeURI(file.uri).replace(/^file:\/\//, "");
-    paths[sound] = path;
+    cache[sound] = { file, path };
     return path;
   } catch {
     return null;

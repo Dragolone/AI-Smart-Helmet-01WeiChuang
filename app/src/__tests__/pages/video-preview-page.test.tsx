@@ -1,6 +1,6 @@
 // 实时视频预览页（只测不改：它和求救上报争网络，见 10-15 评审 F-1）：
 // 连头盔热点的几条路（自动连 / 要手动连 / 连失败 / 连上时人已离开）、首帧与没画面提示、播放器出错与断流、
-// 截图（成功 / 失败 / 没回调 / 不支持 / 没权限），以及什么时候必须把热点还回去：
+// 截图（成功 / 失败 / 没回调 / 不支持 / 没权限）、iOS 拒过本地网络权限时的提示，以及什么时候必须把热点还回去：
 // 求救入队、退后台（连热点途中的系统弹窗除外）、失焦（被倒计时页盖住）、卸载、出错。
 import {
   afterEach,
@@ -10,7 +10,12 @@ import {
   it,
   jest,
 } from "@jest/globals";
-import { Animated as RNAnimated, AppState, Platform } from "react-native";
+import {
+  Animated as RNAnimated,
+  AppState,
+  Linking,
+  Platform,
+} from "react-native";
 import { act } from "react-test-renderer";
 import { routerState } from "@/__tests__/helpers/native-mocks";
 import { isHost, render, type Rendered } from "@/__tests__/helpers/render";
@@ -382,6 +387,50 @@ describe("什么时候把热点还回去", () => {
     await join();
     r.unmount();
     expect(mockWifi.release).toHaveBeenCalled();
+  });
+});
+
+describe("iOS 拒过「本地网络」权限", () => {
+  const setOs = (value: string) => {
+    Object.defineProperty(Platform, "OS", { value, configurable: true });
+  };
+  const os = Platform.OS;
+  afterEach(() => setOs(os));
+
+  it("iOS 拉流失败：除了原因再提示本地网络权限，并给去设置的按钮", async () => {
+    setOs("ios");
+    const settings = jest
+      .spyOn(Linking, "openSettings")
+      .mockImplementation(() => Promise.resolve());
+    const r = mount();
+    await join();
+    expect(r.allText()).not.toContain(tr("video.err.localNetwork"));
+    act(() => (player(r).props.onError as () => void)());
+    expect(r.allText()).toContain(tr("video.err.stream"));
+    expect(r.allText()).toContain(tr("video.err.localNetwork"));
+    r.press(tr("video.err.openSettings"));
+    expect(settings).toHaveBeenCalledTimes(1);
+    // 重新连接时提示收起
+    r.press(tr("video.retry"));
+    expect(r.allText()).not.toContain(tr("video.err.localNetwork"));
+    expect(r.allText()).not.toContain(tr("video.err.openSettings"));
+    settings.mockRestore();
+  });
+
+  it("Android 拉流失败、iOS 别的错误（Wi-Fi 断开）：不提本地网络", async () => {
+    setOs("android");
+    let r = mount();
+    await join();
+    act(() => (player(r).props.onError as () => void)());
+    expect(r.allText()).toContain(tr("video.err.stream"));
+    expect(r.allText()).not.toContain(tr("video.err.localNetwork"));
+    r.unmount();
+    setOs("ios");
+    r = mount();
+    await join();
+    act(() => mockWifi.lost.forEach((l) => l()));
+    expect(r.allText()).toContain(tr("video.err.wifiLost"));
+    expect(r.allText()).not.toContain(tr("video.err.openSettings"));
   });
 });
 

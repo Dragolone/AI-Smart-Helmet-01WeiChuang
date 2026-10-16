@@ -8,6 +8,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
+  Linking,
   Platform,
   StyleSheet,
   useWindowDimensions,
@@ -34,6 +35,7 @@ import {
   initialPreviewState,
   previewReducer,
   showsPlayer,
+  suggestsLocalNetwork,
   toFsPath,
 } from "@/services/video-preview";
 import { HelmetWifi } from "helmet-wifi";
@@ -314,6 +316,7 @@ export default function VideoPreviewScreen() {
     state.phase === "joining" ||
     (state.phase === "connecting" && !state.stalled) ||
     (state.phase === "paused" && state.pauseReason === "background");
+  const localNetworkHint = suggestsLocalNetwork(state, Platform.OS);
   const canRetry =
     state.phase === "error" ||
     (state.phase === "paused" && state.pauseReason === "sos") ||
@@ -358,6 +361,11 @@ export default function VideoPreviewScreen() {
                 {t(state.errorKey, { ssid })}
               </ThemedText>
             )}
+            {localNetworkHint && (
+              <ThemedText type="small" style={styles.overlayHint}>
+                {t("video.err.localNetwork")}
+              </ThemedText>
+            )}
           </View>
         )}
       </View>
@@ -390,6 +398,13 @@ export default function VideoPreviewScreen() {
           <PrimaryButton
             title={t("video.retry")}
             onPress={() => dispatch({ type: "retry" })}
+          />
+        )}
+        {localNetworkHint && (
+          <SecondaryButton
+            title={t("video.err.openSettings")}
+            icon="settings-outline"
+            onPress={() => void Linking.openSettings().catch(() => undefined)}
           />
         )}
 

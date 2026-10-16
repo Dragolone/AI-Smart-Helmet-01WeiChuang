@@ -27,7 +27,7 @@ export const intercom = {
     "intercom.leaveChannel": "退出频道",
     "intercom.leaveChannelBody": "退出「{name}」后需邀请码重新加入。",
     "intercom.leaveConfirm": "退出",
-    "intercom.headset": "耳机",
+    "intercom.earpiece": "听筒",
     "intercom.speaker": "扬声器",
     "intercom.routeToast": "音频输出：{route}",
     "intercom.mutedForMe": "已对我静音",
@@ -84,6 +84,13 @@ export const intercom = {
     "intercom.mini.micOn": "麦克风已开启",
     "intercom.mini.micOff": "已静音",
     "intercom.mini.back": "返回",
+    "intercom.exit.kicked": "通话已被结束：你的账号可能在另一台手机上进入了对讲",
+    "intercom.exit.dismissed": "频道的通话房间已关闭，通话已结束",
+    "intercom.error":
+      "通话出错（{code}），已关闭麦克风。若反复出现，请结束通话后重新进入",
+    "intercom.member.muteHint": "仅在本机静音这位成员",
+    "intercom.member.unmuteHint": "取消对这位成员的静音",
+    "intercom.ptt.a11yHint": "使用读屏时，双击开始说话，再次双击结束",
   },
   "zh-TW": {
     "intercom.title": "對講",
@@ -112,7 +119,7 @@ export const intercom = {
     "intercom.leaveChannel": "退出頻道",
     "intercom.leaveChannelBody": "退出「{name}」後需邀請碼重新加入。",
     "intercom.leaveConfirm": "退出",
-    "intercom.headset": "耳機",
+    "intercom.earpiece": "聽筒",
     "intercom.speaker": "揚聲器",
     "intercom.routeToast": "音訊輸出：{route}",
     "intercom.mutedForMe": "已對我靜音",
@@ -169,6 +176,13 @@ export const intercom = {
     "intercom.mini.micOn": "麥克風已開啟",
     "intercom.mini.micOff": "已靜音",
     "intercom.mini.back": "返回",
+    "intercom.exit.kicked": "通話已被結束：你的帳號可能在另一支手機上進入了對講",
+    "intercom.exit.dismissed": "頻道的通話房間已關閉，通話已結束",
+    "intercom.error":
+      "通話出錯（{code}），已關閉麥克風。若反覆出現，請結束通話後重新進入",
+    "intercom.member.muteHint": "僅在本機將這位成員靜音",
+    "intercom.member.unmuteHint": "取消對這位成員的靜音",
+    "intercom.ptt.a11yHint": "使用螢幕閱讀器時，點兩下開始說話，再點兩下結束",
   },
   en: {
     "intercom.title": "Talk",
@@ -200,7 +214,7 @@ export const intercom = {
     "intercom.leaveChannelBody":
       'You will need the invite code to rejoin "{name}".',
     "intercom.leaveConfirm": "Leave",
-    "intercom.headset": "Headset",
+    "intercom.earpiece": "Earpiece",
     "intercom.speaker": "Speaker",
     "intercom.routeToast": "Audio output: {route}",
     "intercom.mutedForMe": "Muted for me",
@@ -262,5 +276,14 @@ export const intercom = {
     "intercom.mini.micOn": "Microphone on",
     "intercom.mini.micOff": "Muted",
     "intercom.mini.back": "Back",
+    "intercom.exit.kicked":
+      "Call ended: your account may have joined the intercom on another phone",
+    "intercom.exit.dismissed": "The channel's call room was closed. Call ended.",
+    "intercom.error":
+      "Call error ({code}). Microphone turned off. If this keeps happening, end the call and rejoin.",
+    "intercom.member.muteHint": "Mutes this member for you only",
+    "intercom.member.unmuteHint": "Unmutes this member",
+    "intercom.ptt.a11yHint":
+      "With a screen reader, double-tap to start talking and double-tap again to stop",
   },
 } as const;
