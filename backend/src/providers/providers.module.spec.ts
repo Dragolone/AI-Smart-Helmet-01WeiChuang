@@ -62,8 +62,16 @@ describe('Provider 工厂与 REQUIRE_REAL_PROVIDERS', () => {
     expect(() => smsProviderFactory()).toThrow(/短信通道/);
   });
 
-  it('开关值不是 1（如 "true"）不生效：按未设处理，避免把拼错的值当成放行', () => {
-    process.env.REQUIRE_REAL_PROVIDERS = 'true';
-    expect(smsProviderFactory()).toBeInstanceOf(ConsoleSmsProvider);
+  it('开关写成 true / YES 同样生效（原来只认 "1"，写成 true 静默回落 Mock——生产把假发送记成已通知）；认不出的值拒绝启动', () => {
+    for (const v of ['true', 'YES', ' on ']) {
+      process.env.REQUIRE_REAL_PROVIDERS = v;
+      expect(() => smsProviderFactory()).toThrow('REQUIRE_REAL_PROVIDERS');
+    }
+    process.env.REQUIRE_REAL_PROVIDERS = 'ture';
+    expect(() => smsProviderFactory()).toThrow('不是开关值');
+    for (const v of ['0', 'false', '']) {
+      process.env.REQUIRE_REAL_PROVIDERS = v;
+      expect(smsProviderFactory()).toBeInstanceOf(ConsoleSmsProvider);
+    }
   });
 });

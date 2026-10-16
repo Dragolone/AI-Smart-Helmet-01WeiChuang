@@ -70,7 +70,7 @@ describe('backup-upload：参数与输入校验', () => {
 });
 
 describe('backup-upload：保留策略', () => {
-  it('最新 keepMin 份无论多旧都保留；其余超过保留期的删除；非 backups/ 前缀不碰', () => {
+  it('最新 keepMin 份无论多旧都保留；其余超过保留期的删除；不是本脚本写出的键（别的前缀、目录占位、子目录、非 .dump）不碰', () => {
     const objects = [
       obj('d0.dump', 0),
       obj('d10.dump', 10),
@@ -78,6 +78,10 @@ describe('backup-upload：保留策略', () => {
       obj('d50.dump', 50),
       obj('d90.dump', 90),
       { key: 'media/helmet_x/video.mp4', lastModified: new Date(0) },
+      // 同前缀下不是本脚本写的：目录占位、别的项目放的子目录 / 别的格式（10-17 评审：COS 子账号对整个账号的桶有写权限）
+      { key: 'backups/', lastModified: new Date(0) },
+      { key: 'backups/other-project/prod.sql.gz', lastModified: new Date(0) },
+      { key: 'backups/notes.txt', lastModified: new Date(0) },
     ];
     // 保留 30 天、至少 2 份：d0/d10 无条件留；d40/d50/d90 超期删
     expect(selectExpired(objects, now, 30, 2).map((o) => o.key)).toEqual([

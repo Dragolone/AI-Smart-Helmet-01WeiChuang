@@ -91,9 +91,13 @@ export function looksLikePgDump(body: Buffer): boolean {
   );
 }
 
+/** 本脚本能写出的对象键（backups/ 下一层、字符集同 --key 校验、.dump 结尾）：清理只碰这种键 */
+const OWN_BACKUP_KEY = /^backups\/[A-Za-z0-9._-]+\.dump$/;
+
 /**
  * 选出要删的旧备份：按时间倒序，最新的 keepMin 份无论多旧都保留（保留期配得再短也不会删到只剩今天这一份），
- * 其余超过 retentionDays 的删除。只看 backups/ 前缀下的对象。
+ * 其余超过 retentionDays 的删除。只看本脚本写出的键：同前缀下别的对象（目录占位、别的项目放的备份）
+ * 不删——COS 子账号对整个账号的桶都有写权限，备份桶填错一次就会删到别人的文件（2026-10-17 评审）。
  */
 export function selectExpired(
   objects: RemoteObject[],
@@ -103,7 +107,7 @@ export function selectExpired(
 ): RemoteObject[] {
   const cutoff = now.getTime() - retentionDays * 24 * 60 * 60 * 1000;
   const sorted = [...objects]
-    .filter((o) => o.key.startsWith(BACKUP_PREFIX))
+    .filter((o) => OWN_BACKUP_KEY.test(o.key))
     .sort((a, b) => b.lastModified.getTime() - a.lastModified.getTime());
   return sorted.slice(keepMin).filter((o) => o.lastModified.getTime() < cutoff);
 }
