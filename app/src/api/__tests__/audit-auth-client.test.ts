@@ -116,7 +116,7 @@ describe("审计 §6 App api client：401 刷新排队与会话交错", () => {
       ["503", () => res(503, { code: "INTERNAL_ERROR" })],
       ["network", () => Promise.reject(new Error("Network request failed"))],
       ["401", () => res(401, { code: "UNAUTHORIZED" })],
-    ] as Array<[string, () => unknown]>) {
+    ] as [string, () => unknown][]) {
       tokens = { accessToken: "acc_old", refreshToken: "ref_old" };
       clearSession.mockClear();
       routeFetch({ refresh });
@@ -132,8 +132,6 @@ describe("审计 §6 App api client：401 刷新排队与会话交错", () => {
       network: "kept",
       "401": "clearSession",
     });
-    // eslint-disable-next-line no-console
-    console.log(`[audit] refresh 失败路径 → ${JSON.stringify(outcomes)}`);
   });
 
   // 2026-09-23 iPhone 真机：WS 每 8–30 秒被网关以 4401「访问令牌已过期」断开后反复重连。

@@ -45,7 +45,6 @@ afterEach(() => {
 });
 
 const load = () =>
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   (require("../realtime") as typeof import("../realtime")).realtimeClient;
 const last = () => FakeWs.instances[FakeWs.instances.length - 1];
 const count = () => FakeWs.instances.length;

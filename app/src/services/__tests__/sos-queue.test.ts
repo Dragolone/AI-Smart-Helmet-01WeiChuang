@@ -1,5 +1,5 @@
 // 多顶头盔同时求救的队列（10-16 N10）：从缓存推导、按到期先后排、终态的不算、路由带来的那单也算
-import { beforeEach, describe, expect, it, jest } from "@jest/globals";
+import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
 import { QueryClient } from "@tanstack/react-query";
 import type { Sos } from "@helmet/shared";
 
@@ -31,6 +31,10 @@ let qc: QueryClient;
 beforeEach(() => {
   qc = new QueryClient();
   sosScreen.mounted = false;
+});
+// 不清的话每条缓存都挂着 5 分钟的回收定时器，Jest 进程最后要被强杀
+afterEach(() => {
+  qc.clear();
 });
 
 describe("activeSosQueue", () => {

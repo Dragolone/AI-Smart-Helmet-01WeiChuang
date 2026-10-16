@@ -3,7 +3,6 @@
 // - 底环、电量从环起点滑到电量处、扫描从中心显出头盔并擦掉商标、没连上的头盔是半透明的、连着时扫描后亮起光晕
 // - 表盘先在商标的位置，再滑到页面上大图的位置（引导页衔接时一开始就在那里）；到点交还给页面
 // - 光点落到连接状态那一粒上的时刻（名字 / 连接状态跟着出现）；电量那一行字
-/* eslint-disable @typescript-eslint/no-require-imports -- CanvasKit 和 Skia 的 web 实现只有 CommonJS 入口 */
 import {
   afterAll,
   beforeAll,

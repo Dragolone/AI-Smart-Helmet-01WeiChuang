@@ -3,7 +3,6 @@
 // - 安卓（视频模式）：商标完成前交同一张空图（画布不重画），开头一小段几乎全透明地预画一次；商标完成时淡入接过视频
 // - 页面从下往上露出来时把波浪线以下清成透明；画布大小按像素密度封顶 2 倍再放大铺满；卸掉时放掉 UI 线程上的状态
 // 预录帧模块换成可控的替身（读文件那一层另有测试），画法代码原样跑。
-/* eslint-disable @typescript-eslint/no-require-imports -- CanvasKit 和 Skia 的 web 实现只有 CommonJS 入口 */
 import {
   afterAll,
   afterEach,

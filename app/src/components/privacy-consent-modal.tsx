@@ -3,7 +3,7 @@
 // 于是永远没机会同意，极光 SDK 也就永远不初始化——被杀后的 SOS 推送对这批人是静默失效的）。
 // 口径与登录/注册页一致：不同意就不能继续用（只能退出登录）；同意一次记住，不再问。
 import { useState } from "react";
-import { Modal, Pressable, StyleSheet, View } from "react-native";
+import { Modal, Pressable, StyleSheet } from "react-native";
 import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router, usePathname } from "expo-router";

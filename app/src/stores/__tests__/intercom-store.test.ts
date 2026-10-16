@@ -22,7 +22,6 @@ jest.mock("expo-secure-store", () => ({
 const load = (): Store["useIntercomStore"] => {
   let mod!: Store;
   jest.isolateModules(() => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     mod = require("../intercom-store") as Store;
   });
   return mod.useIntercomStore;

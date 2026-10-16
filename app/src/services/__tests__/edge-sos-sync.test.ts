@@ -233,15 +233,14 @@ describe("onReconnect：连接抖动", () => {
 });
 
 describe("guardActiveResult：安全页 30 s 轮询也过终态守卫（10-06 并发评审 F9）", () => {
+  // 用每个用例新建、afterEach 会 clear 的那一份 qc：自己 new 的不清，缓存回收定时器会让 Jest 进程退不干净
   it("轮询在途时这单已在倒计时页取消成功：迟到的 pending 被换成 { sos: null }，卡片不回潮", () => {
-    const qc = new QueryClient();
     qc.setQueryData(["sos", "s1"], sos({ sosId: "s1", status: "cancelled" }));
     const late = { sos: sos({ sosId: "s1", status: "pending" }) };
     expect(guardActiveResult(qc, late)).toEqual({ sos: null });
   });
 
   it("本机没有这单的终态记录（或它仍 pending）：原样返回；没有进行中的单也原样返回", () => {
-    const qc = new QueryClient();
     const fresh = { sos: sos({ sosId: "s2", status: "pending" }) };
     expect(guardActiveResult(qc, fresh)).toBe(fresh);
     qc.setQueryData(["sos", "s2"], sos({ sosId: "s2", status: "pending" }));
