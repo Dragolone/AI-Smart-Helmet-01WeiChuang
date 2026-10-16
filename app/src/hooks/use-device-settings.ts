@@ -19,7 +19,11 @@ export function useDeviceSettings(deviceId: string): {
   lastCommand: CommandPublic | null;
   /** 下发请求还在路上（只覆盖这一次 HTTP 请求，不是等头盔回执） */
   sending: boolean;
-  send: (key: string, value: string | number | boolean) => void;
+  /** 交给服务端；成功给回新建的命令（调用方按 commandId 认自己那条的回执），没发出去给 null（已弹窗说明） */
+  send: (
+    key: string,
+    value: string | number | boolean,
+  ) => Promise<CommandPublic | null>;
   isError: boolean;
   error: unknown;
 } {
@@ -36,8 +40,10 @@ export function useDeviceSettings(deviceId: string): {
   const [sending, setSending] = useState(false);
   const send = (key: string, value: string | number | boolean) => {
     setSending(true);
-    devicesApi
-      .putSettings(deviceId, { settings: { [key]: value } })
+    const put = devicesApi.putSettings(deviceId, {
+      settings: { [key]: value },
+    });
+    put
       .then(() =>
         queryClient.invalidateQueries({
           queryKey: ["device-settings", deviceId],
@@ -45,6 +51,11 @@ export function useDeviceSettings(deviceId: string): {
       )
       .catch((e) => showNotice(t("device.sendFailed"), toUserMessage(e)))
       .finally(() => setSending(false));
+    // 命令号一回来就交出去，不等重新拉设置：拉回来时调用方已经认得出哪条是自己的
+    return put.then(
+      (cmd) => cmd ?? null,
+      () => null,
+    );
   };
   return {
     values: settings.data?.settings,

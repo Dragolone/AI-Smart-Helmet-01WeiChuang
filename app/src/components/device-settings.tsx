@@ -8,11 +8,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import {
   DEVICE_SETTINGS,
+  isDeviceSettingKey,
   type CommandPublic,
   type DeviceSettingKey,
   type DeviceSettingSpec,
 } from "@helmet/shared";
-import { StyleSheet, View } from "react-native";
+import { useEffect, useRef } from "react";
+import { AccessibilityInfo, Platform, StyleSheet, View } from "react-native";
 
 import { helmetErrorText } from "@/api/error-messages";
 import { CheckDraw } from "@/components/check-draw";
@@ -111,6 +113,9 @@ function failureText(code: string, t: ReturnType<typeof useT>): string {
   return human === code ? t("device.cmd.failed") : human;
 }
 
+const inFlightStatus = (status: CommandPublic["status"] | undefined) =>
+  status === "pending" || status === "delivered";
+
 /**
  * 某一项设置旁边的回执：最近一条命令改了这一项才显示（下发中 / 已送达等回执 / 已生效 / 失败 / 离线未送达）。
  * 文案与颜色沿用改版前页面底部那一行「最近下发」，只是挪到了对应的项旁边；每档有各自的图标，不只靠颜色。
@@ -119,61 +124,95 @@ export function CommandFeedback({
   command,
   settingKey,
   online = false,
+  confirmed,
 }: {
   command: CommandPublic | null;
   settingKey: string;
   /** 头盔此刻在线：离线时没送达的那条不再说「头盔离线」，改说上次没送达、可以再试（10-16 iPhone） */
   online?: boolean;
+  /**
+   * 这一项头盔确认过的当前值（没有时传 null）。传了才比对：已生效那条命令写的值和它对不上了
+   * （之后头盔自己上报改过，比如大灯掉电回到关），就不再挂「已生效」——那句话说的已经不是现在的值
+   */
+  confirmed?: unknown;
 }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  if (!command || !commandTouches(command, settingKey)) return null;
+  const touched = !!command && commandTouches(command, settingKey);
+  // 命令里的值按列表同一套规则规整后再比：数值项里的 true / false 规整成 1 / 0，原样比会把正常的「已生效」也藏掉
+  const sentRaw = command?.params[settingKey];
+  const sent = isDeviceSettingKey(settingKey)
+    ? normalize(settingKey, sentRaw)
+    : sentRaw;
+  const stale =
+    command?.status === "success" &&
+    confirmed !== undefined &&
+    sent !== confirmed;
   const view: {
     text: string;
     color: string;
     /** null = 已生效：勾是画出来的（CheckDraw），不是现成图标 */
     icon: keyof typeof Ionicons.glyphMap | null;
-  } =
-    command.status === "pending"
-      ? {
-          text: t("device.cmd.pending"),
-          color: theme.warning,
-          icon: "time-outline",
-        }
-      : command.status === "delivered"
+  } | null =
+    !command || !touched || stale
+      ? null
+      : command.status === "pending"
         ? {
-            text: t("device.cmd.delivered"),
+            text: t("device.cmd.pending"),
             color: theme.warning,
             icon: "time-outline",
           }
-        : command.status === "success"
+        : command.status === "delivered"
           ? {
-              text: command.executedAt
-                ? t("device.cmd.successAt", {
-                    time: timeWithDateIfNotToday(command.executedAt, locale),
-                  })
-                : t("device.cmd.success"),
-              color: theme.success,
-              icon: null,
+              text: t("device.cmd.delivered"),
+              color: theme.warning,
+              icon: "time-outline",
             }
-          : command.status === "failed"
+          : command.status === "success"
             ? {
-                // 正文说人话，原始码留在括号里给技术支持看
-                text: command.errorCode
-                  ? `${failureText(command.errorCode, t)}（${command.errorCode}）`
-                  : t("device.cmd.failed"),
-                color: theme.danger,
-                icon: "close-circle-outline",
+                text: command.executedAt
+                  ? t("device.cmd.successAt", {
+                      time: timeWithDateIfNotToday(command.executedAt, locale),
+                    })
+                  : t("device.cmd.success"),
+                color: theme.success,
+                icon: null,
               }
-            : {
-                // 离线未送达：绝不显示为已生效。头盔已经回来了就别再说它离线
-                text: t(
-                  online ? "device.cmd.expiredRetry" : "device.cmd.offline",
-                ),
-                color: theme.textSecondary,
-                icon: "cloud-offline-outline",
-              };
+            : command.status === "failed"
+              ? {
+                  // 正文说人话，原始码留在括号里给技术支持看
+                  text: command.errorCode
+                    ? `${failureText(command.errorCode, t)}（${command.errorCode}）`
+                    : t("device.cmd.failed"),
+                  color: theme.danger,
+                  icon: "close-circle-outline",
+                }
+              : {
+                  // 离线未送达：绝不显示为已生效。头盔已经回来了就别再说它离线
+                  text: t(
+                    online ? "device.cmd.expiredRetry" : "device.cmd.offline",
+                  ),
+                  color: theme.textSecondary,
+                  icon: "cloud-offline-outline",
+                };
+
+  // iOS 读屏不认 accessibilityLiveRegion（只有 Android 有）：回执变了主动念一句。
+  // 挂上时已经在的不念；从「没有任何命令」变成有，多半是设置刚拉回来、带出一条旧回执，
+  // 只有还在路上的（刚点的那条）才念
+  const cmdKey = command ? `${command.commandId}:${command.status}` : null;
+  const fresh = inFlightStatus(command?.status);
+  const sayText = view?.text ?? null;
+  const said = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    const prev = said.current;
+    said.current = cmdKey;
+    if (Platform.OS !== "ios" || prev === undefined || prev === cmdKey) return;
+    if (!sayText || (prev === null && !fresh)) return;
+    AccessibilityInfo.announceForAccessibility(sayText);
+  }, [cmdKey, fresh, sayText]);
+
+  if (!view) return null;
   return (
     <View accessibilityLiveRegion="polite" style={styles.feedback}>
       {view.icon ? (
@@ -220,22 +259,31 @@ export function DeviceSettingList({
 }) {
   const theme = useTheme();
   const t = useT();
+  // settings 为 undefined = 还在拉（或没拉到）：不知道头盔上是什么，不能当成「从没上报过」去描出厂默认
+  const loaded = settings !== undefined;
   return (
     <>
       {keys.map((key, index) => {
         const spec = DEVICE_SETTINGS[key];
         const current = normalize(key, settings?.[key]);
-        // 「待确认」的那一档：刚点过、回执还没回来的值；或者头盔从没上报过（current 为空）时的出厂默认——
+        // 「待确认」的那一档：刚点过、回执还没回来的值；或者头盔从没上报过（拉到了但没有这一项）时的出厂默认——
         // 只描边不填色，和「头盔确认过」的实心高亮分得开，不把没生效的值显示成已生效（决策 #27③ / #45）
         const inFlight =
           lastCommand &&
           commandTouches(lastCommand, key) &&
-          (lastCommand.status === "pending" ||
-            lastCommand.status === "delivered")
+          inFlightStatus(lastCommand.status)
             ? normalize(key, lastCommand.params[key])
             : null;
+        const unreported = loaded && current === null;
         const tentative =
-          inFlight ?? (current === null ? normalize(key, spec.default) : null);
+          inFlight ?? (unreported ? normalize(key, spec.default) : null);
+        // 读屏念给描边那一段的话：在途的是「等待头盔确认」，没上报过的是「显示的是默认值」
+        const tentativeHint =
+          inFlight !== null
+            ? t("device.a11y.awaitingHelmet")
+            : unreported
+              ? t("device.unconfirmedDefault")
+              : undefined;
         const hint = HINT[key];
         const levels = LEVEL_LABELS[key];
         const stacked = !!levels; // 3–4 档的分段控件单独占一行，否则标签会被挤断行
@@ -270,7 +318,7 @@ export function DeviceSettingList({
                 {t(hint)}
               </ThemedText>
             ) : null}
-            {current === null && tentative !== null && (
+            {unreported && (
               <ThemedText
                 type="small"
                 themeColor="textSecondary"
@@ -291,6 +339,7 @@ export function DeviceSettingList({
               }))}
               current={current}
               tentative={tentative}
+              tentativeHint={tentativeHint}
               disabled={disabled}
               onSelect={(v) => onChange(key, v)}
             />
@@ -302,19 +351,29 @@ export function DeviceSettingList({
               }))}
               current={current}
               tentative={tentative}
+              tentativeHint={tentativeHint}
               disabled={disabled}
               onSelect={(v) => onChange(key, v)}
             />
           ) : (
+            // 有命令在路上时显示它的目标值（待确认样式），再点 + / − 从目标值接着加减：
+            // 否则连点两下 + 发出去的是同一个值
             <Stepper
               value={
-                typeof current === "number" ? current : Number(spec.default)
+                typeof inFlight === "number"
+                  ? inFlight
+                  : typeof current === "number"
+                    ? current
+                    : loaded
+                      ? Number(spec.default)
+                      : null
               }
               min={spec.min ?? 0}
               max={spec.max ?? 255}
               step={key === "radarDistance" ? 5 : 1}
               unit={"unit" in spec ? (spec.unit as string) : ""}
-              tentative={current === null}
+              tentative={inFlight !== null || current === null}
+              awaiting={inFlight !== null}
               disabled={disabled}
               onChange={(v) => onChange(key, v)}
             />
@@ -338,6 +397,7 @@ export function DeviceSettingList({
               command={lastCommand}
               settingKey={key}
               online={online}
+              confirmed={current}
             />
           </View>
         );
@@ -356,6 +416,7 @@ function Segmented({
   options,
   current,
   tentative = null,
+  tentativeHint,
   disabled,
   onSelect,
   compact = false,
@@ -364,6 +425,8 @@ function Segmented({
   current: SettingValue | null;
   /** 待确认的那一档（在途 / 未上报时的默认）：品牌色描边、不填色 */
   tentative?: SettingValue | null;
+  /** 读屏念给待确认那一段的说明 */
+  tentativeHint?: string;
   disabled: boolean;
   onSelect: (v: SettingValue) => void;
   compact?: boolean;
@@ -374,6 +437,7 @@ function Segmented({
       options={options}
       current={current}
       tentative={tentative}
+      tentativeHint={tentativeHint}
       disabled={disabled}
       onSelect={onSelect}
       palette={{
@@ -403,20 +467,25 @@ function Stepper({
   step,
   unit,
   tentative = false,
+  awaiting = false,
   disabled,
   onChange,
 }: {
-  value: number;
+  /** null = 设置还没拉到：不知道现在是多少，显示一横，不能加减（加减是从现在的值算的） */
+  value: number | null;
   min: number;
   max: number;
   step: number;
   unit: string;
-  /** 头盔没上报过：显示的是默认值，数字用次要色 */
+  /** 不是头盔确认过的值（没上报过的默认 / 等回执的目标值）：数字用次要色 */
   tentative?: boolean;
+  /** 显示的是还在等回执的目标值：读屏补一句「等待头盔确认」 */
+  awaiting?: boolean;
   disabled: boolean;
   onChange: (v: number) => void;
 }) {
   const theme = useTheme();
+  const t = useT();
   const clamp = (v: number) => Math.max(min, Math.min(max, v));
   const btn = (delta: number, label: string) => (
     <Tappable
@@ -424,8 +493,12 @@ function Stepper({
       haptic
       accessibilityRole="button"
       accessibilityLabel={label}
-      disabled={disabled || clamp(value + delta) === value}
-      onPress={() => onChange(clamp(value + delta))}
+      disabled={
+        disabled || value === null || clamp(value + delta) === value
+      }
+      onPress={() => {
+        if (value !== null) onChange(clamp(value + delta));
+      }}
       style={[styles.stepBtn, { backgroundColor: theme.backgroundSelected }]}
     >
       <ThemedText type="smallBold" style={styles.stepBtnText}>
@@ -438,11 +511,13 @@ function Stepper({
       {btn(-step, "−")}
       <ThemedText
         type="smallBold"
-        themeColor={tentative ? "textSecondary" : undefined}
+        themeColor={tentative || value === null ? "textSecondary" : undefined}
+        accessibilityHint={
+          awaiting ? t("device.a11y.awaitingHelmet") : undefined
+        }
         style={styles.stepValue}
       >
-        {value}
-        {unit}
+        {value === null ? "—" : `${value}${unit}`}
       </ThemedText>
       {btn(step, "+")}
     </View>

@@ -1,5 +1,6 @@
 // 控件类组件：环形仪表、呼吸波纹、求救倒计时圆环（只画，不改）、音量滑杆、分段控件、滑动取消（只测不改）、
-// 设备设置项（开关 / 档位 / 步进三种控件、待确认描边、回执五种状态）与设置分类页。
+// 设备设置项（开关 / 档位 / 步进三种控件、待确认描边、回执五种状态、回执与当前值对不上时不说已生效、
+// iOS 读屏播报回执变化、设置还没拉到时不冒充「没上报过」、步进从在途目标值接着加减）与设置分类页。
 // 手势用替身记录回调，直接调 onStart / onUpdate / onFinalize 看组件怎么反应。
 import {
   afterEach,
@@ -13,7 +14,13 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import type { CommandPublic, DeviceSettingKey } from "@helmet/shared";
 import * as Haptics from "expo-haptics";
 import { cloneElement } from "react";
-import { Animated as RNAnimated, Text, View } from "react-native";
+import {
+  AccessibilityInfo,
+  Animated as RNAnimated,
+  Platform,
+  Text,
+  View,
+} from "react-native";
 import { act, type ReactTestInstance } from "react-test-renderer";
 
 import {
@@ -376,6 +383,49 @@ describe("VolumeSlider", () => {
     layout(r, 200);
     act(() => pan(r).handlers.onFinalize({}, false));
     expect(p.onRelease).not.toHaveBeenCalled();
+    // 没开始过拖动：也不用收尾
+    expect(p.onDraggingChange).not.toHaveBeenCalled();
+  });
+
+  it("拖到一半被打断（onFinalize 失败）：收回拖动状态、回到原值，不交出结果", () => {
+    const p = props();
+    const r = render(<VolumeSlider value={50} {...p} />);
+    layout(r, 200);
+    const g = pan(r);
+    act(() => g.handlers.onBegin({ x: 100 }));
+    act(() => g.handlers.onStart({ x: 100 }));
+    act(() => g.handlers.onUpdate({ x: 180 }));
+    expect(r.texts()[1]).toBe(`90% · ${tr("device.volumeLoud")}`);
+    act(() => g.handlers.onFinalize({}, false));
+    expect(p.onDraggingChange).toHaveBeenLastCalledWith(false);
+    expect(p.onRelease).not.toHaveBeenCalled();
+    expect(r.texts()[1]).toBe("50%");
+    const fill = r.root.find(
+      (n) =>
+        typeof n.type === "string" &&
+        flat(n.props.style).position === "absolute" &&
+        typeof flat(n.props.style).width === "string",
+    );
+    expect(flat(fill.props.style).width).toBe("50%");
+    // 下一次拖动照常：开始、松手都会通知
+    act(() => g.handlers.onStart({ x: 40 }));
+    act(() => g.handlers.onFinalize({}, true));
+    expect(p.onRelease).toHaveBeenCalledWith(20);
+  });
+
+  it("头盔没确认过（unconfirmed）：数字和填充用次要色，照常可拖；拖动中按手指下的值上色", () => {
+    const p = props();
+    const r = render(<VolumeSlider value={80} unconfirmed {...p} />);
+    expect(r.texts()[1]).toBe("80%");
+    expect(flat(r.root.findAllByType(Text)[1].props.style).color).toBe(
+      dark.textSecondary,
+    );
+    expect(pan(r).config.enabled).toEqual([true]);
+    layout(r, 200);
+    act(() => pan(r).handlers.onStart({ x: 100 }));
+    expect(flat(r.root.findAllByType(Text)[1].props.style).color).toBe(
+      dark.text,
+    );
   });
 
   it("点一下：直接跳到那一档并交出", () => {
@@ -973,6 +1023,206 @@ describe("设备设置项", () => {
       .findAllByType(Text)
       .find((t) => String(t.props.children).startsWith("15"));
     expect(flat(num!.props.style).color).toBe(dark.textSecondary);
+  });
+
+  it("待确认那一段带读屏说明：在途的念「等待头盔确认」，没上报过的念「显示的是默认值」", () => {
+    const hints = (r: Rendered) =>
+      r.root
+        .findAll(
+          (n) => n.type === Tappable && n.props.accessibilityRole === "radio",
+        )
+        .map((n) => n.props.accessibilityHint)
+        .filter(Boolean);
+    const inFlight = list({
+      keys: ["light"],
+      settings: { light: 1 },
+      lastCommand: cmd({ status: "pending", params: { light: 2 } }),
+    });
+    expect(hints(inFlight.r)).toEqual([tr("device.a11y.awaitingHelmet")]);
+    const unreported = list({ keys: ["light"], settings: {} });
+    expect(hints(unreported.r)).toEqual([tr("device.unconfirmedDefault")]);
+  });
+
+  it("已生效那条写的值和头盔现在的值对不上了（头盔自己上报改过）：不再挂「已生效」", () => {
+    const success = cmd({ status: "success", params: { light: 2 } });
+    expect(
+      render(
+        <CommandFeedback command={success} settingKey="light" confirmed={0} />,
+      ).tree.toJSON(),
+    ).toBeNull();
+    expect(
+      render(
+        <CommandFeedback command={success} settingKey="light" confirmed={2} />,
+      ).texts(),
+    ).toEqual([tr("device.cmd.success")]);
+    // 列表里按当前值比对：大灯被头盔改回关之后，这一行下面什么都不写
+    const { r } = list({
+      keys: ["light"],
+      settings: { light: 0 },
+      lastCommand: success,
+    });
+    expect(r.allText()).not.toContain(tr("device.cmd.success"));
+    // 比对前按列表同一套规则规整：数值项里写成 true 的命令值等于 1，不当成「对不上」
+    expect(
+      render(
+        <CommandFeedback
+          command={cmd({ status: "success", params: { vibration: true } })}
+          settingKey="vibration"
+          confirmed={1}
+        />,
+      ).texts(),
+    ).toEqual([tr("device.cmd.success")]);
+    // 失败 / 离线照常显示（那是「没生效」，和当前值无关）
+    expect(
+      render(
+        <CommandFeedback
+          command={cmd({ status: "failed", params: { light: 2 } })}
+          settingKey="light"
+          confirmed={0}
+        />,
+      ).texts(),
+    ).toEqual([tr("device.cmd.failed")]);
+  });
+
+  describe("iOS 读屏播报回执变化", () => {
+    let say: ReturnType<typeof jest.spyOn>;
+    const os = Platform.OS;
+    beforeEach(() => {
+      Object.defineProperty(Platform, "OS", { value: "ios", configurable: true });
+      say = jest
+        .spyOn(AccessibilityInfo, "announceForAccessibility")
+        .mockImplementation(() => undefined);
+    });
+    afterEach(() => {
+      say.mockRestore();
+      Object.defineProperty(Platform, "OS", { value: os, configurable: true });
+    });
+
+    it("挂上时已有的不念；刚点的那条从下发中到已生效，每变一次念一次", () => {
+      const r = render(
+        <CommandFeedback
+          command={cmd({ commandId: "old", status: "success" })}
+          settingKey="light"
+        />,
+      );
+      expect(say).not.toHaveBeenCalled();
+      r.rerender(
+        <CommandFeedback
+          command={cmd({ commandId: "c2", status: "pending" })}
+          settingKey="light"
+        />,
+      );
+      expect(say).toHaveBeenLastCalledWith(tr("device.cmd.pending"));
+      r.rerender(
+        <CommandFeedback
+          command={cmd({ commandId: "c2", status: "delivered" })}
+          settingKey="light"
+        />,
+      );
+      expect(say).toHaveBeenLastCalledWith(tr("device.cmd.delivered"));
+      r.rerender(
+        <CommandFeedback
+          command={cmd({ commandId: "c2", status: "success" })}
+          settingKey="light"
+        />,
+      );
+      expect(say).toHaveBeenLastCalledWith(tr("device.cmd.success"));
+      expect(say).toHaveBeenCalledTimes(3);
+      // 同一状态再渲染一次不重复念
+      r.rerender(
+        <CommandFeedback
+          command={cmd({ commandId: "c2", status: "success" })}
+          settingKey="light"
+          online
+        />,
+      );
+      expect(say).toHaveBeenCalledTimes(3);
+    });
+
+    it("设置刚拉回来带出一条旧回执（没有命令 → 有）不念；改的是别的项也不念", () => {
+      const r = render(<CommandFeedback command={null} settingKey="light" />);
+      r.rerender(
+        <CommandFeedback
+          command={cmd({ status: "offline" })}
+          settingKey="light"
+        />,
+      );
+      expect(say).not.toHaveBeenCalled();
+      r.rerender(
+        <CommandFeedback
+          command={cmd({ commandId: "c3", status: "pending", params: { radar: true } })}
+          settingKey="light"
+        />,
+      );
+      expect(say).not.toHaveBeenCalled();
+    });
+
+    it("Android 不主动念（靠 accessibilityLiveRegion）", () => {
+      Object.defineProperty(Platform, "OS", {
+        value: "android",
+        configurable: true,
+      });
+      const r = render(
+        <CommandFeedback command={cmd({ commandId: "a" })} settingKey="light" />,
+      );
+      r.rerender(
+        <CommandFeedback
+          command={cmd({ commandId: "a", status: "success" })}
+          settingKey="light"
+        />,
+      );
+      expect(say).not.toHaveBeenCalled();
+    });
+  });
+
+  it("设置还在拉（undefined）：不描出厂默认、不说「显示的是默认值」；步进显示一横、不能加减", () => {
+    const { r } = list({ keys: ["radar", "light", "radarDistance"] });
+    expect(r.allText()).not.toContain(tr("device.unconfirmedDefault"));
+    const segmented = r.root.findAll((n) => n.type === FluidSegmented);
+    expect(segmented.map((x) => [x.props.current, x.props.tentative])).toEqual([
+      [null, null],
+      [null, null],
+    ]);
+    expect(r.allText()).toContain("—");
+    const steps = r.root.findAll(
+      (n) =>
+        n.type === Tappable &&
+        (n.props.accessibilityLabel === "+" ||
+          n.props.accessibilityLabel === "−"),
+    );
+    expect(steps.map((x) => x.props.disabled)).toEqual([true, true]);
+  });
+
+  it("步进有命令在路上：显示目标值（次要色、读屏补「等待头盔确认」），再点 + 从目标值接着加", () => {
+    const { r, onChange } = list({
+      keys: ["radarDistance"],
+      settings: { radarDistance: 15 },
+      lastCommand: cmd({ params: { radarDistance: 20 }, status: "pending" }),
+    });
+    const num = r.root
+      .findAllByType(Text)
+      .find((t) => t.props.children === "20m")!;
+    expect(num).toBeDefined();
+    expect(flat(num.props.style).color).toBe(dark.textSecondary);
+    expect(num.props.accessibilityHint).toBe(
+      tr("device.a11y.awaitingHelmet"),
+    );
+    const plus = r.root.find(
+      (n) => n.type === Tappable && n.props.accessibilityLabel === "+",
+    );
+    act(() => plus.props.onPress());
+    expect(onChange).toHaveBeenCalledWith("radarDistance", 25);
+    // 回执失败后回到头盔确认过的值
+    const after = list({
+      keys: ["radarDistance"],
+      settings: { radarDistance: 15 },
+      lastCommand: cmd({ params: { radarDistance: 20 }, status: "failed" }),
+    });
+    const settled = after.r.root
+      .findAllByType(Text)
+      .find((t) => t.props.children === "15m")!;
+    expect(flat(settled.props.style).color).not.toBe(dark.textSecondary);
+    expect(settled.props.accessibilityHint).toBeUndefined();
   });
 
   it("整体禁用（有命令在发）：所有段和按钮都不可点；不传 keys 时列出全部十项", () => {

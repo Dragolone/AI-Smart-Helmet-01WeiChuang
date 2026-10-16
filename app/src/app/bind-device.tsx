@@ -11,7 +11,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
-import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import {
+  router,
+  useFocusEffect,
+  useIsFocused,
+  useLocalSearchParams,
+} from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -55,6 +60,7 @@ import { ThemedText } from "@/components/themed-text";
 import { showToast } from "@/components/toast";
 import { helmetImageFor } from "@/constants/helmet-images";
 import { Colors } from "@/constants/theme";
+import { useAppActive } from "@/hooks/use-app-active";
 import { useNotifyPermission } from "@/hooks/use-safety";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
@@ -171,6 +177,11 @@ export default function BindDeviceScreen() {
   }>();
   const [permission, requestPermission] = useCameraPermissions();
   const granted = permission?.granted === true;
+  // 相机只在本页在最上面、App 在前台时开着：求救倒计时这类全屏页盖上来时它还在底下扫码，
+  // 扫到了照样绑定；退到后台也不该占着相机
+  const focused = useIsFocused();
+  const appActive = useAppActive();
+  const cameraOn = granted && focused && appActive;
 
   const [stage, setStage] = useState<Stage>({ kind: "scan" });
   /** 这一次的结果是扫出来的（不是手输的）：取景框才转绿、写「已识别」 */
@@ -535,7 +546,7 @@ export default function BindDeviceScreen() {
       ]}
     >
       <StatusBar style={granted ? "light" : "auto"} />
-      {granted && (
+      {cameraOn && (
         <CameraView
           style={StyleSheet.absoluteFill}
           facing="back"

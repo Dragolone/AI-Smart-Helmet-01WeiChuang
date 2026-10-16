@@ -7,6 +7,7 @@ import type { BatteryHistoryPoint } from "@helmet/shared";
 import { RingGauge } from "@/components/ring-gauge";
 import { ThemedText } from "@/components/themed-text";
 import { useTheme } from "@/hooks/use-theme";
+import { batteryTierOf } from "@/services/device-view";
 
 const HOURS = 24;
 
@@ -44,12 +45,18 @@ export function BatteryChart({
   const now = to ? new Date(to).getTime() : mountedAt;
   const buckets = bucketByHour(points, now);
   const hasData = buckets.some((b) => b !== null);
-  const currentColor =
-    current === null
-      ? theme.textSecondary
-      : current <= 20
-        ? theme.danger
-        : theme.brand;
+  // 与首页同一套三档（batteryTierOf）：≤10% 红、≤20% 黄，其余品牌色；没有数字是灰
+  const tierColor = (battery: number | null) => {
+    const tier = batteryTierOf(battery);
+    return tier === "critical"
+      ? theme.danger
+      : tier === "low"
+        ? theme.warning
+        : tier === "none"
+          ? theme.textSecondary
+          : theme.brand;
+  };
+  const currentColor = tierColor(current);
   const nowHour = new Date(now).getHours();
   const tick = (offsetFromEnd: number) =>
     `${((nowHour - offsetFromEnd + 24 * 3) % 24).toString().padStart(2, "0")}:00`;
@@ -58,7 +65,7 @@ export function BatteryChart({
     <View style={styles.wrap}>
       <View style={styles.header}>
         <View style={styles.headLeft}>
-          {/* 环形仪表：骑行中一眼可读；环色随电量（≤20% 红） */}
+          {/* 环形仪表：骑行中一眼可读；环色随电量（三档，见 tierColor） */}
           <RingGauge
             value={current ?? 0}
             size={64}
@@ -131,9 +138,7 @@ export function BatteryChart({
                       height: `${Math.max(3, b.battery)}%`,
                       backgroundColor: b.charging
                         ? theme.warning
-                        : b.battery <= 20
-                          ? theme.danger
-                          : theme.brand,
+                        : tierColor(b.battery),
                     },
                   ]}
                 />

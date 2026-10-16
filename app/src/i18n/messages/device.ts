@@ -68,6 +68,7 @@ export const device = {
     "device.volumeLoudConfirm": "仍要设置",
     "device.cmd.pending": "正在发送设置…",
     "device.unconfirmedDefault": "显示的是默认值，头盔连上后会更新",
+    "device.a11y.awaitingHelmet": "等待头盔确认",
     "device.cmd.delivered": "已发送，等待头盔确认执行",
     "device.cmd.success": "已生效",
     "device.cmd.successAt": "已生效 · {time}",
@@ -228,6 +229,7 @@ export const device = {
     "device.volumeLoudConfirm": "仍要設定",
     "device.cmd.pending": "正在傳送設定…",
     "device.unconfirmedDefault": "顯示的是預設值，頭盔連上後會更新",
+    "device.a11y.awaitingHelmet": "等待頭盔確認",
     "device.cmd.delivered": "已傳送，等待頭盔確認執行",
     "device.cmd.success": "已生效",
     "device.cmd.successAt": "已生效 · {time}",
@@ -397,6 +399,7 @@ export const device = {
     "device.cmd.pending": "Sending settings…",
     "device.unconfirmedDefault":
       "Showing defaults; updates once the helmet connects",
+    "device.a11y.awaitingHelmet": "Waiting for the helmet to confirm",
     "device.cmd.delivered":
       "Sent, awaiting execution confirmation from the helmet",
     "device.cmd.success": "Applied",

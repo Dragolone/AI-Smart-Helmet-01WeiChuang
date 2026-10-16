@@ -142,7 +142,7 @@ describe("BatteryChart", () => {
     expect(bars(r)).toHaveLength(0);
   });
 
-  it("按小时归桶：同一小时取最后一个，窗口外的丢掉；充电中黄、≤20 红、其余品牌色；最低画 3%", () => {
+  it("按小时归桶：同一小时取最后一个，窗口外的丢掉；充电中黄；与首页同一套三档（≤10 红、≤20 黄）、其余品牌色；最低画 3%", () => {
     const points: BatteryHistoryPoint[] = [
       { timestamp: at(23.5), battery: 90, charging: false },
       { timestamp: at(10.6), battery: 50, charging: false },
@@ -166,17 +166,33 @@ describe("BatteryChart", () => {
     expect(b.map((s) => s.backgroundColor)).toEqual([
       dark.brand,
       dark.warning,
-      dark.danger,
+      dark.warning,
       dark.danger,
     ]);
     expect(r.texts()).not.toContain("暂无数据");
-    // 当前电量 15：数字红色、写充电中
+    // 当前电量 15：低电量那一档，数字黄色（不是红色）、写充电中
     const value = r.root
       .findAllByType(Text)
       .find((x) => x.props.children === 15)!;
-    expect(flat(value.props.style).color).toBe(dark.danger);
+    expect(flat(value.props.style).color).toBe(dark.warning);
     expect(r.texts()).toContain("充电中");
     expect(r.texts()).toContain("%");
+  });
+
+  it("当前电量 ≤10%：数字和环都是红色", () => {
+    const r = render(
+      <BatteryChart
+        points={[]}
+        to={TO}
+        current={8}
+        charging={false}
+        labels={labels}
+      />,
+    );
+    const value = r.root
+      .findAllByType(Text)
+      .find((x) => x.props.children === 8)!;
+    expect(flat(value.props.style).color).toBe(dark.danger);
   });
 
   it("坐标轴三个刻度：24 / 12 / 0 小时前的整点", () => {

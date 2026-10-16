@@ -262,22 +262,26 @@ describe("useDeviceSettings：轮询节奏与下发", () => {
     expect(intervalOf("h2")).toBe(30_000);
   });
 
-  it("下发成功：只发这一项，随后重新拉设置；下发中 sending 为真，结束复位", async () => {
+  it("下发成功：只发这一项，随后重新拉设置；下发中 sending 为真，结束复位；交回新建的命令", async () => {
     settingsMock.mockResolvedValue({
       settings: { volume: 50 },
       lastCommand: null,
     });
-    let resolvePut!: () => void;
+    let resolvePut!: (cmd: unknown) => void;
     putMock.mockImplementation(
-      () => new Promise<void>((r) => (resolvePut = r)),
+      () => new Promise((r) => (resolvePut = r)),
     );
     const r = await renderHook(() => useDeviceSettings("h3"));
     await settle(() => r.current.values !== undefined);
     const before = settingsMock.mock.calls.length;
-    await act(async () => r.current.send("light", 2));
+    let sent!: Promise<unknown>;
+    await act(async () => {
+      sent = r.current.send("light", 2);
+    });
     expect(putMock).toHaveBeenCalledWith("h3", { settings: { light: 2 } });
     expect(r.current.sending).toBe(true);
-    await act(async () => resolvePut());
+    await act(async () => resolvePut({ commandId: "c9", status: "pending" }));
+    await expect(sent).resolves.toEqual({ commandId: "c9", status: "pending" });
     await settle(
       () => !r.current.sending && settingsMock.mock.calls.length > before,
     );
@@ -296,7 +300,12 @@ describe("useDeviceSettings：轮询节奏与下发", () => {
       .mockImplementation(() => undefined);
     const r = await renderHook(() => useDeviceSettings("h4"));
     await settle(() => r.current.values !== undefined);
-    await act(async () => r.current.send("volume", 80));
+    let sent!: Promise<unknown>;
+    await act(async () => {
+      sent = r.current.send("volume", 80);
+    });
+    // 没发出去：交回 null（调用方据此撤掉乐观值），不是抛错
+    await expect(sent).resolves.toBeNull();
     await settle(() => alert.mock.calls.length > 0);
     expect(alert).toHaveBeenCalledTimes(1);
     expect(r.current.sending).toBe(false);
