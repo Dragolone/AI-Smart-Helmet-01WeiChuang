@@ -202,38 +202,40 @@ describe("会话与外设", () => {
 });
 
 describe("连接后", () => {
-  const connected = () => {
-    useBleBenchStore.setState({
-      phase: "connected",
-      connectedId: "c",
-      connectedName: "Helmet-ABC123",
-      mtu: 185,
-      peripherals: { c: peri("c", { name: "Helmet-ABC123" }) },
-      services: [
-        {
-          uuid: "0000fee0-0000-1000-8000-00805f9b34fb",
-          characteristics: [
-            {
-              uuid: "fee1",
-              notify: true,
-              write: false,
-              writeNoResp: false,
-              read: false,
-            },
-            {
-              uuid: "fee2",
-              notify: false,
-              write: true,
-              writeNoResp: true,
-              read: true,
-            },
-          ],
-        },
-      ],
-      notifyOk: true,
-      writeOk: true,
+  // 有的用例是页面已经挂着时再调：改 store 要包在 act 里，否则页面跟着重绘会报 act 警告
+  const connected = () =>
+    act(() => {
+      useBleBenchStore.setState({
+        phase: "connected",
+        connectedId: "c",
+        connectedName: "Helmet-ABC123",
+        mtu: 185,
+        peripherals: { c: peri("c", { name: "Helmet-ABC123" }) },
+        services: [
+          {
+            uuid: "0000fee0-0000-1000-8000-00805f9b34fb",
+            characteristics: [
+              {
+                uuid: "fee1",
+                notify: true,
+                write: false,
+                writeNoResp: false,
+                read: false,
+              },
+              {
+                uuid: "fee2",
+                notify: false,
+                write: true,
+                writeNoResp: true,
+                read: true,
+              },
+            ],
+          },
+        ],
+        notifyOk: true,
+        writeOk: true,
+      });
     });
-  };
 
   it("设备名、MTU、特征值都通；展开看 GATT；能断开；已连接的那台不再给连接按钮", () => {
     connected();
@@ -258,11 +260,13 @@ describe("连接后", () => {
       .findAllByType(Text)
       .find((t) => String(t.props.children).includes("FEE2 write ✗"))!;
     expect(flat(chars.props.style).color).toBe(dark.danger);
-    useBleBenchStore.setState({
-      services: [],
-      phase: "connecting",
-      mtu: null,
-      connectedName: null,
+    act(() => {
+      useBleBenchStore.setState({
+        services: [],
+        phase: "connecting",
+        mtu: null,
+        connectedName: null,
+      });
     });
     r = render(<BleBenchScreen />);
     expect(r.allText()).not.toContain("断开");

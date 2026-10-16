@@ -50,7 +50,6 @@ afterEach(() => {
 
 // resetModules 后重新加载单例（动态 import 在本仓库 jest 里不可用，沿用 sos-alert 测试的 require 写法）
 const load = async () =>
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   (require("../realtime") as typeof import("../realtime")).realtimeClient;
 const deps = {
   getAccessToken: () => "tok",

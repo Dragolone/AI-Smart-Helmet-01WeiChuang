@@ -35,7 +35,6 @@ afterEach(() => {
 function renderAt(fontScale: number, props: Parameters<typeof StatusRow>[0]) {
   // react-native 的导出是 getter（按需 require），要换 getter 本身；jest 环境默认的 fontScale 是 2
   // `import * as RN` 拿到的是 babel 包过的一份拷贝，组件读的是原模块对象：在原模块上换
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const raw = require("react-native") as { useWindowDimensions: object };
   jest
     .spyOn(raw, "useWindowDimensions", "get")

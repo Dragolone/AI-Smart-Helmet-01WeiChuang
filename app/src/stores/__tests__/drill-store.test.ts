@@ -23,7 +23,6 @@ jest.mock("expo-secure-store", () => ({
 const load = (): DrillStore["useDrillStore"] => {
   let mod!: DrillStore;
   jest.isolateModules(() => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     mod = require("../drill-store") as DrillStore;
   });
   return mod.useDrillStore;

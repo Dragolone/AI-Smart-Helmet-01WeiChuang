@@ -24,7 +24,6 @@ const KEY = "helmet.everHadHelmet";
 const load = (): Store => {
   let mod!: Store;
   jest.isolateModules(() => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     mod = require("../helmet-history-store") as Store;
   });
   return mod;

@@ -6,7 +6,6 @@ import {
   describe,
   expect,
   it,
-  jest,
 } from "@jest/globals";
 import { Linking, Platform } from "react-native";
 import type { Mock } from "jest-mock";

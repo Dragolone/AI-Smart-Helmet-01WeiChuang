@@ -20,7 +20,6 @@ import {
   type SkiaApi,
 } from "../route-scene";
 
-/* eslint-disable @typescript-eslint/no-require-imports -- CanvasKit 和 Skia 的 web 实现只有 CommonJS 入口 */
 const H = 610;
 // 屏幕上的商标中心
 const CX = SCENE_W / 2;

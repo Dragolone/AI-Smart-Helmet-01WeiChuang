@@ -83,9 +83,8 @@ let bridgeGeneration = 0;
 export function useRealtimeUpdates(): void {
   const queryClient = useQueryClient();
   const authed = useAuthStore((s) => s.tokens !== null);
-  // 防止同一单的多次 pending 推送（重连补拉等）重复弹全屏页；进程内共用一份，
-  // 点通知进倒计时页的两条路径（sos-alert / push）也往里登记
-  const presentedSosId = presentedSos;
+  // presentedSos：防止同一单的多次 pending 推送（重连补拉等）重复弹全屏页。模块级、进程内共用一份，
+  // 点通知进倒计时页的两条路径（sos-alert / push）也往里登记，所以不进 effect 的依赖
 
   useEffect(() => {
     devLog("realtime", "effect authed=", authed);
@@ -192,7 +191,7 @@ export function useRealtimeUpdates(): void {
           void resumePendingSos(
             queryClient,
             bleTargetsOf(),
-            presentedSosId,
+            presentedSos,
             sosDeps,
             "重连补拉",
           ),
@@ -214,7 +213,7 @@ export function useRealtimeUpdates(): void {
       if (cancelled) return;
       const ids = bleTargetsOf();
       coldResumeHadTargets = ids.length > 0;
-      void resumePendingSos(queryClient, ids, presentedSosId, sosDeps);
+      void resumePendingSos(queryClient, ids, presentedSos, sosDeps);
     });
     // 自己把摔倒 / 求救送上云且服务端接受了 → 立刻核对进行中的 SOS 并拉起倒计时页，顺手让 WS 立即重连。
     // 手机深睡时 WS 早已断、极光长连接也被挂起，这是唯一不依赖它们的拉起路径（10-06 不变式评审 F-1）
@@ -223,7 +222,7 @@ export function useRealtimeUpdates(): void {
       void resumePendingSos(
         queryClient,
         [deviceId],
-        presentedSosId,
+        presentedSos,
         sosDeps,
         "中转成功后核对",
       );
@@ -233,7 +232,7 @@ export function useRealtimeUpdates(): void {
       void resumePendingSos(
         queryClient,
         extras.deviceId ? [extras.deviceId] : bleTargetsOf(),
-        presentedSosId,
+        presentedSos,
         sosDeps,
         "远程推送到达，补拉",
       );
@@ -262,7 +261,7 @@ export function useRealtimeUpdates(): void {
           void resumePendingSos(
             queryClient,
             live,
-            presentedSosId,
+            presentedSos,
             sosDeps,
             "设备列表到位后补拉",
           );
@@ -314,7 +313,7 @@ export function useRealtimeUpdates(): void {
             "SOS",
             `推送 ${sos.status} ${sos.sosId} appState=${AppState.currentState}`,
           );
-          applySosUpdate(queryClient, sos, presentedSosId, sosDeps);
+          applySosUpdate(queryClient, sos, presentedSos, sosDeps);
           void queryClient.invalidateQueries({ queryKey: ["accidents"] });
           break;
         }
@@ -369,7 +368,7 @@ export function useRealtimeUpdates(): void {
       setCriticalAcceptedHandler(null);
       setSosCancelConfirmedListener(null);
       void resetSosAlerts();
-      presentedSosId.current.clear();
+      presentedSos.current.clear();
       stopPush();
     };
   }, [authed, queryClient]);

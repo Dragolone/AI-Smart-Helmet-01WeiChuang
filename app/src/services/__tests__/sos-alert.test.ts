@@ -93,12 +93,15 @@ const deadlineIn = (seconds: number) =>
 type ServerClock = typeof import("@/services/server-clock");
 /** 与被测模块同一份隔离注册表里的 server-clock（isolateModules 让顶层 import 的那份与它不是同一个实例） */
 let clock!: ServerClock;
+/** 本用例载入过的模块：用完要 resetSosAlerts，撤掉锁屏提醒排下的 3 s / 10 s 扫尾定时器（不撤 Jest 进程退不干净） */
+const loaded: SosAlert[] = [];
 const load = (): SosAlert => {
   let mod!: SosAlert;
   jest.isolateModules(() => {
     clock = require("@/services/server-clock") as ServerClock;
     mod = require("../sos-alert") as SosAlert;
   });
+  loaded.push(mod);
   return mod;
 };
 
@@ -137,7 +140,8 @@ describe("sos-alert", () => {
     override(Platform, "OS", "ios");
     override(AppState, "currentState", "background");
   });
-  afterEach(() => {
+  afterEach(async () => {
+    for (const m of loaded.splice(0)) await m.resetSosAlerts();
     override(Platform, "OS", originalOS);
     override(AppState, "currentState", originalState);
   });

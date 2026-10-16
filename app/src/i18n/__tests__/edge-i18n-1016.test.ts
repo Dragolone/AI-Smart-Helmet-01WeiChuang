@@ -19,7 +19,6 @@ const DIR = join(__dirname, "..", "messages");
 const FILES = readdirSync(DIR)
   .filter((f) => f.endsWith(".ts"))
   .map((f) => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const mod = require(join(DIR, f)) as Record<string, Dict>;
     return { file: f, dict: Object.values(mod)[0] };
   });

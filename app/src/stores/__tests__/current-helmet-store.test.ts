@@ -23,7 +23,6 @@ jest.mock("expo-secure-store", () => ({
 const load = (): Store["useCurrentHelmetStore"] => {
   let mod!: Store;
   jest.isolateModules(() => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     mod = require("../current-helmet-store") as Store;
   });
   return mod.useCurrentHelmetStore;

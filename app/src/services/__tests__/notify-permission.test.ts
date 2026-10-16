@@ -11,7 +11,6 @@ jest.mock("@/services/sos-alert", () => ({
   ensureSosAlertPermission: () => mockEnsure(),
 }));
 
-// eslint-disable-next-line import/first
 import {
   readNotifyPermission,
   readNotifyPermissionAfterAsk,

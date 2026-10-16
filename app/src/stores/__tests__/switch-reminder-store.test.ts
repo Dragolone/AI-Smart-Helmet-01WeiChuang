@@ -23,7 +23,6 @@ jest.mock("expo-secure-store", () => ({
 const load = (): Store["useSwitchReminderStore"] => {
   let mod!: Store;
   jest.isolateModules(() => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     mod = require("../switch-reminder-store") as Store;
   });
   return mod.useSwitchReminderStore;

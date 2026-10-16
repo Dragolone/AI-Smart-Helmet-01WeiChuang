@@ -59,7 +59,6 @@ describe("守护：英文字典里「{占位} 复数名词」只留数字不会�
   const entries = readdirSync(DIR)
     .filter((f) => f.endsWith(".ts"))
     .flatMap((f) => {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const dict = Object.values(require(join(DIR, f)))[0] as {
         en: Record<string, string>;
       };

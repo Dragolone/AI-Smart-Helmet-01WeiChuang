@@ -42,11 +42,14 @@ const override = (obj: object, key: string, value: unknown): void => {
 const NOW = Date.UTC(2026, 9, 3, 10, 0, 0);
 const deadlineIn = (seconds: number) => new Date(NOW + seconds * 1000).toISOString();
 
+/** 本用例载入过的模块：用完要 resetSosAlerts，撤掉锁屏提醒排下的 3 s / 10 s 扫尾定时器（不撤 Jest 进程退不干净） */
+const loaded: SosAlert[] = [];
 const load = (): SosAlert => {
   let mod!: SosAlert;
   jest.isolateModules(() => {
     mod = require("../sos-alert") as SosAlert;
   });
+  loaded.push(mod);
   return mod;
 };
 
@@ -80,7 +83,9 @@ beforeEach(() => {
   override(Platform, "OS", "ios");
   override(AppState, "currentState", "background");
 });
-afterEach(() => {
+afterEach(async () => {
+  // 先清（还在假时钟下的就按假时钟撤），再切回真时钟
+  for (const m of loaded.splice(0)) await m.resetSosAlerts();
   override(Platform, "OS", originalOS);
   override(AppState, "currentState", originalState);
   override(AppState, "addEventListener", originalAddListener);
