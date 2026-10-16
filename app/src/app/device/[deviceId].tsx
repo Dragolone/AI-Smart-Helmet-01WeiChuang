@@ -12,7 +12,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -31,7 +31,7 @@ import { showToast } from "@/components/toast";
 import { ApiRequestError } from "@/api/client";
 import { toUserMessage } from "@/api/error-messages";
 import { devLog } from "@/services/dev-log";
-import type { DevicePublic } from "@helmet/shared";
+import { DEVICE_SETTINGS, type DevicePublic } from "@helmet/shared";
 import {
   BleFirstConnectGuide,
   useBleOnboardingSteps,
@@ -70,6 +70,14 @@ import {
 import { cleanHelmetName, helmetNameOf } from "@/services/safety-status";
 import { useBleStore } from "@/stores/ble-store";
 import { showNotice } from "@/services/notice";
+
+/** 头盔没确认过音量时滑杆停在出厂默认（按「待确认」显示，不当成头盔上的值） */
+const VOLUME_DEFAULT = Number(DEVICE_SETTINGS.volume.default);
+/**
+ * 乐观值最多留多久：回执 30 s 没来服务端就判 offline（决策 #27④），多等 5 s。
+ * 这条命令要是被别的项的命令挤掉、看不到它自己的回执，到点也回落到头盔确认过的值
+ */
+const VOLUME_SETTLE_MS = 35_000;
 
 /** 蓝牙没连上时，「蓝牙未连接」下面那句说明原因的话（文案沿用改版前蓝牙那一行的各状态） */
 const BLE_DETAIL: Partial<Record<BleRowState, MessageKey>> = {
@@ -121,6 +129,11 @@ export default function DeviceDetailScreen() {
   /** 音量乐观值(负责人口径:滑到哪停在哪,响应中灰显,生效后点亮;
    *  失败/离线回落服务端值——绝不把未生效显示为已生效) */
   const [optimisticVolume, setOptimisticVolume] = useState<number | null>(null);
+  /** 松手下发的那条命令：乐观值只认它的回执——最近一条命令可能是别的项的（失败了也跟音量无关） */
+  const [volumeCommandId, setVolumeCommandId] = useState<string | null>(null);
+  /** 第几次松手下发：旧请求晚回来、旧的兜底定时器到点，都不能动新的乐观值 */
+  const volumeSeq = useRef(0);
+  const volumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // BLE 近场链路状态（services/ble-link 写入 store；本页只显示，不做连接判断）
   // 只订阅本页用到的字段：整条 link 每来一帧都会变（lastFrameAt / eventsReceived），
@@ -146,26 +159,47 @@ export default function DeviceDetailScreen() {
             }
           : null;
 
-  const serverVolume =
-    typeof settings.values?.volume === "number" ? settings.values.volume : 80;
-  const lastCmdStatus = settings.lastCommand?.status;
+  /** 头盔确认过的音量；没上报过 / 设置还没拿到 / 没拉到时是 null——不拿出厂默认冒充 */
+  const confirmedVolume =
+    typeof settings.values?.volume === "number" ? settings.values.volume : null;
+  const lastCmd = settings.lastCommand;
+  const volumeCmdDone =
+    volumeCommandId !== null &&
+    lastCmd?.commandId === volumeCommandId &&
+    lastCmd.status !== "pending" &&
+    lastCmd.status !== "delivered";
   // 渲染期调整(React 官方 adjusting-state 模式,effect 内 setState 会被
-  // react-hooks 规则拒):生效→点亮;失败/离线→回落服务端真实值
+  // react-hooks 规则拒):头盔确认的值跟上了→点亮;自己那条到了终态(失败/离线,或成功但值已被别的改掉)→回落确认值
   if (
     optimisticVolume !== null &&
-    (serverVolume === optimisticVolume ||
-      lastCmdStatus === "failed" ||
-      lastCmdStatus === "offline")
+    (confirmedVolume === optimisticVolume || volumeCmdDone)
   ) {
     setOptimisticVolume(null);
+    setVolumeCommandId(null);
   }
   const volumePending =
-    optimisticVolume !== null && optimisticVolume !== serverVolume;
+    optimisticVolume !== null && optimisticVolume !== confirmedVolume;
 
   const sendSetting = (key: string, value: string | number | boolean) => {
-    if (key === "volume" && typeof value === "number")
-      setOptimisticVolume(value);
-    settings.send(key, value);
+    if (key !== "volume" || typeof value !== "number") {
+      void settings.send(key, value);
+      return;
+    }
+    const seq = ++volumeSeq.current;
+    const drop = () => {
+      if (seq !== volumeSeq.current) return;
+      setOptimisticVolume(null);
+      setVolumeCommandId(null);
+    };
+    setOptimisticVolume(value);
+    setVolumeCommandId(null);
+    if (volumeTimer.current) clearTimeout(volumeTimer.current);
+    volumeTimer.current = setTimeout(drop, VOLUME_SETTLE_MS);
+    void settings.send(key, value).then((cmd) => {
+      // 没发出去（已弹窗说明原因）：立刻回落，不灰着等兜底
+      if (!cmd) drop();
+      else if (seq === volumeSeq.current) setVolumeCommandId(cmd.commandId);
+    });
   };
 
   /** 蜂鸣音量（BLE 协议 v0.6 内存表 0x24：1–100%，默认 80）；超过高音量线先确认，防止贴耳伤听力 */
@@ -177,6 +211,14 @@ export default function DeviceDetailScreen() {
   const liveSent = useRef<number | null>(null);
   /** 拖动开始时的音量：拖动中已即时下发过中间值（≤ 高音量线）时，取消高音量确认要把它还回去 */
   const dragStart = useRef<number | null>(null);
+  // 离开页面：兜底定时器和没发出去的中间值都撤掉
+  useEffect(
+    () => () => {
+      if (volumeTimer.current) clearTimeout(volumeTimer.current);
+      if (liveTimer.current) clearTimeout(liveTimer.current);
+    },
+    [],
+  );
   const flushLive = () => {
     liveTimer.current = null;
     const v = livePending.current;
@@ -191,20 +233,25 @@ export default function DeviceDetailScreen() {
     livePending.current = Math.min(v, VOLUME_LOUD_THRESHOLD);
     if (!liveTimer.current) liveTimer.current = setTimeout(flushLive, 200);
   };
+  const dropLive = () => {
+    if (liveTimer.current) clearTimeout(liveTimer.current);
+    liveTimer.current = null;
+    livePending.current = null;
+  };
   const onVolumeDragging = (dragging: boolean) => {
     // 拖动时关掉 iOS 返回手势，免得向右滑把页面滑走
     navigation.setOptions({ gestureEnabled: !dragging });
     if (dragging) {
       liveSent.current = null;
-      dragStart.current = optimisticVolume ?? serverVolume;
+      // 头盔没确认过音量时不知道拖动前是多少：记 null，取消高音量确认时不拿出厂默认去「还原」
+      dragStart.current = optimisticVolume ?? confirmedVolume;
+      return;
     }
+    // 手势结束（松手，或拖到一半被系统打断）：还没发出去的中间值都不要了；松手的最终值由 sendVolume 发
+    dropLive();
   };
   const sendVolume = (v: number) => {
-    if (liveTimer.current) {
-      clearTimeout(liveTimer.current);
-      liveTimer.current = null;
-      livePending.current = null;
-    }
+    dropLive();
     if (v > VOLUME_LOUD_THRESHOLD) {
       Alert.alert(
         t("device.volumeLoudTitle"),
@@ -527,16 +574,31 @@ export default function DeviceDetailScreen() {
           />
           <View style={[styles.volumeBlock, { borderTopColor: theme.border }]}>
             <VolumeSlider
-              value={optimisticVolume ?? serverVolume}
+              value={optimisticVolume ?? confirmedVolume ?? VOLUME_DEFAULT}
               pending={volumePending}
+              unconfirmed={optimisticVolume === null && confirmedVolume === null}
               onStep={onVolumeStep}
               onRelease={sendVolume}
               onDraggingChange={onVolumeDragging}
               icon="volume-medium-outline"
             />
+            {/* 和其他设置项同一句：设置拉到了、头盔却没报过音量。还在拉 / 没拉到时不这么说 */}
+            {settings.values !== undefined &&
+              confirmedVolume === null &&
+              optimisticVolume === null && (
+                <ThemedText
+                  type="small"
+                  themeColor="textSecondary"
+                  style={styles.volumeHint}
+                >
+                  {t("device.unconfirmedDefault")}
+                </ThemedText>
+              )}
             <CommandFeedback
               command={settings.lastCommand}
               settingKey="volume"
+              online={online}
+              confirmed={confirmedVolume}
             />
           </View>
         </Card>
@@ -690,6 +752,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     gap: 8,
   },
+  volumeHint: { fontSize: 12, lineHeight: 16, opacity: 0.85 },
   modalMask: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.55)",

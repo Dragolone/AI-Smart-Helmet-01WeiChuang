@@ -238,6 +238,43 @@ describe("第二、三步与收尾", () => {
     expect(r.allText()).toContain(tr("guide.contact.title"));
   });
 
+  it("弹窗里拒了、后来去系统设置打开了通知：回到前台重查到允许，卡片就打勾（弹窗的结果不一直压着）", async () => {
+    (Notifications.requestPermissionsAsync as jest.Mock).mockImplementation(
+      () => Promise.resolve({ granted: false }),
+    );
+    const { r, update } = mount({ helmet, link: "connected" });
+    settle();
+    await act(async () => {
+      r.press(tr("guide.notify.allow"));
+      await Promise.resolve();
+    });
+    expect(r.allText()).toContain(tr("guide.notify.deniedBody"));
+    // 回到前台那次重查：系统那边也是拒绝
+    update({ notify: "denied" });
+    settle();
+    expect(r.allText()).toContain(tr("guide.notify.deniedBody"));
+    expect(useGuideStore.getState().state.r2).toBe("");
+    // 去设置里打开了，再回来重查到允许
+    update({ notify: "granted" });
+    settle();
+    expect(useGuideStore.getState().state.r2).toBe("done");
+  });
+
+  it("重查还没跟上（仍是点之前的结果）时先用弹窗的答复", async () => {
+    (Notifications.requestPermissionsAsync as jest.Mock).mockImplementation(
+      () => Promise.resolve({ granted: true }),
+    );
+    const { r, update } = mount({ helmet, link: "connected" });
+    settle();
+    await act(async () => {
+      r.press(tr("guide.notify.allow"));
+      await Promise.resolve();
+    });
+    update({ notify: "undetermined" });
+    settle();
+    expect(useGuideStore.getState().state.r2).toBe("done");
+  });
+
   it("第三步：添加联系人去添加页；已有联系人就自己打勾；三件都处理完交给衔接动画（量不到位置给 null）", () => {
     act(() => useGuideStore.getState().mark(2, "done"));
     const onFinished = jest.fn();

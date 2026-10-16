@@ -1,5 +1,6 @@
 // 设备详情页：头盔已不在本账号下的空态、状态卡（蓝牙行各状态与入口 / 在线行 / 低电量 / 后台受限）、
-// 常用控制（前照灯 + 蜂鸣音量：拖动中节流即时下发并封顶、超过高音量线松手要确认、取消要把拖动前的值还回去）、
+// 常用控制（前照灯 + 蜂鸣音量：拖动中节流即时下发并封顶、超过高音量线松手要确认、取消要把拖动前的值还回去；
+// 乐观值只认自己那条命令的回执、没发出去 / 35 秒兜底回落；头盔没确认过音量时按「待确认的默认值」显示）、
 // 设置分类入口与摘要、重命名、解除绑定。
 import {
   afterEach,
@@ -17,6 +18,7 @@ import {
   Linking,
   Modal,
   Platform,
+  Text,
 } from "react-native";
 import { act } from "react-test-renderer";
 import {
@@ -26,6 +28,7 @@ import {
   type RecordedGesture,
 } from "@/__tests__/helpers/native-mocks";
 import {
+  flat,
   isHost,
   makeQueryClient,
   render,
@@ -35,6 +38,7 @@ import {
 import { ApiRequestError } from "@/api/client";
 import { devicesApi } from "@/api/devices";
 import { Tappable } from "@/components/tappable";
+import { Colors } from "@/constants/theme";
 import { useDeviceSettings } from "@/hooks/use-device-settings";
 import { translate, useLocaleStore, type MessageKey } from "@/i18n";
 import { retryBleLink } from "@/services/ble-link";
@@ -132,11 +136,31 @@ const NOTICE_OK = [{ text: translate("common.confirm", undefined, "zh-CN") }];
 const tr = (key: MessageKey, params?: Record<string, string | number>) =>
   translate(key, params, "zh-CN");
 const m = <T,>(fn: T) => fn as unknown as jest.Mock;
+const command = (over: Partial<CommandPublic>): CommandPublic => ({
+  commandId: "v1",
+  deviceId: "h1",
+  type: "set_config",
+  params: { volume: 40 },
+  status: "pending",
+  issuedAt: "2026-10-17T01:00:00.000Z",
+  deliveredAt: null,
+  ackResult: null,
+  errorCode: null,
+  executedAt: null,
+  ...over,
+});
+/** 下发成功：交回新建的命令（页面按 commandId 认自己那条的回执） */
+const sendOk = () =>
+  jest.fn((key: string, value: unknown) =>
+    Promise.resolve(
+      command({ commandId: "v1", params: { [key]: value } }),
+    ),
+  );
 const settings = {
   values: { volume: 60 } as Record<string, unknown> | undefined,
   lastCommand: null as CommandPublic | null,
   sending: false,
-  send: jest.fn(),
+  send: sendOk() as jest.Mock,
   isError: false,
   error: null,
 };
@@ -172,7 +196,7 @@ beforeEach(() => {
     values: { volume: 60 },
     lastCommand: null,
     sending: false,
-    send: jest.fn(),
+    send: sendOk(),
   });
   m(useDeviceSettings).mockImplementation(() => settings);
   m(devicesApi.status).mockImplementation(() => Promise.resolve(STATUS));
@@ -361,8 +385,8 @@ describe("常用控制：蜂鸣音量", () => {
     });
     expect(settings.send).toHaveBeenCalledWith("volume", 40);
     // 松手时没发出去的中间值被丢掉，不再补发
-    act(() => {
-      jest.advanceTimersByTime(1000);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1000);
     });
     expect(devicesApi.putSettings).toHaveBeenCalledTimes(2);
   });
@@ -378,7 +402,10 @@ describe("常用控制：蜂鸣音量", () => {
       { onPress?: () => void }[],
     ];
     expect(title).toBe(tr("device.volumeLoudTitle"));
-    act(() => buttons[1].onPress!());
+    await act(async () => {
+      buttons[1].onPress!();
+      await Promise.resolve();
+    });
     expect(settings.send).toHaveBeenCalledWith("volume", 95);
   });
 
@@ -403,7 +430,10 @@ describe("常用控制：蜂鸣音量", () => {
     });
     act(() => pan.handlers.onFinalize({}, true));
     let buttons = alert.mock.calls[0][2] as { onPress?: () => void }[];
-    act(() => buttons[0].onPress!());
+    await act(async () => {
+      buttons[0].onPress!();
+      await jest.advanceTimersByTimeAsync(0);
+    });
     expect(settings.send).toHaveBeenCalledWith("volume", 60);
     // 第二次：拖得很快、没来得及即时下发
     settings.send.mockClear();
@@ -420,6 +450,9 @@ describe("常用控制：蜂鸣音量", () => {
     await waitFor(() => expect(r.allText()).toContain(tr("device.volume")));
     drag(r, [60, 40]);
     expect(r.allText()).toContain(`40% · ${tr("device.applying")}`);
+    await act(async () => {
+      await Promise.resolve();
+    });
     settings.values = { volume: 40 };
     r.rerender(
       <QueryClientProvider client={makeQueryClient()}>
@@ -428,6 +461,185 @@ describe("常用控制：蜂鸣音量", () => {
     );
     await waitFor(() => expect(r.allText()).toContain("40%"));
     expect(r.allText()).not.toContain(tr("device.applying"));
+  });
+});
+
+describe("常用控制：音量乐观值只认自己那条命令", () => {
+  const drag = (r: Rendered, xs: number[]) => {
+    const [pan] = volumeGesture(r);
+    const hit = r.root.find(
+      (n) =>
+        typeof n.type === "string" &&
+        typeof n.props.onLayout === "function" &&
+        n.props.style?.height === 40,
+    );
+    act(() => hit.props.onLayout({ nativeEvent: { layout: { width: 100 } } }));
+    act(() => pan.handlers.onBegin({ x: xs[0] }));
+    act(() => pan.handlers.onStart({ x: xs[0] }));
+    for (const x of xs.slice(1)) act(() => pan.handlers.onUpdate({ x }));
+    act(() => pan.handlers.onFinalize({}, true));
+  };
+  const again = (r: Rendered, qc: ReturnType<typeof makeQueryClient>) =>
+    r.rerender(
+      <QueryClientProvider client={qc}>
+        <DeviceDetailScreen />
+      </QueryClientProvider>,
+    );
+  /** 音量那一行的数字（「60%」或「40% · 正在应用设置…」） */
+  const volumeText = (r: Rendered) =>
+    r.texts().find((x) => /^\d+%( · .*)?$/.test(x) && x !== "10%" && x !== "100%");
+  const flush = async () => {
+    await act(async () => {
+      await Promise.resolve();
+    });
+  };
+
+  it("别的项的命令失败了不撤音量的乐观值；自己那条离线 / 失败才回落到头盔确认过的值", async () => {
+    const qc = makeQueryClient();
+    const r = mount(qc);
+    await waitFor(() => expect(r.allText()).toContain(tr("device.volume")));
+    drag(r, [60, 40]);
+    await flush();
+    expect(settings.send).toHaveBeenCalledWith("volume", 40);
+    expect(volumeText(r)).toBe(`40% · ${tr("device.applying")}`);
+    // 最近一条是前照灯的命令、失败了：和音量无关
+    settings.lastCommand = command({
+      commandId: "l1",
+      params: { light: 2 },
+      status: "failed",
+    });
+    again(r, qc);
+    expect(volumeText(r)).toBe(`40% · ${tr("device.applying")}`);
+    // 自己那条判了离线：回落 60，并在音量下面说没送达（头盔此刻在线，所以是「上次没送达」）
+    settings.lastCommand = command({ commandId: "v1", status: "offline" });
+    again(r, qc);
+    expect(volumeText(r)).toBe("60%");
+    expect(r.allText()).toContain(tr("device.cmd.expiredRetry"));
+  });
+
+  it("自己那条已生效：点亮新值，下面写已生效", async () => {
+    const qc = makeQueryClient();
+    const r = mount(qc);
+    await waitFor(() => expect(r.allText()).toContain(tr("device.volume")));
+    drag(r, [60, 40]);
+    await flush();
+    settings.values = { volume: 40 };
+    settings.lastCommand = command({ commandId: "v1", status: "success" });
+    again(r, qc);
+    expect(volumeText(r)).toBe("40%");
+    expect(r.allText()).toContain(tr("device.cmd.success"));
+  });
+
+  it("没发出去（请求失败，已弹窗）：立刻回落，不灰着", async () => {
+    settings.send = jest.fn(() => Promise.resolve(null));
+    const r = mount();
+    await waitFor(() => expect(r.allText()).toContain(tr("device.volume")));
+    drag(r, [60, 40]);
+    await flush();
+    expect(volumeText(r)).toBe("60%");
+  });
+
+  it("一直看不到自己那条的回执（被别的命令挤掉）：35 秒兜底回落", async () => {
+    jest.useFakeTimers();
+    const r = mount();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10);
+    });
+    drag(r, [60, 40]);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(34_000);
+    });
+    expect(volumeText(r)).toBe(`40% · ${tr("device.applying")}`);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1_100);
+    });
+    expect(volumeText(r)).toBe("60%");
+  });
+
+  it("头盔回来在线时，没送达的那条改说「上次没送达，请重试」（和其他设置项一致）", async () => {
+    settings.lastCommand = command({ status: "offline" });
+    const r = mount();
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("device.status.online")),
+    );
+    expect(r.allText()).toContain(tr("device.cmd.expiredRetry"));
+    expect(r.allText()).not.toContain(tr("device.cmd.offline"));
+  });
+
+  it("头盔从没报过音量：80% 用次要色并说明是默认值；还没拉到设置时只是次要色、不说这句", async () => {
+    settings.values = {};
+    let r = mount();
+    await waitFor(() => expect(r.allText()).toContain(tr("device.volume")));
+    expect(volumeText(r)).toBe("80%");
+    const num = r.root
+      .findAllByType(Text)
+      .find((x) => /^80%/.test(String([].concat(x.props.children).join(""))))!;
+    expect(flat(num.props.style).color).toBe(Colors.dark.textSecondary);
+    expect(r.allText()).toContain(tr("device.unconfirmedDefault"));
+    settings.values = undefined;
+    r = mount();
+    await waitFor(() => expect(r.allText()).toContain(tr("device.volume")));
+    expect(volumeText(r)).toBe("80%");
+    expect(r.allText()).not.toContain(tr("device.unconfirmedDefault"));
+  });
+
+  it("头盔没确认过音量时拖过高音量线又取消：不知道原来是多少，不拿默认值去「还原」", async () => {
+    jest.useFakeTimers();
+    settings.values = {};
+    const r = mount();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10);
+    });
+    const [pan] = volumeGesture(r);
+    const hit = r.root.find(
+      (n) =>
+        typeof n.type === "string" &&
+        typeof n.props.onLayout === "function" &&
+        n.props.style?.height === 40,
+    );
+    act(() => hit.props.onLayout({ nativeEvent: { layout: { width: 100 } } }));
+    act(() => pan.handlers.onStart({ x: 50 }));
+    act(() => pan.handlers.onUpdate({ x: 70 }));
+    act(() => {
+      jest.advanceTimersByTime(200);
+    });
+    // 拖动中即时下发过中间值 70
+    expect(devicesApi.putSettings).toHaveBeenLastCalledWith("h1", {
+      settings: { volume: 70 },
+    });
+    act(() => pan.handlers.onUpdate({ x: 95 }));
+    act(() => pan.handlers.onFinalize({}, true));
+    const buttons = alert.mock.calls[0][2] as { onPress?: () => void }[];
+    act(() => buttons[0].onPress!());
+    expect(settings.send).not.toHaveBeenCalled();
+  });
+
+  it("拖到一半被系统打断：返回手势恢复，还没发出去的中间值不再发，也不交出松手值", async () => {
+    jest.useFakeTimers();
+    const r = mount();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10);
+    });
+    const [pan] = volumeGesture(r);
+    const hit = r.root.find(
+      (n) =>
+        typeof n.type === "string" &&
+        typeof n.props.onLayout === "function" &&
+        n.props.style?.height === 40,
+    );
+    act(() => hit.props.onLayout({ nativeEvent: { layout: { width: 100 } } }));
+    act(() => pan.handlers.onStart({ x: 60 }));
+    act(() => pan.handlers.onUpdate({ x: 30 }));
+    act(() => pan.handlers.onFinalize({}, false));
+    expect(mockNavigation.setOptions).toHaveBeenLastCalledWith({
+      gestureEnabled: true,
+    });
+    act(() => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(devicesApi.putSettings).not.toHaveBeenCalled();
+    expect(settings.send).not.toHaveBeenCalled();
+    expect(volumeText(r)).toBe("60%");
   });
 });
 

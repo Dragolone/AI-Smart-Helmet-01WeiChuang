@@ -962,8 +962,12 @@ export function DeviceGuide({
   const phase = useBleStore((s) =>
     helmet ? s.links[helmet.deviceId]?.phase : undefined,
   );
-  // 刚点完「允许通知」：系统弹窗的结果先用上，不等回到前台那次重查
-  const [asked, setAsked] = useState<NotifyPermission | null>(null);
+  // 刚点完「允许通知」：系统弹窗的结果先用上，不等回到前台那次重查。只用到重查的结果变了为止
+  // （over = 点的时候查到的权限）：之后以系统为准——弹窗里拒了、后来去设置里打开，卡片要能打勾
+  const [asked, setAsked] = useState<{
+    answer: NotifyPermission;
+    over: NotifyPermission | null;
+  } | null>(null);
   const searching =
     !!helmet &&
     link !== "connected" &&
@@ -985,7 +989,7 @@ export function DeviceGuide({
     helmet: helmet
       ? { name: helmetNameOf(helmet), battery: helmet.battery }
       : undefined,
-    notify: asked ?? notify,
+    notify: asked && asked.over === notify ? asked.answer : notify,
     contacts,
     slow: searching && slowFor === helmetId,
   };
@@ -1087,7 +1091,9 @@ export function DeviceGuide({
     else if (a === "addContact") router.navigate("/add-contact");
     else if (a === "askNotify")
       void Notifications.requestPermissionsAsync()
-        .then((p) => setAsked(p.granted ? "granted" : "denied"))
+        .then((p) =>
+          setAsked({ answer: p.granted ? "granted" : "denied", over: notify }),
+        )
         .catch(() => undefined);
     else if (cur !== 0) advance(cur, "skipped");
   };

@@ -55,6 +55,7 @@ export function restingVolume(v: number) {
 export function VolumeSlider({
   value,
   pending = false,
+  unconfirmed = false,
   onStep,
   onRelease,
   onDraggingChange,
@@ -64,6 +65,8 @@ export function VolumeSlider({
   value: number;
   /** 响应中:灰显 + 禁操作,回执生效后由调用方清除(负责人口径) */
   pending?: boolean;
+  /** 头盔没确认过音量（没上报过 / 设置还没拿到）：value 是出厂默认，数字和填充用次要色，照常可拖 */
+  unconfirmed?: boolean;
   /** 拖动中每跨过一档触发（调用方负责节流下发） */
   onStep?: (v: number) => void;
   /** 松手时的最终值 */
@@ -83,6 +86,8 @@ export function VolumeSlider({
   const lastStep = useSharedValue(restingVolume(value));
   const widthSv = useSharedValue(0);
   const startX = useSharedValue(0);
+  /** 拖动真的开始了（onStart 来过）：收尾时据此决定要不要复位 */
+  const active = useSharedValue(false);
 
   // 云端值变化且没在拖动时，把滑杆同步到已生效值（在 UI 线程写 shared value，不走 useEffect）
   const syncTarget = dragging ? -1 : restingVolume(value);
@@ -120,6 +125,12 @@ export function VolumeSlider({
     onDraggingChange?.(false);
     onRelease(v);
   };
+  // 拖到一半被打断（来电、下拉通知中心、别的手势抢走）：不交出结果，回到头盔确认过的值。
+  // 拖动中的状态一定要收回来，不然滑杆不再跟着云端值走、iOS 返回手势一直关着
+  const cancel = () => {
+    setDragging(false);
+    onDraggingChange?.(false);
+  };
 
   const applyX = (x: number) => {
     "worklet";
@@ -142,6 +153,7 @@ export function VolumeSlider({
       startX.set(e.x);
     })
     .onStart((e) => {
+      active.set(true);
       scheduleOnRN(begin);
       applyX(e.x);
     })
@@ -149,7 +161,13 @@ export function VolumeSlider({
       applyX(e.x);
     })
     .onFinalize((_e, success) => {
-      if (!success) return;
+      // 没激活过（被上下滚动抢走）：什么都没开始，不用收尾
+      if (!active.get()) return;
+      active.set(false);
+      if (!success) {
+        scheduleOnRN(cancel);
+        return;
+      }
       progress.set(lastStep.get() / MAX);
       scheduleOnRN(end, lastStep.get());
     });
@@ -175,7 +193,9 @@ export function VolumeSlider({
 
   const shown = dragging ? dragShown : restingVolume(value);
   const loud = shown > VOLUME_LOUD_THRESHOLD;
-  const fillColor = pending
+  // 拖动中显示的是手指下的值，不再是「待确认的默认值」
+  const dim = pending || (unconfirmed && !dragging);
+  const fillColor = dim
     ? theme.textSecondary
     : loud
       ? theme.sos
@@ -195,11 +215,7 @@ export function VolumeSlider({
         <ThemedText
           type="smallBold"
           style={{
-            color: pending
-              ? theme.textSecondary
-              : loud
-                ? theme.sos
-                : theme.text,
+            color: dim ? theme.textSecondary : loud ? theme.sos : theme.text,
           }}
         >
           {shown}%

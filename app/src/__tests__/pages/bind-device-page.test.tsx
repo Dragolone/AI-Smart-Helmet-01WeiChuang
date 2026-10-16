@@ -110,6 +110,10 @@ const mockNotify = { value: "granted" as string | null };
 jest.mock("@/hooks/use-safety", () => ({
   useNotifyPermission: () => mockNotify.value,
 }));
+const mockAppActive = { value: true };
+jest.mock("@/hooks/use-app-active", () => ({
+  useAppActive: () => mockAppActive.value,
+}));
 
 const tr = (key: MessageKey, params?: Record<string, string | number>) =>
   translate(key, params, "zh-CN");
@@ -154,6 +158,7 @@ beforeEach(() => {
   routerState.focused = true;
   mockCamera.perm = { granted: true, canAskAgain: true };
   mockNotify.value = "granted";
+  mockAppActive.value = true;
   qc = makeQueryClient();
   m(contactsApi.list).mockImplementation(() => Promise.resolve([{ id: "c1" }]));
   m(devicesApi.bind).mockImplementation((...a: unknown[]) =>
@@ -204,6 +209,34 @@ describe("相机权限", () => {
     r.press(tr("scan.manual"));
     expect(r.texts()).toContain(tr("bind.manualTitle"));
     settings.mockRestore();
+  });
+
+  it("相机只在本页在最上面、App 在前台时开：被求救倒计时这类全屏页盖住 / 退到后台就关掉，回来再开", () => {
+    const r = mount();
+    expect(camera(r)).toBeDefined();
+    routerState.focused = false;
+    r.rerender(
+      <QueryClientProvider client={qc}>
+        <BindDeviceScreen />
+      </QueryClientProvider>,
+    );
+    // 盖住时没有相机，也就不会在底下扫到码、绑上头盔
+    expect(camera(r)).toBeUndefined();
+    routerState.focused = true;
+    mockAppActive.value = false;
+    r.rerender(
+      <QueryClientProvider client={qc}>
+        <BindDeviceScreen />
+      </QueryClientProvider>,
+    );
+    expect(camera(r)).toBeUndefined();
+    mockAppActive.value = true;
+    r.rerender(
+      <QueryClientProvider client={qc}>
+        <BindDeviceScreen />
+      </QueryClientProvider>,
+    );
+    expect(camera(r).props.onBarcodeScanned).toBeInstanceOf(Function);
   });
 
   it("关闭按钮回上一页", () => {
