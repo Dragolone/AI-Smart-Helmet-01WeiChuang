@@ -15,6 +15,14 @@ describe('helmetLabel（给用户看的头盔称呼：有名字用名字）', ()
     );
     expect(helmetLabel({ deviceId: 'helmet_f8b262' })).toBe('helmet_f8b262');
   });
+  it('整理规则上线前存下的旧名字：只含零宽字符用编号，带换行压成一行（推送标题不断行）', () => {
+    expect(
+      helmetLabel({ name: '\u200b\ufeff', deviceId: 'helmet_f8b262' }),
+    ).toBe('helmet_f8b262');
+    expect(helmetLabel({ name: 'a\nb', deviceId: 'helmet_f8b262' })).toBe(
+      'a b',
+    );
+  });
 });
 
 describe('pushClock（推送里的时刻：北京时间 HH:mm）', () => {

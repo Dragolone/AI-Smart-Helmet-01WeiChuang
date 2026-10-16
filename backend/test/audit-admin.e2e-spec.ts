@@ -360,7 +360,7 @@ describe('审计：Admin 后端边界 (e2e)', () => {
       );
     });
 
-    it('XSS/换行/emoji 昵称原样回传（转义是前端职责），设备详情 bindUser 同', async () => {
+    it('XSS / emoji 昵称原样回传（转义是前端职责），换行入库前压成空格；设备详情 bindUser 同', async () => {
       const res = await adminGet(http, admin.token, '/users', {
         keyword: xssUser.phone,
       }).expect(200);
@@ -368,7 +368,8 @@ describe('审计：Admin 后端边界 (e2e)', () => {
       const weird = await adminGet(http, admin.token, '/users', {
         keyword: weirdUser.phone,
       }).expect(200);
-      expect(weird.body.items[0].nickname).toBe(WEIRD_NICK);
+      // 表情组合里的零宽连接符保留，换行压成一个空格（common/display-name）
+      expect(weird.body.items[0].nickname).toBe(WEIRD_NICK.replace('\n', ' '));
       const detail = await adminGet(
         http,
         admin.token,

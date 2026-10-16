@@ -19,15 +19,14 @@ import {
   ValidateIf,
 } from 'class-validator';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
+import { cleanName } from '../common/display-name';
 import { PHONE_PATTERN } from '../common/phone';
 import { ContactsService } from './contacts.service';
 
-// 联系人名会原样进 SOS 短信文案，全空白名不能入库：先 trim 再验最小长度
-const trim = ({ value }: { value: unknown }) =>
-  typeof value === 'string' ? value.trim() : value;
+// 联系人名全空白 / 只含零宽字符不能入库（联系人页、倒计时页上是一片空白）：先整理再验最小长度
 
 class CreateContactDto {
-  @Transform(trim)
+  @Transform(cleanName)
   @IsString()
   @MinLength(1)
   @MaxLength(30)
@@ -47,7 +46,7 @@ const present = (_: object, value: unknown) => value !== undefined;
 
 class UpdateContactDto {
   @ValidateIf(present)
-  @Transform(trim)
+  @Transform(cleanName)
   @IsString()
   @MinLength(1)
   @MaxLength(30)

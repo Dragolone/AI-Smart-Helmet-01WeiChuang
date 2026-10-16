@@ -25,9 +25,14 @@ const urlTtlSeconds = (): number =>
  * storageKey 指向备份的 video_ready，就能以设备主人身份换到整库导出的下载链接。
  * 根治是备份放单独的桶（TENCENT_COS_BACKUP_BUCKET，2026-10-14）；这里的前缀拦截留作第二道防线
  */
-export const isSignableStorageKey = (key: string): boolean =>
-  !key.replace(/^\/+/, '').startsWith(BACKUP_PREFIX) &&
-  !key.split('/').includes('..');
+export const isSignableStorageKey = (key: string): boolean => {
+  const stripped = key.replace(/^\/+/, '');
+  // `.` 段也拦：COS SDK 的 simplifyPath（对齐服务端对象键规则）会把 ./backups/x 合并成 /backups/x（10-16 补测 BC2）
+  return (
+    !stripped.startsWith(BACKUP_PREFIX) &&
+    !stripped.split('/').some((seg) => seg === '.' || seg === '..')
+  );
+};
 
 @Injectable()
 export class MediaService {

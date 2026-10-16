@@ -8,6 +8,8 @@ import {
   registerDecorator,
   type ValidationOptions,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { cleanNameOrNull } from '../common/display-name';
 import { PHONE_PATTERN } from '../common/phone';
 import { SMS_CODE_PURPOSES, type SmsCodePurpose } from './sms-code.service';
 
@@ -52,6 +54,8 @@ export class RegisterDto {
   @MaxBytes(MAX_PASSWORD_BYTES)
   password!: string;
 
+  // 先整理（零宽 / 换行，见 common/display-name）再验长度；整理完为空等于没填
+  @Transform(cleanNameOrNull)
   @IsOptional()
   @IsString()
   @MaxLength(30)

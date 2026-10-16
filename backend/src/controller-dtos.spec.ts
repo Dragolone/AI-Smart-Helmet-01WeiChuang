@@ -188,11 +188,13 @@ describe('控制器内的请求 DTO', () => {
       ]);
     });
 
-    it('频道名 1–30；现状：全空白名也能过（不像联系人那样先 trim），见 coverage-findings-1016.md BC3', () => {
+    it('频道名整理后 1–30：全空白 / 只含零宽字符 400，与联系人同口径（BC3 已修）', () => {
       expect(run(Create, { name: '车队' }).errors).toEqual([]);
       expect(run(Create, { name: '' }).errors).toEqual(['name']);
       expect(run(Create, { name: 'n'.repeat(31) }).errors).toEqual(['name']);
-      expect(run(Create, { name: '   ' }).errors).toEqual([]);
+      expect(run(Create, { name: '   ' }).errors).toEqual(['name']);
+      expect(run(Create, { name: '\u200b\n' }).errors).toEqual(['name']);
+      expect(run(Create, { name: ` ${'n'.repeat(30)} ` }).errors).toEqual([]);
     });
   });
 

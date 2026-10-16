@@ -16,13 +16,17 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { MAX_PASSWORD_BYTES, MaxBytes } from '../auth/auth.dto';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
+import { cleanNameOrNull } from '../common/display-name';
 import { PASSWORD_CHECK_LIMITS, RateLimit } from '../common/rate-limit.guard';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from './users.service';
 
 class UpdateMeDto {
+  // 先整理（零宽 / 换行，见 common/display-name）再验长度；整理完为空 = 清除昵称（null）
+  @Transform(cleanNameOrNull)
   @IsOptional()
   @IsString()
   @MaxLength(30)

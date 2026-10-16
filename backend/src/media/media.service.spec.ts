@@ -23,12 +23,19 @@ describe('isSignableStorageKey', () => {
     ['./backups/x.dump'],
     ['.//backups/x.dump'],
     ['././backups/x.dump'],
+    ['/./backups/x.dump'],
+    ['media/./v1.mp4'],
   ])(
-    '%p 现状放行：COS SDK 自己的 simplifyPath（对齐服务端对象键合并规则）会把它归一成 /backups/…，见 coverage-findings-1016.md BC2',
+    '%p 含 . 段 → 不签：COS SDK 的 simplifyPath（对齐服务端对象键合并规则）会把它归一成 /backups/…（BC2 已修）',
     (key) => {
-      expect(isSignableStorageKey(key)).toBe(true);
+      expect(isSignableStorageKey(key)).toBe(false);
     },
   );
+
+  it('文件名里的点、以点开头的文件名不算 . 段', () => {
+    expect(isSignableStorageKey('media/h1/.v1.mp4')).toBe(true);
+    expect(isSignableStorageKey('media/h1/v1.mp4.')).toBe(true);
+  });
 });
 
 describe('MediaService.getUrl', () => {

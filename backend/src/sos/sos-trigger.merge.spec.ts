@@ -121,6 +121,14 @@ describe('SosTriggerService：升级与取消撞车 / 建单推送重试', () =>
 
   describe('建单推送「SOS 倒计时已开始」', () => {
     const flush = () => new Promise((r) => setTimeout(r, 30));
+    // 只睡固定 30 ms 再数次数会抖：事件循环停顿超过 30 ms（并行 worker、慢 runner）时，第二次重试的定时器排在 flush 之后，
+    // 期望 3 次只数到 2 次（CI 与本机都出现过）。要数到几次就轮询等到几次，超时 2 s 才算失败
+    const waitForCalls = async (fn: jest.Mock, n: number) => {
+      const until = Date.now() + 2_000;
+      while (fn.mock.calls.length < n && Date.now() < until) {
+        await new Promise((r) => setTimeout(r, 5));
+      }
+    };
     // 正文秒数按 deadline 现算、已到期不发：这里的单必须相对真实时钟还在倒计时
     const inOneMinute = () => new Date(Date.now() + 60_000);
 
@@ -140,7 +148,7 @@ describe('SosTriggerService：升级与取消撞车 / 建单推送重试', () =>
         .mockRejectedValueOnce(new Error('jpush 502'))
         .mockResolvedValueOnce(undefined);
       await service.handleTrigger(manualSos('fall-9'), 'u1');
-      await flush();
+      await waitForCalls(pushMock.send, 3);
       expect(pushMock.send).toHaveBeenCalledTimes(3);
       expect(pushMock.send.mock.calls[2][4]).toEqual({
         category: 'sos',
@@ -161,6 +169,8 @@ describe('SosTriggerService：升级与取消撞车 / 建单推送重试', () =>
       prismaMock.sosCase.findUnique.mockResolvedValue({ status: 'cancelled' });
       pushMock.send.mockRejectedValue(new Error('jpush 502'));
       await service.handleTrigger(manualSos('fall-10'), 'u1');
+      // 等重试前那次查库发生，再留一点时间看它会不会还发
+      await waitForCalls(prismaMock.sosCase.findUnique, 1);
       await flush();
       expect(pushMock.send).toHaveBeenCalledTimes(1);
     });
@@ -178,6 +188,7 @@ describe('SosTriggerService：升级与取消撞车 / 建单推送重试', () =>
       prismaMock.sosCase.findUnique.mockResolvedValue({ status: 'pending' });
       pushMock.send.mockRejectedValue(new Error('jpush 502'));
       await service.handleTrigger(manualSos('fall-11'), 'u1');
+      await waitForCalls(pushMock.send, 2);
       await flush();
       expect(pushMock.send).toHaveBeenCalledTimes(2);
       expect(realtimeMock.pushSosUpdate).toHaveBeenCalledTimes(1);
