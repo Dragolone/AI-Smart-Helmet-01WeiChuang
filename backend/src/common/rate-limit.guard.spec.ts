@@ -2,7 +2,11 @@
 // 没有 req.ip 时共用 unknown 桶、定期清理过期桶。Reflector 与 ExecutionContext 用假对象，时钟用 fake timers。
 import { HttpException, type ExecutionContext } from '@nestjs/common';
 import type { Reflector } from '@nestjs/core';
-import { RateLimitGuard, type RateLimitRule } from './rate-limit.guard';
+import {
+  RateLimitGuard,
+  rateLimitIpKey,
+  type RateLimitRule,
+} from './rate-limit.guard';
 
 const ctx = (req: Record<string, unknown>) => {
   const setHeader = jest.fn();
@@ -200,6 +204,38 @@ describe('RateLimitGuard', () => {
       expect(bucketsOf().has('min:oldest')).toBe(false);
       expect(bucketsOf().has('min:newest')).toBe(true);
       expect(bucketsOf().has('min:trigger')).toBe(true);
+    });
+  });
+  describe('IPv6 按 /64 聚合（2026-10-16）', () => {
+    it.each([
+      ['2408:8456:1:2:aaaa:bbbb:cccc:dddd', '2408:8456:1:2::/64'],
+      ['2408:8456:0001:0002::1', '2408:8456:1:2::/64'],
+      ['2408:8456::1', '2408:8456:0:0::/64'],
+      ['::1', '0:0:0:0::/64'],
+      ['fe80::1%eth0', 'fe80:0:0:0::/64'],
+      ['64:ff9b::1.2.3.4', '64:ff9b:0:0::/64'],
+      ['::ffff:1.2.3.4', '1.2.3.4'],
+      ['1.2.3.4', '1.2.3.4'],
+      ['not-an-ip', 'not-an-ip'],
+    ])('%s → %s', (ip, key) => {
+      expect(rateLimitIpKey(ip)).toBe(key);
+    });
+
+    it('同一 /64 换地址共用一个桶；别的 /64 不受影响', () => {
+      expect(hit({ ip: '2408:8456:1:2::a' })).toBe(true);
+      expect(hit({ ip: '2408:8456:1:2::b' })).toBe(true);
+      expect(rejected({ ip: '2408:8456:1:2:ffff::c' }).err).toBeInstanceOf(
+        HttpException,
+      );
+      expect(hit({ ip: '2408:8456:1:3::a' })).toBe(true);
+    });
+
+    it('IPv4 映射地址与纯 IPv4 是同一个桶', () => {
+      expect(hit({ ip: '::ffff:5.6.7.8' })).toBe(true);
+      expect(hit({ ip: '5.6.7.8' })).toBe(true);
+      expect(rejected({ ip: '::ffff:5.6.7.8' }).err).toBeInstanceOf(
+        HttpException,
+      );
     });
   });
 });

@@ -102,6 +102,8 @@ services:
       SMS_CODE_RESEND_INTERVAL_SECONDS: ${SMS_CODE_RESEND_INTERVAL_SECONDS:-}
       SMS_CODE_DAILY_LIMIT: ${SMS_CODE_DAILY_LIMIT:-}
       SMS_CODE_MAX_ATTEMPTS: ${SMS_CODE_MAX_ATTEMPTS:-}
+      SMS_CODE_GLOBAL_HOURLY_LIMIT: ${SMS_CODE_GLOBAL_HOURLY_LIMIT:-}
+      SMS_CODE_GLOBAL_DAILY_LIMIT: ${SMS_CODE_GLOBAL_DAILY_LIMIT:-}
       # 可调业务参数：留空即用代码内默认值（见 deploy/.env.example 末段）。
       # 必须在此显式透传——否则运维在 deploy/.env 里改了也不会进容器，属于"看似可配、实际改不了"。
       SOS_COUNTDOWN_SECONDS: ${SOS_COUNTDOWN_SECONDS:-}

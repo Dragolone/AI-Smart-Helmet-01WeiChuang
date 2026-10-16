@@ -35,6 +35,18 @@ const maxAttempts = (): number => envPositiveInt('SMS_CODE_MAX_ATTEMPTS', 5);
 /** 单次短信通道调用的应用层超时（审计 AUTH-11）：挂起的 Provider 不能把发码请求一起挂住 */
 const sendTimeoutMs = (): number =>
   envPositiveInt('SMS_SEND_TIMEOUT_MS', 10_000);
+/**
+ * 全站验证码熔断（2026-10-16）：同 IP / 同号限频挡不住「大量代理 IP × 随机未注册号码」，
+ * 这里给账单封顶。只管验证码；SOS 通知短信走 SosNotifier，不经这里、不受影响
+ */
+const globalHourlyLimit = (): number =>
+  envPositiveInt('SMS_CODE_GLOBAL_HOURLY_LIMIT', 200);
+const globalDailyLimit = (): number =>
+  envPositiveInt('SMS_CODE_GLOBAL_DAILY_LIMIT', 1000);
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+/** 熔断期间告警日志的间隔：被刷时每条请求都打一行会把日志淹掉 */
+const BREAKER_ALERT_INTERVAL_MS = 5 * 60 * 1000;
 
 const hashCode = (code: string, salt: string): string =>
   createHash('sha256').update(`${salt}:${code}`).digest('hex');
@@ -48,6 +60,13 @@ const invalid = (): BadRequestException =>
 @Injectable()
 export class SmsCodeService {
   private readonly logger = new Logger(SmsCodeService.name);
+  /**
+   * 近 24h 已占用的全站名额（发送时刻，升序）。放内存不查库：sms_codes 只有按号码的索引，
+   * 全表按时间计数会随被刷的号码数线性变慢；单实例部署，重启清零最多多放一轮额度，可接受
+   */
+  private readonly globalSends: number[] = [];
+  private lastBreakerAlertAt = 0;
+  private breakerRejected = 0;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -116,6 +135,19 @@ export class SmsCodeService {
       });
     });
 
+    // 放在单号检查之后：被单号限频挡下的请求不占全站名额。占位与检查是同步的，并发也不会超发；
+    // 取此刻时间而非方法开头的 now：并发请求出事务的先后不定，数组要按占位时刻保持升序
+    const slot = this.tryReserveGlobal(Date.now());
+    if (slot === null) {
+      await this.prisma.smsCode.delete({ where: { id: row.id } });
+      this.alertBreaker(Date.now());
+      // 对外与通道失败同码：App 已有文案，且不向刷量方暴露熔断状态
+      throw new ServiceUnavailableException({
+        code: 'SMS_SEND_FAILED',
+        message: '短信发送失败，请稍后重试',
+      });
+    }
+
     try {
       await withTimeout(
         this.sms.send(phone, {
@@ -126,6 +158,7 @@ export class SmsCodeService {
         'sms.send(verify_code)',
       );
     } catch (err) {
+      this.releaseGlobal(slot);
       await this.prisma.smsCode.delete({ where: { id: row.id } });
       const message = errorMessage(err);
       this.logger.error(`验证码发送失败 → ${maskPhone(phone)}：${message}`);
@@ -134,6 +167,39 @@ export class SmsCodeService {
         message: '短信发送失败，请稍后重试',
       });
     }
+  }
+
+  /** 小时与 24h 两道全站上限都没满才占位，返回占位时刻（发送失败时据此退还）；满了返回 null */
+  private tryReserveGlobal(now: number): number | null {
+    while (this.globalSends.length && now - this.globalSends[0] >= DAY_MS) {
+      this.globalSends.shift();
+    }
+    if (this.globalSends.length >= globalDailyLimit()) return null;
+    let lastHour = 0;
+    for (let i = this.globalSends.length - 1; i >= 0; i -= 1) {
+      if (now - this.globalSends[i] >= HOUR_MS) break;
+      lastHour += 1;
+    }
+    if (lastHour >= globalHourlyLimit()) return null;
+    this.globalSends.push(now);
+    return now;
+  }
+
+  /** 通道失败的那条不算真发出去，名额退回（与「发送失败不计入单号限频」同口径） */
+  private releaseGlobal(slot: number): void {
+    const i = this.globalSends.lastIndexOf(slot);
+    if (i >= 0) this.globalSends.splice(i, 1);
+  }
+
+  private alertBreaker(now: number): void {
+    this.breakerRejected += 1;
+    if (now - this.lastBreakerAlertAt < BREAKER_ALERT_INTERVAL_MS) return;
+    this.logger.error(
+      `[SMS_CODE_BREAKER] 验证码全站发送量触顶（每小时 ${globalHourlyLimit()} / 24h ${globalDailyLimit()}），` +
+        `已暂停发码；距上次告警拒绝 ${this.breakerRejected} 次。可能正被批量刷短信，请检查访问日志`,
+    );
+    this.lastBreakerAlertAt = now;
+    this.breakerRejected = 0;
   }
 
   /**

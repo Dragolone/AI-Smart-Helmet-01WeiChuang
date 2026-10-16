@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request, Response } from 'express';
+import { isIPv6 } from 'node:net';
 import { PHONE_PATTERN } from './phone';
 
 /**
@@ -31,6 +32,34 @@ export const PASSWORD_CHECK_LIMITS: readonly RateLimitRule[] = [
   { name: 'password_user', limit: 5, windowMs: 60_000, keyBy: 'user' },
   { name: 'password_ip', limit: 20, windowMs: 60_000 },
 ];
+
+/**
+ * 限频用的 IP 键（2026-10-16）：IPv6 按 /64 网段聚合——运营商给一台终端分的就是一整个 /64，
+ * 按单个地址计，换地址就能无限绕过同 IP 限频。IPv4 映射地址（::ffff:a.b.c.d）还原成 IPv4，
+ * 同一来源不因监听方式不同落进两个桶
+ */
+export function rateLimitIpKey(ip: string): string {
+  const addr = ip.split('%')[0];
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(addr);
+  if (mapped) return mapped[1];
+  if (!isIPv6(addr)) return ip;
+  const groups = (part: string): string[] =>
+    part
+      ? part.split(':').flatMap((g) => (g.includes('.') ? ['0', '0'] : [g]))
+      : [];
+  const gap = addr.indexOf('::');
+  const head = groups(gap < 0 ? addr : addr.slice(0, gap));
+  const tail = gap < 0 ? [] : groups(addr.slice(gap + 2));
+  const full = [
+    ...head,
+    ...Array<string>(8 - head.length - tail.length).fill('0'),
+    ...tail,
+  ];
+  return `${full
+    .slice(0, 4)
+    .map((g) => parseInt(g, 16).toString(16))
+    .join(':')}::/64`;
+}
 
 export const RATE_LIMIT_KEY = 'rate_limit_rules';
 export const RateLimit = (...rules: RateLimitRule[]) =>
@@ -73,7 +102,7 @@ export class RateLimitGuard implements CanActivate {
     const now = Date.now();
     this.maybePrune(now);
 
-    const ip = req.ip ?? 'unknown';
+    const ip = req.ip ? rateLimitIpKey(req.ip) : 'unknown';
     const phone = (req.body as { phone?: unknown } | undefined)?.phone;
     // 手机号只接受合法格式做 key，否则退化为 ip：任意字符串都能造键会把桶表撑爆
     const phoneKey =

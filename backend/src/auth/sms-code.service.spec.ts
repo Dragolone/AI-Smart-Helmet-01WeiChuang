@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -30,6 +31,8 @@ describe('SmsCodeService（单测，mock 数据层与短信通道）', () => {
     delete process.env.SMS_CODE_RESEND_INTERVAL_SECONDS;
     delete process.env.SMS_CODE_DAILY_LIMIT;
     delete process.env.SMS_SEND_TIMEOUT_MS;
+    delete process.env.SMS_CODE_GLOBAL_HOURLY_LIMIT;
+    delete process.env.SMS_CODE_GLOBAL_DAILY_LIMIT;
     prismaMock.$executeRaw.mockResolvedValue(1);
     prismaMock.$transaction.mockImplementation(
       (fn: (tx: typeof prismaMock) => Promise<unknown>) => fn(prismaMock),
@@ -209,4 +212,100 @@ describe('SmsCodeService（单测，mock 数据层与短信通道）', () => {
       expect(prismaMock.smsCode.updateMany).not.toHaveBeenCalled();
     },
   );
+  describe('全站熔断（大量 IP × 随机号码刷量，2026-10-16）', () => {
+    let logError: jest.SpyInstance;
+    const phones = (n: number) =>
+      Array.from(
+        { length: n },
+        (_, i) => `1380013${String(i).padStart(4, '0')}`,
+      );
+    const issueAll = async (list: string[]) => {
+      const results: unknown[] = [];
+      for (const p of list) {
+        results.push(
+          await service.issue(p, 'register').catch((e: unknown) => e),
+        );
+      }
+      return results;
+    };
+
+    beforeEach(() => {
+      // 只假 Date：withTimeout 的 setTimeout 照常走
+      jest.useFakeTimers({
+        now: new Date('2026-10-16T00:00:00Z'),
+        doNotFake: ['setTimeout', 'clearTimeout'],
+      });
+      prismaMock.smsCode.findFirst.mockResolvedValue(null);
+      prismaMock.smsCode.delete.mockResolvedValue({});
+      logError = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+    });
+    afterEach(() => logError.mockRestore());
+
+    it('每小时上限满 → 503 SMS_SEND_FAILED，删掉刚建的记录、不调短信通道', async () => {
+      process.env.SMS_CODE_GLOBAL_HOURLY_LIMIT = '2';
+      const [a, b, c] = await issueAll(phones(3));
+      expect(a).toBeUndefined();
+      expect(b).toBeUndefined();
+      expect(c).toMatchObject({
+        status: 503,
+        response: { code: 'SMS_SEND_FAILED' },
+      });
+      expect(smsMock.send).toHaveBeenCalledTimes(2);
+      expect(prismaMock.smsCode.delete).toHaveBeenCalledWith({
+        where: { id: 'c1' },
+      });
+      expect(logError).toHaveBeenCalledWith(
+        expect.stringContaining('[SMS_CODE_BREAKER]'),
+      );
+    });
+
+    it('满一小时后小时额度恢复，但 24h 上限照算', async () => {
+      process.env.SMS_CODE_GLOBAL_HOURLY_LIMIT = '2';
+      process.env.SMS_CODE_GLOBAL_DAILY_LIMIT = '3';
+      await issueAll(phones(2));
+      jest.setSystemTime(new Date('2026-10-16T01:00:00Z'));
+      const [ok, blocked] = await issueAll(['13900000001', '13900000002']);
+      expect(ok).toBeUndefined();
+      expect(blocked).toMatchObject({ response: { code: 'SMS_SEND_FAILED' } });
+      // 第一批发出满 24h 后让出名额
+      jest.setSystemTime(new Date('2026-10-17T00:00:00Z'));
+      expect(await issueAll(['13900000003'])).toEqual([undefined]);
+      expect(smsMock.send).toHaveBeenCalledTimes(4);
+    });
+
+    it('短信通道失败的那条退还名额（没真发出去不算数）', async () => {
+      process.env.SMS_CODE_GLOBAL_HOURLY_LIMIT = '1';
+      smsMock.send.mockRejectedValueOnce(new Error('provider down'));
+      const [failed, ok] = await issueAll(phones(2));
+      expect(failed).toMatchObject({ response: { code: 'SMS_SEND_FAILED' } });
+      expect(ok).toBeUndefined();
+      expect(smsMock.send).toHaveBeenCalledTimes(2);
+    });
+
+    it('被单号限频挡下的请求不占全站名额', async () => {
+      process.env.SMS_CODE_GLOBAL_HOURLY_LIMIT = '1';
+      prismaMock.smsCode.findFirst.mockResolvedValueOnce({
+        createdAt: new Date(),
+      });
+      const [tooFrequent, ok] = await issueAll(phones(2));
+      expect(tooFrequent).toMatchObject({
+        response: { code: 'SMS_CODE_TOO_FREQUENT' },
+      });
+      expect(ok).toBeUndefined();
+    });
+
+    it('熔断告警 5 分钟最多一行，带上期间被拒次数', async () => {
+      process.env.SMS_CODE_GLOBAL_HOURLY_LIMIT = '1';
+      await issueAll(phones(4));
+      const alerts = (): string[] =>
+        (logError.mock.calls as unknown[][])
+          .map(([m]) => String(m))
+          .filter((m) => m.includes('[SMS_CODE_BREAKER]'));
+      expect(alerts()).toHaveLength(1);
+      jest.setSystemTime(new Date('2026-10-16T00:05:00Z'));
+      await issueAll(['13900000009']);
+      expect(alerts()).toHaveLength(2);
+      expect(alerts()[1]).toContain('拒绝 3 次');
+    });
+  });
 });
