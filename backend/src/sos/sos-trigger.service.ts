@@ -9,7 +9,9 @@ import {
 } from '../common/device-time';
 import { helmetLabel } from '../common/helmet-label';
 import { BindingScopeService } from '../devices/binding-scope.service';
+import { timerMs } from '../common/env';
 import { sleep } from '../common/sleep';
+import { withTimeout } from '../common/with-timeout';
 import type { ValidEnvelope } from '../ingest/envelope';
 import { PrismaService } from '../prisma/prisma.service';
 import { PUSH_PROVIDER, type PushProvider } from '../providers/push.provider';
@@ -19,6 +21,7 @@ import {
   SOS_STATUS,
   countdownMs,
   createdPushRetryDelaysMs,
+  notifyTimeoutMs,
 } from './sos.constants';
 import { SosNotifierService } from './sos-notifier.service';
 import { toWireSos } from './sos-wire';
@@ -245,7 +248,7 @@ export class SosTriggerService {
     userId: string,
   ): Promise<void> {
     // 用户看不懂也不关心精确到毫秒的 UTC（10-07 A 线反馈）：写「N 秒后」，N = 发这一次时离 deadline 还剩几秒
-    const helmet = await this.helmetLabelOf(e.deviceId);
+    const helmet = await this.helmetLabelOf(e.deviceId, userId);
     const bodyNow = () =>
       createdPushBody(helmet, e.eventType, e.timestamp, created.deadline);
     const delays = createdPushRetryDelaysMs();
@@ -262,14 +265,20 @@ export class SosTriggerService {
     }
   }
 
-  /** 推送里怎么称呼这顶头盔；查不到 / 查询出错就用编号，推送照发 */
-  private async helmetLabelOf(deviceId: string): Promise<string> {
+  /** 推送里怎么称呼这顶头盔；查不到 / 查询出错就用编号，推送照发。名字只认这单主人起的（换绑后不露新主人起的名字） */
+  private async helmetLabelOf(
+    deviceId: string,
+    userId: string,
+  ): Promise<string> {
     try {
       const device = await this.prisma.device.findUnique({
         where: { deviceId },
-        select: { name: true },
+        select: { name: true, bindUserId: true },
       });
-      return helmetLabel({ name: device?.name, deviceId });
+      return helmetLabel({
+        name: device?.bindUserId === userId ? device.name : null,
+        deviceId,
+      });
     } catch {
       return deviceId;
     }
@@ -286,12 +295,17 @@ export class SosTriggerService {
       const body = bodyNow();
       if (body === null) return;
       try {
-        await this.push.send(
-          userId,
-          'SOS 倒计时已开始',
-          body,
-          { sosId, deviceId },
-          { category: SOS_PUSH_CATEGORY, timeSensitive: true },
+        // 套应用层超时：推送通道挂住（只回了响应头、响应体不来）时不能一直等到倒计时结束、错过 5 s / 20 s 的重试（10-17 评审）
+        await withTimeout(
+          this.push.send(
+            userId,
+            'SOS 倒计时已开始',
+            body,
+            { sosId, deviceId },
+            { category: SOS_PUSH_CATEGORY, timeSensitive: true },
+          ),
+          notifyTimeoutMs(),
+          'sos.created-push',
         );
         return;
       } catch (err) {
@@ -302,7 +316,7 @@ export class SosTriggerService {
         if (delay === undefined) return;
       }
       await new Promise((resolve) =>
-        setTimeout(resolve, delays[attempt]).unref(),
+        setTimeout(resolve, timerMs(delays[attempt])).unref(),
       );
       const still = await this.prisma.sosCase.findUnique({
         where: { id: sosId },

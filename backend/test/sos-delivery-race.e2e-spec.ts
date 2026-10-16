@@ -73,7 +73,8 @@ describe('SOS 通知投递：内联与扫描并发 / 中断行收尾 (e2e)', () 
     mocks.sms.send.mockImplementation(async () => {
       await sleep(400);
     });
-    const confirming = confirmSos(http, owner.token, c.id);
+    // .then 让请求现在就发出去：supertest 的 Test 是惰性的，原来要等到下面 await 才发，扫描根本没撞上（10-17 评审）
+    const confirming = confirmSos(http, owner.token, c.id).then((r) => r);
     await sleep(80); // 内联投递已占位短信行、正在等服务商
     await scheduler.tick(); // 扫描撞进来：此刻短信行 pending/attempts=1
     expect((await confirming).status).toBe(200);

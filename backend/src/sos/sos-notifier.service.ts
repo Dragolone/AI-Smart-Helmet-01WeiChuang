@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { errorMessage } from '../common/error-text';
+import { sleep } from '../common/sleep';
 import { withTimeout } from '../common/with-timeout';
 import { helmetLabel, pushClock } from '../common/helmet-label';
 import { PrismaService } from '../prisma/prisma.service';
@@ -24,6 +25,10 @@ import {
   notifyTimeoutMs,
 } from './sos.constants';
 import { toWireSos } from './sos-wire';
+
+/** 短信 / 推送已发出、写 sent 时数据库瞬断：再试几次，别让一次瞬断把已发出的通知记成没发（到点会再发一条） */
+const SENT_WRITE_RETRIES = 3;
+const SENT_WRITE_RETRY_MS = 200;
 
 /** 本人终态 Push 的标题按联系人短信的实际投递结果生成（审计 SOS-04：不能把「任务已创建」说成「已收到通知」） */
 export const PUSH_TITLE = {
@@ -163,6 +168,9 @@ export class SosNotifierService {
         });
         if (smsInFlight > 0) continue;
       }
+      // 这一行本进程正在发（内联首投还没回来、扫描又到了这一行的重试时刻）：不再占第二次。
+      // 原来在飞的那次还挂着时，扫描按 due 条件又占一次再发一条——联系人收两条，后回来的结果还会把 sent 盖成 failed（10-17 评审 SOS-2）
+      if (this.inFlight.has(row.id)) continue;
       const claimed = await this.prisma.sosNotification.updateMany({
         where: {
           id: row.id,
@@ -174,16 +182,46 @@ export class SosNotifierService {
         data: { attempts: { increment: 1 } },
       });
       if (claimed.count === 0) continue; // 另一轮扫描已抢走这一次投递
-
+      this.inFlight.add(row.id);
       try {
-        // 挂起的第三方调用按失败记 lastError=…timeout，走既有重试，不占住扫描任务（审计 SOS-05）
-        await withTimeout(
-          this.send(row, row.sos),
-          notifyTimeoutMs(),
-          `sos.notify(${row.channel})`,
-        );
-        await this.prisma.sosNotification.update({
-          where: { id: row.id },
+        await this.deliverClaimed(row);
+      } finally {
+        this.inFlight.delete(row.id);
+      }
+    }
+  }
+
+  /** 本进程正在发送的通知行 id */
+  private readonly inFlight = new Set<string>();
+
+  /**
+   * 发一次已占位的通知行并写结果。结果只写到「还是这次占位」的那一行（attempts 未被后来的重试改过）：
+   * 迟到的旧结果不能盖掉新的。发送成功后写库失败另行重试，不能落进发送失败的分支——那会把已发出的短信记成失败、到点再发一条
+   */
+  private async deliverClaimed(row: SosNotification & { sos: SosCase }) {
+    const thisAttempt = { id: row.id, attempts: row.attempts + 1 };
+    try {
+      // 挂起的第三方调用按失败记 lastError=…timeout，走既有重试，不占住扫描任务（审计 SOS-05）
+      await withTimeout(
+        this.send(row, row.sos),
+        notifyTimeoutMs(),
+        `sos.notify(${row.channel})`,
+      );
+    } catch (err) {
+      const message = errorMessage(err);
+      this.logger.error(
+        `SOS 通知投递失败（第 ${row.attempts + 1} 次，channel=${row.channel}，target=${this.maskTarget(row)}）：${message}`,
+      );
+      await this.prisma.sosNotification.updateMany({
+        where: thisAttempt,
+        data: { status: NOTIFICATION_STATUS.failed, lastError: message },
+      });
+      return;
+    }
+    for (let i = 0; ; i += 1) {
+      try {
+        await this.prisma.sosNotification.updateMany({
+          where: thisAttempt,
           // 重试成功后清掉上一次的错误：详情页不能同时显示「已发送」和旧错误文本（审计 SOS-08）
           data: {
             status: NOTIFICATION_STATUS.sent,
@@ -191,15 +229,16 @@ export class SosNotifierService {
             lastError: null,
           },
         });
+        return;
       } catch (err) {
-        const message = errorMessage(err);
-        this.logger.error(
-          `SOS 通知投递失败（第 ${row.attempts + 1} 次，channel=${row.channel}，target=${this.maskTarget(row)}）：${message}`,
-        );
-        await this.prisma.sosNotification.update({
-          where: { id: row.id },
-          data: { status: NOTIFICATION_STATUS.failed, lastError: message },
-        });
+        if (i >= SENT_WRITE_RETRIES) {
+          // 写不进去就留在「占位未写结果」：到点会被当成没发重试（多一条，宁多勿漏），最后一次由 failInterrupted 收尾
+          this.logger.error(
+            `SOS 通知已发出但结果写库失败（channel=${row.channel}，target=${this.maskTarget(row)}）：${errorMessage(err)}`,
+          );
+          return;
+        }
+        await sleep(SENT_WRITE_RETRY_MS);
       }
     }
   }
@@ -254,15 +293,16 @@ export class SosNotifierService {
       where: { sosId: sosCase.id, channel: 'sms' },
       select: { status: true },
     });
-    // 头盔写用户起的名字、时间写北京时间 HH:mm（原来是编号 + toISOString 的 UTC 原文，负责人 10-15）
+    // 头盔写用户起的名字、时间写北京时间 HH:mm（原来是编号 + toISOString 的 UTC 原文，负责人 10-15）。
+    // 名字只认这单主人起的：倒计时中解绑 / 换绑、或对账给前主人补建时，不能把新主人起的名字推给前主人（同 #215 activeForUser）
     const device = await this.prisma.device
       .findUnique({
         where: { deviceId: sosCase.deviceId },
-        select: { name: true },
+        select: { name: true, bindUserId: true },
       })
       .catch(() => null);
     const helmet = helmetLabel({
-      name: device?.name,
+      name: device?.bindUserId === sosCase.userId ? device.name : null,
       deviceId: sosCase.deviceId,
     });
     const clock = pushClock(sosCase.finalizedAt);

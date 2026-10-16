@@ -1,4 +1,6 @@
 // 极光推送的网络错误分支：非超时的网络错误、抛出非 Error 值、4xx 错误体没有 message。
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { JPushError, JPushProvider, type JPushConfig } from './jpush.provider';
 
 const config: JPushConfig = {
@@ -60,5 +62,37 @@ describe('JPushProvider.send：网络错误', () => {
     await expect(
       new JPushProvider(config).send('u1', 't', 'b'),
     ).rejects.toMatchObject({ httpStatus: 503 });
+  });
+});
+
+describe('JPushProvider.send：只回了响应头、响应体一直不来（10-17 评审）', () => {
+  // 真起一个本地服务：先发 500 响应头，再也不发响应体。定时器原来在拿到响应头时就清了，
+  // 读响应体没有期限，send 会挂到 undici 默认的 300 s——「倒计时已开始」推送错过 5 s / 20 s 的重试
+  let server: Server;
+  let url: string;
+  beforeAll(async () => {
+    server = createServer((_req, res) => {
+      res.writeHead(500, { 'content-type': 'application/json' });
+      res.write('{"error":');
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address() as AddressInfo;
+    url = `http://127.0.0.1:${port}/v3/push`;
+  });
+  afterAll(async () => {
+    server.closeAllConnections();
+    await new Promise<void>((r) => server.close(() => r()));
+  });
+
+  it('超时同样中断读响应体：按时失败（JPushError），不挂住', async () => {
+    const started = Date.now();
+    await expect(
+      new JPushProvider({ ...config, apiUrl: url, timeoutMs: 200 }).send(
+        'u1',
+        't',
+        'b',
+      ),
+    ).rejects.toBeInstanceOf(JPushError);
+    expect(Date.now() - started).toBeLessThan(2_000);
   });
 });

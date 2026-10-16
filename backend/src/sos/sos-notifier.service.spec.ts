@@ -82,7 +82,10 @@ describe('SosNotifierService', () => {
     prisma.sosNotification.count.mockResolvedValue(0);
     prisma.sosNotification.updateMany.mockResolvedValue({ count: 1 });
     prisma.sosNotification.update.mockResolvedValue({});
-    prisma.device.findUnique.mockResolvedValue({ name: '通勤盔' });
+    prisma.device.findUnique.mockResolvedValue({
+      name: '通勤盔',
+      bindUserId: 'u1',
+    });
     prisma.user.findUnique.mockResolvedValue({
       nickname: '张三',
       phone: '13911112222',
@@ -135,7 +138,50 @@ describe('SosNotifierService', () => {
       prisma.sosNotification.updateMany.mockResolvedValue({ count: 0 });
       await svc.deliverPending();
       expect(sms.send).not.toHaveBeenCalled();
-      expect(prisma.sosNotification.update).not.toHaveBeenCalled();
+      // 只有占位那一次 updateMany，没有写结果
+      expect(prisma.sosNotification.updateMany).toHaveBeenCalledTimes(1);
+    });
+
+    it('同一行本进程还在发（内联首投挂着、扫描又到了重试时刻）：不再占第二次、不再发（10-17 评审 SOS-2）', async () => {
+      let release!: () => void;
+      sms.send.mockImplementationOnce(
+        () => new Promise<void>((r) => (release = r)),
+      );
+      queueRows([row('sms')]);
+      const first = svc.deliverPending('sos1');
+      await new Promise((r) => setImmediate(r));
+      expect(sms.send).toHaveBeenCalledTimes(1);
+      prisma.sosNotification.findMany.mockReset();
+      queueRows([row('sms', { attempts: 1 })]);
+      await svc.deliverPending();
+      expect(sms.send).toHaveBeenCalledTimes(1);
+      release();
+      await first;
+    });
+
+    it('结果只写到这次占位的那一行（attempts 未被后来的重试改过）：迟到的旧结果不盖新的', async () => {
+      queueRows([row('sms', { attempts: 2 })]);
+      await svc.deliverPending();
+      expect(prisma.sosNotification.updateMany).toHaveBeenLastCalledWith({
+        where: { id: 'sms-row', attempts: 3 },
+        data: { status: 'sent', sentAt: expect.any(Date), lastError: null },
+      });
+    });
+
+    it('已发出、写 sent 时数据库瞬断：再试几次写成 sent，不落进发送失败分支（那会到点再发一条）', async () => {
+      queueRows([row('sms')]);
+      prisma.sosNotification.updateMany
+        .mockResolvedValueOnce({ count: 1 }) // 占位
+        .mockRejectedValueOnce(new Error('connection reset'))
+        .mockResolvedValueOnce({ count: 1 });
+      await svc.deliverPending();
+      expect(sms.send).toHaveBeenCalledTimes(1);
+      const writes = (
+        prisma.sosNotification.updateMany.mock.calls as Array<
+          [{ data: { status?: string } }]
+        >
+      ).map((c) => c[0].data.status);
+      expect(writes).toEqual([undefined, 'sent', 'sent']);
     });
 
     it('查询带上 sosId 过滤；不带 sosId 时扫全部到点行', async () => {
@@ -178,8 +224,8 @@ describe('SosNotifierService', () => {
           locationText: '22.54310,114.05790',
         },
       });
-      expect(prisma.sosNotification.update).toHaveBeenCalledWith({
-        where: { id: 'sms-row' },
+      expect(prisma.sosNotification.updateMany).toHaveBeenLastCalledWith({
+        where: { id: 'sms-row', attempts: 1 },
         data: { status: 'sent', sentAt: expect.any(Date), lastError: null },
       });
     });
@@ -216,8 +262,8 @@ describe('SosNotifierService', () => {
       sms.send.mockRejectedValue(new Error('LimitExceeded'));
       queueRows([row('sms', { attempts: 2 })]);
       await svc.deliverPending();
-      expect(prisma.sosNotification.update).toHaveBeenCalledWith({
-        where: { id: 'sms-row' },
+      expect(prisma.sosNotification.updateMany).toHaveBeenLastCalledWith({
+        where: { id: 'sms-row', attempts: 3 },
         data: { status: 'failed', lastError: 'LimitExceeded' },
       });
       expect(errorSpy).toHaveBeenCalledWith(
@@ -247,6 +293,17 @@ describe('SosNotifierService', () => {
       );
       expect(data).toEqual({ sosId: 'sos1', deviceId: 'helmet_0000000001' });
       expect(opts).toEqual({ timeSensitive: true });
+    });
+
+    it('头盔已转给别人（当前绑定的不是这单的主人）：写设备编号，不把新主人起的名字推给前主人', async () => {
+      prisma.device.findUnique.mockResolvedValue({
+        name: '老王的头盔',
+        bindUserId: 'someone-else',
+      });
+      queueRows([row('push')], []);
+      await svc.deliverPending();
+      expect(pushed()[2]).toContain('头盔 helmet_0000000001 的求救');
+      expect(pushed()[2]).not.toContain('老王');
     });
 
     it('短信全部失败：标题「发送失败」，正文带联系人数', async () => {

@@ -7,6 +7,15 @@ export const envPositiveInt = (name: string, fallback: number): number => {
   return Number.isInteger(n) && n > 0 ? n : fallback;
 };
 
+/** Node 计时器的上限（2^31−1 ms，约 24.8 天）：超过时 Node 把它当成 1 ms */
+export const MAX_TIMER_MS = 2_147_483_647;
+
+/**
+ * 交给 setTimeout / setInterval 的毫秒数：配错成超大值（如 SOS_SCAN_INTERVAL_MS=3e9、对账秒数 ×1000 溢出）时
+ * Node 会改成 1 ms——扫描空转打满 CPU、每条短信「1 ms 超时」却其实发出、重发 5 次（10-17 评审）。封顶到上限
+ */
+export const timerMs = (ms: number): number => Math.min(ms, MAX_TIMER_MS);
+
 /**
  * 后端 MQTT 服务账号的用户名与保留 clientId：消费者用它们连 EMQX，emqx-hook 用它们认出自己人，
  * 两边必须取到同一个值。同样在调用时读取。

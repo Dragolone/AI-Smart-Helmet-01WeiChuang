@@ -4,6 +4,7 @@ import {
   type OnModuleDestroy,
   type OnModuleInit,
 } from '@nestjs/common';
+import { timerMs } from '../common/env';
 import { errorMessage } from '../common/error-text';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -27,7 +28,7 @@ export class CommandsSchedulerService implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit(): void {
     const interval = commandScanIntervalMs();
-    this.timer = setInterval(() => void this.tick(), interval);
+    this.timer = setInterval(() => void this.tick(), timerMs(interval));
     this.timer.unref();
     this.logger.log(
       `命令超时扫描已启动（间隔 ${interval}ms，回执超时 ${ackTimeoutMs() / 1000}s）`,

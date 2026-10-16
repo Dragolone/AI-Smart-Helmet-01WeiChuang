@@ -194,6 +194,30 @@ describe('SosTriggerService：升级与取消撞车 / 建单推送重试', () =>
       expect(realtimeMock.pushSosUpdate).toHaveBeenCalledTimes(1);
     });
 
+    it('推送通道挂住（send 一直不回）：按应用层超时记失败、照节奏重试，不一直等到倒计时结束（10-17 评审）', async () => {
+      process.env.SOS_CREATED_PUSH_RETRY_DELAYS_SECONDS = '0';
+      process.env.SOS_NOTIFY_TIMEOUT_MS = '50';
+      try {
+        prismaMock.sosCase.findFirst.mockResolvedValue(null);
+        prismaMock.sosCase.create.mockResolvedValue(
+          pendingCase({
+            id: 'c13',
+            triggerEventId: 'fall-13',
+            deadline: inOneMinute(),
+          }),
+        );
+        prismaMock.sosCase.findUnique.mockResolvedValue({ status: 'pending' });
+        pushMock.send
+          .mockReturnValueOnce(new Promise(() => undefined))
+          .mockResolvedValueOnce(undefined);
+        await service.handleTrigger(manualSos('fall-13'), 'u1');
+        await waitForCalls(pushMock.send, 2);
+        expect(pushMock.send).toHaveBeenCalledTimes(2);
+      } finally {
+        delete process.env.SOS_NOTIFY_TIMEOUT_MS;
+      }
+    });
+
     it('不在 ingest 路径里等推送：push.send 挂起时 handleTrigger 照样立刻返回', async () => {
       prismaMock.sosCase.findFirst.mockResolvedValue(null);
       prismaMock.sosCase.create.mockResolvedValue(

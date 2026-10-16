@@ -68,7 +68,8 @@ export const jpushConfigFromEnv = (): JPushConfig | null => {
     masterSecret,
     apnsProduction: envFlag('JPUSH_APNS_PRODUCTION'),
     apiUrl: process.env.JPUSH_API_URL || 'https://api.jpush.cn/v3/push',
-    timeoutMs: envPositiveInt('PUSH_SEND_TIMEOUT_MS', 10_000),
+    // 比外层 SOS_NOTIFY_TIMEOUT_MS（默认 10 s）短：同为 10 s 时，第 9.9 s 推送成功会被外层记成超时、到点再推一条（10-17 评审）
+    timeoutMs: envPositiveInt('PUSH_SEND_TIMEOUT_MS', 8_000),
     ...(thirdPartyChannel ? { thirdPartyChannel } : {}),
   };
 };
@@ -167,6 +168,7 @@ export class JPushProvider implements PushProvider {
         signal: controller.signal,
       });
     } catch (err) {
+      clearTimeout(timer);
       // 超时 / 网络错误都必须 throw（PushProvider 契约）：SOS 通知据此记 failed 并重试
       throw new JPushError(
         0,
@@ -177,10 +179,22 @@ export class JPushProvider implements PushProvider {
             ? err.message
             : String(err),
       );
+    }
+
+    // 定时器留到响应体读完再清：只回了响应头、响应体一直不来时，原来 send 会挂到 undici 默认的 300 s，
+    // 「倒计时已开始」推送错过 5 s / 20 s 的重试（10-17 评审）。abort 同样中断读响应体
+    try {
+      return await this.readResponse(res, userId, title);
     } finally {
       clearTimeout(timer);
     }
+  }
 
+  private async readResponse(
+    res: Response,
+    userId: string,
+    title: string,
+  ): Promise<void> {
     if (!res.ok) {
       let detail = '';
       let code: number | undefined;

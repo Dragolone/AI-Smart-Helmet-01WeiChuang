@@ -1,4 +1,4 @@
-import { envFlag } from './env';
+import { envFlag, MAX_TIMER_MS, timerMs } from './env';
 
 describe('envFlag（开关类环境变量）', () => {
   const NAME = 'ENV_FLAG_SPEC';
@@ -27,4 +27,12 @@ describe('envFlag（开关类环境变量）', () => {
       expect(() => envFlag(NAME)).toThrow(`${NAME}=`);
     },
   );
+});
+
+describe('timerMs（交给 setTimeout / setInterval 的毫秒数）', () => {
+  it('超过 Node 计时器上限（约 24.8 天）的封顶：Node 会把超限值当成 1 ms，扫描空转、每条通知「1 ms 超时」', () => {
+    expect(timerMs(5_000)).toBe(5_000);
+    expect(timerMs(MAX_TIMER_MS)).toBe(MAX_TIMER_MS);
+    expect(timerMs(3e9)).toBe(MAX_TIMER_MS);
+  });
 });
