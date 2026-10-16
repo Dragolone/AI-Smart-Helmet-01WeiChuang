@@ -7,7 +7,7 @@ import type {
   Paginated,
   Sos,
 } from "@helmet/shared";
-import { api } from "./client";
+import { api, ApiRequestError } from "./client";
 
 export const sosApi = {
   /** 无进行中 SOS 时返回 { sos: null } */
@@ -44,10 +44,16 @@ export const sosApi = {
     // 只带 sosId 的外部深链没有 deviceId：直接按单号查，别去请求 /devices/undefined/sos/active 然后把一单
     // 还在倒数的求救当成「不存在」收掉（10-16 C1）
     if (deviceId) {
-      const { sos } = await api<ActiveSosResponse>(
-        `/devices/${encodeURIComponent(deviceId)}/sos/active`,
-      );
-      if (sos && sos.sosId === sosId) return sos;
+      try {
+        const { sos } = await api<ActiveSosResponse>(
+          `/devices/${encodeURIComponent(deviceId)}/sos/active`,
+        );
+        if (sos && sos.sosId === sosId) return sos;
+      } catch (e) {
+        // 倒计时中头盔被解绑：设备接口 404，但这单的处置权还在本人（解绑不影响进行中的求救，事故记录按本人查）。
+        // 原来 404 直接抛给页面：轮询停掉，数字停在 0、警报一直响、点取消 409 再拉还是 404（10-16 评审）
+        if (!(e instanceof ApiRequestError && e.status === 404)) throw e;
+      }
     }
     return api<AccidentDetail>(`/accidents/${encodeURIComponent(sosId)}`);
   },

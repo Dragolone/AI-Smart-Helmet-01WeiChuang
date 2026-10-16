@@ -328,10 +328,13 @@ function SosActiveContent() {
   const [handled, setHandled] = useState<Record<string, Sos>>({});
   if (!isDrill) {
     // 当前这单用详情缓存里的对象（会变成终态）；队列里没看过的也登记，「全部取消」后结果页才列得全
+    // 和当前这单同一顶头盔的不登记：当前这单就代表这顶头盔，两单都登记会在同一个键上来回改、渲染死循环（10-16 评审）
     const add = [
       ...(sos && handled[sos.deviceId] !== sos ? [sos] : []),
       ...queue.filter(
-        (q) => q.sosId !== sos?.sosId && handled[q.deviceId]?.sosId !== q.sosId,
+        (q) =>
+          q.deviceId !== sos?.deviceId &&
+          handled[q.deviceId]?.sosId !== q.sosId,
       ),
     ];
     if (add.length > 0)
@@ -339,6 +342,18 @@ function SosActiveContent() {
         add.reduce((h, x) => ({ ...h, [x.deviceId]: x }), { ...handled }),
       );
   }
+
+  // 同一顶头盔来了新单，而屏上这单本机还是倒计时：服务端每顶头盔至多一单在倒计时，屏上这单其实已结束、只是终态没收到
+  //（WS 断着、10 秒轮询还没跑，或是点了它留在锁屏上的旧通知进来）。立刻拉一次它的权威状态，结束了就照常切到新单
+  const supersededBy =
+    !isDrill && sos?.status === "pending"
+      ? queue.find((q) => q.deviceId === sos.deviceId && q.sosId !== sos.sosId)
+          ?.sosId
+      : undefined;
+  useEffect(() => {
+    if (!supersededBy) return;
+    void queryClient.refetchQueries({ queryKey: ["sos", sosId], exact: true });
+  }, [supersededBy, sosId, queryClient]);
 
   // 推进"当前时刻"，渲染期据此重算剩余秒数（仅展示用途，超时判定在服务端）。
   // 对着「数字该换的那一刻」去读时钟（services/countdown），不是固定每秒一次：固定间隔时定时器每次晚几毫秒，
@@ -487,7 +502,9 @@ function SosActiveContent() {
   const fresh = queue.filter((q) => !seen.includes(q.sosId));
   if (!isDrill && fresh.length > 0) {
     setSeen([...seen, ...fresh.map((q) => q.sosId)]);
-    const other = fresh.find((q) => q.sosId !== sosId);
+    const other = fresh.find(
+      (q) => q.sosId !== sosId && q.deviceId !== sos?.deviceId,
+    );
     if (other && seen.length > 0 && !finished)
       setToast(t("sos.newAlarm", { name: nameOf(other.deviceId) }));
   }
@@ -713,6 +730,18 @@ function SosActiveContent() {
                 );
                 if (failed)
                   showNotice(t("common.failed"), toUserMessage(failed.reason));
+                // 已在别处结束的单：和单条操作一样拉一次它的权威状态（屏上这单不然要等下一轮 10 秒轮询才切走）
+                results.forEach((r, i) => {
+                  if (
+                    r.status === "rejected" &&
+                    r.reason instanceof ApiRequestError &&
+                    r.reason.code === "SOS_ALREADY_FINALIZED"
+                  )
+                    void queryClient.invalidateQueries({
+                      queryKey: ["sos", targets[i].sosId],
+                      exact: true,
+                    });
+                });
                 void queryClient.invalidateQueries({
                   queryKey: ["sos-active"],
                 });
@@ -818,8 +847,14 @@ function SosActiveContent() {
     </Tappable>
   );
 
+  // 没有这一单，但还有别的单在倒数（点了已解绑头盔的推送 / 外部链接把页面切到一个不存在的单号）：切到最早到期的那单，
+  // 不能用「这条求救不存在」把正在倒数的单盖住——警报停、胶囊没了，点「关闭」后那单再也不会弹（10-16 评审）
+  const notFound = !isDrill && !sos && isNotFound(sosQuery.error);
+  const fallback = notFound ? nextSos(queue, sosId) : null;
+  if (fallback) setSelected(fallback.sosId);
+
   // 没有这一单：不画倒计时，说明一句、给关闭（页面是从链接直接打开、栈里没东西时回设备页）
-  if (!isDrill && !sos && isNotFound(sosQuery.error))
+  if (notFound && !fallback)
     return (
       <View style={[styles.goneWrap, { backgroundColor: theme.background }]}>
         <EmptyState

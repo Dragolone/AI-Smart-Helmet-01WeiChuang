@@ -33,8 +33,14 @@ describe("安全页 app/(tabs)/safety.tsx", () => {
   });
 
   it("30 s 轮询的 /sos/active 结果过终态守卫，迟到的 pending 不让卡片回潮", () => {
-    // 10-07 安全页改版后轮询收进 hooks/use-safety.ts 的 usePendingSos
+    // 10-07 安全页改版后轮询收进 hooks/use-safety.ts 的 usePendingSos；10-16 起经 fetchActiveFresh
+    //（内部先过 guardActiveResult，再挡在途期间 WS 写入被迟到应答冲掉，单测见 services/__tests__/sos-sync.test.ts）
     const hook = read("hooks/use-safety.ts");
-    expect(hook).toMatch(/guardActiveResult\(queryClient, await sosApi\.active\(id\)\)/);
+    expect(hook).toMatch(
+      /fetchActiveFresh\(queryClient, id, sosApi\.active\)/,
+    );
+    expect(read("services/sos-sync.ts")).toMatch(
+      /const result = guardActiveResult\(qc, await fetchActive\(deviceId\)\)/,
+    );
   });
 });

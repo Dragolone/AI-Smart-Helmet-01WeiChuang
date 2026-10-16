@@ -77,6 +77,33 @@ describe("activeSosQueue", () => {
     expect(activeSosQueue(qc, null).map((s) => s.sosId)).toEqual(["s9", "s1"]);
   });
 
+  it("同一顶头盔两单（旧单本机没收到终态）：只留晚建的那单，不管哪份在缓存、哪份是路由带来的（10-16 评审：两单都留会让倒计时页渲染死循环）", () => {
+    const old = sos({ sosId: "s1", createdAt: "2026-10-16T10:00:00.000Z" });
+    const newer = sos({
+      sosId: "s9",
+      createdAt: "2026-10-16T10:00:20.000Z",
+      deadline: "2026-10-16T10:01:20.000Z",
+    });
+    qc.setQueryData(["sos-active", "d1"], { sos: newer });
+    expect(activeSosQueue(qc, old).map((s) => s.sosId)).toEqual(["s9"]);
+    qc.setQueryData(["sos-active", "d1"], { sos: old });
+    expect(activeSosQueue(qc, newer).map((s) => s.sosId)).toEqual(["s9"]);
+    // 别的头盔不受影响
+    qc.setQueryData(["sos-active", "d2"], {
+      sos: sos({ sosId: "s2", deviceId: "d2" }),
+    });
+    expect(activeSosQueue(qc, newer).map((s) => s.sosId)).toEqual([
+      "s2",
+      "s9",
+    ]);
+  });
+
+  it("同一单缓存一份、路由带来一份：用路由那份（页面手上的是详情缓存里的对象，较新）", () => {
+    qc.setQueryData(["sos-active", "d1"], { sos: sos() });
+    const fromPage = sos({ updatedAt: "2026-10-16T10:00:05.000Z" });
+    expect(activeSosQueue(qc, fromPage)[0]).toBe(fromPage);
+  });
+
   it("一万顶同时报警：队列照样算得出来（页面只画前 20 个胶囊）", () => {
     for (let i = 0; i < 10_000; i += 1) {
       qc.setQueryData(["sos-active", `d${i}`], {
