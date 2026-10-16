@@ -177,7 +177,10 @@ describe('SosTriggerService：剩余分支', () => {
       ({ data }: { data: { deadline: Date } }) =>
         Promise.resolve(pending({ id: 'c2', deadline: data.deadline })),
     );
-    prisma.device.findUnique.mockResolvedValue({ name: '  红色头盔 ' });
+    prisma.device.findUnique.mockResolvedValue({
+      name: '  红色头盔 ',
+      bindUserId: 'u1',
+    });
     await svc.handleTrigger(env('manual_sos'), 'u1');
     await flush();
     expect(push.send).toHaveBeenCalledWith(

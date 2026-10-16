@@ -72,9 +72,11 @@ export class TencentSmsProvider implements SmsProvider {
         secretKey: config.secretKey,
       },
       region: config.region ?? 'ap-guangzhou',
-      // reqTimeout 单位秒：SDK 默认 60s 会让发码请求跟着挂 1 分钟（审计 AUTH-11）；应用层另有 SMS_SEND_TIMEOUT_MS 兜底
+      // reqTimeout 单位秒：SDK 默认 60s 会让发码请求跟着挂 1 分钟（审计 AUTH-11）；应用层另有 SMS_SEND_TIMEOUT_MS /
+      // SOS_NOTIFY_TIMEOUT_MS（默认都是 10 s）兜底。这里要比它们短：原来同为 10 s，第 9.9 s 发成功的短信会被外层记成超时失败、
+      // 到点再发一条——联系人收两条求救短信，验证码则被删掉、用户收到的那条输进去无效（10-17 评审）
       profile: {
-        httpProfile: { endpoint: 'sms.tencentcloudapi.com', reqTimeout: 10 },
+        httpProfile: { endpoint: 'sms.tencentcloudapi.com', reqTimeout: 8 },
       },
     });
   }

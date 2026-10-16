@@ -120,13 +120,13 @@ describe('TencentSmsProvider', () => {
   });
   afterEach(() => jest.restoreAllMocks());
 
-  it('构造：凭证透传，地域缺省广州，SDK 超时压到 10 秒（默认 60 秒会拖死发码请求）', () => {
+  it('构造：凭证透传，地域缺省广州，SDK 超时压到 8 秒（默认 60 秒会拖死发码请求；要比外层 10 秒短）', () => {
     new TencentSmsProvider(config);
     expect(ClientCtor).toHaveBeenCalledWith({
       credential: { secretId: 'AKID_FAKE', secretKey: 'KEY_FAKE' },
       region: 'ap-guangzhou',
       profile: {
-        httpProfile: { endpoint: 'sms.tencentcloudapi.com', reqTimeout: 10 },
+        httpProfile: { endpoint: 'sms.tencentcloudapi.com', reqTimeout: 8 },
       },
     });
   });

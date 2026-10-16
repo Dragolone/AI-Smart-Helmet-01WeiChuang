@@ -1,3 +1,5 @@
+import { timerMs } from './env';
+
 /** 超时错误：调用方按失败处理（记日志 / 删记录 / 重试），message 带毫秒数便于排查 */
 export class TimeoutError extends Error {
   constructor(label: string, ms: number) {
@@ -18,7 +20,7 @@ export function withTimeout<T>(
 ): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new TimeoutError(label, ms)), ms);
+    timer = setTimeout(() => reject(new TimeoutError(label, ms)), timerMs(ms));
     timer.unref();
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));

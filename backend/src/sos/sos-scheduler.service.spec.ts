@@ -368,14 +368,42 @@ describe('SosSchedulerService', () => {
       prisma.deviceBinding.findFirst.mockResolvedValue({ userId: 'u1' });
       prisma.sosCase.findFirst.mockResolvedValue({ id: 'x' });
       await expect(svc.reconcileLostTriggers()).resolves.toBe(0);
-      const wheres = prisma.sosCase.findFirst.mock.calls.map(
-        (c) => (c as [{ where: Record<string, unknown> }])[0].where,
+      // 「事件到达时已在倒数」那一支：manual_sos 排除已取消的单，possible_fall 不排除
+      const before = prisma.sosCase.findFirst.mock.calls.map(
+        (c) =>
+          (c as [{ where: { OR: Array<Record<string, unknown>> } }])[0].where
+            .OR[0],
       );
-      expect(wheres[0].status).toEqual({ not: 'cancelled' });
-      expect(wheres[1]).not.toHaveProperty('status');
+      expect(before[0].status).toEqual({ not: 'cancelled' });
+      expect(before[1]).not.toHaveProperty('status');
       expect(warnSpy).not.toHaveBeenCalledWith(
         expect.stringContaining('对账补建'),
       );
+    });
+
+    it('事件到达后一个倒计时之内建的单也算这次事故（不论状态）：E1 丢了分发、E2 建了单，E1 不再补建第二单（10-17 评审 SOS-1）', async () => {
+      process.env.SOS_COUNTDOWN_SECONDS = '60';
+      try {
+        prisma.rawEvent.findMany.mockResolvedValueOnce([rawRow('m1')]);
+        prisma.sosCase.findMany.mockResolvedValueOnce([]);
+        prisma.deviceBinding.findFirst.mockResolvedValue({ userId: 'u1' });
+        prisma.sosCase.findFirst.mockResolvedValue({ id: 'c2' });
+        await svc.reconcileLostTriggers();
+        const where = (
+          prisma.sosCase.findFirst.mock.calls[0] as [
+            { where: { OR: Array<Record<string, unknown>> } },
+          ]
+        )[0].where;
+        expect(where.OR[1]).toEqual({
+          createdAt: {
+            gt: new Date('2026-10-16T00:00:01Z'),
+            lte: new Date('2026-10-16T00:01:01Z'),
+          },
+        });
+        expect(where.OR[1]).not.toHaveProperty('status');
+      } finally {
+        delete process.env.SOS_COUNTDOWN_SECONDS;
+      }
     });
 
     it('满页（200 条）时按游标翻下一页，翻到不足一页为止', async () => {

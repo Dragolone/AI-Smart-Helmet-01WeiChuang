@@ -35,7 +35,7 @@ describe('jpushConfigFromEnv', () => {
     expect(jpushConfigFromEnv()).toBeNull();
   });
 
-  it('齐全时读取；apns_production 默认 false，超时默认 10s', () => {
+  it('齐全时读取；apns_production 默认 false，超时默认 8s（比外层 SOS_NOTIFY_TIMEOUT_MS 10 s 短）', () => {
     process.env.JPUSH_APP_KEY = 'ak';
     process.env.JPUSH_MASTER_SECRET = 'ms';
     delete process.env.JPUSH_APNS_PRODUCTION;
@@ -45,7 +45,7 @@ describe('jpushConfigFromEnv', () => {
       masterSecret: 'ms',
       apnsProduction: false,
       apiUrl: 'https://api.jpush.cn/v3/push',
-      timeoutMs: 10_000,
+      timeoutMs: 8_000,
     });
     process.env.JPUSH_APNS_PRODUCTION = 'true';
     process.env.PUSH_SEND_TIMEOUT_MS = '3000';

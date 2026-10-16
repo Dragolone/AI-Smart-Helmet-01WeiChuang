@@ -281,7 +281,7 @@ describe('审计 §4 SOS 故障注入 (e2e, 手动 tick)', () => {
     expect(victim.status).toBe('notified');
   });
 
-  it('⑤ Provider 已接收但 sent 未落库（update 抛错一次）：行记 failed → 下一轮重发 → 同一联系人收到 2 条（有上限的重复发送）', async () => {
+  it('⑤ Provider 已接收、写 sent 时数据库瞬断一次：再试写成 sent，不记 failed、不重发（原来记 failed → 下一轮重发 → 同一联系人收到 2 条，10-17 评审）', async () => {
     // 排干 ④ 留下的到期单（victim 仍 pending 是 SOS-05 的证据）：先让它终态化并投递完，再清零 mock 计数
     await scheduler.tick();
     await scheduler.tick();
@@ -291,7 +291,7 @@ describe('审计 §4 SOS 故障注入 (e2e, 手动 tick)', () => {
     const c = (await sosByEvent(prisma, e.eventId as string))!;
     const fault = failOnce(
       prisma.sosNotification,
-      'update',
+      'updateMany',
       new Error('audit: sent 落库失败（模拟）'),
       {
         when: (args) =>
@@ -305,17 +305,19 @@ describe('审计 §4 SOS 故障注入 (e2e, 手动 tick)', () => {
     }
     const rows = await notificationsOf(prisma, c.id);
     const sms = rows.find((r) => r.channel === 'sms')!;
-    // 发送已成功（Provider 收到 1 次），但库里记的是 failed + attempts=1
+    // 发送成功（Provider 收到 1 次），写 sent 第一次失败、再试成功
     expect(sosSmsCalls(mocks)).toHaveLength(1);
-    expect([sms.status, sms.attempts]).toEqual(['failed', 1]);
-    expect(sms.lastError).toContain('sent 落库失败');
+    expect([sms.status, sms.attempts, sms.lastError]).toEqual([
+      'sent',
+      1,
+      null,
+    ]);
     await scheduler.tick();
     const smsAfter = (await notificationsOf(prisma, c.id)).find(
       (r) => r.channel === 'sms',
     )!;
-    expect([smsAfter.status, smsAfter.attempts]).toEqual(['sent', 2]);
-    // 观察：同一联系人收到 2 条（重复发送，受 SOS_NOTIFY_MAX_ATTEMPTS 上限约束）
-    expect(sosSmsCalls(mocks)).toHaveLength(2);
+    expect([smsAfter.status, smsAfter.attempts]).toEqual(['sent', 1]);
+    expect(sosSmsCalls(mocks)).toHaveLength(1);
   });
 
   it('⑥ 同时 confirm 与 tick（deadline 已过，5 轮）：通知恰好一次，无重复发送', async () => {

@@ -4,12 +4,14 @@ import {
   type OnModuleDestroy,
   type OnModuleInit,
 } from '@nestjs/common';
+import { timerMs } from '../common/env';
 import { errorMessage, errorStack } from '../common/error-text';
 import type { RawEvent } from '../generated/prisma/client';
 import { SUPPORTED_SCHEMA_VERSIONS } from '../ingest/envelope';
 import type { ValidEnvelope } from '../ingest/envelope';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  countdownMs,
   notifyTimeoutMs,
   reconcileGraceMs,
   reconcileIntervalMs,
@@ -68,11 +70,11 @@ export class SosSchedulerService implements OnModuleInit, OnModuleDestroy {
     void this.runReconcile('启动', reconcileStartupWindowMs());
     this.reconcileTimer = setInterval(
       () => void this.runReconcile('周期'),
-      reconcileIntervalMs(),
+      timerMs(reconcileIntervalMs()),
     );
     this.reconcileTimer.unref();
     const interval = scanIntervalMs();
-    this.timer = setInterval(() => void this.tick(), interval);
+    this.timer = setInterval(() => void this.tick(), timerMs(interval));
     // 不阻止进程退出：HTTP 服务本身保活，测试结束不被定时器拖住
     this.timer.unref();
     this.logger.log(
@@ -88,7 +90,7 @@ export class SosSchedulerService implements OnModuleInit, OnModuleDestroy {
       await Promise.race([
         this.deliveryInFlight,
         new Promise((resolve) =>
-          setTimeout(resolve, notifyTimeoutMs()).unref(),
+          setTimeout(resolve, timerMs(notifyTimeoutMs())).unref(),
         ),
       ]);
     }
@@ -216,21 +218,38 @@ export class SosSchedulerService implements OnModuleInit, OnModuleDestroy {
           select: { userId: true },
         });
         if (!binding) continue;
-        // 当时该用户在该设备上已有进行中的单 → 按合并规则（设备 + 用户，决策 #40）只留档不建单，属正常，不是丢失。
-        // manual_sos 并入的单只会以 notified 收尾（升级即立即通知）：并入对象若是 cancelled，只可能是
-        // 「读到 pending 后、升级前被本人取消」那次竞态把求救吞掉了，这里要补建
+        // 已有单代表了这次事故 → 只留档不建单（合并规则：设备 + 用户，决策 #26① / #40），属正常，不是丢失。两种：
+        // ① 事件到达时那单已在倒数：按合并规则本来就并进去了。manual_sos 并入的单只会以 notified 收尾（升级即立即通知），
+        //    并入对象若是 cancelled，只可能是「读到 pending 后、升级前被本人取消」那次竞态把求救吞掉了，要补建；
+        // ② 事件到达后一个倒计时之内建的单：这条事件若当时正常处理，会先建单、那单把后来的事件并进去——两者是同一次事故。
+        //    原来只认①，丢了分发的 E1 在 E2 建的单结束后被补建成第二单：联系人再收一轮短信，或用户点了「我没事」1–2 分钟后
+        //    又开始倒计时（10-17 评审 SOS-1）。这里不按状态区分：那单被本人取消，就是这次事故被本人取消
         const mergedInto = await this.prisma.sosCase.findFirst({
           where: {
             deviceId: raw.deviceId,
             userId: binding.userId,
-            createdAt: { lte: raw.receivedAt },
             OR: [
-              { finalizedAt: null },
-              { finalizedAt: { gte: raw.receivedAt } },
+              {
+                createdAt: { lte: raw.receivedAt },
+                AND: [
+                  {
+                    OR: [
+                      { finalizedAt: null },
+                      { finalizedAt: { gte: raw.receivedAt } },
+                    ],
+                  },
+                ],
+                ...(raw.eventType === 'manual_sos'
+                  ? { status: { not: SOS_STATUS.cancelled } }
+                  : {}),
+              },
+              {
+                createdAt: {
+                  gt: raw.receivedAt,
+                  lte: new Date(raw.receivedAt.getTime() + countdownMs()),
+                },
+              },
             ],
-            ...(raw.eventType === 'manual_sos'
-              ? { status: { not: SOS_STATUS.cancelled } }
-              : {}),
           },
           select: { id: true },
         });
