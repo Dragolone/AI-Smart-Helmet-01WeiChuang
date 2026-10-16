@@ -17,11 +17,14 @@ import { useTheme } from "@/hooks/use-theme";
 import { useLocale, useT } from "@/i18n";
 import { shortTime } from "@/i18n/format";
 
+import { plausibleSpeed } from "./coords";
 import { endTimeLabel } from "./ride-list";
 
 /** 进度条上那颗点的半径：轨道两端各内缩这么多，点在 0%–100% 全程都落在条内 */
 const THUMB_R = 11;
 const BUBBLE_W = 52;
+/** 读屏「调整」手势（上下轻扫）一次走多少：全程的 5%，短轨迹至少走一个点 */
+const A11Y_STEP = 0.05;
 
 export type TrackStatus = "loading" | "error" | "empty" | "ready";
 
@@ -44,6 +47,7 @@ function SeekBar({
   marks,
   bubble,
   onSeek,
+  onStep,
   label,
 }: {
   ratio: number;
@@ -52,6 +56,8 @@ function SeekBar({
   /** 拖到哪一刻了；null = 没在回放，不显示 */
   bubble: string | null;
   onSeek: (ratio: number) => void;
+  /** 读屏的增 / 减操作：往后 / 往前走一步 */
+  onStep: (dir: 1 | -1) => void;
   label: string;
 }) {
   const theme = useTheme();
@@ -71,6 +77,12 @@ function SeekBar({
       accessibilityRole="adjustable"
       accessibilityLabel={label}
       accessibilityValue={{ now: Math.round(ratio * 100), min: 0, max: 100 }}
+      // 声明了 adjustable 就要接得住增减：不然读屏用户上下轻扫没有任何反应
+      accessibilityActions={[{ name: "increment" }, { name: "decrement" }]}
+      onAccessibilityAction={(e) => {
+        if (e.nativeEvent.actionName === "increment") onStep(1);
+        else if (e.nativeEvent.actionName === "decrement") onStep(-1);
+      }}
       onLayout={(e: LayoutChangeEvent) => {
         width.current = Math.max(1, e.nativeEvent.layout.width);
       }}
@@ -152,6 +164,8 @@ interface Props {
   speed: 1 | 2 | 4;
   /** 读数那一行要换成别的话时用（「正在找这个时刻的行程…」） */
   note?: string | null;
+  /** 失败时读数写什么（带重试）；不给就是「轨迹加载失败」 */
+  failText?: string | null;
   onTogglePlay: () => void;
   onCycleSpeed: () => void;
   onSeek: (index: number) => void;
@@ -171,6 +185,7 @@ export function RideReplay({
   playing,
   speed,
   note,
+  failText,
   onTogglePlay,
   onCycleSpeed,
   onSeek,
@@ -188,7 +203,8 @@ export function RideReplay({
   let readout: string;
   if (note) readout = note;
   else if (status === "loading") readout = t("map.ride.trackLoading");
-  else if (status === "error") readout = t("map.ride.trackFailed");
+  else if (status === "error")
+    readout = failText ?? t("map.ride.trackFailed");
   else if (!ready) readout = t("map.ride.trackEmpty");
   else if (activeEvent)
     readout =
@@ -202,19 +218,22 @@ export function RideReplay({
             time: activeEvent.time,
             name: activeEvent.name,
           });
-  else if (point)
+  else if (point) {
+    // 漂移出来的速度（超过 200 km/h）写「—」，和小结里的最高速度同一个把关
+    const mps = plausibleSpeed(point.speed);
+    const speed = mps !== null ? Math.round(mps * 3.6) : "—";
     readout =
       point.altitude != null
         ? t("map.ride.readoutAlt", {
             time: shortTime(point.timestamp, locale),
-            speed: Math.round(point.speed * 3.6),
+            speed,
             alt: Math.round(point.altitude),
           })
         : t("map.ride.readout", {
             time: shortTime(point.timestamp, locale),
-            speed: Math.round(point.speed * 3.6),
+            speed,
           });
-  else readout = t(clipped ? "map.ride.clipped" : "map.ride.hint");
+  } else readout = t(clipped ? "map.ride.clipped" : "map.ride.hint");
 
   return (
     <View style={styles.wrap}>
@@ -372,6 +391,12 @@ export function RideReplay({
               label={t("map.ride.seek")}
               onSeek={(r) => {
                 if (ready) onSeek(Math.round(r * last));
+              }}
+              onStep={(dir) => {
+                if (!ready) return;
+                const step = Math.max(1, Math.round(last * A11Y_STEP));
+                const from = replayIdx ?? 0;
+                onSeek(Math.max(0, Math.min(last, from + dir * step)));
               }}
             />
           </View>

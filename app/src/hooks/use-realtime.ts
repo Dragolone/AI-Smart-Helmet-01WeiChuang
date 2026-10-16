@@ -21,6 +21,7 @@ import { ApiRequestError, forceRefreshTokens } from "@/api/client";
 import { devicesApi } from "@/api/devices";
 import { realtimeClient } from "@/api/realtime";
 import { sosApi } from "@/api/sos";
+import { newerFix } from "@/components/map/coords";
 import {
   setBleTargetNameResolver,
   setBleTargets,
@@ -317,9 +318,12 @@ export function useRealtimeUpdates(): void {
           break;
         }
         case "location_update": {
-          // 地图页（等高德 Key 接 SDK）消费；先落缓存供实时数据卡使用
+          // 地图页 / 换头盔提醒读这份缓存。REST 轮询也写它：只留更新的点，乱序到达时不往回跳
           const data = message.data as WsLocationData;
-          queryClient.setQueryData(["device-location", data.deviceId], data);
+          queryClient.setQueryData<WsLocationData | null>(
+            ["device-location", data.deviceId],
+            (prev) => newerFix(prev, data),
+          );
           break;
         }
         case "sos_update": {

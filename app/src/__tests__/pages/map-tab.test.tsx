@@ -108,6 +108,7 @@ jest.mock("expo-keep-awake", () => ({
 }));
 const mockMap = {
   setHelmet: jest.fn(),
+  hideHelmet: jest.fn(),
   setTrack: jest.fn(),
   clearTrack: jest.fn(),
   setCenter: jest.fn(),
@@ -159,8 +160,12 @@ const mockRides = {
   eventsError: false,
   month: [] as RideSummary[],
   at: null as RideSummary | null,
+  /** 查「那一刻落在哪一趟」失败了 */
+  atError: false,
+  /** 轨迹拉到过、之后后台刷新失败（data 还在、isError 也是 true） */
+  trackRefetchError: false,
 };
-const mockRefetch = { track: jest.fn(), events: jest.fn() };
+const mockRefetch = { track: jest.fn(), events: jest.fn(), at: jest.fn() };
 jest.mock("@/hooks/use-rides", () => ({
   useRecentRides: () => ({ data: mockRides.recent }),
   useRidePages: (_d: unknown, _s: unknown, enabled: boolean) => ({
@@ -178,7 +183,7 @@ jest.mock("@/hooks/use-rides", () => ({
       window && !mockRides.trackError
         ? { points: mockRides.track, summary: null }
         : undefined,
-    isError: mockRides.trackError,
+    isError: mockRides.trackError || mockRides.trackRefetchError,
     isPending: !window,
     refetch: mockRefetch.track,
   }),
@@ -198,8 +203,11 @@ jest.mock("@/hooks/use-rides", () => ({
     refetch: jest.fn(),
   }),
   useRideAt: (_d: unknown, atMs: number | null) => ({
-    data: atMs === null ? undefined : mockRides.at,
-    isPending: false,
+    data: atMs === null || mockRides.atError ? undefined : mockRides.at,
+    isPending: atMs === null,
+    isError: atMs !== null && mockRides.atError,
+    isFetching: false,
+    refetch: mockRefetch.at,
   }),
 }));
 const mockSafety = {
@@ -246,9 +254,9 @@ const ride = (h: number, over: Partial<RideSummary> = {}): RideSummary => ({
   ongoing: false,
   ...over,
 });
-const mount = async () => {
+const mount = async (client = makeQueryClient()) => {
   const r = render(
-    <QueryClientProvider client={makeQueryClient()}>
+    <QueryClientProvider client={client}>
       <MapScreen />
     </QueryClientProvider>,
   );
@@ -284,6 +292,8 @@ beforeEach(() => {
     eventsError: false,
     month: [],
     at: null,
+    atError: false,
+    trackRefetchError: false,
   });
   Object.assign(mockSafety, { chosenId: null, links: { h1: "connected" } });
   m(devicesApi.list).mockImplementation(() =>
@@ -957,5 +967,214 @@ describe("一趟里的回放、事件与抽屉", () => {
     // 收着时打开行程列表：抽屉自动展开
     r.press(tr("map.rides.title"));
     expect(enabled()).toEqual([false, true]);
+  });
+});
+
+describe("2026-10-17 复审：头盔 Marker、视野、回放状态、定位缓存", () => {
+  const at = (min: number) => new Date(2026, 9, 15, 9, min).toISOString();
+  const TRACK = Array.from({ length: 5 }, (_, i) =>
+    loc({ timestamp: at(i * 2), latitude: 22.5 + i * 0.001 }),
+  );
+  const replay = (r: Rendered) => r.root.findByType(RideReplay).props;
+  const pickFirstRide = (r: Rendered) => {
+    r.press(tr("map.rides.title"));
+    const row = r.root.find(
+      (n) =>
+        n.type === Tappable &&
+        String(n.props.accessibilityLabel ?? "").includes("公里"),
+    );
+    act(() => {
+      row.props.onPress();
+    });
+  };
+  const sheetContent = (r: Rendered) =>
+    r.root.findAll(
+      (n) =>
+        typeof n.type === "string" &&
+        typeof n.props.onLayout === "function" &&
+        n.findAll((c) => isHost(c, "GestureDetector")).length > 0,
+    )[0];
+
+  it("实时没有位置：收起头盔 Marker（地图重新就绪时也收），不画在别处", async () => {
+    m(devicesApi.latestLocation).mockImplementation(() =>
+      Promise.resolve({ location: null }),
+    );
+    await mount();
+    await waitFor(() => expect(mockMap.hideHelmet).toHaveBeenCalled());
+    expect(mockMap.setHelmet).not.toHaveBeenCalled();
+    jest.clearAllMocks();
+    act(() => (mockMapProps.current.onReady as () => void)());
+    expect(mockMap.hideHelmet).toHaveBeenCalledTimes(1);
+    expect(mockMap.setHelmet).not.toHaveBeenCalled();
+  });
+
+  it("看一趟、轨迹还没有可画的点：头盔 Marker 收起，不停在实时位置上", async () => {
+    mockRides.pages = [ride(9)];
+    mockRides.track = [];
+    const r = await mount();
+    await waitFor(() => expect(mockMap.setHelmet).toHaveBeenCalled());
+    pickFirstRide(r);
+    jest.clearAllMocks();
+    // 再推一次实时状态：仍然收着
+    act(() => (mockMapProps.current.onReady as () => void)());
+    expect(mockMap.hideHelmet).toHaveBeenCalled();
+    expect(mockMap.setHelmet).not.toHaveBeenCalled();
+  });
+
+  it("看历史行程时实时定位来了新点：不重新收视野；捏合缩放过也算用户动过地图", async () => {
+    const qc = makeQueryClient();
+    mockRides.pages = [ride(9)];
+    mockRides.track = TRACK;
+    const r = await mount(qc);
+    pickFirstRide(r);
+    const fits = () => m(mockMap.setTrack).mock.calls.length;
+    const helmetMoves = () => m(mockMap.setHelmet).mock.calls.length;
+    const before = fits();
+    const movesBefore = helmetMoves();
+    // 查询库把通知攒到下一轮宏任务才发：等它重渲染完再看
+    await act(async () => {
+      qc.setQueryData(
+        ["device-location", "h1"],
+        loc({ latitude: 22.6, timestamp: new Date().toISOString() }),
+      );
+      await new Promise((res) => setTimeout(res, 0));
+    });
+    // 实时位置确实变了（Marker 的 effect 重跑过），但轨迹没有重新收视野
+    expect(helmetMoves()).toBeGreaterThan(movesBefore);
+    expect(fits()).toBe(before);
+    // 抽屉变高本来会再收一次视野；用户捏合缩放过之后就不收了
+    act(() => (mockMapProps.current.onUserZoom as () => void)());
+    act(() =>
+      sheetContent(r).props.onLayout({
+        nativeEvent: { layout: { height: 333 } },
+      }),
+    );
+    expect(fits()).toBe(before);
+  });
+
+  it("看实时位置时缩放地图：不退出跟随（只有拖动才退出）", async () => {
+    const r = await mount();
+    await waitFor(() => expect(mockMap.setHelmet).toHaveBeenCalled());
+    act(() => (mockMapProps.current.onUserZoom as () => void)());
+    expect(round(r, tr("map.following"))).toBeTruthy();
+  });
+
+  it("REST 轮询回来的点比 WS 先推来的旧：缓存里留着新的；REST 的更新才换上", async () => {
+    const qc = makeQueryClient();
+    await mount(qc);
+    const key = ["device-location", "h1"];
+    await waitFor(() => expect(qc.getQueryData(key)).toBeTruthy());
+    const newer = loc({
+      latitude: 22.6,
+      timestamp: new Date(Date.now() + 60_000).toISOString(),
+    });
+    act(() => {
+      qc.setQueryData(key, newer);
+    });
+    m(devicesApi.latestLocation).mockImplementation(() =>
+      Promise.resolve({
+        location: loc({
+          latitude: 22.4,
+          timestamp: new Date(Date.now() - 60_000).toISOString(),
+        }),
+      }),
+    );
+    await act(async () => {
+      await qc.refetchQueries({ queryKey: key });
+    });
+    expect(qc.getQueryData(key)).toEqual(newer);
+    const newest = loc({
+      latitude: 22.7,
+      timestamp: new Date(Date.now() + 120_000).toISOString(),
+    });
+    m(devicesApi.latestLocation).mockImplementation(() =>
+      Promise.resolve({ location: newest }),
+    );
+    await act(async () => {
+      await qc.refetchQueries({ queryKey: key });
+    });
+    expect(qc.getQueryData(key)).toEqual(newest);
+  });
+
+  it("轨迹已经画着、后台刷新失败：仍可回放，不写「轨迹加载失败」", async () => {
+    mockRides.pages = [ride(9)];
+    mockRides.track = TRACK;
+    mockRides.trackRefetchError = true;
+    const r = await mount();
+    pickFirstRide(r);
+    expect(replay(r).status).toBe("ready");
+    act(() => replay(r).onTogglePlay());
+    expect(replay(r).playing).toBe(true);
+  });
+
+  it("回放中离开地图页：停下；回来也不自己接着放", async () => {
+    const qc = makeQueryClient();
+    mockRides.pages = [ride(9)];
+    mockRides.track = TRACK;
+    const r = await mount(qc);
+    pickFirstRide(r);
+    act(() => replay(r).onTogglePlay());
+    expect(replay(r).playing).toBe(true);
+    const tree = (
+      <QueryClientProvider client={qc}>
+        <MapScreen />
+      </QueryClientProvider>
+    );
+    routerState.focused = false;
+    r.rerender(tree);
+    expect(replay(r).playing).toBe(false);
+    routerState.focused = true;
+    r.rerender(tree);
+    expect(replay(r).playing).toBe(false);
+  });
+
+  it("回放中轨迹变得不可用：停下", async () => {
+    const qc = makeQueryClient();
+    mockRides.pages = [ride(9)];
+    mockRides.track = TRACK;
+    const r = await mount(qc);
+    pickFirstRide(r);
+    act(() => replay(r).onTogglePlay());
+    mockRides.trackError = true;
+    r.rerender(
+      <QueryClientProvider client={qc}>
+        <MapScreen />
+      </QueryClientProvider>,
+    );
+    expect(replay(r).status).toBe("error");
+    expect(replay(r).playing).toBe(false);
+  });
+
+  it("「在地图上查看该时刻」查那一刻在哪一趟失败：写查询失败、给重试（重查那一刻），不退成看前后一段", async () => {
+    mockRides.atError = true;
+    mockRides.track = TRACK;
+    routerState.params = { deviceId: "h1", at: at(4) };
+    const r = await mount();
+    await waitFor(() => expect(replay(r).status).toBe("error"));
+    expect(replay(r).failText).toBe(tr("map.moment.findFailed"));
+    expect(replay(r).points).toHaveLength(0);
+    expect(r.allText()).toContain(tr("map.moment.findFailed"));
+    expect(r.allText()).not.toContain(tr("map.moment.none"));
+    act(() => replay(r).onRetry());
+    expect(mockRefetch.at).toHaveBeenCalledTimes(1);
+    expect(mockRefetch.track).not.toHaveBeenCalled();
+  });
+
+  it("抽屉抓手：读屏读得出是按钮、写着展开 / 收起", async () => {
+    const r = await mount();
+    await waitFor(() => expect(r.allText()).toContain(tr("map.still")));
+    const grabber = () =>
+      r.root.findAll(
+        (c) =>
+          typeof c.type !== "string" &&
+          c.props.hitSlop !== undefined &&
+          typeof c.props.onPress === "function",
+      )[0];
+    expect(grabber().props.accessibilityRole).toBe("button");
+    expect(grabber().props.accessibilityLabel).toBe(tr("map.sheet.collapse"));
+    expect(grabber().props.accessibilityState).toEqual({ expanded: true });
+    act(() => grabber().props.onPress());
+    expect(grabber().props.accessibilityLabel).toBe(tr("map.sheet.expand"));
+    expect(grabber().props.accessibilityState).toEqual({ expanded: false });
   });
 });

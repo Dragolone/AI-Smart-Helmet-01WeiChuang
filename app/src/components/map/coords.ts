@@ -73,6 +73,25 @@ export function liveSpeedOf(
   return plausibleSpeed(fix.speed);
 }
 
+/**
+ * 同一顶头盔的两个「最新定位」留哪个：按 timestamp 比，留更新的；一样新留 next。
+ * REST 轮询和 WS 推送都往同一份缓存里写：REST 请求在路上时 WS 先推来一个更新的点，
+ * REST 回来不能再把它盖成旧的（地图上头盔往回跳一下）。
+ * prev 没有 / 时间认不出 → next；next 没有、或时间认不出而 prev 认得出 → prev。
+ */
+export function newerFix<T extends { timestamp: string }>(
+  prev: T | null | undefined,
+  next: T | null | undefined,
+): T | null {
+  if (!next) return prev ?? null;
+  if (!prev) return next;
+  const p = Date.parse(prev.timestamp);
+  if (Number.isNaN(p)) return next;
+  const n = Date.parse(next.timestamp);
+  if (Number.isNaN(n)) return prev;
+  return n >= p ? next : prev;
+}
+
 const EARTH_M = 6_371_000;
 function metersBetween(a: LngLat, b: LngLat): number {
   const rad = (d: number) => (d * PI) / 180;

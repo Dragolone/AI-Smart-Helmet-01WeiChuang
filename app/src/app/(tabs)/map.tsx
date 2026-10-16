@@ -6,7 +6,7 @@
 //   一趟：地图只画这一趟，带小结、回放，路上的安全事件标在轨迹和进度条上。
 // 底部抽屉沿用 2026-09 的做法：贴着标签栏，下滑收起只留第一行，上滑展开。
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { Image } from "expo-image";
 import {
@@ -63,6 +63,7 @@ import {
 import {
   isPlausibleFix,
   liveSpeedOf,
+  newerFix,
   plausibleSpeed,
   toGcj02,
   type LngLat,
@@ -298,6 +299,7 @@ export default function MapScreen() {
   const focused = useIsFocused();
   const { height: windowHeight } = useWindowDimensions();
   const mapRef = useRef<AmapViewHandle>(null);
+  const queryClient = useQueryClient();
   // Marker 徽章显示本人头像（无头像回落头盔图标）
   const avatarUrl = useAuthStore((s) => s.user?.avatarUrl ?? null);
   const [mapError, setMapError] = useState<string | null>(null);
@@ -573,7 +575,14 @@ export default function MapScreen() {
     queryKey: ["device-location", deviceId],
     queryFn: async () => {
       const { location } = await devicesApi.latestLocation(deviceId!);
-      return location;
+      // 请求在路上时 WS 可能已经推来更新的点：留更新的那个，不把头盔往回拽
+      return newerFix(
+        queryClient.getQueryData<WsLocationData | LocationPoint | null>([
+          "device-location",
+          deviceId,
+        ]),
+        location,
+      );
     },
     enabled: !!deviceId,
     refetchInterval: 30_000,
@@ -704,9 +713,17 @@ export default function MapScreen() {
   const rideAtQuery = useRideAt(deviceId, stage === "ride" ? momentMs : null);
   const ride =
     detail?.kind === "ride" ? detail.ride : (rideAtQuery.data ?? null);
-  const finding = momentMs !== null && rideAtQuery.isPending;
+  // 查那一刻落在哪一趟失败了：如实说查询失败、给重试。不能悄悄改看那一刻前后各一段——
+  // 那等于把「没查到」当成「不在任何一趟里」
+  const findFailed =
+    momentMs !== null &&
+    rideAtQuery.data === undefined &&
+    rideAtQuery.isError &&
+    !rideAtQuery.isFetching;
+  const finding =
+    momentMs !== null && rideAtQuery.data === undefined && !findFailed;
   const rideWindow =
-    stage !== "ride" || finding
+    stage !== "ride" || finding || findFailed
       ? null
       : ride
         ? trackWindowOf(ride)
@@ -723,16 +740,21 @@ export default function MapScreen() {
     () => ridePoints.map((p) => new Date(p.timestamp).getTime()),
     [ridePoints],
   );
-  const trackStatus: TrackStatus = !rideWindow
-    ? "loading"
-    : rideTrack.isError
-      ? "error"
-      : rideTrack.isPending
-        ? "loading"
-        : ridePoints.length > 1
+  // 已经有轨迹时按轨迹算：后台刷新失败不能把画着的线说成「轨迹加载失败」（与 listStatus 同一写法）
+  const trackStatus: TrackStatus = findFailed
+    ? "error"
+    : !rideWindow
+      ? "loading"
+      : rideTrack.data
+        ? ridePoints.length > 1
           ? "ready"
-          : "empty";
+          : "empty"
+        : rideTrack.isError
+          ? "error"
+          : "loading";
   const canReplay = trackStatus === "ready";
+  // 回放控件不可用了、或离开了地图页：停下，计时器不在看不见 / 点不了的地方接着走
+  if (playing && (!canReplay || !focused)) setPlaying(false);
 
   const rideEvents = useRideEvents(deviceId, rideWindow);
   const replayEvents = useMemo<ReplayEvent[]>(() => {
@@ -813,26 +835,30 @@ export default function MapScreen() {
     path: null,
     moved: false,
   });
+  // 看一趟和看实时分成两个 effect：实时定位每来一个点 livePath 就变，看历史行程时
+  // 若也跟着重跑，没拖过地图就会被一次次重新收视野（用户刚捏合放大就被弹回去）
   useEffect(() => {
+    if (!showRide) return;
     const map = mapRef.current;
     if (!map) return;
-    if (showRide) {
-      if (ridePath.length > 1) {
-        const fresh = fitted.current.path !== ridePath;
-        if (fresh) fitted.current = { path: ridePath, moved: false };
-        if (fresh || !fitted.current.moved) {
-          map.setTrack(ridePath, {
-            pad: fitPadOf(padTop, sheetH + cardPadBottom),
-          });
-        }
-      } else map.clearTrack();
-    } else if (livePath.length > 1) {
-      // 实时模式定时刷新这条线：不收视野，镜头归「跟随」管
-      map.setTrack(livePath, { fit: false });
-    } else {
-      map.clearTrack();
-    }
-  }, [showRide, ridePath, livePath, padTop, cardPadBottom, sheetH]);
+    if (ridePath.length > 1) {
+      const fresh = fitted.current.path !== ridePath;
+      if (fresh) fitted.current = { path: ridePath, moved: false };
+      if (fresh || !fitted.current.moved) {
+        map.setTrack(ridePath, {
+          pad: fitPadOf(padTop, sheetH + cardPadBottom),
+        });
+      }
+    } else map.clearTrack();
+  }, [showRide, ridePath, padTop, cardPadBottom, sheetH]);
+  useEffect(() => {
+    if (showRide) return;
+    const map = mapRef.current;
+    if (!map) return;
+    // 实时模式定时刷新这条线：不收视野，镜头归「跟随」管
+    if (livePath.length > 1) map.setTrack(livePath, { fit: false });
+    else map.clearTrack();
+  }, [showRide, livePath]);
 
   const marks = useMemo<MapMark[]>(() => {
     if (!showRide || ridePath.length < 2) return [];
@@ -852,13 +878,17 @@ export default function MapScreen() {
 
   // 头盔 Marker：看一趟时停在回放的那个点（没开始回放就在起点），不跟镜头——整趟已经在视野里；
   // 其余时候是实时位置，跟不跟镜头看「跟随」
+  // 没有可画的位置（实时还没定位、这一趟的轨迹还没到）就收起 Marker：不能停在上一顶头盔 / 上一处
   const replayPos = showRide ? ridePath[replayIdx ?? 0] : undefined;
   useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
     if (showRide) {
-      if (replayPos) mapRef.current?.setHelmet(replayPos);
+      if (replayPos) map.setHelmet(replayPos);
+      else map.hideHelmet();
     } else if (livePos) {
-      mapRef.current?.setHelmet(livePos, { follow: following });
-    }
+      map.setHelmet(livePos, { follow: following });
+    } else map.hideHelmet();
   }, [showRide, replayPos, livePos, following]);
 
   // 离线时 Marker 变灰停波纹，一眼能看出"这不是实时位置"；看一趟时它不是实时位置，也不放波纹
@@ -1051,6 +1081,10 @@ export default function MapScreen() {
           if (showRide) fitted.current.moved = true;
           else setFollowing(false);
         }}
+        // 捏合 / 双击缩放：看一趟时同拖动（不再替用户收视野）；看实时位置时只是放大看，不退出跟随
+        onUserZoom={() => {
+          if (showRide) fitted.current.moved = true;
+        }}
         onError={(msg) => setMapError(msg)}
         // 地图（重）就绪时重推当前状态：WebView 重挂载/进程重启后 effect 依赖未变不会重发
         onReady={() => {
@@ -1063,9 +1097,11 @@ export default function MapScreen() {
               });
             }
             if (replayPos) map.setHelmet(replayPos);
+            else map.hideHelmet();
           } else {
             if (livePath.length > 1) map.setTrack(livePath, { fit: false });
             if (livePos) map.setHelmet(livePos, { follow: true });
+            else map.hideHelmet();
           }
           map.setMarks(marks);
           map.setHelmetOnline(showRide || online);
@@ -1274,6 +1310,13 @@ export default function MapScreen() {
                     <View style={styles.gripZone}>
                       <View style={styles.gripHead} onLayout={onHeaderLayout}>
                         <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={t(
+                            panelCollapsed
+                              ? "map.sheet.expand"
+                              : "map.sheet.collapse",
+                          )}
+                          accessibilityState={{ expanded: !panelCollapsed }}
                           onPress={() => snapSheet(!panelCollapsed)}
                           hitSlop={{ top: 14, bottom: 6, left: 80, right: 80 }}
                           style={styles.grabberWrap}
@@ -1667,12 +1710,20 @@ export default function MapScreen() {
                         playing={playing}
                         speed={speed}
                         note={replayNote}
+                        failText={
+                          findFailed ? t("map.moment.findFailed") : null
+                        }
                         onTogglePlay={togglePlay}
                         onCycleSpeed={() =>
                           setSpeed((v) => (v === 1 ? 2 : v === 2 ? 4 : 1))
                         }
                         onSeek={seekTo}
                         onRetry={() => {
+                          // 连这一刻在哪一趟都没查到：先重查它，查到了轨迹和事件自然跟着取
+                          if (findFailed) {
+                            void rideAtQuery.refetch();
+                            return;
+                          }
                           void rideTrack.refetch();
                           if (rideEvents.isError) void rideEvents.refetch();
                         }}

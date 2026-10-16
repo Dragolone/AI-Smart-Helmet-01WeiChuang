@@ -1,7 +1,13 @@
 // App 内部 Map 组件层（决策 #11/#33）：WebView + 高德 JS API 2.0 的唯一封装点。
 // 业务页只使用本组件的命令式接口（setHelmet/setTrack/…），不触碰 WebView/JS API 细节——换库只改这里。
 // 底图样式跟随 App 外观（2026-09-10）：深色=高德 dark 样式 + 压暗滤镜；浅色=高德 normal 样式、不加滤镜。
-import { useCallback, useEffect, useRef, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 
@@ -32,6 +38,8 @@ export interface TrackOptions {
 export interface AmapViewHandle {
   /** 移动头盔 Marker（实时位置或回放位置共用）；follow 时镜头平滑跟随 */
   setHelmet(pos: LngLat, opts?: { follow?: boolean }): void;
+  /** 收起头盔 Marker：没有位置可画时（实时没定位、一趟的轨迹还没到），不能让它停在上一处 */
+  hideHelmet(): void;
   /** 画整条轨迹（荧光双层线），默认把视野收进轨迹范围 */
   setTrack(path: LngLat[], opts?: TrackOptions): void;
   clearTrack(): void;
@@ -42,7 +50,7 @@ export interface AmapViewHandle {
   setHelmetReplay(replay: boolean): void;
   /** 换掉轨迹上的全部标记；传空数组 = 清空 */
   setMarks(marks: MapMark[]): void;
-  /** 整页重新加载（高德脚本没拉到、初始化失败后重来）；之后的命令排队等新的 ready */
+  /** 整页重新加载（高德脚本没拉到、初始化失败后重来）；之后的命令排队等新的 ready，ready 后再回调一次 onReady */
   reload(): void;
 }
 
@@ -52,6 +60,8 @@ interface Props {
   onError?: (message: string) => void;
   /** 用户手势拖动地图(程序移动镜头不触发)——调用方用于退出跟随模式 */
   onUserPan?: () => void;
+  /** 用户手势缩放 / 旋转地图（双指、双击）。和拖动分开报：看实时位置时缩放不该退出跟随 */
+  onUserZoom?: () => void;
   /** 命令句柄注入位：父组件传 useRef(null)，本组件挂载后填充。
    *  不用 useImperativeHandle——实测其在本项目 React Compiler 下 ref 永不挂载（2026-08-16）。 */
   controllerRef: RefObject<AmapViewHandle | null>;
@@ -63,6 +73,7 @@ interface Props {
 
 type Cmd =
   | { type: "helmet"; lng: number; lat: number; follow: boolean }
+  | { type: "hideHelmet" }
   | {
       type: "track";
       path: [number, number][];
@@ -78,6 +89,22 @@ type Cmd =
       items: { lng: number; lat: number; kind: string; label: string }[];
     }
   | { type: "avatar"; url: string | null };
+
+/**
+ * 就绪前排队的命令按「管的是哪样东西」归槽：同一槽只留最后一条（前面的已经过时），
+ * 队列长度有上限，不会在地图迟迟起不来时越攒越多。头盔的显示 / 收起共用一槽，轨迹的画 / 清共用一槽
+ */
+const SLOT: Record<Cmd["type"], string> = {
+  helmet: "helmet",
+  hideHelmet: "helmet",
+  track: "track",
+  clearTrack: "track",
+  center: "center",
+  helmetState: "helmetState",
+  helmetReplay: "helmetReplay",
+  marks: "marks",
+  avatar: "avatar",
+};
 
 // 默认视野：深圳（设备无数据时的兜底画面）
 const HTML = `<!doctype html>
@@ -292,6 +319,17 @@ try {
   });
   // 用户手势拖图(程序 panTo/setCenter 不触发 dragstart)→ 上报供"退出跟随"用
   map.on('dragstart', function () { post({ type: 'userpan' }); });
+  // 缩放 / 旋转不一样：程序收视野（setFitView）也会发 zoomstart。只认手指刚碰过地图之后的那些
+  //（双指捏合在触摸中；双击放大在第二下抬起之后），算用户自己动的
+  var lastTouchAt = 0;
+  function touched() { lastTouchAt = Date.now(); }
+  var mapEl = document.getElementById('map');
+  mapEl.addEventListener('touchstart', touched, { capture: true, passive: true });
+  mapEl.addEventListener('touchmove', touched, { capture: true, passive: true });
+  mapEl.addEventListener('touchend', touched, { capture: true, passive: true });
+  function userZoom() { if (Date.now() - lastTouchAt < 600) post({ type: 'userzoom' }); }
+  map.on('zoomstart', userZoom);
+  map.on('rotatestart', userZoom);
   setTimeout(function () { map.setMapStyle(MAP_STYLE); ensureDim(); }, 2500);
   ensureDim();
 
@@ -302,6 +340,8 @@ try {
         helmet.setPosition(p);
         if (!helmetShown) { helmet.setMap(map); helmetShown = true; }
         if (cmd.follow) map.panTo(p);
+      } else if (cmd.type === 'hideHelmet') {
+        helmet.setMap(null); helmetShown = false;
       } else if (cmd.type === 'track') {
         if (!cmd.path.length) return;
         ensureTrackLayer();
@@ -360,6 +400,7 @@ export function AmapView({
   onReady,
   onError,
   onUserPan,
+  onUserZoom,
   controllerRef,
   light = false,
   avatarUrl = null,
@@ -378,6 +419,8 @@ export function AmapView({
   const readyRef = useRef(false);
   const announcedRef = useRef(false);
   const pending = useRef<Cmd[]>([]);
+  // WebView 内容进程被系统杀掉后只能换一个新的 WebView：用 key 重挂载
+  const [webKey, setWebKey] = useState(0);
 
   const inject = useCallback((cmd: Cmd) => {
     webRef.current?.injectJavaScript(
@@ -388,6 +431,8 @@ export function AmapView({
   const send = useCallback(
     (cmd: Cmd) => {
       if (!readyRef.current) {
+        const slot = SLOT[cmd.type];
+        pending.current = pending.current.filter((c) => SLOT[c.type] !== slot);
         pending.current.push(cmd);
         return;
       }
@@ -395,6 +440,14 @@ export function AmapView({
     },
     [inject],
   );
+
+  // 页面换新（重载 / 内容进程被杀后重挂载）：新页面什么都没有，等它的 ready 再回调一次 onReady，
+  // 让调用方把轨迹、标记、在线状态重推一遍；头像是本组件自己推的，这里重新排进队列
+  const resetPage = useCallback(() => {
+    readyRef.current = false;
+    announcedRef.current = false;
+    send({ type: "avatar", url: avatarUrl });
+  }, [send, avatarUrl]);
 
   useEffect(() => {
     controllerRef.current = {
@@ -415,6 +468,7 @@ export function AmapView({
       clearTrack: () => send({ type: "clearTrack" }),
       setCenter: (pos, zoom) =>
         send({ type: "center", lng: pos.longitude, lat: pos.latitude, zoom }),
+      hideHelmet: () => send({ type: "hideHelmet" }),
       setHelmetOnline: (online) => send({ type: "helmetState", online }),
       setHelmetReplay: (replay) => send({ type: "helmetReplay", replay }),
       setMarks: (marks) =>
@@ -428,16 +482,16 @@ export function AmapView({
           })),
         }),
       // 断网冷启动进地图页，高德脚本拉不到就一直「地图异常」，联网也不会自己好（2026-10-15）：
-      // 重载整页，就绪标志复位，期间来的命令先排队，新 ready 到了再冲刷；onReady 不重复回调
+      // 重载整页，就绪标志复位，期间来的命令先排队，新 ready 到了再冲刷
       reload: () => {
-        readyRef.current = false;
+        resetPage();
         webRef.current?.reload();
       },
     };
     return () => {
       controllerRef.current = null;
     };
-  }, [send, controllerRef]);
+  }, [send, controllerRef, resetPage]);
 
   // 头像变化（或地图重挂载）时推进页内；未就绪会排队，ready 后统一冲刷
   useEffect(() => {
@@ -448,6 +502,11 @@ export function AmapView({
   useEffect(() => {
     webRef.current?.injectJavaScript(`window.__I18N=${i18nJson};true;`);
   }, [i18nJson]);
+
+  const restartWebView = () => {
+    resetPage();
+    setWebKey((k) => k + 1);
+  };
 
   const handleMessage = (e: WebViewMessageEvent) => {
     let msg: { type?: string; message?: string };
@@ -471,6 +530,8 @@ export function AmapView({
       }
     } else if (msg.type === "userpan") {
       onUserPan?.();
+    } else if (msg.type === "userzoom") {
+      onUserZoom?.();
     } else if (msg.type === "error") {
       onError?.(msg.message ?? t("map.err.unknown"));
     }
@@ -481,6 +542,7 @@ export function AmapView({
   return (
     <View style={style}>
       <WebView
+        key={webKey}
         injectedJavaScriptBeforeContentLoaded={`window.__LIGHT=${light ? "true" : "false"};window.__I18N=${i18nJson};true;`}
         ref={webRef}
         style={styles.fill}
@@ -492,6 +554,10 @@ export function AmapView({
         onError={(e) =>
           onError?.(t("map.err.webview", { msg: e.nativeEvent.description }))
         }
+        // 内容进程被系统回收（后台久了、内存紧）：原来的 WebView 从此一直白屏。
+        // 换一个新的 WebView，排队中的命令保留，新页面 ready 后调用方重推全部状态
+        onContentProcessDidTerminate={restartWebView}
+        onRenderProcessGone={restartWebView}
         // 地图页手势全部交给 WebView；禁掉滚动回弹避免与地图拖动打架
         scrollEnabled={false}
         bounces={false}
