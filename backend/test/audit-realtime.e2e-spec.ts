@@ -281,12 +281,12 @@ describe('审计 §7：WebSocket 实时通道 (e2e)', () => {
     await waitFor(() => (internals.byUser.get(owner.id)?.size ?? 0) === 0);
   });
 
-  it('客户端上行垃圾帧：1MB 二进制 / 非 JSON / 伪造 device_command / 伪造 sos_update → 连接不断、不产生命令或 SOS、后续推送正常', async () => {
+  it('客户端上行垃圾帧：上限内的二进制 / 非 JSON / 伪造 device_command / 伪造 sos_update → 连接不断、不产生命令或 SOS、后续推送正常（超上限见 hardening-realtime）', async () => {
     const [ws] = await connectRegistered(owner.token, owner.id);
     const loc = collectWs(ws, 'location_update');
     const cmdBefore = await prisma.deviceCommand.count({ where: { deviceId } });
     const sosBefore = await prisma.sosCase.count({ where: { deviceId } });
-    ws.send(Buffer.alloc(1024 * 1024, 7));
+    ws.send(Buffer.alloc(32 * 1024, 7));
     ws.send('not json at all');
     ws.send(
       JSON.stringify({

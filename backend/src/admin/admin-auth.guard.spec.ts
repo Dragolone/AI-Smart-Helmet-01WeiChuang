@@ -1,7 +1,9 @@
 // Admin 守卫：独立密钥验签 + typ=admin 双保险；任何失败统一 401（不区分原因）。
 import { UnauthorizedException, type ExecutionContext } from '@nestjs/common';
 import type { JwtService } from '@nestjs/jwt';
+import type { PrismaService } from '../prisma/prisma.service';
 import { AdminAuthGuard } from './admin-auth.guard';
+import { adminPasswordVersion } from './admin-auth.service';
 
 const ctxFor = (req: Record<string, unknown>) =>
   ({
@@ -10,11 +12,17 @@ const ctxFor = (req: Record<string, unknown>) =>
 
 describe('AdminAuthGuard', () => {
   const verifyAsync = jest.fn();
+  const findUnique = jest.fn();
   const guard = new AdminAuthGuard(
     { verifyAsync } as unknown as JwtService,
     'admin-secret',
+    { adminUser: { findUnique } } as unknown as PrismaService,
   );
-  beforeEach(() => verifyAsync.mockReset());
+  const pv = adminPasswordVersion('$2b$hash');
+  beforeEach(() => {
+    verifyAsync.mockReset();
+    findUnique.mockReset().mockResolvedValue({ passwordHash: '$2b$hash' });
+  });
 
   const expect401 = async (req: Record<string, unknown>) => {
     const err = await guard.canActivate(ctxFor(req)).catch((e: unknown) => e);
@@ -32,7 +40,7 @@ describe('AdminAuthGuard', () => {
   });
 
   it('用 admin 独立密钥验签；typ=admin 通过并挂 req.admin', async () => {
-    verifyAsync.mockResolvedValue({ sub: 'a1', typ: 'admin' });
+    verifyAsync.mockResolvedValue({ sub: 'a1', typ: 'admin', pv });
     const req: Record<string, unknown> = {
       headers: { authorization: 'Bearer tok' },
     };
@@ -45,6 +53,17 @@ describe('AdminAuthGuard', () => {
     verifyAsync.mockResolvedValue({ sub: 'u1' });
     await expect401({ headers: { authorization: 'Bearer tok' } });
     verifyAsync.mockResolvedValue({ sub: 'u1', typ: 'user' });
+    await expect401({ headers: { authorization: 'Bearer tok' } });
+  });
+
+  it('管理员已删除 / 已改密（token 里的密码指纹对不上）/ 旧版不带指纹的 token：401（不再等 12 h 过期，观察项 7）', async () => {
+    verifyAsync.mockResolvedValue({ sub: 'a1', typ: 'admin', pv });
+    findUnique.mockResolvedValue(null);
+    await expect401({ headers: { authorization: 'Bearer tok' } });
+    findUnique.mockResolvedValue({ passwordHash: '$2b$changed' });
+    await expect401({ headers: { authorization: 'Bearer tok' } });
+    findUnique.mockResolvedValue({ passwordHash: '$2b$hash' });
+    verifyAsync.mockResolvedValue({ sub: 'a1', typ: 'admin' });
     await expect401({ headers: { authorization: 'Bearer tok' } });
   });
 

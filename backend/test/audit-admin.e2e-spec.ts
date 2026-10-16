@@ -4,6 +4,7 @@
 // 只用本套件自己造的数据；结束只清理自己创建的行。
 import 'dotenv/config';
 import type { INestApplication } from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import request from 'supertest';
 import type { Prisma } from '../src/generated/prisma/client';
 import { randomUUID } from 'node:crypto';
@@ -385,6 +386,32 @@ describe('审计：Admin 后端边界 (e2e)', () => {
       const expired = signAdminToken(admin.id, { expiresInSec: -5 });
       const res = await adminGet(http, expired, '/users').expect(401);
       expect(res.body.code).toBe('UNAUTHORIZED');
+    });
+
+    it('管理员改密（create:admin --reset）/ 被删除后旧 token 立即 401，不再等 12 h 过期（观察项 7）', async () => {
+      const victim = await createAdmin(
+        prisma,
+        http,
+        `audit_admin_revoke_${Date.now()}`,
+      );
+      adminUsernames.push(victim.username);
+      await adminGet(http, victim.token, '/users').expect(200);
+      await prisma.adminUser.update({
+        where: { id: victim.id },
+        data: { passwordHash: await bcrypt.hash('rotated_pw_2', 4) },
+      });
+      await adminGet(http, victim.token, '/users').expect(401);
+      const relogin = await request(http)
+        .post('/api/v1/admin/auth/login')
+        .send({ username: victim.username, password: 'rotated_pw_2' })
+        .expect(200);
+      await adminGet(http, relogin.body.accessToken as string, '/users').expect(
+        200,
+      );
+      await prisma.adminUser.delete({ where: { id: victim.id } });
+      await adminGet(http, relogin.body.accessToken as string, '/users').expect(
+        401,
+      );
     });
 
     it('缺 typ / typ=user / 错密钥 / 非 Bearer 头 → 401', async () => {

@@ -19,6 +19,7 @@ describe('AuthService（单测，mock 数据层）', () => {
       updateMany: jest.fn(),
     },
     $transaction: jest.fn(),
+    $queryRaw: jest.fn(),
   };
   const smsCodesMock = {
     issue: jest.fn(),
@@ -150,9 +151,10 @@ describe('AuthService（单测，mock 数据层）', () => {
     });
   });
 
-  it('refresh：已撤销 token 过了 15 分钟补发窗口再复用 → 撤销该用户全部会话', async () => {
+  it('refresh：已轮换掉的 token 过了 15 分钟补发窗口再复用 → 撤销该用户全部会话', async () => {
     prismaMock.refreshToken.findUnique.mockResolvedValue({
       userId: 'u1',
+      replacedById: 'newer',
       revokedAt: new Date(Date.now() - 20 * 60_000),
       expiresAt: new Date(Date.now() + 1000),
       user: { deletedAt: null },
@@ -166,6 +168,20 @@ describe('AuthService（单测，mock 数据层）', () => {
         where: { userId: 'u1', revokedAt: null },
       }),
     );
+  });
+
+  it('refresh：登出 / 改密 / 重置作废的 token（没有替代者）过了 15 分钟再出现 → 只 401，不撤销其他会话（R1-1：被改密踢下线的另一台手机回来不能把留下的那台也登出）', async () => {
+    prismaMock.refreshToken.findUnique.mockResolvedValue({
+      userId: 'u1',
+      replacedById: null,
+      revokedAt: new Date(Date.now() - 20 * 60_000),
+      expiresAt: new Date(Date.now() + 1000),
+      user: { deletedAt: null },
+    });
+    await expect(service.refresh('logged-out')).rejects.toMatchObject({
+      response: { code: 'UNAUTHORIZED' },
+    });
+    expect(prismaMock.refreshToken.updateMany).not.toHaveBeenCalled();
   });
 
   it('refresh：正常轮换时在旧 token 上记下替代它的新 token', async () => {
@@ -348,20 +364,76 @@ describe('AuthService（单测，mock 数据层）', () => {
     });
     prismaMock.user.update.mockResolvedValue({});
     prismaMock.refreshToken.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.refreshToken.findUnique.mockResolvedValue({
+      id: 'keep-id',
+      userId: 'u1',
+      revokedAt: null,
+      expiresAt: new Date(Date.now() + 60_000),
+      replacedById: null,
+    });
     await service.changePassword(
       'u1',
       'correct_pw_1',
       'new_password_1',
       'keep',
     );
+    expect(prismaMock.refreshToken.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { tokenHash: hashToken('keep') } }),
+    );
     expect(prismaMock.refreshToken.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: {
-          userId: 'u1',
-          revokedAt: null,
-          tokenHash: { not: hashToken('keep') },
-        },
+        where: { userId: 'u1', revokedAt: null, id: { not: 'keep-id' } },
       }),
+    );
+  });
+
+  it('changePassword：带来的是轮换前的旧 token（应答丢了）→ 保留它的替代者（这台设备现役的那张），不把本机也登出（R1-2）', async () => {
+    prismaMock.user.findUnique.mockResolvedValue({
+      passwordHash: await bcrypt.hash('correct_pw_1', 4),
+      deletedAt: null,
+    });
+    prismaMock.user.update.mockResolvedValue({});
+    prismaMock.refreshToken.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.refreshToken.findUnique
+      .mockResolvedValueOnce({
+        id: 't1',
+        userId: 'u1',
+        revokedAt: new Date(),
+        expiresAt: new Date(Date.now() + 60_000),
+        replacedById: 't2',
+      })
+      .mockResolvedValueOnce({
+        id: 't2',
+        userId: 'u1',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+        replacedById: null,
+      });
+    await service.changePassword('u1', 'correct_pw_1', 'new_password_1', 't1');
+    expect(prismaMock.refreshToken.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: 'u1', revokedAt: null, id: { not: 't2' } },
+      }),
+    );
+  });
+
+  it('changePassword：带来的 token 不是本人的 → 不保留任何一张', async () => {
+    prismaMock.user.findUnique.mockResolvedValue({
+      passwordHash: await bcrypt.hash('correct_pw_1', 4),
+      deletedAt: null,
+    });
+    prismaMock.user.update.mockResolvedValue({});
+    prismaMock.refreshToken.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.refreshToken.findUnique.mockResolvedValue({
+      id: 'x',
+      userId: 'someone-else',
+      revokedAt: null,
+      expiresAt: new Date(Date.now() + 60_000),
+      replacedById: null,
+    });
+    await service.changePassword('u1', 'correct_pw_1', 'new_password_1', 'x');
+    expect(prismaMock.refreshToken.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: 'u1', revokedAt: null } }),
     );
   });
 

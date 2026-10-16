@@ -57,6 +57,20 @@ const phoneTaken = (): ConflictException =>
     message: '该手机号已注册',
   });
 
+/** 沿 refresh token 替代链走的最大跳数（防脏数据成环） */
+const MAX_REPLACEMENT_HOPS = 10;
+
+/**
+ * 轮换 / 补发事务的第一句：给用户行加共享锁，与改密 / 重置 / 注销（它们的事务第一句都是更新用户行）串行。
+ * 不锁的话 READ COMMITTED 下并发的 refresh 刚插入的新 token 改密那句 updateMany 看不见，改密后照样能用（10-17 评审 R1-3）。
+ * 用 FOR SHARE 而不是 FOR KEY SHARE：后者与 user.update 的 NO KEY UPDATE 锁不冲突
+ */
+const lockUserRow = (
+  tx: Pick<PrismaService, '$queryRaw'>,
+  userId: string,
+): Promise<unknown> =>
+  tx.$queryRaw`SELECT 1 FROM users WHERE id = ${userId} FOR SHARE`;
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -191,9 +205,11 @@ export class AuthService {
   ): Promise<void> {
     await this.verifyPassword(userId, oldPassword);
     const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
-    const keepHash = keepRefreshToken
-      ? hashRefreshToken(keepRefreshToken)
-      : undefined;
+    // 保留的是这台设备「现役」的那张：App 带来的若是轮换前的旧 token（refresh 应答丢了，手上只剩它），
+    // 现役的是它的替代者——原来按旧 token 的哈希保留，等于把这台设备也登出了（10-17 评审 R1-2）
+    const keepId = keepRefreshToken
+      ? await this.liveDescendant(hashRefreshToken(keepRefreshToken), userId)
+      : null;
     await this.prisma.$transaction([
       this.prisma.user.update({
         where: { id: userId },
@@ -204,7 +220,7 @@ export class AuthService {
         where: {
           userId,
           revokedAt: null,
-          ...(keepHash && { tokenHash: { not: keepHash } }),
+          ...(keepId && { id: { not: keepId } }),
         },
         data: { revokedAt: new Date() },
       }),
@@ -267,6 +283,11 @@ export class AuthService {
         if (reissued) return reissued;
         throw unauthorized('refresh token 已被使用，请用最新的 token');
       }
+      // 登出 / 改密 / 重置 / 注销作废的 token 没有替代者：任何时候再出现都只是 401（API.md §2）。
+      // 原来一律当盗用撤销全部会话——被改密踢下线的另一台手机几小时后回来，会把用户留下的那台也登出（10-17 评审 R1-1）
+      if (!record.replacedById) {
+        throw unauthorized('refresh token 已失效，请重新登录');
+      }
       // 已轮换掉的 token 过了补发窗口再次出现 = 疑似被盗用，终止该用户所有会话
       this.logger.warn(
         `refresh token 复用检测：撤销用户 ${record.userId} 全部会话`,
@@ -284,6 +305,7 @@ export class AuthService {
     // 作废旧的、签发新的、记替代关系三步在一个事务里：进程倒在中间不会留下「旧的已作废、新的没发出、
     // 也补发不了」的死会话（10-06 并发评审 #6）
     const pair = await this.prisma.$transaction(async (tx) => {
+      await lockUserRow(tx, record.userId);
       const rotated = await tx.refreshToken.updateMany({
         where: { tokenHash, revokedAt: null },
         data: { revokedAt: new Date() },
@@ -309,6 +331,7 @@ export class AuthService {
     const replacedById = record.replacedById;
     if (!replacedById) return null;
     const pair = await this.prisma.$transaction(async (tx) => {
+      await lockUserRow(tx, record.userId);
       const taken = await tx.refreshToken.updateMany({
         where: { id: replacedById, revokedAt: null },
         data: { revokedAt: new Date() },
@@ -323,12 +346,69 @@ export class AuthService {
     return pair;
   }
 
-  /** 登出：作废指定 refresh token（幂等——不存在也返回成功）。 */
+  /**
+   * 登出：作废指定 refresh token（幂等——不存在也返回成功）。
+   * 带来的若是轮换前的旧 token（refresh 应答丢了，App 手上只剩它），这台设备现役的是它的替代者：一并作废，
+   * 并清掉替代关系让旧 token 不能再凭它补发。原来只处理「还活着的」这张，旧 token 登出等于什么都没做——
+   * 替代者再活 30 天，旧 token 15 分钟内还能补发新会话（10-17 评审 R1-2）。
+   */
   async logout(refreshToken: string): Promise<void> {
-    await this.prisma.refreshToken.updateMany({
-      where: { tokenHash: hashRefreshToken(refreshToken), revokedAt: null },
-      data: { revokedAt: new Date() },
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      let row = await tx.refreshToken.findUnique({
+        where: { tokenHash: hashRefreshToken(refreshToken) },
+        select: { id: true, replacedById: true },
+      });
+      // 沿替代链往下（同一台设备连续丢应答时不止一跳），跳数有上限防环
+      for (let hop = 0; row && hop < MAX_REPLACEMENT_HOPS; hop += 1) {
+        await tx.refreshToken.updateMany({
+          where: { id: row.id, revokedAt: null },
+          data: { revokedAt: now },
+        });
+        if (!row.replacedById) break;
+        await tx.refreshToken.update({
+          where: { id: row.id },
+          data: { replacedById: null },
+        });
+        row = await tx.refreshToken.findUnique({
+          where: { id: row.replacedById },
+          select: { id: true, replacedById: true },
+        });
+      }
     });
+  }
+
+  /** 沿替代链找到这台设备现役（未作废、未过期）的那张 token 的 id；链上都已作废返回 null（只认本人的） */
+  private async liveDescendant(
+    tokenHash: string,
+    userId: string,
+  ): Promise<string | null> {
+    let row = await this.prisma.refreshToken.findUnique({
+      where: { tokenHash },
+      select: {
+        id: true,
+        userId: true,
+        revokedAt: true,
+        expiresAt: true,
+        replacedById: true,
+      },
+    });
+    for (let hop = 0; row && hop < MAX_REPLACEMENT_HOPS; hop += 1) {
+      if (row.userId !== userId) return null;
+      if (!row.revokedAt && row.expiresAt.getTime() > Date.now()) return row.id;
+      if (!row.replacedById) return null;
+      row = await this.prisma.refreshToken.findUnique({
+        where: { id: row.replacedById },
+        select: {
+          id: true,
+          userId: true,
+          revokedAt: true,
+          expiresAt: true,
+          replacedById: true,
+        },
+      });
+    }
+    return null;
   }
 
   /** 签发一对新 token；replacesId = 本次轮换作废的旧 token，记下替代关系供应答丢失时补发 */

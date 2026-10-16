@@ -45,16 +45,22 @@ export async function cleanupAdmins(
     .catch(() => undefined);
 }
 
-/** 用真实 ADMIN_JWT_SECRET 签 token，可指定过期秒数（负数=已过期）或去掉 typ */
+/** 用真实 ADMIN_JWT_SECRET 签 token，可指定过期秒数（负数=已过期）、去掉 typ、带密码指纹 pv */
 export function signAdminToken(
   sub: string,
-  opts: { expiresInSec?: number; typ?: string | null; secret?: string } = {},
+  opts: {
+    expiresInSec?: number;
+    typ?: string | null;
+    secret?: string;
+    pv?: string;
+  } = {},
 ): string {
   const secret = opts.secret ?? process.env.ADMIN_JWT_SECRET;
   if (!secret) throw new Error('ADMIN_JWT_SECRET 未设置');
   const now = Math.floor(Date.now() / 1000);
   const payload: Record<string, unknown> = { sub, iat: now };
   if (opts.typ !== null) payload.typ = opts.typ ?? 'admin';
+  if (opts.pv) payload.pv = opts.pv;
   payload.exp = now + (opts.expiresInSec ?? 3600);
   return jwt.sign(payload, secret, { algorithm: 'HS256' });
 }
