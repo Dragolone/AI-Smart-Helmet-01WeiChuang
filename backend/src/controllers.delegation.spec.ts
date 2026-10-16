@@ -146,7 +146,7 @@ describe('控制器参数转交', () => {
     expect(hook.authorize).toHaveBeenCalledWith('u', 't', 'publish');
   });
 
-  it('DevicesController：重命名没传 name 按 null（清除）；其余直传', async () => {
+  it('DevicesController：重命名没传 name 不改（只查一遍返回现状，B7）、null 是清除；其余直传', async () => {
     const s = mockOf(
       'bind',
       'listMine',
@@ -161,13 +161,17 @@ describe('控制器参数转交', () => {
     void c.list(req);
     void c.detail(req, 'h');
     void c.rename(req, 'h', {});
+    void c.rename(req, 'h', { name: null });
     void c.rename(req, 'h', { name: '新' });
     void c.status(req, 'h');
     void c.batteryHistory(req, 'h', { hours: 6 });
     await c.unbind(req, 'h');
     expect(s.bind).toHaveBeenCalledWith('u1', 'h', '1');
     expect(s.listMine).toHaveBeenCalledWith('u1');
-    expect(s.getOwned).toHaveBeenCalledWith('u1', 'h');
+    expect(s.getOwned.mock.calls).toEqual([
+      ['u1', 'h'],
+      ['u1', 'h'],
+    ]);
     expect(s.rename.mock.calls).toEqual([
       ['u1', 'h', null],
       ['u1', 'h', '新'],

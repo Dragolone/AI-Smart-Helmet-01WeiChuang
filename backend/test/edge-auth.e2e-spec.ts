@@ -288,7 +288,7 @@ describe('边界：认证 (e2e)', () => {
       }
     });
 
-    it('昵称：缺省为 null；30 个 emoji 201；31 个 400；RTL / 零宽字符原样保存；非字符串 400', async () => {
+    it('昵称：缺省为 null；30 个 emoji 201；31 个 400；RTL / 零宽字符去掉、只剩看不见的字符 → null；非字符串 400', async () => {
       const ok = async (nickname: unknown): Promise<request.Response> => {
         const phone = randomPhone();
         const code = await freshCode(phone);
@@ -303,10 +303,13 @@ describe('边界：认证 (e2e)', () => {
       expect(emoji30.status).toBe(201);
       expect(emoji30.body.user.nickname).toBe('😀'.repeat(30));
       expect((await ok('😀'.repeat(31))).status).toBe(400);
-      const rtl = '\u202e骑手\u200d\u200b';
-      const r = await ok(rtl);
+      // 入库前整理（common/display-name，与 App 显示同一规则；10-16 夜测 N6）
+      const r = await ok('\u202e骑手\u200d\u200b');
       expect(r.status).toBe(201);
-      expect(r.body.user.nickname).toBe(rtl);
+      expect(r.body.user.nickname).toBe('骑手');
+      const blank = await ok('\u200b\n\u200c');
+      expect(blank.status).toBe(201);
+      expect(blank.body.user.nickname).toBeNull();
       expect((await ok(123)).status).toBe(400);
     });
 

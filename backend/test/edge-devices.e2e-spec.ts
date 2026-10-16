@@ -329,18 +329,29 @@ describe('边界：设备 (e2e)', () => {
       }
     });
 
-    it('首尾空白存之前 trim；但长度在 trim 之前校验——20 字加首尾空格共 22 字符 → 400（文档未写，按现状）', async () => {
+    it('首尾空白存之前去掉；长度按整理后的名字算——20 字加首尾空格 200，21 字 400', async () => {
       const u = await newUser();
       const d = await newDevice();
       await bindDevice(http, u.token, d);
       const trimmed = await rename(u, d, { name: '  我的头盔  ' });
       expect(trimmed.body.name).toBe('我的头盔');
-      expect(
-        (await rename(u, d, { name: ` ${'盔'.repeat(20)} ` })).status,
-      ).toBe(400);
+      const padded = await rename(u, d, { name: ` ${'盔'.repeat(20)} ` });
+      expect(padded.status).toBe(200);
+      expect(padded.body.name).toBe('盔'.repeat(20));
+      expect((await rename(u, d, { name: '盔'.repeat(21) })).status).toBe(400);
     });
 
-    it('name: null → 清空；非字符串（数字 / 数组）→ 400；零宽空格名原样保存（不算空白，按现状）', async () => {
+    it('不传 name（空对象）→ 不改名，原来会把自定义名清掉（10-16 边界测试 B7）', async () => {
+      const u = await newUser();
+      const d = await newDevice();
+      await bindDevice(http, u.token, d);
+      await rename(u, d, { name: '保留' }).expect(200);
+      const r = await rename(u, d, {});
+      expect(r.status).toBe(200);
+      expect(r.body.name).toBe('保留');
+    });
+
+    it('name: null → 清空；非字符串（数字 / 数组）→ 400；只含零宽字符 / 换行 → 整理后为空，等于清除（10-16 夜测 N1）', async () => {
       const u = await newUser();
       const d = await newDevice();
       await bindDevice(http, u.token, d);
@@ -351,8 +362,12 @@ describe('边界：设备 (e2e)', () => {
       for (const name of [123, ['a'], { a: 1 }]) {
         expect((await rename(u, d, { name })).status).toBe(400);
       }
-      const zw = await rename(u, d, { name: '\u200b' });
-      expect(zw.body.name).toBe('\u200b');
+      await rename(u, d, { name: '有名' }).expect(200);
+      const zw = await rename(u, d, { name: '\u200b\n\u2060' });
+      expect(zw.status).toBe(200);
+      expect(zw.body.name).toBeNull();
+      const multi = await rename(u, d, { name: '第一行\n第二行' });
+      expect(multi.body.name).toBe('第一行 第二行');
     });
 
     it('改名只改 name：deviceId / bindCode / bindUserId 一并传入被丢弃', async () => {

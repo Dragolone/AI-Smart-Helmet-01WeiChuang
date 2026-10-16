@@ -1,13 +1,16 @@
+import { cleanDisplayName } from './display-name';
+
 /**
  * 给用户看的文字（推送等）里怎么称呼一顶头盔：用户起过名就用名字，没有才用设备编号。
  * 负责人 2026-10-15：有重命名一定先显示重命名，不然绑了几顶时分不清是哪一顶。App 端同一规则见 helmetNameOf。
+ * 名字入库前已整理，这里再整理一遍是给整理规则上线前存下的旧名字（只含零宽字符 / 带换行）。
  */
 export function helmetLabel(device: {
   name?: string | null;
   deviceId: string;
 }): string {
-  const name = device.name?.trim();
-  return name ? name : device.deviceId;
+  const name = device.name ? cleanDisplayName(device.name) : '';
+  return name || device.deviceId;
 }
 
 const CLOCK = new Intl.DateTimeFormat('zh-CN', {

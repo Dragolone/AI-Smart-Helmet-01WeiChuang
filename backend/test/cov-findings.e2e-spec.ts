@@ -1,6 +1,6 @@
 // 补测发现的端到端复现（test/coverage-findings-1016.md）：真库 + 真 HTTP，只断言现状。
 // BC1：(0,0) 位置点进轨迹表 → 最新位置返回 (0,0)；摔倒事件自带 (0,0) 被当缺失、回落最新轨迹点（#202 起跳过 (0,0)）。
-// BC3：对讲频道名全空白也能建。修好后把这里的期望改成修复后的口径。
+// BC3：对讲频道名全空白也能建（已修：先整理再验，见 common/display-name）。
 import 'dotenv/config';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { WsAdapter } from '@nestjs/platform-ws';
@@ -153,13 +153,19 @@ describe('补测发现复现（cov e2e）', () => {
       .expect(200);
   });
 
-  it('BC3 现状：对讲频道名全空白 → 201 照建（名字原样存三个空格）', async () => {
-    const res = await request(http)
+  it('BC3（已修）：对讲频道名全空白 → 400，与联系人同口径；首尾空白去掉后照建', async () => {
+    const blank = await request(http)
       .post('/api/v1/voice/channels')
       .set('Authorization', `Bearer ${token}`)
       .send({ name: '   ' });
-    expect(res.status).toBe(201);
-    expect(res.body.name).toBe('   ');
+    expect(blank.status).toBe(400);
+    expect(blank.body.code).toBe('VALIDATION_FAILED');
+    const padded = await request(http)
+      .post('/api/v1/voice/channels')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: '  车队  ' });
+    expect(padded.status).toBe(201);
+    expect(padded.body.name).toBe('车队');
   });
 
   it('对照：联系人名全空白 → 400（已先 trim 再验）', async () => {

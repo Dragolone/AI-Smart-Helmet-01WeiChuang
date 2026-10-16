@@ -90,11 +90,16 @@ describe('边界：紧急联系人 (e2e)', () => {
     }
   });
 
-  it('姓名只有零宽空格（\\u200b 不算空白）：201 原样入库（文档未写，按现状——短信里会是空名）', async () => {
+  it('姓名只有零宽字符 / 换行 → 400（整理后为空；联系人页、倒计时页原来一片空白，10-16 夜测 N1 / N19）；夹在中间的去掉', async () => {
     const u = await newUser();
-    const r = await create(u, { name: '\u200b', phone: '13800001113' });
+    for (const name of ['\u200b', '\u200b\n\u200c', '\ufeff \u3164']) {
+      const r = await create(u, { name, phone: '13800001113' });
+      expect(r.status).toBe(400);
+      expect(r.body.code).toBe('VALIDATION_FAILED');
+    }
+    const r = await create(u, { name: '老\u200b王\n家', phone: '13800001113' });
     expect(r.status).toBe(201);
-    expect(r.body.name).toBe('\u200b');
+    expect(r.body.name).toBe('老王 家');
   });
 
   it('姓名长度：trim 后 30 字通过、31 字 400；首尾空白不计入（先 trim 再验）；30 个 emoji 通过', async () => {

@@ -20,8 +20,9 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
+import { cleanName } from '../common/display-name';
 import { RateLimit } from '../common/rate-limit.guard';
 import { DevicesService } from './devices.service';
 
@@ -37,11 +38,12 @@ class BindDeviceDto {
 }
 
 class UpdateDeviceDto {
-  // 自定义设备名:1-20 字符(trim 后空串视为清除);仅此一个可改字段
+  // 自定义设备名:整理(零宽 / 换行,见 common/display-name)后 1-20 字符,整理完空串视为清除;仅此一个可改字段
+  @Transform(cleanName)
   @IsOptional()
   @IsString()
   @MaxLength(20)
-  name?: string;
+  name?: string | null;
 }
 
 class BatteryHistoryQueryDto {
@@ -86,7 +88,11 @@ export class DevicesController {
     @Param('deviceId') deviceId: string,
     @Body() dto: UpdateDeviceDto,
   ) {
-    return this.devices.rename(req.user.userId, deviceId, dto.name ?? null);
+    // 不传 name = 不改（PATCH 语义；原来 {} 会把自定义名清掉，10-16 边界测试 B7）；null / 空串才是清除
+    if (dto.name === undefined) {
+      return this.devices.getOwned(req.user.userId, deviceId);
+    }
+    return this.devices.rename(req.user.userId, deviceId, dto.name);
   }
 
   @Get(':deviceId/status')

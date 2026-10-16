@@ -58,13 +58,16 @@ describe('边界：用户资料与注销 (e2e)', () => {
       expect((await patchMe({ nickname: '👨‍👩‍👧‍👦'.repeat(5) })).status).toBe(400);
     });
 
-    it('空串 / 全空白原样保存，不 trim（文档未写，按现状）', async () => {
+    it('空串 / 全空白 → 清成 null（整理后为空等于没起，API.md §2 名字整理）；首尾空白去掉', async () => {
+      await patchMe({ nickname: '老张' }).expect(200);
       const empty = await patchMe({ nickname: '' });
       expect(empty.status).toBe(200);
-      expect(empty.body.nickname).toBe('');
+      expect(empty.body.nickname).toBeNull();
       const blank = await patchMe({ nickname: '   ' });
       expect(blank.status).toBe(200);
-      expect(blank.body.nickname).toBe('   ');
+      expect(blank.body.nickname).toBeNull();
+      const padded = await patchMe({ nickname: '  老张  ' });
+      expect(padded.body.nickname).toBe('老张');
     });
 
     it('nickname: null → 清空为 null（文档未写，按现状）；不传 nickname 则不动', async () => {
@@ -77,16 +80,22 @@ describe('边界：用户资料与注销 (e2e)', () => {
       expect(cleared.body.nickname).toBeNull();
     });
 
-    it('RTL 覆盖符 / 零宽字符 / 换行 / HTML 原样保存与回传（转义是前端职责）', async () => {
-      const weird = '\u202e<b>x</b>\u200b\n&amp;';
-      const r = await patchMe({ nickname: weird });
+    it('RTL 覆盖符 / 零宽字符去掉、换行压成空格；HTML 原样保存与回传（转义是前端职责）', async () => {
+      const r = await patchMe({ nickname: '\u202e<b>x</b>\u200b\n&amp;' });
       expect(r.status).toBe(200);
-      expect(r.body.nickname).toBe(weird);
+      expect(r.body.nickname).toBe('<b>x</b> &amp;');
       const got = await request(http)
         .get('/api/v1/users/me')
         .set(auth(me.token))
         .expect(200);
-      expect(got.body.nickname).toBe(weird);
+      expect(got.body.nickname).toBe('<b>x</b> &amp;');
+    });
+
+    it('只含零宽字符 / 换行的昵称 → 清成 null（资料卡、对讲格子原来一片空白，10-16 夜测 N6）', async () => {
+      await patchMe({ nickname: '原名' }).expect(200);
+      const r = await patchMe({ nickname: '\u200b\n \ufeff' });
+      expect(r.status).toBe(200);
+      expect(r.body.nickname).toBeNull();
     });
 
     it('非字符串（数字 / 布尔 / 数组 / 对象）→ 400，昵称不变', async () => {

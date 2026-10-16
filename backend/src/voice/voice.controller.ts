@@ -8,12 +8,16 @@ import {
   Post,
   Req,
 } from '@nestjs/common';
+import { Transform } from 'class-transformer';
 import { IsString, Matches, MaxLength, MinLength } from 'class-validator';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
+import { cleanName } from '../common/display-name';
 import { RateLimit } from '../common/rate-limit.guard';
 import { VoiceService } from './voice.service';
 
 class CreateChannelDto {
+  // 与联系人名同口径：先整理再验 1–30，全空白 / 只含零宽字符的频道名 400（10-16 BC3 / N 系列）
+  @Transform(cleanName)
   @IsString()
   @MinLength(1)
   @MaxLength(30)

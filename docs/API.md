@@ -72,6 +72,8 @@
 | PATCH | /users/me | 更新昵称/头像等非敏感字段 |
 | DELETE | /users/me | 注销账号（✅ 2026-09-11，**需登录**；App Store 要求应用内可注销）。body：`{ password }` → 204；密码错误 → 400 `PASSWORD_INCORRECT`。**软删除**（`users.deleted_at`），一个事务内完成：置 `deletedAt`、`phone` 改写为 `deleted:<userId>`（**原手机号不保留**，即刻可重新注册为全新账号）、清空 `avatarUrl`、撤销全部 refresh token、解绑名下全部设备（与 `DELETE /devices/{deviceId}/binding` 同口径，设备与历史事件留档）、软删除全部紧急联系人、**退出全部对讲频道（释放名额，频道本身保留；2026-09-14 审计 VOICE-02 补）**，并**主动以 4401 断开该账号已建立的 WebSocket 连接**（2026-09-14 审计 AUTH-05/INGEST-04 补）。事故记录/事件/轨迹按设备留档不动；**昵称保留**（Admin 按昵称找已注销账号做事故归属，ADMIN-04；隐私政策只承诺清手机号与头像，2026-10-14 定）。已注销用户：login 401（号已改写）、refresh 401（token 已撤销 + 服务端校验 `deletedAt`）；**JWT 守卫验签后查 `deleted_at`（✅ 2026-09-12 上线前探针修复）**——注销后残留的 access token 在全部 REST 接口与 WS 连接上立即 401 / 4401，不能再绑设备、建联系人、改资料 |
 
+**名字类字段入库前整理**（昵称、头盔名、联系人名、频道名；2026-10-16，10-16 夜测 N1 / N6）：去掉看不见的字符（零宽空格 / 零宽不连字、方向控制符、BOM、控制符等；表情组合用的零宽连接符与变体选择符保留），换行、制表等连续空白压成一个空格，去首尾空白——与 App 显示同一规则（`backend/src/common/display-name.ts` ↔ `app/src/services/safety-status.ts` `cleanHelmetName`）。长度上限按整理后的名字算。整理完为空：昵称存 null、头盔名等于清除、联系人名 / 频道名 400 VALIDATION_FAILED。
+
 `user` 对象：`{ id, phone, nickname, avatarUrl?, createdAt }`。密码 bcrypt/argon2 存储，任何接口不回传。
 
 Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / refresh 30 天**；refresh 轮换制——每次刷新旧 token 作废；已作废 token 再出现：0.5s 内并发竞态只拒本次、15min 内按应答丢失补发一次、之后视为盗用撤销该用户全部会话（§2 refresh 行）。本节 register/login/refresh/logout 与 /users/me 均已实现；**短信验证码（sms-code / register.code / reset-password）2026-09-09 实现**；**账号与安全（change-password / change-phone / DELETE /users/me，✅ 2026-09-11 负责人拍板）已实现**，TS 类型见 `@helmet/shared` ChangePasswordRequest / ChangePhoneRequest / DeleteAccountRequest。本地与演示环境短信走 Console Mock，验证码打印在后端日志（`[MOCK SMS] … verify_code`），云端查看：`docker compose -f docker-compose.prod.yml logs backend | grep verify_code`；腾讯云通道配齐 `TENCENT_SMS_*` 六项环境变量即切换为真发（THIRD_PARTY.md §4）。
@@ -98,7 +100,7 @@ Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / 
 | POST | /devices/bind | 绑定。body：`{ deviceId, bindCode }`（✅ 绑定凭证 = 出厂 8 位绑定码 + 绑定二维码，格式 DEVICE_PROTOCOL §11、由 `provision:batch` 产出；⚠️ 印制载体待硬件确认；Mock 设备用注册时生成的 bindCode 走同一流程） |
 | GET | /devices | 我的设备列表 |
 | GET | /devices/{deviceId} | 设备详情（含实时状态快照） |
-| PATCH | /devices/{deviceId} | 重命名（2026-08-17）。body：`{ name?: string }`（≤20 字符，trim 后空串=清除，App 回退显示 deviceId）；返回更新后的 device 对象 |
+| PATCH | /devices/{deviceId} | 重命名（2026-08-17）。body：`{ name?: string \| null }`（整理后 ≤20 字符，整理后空串或 null = 清除，App 回退显示 deviceId；**不传 name = 不改**，2026-10-16 B7——原来空对象也会清名）；返回更新后的 device 对象 |
 | DELETE | /devices/{deviceId}/binding | 解绑（软删除绑定关系，设备数据留档；关闭当前这段绑定历史） |
 
 绑定历史与可见范围（✅ 2026-09-10 负责人拍板，决策 #39）：每次绑定/解绑记一段区间（`device_bindings`）。§5 轨迹、§6 事件、§9 媒体只返回**当前用户在该设备上的绑定区间内**到达（服务端 `receivedAt`）的数据——换绑后新主看不到前主期间的数据；同一用户解绑再绑回同一台头盔，之前的记录仍然可见。§7 事故记录按建单时的 userId 固化，不受影响；Admin 全量可见。
@@ -291,7 +293,7 @@ MVP 实用为主，全部只读 + 少量运维操作。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | /voice/channels | 建频道。body：`{ name }` → channel 对象（创建者自动入频道） |
+| POST | /voice/channels | 建频道。body：`{ name }`（整理后 1–30 字，全空白 / 只含零宽字符 400）→ channel 对象（创建者自动入频道） |
 | GET | /voice/channels | 我加入的频道列表 |
 | POST | /voice/channels/join | body：`{ inviteCode }`（6 位字母 / 数字，不区分大小写；形状不对 400）；邀请码错误 404；满员 409 `CHANNEL_FULL`；重复加入幂等返回频道 |
 | DELETE | /voice/channels/{channelId}/membership | 退出频道（非成员 404；频道保留，MVP 不做解散/回收） |

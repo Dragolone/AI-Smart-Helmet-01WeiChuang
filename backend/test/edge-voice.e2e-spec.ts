@@ -84,13 +84,16 @@ describe('边界：对讲频道 (e2e)', () => {
       }
     });
 
-    it('全空白频道名 201 原样保存、首尾空白不 trim（文档未写，按现状——与联系人名 / 设备名会 trim 不一致）', async () => {
+    it('频道名先整理再验（与联系人名 / 设备名同口径）：全空白 / 只含零宽字符 400，首尾空白去掉', async () => {
       const u = await newUser();
-      const blank = await create(u, { name: '   ' });
-      expect(blank.status).toBe(201);
-      expect(blank.body.name).toBe('   ');
+      for (const name of ['   ', '\u200b\n']) {
+        const blank = await create(u, { name });
+        expect(blank.status).toBe(400);
+        expect(blank.body.code).toBe('VALIDATION_FAILED');
+      }
       const padded = await create(u, { name: '  周末骑行  ' });
-      expect(padded.body.name).toBe('  周末骑行  ');
+      expect(padded.status).toBe(201);
+      expect(padded.body.name).toBe('周末骑行');
     });
 
     it('邀请码 6 位、只用 2–9 与去掉 I/L/O 的大写字母；roomId 是 [1e9, 2^31) 的整数；30 个频道两两不同', async () => {
@@ -269,13 +272,16 @@ describe('边界：对讲频道 (e2e)', () => {
   });
 
   describe('成员档案', () => {
-    it('成员按加入先后；昵称为 null / 空串 / RTL 原样；手机号脱敏不含完整号；头像互见', async () => {
+    it('成员按加入先后；昵称为 null 照回、RTL 覆盖符入库前已去掉；手机号脱敏不含完整号；头像互见', async () => {
       const owner = await newUser();
       const a = await newUser();
       await request(http)
         .patch('/api/v1/users/me')
         .set(auth(a.token))
-        .send({ nickname: '‮骑手', avatarUrl: 'https://cdn.example.com/a.png' })
+        .send({
+          nickname: '\u202e骑手',
+          avatarUrl: 'https://cdn.example.com/a.png',
+        })
         .expect(200);
       const c = (await create(owner, { name: '档案' })).body as Channel;
       await join(a, c.inviteCode).expect(200);
@@ -286,7 +292,7 @@ describe('边界：对讲频道 (e2e)', () => {
       ]);
       expect(m.body[0].nickname).toBeNull();
       expect(m.body[1]).toMatchObject({
-        nickname: '‮骑手',
+        nickname: '骑手',
         avatarUrl: 'https://cdn.example.com/a.png',
         phone: `${a.phone.slice(0, 3)}****${a.phone.slice(7)}`,
       });
