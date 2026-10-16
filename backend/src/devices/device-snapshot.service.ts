@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { DeviceStatusPayload } from '@helmet/shared';
+import { isBackfill } from '../common/device-time';
 import { errorMessage } from '../common/error-text';
 import { isRecordNotFound } from '../common/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
@@ -69,6 +70,14 @@ export class DeviceSnapshotService {
    * 快照写入失败不影响事件主流程，但绑定关系不能跟着丢（SOS 触发靠它），退回只读查询。
    */
   async applyEvent(e: ValidEnvelope): Promise<DeviceSnapshot | null> {
+    // 补传的旧事件（App 攒着的离线队列、头盔离线缓存）只读不写：原来按到达顺序覆盖，2 小时前的心跳会把电量 / 固件号写回旧值，
+    // 一批迟到的上传还会把已关机的头盔显示成「在线」（10-17 评审，观察项 16）。绑定关系照样要带回（SOS 归属靠它）
+    if (isBackfill(e.timestamp, new Date())) {
+      return this.prisma.device.findUnique({
+        where: { deviceId: e.deviceId },
+        select: SNAPSHOT_SELECT,
+      });
+    }
     const data: Record<string, unknown> = {
       lastSeenAt: new Date(),
       firmwareVersion: e.firmwareVersion,

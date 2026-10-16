@@ -179,7 +179,7 @@ describe('边界：事件进业务表的值域 (e2e)', () => {
       });
     });
 
-    it('补传的旧事件（2 小时前、旧固件号）也会刷新 lastSeenAt 与 firmwareVersion（快照取最后到达的，不比设备时间，按现状）', async () => {
+    it('补传的旧事件（2 小时前、旧固件号）不刷新快照：固件号、电量保持实时那条的（原来按到达顺序覆盖成旧值，观察项 16）', async () => {
       await heartbeat({ battery: 60 }, { firmwareVersion: '2.0.0' });
       expect((await statusOf()).firmwareVersion).toBe('2.0.0');
       await heartbeat(
@@ -191,9 +191,8 @@ describe('边界：事件进业务表的值域 (e2e)', () => {
       );
       const s = await statusOf();
       expect(s.online).toBe(true);
-      expect(s.firmwareVersion).toBe('1.9.0');
-      // 电量同样按到达顺序覆盖：补传的 40 盖掉了刚才实时的 60
-      expect(s.battery).toBe(40);
+      expect(s.firmwareVersion).toBe('2.0.0');
+      expect(s.battery).toBe(60);
     });
 
     it('固件号很长（2000 字符）/ 含中文与 emoji：原样进快照与设备列表，不截断不 500', async () => {

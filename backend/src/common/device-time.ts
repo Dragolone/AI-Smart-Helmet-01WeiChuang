@@ -42,3 +42,14 @@ export function businessTime(deviceTime: Date, receivedAt: Date): Date {
   if (-aheadMs > MAX_PLAUSIBLE_BACKFILL_MS) return receivedAt;
   return deviceTime;
 }
+
+/**
+ * 补传的旧事件：按业务时间（时钟错乱已兜底成收到时间）比收到时早出偏移阈值以上。
+ * 它们照常入库、进历史，但不能当「现在」用：不刷新设备快照（电量 / 固件 / 在线）、不当实时位置推给 App（观察项 16）
+ */
+export function isBackfill(deviceTime: Date, receivedAt: Date): boolean {
+  return (
+    receivedAt.getTime() - businessTime(deviceTime, receivedAt).getTime() >
+    CLOCK_SKEW_THRESHOLD_MS
+  );
+}

@@ -397,70 +397,89 @@ describe('IngestService', () => {
     );
   });
 
-  it('重复 eventId 的高危事件、时间戳却相差很远 → 疑似 Event_Seq 回退，记 error（仍按重复丢弃，不建单）', async () => {
-    create.mockRejectedValue(
-      new Prisma.PrismaClientKnownRequestError('duplicate', {
-        code: 'P2002',
-        clientVersion: 'test',
-      }),
-    );
-    // 库里那条是一天前的同 eventId 事件
-    findUnique.mockResolvedValue({
-      timestamp: new Date('2026-08-13T03:00:00Z'),
+  const p2002 = () =>
+    new Prisma.PrismaClientKnownRequestError('duplicate', {
+      code: 'P2002',
+      clientVersion: 'test',
     });
+  const fallMessage = (
+    payload: Record<string, unknown> = { confidence: 0.9 },
+  ) => {
+    const fall = JSON.parse(validMessage) as Record<string, unknown>;
+    fall.eventType = 'possible_fall';
+    fall.payload = payload;
+    return JSON.stringify(fall);
+  };
+
+  it('同 eventId、类型与 payload 都和库里那条相同（App 重发 / MQTT 重投，时间戳可以不同）→ 重复，不分发、不报错', async () => {
+    create.mockRejectedValue(p2002());
+    findUnique.mockResolvedValue({
+      eventType: 'possible_fall',
+      payload: { confidence: 0.9 },
+    });
+    applyEvent.mockResolvedValue({ bindUserId: 'user_1' });
     const errorSpy = jest
       .spyOn(Logger.prototype, 'error')
       .mockImplementation(() => undefined);
-    const fall = JSON.parse(validMessage) as Record<string, unknown>;
-    fall.eventType = 'possible_fall';
     await expect(
-      service.ingestRaw(JSON.stringify(fall), 'helmet_001', 'mqtt'),
+      service.ingestRaw(fallMessage(), 'helmet_001', 'mqtt'),
     ).resolves.toBe('duplicate');
     expect(handleTrigger).not.toHaveBeenCalled();
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('疑似 Event_Seq 回退'),
-    );
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('1440 分钟'));
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(errorSpy).not.toHaveBeenCalled();
     errorSpy.mockRestore();
   });
 
-  it('重复 eventId 的高危事件、时间戳一致（真正的补传 / 重传）→ 不告警；位置事件重复连库都不查', async () => {
-    create.mockRejectedValue(
-      new Prisma.PrismaClientKnownRequestError('duplicate', {
-        code: 'P2002',
-        clientVersion: 'test',
-      }),
-    );
+  it('同 eventId 但类型 / payload 不同（头盔序号回退，或转手后被前主人预先占号）→ 按「eventId~内容摘要」另存并照常分发，求救照常建单（10-17 评审 R4-1）', async () => {
+    create.mockRejectedValueOnce(p2002()).mockResolvedValueOnce({ id: 'r2' });
+    // 库里那条是前主人中转上来的位置事件
     findUnique.mockResolvedValue({
-      timestamp: new Date('2026-08-14T03:00:00Z'),
+      eventType: 'location_update',
+      payload: { latitude: 31.2, longitude: 121.4 },
     });
+    applyEvent.mockResolvedValue({ bindUserId: 'user_1' });
     const errorSpy = jest
       .spyOn(Logger.prototype, 'error')
       .mockImplementation(() => undefined);
-    const fall = JSON.parse(validMessage) as Record<string, unknown>;
-    fall.eventType = 'manual_sos';
-    await service.ingestRaw(JSON.stringify(fall), 'helmet_001', 'mqtt');
-    expect(errorSpy).not.toHaveBeenCalled();
-    expect(findUnique).toHaveBeenCalledTimes(1);
-    await service.ingestRaw(validMessage, 'helmet_001', 'mqtt'); // location_update
-    expect(findUnique).toHaveBeenCalledTimes(1);
-    expect(errorSpy).not.toHaveBeenCalled();
+    await expect(
+      service.ingestRaw(fallMessage(), 'helmet_001', 'mqtt'),
+    ).resolves.toBe('stored');
+    const second = (create.mock.calls[1] as [{ data: { eventId: string } }])[0];
+    expect(second.data.eventId).toMatch(
+      /^018f6b2a-7c3e-7000-8000-000000000001~[0-9a-f]{12}$/,
+    );
+    expect(handleTrigger).toHaveBeenCalledTimes(1);
+    expect(
+      (handleTrigger.mock.calls[0] as [{ eventId: string }])[0].eventId,
+    ).toBe(second.data.eventId);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('eventId 冲突'),
+    );
     errorSpy.mockRestore();
   });
 
-  it('回退检查本身查库失败：不影响 duplicate 结果', async () => {
-    create.mockRejectedValue(
-      new Prisma.PrismaClientKnownRequestError('duplicate', {
-        code: 'P2002',
-        clientVersion: 'test',
-      }),
-    );
-    findUnique.mockRejectedValue(new Error('db down'));
-    const fall = JSON.parse(validMessage) as Record<string, unknown>;
-    fall.eventType = 'possible_fall';
+  it('另存的同一事件再重传：另存的键同样按重复跳过（幂等）', async () => {
+    create.mockRejectedValue(p2002());
+    findUnique
+      .mockResolvedValueOnce({ eventType: 'location_update', payload: {} })
+      .mockResolvedValueOnce({
+        eventType: 'possible_fall',
+        payload: { confidence: 0.9 },
+      });
+    jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     await expect(
-      service.ingestRaw(JSON.stringify(fall), 'helmet_001', 'mqtt'),
+      service.ingestRaw(fallMessage(), 'helmet_001', 'mqtt'),
     ).resolves.toBe('duplicate');
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(handleTrigger).not.toHaveBeenCalled();
+  });
+
+  it('撞号后查库对比失败：抛出（入口回 5xx 让 App 重传），不当重复吞掉', async () => {
+    create.mockRejectedValue(p2002());
+    findUnique.mockRejectedValue(new Error('db down'));
+    await expect(
+      service.ingestRaw(fallMessage(), 'helmet_001', 'mqtt'),
+    ).rejects.toThrow('db down');
   });
 
   it('重复 eventId 的 possible_fall：连触发器都不进（幂等在 raw 层拦截）', async () => {

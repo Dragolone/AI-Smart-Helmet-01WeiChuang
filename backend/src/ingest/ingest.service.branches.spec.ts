@@ -179,11 +179,11 @@ describe('IngestService：剩余分支', () => {
       ).rejects.toThrow('err P1017');
     });
 
-    it('重复的未知版本事件（P2002）：按重复跳过，仍返回 stored_invalid', async () => {
+    it('重复的未知版本事件（P2002）：按重复跳过，返回 duplicate（原来每次都计 invalid，观察项 11）', async () => {
       create.mockRejectedValueOnce(known('P2002'));
       await expect(
         service.ingestRaw(envelope({ schemaVersion: 2 }), 'helmet_001', 'mqtt'),
-      ).resolves.toBe('stored_invalid');
+      ).resolves.toBe('duplicate');
       expect(create).toHaveBeenCalledTimes(1);
     });
   });

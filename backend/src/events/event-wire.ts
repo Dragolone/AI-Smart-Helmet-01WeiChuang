@@ -16,12 +16,21 @@ export function buildSummary(
   eventType: string,
   payload: Record<string, unknown>,
 ): string {
-  const p = payload as Record<string, string | number | undefined>;
+  // payload 是设备 / 算法原样上报的：只插值字符串和数字。原来 String() 一个 {"toString":1} 会抛 TypeError，
+  // 这一条之后用户与 Admin 的事件列表一读就 500，直到删掉这行（10-17 评审）
+  const label = (v: unknown): string =>
+    typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v))
+      ? String(v)
+      : '';
+  const level = label(payload.riskLevel);
+  const direction = label(payload.direction);
+  const risk = (name: string) =>
+    `${name}${level ? ` ${level}` : ''}${direction ? `（${direction}）` : ''}`;
   switch (eventType) {
     case 'collision_risk':
-      return `碰撞风险${p.riskLevel ? ` ${String(p.riskLevel)}` : ''}${p.direction ? `（${String(p.direction)}）` : ''}`;
+      return risk('碰撞风险');
     case 'obstacle_risk':
-      return `障碍物风险${p.riskLevel ? ` ${String(p.riskLevel)}` : ''}${p.direction ? `（${String(p.direction)}）` : ''}`;
+      return risk('障碍物风险');
     case 'risk_cleared':
       return '危险解除';
     case 'possible_fall':
