@@ -28,7 +28,7 @@ const sosRow = (over: Record<string, unknown> = {}) => ({
 
 describe('SosService', () => {
   const prisma = {
-    device: { findUnique: jest.fn() },
+    device: { findUnique: jest.fn(), findMany: jest.fn() },
     sosCase: {
       findFirst: jest.fn(),
       findUnique: jest.fn(),
@@ -83,6 +83,67 @@ describe('SosService', () => {
         NotFoundException,
       );
       expect(prisma.sosCase.findFirst).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('activeForUser（账号级进行中列表，B 线第 12 项）', () => {
+    it('按本人 + pending 查（不按设备归属，解绑后的单照样列），按到期先后、单号兜底排序，统一分页', async () => {
+      prisma.sosCase.count.mockResolvedValue(3);
+      prisma.sosCase.findMany.mockResolvedValue([
+        sosRow({ id: 's1', deviceId: 'h1' }),
+        sosRow({ id: 's2', deviceId: 'h2' }),
+      ]);
+      prisma.device.findMany.mockResolvedValue([
+        { deviceId: 'h1', name: '通勤' },
+      ]);
+      const res = await svc.activeForUser('u1', 2, 2);
+      const where = { userId: 'u1', status: 'pending' };
+      expect(prisma.sosCase.count).toHaveBeenCalledWith({ where });
+      expect(prisma.sosCase.findMany).toHaveBeenCalledWith({
+        where,
+        orderBy: [{ deadline: 'asc' }, { id: 'asc' }],
+        skip: 2,
+        take: 2,
+      });
+      expect(prisma.device.findUnique).not.toHaveBeenCalled();
+      expect(res).toMatchObject({ total: 3, page: 2, pageSize: 2 });
+      expect(res.items.map((i) => [i.sosId, i.deviceName])).toEqual([
+        ['s1', '通勤'],
+        ['s2', null],
+      ]);
+      expect(res.items[0]).toMatchObject({
+        status: 'pending',
+        deadline: '2026-10-16T00:01:00.000Z',
+      });
+    });
+
+    it('头盔名只取仍绑在本人名下的（转手后新主人起的名字不给前主人）；同一顶只查一次；名字整理后为空给 null', async () => {
+      prisma.sosCase.count.mockResolvedValue(2);
+      prisma.sosCase.findMany.mockResolvedValue([
+        sosRow({ id: 's1', deviceId: 'h1' }),
+        sosRow({ id: 's2', deviceId: 'h1' }),
+      ]);
+      prisma.device.findMany.mockResolvedValue([
+        { deviceId: 'h1', name: '\u200b\n' },
+      ]);
+      const res = await svc.activeForUser('u1', 1, 100);
+      expect(prisma.device.findMany).toHaveBeenCalledWith({
+        where: { deviceId: { in: ['h1'] }, bindUserId: 'u1' },
+        select: { deviceId: true, name: true },
+      });
+      expect(res.items.map((i) => i.deviceName)).toEqual([null, null]);
+    });
+
+    it('一单都没有：items 为空数组，不查头盔名', async () => {
+      prisma.sosCase.count.mockResolvedValue(0);
+      prisma.sosCase.findMany.mockResolvedValue([]);
+      await expect(svc.activeForUser('u1', 1, 100)).resolves.toEqual({
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 100,
+      });
+      expect(prisma.device.findMany).not.toHaveBeenCalled();
     });
   });
 

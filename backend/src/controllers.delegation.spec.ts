@@ -197,6 +197,7 @@ describe('控制器参数转交', () => {
 
     const sos = mockOf(
       'active',
+      'activeForUser',
       'accidents',
       'accidentDetail',
       'cancel',
@@ -204,10 +205,12 @@ describe('控制器参数转交', () => {
     );
     const sc = new SosController(as(sos));
     void sc.active(req, 'h');
+    void sc.activeForUser(req, { page: 2, pageSize: 100 });
     void sc.accidents(req, 'h', { page: 3, pageSize: 7 });
     void sc.accidentDetail(req, 'a1');
     void sc.cancel(req, 's1');
     void sc.confirm(req, 's1');
+    expect(sos.activeForUser).toHaveBeenCalledWith('u1', 2, 100);
     expect(sos.accidents).toHaveBeenCalledWith('u1', 'h', 3, 7);
     expect(sos.accidentDetail).toHaveBeenCalledWith('u1', 'a1');
     expect(sos.cancel).toHaveBeenCalledWith('u1', 's1');

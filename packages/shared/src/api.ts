@@ -372,6 +372,15 @@ export interface ActiveSosResponse {
   sos: Sos | null;
 }
 
+/**
+ * GET /users/me/sos/active 的列表项（2026-10-17，上线清单 B 线第 12 项）：本账号所有进行中的 SOS，按 deadline 升序、统一分页。
+ * deviceName = 头盔当前名字（服务端已整理），**只在头盔仍绑在本人名下且起过名时**有值，否则 null（App 显示设备号）——
+ * 头盔转给别人后，新主人起的名字不该让前主人看到
+ */
+export interface ActiveSosItem extends Sos {
+  deviceName: string | null;
+}
+
 /** 事故位置快照（口径见 DECISIONS #26）：event=触发事件内嵌位置 / last_point=最新轨迹点回落 */
 export interface AccidentLocation {
   latitude: number;
