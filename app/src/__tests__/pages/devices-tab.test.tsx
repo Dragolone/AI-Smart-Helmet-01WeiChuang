@@ -13,7 +13,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import type { DevicePublic } from "@helmet/shared";
 import { RefreshControl } from "react-native";
 import { act } from "react-test-renderer";
-import { mockRouter } from "@/__tests__/helpers/native-mocks";
+import { mockRouter, routerState } from "@/__tests__/helpers/native-mocks";
 import {
   makeQueryClient,
   render,
@@ -142,9 +142,9 @@ const dev = (id: string, over: Partial<DevicePublic> = {}) =>
     ...over,
   }) as DevicePublic;
 /** 渲染并量一次滚动区高度（量到之前只画骨架） */
-const mount = async () => {
+const mount = async (qc = makeQueryClient()) => {
   const r = render(
-    <QueryClientProvider client={makeQueryClient()}>
+    <QueryClientProvider client={qc}>
       <DevicesScreen />
     </QueryClientProvider>,
   );
@@ -185,6 +185,7 @@ beforeAll(() => {
   releaseSplashHold();
 });
 beforeEach(() => {
+  routerState.focused = true;
   useThemeStore.setState({ mode: "dark" });
   useLocaleStore.setState({ locale: "zh-CN" });
   mockKv.clear();
@@ -370,6 +371,54 @@ describe("有头盔", () => {
     expect(mockSafety.choose).toHaveBeenCalledWith("h3");
     r.press("滑雪");
     expect(mockRouter.navigate).toHaveBeenLastCalledWith("/device/h2");
+  });
+
+  it("手机蓝牙关着、别的手机正带着在线的那顶：写「未连接」，不写「离线 · 刚刚」（10-16 iPhone）", async () => {
+    m(devicesApi.list).mockImplementation(() =>
+      Promise.resolve([
+        dev("h1", { name: "通勤" }),
+        dev("h2", { name: "滑雪" }),
+      ]),
+    );
+    mockSafety.links = { h1: "bluetoothOff", h2: "bluetoothOff" };
+    const r = await mount();
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("devices.otherDevices")),
+    );
+    expect(r.allText()).not.toContain(tr("common.offline"));
+    expect(r.allText()).toContain(tr("devices.link.notConnected"));
+  });
+
+  it("回到设备页时重拉一次设备列表（不等 30 秒轮询）；2 秒内刚拉过不拉（10-16 iPhone 指引卡在第一件）", async () => {
+    m(devicesApi.list).mockImplementation(() => Promise.resolve([dev("h1")]));
+    const qc = makeQueryClient();
+    const r = await mount(qc);
+    await waitFor(() => expect(devicesApi.list).toHaveBeenCalledTimes(1));
+    const el = () => (
+      <QueryClientProvider client={qc}>
+        <DevicesScreen />
+      </QueryClientProvider>
+    );
+    // 刚拉过：切走再回来不拉
+    routerState.focused = false;
+    r.rerender(el());
+    routerState.focused = true;
+    r.rerender(el());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(devicesApi.list).toHaveBeenCalledTimes(1);
+    // 上次拉取已是 5 秒前（哪怕还在新鲜期里，比如地图页刚拉过的那份）：回来就拉
+    act(() => {
+      qc.getQueryCache()
+        .find({ queryKey: ["devices"] })!
+        .setState({ dataUpdatedAt: Date.now() - 5_000 });
+    });
+    routerState.focused = false;
+    r.rerender(el());
+    routerState.focused = true;
+    r.rerender(el());
+    await waitFor(() => expect(devicesApi.list).toHaveBeenCalledTimes(2));
   });
 
   it("下拉刷新：重新拉设备列表", async () => {

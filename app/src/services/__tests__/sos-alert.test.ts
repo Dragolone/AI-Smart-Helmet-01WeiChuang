@@ -195,6 +195,16 @@ describe("sos-alert", () => {
       expect(r[2].trigger).toMatchObject({ seconds: 50 });
     });
 
+    it("剩余 61 秒（时钟偏移偏小，刚拉起时算出来比 60 多）：正文写 60，30s/10s 两条刷新仍按真实剩余时间排（10-16 iPhone）", async () => {
+      const m = load();
+      await m.showSosAlertIfBackground("s1", "d1", deadlineIn(61));
+      const r = reqs();
+      expect(r[0].content.body).toBe('sosAlert.bodyCountdown:{"seconds":60}');
+      expect(r[1].trigger).toMatchObject({ seconds: 31 });
+      expect(r[1].content.body).toBe('sosAlert.bodyCountdown:{"seconds":30}');
+      expect(r[2].trigger).toMatchObject({ seconds: 51 });
+    });
+
     it("同一单重复推送只弹一次", async () => {
       const m = load();
       await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));

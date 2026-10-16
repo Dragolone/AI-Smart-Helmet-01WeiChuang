@@ -29,7 +29,11 @@ export function IntercomMiniBar({ style }: { style?: StyleProp<ViewStyle> }) {
       <Tappable
         feedback="scale"
         accessibilityRole="button"
-        accessibilityLabel={`${t("intercom.mini.title", { name: session.channelName })}，${sub}，${t("intercom.mini.back")}`}
+        accessibilityLabel={[
+          t("intercom.mini.title", { name: session.channelName }),
+          sub,
+          t("intercom.mini.back"),
+        ].join(t("common.a11ySep"))}
         onPress={() => router.navigate("/intercom")}
         style={[
           styles.bar,

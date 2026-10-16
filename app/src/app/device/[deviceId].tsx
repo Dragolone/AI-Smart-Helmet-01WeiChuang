@@ -523,6 +523,7 @@ export default function DeviceDetailScreen() {
             onChange={sendSetting}
             lastCommand={settings.lastCommand}
             icons={{ light: "flashlight-outline" }}
+            online={online}
           />
           <View style={[styles.volumeBlock, { borderTopColor: theme.border }]}>
             <VolumeSlider

@@ -2,6 +2,7 @@
 import { describe, expect, it } from "@jest/globals";
 
 import {
+  bodyPhase,
   GUIDE_FRESH,
   TICK_LAST_MS,
   TICK_MS,
@@ -248,5 +249,31 @@ describe("一件事处理完，换到下一件的那一段", () => {
     // 勾约 0.8 秒画完，画完要留出看一眼的时间
     expect(TICK_LAST_MS).toBeGreaterThanOrEqual(1100);
     expect(TICK_MS).toBeGreaterThanOrEqual(TICK_LAST_MS);
+  });
+});
+
+describe("卡片上每一件内容怎么显示（bodyPhase，10-16 iPhone 叠字修复）", () => {
+  it("第一件换第二件：只挂着第一件，它正在让位；页面重画后第二件浮上来、第一件继续淡走", () => {
+    expect(bodyPhase("cur", 1, 1, 2)).toBe("leave");
+    expect(bodyPhase("past", 1, 1, 2)).toBe("leave");
+    expect(bodyPhase("cur", 2, 1, 2)).toBe("enter");
+  });
+
+  it("第二件换第三件、页面还没重画：早就让过位的第一件藏着，不能因为 beat 从 0 重来又露出来", () => {
+    // 共享值已经是「第二件让位、第三件浮上来」，卡片上挂着的还是 [第一件(past), 第二件(cur)]
+    expect(bodyPhase("past", 1, 2, 3)).toBe("gone");
+    expect(bodyPhase("cur", 2, 2, 3)).toBe("leave");
+    // 重画之后是 [第二件(past), 第三件(cur)]
+    expect(bodyPhase("past", 2, 2, 3)).toBe("leave");
+    expect(bodyPhase("cur", 3, 2, 3)).toBe("enter");
+  });
+
+  it("最后一件做完（past 记 0、没有下一件）：最后一件留在卡片上，更早那件仍藏着", () => {
+    expect(bodyPhase("cur", 3, 0, 0)).toBe("still");
+    expect(bodyPhase("past", 2, 0, 0)).toBe("gone");
+  });
+
+  it("停着的时候：轮到的这件照常显示", () => {
+    expect(bodyPhase("cur", 1, 0, 0)).toBe("still");
   });
 });

@@ -12,6 +12,7 @@ import { sosApi } from "@/api/sos";
 import { translate } from "@/i18n";
 import type { Sos } from "@helmet/shared";
 import { devLog } from "@/services/dev-log";
+import { shownSeconds } from "@/services/countdown";
 import { serverNow } from "@/services/server-clock";
 import { lateEventNote } from "@/services/sos-age";
 import { presentedSos } from "@/services/sos-sync";
@@ -403,8 +404,10 @@ export async function showSosAlertIfBackground(
     body:
       (seconds === null
         ? translate("sosAlert.body")
-        : translate("sosAlert.bodyCountdown", { seconds })) +
-      (late ? translate("sosAlert.lateSuffix", { note: late }) : ""),
+        : // 正文里的秒数封顶 60：时钟偏移估计偏小时刚到会算出 61（10-16 iPhone）；预排刷新仍按真实剩余时间
+          translate("sosAlert.bodyCountdown", {
+            seconds: shownSeconds(seconds),
+          })) + (late ? translate("sosAlert.lateSuffix", { note: late }) : ""),
     // Android 上 "default" 会被当成自定义音频文件名报错；true = 通道默认铃声
     sound: sound ? (Platform.OS === "ios" ? "default" : true) : false,
     interruptionLevel: "timeSensitive" as const,

@@ -243,6 +243,20 @@ describe("倒数中", () => {
     expect(back!()).toBe(true);
   });
 
+  it("刚拉起时剩余比 60 秒多一点（服务端 Date 头只到秒、时钟偏移偏小）：数字写 60，不写 61（10-16 iPhone）", async () => {
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(
+        sosOf({ deadline: new Date(Date.now() + 60_800).toISOString() }),
+      ),
+    );
+    const r = await mount();
+    expect(number(r)).toBe("60");
+    await tick(1050);
+    expect(number(r)).toBe("60");
+    await tick(1000);
+    expect(number(r)).toBe("59");
+  });
+
   it("警报：音频设成锁屏 / 静音键下也响，每秒重播 + 警示震动；最后 10 秒每秒连震两下", async () => {
     m(sosApi.snapshot).mockImplementation(() =>
       Promise.resolve(
@@ -669,6 +683,10 @@ describe("已取消后「我还是需要帮助」", () => {
     expect(number(r)).toBe("45");
     expect(presentedSos.current.has("s3")).toBe(true);
     expect(mockRouter.back).not.toHaveBeenCalled();
+    // 同一顶头盔的新单：不提示「已取消，已切到下一单」（10-16 iPhone 发现）
+    expect(r.allText()).not.toContain(
+      tr("sos.switchedCancelled", { name: "通勤" }),
+    );
     m(sosApi.cancel).mockImplementation(() =>
       Promise.resolve(sosOf({ sosId: "s3", status: "cancelled" })),
     );

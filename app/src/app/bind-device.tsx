@@ -290,7 +290,7 @@ export default function BindDeviceScreen() {
       transient: result.transient,
     });
     AccessibilityInfo.announceForAccessibility(
-      `${t("bind.failedTitle")}，${result.message}`,
+      `${t("bind.failedTitle")}${t("common.a11ySep")}${result.message}`,
     );
   };
 
