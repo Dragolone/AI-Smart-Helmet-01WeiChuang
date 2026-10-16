@@ -37,10 +37,10 @@ describe('EmqxHookService.authenticate：clientId 规则', () => {
     }
   });
 
-  it('服务账号 + 保留 clientId + 正确密码：allow', async () => {
+  it('服务账号 + 保留 clientId + 正确密码：allow（超级用户）', async () => {
     await expect(
       svc.authenticate('svc', 'svc_pass', 'backend_cid'),
-    ).resolves.toEqual({ result: 'allow' });
+    ).resolves.toEqual({ result: 'allow', is_superuser: true });
   });
 
   it('服务账号用了别的 clientId：即使密码正确也 deny，并告警', async () => {
