@@ -65,7 +65,7 @@
 | POST | /auth/refresh | body：`{ refreshToken }` → 新 `{ accessToken, refreshToken }`（refresh 轮换，旧 refreshToken 作废；同一 token 并发刷新只有一方成功，其余 401。**已轮换的 token 再次出现**：0.5s 内（同一瞬间的并发竞态）401；0.5s–15min 内视为「上次应答没送到」——作废那张从没用过的新 token、补发一对新的，每张旧 token 只补发一次（2026-10-06，评审 R-05；同日并发评审 #2 把并发窗口从 10s 缩到 0.5s，App 单飞刷新，一秒后同 token 再现只可能是应答丢失）；超过 15min 才视为盗用、撤销全部会话。轮换的三步（作废旧、签发新、记替代）在一个事务里。登出 / 改密作废的 token 没有替代者，任何时候再出现都是 401） |
 
 限频（2026-09-10 加固，单实例内存滑动窗口，超限 429 `RATE_LIMITED` + `Retry-After`）：`/auth/login` 同 IP+手机号 10 次/分、同 IP 100 次/分；`/auth/sms-code` 同 IP 5 条/分、50 条/天（同号 60s/日限另计）；`/auth/register` 20 次/分；`/auth/reset-password` 同 IP+手机号 10 次/分；`/auth/refresh` 60 次/分；`/admin/auth/login` 10 次/分；`/devices/bind` 同 IP 10 次/分（2026-10-03：绑定码 8 位数字可被穷举，限的是尝试次数，窗口内猜中也返回 429）。
-| POST | /auth/logout | 作废当前 refreshToken |
+| POST | /auth/logout | 作废当前 refreshToken。带来的若是轮换前的旧 token（refresh 应答丢了），沿替代关系把这台设备现役的那张一并作废，旧 token 也不能再补发（2026-10-17） |
 | POST | /auth/change-password | 修改密码（✅ 2026-09-11，**需登录**）。body：`{ oldPassword, newPassword, refreshToken? }` → 204。旧密码错误 → 400 `PASSWORD_INCORRECT`；`newPassword` 与注册同规则（8–72）。成功后**撤销该用户其他全部 refresh token**；带上当前设备的 `refreshToken`（须属于本人）则该会话保留，本设备免重新登录 |
 | POST | /auth/change-phone | 换绑手机号（✅ 2026-09-11，**需登录**）。body：`{ newPhone, code, password }`（`code` 为 `change_phone` 用途、发往 `newPhone` 的验证码；`password` 为当前密码——持有会话不等于本人，与改密 / 注销同口径，2026-10-14 加）→ 200 返回更新后的 `user` 对象。校验顺序：密码错误 400 `PASSWORD_INCORRECT`（不消费验证码）→ `newPhone` 已注册 409 `PHONE_ALREADY_REGISTERED` → 验证码错误/过期/已用 400 `SMS_CODE_INVALID` → 改号。会话不受影响；原号即刻释放可供他人注册 |
 | GET | /users/me | 当前用户信息；已注销账号的残留 access token → 401 `UNAUTHORIZED` |
@@ -222,7 +222,7 @@ SOS 状态机为服务端权威（DECISIONS #8/#26）：`pending → notified | 
 
 MVP 实用为主，全部只读 + 少量运维操作。
 
-**Admin 认证口径（✅ 已定稿并实现，2026-08-15）**：管理员与 App 用户是两套完全独立的体系（独立 `admin_users` 表 + 独立 JWT 签名密钥 `ADMIN_JWT_SECRET`）。密钥隔离使 admin token 与用户 token 互不可用（双向 401）。**admin accessToken 12 小时，无 refresh**，过期重新登录。管理员账号由脚本创建（`npm run create:admin -w backend`），不做自助注册；管理后台不对公网匿名开放。
+**Admin 认证口径（✅ 已定稿并实现，2026-08-15）**：管理员与 App 用户是两套完全独立的体系（独立 `admin_users` 表 + 独立 JWT 签名密钥 `ADMIN_JWT_SECRET`）。密钥隔离使 admin token 与用户 token 互不可用（双向 401）。**admin accessToken 12 小时，无 refresh**，过期重新登录。token 带密码指纹：管理员被删除或改密（`create:admin --reset`）后旧 token 立即 401，不等 12 小时（2026-10-17）。管理员账号由脚本创建（`npm run create:admin -w backend`），不做自助注册；管理后台不对公网匿名开放。
 
 ### 10.1 已实现（✅ Week 3–4 Admin 基础）
 
@@ -244,7 +244,7 @@ MVP 实用为主，全部只读 + 少量运维操作。
 
 ## 11. WebSocket（App 实时通道）
 
-- 端点：`/ws?token=<accessToken>`（✅ 定稿：**原生 ws**，决策 #25；token 走查询参数——RN/浏览器原生 WebSocket 无法可靠设置 header）；鉴权失败以关闭码 **4401** 断开；连接在 accessToken 的 `exp` 到期时也以 4401 断开（连接不比凭证活得久），App 刷新 token 后重连。
+- 端点：`/ws?token=<accessToken>`（✅ 定稿：**原生 ws**，决策 #25；token 走查询参数——RN/浏览器原生 WebSocket 无法可靠设置 header）；鉴权失败以关闭码 **4401** 断开（用户密钥签的 `typ=admin` token 同样 4401）；客户端上行单帧超过 64 KiB 以 **1009** 断开（App 不往上发消息，2026-10-17）；连接在 accessToken 的 `exp` 到期时也以 4401 断开（连接不比凭证活得久），App 刷新 token 后重连。
 - 连接后服务端自动按“当前用户绑定的设备”推送，无需客户端订阅指令（MVP 简化）；data 内带 `deviceId` 区分多设备。
 - 消息统一格式（TS 类型见 `@helmet/shared` WsMessage）：
 

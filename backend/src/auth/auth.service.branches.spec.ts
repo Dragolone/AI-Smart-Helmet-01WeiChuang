@@ -28,6 +28,7 @@ describe('AuthService：剩余分支', () => {
         ? (arg as (t: unknown) => Promise<unknown>)(prisma)
         : Promise.all(arg as Promise<unknown>[]),
     ),
+    $queryRaw: jest.fn(),
   };
   const smsCodes = { verifyAndConsume: jest.fn() };
   let svc: AuthService;
@@ -135,8 +136,22 @@ describe('AuthService：剩余分支', () => {
       expect(revoke[0].where).toEqual({ userId: 'u1', revokedAt: null });
     });
 
-    it('带了当前设备的 refresh token：只保留这一张（按哈希排除），补发链路同时清空', async () => {
+    it('带了当前设备的 refresh token：只保留这一张（按 id 排除），补发链路同时清空', async () => {
+      prisma.refreshToken.findUnique.mockResolvedValue({
+        id: 'rt-keep-id',
+        userId: 'u1',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 3_600_000),
+        replacedById: null,
+      });
       await svc.changePassword('u1', 'old-password', 'new-password', 'rt-keep');
+      expect(prisma.refreshToken.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            tokenHash: createHash('sha256').update('rt-keep').digest('hex'),
+          },
+        }),
+      );
       const [revoke, unlink] = prisma.refreshToken.updateMany.mock
         .calls as Array<
         [{ where: Record<string, unknown>; data: Record<string, unknown> }]
@@ -144,9 +159,7 @@ describe('AuthService：剩余分支', () => {
       expect(revoke[0].where).toEqual({
         userId: 'u1',
         revokedAt: null,
-        tokenHash: {
-          not: createHash('sha256').update('rt-keep').digest('hex'),
-        },
+        id: { not: 'rt-keep-id' },
       });
       expect(unlink[0]).toEqual({
         where: { userId: 'u1', replacedById: { not: null } },
@@ -231,17 +244,45 @@ describe('AuthService：剩余分支', () => {
       });
       expect(prisma.refreshToken.create).not.toHaveBeenCalled();
       expect(prisma.refreshToken.updateMany).toHaveBeenCalledTimes(1);
+      // 轮换事务第一句先给用户行加共享锁，与改密 / 重置 / 注销串行（R1-3）
+      expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
     });
 
-    it('logout：按哈希作废（幂等，不存在也不报错）', async () => {
-      prisma.refreshToken.updateMany.mockResolvedValue({ count: 0 });
+    it('logout：按哈希找到这张、还活着就作废（幂等，不存在也不报错）', async () => {
+      prisma.refreshToken.findUnique.mockResolvedValueOnce(null);
       await expect(svc.logout('rt-raw')).resolves.toBeUndefined();
-      expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
+      expect(prisma.refreshToken.findUnique).toHaveBeenCalledWith({
         where: {
           tokenHash: createHash('sha256').update('rt-raw').digest('hex'),
-          revokedAt: null,
         },
+        select: { id: true, replacedById: true },
+      });
+      expect(prisma.refreshToken.updateMany).not.toHaveBeenCalled();
+      prisma.refreshToken.findUnique.mockResolvedValueOnce({
+        id: 'rt1',
+        replacedById: null,
+      });
+      await svc.logout('rt-raw');
+      expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { id: 'rt1', revokedAt: null },
         data: { revokedAt: expect.any(Date) },
+      });
+    });
+
+    it('logout 用的是轮换前的旧 token（应答丢了）：沿替代链把这台设备现役的那张也作废，并清掉替代关系（不能再补发，R1-2）', async () => {
+      prisma.refreshToken.findUnique
+        .mockResolvedValueOnce({ id: 't1', replacedById: 't2' })
+        .mockResolvedValueOnce({ id: 't2', replacedById: null });
+      await svc.logout('t1-raw');
+      const revoked = (
+        prisma.refreshToken.updateMany.mock.calls as Array<
+          [{ where: { id: string } }]
+        >
+      ).map((c) => c[0].where.id);
+      expect(revoked).toEqual(['t1', 't2']);
+      expect(prisma.refreshToken.update).toHaveBeenCalledWith({
+        where: { id: 't1' },
+        data: { replacedById: null },
       });
     });
   });

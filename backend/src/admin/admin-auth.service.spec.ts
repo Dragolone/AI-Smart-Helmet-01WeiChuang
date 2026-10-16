@@ -3,7 +3,7 @@ import { Logger, UnauthorizedException } from '@nestjs/common';
 import type { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import type { PrismaService } from '../prisma/prisma.service';
-import { AdminAuthService } from './admin-auth.service';
+import { AdminAuthService, adminPasswordVersion } from './admin-auth.service';
 
 describe('AdminAuthService.login', () => {
   const findUnique = jest.fn();
@@ -36,7 +36,7 @@ describe('AdminAuthService.login', () => {
       accessToken: 'admin.jwt',
     });
     expect(signAsync).toHaveBeenCalledWith(
-      { sub: 'a1', typ: 'admin' },
+      { sub: 'a1', typ: 'admin', pv: adminPasswordVersion(hash) },
       { secret: 'admin-secret', expiresIn: '12h' },
     );
   });

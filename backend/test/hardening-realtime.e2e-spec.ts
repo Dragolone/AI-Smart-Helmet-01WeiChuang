@@ -101,7 +101,18 @@ describe('加固：WebSocket 实时通道 (e2e)', () => {
       { sub: 'a', typ: 'admin' },
       { secret: process.env.ADMIN_JWT_SECRET },
     );
-    for (const token of [null, 'garbage', expired, adminSigned]) {
+    // 用户密钥签的 typ=admin：原来这里并没有真签这种 token，网关其实放行了（10-17 评审 R4-5）
+    const userSecretAdminTyp = await jwt.signAsync({
+      sub: owner.id,
+      typ: 'admin',
+    });
+    for (const token of [
+      null,
+      'garbage',
+      expired,
+      adminSigned,
+      userSecretAdminTyp,
+    ]) {
       const ws = connect(token);
       expect(await waitClose(ws)).toBe(4401);
     }
@@ -141,7 +152,7 @@ describe('加固：WebSocket 实时通道 (e2e)', () => {
     expect(byUserSize(owner.id)).toBe(0);
   });
 
-  it('客户端发垃圾帧（1MB 二进制 / 非 JSON 文本 / 伪造 device_command）：连接不断、服务不崩、后续推送正常', async () => {
+  it('客户端发垃圾帧（上限内的二进制 / 非 JSON 文本 / 伪造 device_command）：连接不断、服务不崩、后续推送正常', async () => {
     const ws = connect(owner.token);
     await waitOpen(ws);
     const spy = connect(other.token);
@@ -151,7 +162,7 @@ describe('加固：WebSocket 实时通道 (e2e)', () => {
       spyMessages.push((raw as Buffer).toString('utf-8')),
     );
 
-    ws.send(Buffer.alloc(1024 * 1024, 7));
+    ws.send(Buffer.alloc(32 * 1024, 7));
     ws.send('not json at all');
     ws.send(
       JSON.stringify({
@@ -180,6 +191,30 @@ describe('加固：WebSocket 实时通道 (e2e)', () => {
     expect(spyMessages).toHaveLength(0);
     ws.close();
     spy.close();
+  });
+
+  it('超过单帧上限（64 KiB）：这条连接按 1009 断开，服务不崩，别的连接照常收推送（10-17 评审 R1-4 / R4-10）', async () => {
+    const big = connect(owner.token);
+    await waitOpen(big);
+    const ok = connect(owner.token);
+    await waitOpen(ok);
+    await sleep(100);
+    const closed = waitClose(big);
+    big.send(Buffer.alloc(1024 * 1024, 7));
+    expect(await closed).toBe(1009);
+    const got = new Promise<string>((resolve) => {
+      ok.on('message', (raw) => {
+        const msg = JSON.parse((raw as Buffer).toString('utf-8')) as {
+          type: string;
+        };
+        if (msg.type === 'location_update') resolve(msg.type);
+      });
+    });
+    await pushLocation(6);
+    expect(await Promise.race([got, sleep(3000).then(() => 'timeout')])).toBe(
+      'location_update',
+    );
+    ok.close();
   });
 
   it('推送瞬间客户端 terminate：不抛错，连接表最终清理', async () => {

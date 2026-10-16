@@ -20,7 +20,14 @@ export const CLOSE_UNAUTHORIZED = 4401;
  * - 连接挂到 userId，服务端按「当前用户绑定的设备」推送，无客户端订阅指令；
  * - 加速通道不是可靠通道：不做补发，App 重连后用 REST 拉取兜底。
  */
-@WebSocketGateway({ path: '/ws' })
+/**
+ * 单帧上限：App 从不往上发消息（网关没有任何上行处理），超过就按 1009 断开。
+ * 不设时 ws 默认 100 MiB，Nest 适配器还会把每一帧整个 JSON.parse——鉴权失败发了 4401 之后、等对方关闭帧的那 30 秒里
+ * 照样收、照样解析，不登录就能用几个 100 MiB 的帧把这台同时跑 SOS 扫描的进程撑爆（10-17 评审 R1-4 / R4-10）
+ */
+export const WS_MAX_PAYLOAD_BYTES = 64 * 1024;
+
+@WebSocketGateway({ path: '/ws', maxPayload: WS_MAX_PAYLOAD_BYTES })
 export class RealtimeGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
@@ -54,9 +61,13 @@ export class RealtimeGateway
     }
     try {
       // 默认密钥 = 用户 JWT；admin token（独立密钥）天然验签失败
-      const payload = await this.jwt.verifyAsync<{ sub: string; exp?: number }>(
-        token,
-      );
+      const payload = await this.jwt.verifyAsync<{
+        sub: string;
+        exp?: number;
+        typ?: string;
+      }>(token);
+      // 与 HTTP 守卫同口径的 typ 双保险：两套密钥万一被误配成同值，admin token 也不能当用户连进来（观察项 13）
+      if (payload.typ === 'admin') throw new Error('not a user token');
       const userId = payload.sub;
       // 与 HTTP 守卫同口径：注销后的残留 token 不得再收推送
       const found = await this.prisma.user.findUnique({

@@ -101,12 +101,13 @@ describe('边界：管理后台 (e2e)', () => {
       expect(u.status).toBe(401);
     });
 
-    it('管理员记录被删后，已签发的 admin token 在有效期内仍可用（12h 无状态令牌，文档未写吊销，按现状）', async () => {
+    it('管理员记录被删后，已签发的 admin token 立即 401（token 带密码指纹、每次核对，观察项 7 / 10-17 评审）', async () => {
       const temp = await createAdmin(prisma, http, `edge_admin_tmp_${run}`);
       adminNames.push(temp.username);
+      await adminGet(http, temp.token, '/stats/overview').expect(200);
       await prisma.adminUser.delete({ where: { id: temp.id } });
       const r = await adminGet(http, temp.token, '/stats/overview');
-      expect(r.status).toBe(200);
+      expect(r.status).toBe(401);
       // 但不能再登录
       expect(
         (await login({ username: temp.username, password: temp.password }))
