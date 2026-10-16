@@ -1,6 +1,7 @@
 // SosTriggerService 剩余分支：建单撞唯一约束后按合并规则处理、升级失败时那单已不见、建单推送重试途中查库失败、
 // describeEventAge 的默认时钟。Prisma / 通知器 / 推送全 mock。
 import { Logger } from '@nestjs/common';
+import { BindingScopeService } from '../devices/binding-scope.service';
 import { Prisma } from '../generated/prisma/client';
 import type { ValidEnvelope } from '../ingest/envelope';
 import type { PrismaService } from '../prisma/prisma.service';
@@ -47,7 +48,9 @@ describe('SosTriggerService：剩余分支', () => {
     sosCase: { findFirst: jest.fn(), findUnique: jest.fn(), create: jest.fn() },
     locationPoint: { findFirst: jest.fn() },
     device: { findUnique: jest.fn() },
+    deviceBinding: { findMany: jest.fn() },
   };
+  const boundAt = new Date(NOW - 3_600_000);
   const notifier = { finalizeNotified: jest.fn() };
   const realtime = { pushSosUpdate: jest.fn() };
   const push = { send: jest.fn() };
@@ -65,12 +68,16 @@ describe('SosTriggerService：剩余分支', () => {
     process.env.SOS_CREATED_PUSH_RETRY_DELAYS_SECONDS = '';
     prisma.locationPoint.findFirst.mockResolvedValue(null);
     prisma.device.findUnique.mockResolvedValue(null);
+    prisma.deviceBinding.findMany.mockResolvedValue([
+      { boundAt, unboundAt: null },
+    ]);
     push.send.mockResolvedValue(undefined);
     svc = new SosTriggerService(
       prisma as unknown as PrismaService,
       notifier as unknown as SosNotifierService,
       realtime as unknown as RealtimePushService,
       push,
+      new BindingScopeService(prisma as unknown as PrismaService),
     );
     logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
     warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
@@ -182,14 +189,8 @@ describe('SosTriggerService：剩余分支', () => {
     );
   });
 
-  it('事件位置是 (0,0) 被当缺失、回落的最新轨迹点也是 (0,0) 时，现状：快照仍钉在 (0,0)——轨迹查询没排除哨兵，见 coverage-findings-1016.md BC1', async () => {
+  it('事件位置是 (0,0) 被当缺失；回落查询同样排除 (0,0) 哨兵、只取建单用户绑定区间内到达的点，都没有就空快照（B2 / B3）', async () => {
     prisma.sosCase.findFirst.mockResolvedValueOnce(null);
-    prisma.locationPoint.findFirst.mockResolvedValue({
-      latitude: 0,
-      longitude: 0,
-      coordinateSystem: 'wgs84',
-      accuracy: 5,
-    });
     prisma.sosCase.create.mockImplementation(
       ({ data }: { data: Record<string, unknown> }) =>
         Promise.resolve(pending({ id: 'c0', ...data })),
@@ -203,20 +204,25 @@ describe('SosTriggerService：剩余分支', () => {
       },
       'u1',
     );
-    const data = (
-      prisma.sosCase.create.mock.calls[0] as [{ data: Record<string, unknown> }]
-    )[0].data;
-    expect(data).toMatchObject({
-      latitude: 0,
-      longitude: 0,
-      locationSource: 'last_point',
-    });
+    expect(prisma.deviceBinding.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { deviceId: 'helmet_001', userId: 'u1' },
+      }),
+    );
     const where = (
       prisma.locationPoint.findFirst.mock.calls[0] as [
         { where: Record<string, unknown> },
       ]
     )[0].where;
-    expect(Object.keys(where).sort()).toEqual(['deviceId', 'timestamp']);
+    expect(where).toMatchObject({
+      deviceId: 'helmet_001',
+      NOT: { latitude: 0, longitude: 0 },
+      AND: [{ OR: [{ receivedAt: { gte: boundAt } }] }],
+    });
+    const data = (
+      prisma.sosCase.create.mock.calls[0] as [{ data: Record<string, unknown> }]
+    )[0].data;
+    expect(data).not.toHaveProperty('latitude');
   });
 
   it('位置快照查询失败：按空快照照常建单（不能因为缺位置不建单）', async () => {

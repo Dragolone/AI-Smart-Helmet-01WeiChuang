@@ -1,5 +1,5 @@
 // 补测发现的端到端复现（test/coverage-findings-1016.md）：真库 + 真 HTTP，只断言现状。
-// BC1：(0,0) 位置点进轨迹表 → 最新位置返回 (0,0)；摔倒事件自带 (0,0) 被当缺失、回落最新轨迹点 → 事故地点仍是 (0,0)。
+// BC1：(0,0) 位置点进轨迹表 → 最新位置返回 (0,0)；摔倒事件自带 (0,0) 被当缺失、回落最新轨迹点（#202 起跳过 (0,0)）。
 // BC3：对讲频道名全空白也能建。修好后把这里的期望改成修复后的口径。
 import 'dotenv/config';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
@@ -106,7 +106,7 @@ describe('补测发现复现（cov e2e）', () => {
     await app.close();
   });
 
-  it('BC1 现状：(0,0) 位置点照收，最新位置返回 (0,0)；摔倒事件位置 (0,0) 回落后事故地点仍是 (0,0)', async () => {
+  it('BC1：(0,0) 位置点照收、最新位置仍返回 (0,0)（现状）；摔倒事件位置 (0,0) 回落时跳过 (0,0) 点，没有别的点 → 事故无位置（#202 B2 已修）', async () => {
     await expect(
       ingest.ingestRaw(
         envelope('location_update', {
@@ -144,11 +144,7 @@ describe('补测发现复现（cov e2e）', () => {
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
     expect(accidents.body.items).toHaveLength(1);
-    expect(accidents.body.items[0].location).toMatchObject({
-      latitude: 0,
-      longitude: 0,
-      source: 'last_point',
-    });
+    expect(accidents.body.items[0].location).toBeNull();
 
     // 取消掉，免得到期扫描去通知（本账号没有联系人，也只会走 Console Mock）
     await request(http)
