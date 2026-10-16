@@ -16,6 +16,7 @@ import {
   applySosUpdate,
   COUNTDOWN_POLL_MS,
   countdownPollInterval,
+  fetchActiveFresh,
   onReconnect,
   resumePendingSos,
   settleSnapshot,
@@ -307,5 +308,36 @@ describe("倒计时页自己的轮询（2026-10-05 评审）", () => {
       "notified",
     );
     expect(settleSnapshot(qc, "s1", null)).toBeNull();
+  });
+});
+
+describe("fetchActiveFresh（安全页 30 秒轮询 /sos/active，10-16 评审）", () => {
+  it("请求在途期间 WS 推来这顶头盔的新单：迟到的 { sos: null } 不把它冲掉，以缓存为准", async () => {
+    let answer!: (r: ActiveSosResponse) => void;
+    const fetchActive = jest.fn(
+      () => new Promise<ActiveSosResponse>((res) => (answer = res)),
+    );
+    const inFlight = fetchActiveFresh(qc, "d2", fetchActive);
+    const s2 = sos({ sosId: "s2", deviceId: "d2" });
+    applySosUpdate(qc, s2, presented, deps);
+    answer({ sos: null });
+    expect(await inFlight).toEqual({ sos: s2 });
+  });
+
+  it("在途期间没人写过：用这次应答（服务端说没有就是没有）", async () => {
+    qc.setQueryData(["sos-active", "d2"], {
+      sos: sos({ sosId: "s2", deviceId: "d2" }),
+    });
+    await new Promise((r) => setTimeout(r, 5));
+    expect(
+      await fetchActiveFresh(qc, "d2", async () => ({ sos: null })),
+    ).toEqual({ sos: null });
+  });
+
+  it("应答是本机已知结束的单（迟到的 pending）：照旧按终态守卫清成 null", async () => {
+    qc.setQueryData(["sos", "s1"], sos({ status: "cancelled" }));
+    expect(await fetchActiveFresh(qc, "d1", async () => ({ sos: sos() }))).toEqual(
+      { sos: null },
+    );
   });
 });

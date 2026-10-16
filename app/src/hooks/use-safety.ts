@@ -7,7 +7,7 @@ import type { DevicePublic, Sos } from "@helmet/shared";
 
 import { devicesApi } from "@/api/devices";
 import { sosApi } from "@/api/sos";
-import { guardActiveResult } from "@/services/sos-sync";
+import { fetchActiveFresh } from "@/services/sos-sync";
 import { readNotifyPermissionAfterAsk } from "@/services/notify-permission";
 import {
   helmetLinkOf,
@@ -104,9 +104,9 @@ export function usePendingSos(deviceIds: readonly string[]): Sos[] {
   const active = useQueries({
     queries: deviceIds.map((id) => ({
       queryKey: ["sos-active", id],
-      // 轮询结果过终态守卫：请求在途时用户已在倒计时页取消，迟到的 pending 不能把卡片顶回来（B 线 F9）
-      queryFn: async () =>
-        guardActiveResult(queryClient, await sosApi.active(id)),
+      // 轮询结果过终态守卫：请求在途时用户已在倒计时页取消，迟到的 pending 不能把卡片顶回来（B 线 F9）；
+      // 在途期间 WS 推来的新单也不能被迟到的 null 冲掉
+      queryFn: () => fetchActiveFresh(queryClient, id, sosApi.active),
       refetchInterval: 30_000,
     })),
   });

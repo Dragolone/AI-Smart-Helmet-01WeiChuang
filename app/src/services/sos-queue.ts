@@ -14,22 +14,33 @@ import { isFinal } from "./sos-sync";
  */
 export const sosScreen = { mounted: false };
 
+/** a 是不是比 b 晚建的单（同一时刻按单号定，结果稳定） */
+const createdLater = (a: Sos, b: Sos) =>
+  (Date.parse(a.createdAt) - Date.parse(b.createdAt) ||
+    a.sosId.localeCompare(b.sosId)) > 0;
+
 /**
  * 进行中的求救，按到期先后排（同时到期按单号稳定排）。
  * 遍历的是缓存里所有 ["sos-active", *] 条目而不是设备列表：设备列表还没拉到 / 刚绑的头盔不在列表里时，
  * WS 推来的单照样在队列里。`extra` 是页面从路由拿到的那一单（它的设备不一定在缓存里）。
+ * **每顶头盔只留一单（晚建的那单）**：服务端同一账号每顶头盔至多一单在倒计时（partial unique index），
+ * 同一顶出现两单说明旧的那单已结束、只是本机还没收到终态（WS 断着、10 秒轮询还没跑）。两单都留的话倒计时页的
+ * 「处理过的单」按头盔号登记会在两单间来回改，整页「Too many re-renders」崩掉（10-16 评审）。
  */
 export function activeSosQueue(qc: QueryClient, extra?: Sos | null): Sos[] {
-  const byId = new Map<string, Sos>();
+  const byDevice = new Map<string, Sos>();
   const take = (s: Sos | null | undefined) => {
     if (!s || s.status !== "pending" || isFinal(qc, s.sosId)) return;
-    byId.set(s.sosId, s);
+    const held = byDevice.get(s.deviceId);
+    // 同一单后来的那份留下（页面手上的是详情缓存里的对象，比进行中缓存新）
+    if (held && held.sosId !== s.sosId && !createdLater(s, held)) return;
+    byDevice.set(s.deviceId, s);
   };
   for (const q of qc.getQueryCache().findAll({ queryKey: ["sos-active"] })) {
     take((q.state.data as ActiveSosResponse | undefined)?.sos);
   }
   take(extra);
-  return [...byId.values()].sort(
+  return [...byDevice.values()].sort(
     (a, b) =>
       Date.parse(a.deadline) - Date.parse(b.deadline) ||
       a.sosId.localeCompare(b.sosId),

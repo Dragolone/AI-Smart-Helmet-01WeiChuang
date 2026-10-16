@@ -863,6 +863,111 @@ describe("多顶头盔同时求救（10-16 N10：一张页 + 顶部胶囊点切�
     expect(number(r)).toBe("49");
   });
 
+  it("屏上这单本机还是倒计时、同一顶头盔却来了新单（旧单终态没收到）：不崩，立刻拉旧单的权威状态，结束了就切到新单、不提示「已切到下一单」（10-16 评审）", async () => {
+    const s9 = second("s9", "h1", 55);
+    m(sosApi.snapshot).mockImplementation((id: unknown) =>
+      Promise.resolve(id === "s9" ? s9 : sosOf()),
+    );
+    const r = await mount();
+    expect(number(r)).toBe("45");
+    const before = m(sosApi.snapshot).mock.calls.length;
+    m(sosApi.snapshot).mockImplementation((id: unknown) =>
+      Promise.resolve(id === "s9" ? s9 : sosOf({ status: "notified" })),
+    );
+    arrive(s9);
+    for (let i = 0; i < 4; i++) await tick(0);
+    expect(r.tree.toJSON()).not.toBeNull();
+    expect(
+      m(sosApi.snapshot)
+        .mock.calls.slice(before)
+        .some((c) => c[0] === "s1"),
+    ).toBe(true);
+    expect(number(r)).toBe("55");
+    expect(r.allText()).not.toContain(
+      tr("sos.switchedNotified", { name: "通勤" }),
+    );
+    expect(r.allText()).not.toContain(tr("sos.newAlarm", { name: "通勤" }));
+  });
+
+  it("点了旧单留在锁屏上的通知进来、本机缓存里旧单还是倒计时而同一顶已有新单：挂载不崩，落到新单", async () => {
+    const s9 = second("s9", "h1", 55);
+    qc = makeQueryClient();
+    qc.setQueryData(["sos", "s1"], sosOf());
+    qc.setQueryData(["sos-active", "h1"], { sos: s9 });
+    qc.setQueryData(["sos", "s9"], s9);
+    m(sosApi.snapshot).mockImplementation((id: unknown) =>
+      Promise.resolve(id === "s9" ? s9 : sosOf({ status: "notified" })),
+    );
+    const r = await mount(false);
+    for (let i = 0; i < 3; i++) await tick(0);
+    expect(r.tree.toJSON()).not.toBeNull();
+    expect(number(r)).toBe("55");
+  });
+
+  it("页面被切到一个不存在的单号（已解绑头盔的推送 / 外部链接，404），而另一单还在倒数：切到那单，不用「这条求救不存在」盖住它", async () => {
+    m(sosApi.snapshot).mockImplementation((id: unknown) =>
+      id === "sX"
+        ? Promise.reject(
+            new ApiRequestError(404, { code: "NOT_FOUND", message: "x" }),
+          )
+        : Promise.resolve(sosOf()),
+    );
+    const r = await mount();
+    qc.setQueryData(["sos-active", "h1"], { sos: sosOf() });
+    routerState.params = { sosId: "sX", deviceId: "h2" };
+    r.rerender(
+      <QueryClientProvider client={qc}>
+        <SosActiveScreen />
+      </QueryClientProvider>,
+    );
+    for (let i = 0; i < 4; i++) await tick(0);
+    expect(r.allText()).not.toContain(tr("sos.gone.title"));
+    await tick(1100);
+    expect(number(r)).toBe("44");
+    const plays = mockAlarm.play.mock.calls.length;
+    await tick(3000);
+    expect(mockAlarm.play.mock.calls.length).toBeGreaterThan(plays);
+  });
+
+  it("「全部取消」时屏上这单已在别处结束（409 SOS_ALREADY_FINALIZED）：不弹错，立刻拉它的权威状态切走，不等下一轮 10 秒轮询", async () => {
+    twoHelmets();
+    m(sosApi.cancel).mockImplementation((id: unknown) =>
+      id === "s1"
+        ? Promise.reject(
+            new ApiRequestError(409, {
+              code: "SOS_ALREADY_FINALIZED",
+              message: "x",
+            }),
+          )
+        : Promise.resolve({ ...second(), status: "cancelled" }),
+    );
+    m(sosApi.accidentDetail).mockImplementation(() =>
+      Promise.resolve({ notifications: [] } as unknown as AccidentDetail),
+    );
+    const r = await mount();
+    arrive(second());
+    await tick(0);
+    const before = m(sosApi.snapshot).mock.calls.length;
+    m(sosApi.snapshot).mockImplementation((id: unknown) =>
+      Promise.resolve(
+        id === "s1"
+          ? sosOf({ status: "notified" })
+          : { ...second(), status: "cancelled" },
+      ),
+    );
+    r.press(tr("sos.allCancel"));
+    const buttons = alert.mock.calls.at(-1)?.[2] as { onPress?: () => void }[];
+    act(() => buttons[1].onPress?.());
+    for (let i = 0; i < 6; i++) await tick(0);
+    expect(
+      m(sosApi.snapshot)
+        .mock.calls.slice(before)
+        .some((c) => c[0] === "s1"),
+    ).toBe(true);
+    expect(alert.mock.calls.length).toBe(1);
+    expect(r.allText()).toContain(tr("sos.multiDoneTitle", { n: 2 }));
+  });
+
   it("点了另一单的通知：_layout 把这张页的参数改成那一单，页面切过去", async () => {
     twoHelmets();
     const r = await mount();

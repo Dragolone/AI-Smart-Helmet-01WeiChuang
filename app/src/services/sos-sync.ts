@@ -211,3 +211,23 @@ export function guardActiveResult<T extends { sos: Pick<Sos, "sosId"> | null }>(
 ): T | { sos: null } {
   return result.sos && isFinal(qc, result.sos.sosId) ? { sos: null } : result;
 }
+
+/**
+ * 轮询 `/devices/{id}/sos/active`：除了终态守卫，请求在途期间 WS / 补拉写过这顶头盔的进行中缓存的话，以缓存为准——
+ * 那次写入（建单推送、终态推送）比这次应答新。迟到的 `{ sos: null }` 原来会把刚推来的进行中单冲掉：
+ * 它从倒计时页的队列和胶囊里消失，结果页把还在倒数的单写成「正在通知紧急联系人」，离开前台也不补弹锁屏（10-16 评审）
+ */
+export async function fetchActiveFresh(
+  qc: QueryClient,
+  deviceId: string,
+  fetchActive: (deviceId: string) => Promise<ActiveSosResponse>,
+): Promise<ActiveSosResponse> {
+  const startedAt = Date.now();
+  const result = guardActiveResult(qc, await fetchActive(deviceId));
+  const state = qc.getQueryState<ActiveSosResponse>(["sos-active", deviceId]);
+  // 同一毫秒算「在途期间」：宁可多信一次 WS 写入（30 秒后下一轮就纠正），不能让旧应答盖掉推送
+  if (state?.data !== undefined && state.dataUpdatedAt >= startedAt) {
+    return state.data;
+  }
+  return result;
+}

@@ -6,9 +6,11 @@ const mockApi = jest.fn(
   async (_path: string, _init?: unknown): Promise<unknown> => null,
 );
 jest.mock("../client", () => ({
+  ...jest.requireActual<typeof import("../client")>("../client"),
   api: (p: string, i?: unknown) => mockApi(p, i),
 }));
 
+import { ApiRequestError } from "../client";
 import { sosApi } from "../sos";
 
 const pending = { sosId: "s1", deviceId: "d1", status: "pending" };
@@ -49,6 +51,26 @@ describe("sosApi.snapshot", () => {
       "/accidents/s1",
       "/accidents/s1",
     ]);
+  });
+
+  it("倒计时中头盔被解绑：设备接口 404 → 按单号查事故记录（处置权还在本人），不把 404 抛给页面（10-16 评审）", async () => {
+    mockApi
+      .mockRejectedValueOnce(
+        new ApiRequestError(404, { code: "DEVICE_NOT_FOUND", message: "x" }),
+      )
+      .mockResolvedValueOnce(pending);
+    expect(await sosApi.snapshot("s1", "d1")).toEqual(pending);
+    expect(mockApi.mock.calls[1][0]).toBe("/accidents/s1");
+  });
+
+  it("设备接口别的错误（断网 / 500）照旧抛出，不去查事故记录", async () => {
+    mockApi.mockRejectedValueOnce(
+      new ApiRequestError(500, { code: "INTERNAL_ERROR", message: "x" }),
+    );
+    await expect(sosApi.snapshot("s1", "d1")).rejects.toBeInstanceOf(
+      ApiRequestError,
+    );
+    expect(mockApi).toHaveBeenCalledTimes(1);
   });
 
   it("两条都失败 → 抛出，由页面决定是否信缓存", async () => {
