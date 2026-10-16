@@ -277,6 +277,13 @@ export function DeviceSettingList({
         const unreported = loaded && current === null;
         const tentative =
           inFlight ?? (unreported ? normalize(key, spec.default) : null);
+        // 读屏念给描边那一段的话：在途的是「等待头盔确认」，没上报过的是「显示的是默认值」
+        const tentativeHint =
+          inFlight !== null
+            ? t("device.a11y.awaitingHelmet")
+            : unreported
+              ? t("device.unconfirmedDefault")
+              : undefined;
         const hint = HINT[key];
         const levels = LEVEL_LABELS[key];
         const stacked = !!levels; // 3–4 档的分段控件单独占一行，否则标签会被挤断行
@@ -332,6 +339,7 @@ export function DeviceSettingList({
               }))}
               current={current}
               tentative={tentative}
+              tentativeHint={tentativeHint}
               disabled={disabled}
               onSelect={(v) => onChange(key, v)}
             />
@@ -343,6 +351,7 @@ export function DeviceSettingList({
               }))}
               current={current}
               tentative={tentative}
+              tentativeHint={tentativeHint}
               disabled={disabled}
               onSelect={(v) => onChange(key, v)}
             />
@@ -407,6 +416,7 @@ function Segmented({
   options,
   current,
   tentative = null,
+  tentativeHint,
   disabled,
   onSelect,
   compact = false,
@@ -415,6 +425,8 @@ function Segmented({
   current: SettingValue | null;
   /** 待确认的那一档（在途 / 未上报时的默认）：品牌色描边、不填色 */
   tentative?: SettingValue | null;
+  /** 读屏念给待确认那一段的说明 */
+  tentativeHint?: string;
   disabled: boolean;
   onSelect: (v: SettingValue) => void;
   compact?: boolean;
@@ -425,6 +437,7 @@ function Segmented({
       options={options}
       current={current}
       tentative={tentative}
+      tentativeHint={tentativeHint}
       disabled={disabled}
       onSelect={onSelect}
       palette={{

@@ -1025,6 +1025,24 @@ describe("设备设置项", () => {
     expect(flat(num!.props.style).color).toBe(dark.textSecondary);
   });
 
+  it("待确认那一段带读屏说明：在途的念「等待头盔确认」，没上报过的念「显示的是默认值」", () => {
+    const hints = (r: Rendered) =>
+      r.root
+        .findAll(
+          (n) => n.type === Tappable && n.props.accessibilityRole === "radio",
+        )
+        .map((n) => n.props.accessibilityHint)
+        .filter(Boolean);
+    const inFlight = list({
+      keys: ["light"],
+      settings: { light: 1 },
+      lastCommand: cmd({ status: "pending", params: { light: 2 } }),
+    });
+    expect(hints(inFlight.r)).toEqual([tr("device.a11y.awaitingHelmet")]);
+    const unreported = list({ keys: ["light"], settings: {} });
+    expect(hints(unreported.r)).toEqual([tr("device.unconfirmedDefault")]);
+  });
+
   it("已生效那条写的值和头盔现在的值对不上了（头盔自己上报改过）：不再挂「已生效」", () => {
     const success = cmd({ status: "success", params: { light: 2 } });
     expect(
