@@ -1,6 +1,6 @@
 // 短信验证码的「发送 + 重发倒计时」：注册 / 找回密码 / 换手机号三页共用（2026-10-07 合并，此前各写一份）。
 // 页面只管校验手机号、把错误落到字段上；这里只管发请求和限频读秒。
-import { useEffect, useState } from "react";
+import { useEffect, useReducer, useState } from "react";
 
 import { authApi, type SmsCodePurpose } from "@/api/auth";
 
@@ -65,7 +65,24 @@ export const resendCooldown = (cooldownUntil: number, now: number): number => {
   return left > RESEND_SECONDS ? 0 : Math.max(0, left);
 };
 
-export function useSmsCode(purpose: SmsCodePurpose): {
+/**
+ * 各「用途 + 号码」的重发截止时间（模块级）：服务端就是按号码 + 用途限 60 秒的。原来读秒记在页面里——
+ * 退出再进来就清零，点了只换来一句「太频繁」；换一个号码又被上一个号码的读秒挡住（10-17 评审）
+ */
+const resendDeadlines = new Map<string, number>();
+const deadlineKey = (purpose: SmsCodePurpose, phone: string) =>
+  `${purpose}:${normalizePhone(phone)}`;
+
+/** 仅测试用 */
+export function __resetSmsCooldownsForTests(): void {
+  resendDeadlines.clear();
+}
+
+/** phone = 页面输入框里此刻的号码：读秒显示的是这个号码的 */
+export function useSmsCode(
+  purpose: SmsCodePurpose,
+  phone: string,
+): {
   /** 请求在途 */
   sending: boolean;
   /** 还要等几秒才能重发；0 = 可发 */
@@ -79,8 +96,10 @@ export function useSmsCode(purpose: SmsCodePurpose): {
   /** 重发限频用截止时间戳 + 墙钟计算剩余——递减 state 在 App 退后台时定时器
    *  被 iOS 暂停,回前台倒计时冻在原地(2026-09-10 真机实证);按墙钟算则
    *  回前台首个 tick 即校准。同 sos-active 倒计时的口径。 */
-  const [cooldownUntil, setCooldownUntil] = useState(0);
   const [now, setNow] = useState(() => Date.now());
+  // 截止时间存在模块里，React 看不见它变：写进去之后靠这个重渲染
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
+  const cooldownUntil = resendDeadlines.get(deadlineKey(purpose, phone)) ?? 0;
   const cooldown = resendCooldown(cooldownUntil, now);
 
   useEffect(() => {
@@ -89,14 +108,32 @@ export function useSmsCode(purpose: SmsCodePurpose): {
     return () => clearInterval(timer);
   }, [cooldownUntil, now]);
 
-  const send = async (phone: string): Promise<void> => {
+  const startCooldown = (target: string, seconds: number) => {
+    const at = Date.now();
+    resendDeadlines.set(deadlineKey(purpose, target), at + seconds * 1000);
+    setNow(at);
+    rerender();
+  };
+
+  const send = async (target: string): Promise<void> => {
     setSending(true);
     try {
       // 页面一般已经规整过；这里再过一遍（幂等），保证发出去的一定是 11 位纯数字
-      await authApi.sendSmsCode({ phone: normalizePhone(phone), purpose });
-      const sentAt = Date.now();
-      setNow(sentAt);
-      setCooldownUntil(sentAt + RESEND_SECONDS * 1000);
+      await authApi.sendSmsCode({ phone: normalizePhone(target), purpose });
+      startCooldown(target, RESEND_SECONDS);
+    } catch (e) {
+      // 服务端说这个号码刚发过（退出前发的 / 别的页面发的）：照样读秒，别让用户对着「太频繁」一直点。
+      // 服务端给了还要等几秒就按它的（超过一整轮按一整轮，见 resendCooldown）
+      if ((e as { code?: unknown })?.code === "SMS_CODE_TOO_FREQUENT") {
+        const after = (e as { retryAfterSec?: unknown }).retryAfterSec;
+        startCooldown(
+          target,
+          typeof after === "number" && after > 0
+            ? Math.min(after, RESEND_SECONDS)
+            : RESEND_SECONDS,
+        );
+      }
+      throw e;
     } finally {
       setSending(false);
     }

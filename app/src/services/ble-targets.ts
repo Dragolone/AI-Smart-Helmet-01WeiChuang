@@ -11,8 +11,10 @@ import type { DevicePublic } from "@helmet/shared";
 const KEYCHAIN = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK };
 /** 钥匙串单值有 2KB 上限；一个账号绑不了这么多台，超出的截掉 */
 const MAX_CACHED = 20;
-const keyOf = (userId: string) =>
+/** 注销账号时一并删掉（account/delete） */
+export const bleTargetsKeyOf = (userId: string) =>
   `helmet.ble.targets.${userId.replace(/[^A-Za-z0-9._-]/g, "_")}`;
+const keyOf = bleTargetsKeyOf;
 
 /**
  * 查询缓存里的已绑定设备。**没有数据（还没拉到 / 拉失败）返回 null，不是空数组**——

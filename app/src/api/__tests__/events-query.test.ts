@@ -2,7 +2,7 @@
 // 曾共用同一个键，两页各自轮询时互相覆盖，事件页的列表在 5 条和 50 条之间来回跳。
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 
-import { eventsListQuery } from "../events";
+import { eventsListPrefix, eventsListQuery } from "../events";
 
 // jest.mock 会被提升到 import 之前；工厂里的箭头函数到真正发请求时才读 mockApi
 const mockApi = jest.fn(async (_path: string) => ({
@@ -55,5 +55,30 @@ describe("eventsListQuery", () => {
     expect(second).toBe(
       "/devices/helmet%20001/events?type=collision_risk%2Cobstacle_risk&page=1&pageSize=50",
     );
+  });
+});
+
+// 下拉刷新 / 第 1 页总数变了时按前缀把整份列表的每一页一起重取（安全记录页，2026-10-17）
+describe("eventsListPrefix", () => {
+  it("就是第 1 页的键，也是后面每一页键的开头；别的头盔 / 类型 / 页大小不在这个前缀下", () => {
+    const prefix = eventsListPrefix("helmet_001", { type: TYPE, pageSize: 50 });
+    expect(
+      eventsListQuery("helmet_001", { type: TYPE, pageSize: 50 }).queryKey,
+    ).toEqual(prefix);
+    for (const page of [2, 3, 7]) {
+      const key = eventsListQuery("helmet_001", {
+        type: TYPE,
+        pageSize: 50,
+        page,
+      }).queryKey;
+      expect(key.slice(0, prefix.length)).toEqual([...prefix]);
+      expect(key).toHaveLength(prefix.length + 1);
+    }
+    for (const other of [
+      eventsListQuery("helmet_002", { type: TYPE, pageSize: 50, page: 2 }),
+      eventsListQuery("helmet_001", { type: TYPE, pageSize: 5, page: 2 }),
+      eventsListQuery("helmet_001", { type: "possible_fall", pageSize: 50 }),
+    ])
+      expect(other.queryKey.slice(0, prefix.length)).not.toEqual([...prefix]);
   });
 });

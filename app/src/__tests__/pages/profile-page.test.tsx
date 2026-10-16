@@ -233,6 +233,32 @@ describe("账号卡", () => {
     expect(r.texts()).toContain("W");
   });
 
+  // 拉失败写「0 人」会让人以为联系人被清掉了，回头又重复添加（10-17 评审）
+  it("联系人列表还没拿到 / 拉失败：入口右边写一横，不写 0 人；拿到空列表才写 0 人", async () => {
+    m(contactsApi.list).mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    const qc = makeQueryClient();
+    const r = mount(qc);
+    await waitFor(() =>
+      expect(qc.getQueryState(["contacts"])?.status).toBe("error"),
+    );
+    expect(r.allText()).not.toContain(tr("profile.contactsValue", { n: 0 }));
+    const row = r.root.findAll(
+      (n) =>
+        typeof n.type !== "string" &&
+        n.props.title === tr("profile.contacts") &&
+        "value" in n.props,
+    )[0];
+    expect(row.props.value).toBe("—");
+
+    m(contactsApi.list).mockImplementation(() => Promise.resolve([]));
+    const empty = mount();
+    await waitFor(() =>
+      expect(empty.allText()).toContain(tr("profile.contactsValue", { n: 0 })),
+    );
+  });
+
   it("没有用户档案：一横和问号", () => {
     act(() => useAuthStore.setState({ user: null }));
     const r = mount();
@@ -375,7 +401,7 @@ describe("编辑资料", () => {
     );
   });
 
-  it("取消选图不改；压缩没给出 base64 也不改；选图出错弹窗说明", async () => {
+  it("取消选图不改；压缩没给出 base64 也不改；选图出错弹窗说明（固定文案，不露原生层的英文报错）", async () => {
     const r = mount();
     act(() => accountCard(r).props.onPress());
     m(ImagePicker.launchImageLibraryAsync).mockImplementationOnce(() =>
@@ -407,10 +433,11 @@ describe("编辑资料", () => {
     await waitFor(() =>
       expect(alert).toHaveBeenCalledWith(
         translate("profile.pickFailed"),
-        "no permission",
+        translate("profile.pickFailedBody"),
         NOTICE_OK,
       ),
     );
+    expect(JSON.stringify(alert.mock.calls)).not.toContain("no permission");
   });
 
   it("什么都没改就保存：不发请求，照样画勾关掉弹层", async () => {

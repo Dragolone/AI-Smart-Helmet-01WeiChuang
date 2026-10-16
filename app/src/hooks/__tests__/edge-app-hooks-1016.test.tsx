@@ -31,7 +31,11 @@ import {
   usePendingSos,
   useSosDrill,
 } from "../use-safety";
-import { RESEND_SECONDS, useSmsCode } from "../use-sms-code";
+import {
+  RESEND_SECONDS,
+  __resetSmsCooldownsForTests,
+  useSmsCode,
+} from "../use-sms-code";
 import { useSwitchHelmetWatcher } from "../use-switch-reminder";
 
 // App 源码解析到 app/node_modules/react，渲染器用根目录那份：让两边用同一份（见 edge-small-hooks-1016）
@@ -148,9 +152,11 @@ afterEach(async () => {
 });
 
 describe("useSmsCode：发验证码与重发读秒", () => {
+  beforeEach(() => __resetSmsCooldownsForTests());
+
   it("发出去之后读秒从 60 开始、按钮禁用；号码首尾空白去掉再发", async () => {
     smsMock.mockResolvedValue(undefined);
-    const r = await renderHook(() => useSmsCode("register"));
+    const r = await renderHook(() => useSmsCode("register", "  13900000042 "));
     expect(r.current).toMatchObject({
       sending: false,
       cooldown: 0,
@@ -167,11 +173,33 @@ describe("useSmsCode：发验证码与重发读秒", () => {
     expect(r.current.disabled).toBe(true);
   });
 
-  it("发送失败：抛给页面，不进入读秒、按钮恢复可点", async () => {
-    smsMock.mockRejectedValue(
+  it("发送失败（断网等）：抛给页面，不进入读秒、按钮恢复可点", async () => {
+    smsMock.mockRejectedValue(new TypeError("Network request failed"));
+    const r = await renderHook(() =>
+      useSmsCode("reset_password", "13900000042"),
+    );
+    let caught: unknown;
+    await act(async () => {
+      await r.current.send("13900000042").catch((e: unknown) => {
+        caught = e;
+      });
+    });
+    expect(caught).toBeInstanceOf(TypeError);
+    expect(r.current).toMatchObject({
+      sending: false,
+      cooldown: 0,
+      disabled: false,
+    });
+  });
+
+  // 服务端按「号码 + 用途」限 60 秒：说「刚发过」就是这个号码还在读秒里（退出前发的 / 别的页面发的）
+  it("服务端回「发得太频繁」：照样抛给页面，同时读满 60 秒；服务端给了秒数就按它的", async () => {
+    smsMock.mockRejectedValueOnce(
       Object.assign(new Error("429"), { code: "SMS_CODE_TOO_FREQUENT" }),
     );
-    const r = await renderHook(() => useSmsCode("reset_password"));
+    const r = await renderHook(() =>
+      useSmsCode("reset_password", "13900000042"),
+    );
     let caught: unknown;
     await act(async () => {
       await r.current.send("13900000042").catch((e: unknown) => {
@@ -181,6 +209,47 @@ describe("useSmsCode：发验证码与重发读秒", () => {
     expect((caught as { code: string }).code).toBe("SMS_CODE_TOO_FREQUENT");
     expect(r.current).toMatchObject({
       sending: false,
+      cooldown: RESEND_SECONDS,
+      disabled: true,
+    });
+
+    smsMock.mockRejectedValueOnce(
+      Object.assign(new Error("429"), {
+        code: "SMS_CODE_TOO_FREQUENT",
+        retryAfterSec: 23,
+      }),
+    );
+    const other = await renderHook(() =>
+      useSmsCode("reset_password", "13900000043"),
+    );
+    await act(async () => {
+      await other.current.send("13900000043").catch(() => undefined);
+    });
+    expect(other.current.cooldown).toBe(23);
+  });
+
+  it("读秒按号码 + 用途记：离开页面再进来还在读；换一个号码、换一个用途不受影响", async () => {
+    smsMock.mockResolvedValue(undefined);
+    const first = await renderHook(() => useSmsCode("register", "13900000042"));
+    await act(async () => {
+      await first.current.send("13900000042");
+    });
+    // 同一个号码重新进页面（新的 hook 实例）：接着读，不是清零
+    const again = await renderHook(() =>
+      useSmsCode("register", "+86 139-0000-0042"),
+    );
+    expect(again.current.cooldown).toBeGreaterThan(RESEND_SECONDS - 2);
+    expect(again.current.disabled).toBe(true);
+    // 换一个号码可以马上发
+    const otherPhone = await renderHook(() =>
+      useSmsCode("register", "13900000043"),
+    );
+    expect(otherPhone.current).toMatchObject({ cooldown: 0, disabled: false });
+    // 同一个号码换一个用途也可以
+    const otherPurpose = await renderHook(() =>
+      useSmsCode("reset_password", "13900000042"),
+    );
+    expect(otherPurpose.current).toMatchObject({
       cooldown: 0,
       disabled: false,
     });
@@ -189,7 +258,9 @@ describe("useSmsCode：发验证码与重发读秒", () => {
   it("请求在途时按钮禁用（防连点重复发码）", async () => {
     let resolve!: () => void;
     smsMock.mockImplementation(() => new Promise<void>((r) => (resolve = r)));
-    const r = await renderHook(() => useSmsCode("change_phone"));
+    const r = await renderHook(() =>
+      useSmsCode("change_phone", "13900000042"),
+    );
     let pending!: Promise<void>;
     await act(async () => {
       pending = r.current.send("13900000042");
@@ -206,7 +277,9 @@ describe("useSmsCode：发验证码与重发读秒", () => {
     jest.useFakeTimers({ now: Date.UTC(2026, 9, 16, 1, 0, 0) });
     try {
       smsMock.mockResolvedValue(undefined);
-      const r = await renderHook(() => useSmsCode("register"));
+      const r = await renderHook(() =>
+        useSmsCode("register", "13900000042"),
+      );
       await act(async () => {
         await r.current.send("13900000042");
       });

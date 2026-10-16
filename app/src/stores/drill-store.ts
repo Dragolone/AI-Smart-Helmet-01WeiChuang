@@ -4,8 +4,10 @@
 import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
 
-/** SecureStore 的 key 只允许字母数字和 . - _；用户 id 是 cuid，满足 */
-const keyOf = (userId: string) => `helmet.sosDrillSeen.${userId}`;
+/** SecureStore 的 key 只允许字母数字和 . - _；用户 id 是 cuid，满足。注销账号时一并删掉（account/delete） */
+export const drillSeenKeyOf = (userId: string) =>
+  `helmet.sosDrillSeen.${userId}`;
+const keyOf = drillSeenKeyOf;
 
 type DrillState = {
   /** 各账号是否打开过演练；没有条目 = 还没读到 */

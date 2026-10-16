@@ -16,6 +16,11 @@ const WS_URL = API_BASE_URL.replace(/^http/, "ws").replace(
 const CLOSE_UNAUTHORIZED = 4401;
 const BACKOFF_BASE_MS = 1000;
 const BACKOFF_MAX_MS = 30_000;
+/**
+ * 连上之后稳住这么久（或先收到一条消息）才清零退避。服务端先接受握手、验完 token 才以 4401 关掉，
+ * onopen 不代表鉴权通过：原来一 open 就清零，被拒的 token 每秒重连一次、每次都去刷新 token（10-17 评审）
+ */
+export const STABLE_MS = 5_000;
 
 type Listener = (message: WsMessage) => void;
 type StateListener = (connected: boolean) => void;
@@ -34,6 +39,7 @@ class RealtimeClient {
   private connected = false;
   private attempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private stableTimer: ReturnType<typeof setTimeout> | null = null;
   private running = false;
   /**
    * 代次：start / stop / kick 各加一。4401 之后的换 token 是异步的，回来时若代次已变
@@ -55,6 +61,7 @@ class RealtimeClient {
     this.running = false;
     this.epoch += 1;
     this.setConnected(false);
+    this.clearStable();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
     this.ws?.close();
@@ -92,6 +99,17 @@ class RealtimeClient {
     return () => this.stateListeners.delete(listener);
   }
 
+  private clearStable(): void {
+    if (this.stableTimer) clearTimeout(this.stableTimer);
+    this.stableTimer = null;
+  }
+
+  /** 这条连接确实可用（稳住了 / 收到了消息）：退避清零 */
+  private markStable(): void {
+    this.clearStable();
+    this.attempts = 0;
+  }
+
   private setConnected(v: boolean): void {
     if (this.connected === v) return;
     this.connected = v;
@@ -110,18 +128,25 @@ class RealtimeClient {
     const stale = this.ws;
     this.ws = null;
     stale?.close();
+    this.clearStable();
     const ws = new WebSocket(`${WS_URL}?token=${encodeURIComponent(token)}`);
     this.ws = ws;
 
     ws.onopen = () => {
       if (this.ws !== ws) return; // stop() 或新连接已接管：迟到的 open 不能把状态翻回已连接
-      this.attempts = 0;
       this.setConnected(true);
       devLog("realtime", "已连接");
+      this.clearStable();
+      this.stableTimer = setTimeout(() => {
+        this.stableTimer = null;
+        if (this.ws === ws) this.markStable();
+      }, STABLE_MS);
     };
 
     ws.onmessage = (event) => {
       if (this.ws !== ws) return; // 同上：被放弃的连接上迟到的消息不再分发
+      // 服务端只给鉴权通过的连接推消息：收到一条就算稳了
+      if (this.stableTimer) this.markStable();
       try {
         const message = JSON.parse(String(event.data)) as WsMessage;
         for (const listener of this.listeners) listener(message);
@@ -138,9 +163,15 @@ class RealtimeClient {
       );
       this.ws = null;
       this.setConnected(false);
+      this.clearStable();
       if (!this.running) return;
       if (event.code === CLOSE_UNAUTHORIZED) {
-        // token 过期：借 api 层完成刷新后立刻重连（失败则走常规退避）。
+        // 这条连接用的 token 已经被换掉了（别的请求顺手刷新过）：直接拿新的重连，不再刷新一遍
+        if (this.deps?.getAccessToken() !== token) {
+          this.scheduleReconnect();
+          return;
+        }
+        // token 过期：借 api 层完成刷新后重连（失败则走常规退避）。连续被拒时退避照涨（没稳住不清零）。
         // 刷新期间若 kick / stop / start 过，那一方已经接管了重连，这里作罢
         const epoch = this.epoch;
         void this.deps

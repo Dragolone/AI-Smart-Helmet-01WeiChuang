@@ -17,3 +17,20 @@ export function utf8ByteLength(s: string): number {
 /** 新密码是否超过服务端上限（72 字节） */
 export const isPasswordTooLong = (password: string): boolean =>
   utf8ByteLength(password) > PASSWORD_MAX_BYTES;
+
+/** 新密码的下限（后端 @MinLength(8)） */
+export const PASSWORD_MIN_LENGTH = 8;
+
+/**
+ * 按服务端的数法数密码长度：class-validator 的 MinLength（validator.isLength）按码点数，
+ * 紧跟在字符后面的变体选择符（U+FE0E / U+FE0F，「❤️」后半截）不算。`password.length` 数的是 UTF-16 单元，
+ * 表情、生僻字各算两个：7 个字的密码本地过了检查、提交后只得到一句「输入格式不正确」。
+ */
+export function passwordLength(s: string): number {
+  const selectors = s.match(/[^️︎][️︎]/g)?.length ?? 0;
+  return [...s].length - selectors;
+}
+
+/** 新密码是否不到下限（与服务端同口径） */
+export const isPasswordTooShort = (password: string): boolean =>
+  passwordLength(password) < PASSWORD_MIN_LENGTH;

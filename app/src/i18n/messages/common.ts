@@ -77,6 +77,10 @@ export const common = {
       "求救倒计时结束或选择立即求救后，系统会向紧急联系人发送短信通知。最多可添加 {max} 人。",
     "contacts.add": "添加联系人",
     "contacts.full": "已达上限 {max} 人",
+    "contacts.loadFailed": "联系人加载失败",
+    "contacts.loadFailedBody":
+      "暂时看不到你已添加的联系人，这不代表还没有添加。请检查网络后重试。",
+    "contacts.retry": "重试",
     "contacts.deleteTitle": "删除联系人",
     "contacts.deleteBody": "SOS 时将不再通知 {name}，确定删除？",
     "contacts.name": "姓名",
@@ -170,6 +174,10 @@ export const common = {
       "求救倒數結束或選擇立即求救後，系統會向緊急聯絡人傳送簡訊通知。最多可新增 {max} 人。",
     "contacts.add": "新增聯絡人",
     "contacts.full": "已達上限 {max} 人",
+    "contacts.loadFailed": "聯絡人載入失敗",
+    "contacts.loadFailedBody":
+      "暫時看不到你已新增的聯絡人，這不代表還沒有新增。請檢查網路後重試。",
+    "contacts.retry": "重試",
     "contacts.deleteTitle": "刪除聯絡人",
     "contacts.deleteBody": "SOS 時將不再通知 {name}，確定刪除？",
     "contacts.name": "姓名",
@@ -269,6 +277,10 @@ export const common = {
       "When the SOS countdown ends or you send an SOS immediately, the system sends text alerts to your emergency contacts. You can add up to {max} people.",
     "contacts.add": "Add contact",
     "contacts.full": "Limit of {max} reached",
+    "contacts.loadFailed": "Couldn't load contacts",
+    "contacts.loadFailedBody":
+      "Your saved contacts can't be shown right now. This doesn't mean none were added. Check your connection and try again.",
+    "contacts.retry": "Retry",
     "contacts.deleteTitle": "Delete contact",
     "contacts.deleteBody": "{name} will no longer be notified on SOS. Delete?",
     "contacts.name": "Name",

@@ -17,7 +17,7 @@ type RelayApi = typeof import("@/api/relay");
 type Counts = { accepted: number; duplicate: number; invalid: number };
 
 const mockFiles = new Map<string, string>();
-const mockFsFail = { move: false };
+const mockFsFail = { move: false, del: false };
 const mockFsMoves: string[] = [];
 const mockHold = jest.fn((_ms: number) => undefined);
 const mockRelease = jest.fn(() => undefined);
@@ -42,6 +42,10 @@ jest.mock("expo-file-system", () => ({
       if (mockFsFail.move) throw new Error("mock: rename failed");
       mockFsMoves.push(`${this.name} -> ${dest.name}`);
       mockFiles.set(dest.name, mockFiles.get(this.name) ?? "");
+      mockFiles.delete(this.name);
+    }
+    delete(): void {
+      if (mockFsFail.del) throw new Error("mock: delete failed");
       mockFiles.delete(this.name);
     }
   },
@@ -641,5 +645,62 @@ describe("深睡持锁（Android holdNetwork / releaseNetwork）", () => {
     expect(push).not.toHaveBeenCalled();
     await up.flushRelayQueue();
     expect(push).toHaveBeenCalledTimes(1);
+  });
+});
+
+// 注销账号之后（account/delete，2026-10-17）：这个账号分区的积压再也送不出去（头盔已全部解绑），
+// 文件不能一直留在手机上；注销后链路停下来时的那次落盘也不能把它写回来。别的账号的分区不动。
+describe("discardRelayQueue：注销账号后丢掉这个账号的积压", () => {
+  it("删掉正式文件和临时文件、清掉内存里的；之后停链路也不再为它落盘；别人的分区原样", async () => {
+    const { up, push } = load();
+    push.mockRejectedValue(new Error("offline"));
+    up.startRelayUplink("user_B");
+    up.enqueueRelayEvent(env("location_update", "helmet_of_B"));
+    up.stopRelayUplink();
+    expect(savedIds("user_B")).toHaveLength(1);
+
+    up.startRelayUplink("user_A");
+    await tick();
+    up.enqueueRelayEvent(env("location_update", "helmet_of_A"));
+    await tick();
+    expect(savedIds("user_A")).toHaveLength(1);
+    mockFiles.set(`${fileOf("user_A")}.tmp`, "{}");
+
+    up.discardRelayQueue("user_A");
+    expect(mockFiles.has(fileOf("user_A"))).toBe(false);
+    expect(mockFiles.has(`${fileOf("user_A")}.tmp`)).toBe(false);
+    // 清会话 → use-realtime 停链路：原来这里会把队列再写回 user_A 的文件
+    up.stopRelayUplink();
+    expect(mockFiles.has(fileOf("user_A"))).toBe(false);
+    expect(savedIds("user_B")).toHaveLength(1);
+
+    // 下一个登录的人（新账号）照常用自己的分区，不会带上 A 的积压
+    push.mockReset();
+    push.mockResolvedValue({ accepted: 1, duplicate: 0, invalid: 0 });
+    up.startRelayUplink("user_C");
+    up.enqueueRelayEvent(env("location_update", "helmet_of_C"));
+    await up.flushRelayQueue();
+    expect(push.mock.calls.map((c) => c[0].deviceId)).toEqual(["helmet_of_C"]);
+    up.stopRelayUplink();
+    expect(savedIds("user_C")).toEqual([]);
+  });
+
+  it("没有文件 / 删文件抛错：不抛给注销流程，内存里的照样清掉", async () => {
+    const { up, push } = load();
+    expect(() => up.discardRelayQueue("nobody")).not.toThrow();
+    push.mockRejectedValue(new Error("offline"));
+    up.startRelayUplink("user_D");
+    up.enqueueRelayEvent(env("location_update", "helmet_of_D"));
+    await tick();
+    mockFsFail.del = true;
+    try {
+      expect(() => up.discardRelayQueue("user_D")).not.toThrow();
+    } finally {
+      mockFsFail.del = false;
+    }
+    push.mockReset();
+    await up.flushRelayQueue();
+    expect(push).not.toHaveBeenCalled();
+    up.stopRelayUplink();
   });
 });

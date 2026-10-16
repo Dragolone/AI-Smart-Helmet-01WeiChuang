@@ -27,6 +27,8 @@ export const errors = {
     "error.unknown": "操作失败（{code}）",
     "error.network": "网络连接失败，请检查网络后重试",
     "error.timeout": "请求超时，请检查网络后重试。",
+    "error.sessionCheckFailed": "登录状态校验失败，请稍后重试",
+    "error.sessionEnded": "登录已失效，请重新登录",
   },
   "zh-TW": {
     "error.validationFailed": "輸入格式不正確，請檢查後重試",
@@ -55,6 +57,8 @@ export const errors = {
     "error.unknown": "操作失敗（{code}）",
     "error.network": "網路連線失敗，請檢查網路後重試",
     "error.timeout": "請求逾時，請檢查網路後重試。",
+    "error.sessionCheckFailed": "登入狀態驗證失敗，請稍後重試",
+    "error.sessionEnded": "登入已失效，請重新登入",
   },
   en: {
     "error.validationFailed": "Invalid input. Please check and try again.",
@@ -88,5 +92,8 @@ export const errors = {
     "error.unknown": "Something went wrong ({code})",
     "error.network": "Network error. Check your connection and try again.",
     "error.timeout": "Request timed out. Check your connection and try again.",
+    "error.sessionCheckFailed":
+      "Couldn't verify your login. Try again later.",
+    "error.sessionEnded": "Your session has ended. Please log in again.",
   },
 } as const;

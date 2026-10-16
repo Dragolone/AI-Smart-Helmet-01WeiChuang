@@ -21,7 +21,7 @@ import {
   waitFor,
   type Rendered,
 } from "@/__tests__/helpers/render";
-import { ApiRequestError } from "@/api/client";
+import { ApiRequestError, SessionEndedError } from "@/api/client";
 import { contactsApi } from "@/api/contacts";
 import { devicesApi } from "@/api/devices";
 import { sosApi } from "@/api/sos";
@@ -292,6 +292,69 @@ describe("紧急联系人列表", () => {
       .findAllByType(Text)
       .find((t) => t.props.children === tr("error.network"));
     expect(flat(err!.props.style).color).toBe(dark.danger);
+  });
+});
+
+// 拉失败原来也显示「尚未添加紧急联系人」、添加照样可点：用户以为丢了又加一遍，联系人重复（10-17 评审）
+describe("紧急联系人列表没拿到", () => {
+  const addButton = (r: Rendered) =>
+    r.root.find(
+      (n) =>
+        typeof n.type === "string" &&
+        n.props.accessibilityState?.busy !== undefined &&
+        n.findAll((c) => c.props.children === tr("contacts.add")).length > 0,
+    );
+
+  it("拉失败：不说「尚未添加」，说没拿到并给重试；添加按钮不可点；重试拿到了就恢复", async () => {
+    m(contactsApi.list).mockImplementationOnce(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    const r = mount(<ContactsScreen />);
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("contacts.loadFailed")),
+    );
+    expect(r.allText()).not.toContain(tr("empty.contactsTitle"));
+    expect(r.allText()).toContain(tr("contacts.loadFailedBody"));
+    expect(addButton(r).props.accessibilityState.disabled).toBe(true);
+    m(contactsApi.list).mockImplementation(() =>
+      Promise.resolve([contact("1", "妈妈")]),
+    );
+    r.press(tr("contacts.retry"));
+    await waitFor(() => expect(r.allText()).toContain("妈妈"));
+    expect(r.allText()).not.toContain(tr("contacts.loadFailed"));
+    expect(addButton(r).props.accessibilityState.disabled).toBe(false);
+  });
+
+  it("还在拉：既不显示空态也不显示失败，添加按钮先不可点", () => {
+    m(contactsApi.list).mockImplementation(() => new Promise(() => undefined));
+    const r = mount(<ContactsScreen />);
+    expect(r.allText()).not.toContain(tr("empty.contactsTitle"));
+    expect(r.allText()).not.toContain(tr("contacts.loadFailed"));
+    expect(addButton(r).props.accessibilityState.disabled).toBe(true);
+  });
+
+  it("删除时会话已失效（正被送回登录页）：不弹失败提示", async () => {
+    m(contactsApi.list).mockImplementation(() =>
+      Promise.resolve([contact("1", "妈妈")]),
+    );
+    m(contactsApi.remove).mockImplementationOnce(() =>
+      Promise.reject(new SessionEndedError()),
+    );
+    const r = mount(<ContactsScreen />);
+    await waitFor(() => expect(r.allText()).toContain("妈妈"));
+    const del = r.root.find(
+      (n) =>
+        n.type === Tappable &&
+        n.props.accessibilityLabel === tr("common.delete"),
+    );
+    act(() => del.props.onPress());
+    const buttons = alert.mock.calls[0][2] as {
+      onPress?: () => Promise<void>;
+    }[];
+    await act(async () => {
+      await buttons[1].onPress!();
+    });
+    expect(alert).toHaveBeenCalledTimes(1); // 只有那个删除确认框
   });
 });
 

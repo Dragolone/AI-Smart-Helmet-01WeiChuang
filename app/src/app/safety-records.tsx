@@ -6,9 +6,9 @@
 // 接口是按头盔取的：各取一遍后合并（services/safety-records.ts），没拿到的不当成「没有」。
 // 进行中的 SOS 不受头盔筛选影响：别的头盔上有一条正在倒计时，这一页顶部照样显示。
 import { Ionicons } from "@expo/vector-icons";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Modal,
   Pressable,
@@ -22,7 +22,7 @@ import type { AccidentListItem, EventListItem } from "@helmet/shared";
 
 import { accidentHref, sosActiveHref } from "@/services/sos-routes";
 import { toUserMessage } from "@/api/error-messages";
-import { eventsApi, eventsListQuery } from "@/api/events";
+import { eventsApi, eventsListPrefix, eventsListQuery } from "@/api/events";
 import { sosApi } from "@/api/sos";
 import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
@@ -306,12 +306,56 @@ export default function SafetyRecordsScreen() {
     (s, i) => shown(i) && s.loadingMore,
   );
   const sosLoadingMore = sosSources.some((s, i) => shown(i) && s.loadingMore);
+
+  // 分页按偏移量取：第 1 页来了新记录，原来排在页尾的就挤到第 2 页。30 秒轮询和下拉刷新原来只重取第 1 页，
+  // 被挤走的那条从列表里消失、直到重进这一页（10-17 评审）。现在按前缀把这份列表的每一页一起重取
+  const queryClient = useQueryClient();
+  const alertPrefix = (deviceId: string) =>
+    eventsListPrefix(deviceId, {
+      type: RISK_ALERT_TYPE_PARAM,
+      pageSize: ALERT_PAGE,
+    });
+  const sosPrefix = (deviceId: string) => ["accidents", deviceId] as const;
   const refetchRecords = () =>
     Promise.all(
-      (tab === "alerts" ? alertQueries : sosQueries)
+      list
         .filter((_, i) => shown(i))
-        .map((q) => q.refetch()),
+        .map((d) =>
+          queryClient.invalidateQueries({
+            queryKey:
+              tab === "alerts" ? alertPrefix(d.deviceId) : sosPrefix(d.deviceId),
+          }),
+        ),
     );
+  // 第 1 页的总数变了 = 有记录进来（或删掉了）：已经取过的后面几页跟着重取（第 1 页自己刚取过，不再取）
+  const seenTotals = useRef(new Map<string, number>());
+  const pageOneTotals = [
+    ...list.map((d, i) => ({
+      id: `alerts:${d.deviceId}`,
+      total: alertQueries[i]?.data?.total,
+      prefix: alertPrefix(d.deviceId) as readonly unknown[],
+    })),
+    ...list.map((d, i) => ({
+      id: `sos:${d.deviceId}`,
+      total: sosQueries[i]?.data?.total,
+      prefix: sosPrefix(d.deviceId) as readonly unknown[],
+    })),
+  ];
+  useEffect(() => {
+    for (const { id, total, prefix } of pageOneTotals) {
+      if (total === undefined) continue;
+      const before = seenTotals.current.get(id);
+      seenTotals.current.set(id, total);
+      if (before === undefined || before === total) continue;
+      void queryClient.invalidateQueries({
+        queryKey: prefix,
+        // 正在取的（实时通道按前缀整份失效时和第 1 页一起发出的）不用再取一遍
+        predicate: (q) =>
+          q.queryKey.length > prefix.length &&
+          q.state.fetchStatus !== "fetching",
+      });
+    }
+  });
 
   // 只由手势驱动：绑到 isRefetching 的话，30 秒轮询也会拉出转圈（设备页同一口径）
   const [refreshing, setRefreshing] = useState(false);

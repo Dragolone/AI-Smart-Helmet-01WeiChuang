@@ -2,6 +2,8 @@
 // 这里补退避封顶、4401 换 token、会话被清、畸形消息、stop 之后的迟到回调。
 import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
 
+import { STABLE_MS } from "../realtime";
+
 jest.mock("@/services/dev-log", () => ({ devLog: jest.fn() }));
 
 class FakeWs {
@@ -78,7 +80,7 @@ describe("退避", () => {
     c.stop();
   });
 
-  it("一旦连上退避清零：失败三轮后连上，再掉线只等 1 s", () => {
+  it("连上并稳住 5 s 才清零退避：失败三轮后连上、稳住，再掉线只等 1 s", () => {
     const c = load();
     c.start(depsWith(() => "tok"));
     for (const delay of [1000, 2000, 4000]) {
@@ -86,10 +88,43 @@ describe("退避", () => {
       jest.advanceTimersByTime(delay);
     }
     last().open();
+    jest.advanceTimersByTime(STABLE_MS);
     const before = count();
     last().drop();
     jest.advanceTimersByTime(1000);
     expect(count()).toBe(before + 1);
+    c.stop();
+  });
+
+  it("没等稳住、先收到一条消息也算连上了：退避清零", () => {
+    const c = load();
+    c.start(depsWith(() => "tok"));
+    for (const delay of [1000, 2000, 4000]) {
+      last().drop();
+      jest.advanceTimersByTime(delay);
+    }
+    last().open();
+    last().message(JSON.stringify({ type: "device_status", data: {} }));
+    const before = count();
+    last().drop();
+    jest.advanceTimersByTime(1000);
+    expect(count()).toBe(before + 1);
+    c.stop();
+  });
+
+  // 服务端先接受握手、验完 token 才以 4401 关掉：onopen 不代表鉴权通过（10-17 评审：原来每秒重连 + 每次都刷新 token）
+  it("握手成功但马上被关：不清零，退避照涨（1 → 2 → 4 s）", () => {
+    const c = load();
+    c.start(depsWith(() => "tok"));
+    for (const delay of [1000, 2000, 4000]) {
+      last().open();
+      const before = count();
+      last().drop();
+      jest.advanceTimersByTime(delay - 1);
+      expect(count()).toBe(before);
+      jest.advanceTimersByTime(1);
+      expect(count()).toBe(before + 1);
+    }
     c.stop();
   });
 });
@@ -113,6 +148,60 @@ describe("4401（access token 过期）", () => {
     await jest.advanceTimersByTimeAsync(1000);
     expect(count()).toBe(2);
     expect(last().url).toContain(`token=${encodeURIComponent("new+tok/=")}`);
+    c.stop();
+  });
+
+  it("连续 4401（握手过了、token 被拒）：每轮都换 token，但重连间隔 1 → 2 → 4 → 8 s 往上涨，不再每秒一次", async () => {
+    let n = 0;
+    let token = "tok-0";
+    const c = load();
+    const deps = depsWith(
+      () => token,
+      async () => {
+        n += 1;
+        token = `tok-${n}`;
+      },
+    );
+    c.start(deps);
+    for (const delay of [1000, 2000, 4000, 8000]) {
+      last().open();
+      const before = count();
+      last().drop(4401);
+      await jest.advanceTimersByTimeAsync(delay - 1);
+      expect(count()).toBe(before);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(count()).toBe(before + 1);
+    }
+    expect(deps.triggerTokenRefresh).toHaveBeenCalledTimes(4);
+    c.stop();
+  });
+
+  it("4401 时手上的 token 已经比这条连接用的新（别的请求刚刷新过）：不再刷新一遍，直接拿新 token 重连", async () => {
+    let token = "old";
+    const c = load();
+    const deps = depsWith(() => token);
+    c.start(deps);
+    last().open();
+    token = "fresh"; // REST 那边 401 → 静默刷新已经换过了
+    last().drop(4401);
+    expect(deps.triggerTokenRefresh).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(1000);
+    expect(count()).toBe(2);
+    expect(last().url).toContain("token=fresh");
+    c.stop();
+  });
+
+  it("4401 风暴中回到前台（kick）：照样立刻重连", async () => {
+    const c = load();
+    c.start(depsWith(() => "tok"));
+    for (let i = 0; i < 4; i += 1) {
+      last().open();
+      last().drop(4401);
+      await jest.advanceTimersByTimeAsync(30_000);
+    }
+    const before = count();
+    c.kick();
+    expect(count()).toBe(before + 1);
     c.stop();
   });
 
