@@ -45,7 +45,8 @@ export default function AdminLayout() {
         <Menu
           theme="dark"
           mode="inline"
-          selectedKeys={[location.pathname]}
+          // 按一级路径高亮：设备详情 /devices/:id 也属于「设备」
+          selectedKeys={[`/${location.pathname.split('/')[1]}`]}
           items={MENU_ITEMS}
           onClick={({ key }) => navigate(key)}
         />

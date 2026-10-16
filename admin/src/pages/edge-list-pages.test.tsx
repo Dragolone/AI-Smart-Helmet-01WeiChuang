@@ -2,8 +2,9 @@
 // 翻页与筛选的联动、时间按本地时区展示。接口用 fetch 桩，按请求 URL 断言实际发出去的查询串。
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import type { AdminAccidentRow, AdminDeviceRow, AdminEventRow, AdminUserRow } from '@helmet/shared'
-import { jsonResponse, renderWithProviders, textResponse } from '../test/render'
+import type { AdminDeviceRow, AdminUserRow } from '@helmet/shared'
+import { accident, byRole, cellsOf, device, event, page, search, stubApi, user } from '../test/fixtures'
+import { renderWithProviders, textResponse } from '../test/render'
 import AccidentsPage from './AccidentsPage'
 import DevicesPage from './DevicesPage'
 import EventsPage from './EventsPage'
@@ -15,94 +16,6 @@ beforeAll(() => {
 })
 afterAll(() => {
   vi.unstubAllEnvs()
-})
-
-/** 桩 fetch：每次请求按 URL 现造响应，并记录查询串 */
-const stubApi = (respond: (url: URL) => Response) => {
-  const fetchMock = vi.fn((input: string) => Promise.resolve(respond(new URL(input, 'http://admin.local'))))
-  vi.stubGlobal('fetch', fetchMock)
-  return {
-    count: () => fetchMock.mock.calls.length,
-    last: () => new URL(fetchMock.mock.calls.at(-1)?.[0] ?? '', 'http://admin.local'),
-  }
-}
-
-const page = <T,>(items: T[], total = items.length) => jsonResponse(200, { items, total, page: 1, pageSize: 20 })
-
-const search = (placeholder: string, value: string) => {
-  const input = screen.getByPlaceholderText(placeholder)
-  fireEvent.change(input, { target: { value } })
-  fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', keyCode: 13 })
-  // antd 输入框对回车有按键锁（防长按连发），不松键第二次回车不会触发 onSearch
-  fireEvent.keyUp(input, { key: 'Enter', code: 'Enter', keyCode: 13 })
-}
-
-// 按 role 属性直接选：getByRole 要给整棵 antd DOM 算可访问性树，一次就是一两秒
-const byRole = (role: string, root: ParentNode = document): HTMLElement => {
-  const el = root.querySelector<HTMLElement>(`[role="${role}"]`)
-  if (!el) throw new Error(`找不到 role=${role} 的元素`)
-  return el
-}
-
-/** 取某一行各列的文本（按表头顺序） */
-const cellsOf = (rowText: string): string[] => {
-  const row = screen.getByText(rowText).closest('tr')
-  if (!row) throw new Error(`找不到含「${rowText}」的行`)
-  return Array.from(row.querySelectorAll('td')).map((td) => td.textContent ?? '')
-}
-
-const user = (over: Partial<AdminUserRow>): AdminUserRow => ({
-  id: 'u_1',
-  phone: '13800001111',
-  nickname: null,
-  avatarUrl: null,
-  createdAt: '2026-09-17T16:30:05.000Z',
-  deletedAt: null,
-  deviceCount: 0,
-  ...over,
-})
-
-const device = (over: Partial<AdminDeviceRow>): AdminDeviceRow => ({
-  deviceId: 'helmet_001',
-  online: false,
-  lastSeenAt: null,
-  battery: null,
-  charging: null,
-  signalLevel: null,
-  sleeping: false,
-  firmwareVersion: null,
-  boundAt: null,
-  createdAt: '2026-09-01T00:00:00.000Z',
-  bindUser: null,
-  ...over,
-})
-
-const accident = (over: Partial<AdminAccidentRow>): AdminAccidentRow => ({
-  sosId: 'sos_1',
-  deviceId: 'helmet_001',
-  triggerEventId: 'evt_1',
-  triggerType: 'possible_fall',
-  status: 'pending',
-  deadline: '2026-09-17T16:31:05.000Z',
-  createdAt: '2026-09-17T16:30:05.000Z',
-  updatedAt: '2026-09-17T16:30:05.000Z',
-  location: null,
-  user: null,
-  ...over,
-})
-
-const event = (over: Partial<AdminEventRow>): AdminEventRow => ({
-  eventId: 'evt_1',
-  deviceId: 'helmet_001',
-  eventType: 'device_status',
-  timestamp: '2026-09-17T16:30:00.000Z',
-  receivedAt: '2026-09-17T16:30:05.000Z',
-  summary: '电量 80%',
-  payload: { battery: 80 },
-  source: 'app_relay',
-  clockSkew: false,
-  schemaVersion: 1,
-  ...over,
 })
 
 describe('UsersPage：边界', () => {

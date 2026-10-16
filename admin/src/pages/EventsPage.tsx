@@ -10,14 +10,13 @@ import {
   Typography,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import dayjs from 'dayjs'
 import { useState } from 'react'
 import { api } from '../api/client'
 import QueryError from '../components/QueryError'
+import { formatTime } from '../utils/format'
+import { useClampPage } from '../utils/use-clamp-page'
 import { EVENT_TYPES } from '@helmet/shared'
 import type { AdminEventRow, Paginated } from '@helmet/shared'
-
-const formatTime = (v: string): string => dayjs(v).format('YYYY-MM-DD HH:mm:ss')
 
 const EVENT_TYPE_OPTIONS = EVENT_TYPES.map((t) => ({ value: t, label: t }))
 
@@ -83,6 +82,7 @@ export default function EventsPage() {
     },
     refetchInterval: 30_000,
   })
+  useClampPage(page, pageSize, query.data?.total, setPage)
 
   return (
     <Card>
@@ -105,6 +105,8 @@ export default function EventsPage() {
         <Input.Search
           placeholder="按设备 ID 精确筛选"
           allowClear
+          // 后端 keyword / deviceId 上限 64 字，超出整页报 400，这里直接限住
+          maxLength={64}
           style={{ width: 260 }}
           onSearch={(value) => {
             setPage(1)

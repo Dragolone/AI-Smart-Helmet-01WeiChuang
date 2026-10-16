@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
 import { Card, Checkbox, Input, Space, Table, Tag, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import dayjs from 'dayjs'
+import { formatMinute } from '../utils/format'
 import { useState } from 'react'
 import { api } from '../api/client'
 import QueryError from '../components/QueryError'
+import { useClampPage } from '../utils/use-clamp-page'
 import type { AdminUserRow, Paginated } from '@helmet/shared'
 
 const columns: ColumnsType<AdminUserRow> = [
@@ -18,20 +19,21 @@ const columns: ColumnsType<AdminUserRow> = [
   {
     title: '昵称',
     dataIndex: 'nickname',
-    render: (v: string | null) => v ?? '—',
+    // 后端不 trim 昵称：空串 / 纯空格与 null 一样显示「—」，否则是一格看不出内容的空白
+    render: (v: string | null) => (v?.trim() ? v : '—'),
   },
   {
     title: '注销时间',
     dataIndex: 'deletedAt',
     width: 170,
-    render: (v: string | null) => (v ? dayjs(v).format('YYYY-MM-DD HH:mm') : '—'),
+    render: formatMinute,
   },
   { title: '绑定设备数', dataIndex: 'deviceCount', width: 110 },
   {
     title: '注册时间',
     dataIndex: 'createdAt',
     width: 180,
-    render: (v: string) => dayjs(v).format('YYYY-MM-DD HH:mm'),
+    render: formatMinute,
   },
 ]
 
@@ -53,6 +55,7 @@ export default function UsersPage() {
       return api<Paginated<AdminUserRow>>(`/admin/users?${params}`)
     },
   })
+  useClampPage(page, pageSize, query.data?.total, setPage)
 
   return (
     <Card>
@@ -63,6 +66,8 @@ export default function UsersPage() {
         <Input.Search
           placeholder="按手机号 / 昵称搜索"
           allowClear
+          // 后端 keyword / deviceId 上限 64 字，超出整页报 400，这里直接限住
+          maxLength={64}
           style={{ width: 320 }}
           onSearch={(value) => {
             setPage(1)

@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import QueryError from '../components/QueryError'
+import { useClampPage } from '../utils/use-clamp-page'
 import { formatTime, formatUserLabel } from '../utils/format'
 import type { AdminDeviceRow, Paginated } from '@helmet/shared'
 
@@ -12,7 +13,7 @@ const columns: ColumnsType<AdminDeviceRow> = [
   {
     title: '设备 ID',
     dataIndex: 'deviceId',
-    render: (id: string) => <Link to={`/devices/${id}`}>{id}</Link>,
+    render: (id: string) => <Link to={`/devices/${encodeURIComponent(id)}`}>{id}</Link>,
   },
   {
     title: '绑定用户',
@@ -68,6 +69,7 @@ export default function DevicesPage() {
     // 在线状态基于 90s 心跳窗口，页面停留时定期刷新保持可信
     refetchInterval: 30_000,
   })
+  useClampPage(page, pageSize, query.data?.total, setPage)
 
   return (
     <Card>
@@ -78,6 +80,8 @@ export default function DevicesPage() {
         <Input.Search
           placeholder="按设备 ID / 绑定手机号搜索"
           allowClear
+          // 后端 keyword / deviceId 上限 64 字，超出整页报 400，这里直接限住
+          maxLength={64}
           style={{ width: 320 }}
           onSearch={(value) => {
             setPage(1)

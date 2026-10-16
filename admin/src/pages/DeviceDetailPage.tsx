@@ -10,7 +10,7 @@ import {
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { ArrowLeftOutlined } from '@ant-design/icons'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import DeviceSettingsView from '../components/DeviceSettingsView'
 import QueryError from '../components/QueryError'
@@ -37,10 +37,12 @@ const eventColumns: ColumnsType<AdminEventRow> = [
 export default function DeviceDetailPage() {
   const { deviceId } = useParams<{ deviceId: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
 
   const query = useQuery({
     queryKey: ['admin', 'device', deviceId],
-    queryFn: () => api<AdminDeviceDetail>(`/admin/devices/${deviceId}`),
+    // 路由参数已解码：手输 / 粘贴的地址里带 `#` `?` `/` 时不编码会截断成另一台设备的 ID
+    queryFn: () => api<AdminDeviceDetail>(`/admin/devices/${encodeURIComponent(deviceId ?? '')}`),
     enabled: Boolean(deviceId),
     refetchInterval: 30_000,
   })
@@ -52,7 +54,14 @@ export default function DeviceDetailPage() {
         <QueryError error={query.error} onRetry={() => void query.refetch()} />
       )}
       <Space style={{ marginBottom: 16 }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)}>
+        <Button
+          icon={<ArrowLeftOutlined />}
+          onClick={() => {
+            // 直接打开的链接（新标签页 / 收藏）没有上一页：navigate(-1) 会离开后台或没反应，改回设备列表
+            if (location.key === 'default') navigate('/devices')
+            else navigate(-1)
+          }}
+        >
           返回
         </Button>
         <Typography.Title level={5} style={{ margin: 0 }}>

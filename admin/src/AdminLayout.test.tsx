@@ -11,6 +11,7 @@ const renderApp = (route: string) =>
       <Route path="/login" element={<div>登录页</div>} />
       <Route element={<AdminLayout />}>
         <Route path="/overview" element={<div>概览内容</div>} />
+        <Route path="/devices/:deviceId" element={<div>设备详情内容</div>} />
       </Route>
     </Routes>,
     route,
@@ -35,5 +36,20 @@ describe('AdminLayout 登录门控', () => {
     fireEvent.click(screen.getByRole('button', { name: /退 出|退出/ }))
     expect(getToken()).toBeNull()
     expect(screen.getByText('登录页')).toBeInTheDocument()
+  })
+
+  it('在设备详情页（/devices/:id）侧栏仍高亮「设备」', () => {
+    localStorage.setItem('admin_token', 'tok')
+    renderApp('/devices/helmet_001')
+    expect(screen.getByText('设备详情内容')).toBeInTheDocument()
+    const selected = Array.from(document.querySelectorAll('.ant-menu-item-selected')).map((el) => el.textContent)
+    expect(selected).toEqual(['设备'])
+  })
+
+  it('在概览页高亮「概览」，且只高亮一项', () => {
+    localStorage.setItem('admin_token', 'tok')
+    renderApp('/overview')
+    const selected = Array.from(document.querySelectorAll('.ant-menu-item-selected')).map((el) => el.textContent)
+    expect(selected).toEqual(['概览'])
   })
 })

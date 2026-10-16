@@ -31,7 +31,9 @@ const formatValue = (key: DeviceSettingKey, value: unknown): string => {
   const choice = typeof value === 'number' ? DISPLAY[key].choices?.[value] : undefined
   if (choice) return choice
   const unit = 'unit' in spec ? spec.unit : ''
-  return `${String(value)}${unit === '%' ? '%' : unit ? ` ${unit}` : ''}`
+  // 对象 / 数组用 String() 只会得到「[object Object]」，照实列出要按 JSON 显示
+  const raw = typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value)
+  return `${raw}${unit === '%' ? '%' : unit ? ` ${unit}` : ''}`
 }
 
 export interface SettingsSummary {
@@ -43,8 +45,20 @@ export interface SettingsSummary {
   defaultCount: number
 }
 
-export function summarizeSettings(settings: Record<string, unknown> | null | undefined): SettingsSummary {
-  const s = settings ?? {}
+const MALFORMED_KEY = '(整体)'
+
+export function summarizeSettings(settings: unknown): SettingsSummary {
+  // JSON 列可以存进任何 JSON 值：对字符串 / 数字 / 布尔用 `in` 会抛 TypeError，整个详情页白屏。
+  // 整体照实列成一条，且不声称其余项是出厂默认——这时设备上到底是什么并不知道
+  // 数组同样不是一组键值（typeof [] === 'object'）：原来 [] 显示「全部为出厂默认」、['x'] 显示「0 = "x"」
+  if (Array.isArray(settings) || (settings != null && typeof settings !== 'object')) {
+    return {
+      changed: [],
+      unknown: [{ key: MALFORMED_KEY, text: `设置数据格式异常：${JSON.stringify(settings)}` }],
+      defaultCount: 0,
+    }
+  }
+  const s = (settings ?? {}) as Record<string, unknown>
   const changed: SettingsSummary['changed'] = []
   for (const key of DEVICE_SETTING_KEYS) {
     if (!(key in s) || s[key] === DEVICE_SETTINGS[key].default) continue
@@ -78,7 +92,12 @@ export default function DeviceSettingsView({
         </Tooltip>
       ))}
       {unknown.map((u) => (
-        <Tooltip key={u.key} title="不在设置清单内（旧数据）">
+        <Tooltip
+          key={u.key}
+          title={
+            u.key === MALFORMED_KEY ? '设置不是一组键值，无法逐项比对' : '不在设置清单内（旧数据）'
+          }
+        >
           <Tag>{u.text}</Tag>
         </Tooltip>
       ))}
