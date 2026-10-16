@@ -130,10 +130,10 @@ describe("通知发送结论：短信与推送混在一起", () => {
     expect(deliveryPollInterval([])).toBe(false);
   });
 
-  it("契约外的状态值（服务端以后加了 queued）：结论落到「失败」，轮询却停了（现状，见 EDGE_FINDINGS_1016 A3）", () => {
+  it("契约外的状态值（服务端以后加了 queued）：当作还在发——结论「发送中」、继续 3 秒轮询（改后，2026-10-16 A3）", () => {
     const rows = [{ channel: "sms" as const, status: "queued" as never }];
-    expect(deliveryStateOf(rows)).toBe("failed");
-    expect(deliveryPollInterval(rows)).toBe(false);
+    expect(deliveryStateOf(rows)).toBe("sending");
+    expect(deliveryPollInterval(rows)).toBe(3000);
   });
 
   it("smsRows 保持原顺序、不改传入的数组", () => {
@@ -164,12 +164,12 @@ describe("initialOf：头像圆里的那一个字", () => {
     expect(initialOf("émile")).toBe("E");
   });
 
-  it("名字以零宽字符开头：头像里是一个看不见的字（现状，见 EDGE_FINDINGS_1016 A2）", () => {
-    expect(initialOf("​Alice")).toBe("​");
-    expect(initialOf("‮Alice")).toBe("‮");
+  it("名字以零宽 / 方向控制字符开头：先清掉再取首字（改后，2026-10-16 A2，与头像圆同一套 avatarInitial）", () => {
+    expect(initialOf("​Alice")).toBe("A");
+    expect(initialOf("‮Alice")).toBe("A");
   });
 
-  it("大写后变两个字母的（德文 ß → SS）：头像里是两个字母（现状）", () => {
-    expect(initialOf("ßen")).toBe("SS");
+  it("大写后变两个字母的（德文 ß → SS）：头像里只放原字（改后）", () => {
+    expect(initialOf("ßen")).toBe("ß");
   });
 });

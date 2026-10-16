@@ -32,22 +32,35 @@ describe("打开页面的写法", () => {
   it("拉起求救倒计时页仍然是 push", () => {
     const src = readFileSync(join(SRC, "hooks/use-realtime.ts"), "utf8");
     expect(src).toMatch(
-      /openCountdown: \(sosId, deviceId\) =>\s*router\.push\(`\/sos-active\?sosId=\$\{sosId\}&deviceId=\$\{deviceId\}`\)/,
+      // 页面已在屏上时不再叠一页（10-16 N10：多单共用一张页，页内按胶囊切换）
+      /openCountdown: \(sosId, deviceId\) => \{\s*(\/\/[^\n]*\n\s*)*if \(sosScreen\.mounted\) return;\s*router\.push\(sosActiveHref\(sosId, deviceId\)\);/,
     );
+  });
+
+  it("求救相关的路径一律走 sosActiveHref / accidentHref 拼接并编码，不手写模板串（2026-10-16 A4）", () => {
+    const hits = sources(SRC)
+      .filter((f) => !f.endsWith("services/sos-routes.ts"))
+      .filter((f) =>
+        /`\/(sos-active\?|accident\/)/.test(readFileSync(f, "utf8")),
+      )
+      .map((f) => relative(SRC, f));
+    expect(hits).toEqual([]);
   });
 });
 
 describe("求救倒计时页不被别的页面挤掉（10-06 F-4 / F-5）", () => {
-  it("_layout 按 sosId 区分倒计时页：点另一单的通知不改写当前这一页", () => {
+  it("_layout 里所有真实的单共用一张倒计时页（10-16 N10）：点另一单的通知只改这张页的参数，页内切过去", () => {
     const src = readFileSync(join(SRC, "app/_layout.tsx"), "utf8");
     expect(src).toMatch(
-      /name="sos-active"\s*dangerouslySingular=\{\(_, params\) =>\s*typeof params\.sosId === "string" \? params\.sosId : undefined\s*\}/,
+      /name="sos-active"\s*dangerouslySingular=\{\(_, params\) =>\s*typeof params\.sosId === "string" \? "sos-active" : undefined\s*\}/,
     );
   });
 
-  it("倒计时页的内容按 sosId 重建（换了单不复用上一单的 eventId）", () => {
+  it("倒计时页真实的单共用一个实例、演练单独一个（每顶头盔的 eventId 按头盔号各存，换单不复用）", () => {
     const src = readFileSync(join(SRC, "app/sos-active.tsx"), "utf8");
-    expect(src).toMatch(/<SosActiveContent key=\{sosId \?\? "drill"\} \/>/);
+    expect(src).toMatch(
+      /<SosActiveContent key=\{drill === "1" \? "drill" : "sos"\} \/>/,
+    );
   });
 
   it("除倒计时页自己那份，返回键监听都只在页面获得焦点时注册", () => {

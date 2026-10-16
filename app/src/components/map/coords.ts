@@ -26,6 +26,114 @@ export function isPlausibleFix(p: {
   return !(Math.abs(lat) < 1e-6 && Math.abs(lng) < 1e-6);
 }
 
+/**
+ * 相邻两点隐含速度超过它就当定位漂移（与服务端 locations/ride-stats.ts 的 GLITCH_MPS 同口径：
+ * 自行车 / 滑雪不会到 200 km/h）。
+ */
+export const GLITCH_MPS = 55;
+
+/** 速度（m/s）是否像真的：超过 GLITCH_MPS 的当漂移，显示成「—」而不是「最高 1440 km/h」 */
+export function plausibleSpeed(mps: number | null | undefined): number | null {
+  return mps != null && Number.isFinite(mps) && mps >= 0 && mps <= GLITCH_MPS
+    ? mps
+    : null;
+}
+
+/**
+ * 实时定位多久以内算「此刻」：头盔运动时 5 秒、静止时 30 秒报一个点（DEVICE_PROTOCOL §1.1 上报周期），
+ * 2 分钟一个点都没来，动着的头盔至少漏了 24 个点——不是停了就是 GPS 丢了（隧道、室内）。
+ * 这时最后一个点的速度只是 2 分钟前的速度，不能再当「现在的速度」显示，也不能凭它说「骑行中」。
+ */
+export const LIVE_FIX_MAX_AGE_MS = 2 * 60_000;
+/** 头盔时钟比服务器快 5 分钟以内的点，服务端照设备时间入库（DEVICE_PROTOCOL §8），这段「来自未来」的点仍算新 */
+export const LIVE_FIX_MAX_AHEAD_MS = 5 * 60_000;
+
+/** 定位时间（ISO）离 nowMs 够不够近；认不出的时间不算新 */
+export function isFreshFix(
+  timestamp: string | null | undefined,
+  nowMs: number,
+): boolean {
+  if (!timestamp || !Number.isFinite(nowMs)) return false;
+  const at = Date.parse(timestamp);
+  if (Number.isNaN(at)) return false;
+  const age = nowMs - at;
+  return age <= LIVE_FIX_MAX_AGE_MS && age >= -LIVE_FIX_MAX_AHEAD_MS;
+}
+
+/**
+ * 地图页「此刻的速度」（m/s）：定位够新、速度像真的才给，否则 null（统计栏写「—」，也不凭它判「骑行中」）。
+ * 原来直接用最后一个点的 speed：头盔在线但定位停在 25 分钟前时，状态写「骑行中」、旁边写「位置更新：25 分钟前」、
+ * 速度写 18 km/h，自相矛盾（2026-10-16 模拟器 + 本地后端）。
+ */
+export function liveSpeedOf(
+  fix: Pick<LocationPoint, "speed" | "timestamp"> | null | undefined,
+  nowMs: number,
+): number | null {
+  if (!fix || !isFreshFix(fix.timestamp, nowMs)) return null;
+  return plausibleSpeed(fix.speed);
+}
+
+const EARTH_M = 6_371_000;
+function metersBetween(a: LngLat, b: LngLat): number {
+  const rad = (d: number) => (d * PI) / 180;
+  const dLat = rad(b.latitude - a.latitude);
+  const dLng = rad(b.longitude - a.longitude);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(rad(a.latitude)) *
+      Math.cos(rad(b.latitude)) *
+      Math.sin(dLng / 2) ** 2;
+  return 2 * EARTH_M * Math.asin(Math.sqrt(h));
+}
+
+type TimedFix = LngLat & { timestamp: string };
+
+/** a → b 的隐含速度（m/s）；时间不前进（同一时刻 / 倒序 / 解析不了）时返回 null，不据此判断 */
+function impliedMps(a: TimedFix, b: TimedFix): number | null {
+  const dt = (Date.parse(b.timestamp) - Date.parse(a.timestamp)) / 1000;
+  if (!(dt > 0)) return null;
+  return metersBetween(a, b) / dt;
+}
+
+/** 一段飞点最多认几个连续点：再长就不像漂移了（可能真的换了地方，比如上了车），原样保留 */
+const MAX_SPIKE_RUN = 3;
+
+/**
+ * 去掉轨迹里的 GPS 飞点：从上一个保留的点跳过去超过 GLITCH_MPS，而往后 MAX_SPIKE_RUN 个点之内
+ * 又有一个点从上一个保留点「正常速度」就能到——中间这几个就是飞出去又飞回来的漂移。
+ * 服务端算里程时已经跳过这种段，但轨迹接口把点原样返回，地图上会一根直线拉到 2000 km 外再拉回来
+ *（2026-10-16 模拟器 + 本地后端实测）。points 须按 timestamp 升序。
+ */
+export function dropGpsSpikes<T extends TimedFix>(points: T[]): T[] {
+  if (points.length < 3) return points;
+  const kept: T[] = [points[0]];
+  let i = 1;
+  while (i < points.length) {
+    const prev = kept[kept.length - 1];
+    const v = impliedMps(prev, points[i]);
+    if (v === null || v <= GLITCH_MPS) {
+      kept.push(points[i]);
+      i += 1;
+      continue;
+    }
+    let back = -1;
+    for (let j = i + 1; j < points.length && j <= i + MAX_SPIKE_RUN; j++) {
+      const w = impliedMps(prev, points[j]);
+      if (w !== null && w <= GLITCH_MPS) {
+        back = j;
+        break;
+      }
+    }
+    if (back === -1) {
+      kept.push(points[i]);
+      i += 1;
+    } else {
+      i = back;
+    }
+  }
+  return kept.length === points.length ? points : kept;
+}
+
 /** 中国境外不做 GCJ-02 偏移（与高德官方 convertFrom 行为一致） */
 function outOfChina(lng: number, lat: number): boolean {
   return lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271;

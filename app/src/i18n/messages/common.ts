@@ -49,6 +49,8 @@ export const common = {
     "common.showPassword": "显示密码",
     "common.hidePassword": "隐藏密码",
     "common.confirm": "确定",
+    /** 读屏标签里两段之间的停顿（中文全角逗号，英文半角逗号加空格） */
+    "common.a11ySep": "，",
     "common.delete": "删除",
     "common.save": "保存",
     "common.saved": "已保存",
@@ -85,6 +87,11 @@ export const common = {
     "contacts.relationPlaceholder": "如：家人 / 朋友 / 教练",
     "contacts.required": "姓名和手机号必填",
     "contacts.invalidPhone": "请输入正确的 11 位手机号",
+    "contacts.duplicatePhone": "这个号码已经是紧急联系人了",
+    "contacts.selfPhoneTitle": "这是你自己的手机号",
+    "contacts.selfPhoneBody":
+      "求救短信会发到这个号码。你摔倒时自己多半看不到，建议填家人或朋友的号码。",
+    "contacts.selfPhoneConfirm": "仍然添加",
     "common.failed": "操作失败",
   },
   "zh-TW": {
@@ -136,6 +143,7 @@ export const common = {
     "common.showPassword": "顯示密碼",
     "common.hidePassword": "隱藏密碼",
     "common.confirm": "確定",
+    "common.a11ySep": "，",
     "common.delete": "刪除",
     "common.save": "儲存",
     "common.saved": "已儲存",
@@ -172,6 +180,11 @@ export const common = {
     "contacts.relationPlaceholder": "如：家人 / 朋友 / 教練",
     "contacts.required": "姓名和手機號碼為必填",
     "contacts.invalidPhone": "請輸入正確的 11 位手機號碼",
+    "contacts.duplicatePhone": "這個號碼已經是緊急聯絡人了",
+    "contacts.selfPhoneTitle": "這是你自己的手機號碼",
+    "contacts.selfPhoneBody":
+      "求救簡訊會傳送到這個號碼。你跌倒時自己多半看不到，建議填家人或朋友的號碼。",
+    "contacts.selfPhoneConfirm": "仍然新增",
     "common.failed": "操作失敗",
   },
   en: {
@@ -229,6 +242,7 @@ export const common = {
     "common.showPassword": "Show password",
     "common.hidePassword": "Hide password",
     "common.confirm": "OK",
+    "common.a11ySep": ", ",
     "common.delete": "Delete",
     "common.save": "Save",
     "common.saved": "Saved",
@@ -266,6 +280,11 @@ export const common = {
     "contacts.required": "Name and phone are required",
     "contacts.invalidPhone":
       "Enter a valid 11-digit mainland China mobile number",
+    "contacts.duplicatePhone": "This number is already an emergency contact",
+    "contacts.selfPhoneTitle": "This is your own number",
+    "contacts.selfPhoneBody":
+      "SOS texts are sent to this number. If you fall, you probably won't see it yourself. Consider adding a family member or friend instead.",
+    "contacts.selfPhoneConfirm": "Add anyway",
     "common.failed": "Something went wrong",
   },
 } as const;

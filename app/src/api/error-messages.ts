@@ -68,6 +68,17 @@ export function toUserMessage(err: unknown): string {
 }
 
 /**
+ * 换手机号页的错误文案。新号已被别的账号注册时服务端回 PHONE_ALREADY_REGISTERED，通用文案是给注册页的
+ * 「该手机号已注册，请直接登录」——用户此刻已经登录、在换号，「请直接登录」说不通（2026-10-16 模拟器）。
+ * 其余错误同 toUserMessage。
+ */
+export function changePhoneErrorMessage(err: unknown): string {
+  if (err instanceof ApiRequestError && err.code === "PHONE_ALREADY_REGISTERED")
+    return translate("auth.phoneUsedByOther");
+  return toUserMessage(err);
+}
+
+/**
  * 这次失败是不是「原样再来一次可能就行」：没连上服务器（断网、超时）、被限频、服务器自己出错。
  * 服务端明确说不行的（绑定码不对、已被绑定……）不算——同样的请求再发多少次结果都一样。
  */

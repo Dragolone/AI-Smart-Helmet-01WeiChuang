@@ -17,6 +17,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { authApi } from "@/api/auth";
+import { PHONE_INPUT_MAX, normalizePhone } from "@/hooks/use-sms-code";
 import { toUserMessage } from "@/api/error-messages";
 import {
   FormError,
@@ -84,13 +85,14 @@ export default function LoginScreen() {
       setError(t("auth.consentRequired"));
       return;
     }
+    // 「+86 138 0000 0000」、全角数字、通讯录复制带的方向标记先规整（与联系人页同一个 normalizePhone），
+    // 原来原样提交，正确的号码被服务端判成「输入格式不正确」
+    const cleanPhone = normalizePhone(phone);
     setBusy(true);
     try {
-      const auth = await authApi.login({ phone: phone.trim(), password });
+      const auth = await authApi.login({ phone: cleanPhone, password });
       if (needConsent) await acceptPrivacy();
-      SecureStore.setItemAsync("last_login_phone", phone.trim()).catch(
-        () => {},
-      );
+      SecureStore.setItemAsync("last_login_phone", cleanPhone).catch(() => {});
       await signIn(auth); // AuthGate 检测到会话后自动跳转主页
     } catch (e) {
       const field = errorField(e);
@@ -199,7 +201,9 @@ export default function LoginScreen() {
                 value={phone}
                 onChangeText={setPhone}
                 keyboardType="phone-pad"
-                maxLength={11}
+                // 留出 +86 / 空格 / 横线的位置：系统自动填充本机号码常是「+86 138 0000 0000」，
+                // 卡 11 位会被截成「+86 138 000」，提交前再规整成 11 位
+                maxLength={PHONE_INPUT_MAX}
                 placeholder={t("auth.phonePlaceholder")}
                 autoComplete="tel"
               />

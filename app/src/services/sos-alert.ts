@@ -7,10 +7,12 @@ import { router } from "expo-router";
 import * as Notifications from "expo-notifications";
 import { AppState, Platform } from "react-native";
 
+import { sosActiveHref } from "@/services/sos-routes";
 import { sosApi } from "@/api/sos";
 import { translate } from "@/i18n";
 import type { Sos } from "@helmet/shared";
 import { devLog } from "@/services/dev-log";
+import { shownSeconds } from "@/services/countdown";
 import { serverNow } from "@/services/server-clock";
 import { lateEventNote } from "@/services/sos-age";
 import { presentedSos } from "@/services/sos-sync";
@@ -203,9 +205,7 @@ function dispatchResponse(response: Notifications.NotificationResponse): void {
   if (!ref.deviceId) return;
   // navigate 而不是 push：倒计时页多半已在栈上，push 会叠两页；登记后 WS / 补拉也不再重复拉起
   presentedSos.current.add(sosId);
-  router.navigate(
-    `/sos-active?sosId=${sosId}&deviceId=${ref.deviceId}` as never,
-  );
+  router.navigate(sosActiveHref(sosId, ref.deviceId) as never);
 }
 
 /**
@@ -292,6 +292,24 @@ export async function cancelFromNotification(
   } catch (e) {
     const code = (e as { code?: string }).code;
     if (code === "SOS_ALREADY_FINALIZED") return settled();
+    const status = (e as { status?: unknown }).status;
+    if (status === 404 || status === 403) {
+      // 服务端明确说这单不在你名下（别的手机解绑了、换了账号）：重试永远同一个结果，别让人白等 17 秒；
+      // 撤掉通知并说明（与上行队列 isUnrecoverable 同口径，10-16 A10）
+      devLog(
+        "SOS-ALERT",
+        `通知取消被服务端拒绝（${status}），不再重试`,
+        e as Error,
+      );
+      useSosCancelStore.getState().end(sosId);
+      void clearSosAlert(sosId);
+      void dismissRemoteTwins(sosId);
+      showNotice(
+        translate("sosAlert.cancelGoneTitle"),
+        translate("sosAlert.cancelGoneBody"),
+      );
+      return false;
+    }
     const delay = CANCEL_RETRY_DELAYS_MS[attempt];
     if (delay === undefined) {
       // 用尽后用户多半正盯着首页（动作是拉起 App 的），什么提示都没有就等于「按了没反应」。
@@ -300,9 +318,7 @@ export async function cancelFromNotification(
       useSosCancelStore.getState().end(sosId); // 页面上的按钮恢复可点，让他再按一次
       if (deviceId) {
         presentedSos.current.add(sosId);
-        router.navigate(
-          `/sos-active?sosId=${sosId}&deviceId=${deviceId}` as never,
-        );
+        router.navigate(sosActiveHref(sosId, deviceId) as never);
       }
       showNotice(
         translate("sosAlert.cancelFailedTitle"),
@@ -388,8 +404,10 @@ export async function showSosAlertIfBackground(
     body:
       (seconds === null
         ? translate("sosAlert.body")
-        : translate("sosAlert.bodyCountdown", { seconds })) +
-      (late ? `（${late}）` : ""),
+        : // 正文里的秒数封顶 60：时钟偏移估计偏小时刚到会算出 61（10-16 iPhone）；预排刷新仍按真实剩余时间
+          translate("sosAlert.bodyCountdown", {
+            seconds: shownSeconds(seconds),
+          })) + (late ? translate("sosAlert.lateSuffix", { note: late }) : ""),
     // Android 上 "default" 会被当成自定义音频文件名报错；true = 通道默认铃声
     sound: sound ? (Platform.OS === "ios" ? "default" : true) : false,
     interruptionLevel: "timeSensitive" as const,
@@ -398,12 +416,14 @@ export async function showSosAlertIfBackground(
     data: { sosId, deviceId },
   });
   /** 排一条；排完发现这单已被清掉就立刻撤回，返回是否还该继续 */
+  let armed = false;
   const schedule = async (
     id: string,
     request: Parameters<typeof Notifications.scheduleNotificationAsync>[0],
   ): Promise<boolean> => {
     entry.ids.push(id);
     await Notifications.scheduleNotificationAsync(request);
+    armed = true;
     if (alive()) return true;
     await removeNotification(id);
     return false;
@@ -453,6 +473,12 @@ export async function showSosAlertIfBackground(
     devLog("SOS-ALERT", `锁屏通知已弹 ${sosId} 剩余 ${total ?? "?"}s`);
   } catch (e) {
     devLog("SOS-ALERT", "本地通知失败", e as Error);
+    // 一条都没排上（第一条就抛错）：把这一单从去重表里撤掉，离开前台 / 补拉时还能再试——
+    // 原来留在表里，之后再叫也不再排，这一单就再没有锁屏提醒了（10-16 A9）
+    if (!armed && alive()) {
+      for (const t of entry.timers) clearTimeout(t);
+      alerts.delete(sosId);
+    }
   }
 }
 

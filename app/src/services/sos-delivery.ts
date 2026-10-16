@@ -3,6 +3,8 @@
 // 这里只看短信那几条——页面上列的是「谁收到了」，本人的推送不算。
 import type { SosNotificationPublic } from "@helmet/shared";
 
+import { avatarInitial } from "./user-name";
+
 type Row = Pick<SosNotificationPublic, "channel" | "status">;
 
 /** 发给紧急联系人的那几条（短信） */
@@ -29,7 +31,8 @@ export function deliveryStateOf(
   const sms = smsRows(notifications);
   if (sms.length === 0) return "none";
   if (sms.some((n) => n.status === "sent")) return "sent";
-  if (sms.some((n) => n.status === "pending")) return "sending";
+  // 契约外的状态值（服务端以后加了 queued 之类）按「还在发」算，不下失败结论（10-16 A3）
+  if (sms.some((n) => n.status !== "failed")) return "sending";
   return "failed";
 }
 
@@ -42,13 +45,13 @@ export function deliveryPollInterval(
 ): number | false {
   if (notifications === undefined) return 3_000;
   const sms = smsRows(notifications);
-  if (sms.some((n) => n.status === "pending")) return 3_000;
+  if (sms.some((n) => n.status !== "sent" && n.status !== "failed"))
+    return 3_000;
   if (sms.some((n) => n.status === "failed")) return 10_000;
   return false;
 }
 
-/** 头像圆里写的那一个字：名字的第一个字符（按码点取，不会把表情切成半个） */
+/** 头像圆里写的那一个字：先去掉看不见的字符再按码点取第一个字（零宽开头不再是空白，ß 不再变 SS；10-16 A2） */
 export function initialOf(name: string | null | undefined): string {
-  const first = Array.from((name ?? "").trim())[0];
-  return first ? first.toUpperCase() : "?";
+  return avatarInitial(name);
 }

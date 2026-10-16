@@ -37,12 +37,12 @@ const ride = (
 });
 
 describe("durationText", () => {
-  it("不足一小时写分钟；整一小时写「1 小时 0 分」；23:59", () => {
+  it("不足一小时写分钟；整一小时写「1 小时」（10-16 第二轮改：原来写「1 小时 0 分」）；23:59", () => {
     const t = tOf("zh-CN");
     expect(durationText(0, t)).toBe("1 分钟");
     expect(durationText(36 * 60, t)).toBe("36 分钟");
     expect(durationText(59 * 60 + 29, t)).toBe("59 分钟");
-    expect(durationText(59 * 60 + 30, t)).toBe("1 小时 0 分");
+    expect(durationText(59 * 60 + 30, t)).toBe("1 小时");
     expect(durationText(106 * 60, t)).toBe("1 小时 46 分");
     expect(durationText(86_340, t)).toBe("23 小时 59 分");
   });

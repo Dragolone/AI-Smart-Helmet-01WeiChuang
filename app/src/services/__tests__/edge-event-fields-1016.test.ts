@@ -83,18 +83,15 @@ describe("数值的边", () => {
     ]);
   });
 
-  it("越界的值原样显示，不夹到范围里（现状：置信度 1.5 写 150%，距离 -1 写 -1.0 m）", () => {
-    expect(labels({ confidence: 1.5 })).toEqual([
-      "events.field.confidence=150%",
-    ]);
-    expect(labels({ distance: -1 })).toEqual(["events.field.distance=-1.0 m"]);
+  it("越界的值不显示，也不夹到范围里（10-16 起；此前置信度 1.5 写 150%、距离 -1 写 -1.0 m）", () => {
+    expect(labels({ confidence: 1.5 })).toEqual([]);
+    expect(labels({ distance: -1 })).toEqual([]);
     expect(labels({ tiltDeg: 359.6 })).toEqual(["events.field.tilt=360°"]);
   });
 
-  it("负零不显示成「-0」", () => {
+  it("负零不显示成「-0」；负倾角越界不显示", () => {
     expect(labels({ tiltDeg: -0.4, approachSpeedKmh: -0 })).toEqual([
       "events.field.approachSpeed=0 km/h",
-      "events.field.tilt=0°",
     ]);
   });
 

@@ -62,9 +62,19 @@ export function applySosUpdate(
   // 终态不回退：WS 乱序 / 重连补发时，迟到的 pending 不能把已取消、已通知的单盖回「进行中」
   // （10-03 评审疑点 3，与 APP-03 同源——那次是 REST 迟到，这次是 WS 自己乱序）
   if (sos.status === "pending" && isFinal(qc, sos.sosId)) return;
-  qc.setQueryData<ActiveSosResponse>(["sos-active", sos.deviceId], {
-    sos: sos.status === "pending" ? sos : null,
-  });
+  // 终态只清掉「进行中缓存里正是这一单」：同一台头盔旧单 s1 的 notified 晚于新单 s2 的 pending 到达时，
+  // 不能把 s2 从进行中里清掉——否则离开前台也不再补弹锁屏提醒（10-16 A5）
+  const active = qc.getQueryData<ActiveSosResponse>([
+    "sos-active",
+    sos.deviceId,
+  ])?.sos;
+  const staleFinal =
+    sos.status !== "pending" && !!active && active.sosId !== sos.sosId;
+  if (!staleFinal) {
+    qc.setQueryData<ActiveSosResponse>(["sos-active", sos.deviceId], {
+      sos: sos.status === "pending" ? sos : null,
+    });
+  }
   qc.setQueryData(["sos", sos.sosId], sos);
   if (sos.status === "pending") {
     if (present(sos, presented, deps)) {

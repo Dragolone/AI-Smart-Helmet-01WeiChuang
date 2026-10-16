@@ -69,6 +69,7 @@ export const auth = {
     "auth.newPhone": "新手机号",
     "auth.newPhonePlaceholder": "11 位大陆手机号",
     "auth.samePhone": "新手机号与当前手机号相同",
+    "auth.phoneUsedByOther": "这个手机号已被其他账号使用，请换一个号码",
     "auth.changePhoneDone": "手机号已更换",
     "auth.deleteLead": "注销后将无法恢复，请确认你已了解以下影响：",
     "auth.deleteConsequenceDevices": "已绑定的头盔将全部解绑",
@@ -114,6 +115,21 @@ export const auth = {
     "sos.gone.title": "这条求救不存在",
     "sos.gone.body":
       "可能是链接有误，或这条求救不属于你的头盔。正在进行的求救会自动弹出，不需要从链接打开。",
+    "sos.alsoCounting": "{name} 也在倒计时",
+    "sos.moreAlarms": "还有 {n} 顶头盔正在报警",
+    "sos.newAlarm": "{name} 也开始倒计时",
+    "sos.switchedCancelled": "{name}：已取消，已切到下一单",
+    "sos.switchedNotified": "{name}：已通知联系人，已切到下一单",
+    "sos.chipLeft": "{n} 秒",
+    "sos.allSendNow": "全部立即求救",
+    "sos.allCancel": "全部取消",
+    "sos.allSendTitle": "立即为全部 {n} 顶头盔发出求救？",
+    "sos.allCancelTitle": "取消全部 {n} 条求救？",
+    "sos.allCancelBody": "确认这几顶头盔的骑手都没事。取消后不会通知任何人。",
+    "sos.allSendBody": "将立即通知紧急联系人，不再等倒计时结束。",
+    "sos.multiDoneTitle": "{n} 条求救已处理",
+    "sos.multiDoneBody":
+      "各头盔的结果如下。已发送不代表对方已收到，请保持手机畅通；若无人回应，请直接拨打电话求助。",
   },
   "zh-TW": {
     "sos.drillBadge": "演練模式 · 不會通知任何人",
@@ -183,6 +199,7 @@ export const auth = {
     "auth.newPhone": "新手機號碼",
     "auth.newPhonePlaceholder": "11 位中國大陸手機號碼",
     "auth.samePhone": "新手機號碼與目前手機號碼相同",
+    "auth.phoneUsedByOther": "這個手機號碼已被其他帳號使用，請換一個號碼",
     "auth.changePhoneDone": "手機號碼已更換",
     "auth.deleteLead": "註銷後將無法復原，請確認你已了解以下影響：",
     "auth.deleteConsequenceDevices": "已綁定的安全帽將全部解除綁定",
@@ -228,6 +245,21 @@ export const auth = {
     "sos.gone.title": "這則求救不存在",
     "sos.gone.body":
       "可能是連結有誤，或這則求救不屬於你的頭盔。進行中的求救會自動彈出，不需要從連結開啟。",
+    "sos.alsoCounting": "{name} 也在倒數",
+    "sos.moreAlarms": "還有 {n} 頂安全帽正在報警",
+    "sos.newAlarm": "{name} 也開始倒數",
+    "sos.switchedCancelled": "{name}：已取消，已切到下一筆",
+    "sos.switchedNotified": "{name}：已通知聯絡人，已切到下一筆",
+    "sos.chipLeft": "{n} 秒",
+    "sos.allSendNow": "全部立即求救",
+    "sos.allCancel": "全部取消",
+    "sos.allSendTitle": "立即為全部 {n} 頂安全帽發出求救？",
+    "sos.allCancelTitle": "取消全部 {n} 筆求救？",
+    "sos.allCancelBody": "確認這幾頂安全帽的騎士都沒事。取消後不會通知任何人。",
+    "sos.allSendBody": "將立即通知緊急聯絡人，不再等倒數結束。",
+    "sos.multiDoneTitle": "{n} 筆求救已處理",
+    "sos.multiDoneBody":
+      "各安全帽的結果如下。已傳送不代表對方已收到，請保持手機暢通；若無人回應，請直接撥打電話求助。",
   },
   en: {
     "sos.drillBadge": "Drill · nobody will be notified",
@@ -300,6 +332,8 @@ export const auth = {
     "auth.newPhone": "New phone",
     "auth.newPhonePlaceholder": "11-digit mainland China number",
     "auth.samePhone": "The new number is the same as the current one",
+    "auth.phoneUsedByOther":
+      "This number is already used by another account. Please use a different number.",
     "auth.changePhoneDone": "Phone number changed",
     "auth.deleteLead":
       "This cannot be undone. Please make sure you understand what happens:",
@@ -354,5 +388,23 @@ export const auth = {
     "sos.gone.title": "This SOS doesn't exist",
     "sos.gone.body":
       "The link may be wrong, or this SOS isn't from your helmet. An active SOS opens automatically — you don't need a link.",
+    "sos.alsoCounting": "{name} is counting down too",
+    "sos.moreAlarms": "More alerting helmets: {n}",
+    "sos.newAlarm": "{name} started counting down too",
+    "sos.switchedCancelled": "{name}: cancelled. Switched to the next one",
+    "sos.switchedNotified":
+      "{name}: contacts notified. Switched to the next one",
+    "sos.chipLeft": "{n}s",
+    "sos.allSendNow": "Send all now",
+    "sos.allCancel": "Cancel all",
+    "sos.allSendTitle": "Send SOS now for all alerting helmets ({n})?",
+    "sos.allCancelTitle": "Cancel all {n} SOS alerts?",
+    "sos.allCancelBody":
+      "Confirm that every rider is okay. Nobody will be notified.",
+    "sos.allSendBody":
+      "Emergency contacts will be notified right away, without waiting for the countdown.",
+    "sos.multiDoneTitle": "{n} SOS alerts handled",
+    "sos.multiDoneBody":
+      "Results for each helmet are below. Sent doesn't mean received — keep your phone reachable. If no one responds, call for help directly.",
   },
 } as const;

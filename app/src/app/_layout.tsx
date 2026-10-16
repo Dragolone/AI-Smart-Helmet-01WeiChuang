@@ -149,12 +149,12 @@ function RootNavigator() {
           options={{ headerShown: true, title: t("nav.help") }}
         />
         {/* SOS 全屏页：手势返回禁用——处理中的求救不允许误滑关闭。
-            按 sosId 区分页面：不配的话 navigate 只看路由名，点另一单的通知会把最上面那页直接改写成另一单，
-            原来那单的倒计时页就没了。配了之后两单各占一页，点哪单就把哪单提到最上面；演练页没有 sosId，照默认 */}
+            所有真实的单共用一张页（10-16 N10 定稿）：多顶头盔同时求救时页面顶部按头盔胶囊切换，
+            点另一单的通知只是把这张页的 sosId 参数改成那一单，页面自己切过去；演练页没有 sosId，照默认 */}
         <Stack.Screen
           name="sos-active"
           dangerouslySingular={(_, params) =>
-            typeof params.sosId === "string" ? params.sosId : undefined
+            typeof params.sosId === "string" ? "sos-active" : undefined
           }
           options={{ presentation: "fullScreenModal", gestureEnabled: false }}
         />

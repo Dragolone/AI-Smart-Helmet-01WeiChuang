@@ -4,6 +4,26 @@
 非保命模块里修法小而明确的 bug 已直接修（见分支提交记录）；**这里只记保命链路里发现、按约定没有改行为的问题**。
 对应的测试只断言现状，测试名里标了「现状」和编号；以后改了行为，同步改那几条断言即可。
 
+> ✅ **2026-10-16 负责人要求「能修的都修」：A1–A14 全部已改行为（#207）**，对应测试改名「改后（10-16 Ax）」。各项怎么改的：
+>
+> | 编号 | 改法 | 测试 |
+> |---|---|---|
+> | A1 | 样本与当前偏移差 30 s 以上当时钟跳变直接采信；偏移取最近 5 个样本最大值；早于 2024 年的 Date 头不采信 | `edge-server-clock-1016`、`server-clock` |
+> | A2 / A12 | `initialOf` 走 `avatarInitial`，倒计时页名字走 `contactNameOf` | `edge-sos-display-1016`、`edge-safety-findings-1016b` |
+> | A3 | 契约外的状态按「还在发」：结论「发送中」、继续 3 s 轮询。**契约没改**（shared 仍是三种值） | `edge-sos-display-1016` |
+> | A4 | 新增 `services/sos-routes.ts`（`sosActiveHref` / `accidentHref`），8 处调用改用；`audit-navigation` 守护不许手写模板串 | `edge-push-1016`、`audit-navigation` |
+> | A5 | 别的单的终态不碰 `["sos-active", deviceId]` | `edge-sos-sync-1016` |
+> | A6 | 新增 `adoptRelayUplinkOwner(uid)`：匿名 → 本人带着队列认领（先读本人分区合并、落盘、再清匿名文件）；换账号仍 stop → start | `edge-ble-relay-uplink-1016`、`audit-realtime-wiring` |
+> | A7 | 413 且不止一条：批量减半立即重试，成功后翻倍；只剩一条仍整批保留 | `edge-ble-relay-uplink-1016`、`edge-ble-relay-uplink` |
+> | A8 | 2xx 响应体为空按整批已接受 | `edge-ble-relay-uplink-1016` |
+> | A9 | 第一条没排上就从去重表放掉 | `edge-sos-alert-1016` |
+> | A10 | 404 / 403 不重试：撤通知、`sosAlert.cancelGone*` 说明、不跳页 | `edge-sos-alert-1016` |
+> | A11 | 调用方（`use-realtime` 的 `prioritizeCurrent`）把当前头盔排最前再交给 `setBleTargets` 截 20；`ble-link` 本身没动 | `audit-realtime-wiring` |
+> | A13 | 持久队列恢复 / 认领合并按 `头盔号:事件号` 去重 | `edge-safety-findings-1016b` |
+> | A14 | 括号走文案 `sosAlert.lateSuffix` | `sos-alert`、`edge-safety-findings-1016b` |
+>
+> 下面各节是当时的记录，「现状」「建议修法」按上表为准。
+
 ---
 
 ## A1 服务端时钟：手机时间中途跳变后，偏移要二十多个响应才追上（`services/server-clock.ts`）
@@ -129,3 +149,41 @@
 - **期望**：截断前先把当前头盔（以及在线的）挪到最前。
 - **代码位置**：`setBleTargets` 第 777–787 行；调用方 `use-realtime.ts` 的 `bleTargetsOf`。
 - **建议修法**：调用方传目标时按 `currentHelmetOf` 的结果把当前头盔排第一；或者只改注释说明「取最新绑定的 20 顶」。
+
+---
+
+# 第二轮（2026-10-16，`test/app-edge2-1016`）
+
+第二轮修的是名字整理推广、手机号规范化、跨头盔列表 key、几处显示口径和模拟器上看到的问题（见分支提交记录）。
+下面三条在保命链路里，按约定只记录；对应测试在 `services/__tests__/edge-safety-findings-1016b.test.ts`，只断言现状。
+
+## A12 倒计时页的联系人名原样显示（`app/sos-active.tsx`）
+
+- **现象**：倒计时页「将通知」那一排联系人小卡片直接渲染 `c.name`。联系人名只含零宽字符（U+200B×3）时卡片上只有头像、
+  名字一片空白；带换行的名字单行显示只剩第一行。联系人页、删除确认、分享文案本轮已统一走 `user-name.contactNameOf`
+  （整理后为空写号码），只剩这一处。
+- **复现**：`edge-safety-findings-1016b.test.ts`「A12」（源码不变式）；整理规则见 `edge-display-names-1016.test.ts`。
+- **代码位置**：`sos-active.tsx` 第 805 行附近 `{c.name}`；同一处的头像首字 `initialOf` 即 A2。
+- **建议修法**：`{contactNameOf(c)}`；头像首字一起改成 `avatarInitial(contactNameOf(c))`（顺带解决 A2）。只是显示，风险低。
+
+## A13 上行队列恢复持久文件时只按 eventId 去重（`services/ble-relay-uplink.ts`）
+
+- **现象**：`startRelayUplink` 把持久文件里的事件并回内存队列时，用 `new Set(queue.map((e) => e.eventId))` 去重。
+  决策 #54 之后 eventId 只在一顶头盔内唯一：持久文件里 helmet_b 的 `same-1` 和内存里 helmet_a 的 `same-1` 同号时，
+  helmet_b 那条被当成重复丢掉——而头盔那边已因 ACK 擦除。
+- **复现**：`edge-safety-findings-1016b.test.ts`「A13」（对照用例：编号不同时两条都恢复）。
+- **现实概率**：今天 BLE 的 eventId 由 `ble/protocol.eventIdFor` 派生，UUID v5 的输入里带了 deviceId，两顶头盔不会撞号；
+  只有以后换了 eventId 规则（或别的来源也进这个队列）才会出事。纵深防御，低优先级。
+- **代码位置**：`startRelayUplink` 第 329–330 行。
+- **建议修法**：键改成 `` `${e.deviceId}:${e.eventId}` ``（和服务端 `(device_id, event_id)` 幂等同口径；安全记录页本轮已用
+  `safety-records.recordKeyOf`）。
+
+## A14 锁屏求救提醒的「补传」说明用写死的全角括号拼接（`services/sos-alert.ts`）
+
+- **现象**：补传的旧事件在正文后面追加说明，写法是 `` (late ? `（${late}）` : "") ``——括号是写死的中文全角括号，
+  英文界面锁屏上是「Emergency contacts will be notified in 60 seconds. …help.（Event from about 3 hours ago, now synced）」：
+  中文括号、前面没有空格。
+- **复现**：`edge-safety-findings-1016b.test.ts`「A14」（源码不变式）。
+- **代码位置**：`showSosAlertIfBackground` 里 `content()` 的 `body`（第 392 行附近）。
+- **建议修法**：加一条三语文案（如 `sosAlert.lateSuffix`：「（{note}）」/「（{note}）」/「 ({note})」），这里改成 `translate` 拼接。
+  只影响英文显示，不影响提醒本身。

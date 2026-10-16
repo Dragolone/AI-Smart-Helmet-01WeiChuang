@@ -58,7 +58,13 @@ import { Colors } from "@/constants/theme";
 import { useNotifyPermission } from "@/hooks/use-safety";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
-import { bindLinkInManualInput, classifyScan } from "@/services/bind-qr";
+import {
+  BIND_CODE_INPUT_MAX,
+  bindLinkInManualInput,
+  classifyScan,
+  normalizeManualBindCode,
+  normalizeManualDeviceId,
+} from "@/services/bind-qr";
 import { withAlpha } from "@/services/color";
 
 const FRAME = 240;
@@ -227,8 +233,9 @@ export default function BindDeviceScreen() {
   ): Promise<BindResult> => {
     try {
       const bound = await devicesApi.bind({
-        deviceId: deviceId.trim(),
-        bindCode: bindCode.trim(),
+        // 扫码来的已经是干净的；手输的去掉全角、分组空格 / 横线、复制夹带的零宽字符（幂等）
+        deviceId: normalizeManualDeviceId(deviceId),
+        bindCode: normalizeManualBindCode(bindCode),
       });
       // 服务端一确认就把新设备写进列表缓存，随后后台刷新拿权威数据：回到设备页时它已经在列表里
       queryClient.setQueryData<DevicePublic[]>(["devices"], (prev) =>
@@ -283,7 +290,7 @@ export default function BindDeviceScreen() {
       transient: result.transient,
     });
     AccessibilityInfo.announceForAccessibility(
-      `${t("bind.failedTitle")}，${result.message}`,
+      `${t("bind.failedTitle")}${t("common.a11ySep")}${result.message}`,
     );
   };
 
@@ -922,7 +929,8 @@ export default function BindDeviceScreen() {
                   value={codeVal}
                   onChangeText={setCodeVal}
                   keyboardType="number-pad"
-                  maxLength={8}
+                  // 留出分组空格 / 横线的位置（粘贴「1234 5678」），提交前再规整成 8 位
+                  maxLength={BIND_CODE_INPUT_MAX}
                   placeholder={t("device.bindCodePlaceholder")}
                 />
                 <FormError message={formError} />

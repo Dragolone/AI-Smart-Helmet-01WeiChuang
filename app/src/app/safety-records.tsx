@@ -20,6 +20,7 @@ import {
 import Animated, { FadeInDown } from "react-native-reanimated";
 import type { AccidentListItem, EventListItem } from "@helmet/shared";
 
+import { accidentHref, sosActiveHref } from "@/services/sos-routes";
 import { toUserMessage } from "@/api/error-messages";
 import { eventsApi, eventsListQuery } from "@/api/events";
 import { sosApi } from "@/api/sos";
@@ -44,10 +45,12 @@ import {
   type MessageKey,
 } from "@/i18n";
 import { fullDateTime, shortDate, shortTime } from "@/i18n/format";
-import { readableEventFields } from "@/services/event-fields";
+import { readableEventFields, riskLevelOf } from "@/services/event-fields";
 import {
   combinePages,
+  detailBelongsTo,
   mergeRecords,
+  recordKeyOf,
   type MergedRecords,
   type PageResult,
 } from "@/services/safety-records";
@@ -186,7 +189,12 @@ export default function SafetyRecordsScreen() {
   const [tab, setTab] = useState<RecordTab>(
     params.tab === "sos" ? "sos" : "alerts",
   );
-  const [detailId, setDetailId] = useState<string | null>(null);
+  // 点开的是哪一顶头盔的哪一条：eventId 只在一顶头盔内唯一（决策 #54），只记 eventId 分不清两顶的同号事件
+  const [detailOf, setDetailOf] = useState<{
+    deviceId: string;
+    eventId: string;
+  } | null>(null);
+  const closeDetail = () => setDetailOf(null);
 
   const helmets = useHelmets();
   const { list } = helmets;
@@ -317,9 +325,9 @@ export default function SafetyRecordsScreen() {
   };
 
   const detail = useQuery({
-    queryKey: ["event-detail", detailId],
-    queryFn: () => eventsApi.detail(detailId!),
-    enabled: !!detailId,
+    queryKey: ["event-detail", detailOf?.deviceId, detailOf?.eventId],
+    queryFn: () => eventsApi.detail(detailOf!.eventId),
+    enabled: !!detailOf,
   });
 
   const toneColor = (tone: Tone) =>
@@ -331,11 +339,11 @@ export default function SafetyRecordsScreen() {
           ? { fg: theme.success, bg: theme.successBg }
           : { fg: theme.textSecondary, bg: theme.backgroundSelected };
 
-  const d = detail.data;
-  const dRisk =
-    d && typeof d.payload.riskLevel === "string"
-      ? RISK_LABEL[d.payload.riskLevel]
-      : null;
+  // 详情接口只按 eventId 查，可能拿回另一顶头盔的同号事件：对不上就不显示，提示打不开
+  const d = detailBelongsTo(detail.data, detailOf) ? detail.data : undefined;
+  const detailMismatch = !!detail.data && !d;
+  const level = d ? riskLevelOf(d.payload) : null;
+  const dRisk = level ? RISK_LABEL[level] : null;
   const dFields = d
     ? [
         {
@@ -357,20 +365,35 @@ export default function SafetyRecordsScreen() {
     };
 
   // 绑了两顶以上时每条写明是哪一顶，名字放在时间前面：竖着扫一眼就能分出是谁的
-  const subOf = (deviceId: string, iso: string) =>
-    several
-      ? `${nameOfDevice(deviceId)} · ${shortTime(iso, locale)}`
-      : shortTime(iso, locale);
+  // 头盔名 + 时间：名字可以省略，时间不能被挤掉——原来拼成一串单行截断，右边有「通知已启动」
+  // 这类徽标时整段时间都看不到，只剩「helmet_night_a ·…」（2026-10-16 模拟器）
+  const subOf = (deviceId: string, iso: string) => (
+    <View style={styles.subLine}>
+      {several && (
+        <ThemedText
+          type="small"
+          themeColor="textSecondary"
+          style={[styles.rowSub, styles.subName]}
+          numberOfLines={1}
+        >
+          {nameOfDevice(deviceId)}
+        </ThemedText>
+      )}
+      <ThemedText type="small" themeColor="textSecondary" style={styles.rowSub}>
+        {several ? ` · ${shortTime(iso, locale)}` : shortTime(iso, locale)}
+      </ThemedText>
+    </View>
+  );
 
   const alertRow = (e: EventListItem, deviceId: string, last: boolean) => {
     const meta = EVENT_META[e.eventType];
     const c = toneColor(meta?.tone ?? "neutral");
     return (
       <Tappable
-        key={e.eventId}
+        key={recordKeyOf(deviceId, e.eventId)}
         feedback="fill"
         accessibilityRole="button"
-        onPress={() => setDetailId(e.eventId)}
+        onPress={() => setDetailOf({ deviceId, eventId: e.eventId })}
         style={[styles.row, rowBorder(last)]}
       >
         <IconCircle
@@ -383,14 +406,7 @@ export default function SafetyRecordsScreen() {
           <ThemedText type="small" style={styles.rowTitle} numberOfLines={1}>
             {meta ? t(meta.title) : e.eventType}
           </ThemedText>
-          <ThemedText
-            type="small"
-            themeColor="textSecondary"
-            style={styles.rowSub}
-            numberOfLines={1}
-          >
-            {subOf(deviceId, e.timestamp)}
-          </ThemedText>
+          {subOf(deviceId, e.timestamp)}
         </View>
         <Ionicons
           name="chevron-forward"
@@ -416,7 +432,7 @@ export default function SafetyRecordsScreen() {
         key={a.sosId}
         feedback="fill"
         accessibilityRole="button"
-        onPress={() => router.navigate(`/accident/${a.sosId}`)}
+        onPress={() => router.navigate(accidentHref(a.sosId))}
         style={[styles.row, rowBorder(last)]}
       >
         <IconCircle
@@ -437,14 +453,7 @@ export default function SafetyRecordsScreen() {
                 : "records.sos.fall",
             )}
           </ThemedText>
-          <ThemedText
-            type="small"
-            themeColor="textSecondary"
-            style={styles.rowSub}
-            numberOfLines={1}
-          >
-            {subOf(deviceId, a.createdAt)}
-          </ThemedText>
+          {subOf(deviceId, a.createdAt)}
         </View>
         <Badge variant={status.variant} label={status.label} />
         <Ionicons
@@ -680,9 +689,7 @@ export default function SafetyRecordsScreen() {
             feedback="opacity"
             accessibilityRole="button"
             onPress={() =>
-              router.navigate(
-                `/sos-active?sosId=${sos.sosId}&deviceId=${sos.deviceId}`,
-              )
+              router.navigate(sosActiveHref(sos.sosId, sos.deviceId))
             }
             style={[
               styles.pending,
@@ -706,15 +713,15 @@ export default function SafetyRecordsScreen() {
 
       {/* 风险提醒详情弹层：准确时间 + 来源头盔 + payload 里用户看得懂的字段 */}
       <Modal
-        visible={!!detailId}
+        visible={!!detailOf}
         transparent
         animationType="fade"
-        onRequestClose={() => setDetailId(null)}
+        onRequestClose={closeDetail}
       >
         <Pressable
           accessible={false}
           style={styles.modalMask}
-          onPress={() => setDetailId(null)}
+          onPress={closeDetail}
         >
           <Animated.View entering={FadeInDown.duration(200)}>
             <Pressable
@@ -737,7 +744,7 @@ export default function SafetyRecordsScreen() {
                       ? t(EVENT_META[d.eventType].title)
                       : d.eventType
                     : t(
-                        detail.isError
+                        detail.isError || detailMismatch
                           ? "records.detail.failed"
                           : "events.loading",
                       )}
@@ -763,7 +770,7 @@ export default function SafetyRecordsScreen() {
                 <Tappable
                   accessibilityRole="button"
                   accessibilityLabel={t("common.close")}
-                  onPress={() => setDetailId(null)}
+                  onPress={closeDetail}
                   style={[
                     styles.close,
                     { backgroundColor: theme.backgroundSelected },
@@ -813,7 +820,7 @@ export default function SafetyRecordsScreen() {
                     onPress={() => {
                       const at = d.timestamp;
                       const dev = d.deviceId;
-                      setDetailId(null);
+                      closeDetail();
                       router.navigate({
                         pathname: "/map",
                         params: { deviceId: dev, at },
@@ -821,6 +828,10 @@ export default function SafetyRecordsScreen() {
                     }}
                   />
                 </>
+              ) : detailMismatch ? (
+                <ThemedText type="small" themeColor="textSecondary">
+                  {t("records.detail.mismatch")}
+                </ThemedText>
               ) : (
                 detail.isError && (
                   <ThemedText type="small" themeColor="textSecondary">
@@ -884,6 +895,8 @@ const styles = StyleSheet.create({
   rowBody: { flex: 1, minWidth: 0, gap: 2 },
   rowTitle: { fontSize: 15 },
   rowSub: { fontSize: 13, lineHeight: 18 },
+  subLine: { flexDirection: "row", alignItems: "center" },
+  subName: { flexShrink: 1 },
   note: { fontSize: 12, lineHeight: 19, paddingHorizontal: 2 },
   skeletonWrap: { gap: 12, paddingTop: 8 },
   skeletonRow: {

@@ -64,6 +64,12 @@ export function DeviceSettingsPage({
 }) {
   const t = useT();
   const settings = useDeviceSettings(deviceId);
+  // 与上面 DeviceContext 同一份缓存（15 秒轮询），只为下发回执知道头盔此刻在不在线
+  const status = useQuery({
+    queryKey: ["device-status", deviceId],
+    queryFn: () => devicesApi.status(deviceId),
+    refetchInterval: 15_000,
+  });
   return (
     <ThemedView style={styles.flex}>
       <ScrollView
@@ -91,6 +97,7 @@ export function DeviceSettingsPage({
                 disabled={settings.sending}
                 onChange={settings.send}
                 lastCommand={settings.lastCommand}
+                online={status.data?.online ?? false}
               />
             </Card>
           </View>

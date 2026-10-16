@@ -11,14 +11,20 @@ import {
 } from "react-native";
 
 import { authApi, maskPhone } from "@/api/auth";
-import { toUserMessage } from "@/api/error-messages";
+import { changePhoneErrorMessage } from "@/api/error-messages";
 import { FormError, FormInput, PrimaryButton } from "@/components/form";
 import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { showToast } from "@/components/toast";
 import { Radius } from "@/constants/theme";
-import { useSmsCode, isValidPhone } from "@/hooks/use-sms-code";
+import {
+  PHONE_INPUT_MAX,
+  isValidPhone,
+  normalizePhone,
+  normalizeSmsCode,
+  useSmsCode,
+} from "@/hooks/use-sms-code";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
 import { useAuthStore } from "@/stores/auth-store";
@@ -37,10 +43,13 @@ export default function ChangePhoneScreen() {
   const [done, setDone] = useState(false);
   const sms = useSmsCode("change_phone");
 
+  // 与联系人页同一个 normalizePhone：「+86 139 …」、全角数字原来被判成格式不对；
+  // 和当前号码比也按规整后的比，「+86 138…」不会被当成换了个新号
+  const cleanPhone = normalizePhone(phone);
   const validPhone = (): string | null => {
-    const value = phone.trim();
-    if (!isValidPhone(value)) return t("auth.invalidPhone");
-    if (value === user?.phone) return t("auth.samePhone");
+    if (!isValidPhone(cleanPhone)) return t("auth.invalidPhone");
+    if (cleanPhone === normalizePhone(user?.phone ?? ""))
+      return t("auth.samePhone");
     return null;
   };
 
@@ -52,9 +61,9 @@ export default function ChangePhoneScreen() {
       return;
     }
     try {
-      await sms.send(phone);
+      await sms.send(cleanPhone);
     } catch (e) {
-      setError(toUserMessage(e));
+      setError(changePhoneErrorMessage(e));
     }
   };
 
@@ -65,7 +74,8 @@ export default function ChangePhoneScreen() {
       setError(invalid);
       return;
     }
-    if (!/^\d{6}$/.test(code)) {
+    const cleanCode = normalizeSmsCode(code);
+    if (!/^\d{6}$/.test(cleanCode)) {
       setError(t("auth.invalidCode"));
       return;
     }
@@ -76,14 +86,14 @@ export default function ChangePhoneScreen() {
     setBusy(true);
     try {
       const updated = await authApi.changePhone({
-        newPhone: phone.trim(),
-        code,
+        newPhone: cleanPhone,
+        code: cleanCode,
         password,
       });
       await setUser(updated);
       setDone(true);
     } catch (e) {
-      setError(toUserMessage(e));
+      setError(changePhoneErrorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -144,7 +154,8 @@ export default function ChangePhoneScreen() {
             value={phone}
             onChangeText={setPhone}
             keyboardType="phone-pad"
-            maxLength={11}
+            // 留出 +86 / 空格 / 横线的位置（自动填充、粘贴），提交前再规整成 11 位
+            maxLength={PHONE_INPUT_MAX}
             placeholder={t("auth.newPhonePlaceholder")}
             autoComplete="tel"
           />

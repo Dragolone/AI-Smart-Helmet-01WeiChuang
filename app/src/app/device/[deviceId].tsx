@@ -41,10 +41,11 @@ import {
   DeviceSettingList,
   levelLabelKey,
 } from "@/components/device-settings";
-import { Card, ListRow, type IconName } from "@/components/list";
+import { Card, ListRow } from "@/components/list";
 import { Skeleton } from "@/components/skeleton";
 import { Tappable } from "@/components/tappable";
 import { BatteryChart } from "@/components/battery-chart";
+import { StatusRow } from "@/components/status-row";
 import {
   VolumeSlider,
   VOLUME_LOUD_THRESHOLD,
@@ -70,8 +71,6 @@ import { cleanHelmetName, helmetNameOf } from "@/services/safety-status";
 import { useBleStore } from "@/stores/ble-store";
 import { showNotice } from "@/services/notice";
 
-type RowTone = "ok" | "warn" | "bad" | "neutral";
-
 /** 蓝牙没连上时，「蓝牙未连接」下面那句说明原因的话（文案沿用改版前蓝牙那一行的各状态） */
 const BLE_DETAIL: Partial<Record<BleRowState, MessageKey>> = {
   scanning: "device.ble.scanning",
@@ -84,86 +83,6 @@ const BLE_DETAIL: Partial<Record<BleRowState, MessageKey>> = {
   unauthorized: "device.ble.unauthorized",
   unsupported: "device.ble.unsupported",
 };
-
-/**
- * 状态卡里的一行：图标 + 结论（+ 一句原因）+ 右侧的时间或入口。
- * 轻重只落在图标颜色上，文字保持正文色——不靠颜色也读得出来，也不把整张卡染色。
- */
-function StatusRow({
-  icon,
-  tone,
-  title,
-  detail,
-  trailing,
-  actionLabel,
-  onAction,
-}: {
-  icon: IconName;
-  tone: RowTone;
-  title: string;
-  detail?: string;
-  trailing?: string;
-  actionLabel?: string;
-  onAction?: () => void;
-}) {
-  const theme = useTheme();
-  const color =
-    tone === "ok"
-      ? theme.success
-      : tone === "warn"
-        ? theme.warning
-        : tone === "bad"
-          ? theme.danger
-          : theme.textSecondary;
-  const body = (
-    <>
-      <Ionicons name={icon} size={18} color={color} />
-      <View style={styles.statusRowText}>
-        <ThemedText type="small" style={styles.statusRowTitle}>
-          {title}
-        </ThemedText>
-        {detail ? (
-          <ThemedText
-            type="small"
-            themeColor="textSecondary"
-            style={styles.statusRowDetail}
-          >
-            {detail}
-          </ThemedText>
-        ) : null}
-      </View>
-      {trailing ? (
-        <ThemedText
-          type="small"
-          themeColor="textSecondary"
-          style={styles.statusRowTrailing}
-        >
-          {trailing}
-        </ThemedText>
-      ) : null}
-      {actionLabel && onAction ? (
-        <View style={styles.statusRowAction}>
-          <ThemedText type="smallBold" style={styles.statusRowActionText}>
-            {actionLabel}
-          </ThemedText>
-          <Ionicons name="chevron-forward" size={14} color={theme.text} />
-        </View>
-      ) : null}
-    </>
-  );
-  return onAction ? (
-    <Tappable
-      feedback="opacity"
-      accessibilityRole="button"
-      onPress={onAction}
-      style={styles.statusRow}
-    >
-      {body}
-    </Tappable>
-  ) : (
-    <View style={styles.statusRow}>{body}</View>
-  );
-}
 
 export default function DeviceDetailScreen() {
   const { deviceId } = useLocalSearchParams<{ deviceId: string }>();
@@ -604,6 +523,7 @@ export default function DeviceDetailScreen() {
             onChange={sendSetting}
             lastCommand={settings.lastCommand}
             icons={{ light: "flashlight-outline" }}
+            online={online}
           />
           <View style={[styles.volumeBlock, { borderTopColor: theme.border }]}>
             <VolumeSlider
@@ -762,19 +682,6 @@ const styles = StyleSheet.create({
     paddingTop: 4,
     marginBottom: -6,
   },
-  statusRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    minHeight: 48,
-    paddingVertical: 6,
-  },
-  statusRowText: { flex: 1, minWidth: 0, gap: 1 },
-  statusRowTitle: { fontSize: 14 },
-  statusRowDetail: { fontSize: 12, lineHeight: 17 },
-  statusRowTrailing: { fontSize: 12, lineHeight: 17, flexShrink: 1 },
-  statusRowAction: { flexDirection: "row", alignItems: "center", gap: 2 },
-  statusRowActionText: { fontSize: 13 },
   offlineHint: { fontSize: 12, lineHeight: 18, paddingBottom: 8 },
   sectionTitle: { fontSize: 16, paddingHorizontal: 4, marginTop: 10 },
   controlsCard: { paddingHorizontal: 16 },

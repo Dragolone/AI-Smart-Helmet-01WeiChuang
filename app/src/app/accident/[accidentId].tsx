@@ -6,6 +6,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 
+import { sosActiveHref } from "@/services/sos-routes";
 import { ApiRequestError } from "@/api/client";
 import { devicesApi } from "@/api/devices";
 import { toUserMessage } from "@/api/error-messages";
@@ -134,9 +135,7 @@ export default function AccidentDetailScreen() {
                 accessibilityRole="button"
                 style={[styles.countdownBtn, { backgroundColor: theme.danger }]}
                 onPress={() =>
-                  router.navigate(
-                    `/sos-active?sosId=${d.sosId}&deviceId=${d.deviceId}` as never,
-                  )
+                  router.navigate(sosActiveHref(d.sosId, d.deviceId) as never)
                 }
               >
                 <Ionicons name="warning-outline" size={16} color="#fff" />

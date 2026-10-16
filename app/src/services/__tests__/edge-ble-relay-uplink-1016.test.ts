@@ -243,24 +243,45 @@ describe("服务端拒收的几种状态码", () => {
     },
   );
 
-  it("现状（A7）：413（请求体超 100 KB）每轮重发同一批——排在批首的摔倒永远送不出去", async () => {
+  it("改后（10-16 A7）：413（请求体超 100 KB）把批量减半立即重试，减到能过为止——积压里的摔倒不再被同一批拖住", async () => {
     const { up, push } = load();
     push.mockImplementation(async (b) => {
-      if (b.deviceId === "helmet_big") throw httpError(413);
+      if (b.deviceId === "helmet_big" && b.envelopes.length > 2)
+        throw httpError(413);
       return { accepted: b.envelopes.length, duplicate: 0, invalid: 0 };
     });
+    up.enqueueRelayEvent(env("location_update", "helmet_big", "loc-1"));
+    up.enqueueRelayEvent(env("location_update", "helmet_big", "loc-2"));
     up.enqueueRelayEvent(env("possible_fall", "helmet_big", "fall-big"));
     await tick();
-    for (let i = 0; i < 5; i += 1) await up.flushRelayQueue();
-    const bigBatches = sent(push).filter((b) => b.deviceId === "helmet_big");
-    expect(bigBatches.length).toBeGreaterThanOrEqual(5);
-    for (const b of bigBatches) expect(b.ids[0]).toBe("fall-big");
-    expect(savedIds("anonymous")).toEqual(["fall-big"]);
+    for (let i = 0; i < 3; i += 1) {
+      await up.flushRelayQueue();
+      await tick();
+    }
+    const bigBatches = sent(push)
+      .filter((b) => b.deviceId === "helmet_big")
+      .map((b) => b.ids);
+    // 摔倒本来就排到批首；整批 3 条 413 → 减到 1 条立即补跑（摔倒单独送出）→ 过了就翻倍回 2 条
+    expect(bigBatches).toEqual([
+      ["fall-big", "loc-1", "loc-2"],
+      ["fall-big"],
+      ["loc-1", "loc-2"],
+    ]);
+    expect(savedIds("anonymous")).toEqual([]);
+  });
+
+  it("只有一条还 413：减不了，整批保留下轮重发（单条 100 KB 不会出现在 BLE 事件里）", async () => {
+    const { up, push } = load();
+    push.mockRejectedValue(httpError(413));
+    up.enqueueRelayEvent(env("location_update", "helmet_big", "loc-only"));
+    await up.flushRelayQueue();
+    await up.flushRelayQueue();
+    expect(savedIds("anonymous")).toEqual(["loc-only"]);
   });
 });
 
 describe("2xx 但响应体异常", () => {
-  it("现状（A8）：响应体是 null 时这一批已出队，但「高危已接受」回调没走、网络锁没放", async () => {
+  it("改后（10-16 A8）：响应体是 null（网关吞了响应体）：2xx 就按整批已接受——「高危已接受」回调照走、网络锁照放", async () => {
     const { up, push } = load();
     const accepted = jest.fn();
     up.setCriticalAcceptedHandler(accepted);
@@ -268,8 +289,8 @@ describe("2xx 但响应体异常", () => {
     up.enqueueRelayEvent(env("possible_fall", "helmet_a", "fall-null"));
     await tick();
     expect(savedIds("anonymous")).toEqual([]);
-    expect(accepted).not.toHaveBeenCalled();
-    expect(mockRelease).not.toHaveBeenCalled();
+    expect(accepted).toHaveBeenCalledWith("helmet_a");
+    expect(mockRelease).toHaveBeenCalledTimes(1);
   });
 
   it("正常的 202：摔倒被接受后回调带上设备号，锁释放", async () => {
@@ -294,22 +315,57 @@ describe("2xx 但响应体异常", () => {
 });
 
 describe("档案晚到：先落匿名分区、user.id 到了再换（use-realtime onUserReady 的顺序）", () => {
-  it("现状（A6）：匿名期间收到的摔倒首发失败，换到本人分区后不再补传——它留在匿名文件里，而头盔那边已因 ACK 擦除", async () => {
+  it("改后（10-16 A6）：匿名期间收到的摔倒首发失败，档案到了用 adoptRelayUplinkOwner 认领——队列整个带到本人分区补传，匿名文件清空", async () => {
     const { up, push } = load();
     push.mockRejectedValueOnce(new Error("offline"));
     up.startRelayUplink(undefined); // 钥匙串里只有 token、档案还没回来
     await tick();
     up.enqueueRelayEvent(env("possible_fall", "helmet_mine", "fall-anon"));
     await tick();
-    // /users/me 回来：use-realtime 先 stop 再按 uid start
-    up.stopRelayUplink();
-    up.startRelayUplink("user_1");
+    // /users/me 回来：use-realtime 认领，不是 stop 再 start
+    expect(up.adoptRelayUplinkOwner("user_1")).toBe(true);
     await tick();
+    expect(savedIds("anonymous")).toEqual([]);
+    expect(savedIds("user_1")).toEqual(["fall-anon"]);
     push.mockClear();
     await up.flushRelayQueue();
+    expect(sent(push).map((b) => b.ids)).toEqual([["fall-anon"]]);
     up.stopRelayUplink();
-    expect(push).not.toHaveBeenCalled();
-    expect(savedIds("anonymous")).toEqual(["fall-anon"]);
     expect(savedIds("user_1")).toEqual([]);
+  });
+
+  it("认领时本人分区里还有上次没送完的：合并进来、按 头盔号:事件号 去重", async () => {
+    mockFiles.set(
+      queueFile("user_1"),
+      JSON.stringify({
+        v: 2,
+        owner: "user_1",
+        events: [
+          env("location_update", "helmet_mine", "old-1"),
+          env("possible_fall", "helmet_mine", "fall-anon"),
+        ],
+      }),
+    );
+    const { up, push } = load();
+    push.mockRejectedValue(new Error("offline"));
+    up.startRelayUplink(undefined);
+    await tick();
+    up.enqueueRelayEvent(env("possible_fall", "helmet_mine", "fall-anon"));
+    await tick();
+    up.adoptRelayUplinkOwner("user_1");
+    await tick();
+    up.stopRelayUplink();
+    expect(savedIds("user_1").sort()).toEqual(["fall-anon", "old-1"]);
+  });
+
+  it("已经是本人名下（不是匿名）再认领：返回 false、什么都不动", async () => {
+    const { up } = load();
+    up.startRelayUplink("user_1");
+    await tick();
+    expect(up.adoptRelayUplinkOwner("user_2")).toBe(false);
+    up.enqueueRelayEvent(env("location_update", "helmet_mine", "l-1"));
+    up.stopRelayUplink();
+    expect(savedIds("user_1")).toEqual(["l-1"]);
+    expect(savedIds("user_2")).toEqual([]);
   });
 });

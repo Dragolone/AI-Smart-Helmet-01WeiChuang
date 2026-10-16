@@ -68,8 +68,10 @@ export function BatteryChart({
             inner={theme.backgroundElement}
           >
             <View style={styles.ringValue}>
+              {/* 圆环是定宽的：数字最多放大 1.3 倍，2 倍字体下「100」不撑出圆环 */}
               <ThemedText
                 type="display"
+                maxFontSizeMultiplier={1.3}
                 style={{ color: currentColor, fontSize: 19, lineHeight: 23 }}
               >
                 {current !== null ? current : "—"}
@@ -78,6 +80,7 @@ export function BatteryChart({
                 <ThemedText
                   type="small"
                   themeColor="textSecondary"
+                  maxFontSizeMultiplier={1.3}
                   style={{ fontSize: 10, lineHeight: 12 }}
                 >
                   %
@@ -85,7 +88,7 @@ export function BatteryChart({
               )}
             </View>
           </RingGauge>
-          <View>
+          <View style={styles.headTitle}>
             <ThemedText type="smallBold" style={{ fontSize: 15 }}>
               {labels.title}
             </ThemedText>
@@ -99,7 +102,7 @@ export function BatteryChart({
         <ThemedText
           type="small"
           themeColor="textSecondary"
-          style={{ fontSize: 12 }}
+          style={styles.windowLabel}
         >
           {labels.window}
         </ThemedText>
@@ -174,12 +177,28 @@ export function BatteryChart({
 }
 
 const styles = StyleSheet.create({
-  headLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
+  headLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flexShrink: 1,
+  },
+  headTitle: { flexShrink: 1 },
   wrap: { gap: 10 },
+  // 放不下时「过去 24 小时」换到下一行、仍靠右（2 倍系统字体下原来被切成「过去 2」，2026-10-16 模拟器）
   header: {
     flexDirection: "row",
+    flexWrap: "wrap",
     justifyContent: "space-between",
     alignItems: "flex-start",
+    rowGap: 4,
+    columnGap: 12,
+  },
+  windowLabel: {
+    fontSize: 12,
+    marginLeft: "auto",
+    flexShrink: 1,
+    textAlign: "right",
   },
   ringValue: { flexDirection: "row", alignItems: "baseline", gap: 1 },
   plot: { height: 96, justifyContent: "flex-end" },

@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/skeleton";
 import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
 import { useTheme } from "@/hooks/use-theme";
+import { plausibleSpeed } from "@/components/map/coords";
 import { useLocale, useT, type Locale } from "@/i18n";
 import { dayTitle, formatKm, sameLocalDay, shortTime } from "@/i18n/format";
 import {
@@ -20,12 +21,13 @@ import {
 
 type Translate = ReturnType<typeof useT>;
 
-/** 「36 分钟」/「1 小时 46 分」 */
+/** 「36 分钟」/「1 小时 46 分」/ 整小时「2 小时」（原来写「2 小时 0 分」） */
 export function durationText(seconds: number, t: Translate): string {
   const { hours, minutes } = durationParts(seconds);
-  return hours > 0
-    ? t("map.rides.durHour", { h: hours, m: minutes })
-    : t("map.rides.durMin", { m: minutes });
+  if (hours === 0) return t("map.rides.durMin", { m: minutes });
+  return minutes === 0
+    ? t("map.rides.durHourOnly", { h: hours })
+    : t("map.rides.durHour", { h: hours, m: minutes });
 }
 
 /** 「18:05 – 18:41」；进行中的写「19:02 – 现在」；跨过零点的写「15:00 – 次日 15:00」 */
@@ -208,13 +210,12 @@ export function RideList({
             {day.rides.map((ride, i) => {
               const time = rideTimeRange(ride, locale, t);
               const dur = durationText(rideSeconds(ride), t);
+              // 最高速度是服务端取的原始速度：GPS 漂移时会出现「最高 1440 km/h」，不像真的就不写
+              const max = plausibleSpeed(ride.maxSpeed);
               const sub = ride.ongoing
                 ? t("map.rides.live", { dur })
-                : ride.maxSpeed !== null
-                  ? t("map.rides.rowMax", {
-                      dur,
-                      max: Math.round(ride.maxSpeed * 3.6),
-                    })
+                : max !== null
+                  ? t("map.rides.rowMax", { dur, max: Math.round(max * 3.6) })
                   : dur;
               const km = formatKm(ride.distanceMeters);
               return (

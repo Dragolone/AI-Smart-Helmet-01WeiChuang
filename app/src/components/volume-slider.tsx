@@ -26,10 +26,30 @@ export const VOLUME_RECOMMENDED = 80;
 export const VOLUME_LOUD_THRESHOLD = VOLUME_RECOMMENDED;
 const THUMB = 28;
 
+/** 拖动时的档位：5% 一档、10–100（滑杆能调出来的值） */
 export function clampVolume(v: number) {
   "worklet";
   const stepped = Math.round(v / STEP) * STEP;
   return Math.min(MAX, Math.max(MIN, stepped));
+}
+
+/** 设置清单里音量的取值范围（shared DEVICE_SETTINGS.volume：1–100） */
+export const VOLUME_SETTING_MIN = 1;
+export const VOLUME_SETTING_MAX = 100;
+
+/**
+ * 没在拖动时显示的值：头盔上实际是多少就显示多少（取整、夹到 1–100）。
+ * 原来静止时也过一遍拖动档位 clampVolume——头盔是 1–9 的小音量（设置清单允许，别的端或工程模式能设）
+ * 显示成 10%，83 显示成 85%、82 显示成 80%（82 本来超过推荐线，却不标「高音量」）。
+ * 认不出的值（NaN）原样交回，和以前一样。
+ */
+export function restingVolume(v: number) {
+  "worklet";
+  if (Number.isNaN(v)) return v;
+  return Math.min(
+    VOLUME_SETTING_MAX,
+    Math.max(VOLUME_SETTING_MIN, Math.round(v)),
+  );
 }
 
 export function VolumeSlider({
@@ -59,13 +79,13 @@ export function VolumeSlider({
   const [dragging, setDragging] = useState(false);
   const [dragShown, setDragShown] = useState(value);
 
-  const progress = useSharedValue(clampVolume(value) / MAX);
-  const lastStep = useSharedValue(clampVolume(value));
+  const progress = useSharedValue(restingVolume(value) / MAX);
+  const lastStep = useSharedValue(restingVolume(value));
   const widthSv = useSharedValue(0);
   const startX = useSharedValue(0);
 
   // 云端值变化且没在拖动时，把滑杆同步到已生效值（在 UI 线程写 shared value，不走 useEffect）
-  const syncTarget = dragging ? -1 : clampVolume(value);
+  const syncTarget = dragging ? -1 : restingVolume(value);
   useAnimatedReaction(
     () => syncTarget,
     (target) => {
@@ -90,6 +110,8 @@ export function VolumeSlider({
     onStep?.(v);
   };
   const begin = () => {
+    // 从此刻的值开始显示：不然没跨档之前，标签上是上一次拖动停下的值
+    setDragShown(restingVolume(value));
     setDragging(true);
     onDraggingChange?.(true);
   };
@@ -134,11 +156,11 @@ export function VolumeSlider({
   const tap = Gesture.Tap()
     .enabled(!pending)
     .onEnd((e) => {
-    scheduleOnRN(begin);
-    applyX(e.x);
-    progress.set(lastStep.get() / MAX);
-    scheduleOnRN(end, lastStep.get());
-  });
+      scheduleOnRN(begin);
+      applyX(e.x);
+      progress.set(lastStep.get() / MAX);
+      scheduleOnRN(end, lastStep.get());
+    });
   const gesture = Gesture.Exclusive(pan, tap);
 
   const fillStyle = useAnimatedStyle(() => ({
@@ -151,7 +173,7 @@ export function VolumeSlider({
     ],
   }));
 
-  const shown = dragging ? dragShown : clampVolume(value);
+  const shown = dragging ? dragShown : restingVolume(value);
   const loud = shown > VOLUME_LOUD_THRESHOLD;
   const fillColor = pending
     ? theme.textSecondary
@@ -173,7 +195,11 @@ export function VolumeSlider({
         <ThemedText
           type="smallBold"
           style={{
-            color: pending ? theme.textSecondary : loud ? theme.sos : theme.text,
+            color: pending
+              ? theme.textSecondary
+              : loud
+                ? theme.sos
+                : theme.text,
           }}
         >
           {shown}%

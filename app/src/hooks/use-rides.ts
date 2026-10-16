@@ -8,7 +8,7 @@ import {
 import type { EventListItem, RideSummary } from "@helmet/shared";
 
 import { devicesApi } from "@/api/devices";
-import { isPlausibleFix } from "@/components/map/coords";
+import { dropGpsSpikes, isPlausibleFix } from "@/components/map/coords";
 import { eventsApi } from "@/api/events";
 import {
   AFTER_RIDE_MS,
@@ -150,13 +150,20 @@ export function useRecentRides(
  * @param keepPrevious 换范围时先留着上一份。只给「进行中的那一趟」用——它的结束时间一直在变，
  *   不留的话每次刷新线都要闪一下；看历史行程时不能留，否则会把上一趟的线当成这一趟的画出来
  */
-/** 轨迹里混着 (0,0) 这类没定位的点时去掉它：否则线会从深圳拉到几内亚湾再拉回来。统计（summary）是服务端算的，不动 */
-function dropImplausibleFixes<
-  T extends { points: { latitude: number; longitude: number }[] },
+/**
+ * 轨迹里混着 (0,0) 这类没定位的点、或飞出去又飞回来的 GPS 漂移点时去掉：否则线会从深圳拉到
+ * 几内亚湾 / 北京再拉回来。统计（summary）是服务端算的，不动（最高速度另在显示时把关）。
+ */
+export function dropImplausibleFixes<
+  T extends {
+    points: { latitude: number; longitude: number; timestamp: string }[];
+  },
 >(data: T): T {
-  return data.points.every(isPlausibleFix)
-    ? data
-    : { ...data, points: data.points.filter(isPlausibleFix) };
+  const plausible = data.points.every(isPlausibleFix)
+    ? data.points
+    : data.points.filter(isPlausibleFix);
+  const points = dropGpsSpikes(plausible);
+  return points === data.points ? data : { ...data, points };
 }
 
 export function useRideTrack(

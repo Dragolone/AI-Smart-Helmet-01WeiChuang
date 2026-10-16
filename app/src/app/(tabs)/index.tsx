@@ -6,7 +6,7 @@
 // 不在这一页的：速度和骑行状态（地图页）、最近上报与设备编号（详情页）。
 // 数据：GET /devices（30s 轮询兜底，WS 直写缓存）。
 import { Ionicons } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { router, useFocusEffect, useIsFocused } from "expo-router";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
@@ -444,7 +444,7 @@ function SafetyTile({
       icon="shield-outline"
       label={label}
       tone={tone}
-      accessibilityLabel={`${label}，${value}`}
+      accessibilityLabel={`${label}${t("common.a11ySep")}${value}`}
       onPress={() => router.navigate("/safety")}
     >
       <View style={styles.tileValueRow}>
@@ -478,7 +478,7 @@ function RideTile({ deviceId }: { deviceId: string }) {
     <SummaryTile
       icon="bicycle-outline"
       label={label}
-      accessibilityLabel={`${label}，${km ? `${km} ${rest}` : rest}`}
+      accessibilityLabel={`${label}${t("common.a11ySep")}${km ? `${km} ${rest}` : rest}`}
       // 直接打开地图页的行程列表（今天在最上面）。带上头盔：地图页此刻看的不一定是这一顶
       onPress={() =>
         router.navigate({ pathname: "/map", params: { deviceId, rides: "1" } })
@@ -589,7 +589,9 @@ function OtherRow({
               numberOfLines={1}
               style={styles.otherSub}
             >
-              {pill.linked
+              {/* 服务端说在线、只是这台手机连不上（手机蓝牙关着 / 没给蓝牙权限）：和大图的药丸一样写「未连接」，
+                  不写「离线 · 刚刚」——它此刻正由别的手机带着在线（10-16 iPhone 关蓝牙时见到） */}
+              {pill.linked || device.online
                 ? t(pill.text)
                 : `${t("common.offline")} · ${relativeTime(device.lastSeenAt, locale)}`}
             </ThemedText>
@@ -652,6 +654,9 @@ function OtherRow({
   );
 }
 
+/** 回到设备页时重拉设备列表：2 秒内刚拉过就不再拉 */
+const FOCUS_REFETCH_GAP_MS = 2_000;
+
 export default function DevicesScreen() {
   const theme = useTheme();
   const t = useT();
@@ -670,6 +675,27 @@ export default function DevicesScreen() {
       setRefreshing(false);
     }
   };
+  // 回到设备页时重拉一次设备列表，不等下一次 30 秒轮询：在别处（另一台手机）刚绑上的头盔马上出来，
+  // 三步指引接着往下走。不按「过期」判断：地图页挂上时刚拉过、还在新鲜期里的那份可能正是绑定之前的。
+  // 只跳过「正在拉」和「2 秒内刚拉过」（来回切标签时别连发）。
+  // 10-16 iPhone：新账号登录后弹过「保存密码？」框、切到地图再回来，设备列表的轮询没再跑，
+  // 指引在第一件停了一两分钟、要下拉才动（根因没坐实，这里兜住回来那一下）
+  const queryClient = useQueryClient();
+  useFocusEffect(
+    useCallback(() => {
+      const q = queryClient.getQueryCache().find({ queryKey: ["devices"] });
+      if (
+        q &&
+        (q.state.fetchStatus === "fetching" ||
+          Date.now() - q.state.dataUpdatedAt < FOCUS_REFETCH_GAP_MS)
+      )
+        return;
+      void queryClient.refetchQueries(
+        { queryKey: ["devices"], type: "active" },
+        { cancelRefetch: false },
+      );
+    }, [queryClient]),
+  );
   const list = devices.data ?? [];
   const links = useHelmetLinks(list, !devices.isError);
   const choice = useCurrentHelmetChoice();
