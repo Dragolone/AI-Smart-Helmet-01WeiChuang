@@ -15,6 +15,7 @@ import type {
   WsSosData,
 } from "@helmet/shared";
 
+import { sosScreen } from "@/services/sos-queue";
 import { sosActiveHref } from "@/services/sos-routes";
 import { forceRefreshTokens } from "@/api/client";
 import { devicesApi } from "@/api/devices";
@@ -151,8 +152,11 @@ export function useRealtimeUpdates(): void {
       fetchActive: (id) => sosApi.active(id),
       // 全仓只有这里用 push：两顶头盔同时有进行中的单时要各开各的倒计时页（同一单只开一次由 presentedSos 管）。
       // 别处点了开页面一律用 navigate——同一页已经在最上面时不再叠一页（连点两下不会开出两页）
-      openCountdown: (sosId, deviceId) =>
-        router.push(sosActiveHref(sosId, deviceId)),
+      openCountdown: (sosId, deviceId) => {
+        // 倒计时页已在屏上：这单只进队列，页面顶部多一个胶囊并提示一句，不再叠一页（10-16 N10）
+        if (sosScreen.mounted) return;
+        router.push(sosActiveHref(sosId, deviceId));
+      },
       showLockScreenAlert: (sosId, deviceId, deadline, triggeredAt) =>
         void showSosAlertIfBackground(
           sosId,

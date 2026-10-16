@@ -7,15 +7,24 @@
 // 最后 10 秒的震动改成连着两下、读联系人和通知记录来显示、已取消后的「我还是需要帮助」。
 // 演练模式（?drill=1）：同一页面、同样的警报音/振动/倒计时，但**不碰服务端、不通知任何人**——
 // 新用户先见过一次求救长什么样，真出事时才敢按、也知道怎么取消。顶部常驻醒目标记避免混淆。
+// 多顶头盔同时求救（10-16 N10，负责人定稿）：倒计时页只开一张，顶部按到期先后排一排头盔胶囊、点胶囊切换；
+// 两顶时写「XX 也在倒计时」、更多写「还有 N 顶正在报警」；当前这单结束后页内提示一句并自动切到下一单；
+// 全部结束才进结果页按头盔逐条列结论；两单以上时多「全部立即求救 / 全部取消」。队列从缓存推导（services/sos-queue）。
 import { Ionicons } from "@expo/vector-icons";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type Query,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { setAudioModeAsync, useAudioPlayer } from "expo-audio";
 import * as Haptics from "expo-haptics";
-import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
+  Alert,
   AppState,
   BackHandler,
   ScrollView,
@@ -44,7 +53,12 @@ import {
   settleSnapshot,
 } from "@/services/sos-sync";
 import { useSosCancelStore } from "@/stores/sos-cancel-store";
-import type { EventEnvelope, EventType, Sos } from "@helmet/shared";
+import type {
+  AccidentDetail,
+  EventEnvelope,
+  EventType,
+  Sos,
+} from "@helmet/shared";
 
 import { ApiRequestError } from "@/api/client";
 import { contactsApi } from "@/api/contacts";
@@ -70,6 +84,12 @@ import {
 } from "@/services/ble-relay-uplink";
 import { msToNextSecond } from "@/services/countdown";
 import { lateEventNote } from "@/services/sos-age";
+import {
+  activeSosQueue,
+  MAX_CHIPS,
+  nextSos,
+  sosScreen,
+} from "@/services/sos-queue";
 import { helmetNameOf } from "@/services/safety-status";
 import {
   deliveryPollInterval,
@@ -172,11 +192,11 @@ function paletteOf(
   };
 }
 
-// 页面内容按 sosId 重建：「我还是需要帮助」的 eventId 等存在实例里，换了单不清掉的话会复用上一单的
-// eventId，被服务端当重复事件吞掉。_layout 已按 sosId 区分页面，这里再兜一层
+// 真实的单共用一个实例（多顶同时求救时在页内切换，10-16 N10）；演练单独一个。
+// 「我还是需要帮助」的 eventId 按头盔号存，换单不会复用上一单的 eventId 被服务端当重复事件吞掉
 export default function SosActiveScreen() {
-  const { sosId } = useLocalSearchParams<{ sosId?: string }>();
-  return <SosActiveContent key={sosId ?? "drill"} />;
+  const { drill } = useLocalSearchParams<{ drill?: string }>();
+  return <SosActiveContent key={drill === "1" ? "drill" : "sos"} />;
 }
 
 /** 服务端明确说没有这一单（404） */
@@ -184,12 +204,33 @@ const isNotFound = (e: unknown) =>
   e instanceof ApiRequestError && e.status === 404;
 
 function SosActiveContent() {
-  const { sosId, deviceId, drill } = useLocalSearchParams<{
+  const {
+    sosId: routeSosId,
+    deviceId,
+    drill,
+  } = useLocalSearchParams<{
     sosId: string;
     deviceId: string;
     drill?: string;
   }>();
   const isDrill = drill === "1";
+  // 页内当前看的是哪一单：进来时是路由给的；点另一单的通知（_layout 把参数改写成那一单）、点顶部胶囊、
+  // 当前这单结束后自动切下一单，都只换这个
+  const [selected, setSelected] = useState(routeSosId);
+  const [routeSeen, setRouteSeen] = useState(routeSosId);
+  if (routeSosId !== routeSeen) {
+    setRouteSeen(routeSosId);
+    if (routeSosId) setSelected(routeSosId);
+  }
+  const sosId = selected ?? routeSosId;
+  // 在屏上期间新到的单只进队列，不再叠一页（use-realtime 的 openCountdown 看这个）
+  useEffect(() => {
+    if (isDrill) return;
+    sosScreen.mounted = true;
+    return () => {
+      sosScreen.mounted = false;
+    };
+  }, [isDrill]);
   // 从安全页 / 安全记录 / 事故详情用 navigate 打开的倒计时页没登记过：之后 WS 重连、推送到达、中转 duplicate 回调
   // 走 resumePendingSos 会判「没拉起过」再 push 同一单，expo-router 的 singular 逻辑把已有路由移除再以同 key 追加——
   // 倒计时中无谓改栈（10-15 复审 F-2）。真实单挂载即登记，三处入口自然覆盖
@@ -226,10 +267,14 @@ function SosActiveContent() {
     queryKey: ["sos", sosId],
     queryFn: async () => {
       try {
+        // 切到别的单时路由里的 deviceId 是第一单的，用缓存里这一单自己的头盔号（没有就不传，直接查事故记录）
+        const own =
+          queryClient.getQueryData<Sos>(["sos", sosId])?.deviceId ??
+          (sosId === routeSosId ? deviceId : undefined);
         return settleSnapshot(
           queryClient,
           sosId,
-          await sosApi.snapshot(sosId, deviceId),
+          await sosApi.snapshot(sosId, own),
         );
       } catch (e) {
         // 服务端明确说没有这一单（404：单号是瞎编的 / 不是你的头盔）——不是「状态未知」，交给页面收掉。
@@ -265,6 +310,35 @@ function SosActiveContent() {
       }
     : null;
   const sos = isDrill ? drillSos : (sosQuery.data ?? null);
+
+  // 进行中的队列从缓存推导（["sos-active", *] 由 WS 推送 / 补拉写入）；缓存一变就重算一次
+  const [cacheTick, setCacheTick] = useState(0);
+  useEffect(() => {
+    if (isDrill) return;
+    return queryClient.getQueryCache().subscribe((e) => {
+      const k = e.query.queryKey[0];
+      if ((k === "sos-active" || k === "sos") && e.type === "updated")
+        setCacheTick((n) => n + 1);
+    });
+  }, [isDrill, queryClient]);
+  const queue = isDrill ? [] : activeSosQueue(queryClient, sos);
+  const others = queue.filter((q) => q.sosId !== sosId);
+  // 这一页处理过的单（头盔号 → 单）：全部结束后按头盔逐条列结论。同一顶头盔新来一单（「我还是需要帮助」
+  // 之后的那单）顶掉旧的那条
+  const [handled, setHandled] = useState<Record<string, Sos>>({});
+  if (!isDrill) {
+    // 当前这单用详情缓存里的对象（会变成终态）；队列里没看过的也登记，「全部取消」后结果页才列得全
+    const add = [
+      ...(sos && handled[sos.deviceId] !== sos ? [sos] : []),
+      ...queue.filter(
+        (q) => q.sosId !== sos?.sosId && handled[q.deviceId]?.sosId !== q.sosId,
+      ),
+    ];
+    if (add.length > 0)
+      setHandled(
+        add.reduce((h, x) => ({ ...h, [x.deviceId]: x }), { ...handled }),
+      );
+  }
 
   // 推进"当前时刻"，渲染期据此重算剩余秒数（仅展示用途，超时判定在服务端）。
   // 对着「数字该换的那一刻」去读时钟（services/countdown），不是固定每秒一次：固定间隔时定时器每次晚几毫秒，
@@ -374,6 +448,61 @@ function SosActiveContent() {
 
   const left = sos ? secondsLeft(sos.deadline, now) : null;
   const finished = sos && sos.status !== "pending";
+
+  // 页内一句话提示（当前单结束已切到下一单 / 又一顶开始倒计时），4 秒自己消失
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 4_000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+  const devices = useQuery({ queryKey: ["devices"], queryFn: devicesApi.list });
+  const nameOf = (id: string) =>
+    helmetNameOf(
+      devices.data?.find((d) => d.deviceId === id) ?? {
+        name: null,
+        deviceId: id,
+      },
+    );
+  // 当前这单结束（本页取消 / 立即求救、别处取消、到期通知）且还有别的单在倒数：提示一句、切到最早到期的那单。
+  // 没有别的单才停在结果页。新单盖上来（「我还是需要帮助」之后那单）也走这里
+  const nextId = finished ? (nextSos(queue, sosId)?.sosId ?? null) : null;
+  if (!isDrill && nextId && sos && nextId !== selected) {
+    setToast(
+      t(
+        sos.status === "cancelled"
+          ? "sos.switchedCancelled"
+          : "sos.switchedNotified",
+        { name: nameOf(sos.deviceId) },
+      ),
+    );
+    setSelected(nextId);
+  }
+  // 倒数中又来一顶：提示一句（不抢当前这单，用户正在处理它）。见过的单号记在 state 里，渲染期比对
+  const [seen, setSeen] = useState<readonly string[]>([]);
+  const fresh = queue.filter((q) => !seen.includes(q.sosId));
+  if (!isDrill && fresh.length > 0) {
+    setSeen([...seen, ...fresh.map((q) => q.sosId)]);
+    const other = fresh.find((q) => q.sosId !== sosId);
+    if (other && seen.length > 0 && !finished)
+      setToast(t("sos.newAlarm", { name: nameOf(other.deviceId) }));
+  }
+  // 全部结束、这一页处理过不止一单：结果页按头盔逐条列结论；已通知的那几单各自读发送结果
+  const handledList = Object.values(handled);
+  const multiDone = !isDrill && !!finished && !nextId && handledList.length > 1;
+  const handledStatus = (h: Sos) =>
+    queryClient.getQueryData<Sos>(["sos", h.sosId])?.status ?? h.status;
+  // 当前这单的发送结果由下面的 detail 查询管，这里只查其余的（同一个 key 挂两个观察者会互相干扰）
+  const otherHandled = handledList.filter((h) => h.sosId !== sosId);
+  const handledDetails = useQueries({
+    queries: otherHandled.map((h) => ({
+      queryKey: ["accident", h.sosId],
+      queryFn: () => sosApi.accidentDetail(h.sosId),
+      enabled: multiDone && handledStatus(h) === "notified",
+      refetchInterval: (q: Query<AccidentDetail>) =>
+        deliveryPollInterval(q.state.data?.notifications),
+    })),
+  });
   // 补传的旧事件点明「约 3 小时前的事件，刚补传到」（决策 #52）；一分钟内不会变档，不用跟着 now 刷
   const lateNote = lateEventNote(sos?.triggeredAt, now);
 
@@ -390,6 +519,18 @@ function SosActiveContent() {
   useEffect(() => {
     if (finished && !isDrill) void clearSosAlert(sosId);
   }, [finished, isDrill, sosId]);
+  // 结束即自动切到下一单的那单没经过上面那条（切换发生在同一次渲染里）：按处理过的单逐个撤，每单只撤一次
+  const alertsCleared = useRef(new Set<string>());
+  useEffect(() => {
+    if (isDrill) return;
+    for (const h of Object.values(handled)) {
+      const status =
+        queryClient.getQueryData<Sos>(["sos", h.sosId])?.status ?? h.status;
+      if (status === "pending" || alertsCleared.current.has(h.sosId)) continue;
+      alertsCleared.current.add(h.sosId);
+      void clearSosAlert(h.sosId);
+    }
+  }, [isDrill, handled, queryClient, cacheTick]);
 
   // —— 以下只管界面 ——
   const dark = useColorScheme() === "dark";
@@ -415,18 +556,12 @@ function SosActiveContent() {
     enabled: !isDrill && sos?.status === "notified",
     refetchInterval: (q) => deliveryPollInterval(q.state.data?.notifications),
   });
-  // 哪顶头盔发起的：账号下有两顶以上时写出来。两顶同时求救会叠两页倒计时，不写的话分不清哪页是谁
-  //（2026-10-15 边界测试）。与设备页同一份设备列表缓存；已解绑查不到名字时写设备号
-  const devices = useQuery({ queryKey: ["devices"], queryFn: devicesApi.list });
+  // 哪顶头盔发起的：账号下有两顶以上时写出来，多顶同时求救时才分得清（2026-10-15 边界测试）。
+  // 与设备页同一份设备列表缓存；已解绑查不到名字时写设备号
   const sourceId = sos?.deviceId ?? deviceId;
   const sourceName =
     !isDrill && sourceId && (devices.data?.length ?? 0) >= 2
-      ? helmetNameOf(
-          devices.data?.find((d) => d.deviceId === sourceId) ?? {
-            name: null,
-            deviceId: sourceId,
-          },
-        )
+      ? nameOf(sourceId)
       : null;
   const delivery = deliveryStateOf(detail.data?.notifications);
   const sentTo = smsRows(detail.data?.notifications);
@@ -495,20 +630,22 @@ function SosActiveContent() {
   // 这一页里只算一次求救：再点（失败后重试）复用同一个 eventId，服务端按它幂等。换了 eventId 的话，
   // 前一条已经建了单、倒计时中再到一条 manual_sos，会被当成「倒计时中按实体键」直接跳过 60 秒通知联系人
   //（10-06 不变式评审 F-5）
-  const helpEnvelope = useRef<ReturnType<typeof buildRelayEnvelope> | null>(
-    null,
+  // 按头盔号各存一份：多顶头盔的结果页上每顶各有一个「我还是需要帮助」（10-16 N10）
+  const helpEnvelope = useRef(
+    new Map<string, ReturnType<typeof buildRelayEnvelope>>(),
   );
-  const helpQueued = useRef(false);
-  const askedForHelp = useRef(false);
+  const helpQueued = useRef(new Set<string>());
   const [helpBusy, setHelpBusy] = useState(false);
-  const needHelp = () => {
+  const needHelp = (device?: string) => {
     // 外部深链只带 sosId 时路由里没有 deviceId，用这一单自己的（10-16 C1）
-    const helpDevice = sos?.deviceId ?? deviceId;
+    const helpDevice = device ?? sos?.deviceId ?? deviceId;
     if (!helpDevice) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
-    askedForHelp.current = true;
-    helpEnvelope.current ??= buildRelayEnvelope(helpDevice, "manual_sos", {});
-    const envelope = helpEnvelope.current;
+    let envelope = helpEnvelope.current.get(helpDevice);
+    if (!envelope) {
+      envelope = buildRelayEnvelope(helpDevice, "manual_sos", {});
+      helpEnvelope.current.set(helpDevice, envelope);
+    }
     setHelpBusy(true);
     relayApi
       .push({ deviceId: helpDevice, envelopes: [envelope] })
@@ -522,8 +659,8 @@ function SosActiveContent() {
       })
       .catch((e) => {
         // 没发出去：进持久队列，网络恢复后按原 eventId 自动补发（同一条只入队一次）
-        if (!helpQueued.current) {
-          helpQueued.current = true;
+        if (!helpQueued.current.has(helpDevice)) {
+          helpQueued.current.add(helpDevice);
           enqueueRelayEvent(envelope as EventEnvelope<EventType>);
         }
         showNotice(
@@ -533,16 +670,55 @@ function SosActiveContent() {
       })
       .finally(() => setHelpBusy(false));
   };
-  // 新一单的倒计时页盖上来又关掉之后，不再露出这张「已取消」，跟着关掉
-  const coveredAfterHelp = useRef(false);
-  useFocusEffect(
-    useCallback(() => {
-      if (coveredAfterHelp.current) router.back();
-      return () => {
-        if (askedForHelp.current) coveredAfterHelp.current = true;
-      };
-    }, []),
-  );
+  // 「我还是需要帮助」之后的新单：进队列 → 上面那条 effect 自动切过去重新倒数，不再另开一页
+
+  // 两单以上：一次处理全部。取消要确认（和单条的滑动取消一样不能误触）；立即求救也确认一下，
+  // 这一下是替好几顶头盔的骑手做决定
+  const actAll = (kind: "cancel" | "confirm") => {
+    const targets = queue;
+    Alert.alert(
+      t(kind === "cancel" ? "sos.allCancelTitle" : "sos.allSendTitle", {
+        n: targets.length,
+      }),
+      t(kind === "cancel" ? "sos.allCancelBody" : "sos.allSendBody"),
+      [
+        { text: t("common.cancel"), style: "cancel" },
+        {
+          text: t("common.confirm"),
+          style: kind === "cancel" ? "destructive" : "default",
+          onPress: () => {
+            setBusy(kind);
+            void Promise.allSettled(
+              targets.map((q) =>
+                (kind === "cancel"
+                  ? sosApi.cancel(q.sosId)
+                  : sosApi.confirm(q.sosId)
+                ).then((updated) =>
+                  queryClient.setQueryData(["sos", q.sosId], updated),
+                ),
+              ),
+            )
+              .then((results) => {
+                const failed = results.find(
+                  (r): r is PromiseRejectedResult =>
+                    r.status === "rejected" &&
+                    !(
+                      r.reason instanceof ApiRequestError &&
+                      r.reason.code === "SOS_ALREADY_FINALIZED"
+                    ),
+                );
+                if (failed)
+                  showNotice(t("common.failed"), toUserMessage(failed.reason));
+                void queryClient.invalidateQueries({
+                  queryKey: ["sos-active"],
+                });
+              })
+              .finally(() => setBusy(null));
+          },
+        },
+      ],
+    );
+  };
 
   // 环随屏幕高度缩，两个操作始终留在屏幕里。环以外要放下的东西按 1 倍字体算是 446；
   // 系统字体放大时标题、说明、联系人那几行跟着长高。矮屏（或字体放得很大）放不下时，
@@ -556,7 +732,8 @@ function SosActiveContent() {
     Math.max(0, fontScale - 1) * 220 -
     (isDrill ? 44 : 0) -
     (sourceName ? 26 : 0) -
-    (lateNote ? 26 : 0);
+    (lateNote ? 26 : 0) -
+    (others.length > 0 ? 44 + 26 + 30 : 0);
   const estimateCompact = room < 200;
   const estimateRing = Math.round(
     Math.max(140, Math.min(252, room + (estimateCompact ? 66 : 0))),
@@ -565,7 +742,7 @@ function SosActiveContent() {
   // 量出上半截实际溢出多少，就把环再缩多少（环是这里唯一能伸缩的东西）；环缩到 140 还放不下才收起顶上的图标，
   // 再放不下（字体放得很大）才靠滚动兜底。2026-10-15 华为 P30 Pro 英文、没有联系人时上半截能上下滑（负责人发现）
   // 量出来的结果连同当时的布局条件一起存：条件一变（转屏、改字体、换语言、联系人加载出来）就当作没量过，从估算重新来
-  const layoutKey = `${windowHeight}|${fontScale}|${locale}|${isDrill}|${sourceName ?? ""}|${lateNote ?? ""}|${contacts.data?.length ?? "?"}`;
+  const layoutKey = `${windowHeight}|${fontScale}|${locale}|${isDrill}|${sourceName ?? ""}|${lateNote ?? ""}|${contacts.data?.length ?? "?"}|${others.length > 0}`;
   const [fitState, setFitState] = useState({
     key: layoutKey,
     shrink: 0,
@@ -593,15 +770,17 @@ function SosActiveContent() {
     }
   };
 
-  const notifiedTitle = isDrill
-    ? t("sos.drillDoneTitle")
-    : delivery === "sent"
+  const notifiedTitleOf = (d: ReturnType<typeof deliveryStateOf>) =>
+    d === "sent"
       ? t("sos.notified.sent")
-      : delivery === "none"
+      : d === "none"
         ? t("sos.notified.none")
-        : delivery === "failed"
+        : d === "failed"
           ? t("sos.notified.failed")
           : t("sos.notified.sending");
+  const notifiedTitle = isDrill
+    ? t("sos.drillDoneTitle")
+    : notifiedTitleOf(delivery);
   const notifiedBody = isDrill
     ? t("sos.drillNotifiedBody")
     : delivery === "none"
@@ -674,6 +853,25 @@ function SosActiveContent() {
         pointerEvents="none"
         style={[styles.wash, { backgroundColor: SOS_RED_BEAT }, beatStyle]}
       />
+      {toast ? (
+        <Animated.View
+          entering={FadeIn.duration(200)}
+          pointerEvents="none"
+          accessibilityLiveRegion="polite"
+          style={[
+            styles.toast,
+            {
+              top: insets.top + 8,
+              backgroundColor: theme.backgroundElement,
+              borderColor: theme.border,
+            },
+          ]}
+        >
+          <ThemedText numberOfLines={2} style={styles.toastText}>
+            {toast}
+          </ThemedText>
+        </Animated.View>
+      ) : null}
       <View style={styles.container}>
         {!finished ? (
           <>
@@ -691,6 +889,99 @@ function SosActiveContent() {
               }}
             >
               <View style={styles.grow} />
+              {others.length > 0 ? (
+                <View style={styles.multi}>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.chipsRow}
+                  >
+                    {queue.slice(0, MAX_CHIPS).map((q) => {
+                      const on = q.sosId === sosId;
+                      const name = nameOf(q.deviceId);
+                      const n = secondsLeft(q.deadline, now);
+                      return (
+                        <Tappable
+                          key={q.sosId}
+                          feedback="scale"
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: on }}
+                          accessibilityLabel={`${name} · ${t("sos.chipLeft", { n })}`}
+                          onPress={() => setSelected(q.sosId)}
+                          style={[
+                            styles.helmetChip,
+                            {
+                              backgroundColor: on ? P.sosBtn : P.chip,
+                              borderColor: on ? P.sosBtn : theme.border,
+                            },
+                          ]}
+                        >
+                          <ThemedText
+                            numberOfLines={1}
+                            style={[
+                              styles.helmetChipText,
+                              { color: on ? P.onSosBtn : P.text },
+                            ]}
+                          >
+                            {name}
+                          </ThemedText>
+                          <ThemedText
+                            style={[
+                              styles.helmetChipLeft,
+                              { color: on ? P.onSosBtn : P.sub },
+                            ]}
+                          >
+                            {t("sos.chipLeft", { n })}
+                          </ThemedText>
+                        </Tappable>
+                      );
+                    })}
+                    {queue.length > MAX_CHIPS ? (
+                      <View
+                        style={[
+                          styles.helmetChip,
+                          {
+                            backgroundColor: P.chip,
+                            borderColor: theme.border,
+                          },
+                        ]}
+                      >
+                        <ThemedText
+                          style={[styles.helmetChipText, { color: P.text }]}
+                        >
+                          +{queue.length - MAX_CHIPS}
+                        </ThemedText>
+                      </View>
+                    ) : null}
+                  </ScrollView>
+                  <View style={styles.batchRow}>
+                    <Tappable
+                      feedback="scale"
+                      accessibilityRole="button"
+                      disabled={busy !== null}
+                      onPress={() => actAll("confirm")}
+                      style={[styles.batchBtn, { borderColor: P.sosBtn }]}
+                    >
+                      <ThemedText
+                        style={[styles.batchText, { color: P.sosBtn }]}
+                      >
+                        {t("sos.allSendNow")}
+                      </ThemedText>
+                    </Tappable>
+                    <Tappable
+                      feedback="scale"
+                      accessibilityRole="button"
+                      disabled={busy !== null}
+                      onPress={() => actAll("cancel")}
+                      style={[styles.batchBtn, { borderColor: theme.border }]}
+                    >
+                      <ThemedText style={[styles.batchText, { color: P.text }]}>
+                        {t("sos.allCancel")}
+                      </ThemedText>
+                    </Tappable>
+                  </View>
+                </View>
+              ) : null}
               <View style={styles.head}>
                 {drillBadge}
                 {!compact && (
@@ -718,6 +1009,20 @@ function SosActiveContent() {
                     style={[styles.source, { color: P.text }]}
                   >
                     {t("sos.fromHelmet", { name: sourceName })}
+                  </ThemedText>
+                ) : null}
+                {others.length === 1 ? (
+                  <ThemedText
+                    numberOfLines={1}
+                    style={[styles.others, { color: P.alert }]}
+                  >
+                    {t("sos.alsoCounting", {
+                      name: nameOf(others[0].deviceId),
+                    })}
+                  </ThemedText>
+                ) : others.length > 1 ? (
+                  <ThemedText style={[styles.others, { color: P.alert }]}>
+                    {t("sos.moreAlarms", { n: others.length })}
                   </ThemedText>
                 ) : null}
                 <ThemedText style={[styles.subtitle, { color: P.sub }]}>
@@ -885,6 +1190,111 @@ function SosActiveContent() {
               />
             </View>
           </>
+        ) : multiDone ? (
+          <>
+            <ScrollView
+              style={styles.flex}
+              contentContainerStyle={styles.notified}
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+            >
+              <Animated.View
+                entering={pop}
+                style={[styles.notifiedIcon, { backgroundColor: P.alertBg }]}
+              >
+                <Ionicons
+                  name="shield-checkmark-outline"
+                  size={36}
+                  color={P.alert}
+                />
+              </Animated.View>
+              <ThemedText accessibilityRole="header" style={styles.doneTitle}>
+                {t("sos.multiDoneTitle", { n: handledList.length })}
+              </ThemedText>
+              <ThemedText themeColor="textSecondary" style={styles.doneText}>
+                {t("sos.multiDoneBody")}
+              </ThemedText>
+              <Animated.View
+                entering={FadeIn.duration(220)}
+                style={[
+                  styles.sentCard,
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: theme.border,
+                  },
+                ]}
+              >
+                {handledList.map((h, i) => {
+                  const status = handledStatus(h);
+                  const d = deliveryStateOf(
+                    (h.sosId === sosId
+                      ? detail.data
+                      : handledDetails[
+                          otherHandled.findIndex((o) => o.sosId === h.sosId)
+                        ]?.data
+                    )?.notifications,
+                  );
+                  const outcome =
+                    status === "cancelled"
+                      ? t("sos.cancelledTitle")
+                      : notifiedTitleOf(d);
+                  return (
+                    <View
+                      key={h.sosId}
+                      style={[
+                        styles.sentRow,
+                        i > 0 && {
+                          borderTopWidth: StyleSheet.hairlineWidth,
+                          borderTopColor: theme.border,
+                        },
+                      ]}
+                    >
+                      <View style={styles.sentBody}>
+                        <ThemedText numberOfLines={1} style={styles.sentName}>
+                          {nameOf(h.deviceId)}
+                        </ThemedText>
+                        <ThemedText
+                          themeColor="textSecondary"
+                          numberOfLines={2}
+                          style={styles.sentSub}
+                        >
+                          {outcome}
+                        </ThemedText>
+                      </View>
+                      {status === "cancelled" ? (
+                        <Tappable
+                          feedback="scale"
+                          accessibilityRole="button"
+                          disabled={helpBusy}
+                          onPress={() => needHelp(h.deviceId)}
+                          style={[
+                            styles.resultHelp,
+                            { borderColor: theme.borderStrong },
+                          ]}
+                        >
+                          <ThemedText style={styles.resultHelpText}>
+                            {t("sos.needHelp")}
+                          </ThemedText>
+                        </Tappable>
+                      ) : (
+                        <Badge
+                          variant={
+                            d === "sent"
+                              ? "success"
+                              : d === "failed" || d === "none"
+                                ? "danger"
+                                : "neutral"
+                          }
+                          label={outcome}
+                        />
+                      )}
+                    </View>
+                  );
+                })}
+              </Animated.View>
+            </ScrollView>
+            <View style={styles.doneActions}>{closeButton}</View>
+          </>
         ) : sos.status === "cancelled" ? (
           <>
             <View style={styles.doneCenter}>
@@ -908,7 +1318,7 @@ function SosActiveContent() {
                   feedback="scale"
                   accessibilityRole="button"
                   disabled={helpBusy}
-                  onPress={needHelp}
+                  onPress={() => needHelp()}
                   style={[
                     styles.doneBtn,
                     styles.doneBtnOutline,
@@ -1084,9 +1494,71 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   whoLabel: { fontSize: 13, lineHeight: 18, textAlign: "center" },
+  // 多顶同时求救：顶部胶囊 + 全部按钮
+  multi: { alignSelf: "stretch", gap: 8, marginBottom: 8 },
+  chipsRow: { gap: 8, paddingHorizontal: 4 },
+  helmetChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    height: 36,
+    paddingHorizontal: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    maxWidth: 180,
+  },
+  helmetChipText: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: 600,
+    flexShrink: 1,
+  },
+  helmetChipLeft: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontVariant: ["tabular-nums"],
+  },
+  others: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: 600,
+    textAlign: "center",
+    marginTop: 2,
+  },
+  batchRow: { flexDirection: "row", justifyContent: "center", gap: 8 },
+  batchBtn: {
+    height: 30,
+    paddingHorizontal: 12,
+    borderRadius: 15,
+    borderWidth: 1,
+    justifyContent: "center",
+  },
+  batchText: { fontSize: 13, lineHeight: 18, fontWeight: 600 },
+  toast: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    zIndex: 2,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: Radius.control,
+    borderWidth: 1,
+  },
+  toastText: { fontSize: 14, lineHeight: 20, textAlign: "center" },
+  resultHelp: {
+    height: 32,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    justifyContent: "center",
+  },
+  resultHelpText: { fontSize: 13, lineHeight: 18, fontWeight: 600 },
+  // 联系人胶囊：放不下就换到第二排，名字最多约 6 个字再省略（10-16 N20：原来三个挤一行、每个只剩 3 个字）。
+  // 多出的一排由上半截的溢出测量把环缩小来让位
   chips: {
     alignSelf: "stretch",
     flexDirection: "row",
+    flexWrap: "wrap",
     justifyContent: "center",
     gap: 8,
   },
@@ -1099,7 +1571,7 @@ const styles = StyleSheet.create({
     paddingRight: 14,
     borderRadius: 18,
     borderWidth: 1,
-    flexShrink: 1,
+    maxWidth: "100%",
   },
   chipMore: { paddingLeft: 12, paddingRight: 12, flexShrink: 0 },
   avatar: {
@@ -1110,7 +1582,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   avatarText: { fontSize: 12, lineHeight: 16, fontWeight: 700 },
-  chipText: { fontSize: 15, lineHeight: 20, fontWeight: 600, flexShrink: 1 },
+  chipText: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: 600,
+    flexShrink: 1,
+    maxWidth: 94,
+  },
   noContacts: {
     alignSelf: "stretch",
     flexDirection: "row",
