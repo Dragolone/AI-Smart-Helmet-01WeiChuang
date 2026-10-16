@@ -19,6 +19,17 @@ describe('computeRideStats', () => {
     });
   });
 
+  it('点速超过漂移阈值（GPS 飞点报 400 m/s）不算最高速度；NaN 也不算（10-16 夜测 N15、10-17 评审 R4-7）', () => {
+    const points = [
+      pt(22.5, 114, 5, 0),
+      pt(22.5009, 114, 400, 10),
+      pt(22.5018, 114, Number.NaN, 20),
+      pt(22.5027, 114, 7, 30),
+    ];
+    expect(computeRideStats(points).maxSpeed).toBe(7);
+    expect(computeRideStats([pt(22.5, 114, 56, 0)]).maxSpeed).toBeNull();
+  });
+
   it('sums distance and moving time along consecutive points', () => {
     // 纬度每 0.0009° ≈ 100 m；每 10 s 一点 → 10 m/s
     const points = [0, 1, 2, 3].map((i) =>

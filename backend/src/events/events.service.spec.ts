@@ -170,49 +170,62 @@ describe('EventsService', () => {
       expect(prisma.rawEvent.findFirst).not.toHaveBeenCalled();
     });
 
-    it('只在本人当前绑定的设备里按 eventId 找（eventId 只在设备内唯一）', async () => {
+    it('只在本人当前绑定的设备里按 eventId 找（eventId 只在设备内唯一）；已知类型 + 受支持版本在查询里过滤；最近到达的在前', async () => {
       prisma.device.findMany.mockResolvedValue([
         { deviceId: 'helmet_001' },
         { deviceId: 'helmet_002' },
       ]);
-      prisma.rawEvent.findFirst.mockResolvedValue(ev());
+      prisma.rawEvent.findMany.mockResolvedValue([ev()]);
       await svc.detail('u1', 'e1');
-      expect(prisma.rawEvent.findFirst).toHaveBeenCalledWith({
+      expect(prisma.rawEvent.findMany).toHaveBeenCalledWith({
         where: {
           eventId: 'e1',
           deviceId: { in: ['helmet_001', 'helmet_002'] },
+          eventType: { in: [...EVENT_TYPES] },
+          schemaVersion: { in: [1] },
         },
+        orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }],
       });
     });
 
-    it.each([
-      ['找不到', null],
-      ['是 _invalid 占位', ev({ eventType: '_invalid' })],
-      // EVENTS.md §1：未知类型 / 未知版本只留档不进业务流程，App 查不到（10-16 边界测试 B5）
-      ['类型不在 EVENTS.md §3 里', ev({ eventType: 'foo_bar' })],
-      [
-        '结构版本不受支持',
-        ev({ eventType: 'possible_fall', schemaVersion: 999 }),
-      ],
-    ])('%s：404', async (_n, found) => {
-      prisma.rawEvent.findFirst.mockResolvedValue(found);
+    it('找不到（含 _invalid / 未知类型 / 未知版本，已在查询里排除）：404', async () => {
+      prisma.rawEvent.findMany.mockResolvedValue([]);
       await expect(svc.detail('u1', 'e1')).rejects.toBeInstanceOf(
         NotFoundException,
       );
     });
 
     it('事件到达时间不在本人绑定区间内（前主期间的事件）：404', async () => {
-      prisma.rawEvent.findFirst.mockResolvedValue(
+      prisma.rawEvent.findMany.mockResolvedValue([
         ev({ receivedAt: new Date('2026-09-01T00:00:00Z') }),
-      );
+      ]);
       await expect(svc.detail('u1', 'e1')).rejects.toBeInstanceOf(
         NotFoundException,
       );
       expect(prisma.media.findMany).not.toHaveBeenCalled();
     });
 
+    it('两台设备上各有一条同号事件，先查到的那条在前主人期间：接着看下一条，返回本人看得到的（原来 404，10-17 评审 R4-4）', async () => {
+      prisma.device.findMany.mockResolvedValue([
+        { deviceId: 'helmet_001' },
+        { deviceId: 'helmet_002' },
+      ]);
+      prisma.rawEvent.findMany.mockResolvedValue([
+        ev({
+          deviceId: 'helmet_002',
+          receivedAt: new Date('2026-09-01T00:00:00Z'),
+        }),
+        ev({ deviceId: 'helmet_001' }),
+      ]);
+      prisma.media.findMany.mockResolvedValue([]);
+      await expect(svc.detail('u1', 'e1')).resolves.toMatchObject({
+        eventId: 'e1',
+        deviceId: 'helmet_001',
+      });
+    });
+
     it('关联媒体：限定同一设备，按 relatedEventId 或自身 eventId 反查，只露 mediaId / status / duration', async () => {
-      prisma.rawEvent.findFirst.mockResolvedValue(ev());
+      prisma.rawEvent.findMany.mockResolvedValue([ev()]);
       prisma.media.findMany.mockResolvedValue([
         { id: 'm1', status: 'ready', duration: 12, storageKey: 'secret/key' },
       ]);

@@ -142,8 +142,34 @@ describe('CommandsService：命令与回执核心路径', () => {
       ).resolves.toEqual({ commandId: 'cmd1', status: 'pending' });
       expect(prisma.deviceCommand.updateMany).not.toHaveBeenCalled();
       expect(warnSpy).toHaveBeenCalledWith(
-        '命令发布失败（留 pending，超时后判 offline）cmd1：MQTT 未连接',
+        '命令发布失败或未及时确认（留 pending，超时后判 offline）cmd1：MQTT 未连接',
       );
+    });
+
+    it('Broker 半开、PUBACK 一直不来：接口最多等 5 s 就返回 pending，不一直挂着；PUBACK 晚到照样记 delivered（R4-9）', async () => {
+      jest.useFakeTimers();
+      try {
+        let puback!: () => void;
+        mqtt.publishCommand.mockReturnValue(
+          new Promise<void>((r) => (puback = r)),
+        );
+        const p = svc.putSettings('u1', 'helmet_001', { volume: 80 });
+        await jest.advanceTimersByTimeAsync(5_000);
+        await expect(p).resolves.toEqual({
+          commandId: 'cmd1',
+          status: 'pending',
+        });
+        expect(prisma.deviceCommand.updateMany).not.toHaveBeenCalled();
+        puback();
+        await jest.advanceTimersByTimeAsync(0);
+        expect(prisma.deviceCommand.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: 'cmd1', status: 'pending' },
+          }),
+        );
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     it('参数不合法：400，不建命令、不下发', async () => {
@@ -309,6 +335,20 @@ describe('CommandsService：命令与回执核心路径', () => {
         status: 'delivered',
       });
       prisma.deviceCommand.updateMany.mockResolvedValue({ count: 1 });
+    });
+
+    it('不是本人下发的命令（换绑前前主人下发的）：404，不推进、不让它的设置生效（观察项 12 / R4-2）', async () => {
+      prisma.deviceCommand.findUnique.mockResolvedValue(
+        cmd({ issuedBy: 'previous-owner' }),
+      );
+      await expect(
+        svc.relayAck('u1', 'helmet_001', 'cmd1', {
+          stage: 'executed',
+          result: 'success',
+        } as never),
+      ).rejects.toMatchObject({ status: 404 });
+      expect(prisma.deviceCommand.updateMany).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
     });
 
     it('stage=delivered：只从 pending 前进到 delivered，返回当前状态', async () => {

@@ -7,6 +7,7 @@ describe('DevicesService（单测，mock 数据层）', () => {
   // $transaction：回调式直接用同一个 mock 当 tx，数组式 Promise.all
   const prismaMock: {
     $transaction: jest.Mock;
+    $queryRaw: jest.Mock;
     deviceBinding: { create: jest.Mock; updateMany: jest.Mock };
     device: Record<string, jest.Mock>;
   } = {
@@ -16,6 +17,7 @@ describe('DevicesService（单测，mock 数据层）', () => {
         : Promise.all(arg as Promise<unknown>[]),
     ),
     deviceBinding: { create: jest.fn(), updateMany: jest.fn() },
+    $queryRaw: jest.fn(),
     device: {
       findUnique: jest.fn(),
       findUniqueOrThrow: jest.fn(),
@@ -48,6 +50,8 @@ describe('DevicesService（单测，mock 数据层）', () => {
         ? (arg as (tx: unknown) => unknown)(prismaMock)
         : Promise.all(arg as Promise<unknown>[]),
     );
+    // 绑定事务第一句：用户行共享锁 + 账号还在
+    prismaMock.$queryRaw.mockResolvedValue([{ deleted_at: null }]);
     const moduleRef = await Test.createTestingModule({
       providers: [
         DevicesService,
@@ -137,6 +141,37 @@ describe('DevicesService（单测，mock 数据层）', () => {
       service.bind('u1', 'helmet_001', '12345678'),
     ).resolves.toMatchObject({ deviceId: 'helmet_001' });
     expect(prismaMock.deviceBinding.create).not.toHaveBeenCalled();
+  });
+
+  it('绑定事务里发现账号已注销（注销前一刻通过鉴权的请求）：401，不写绑定（10-17 评审）', async () => {
+    prismaMock.device.findUnique.mockResolvedValue({ ...baseDevice });
+    prismaMock.$queryRaw.mockResolvedValue([{ deleted_at: new Date() }]);
+    await expect(
+      service.bind('u1', 'helmet_001', '12345678'),
+    ).rejects.toMatchObject({ status: 401 });
+    expect(prismaMock.device.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('设备号大小写不敏感：照着标签敲成大写，查不到时按小写再查（10-16 夜测 N12）', async () => {
+    prismaMock.device.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ ...baseDevice });
+    prismaMock.device.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.device.findUniqueOrThrow.mockResolvedValue({
+      ...baseDevice,
+      bindUserId: 'u1',
+    });
+    await expect(
+      service.bind('u1', 'HELMET_001', '12345678'),
+    ).resolves.toMatchObject({ deviceId: 'helmet_001' });
+    expect(prismaMock.device.findUnique).toHaveBeenLastCalledWith(
+      expect.objectContaining({ where: { deviceId: 'helmet_001' } }),
+    );
+    expect(prismaMock.device.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { deviceId: 'helmet_001', bindUserId: null },
+      }),
+    );
   });
 
   it('查看非本人设备 → DEVICE_NOT_FOUND（不泄露存在性）', async () => {

@@ -8,7 +8,7 @@
 
 - Base URL：`/api/v1`；管理后台 `/api/v1/admin/*`（独立权限守卫）。
 - 认证：`Authorization: Bearer <accessToken>`（JWT）。设备侧认证走 MQTT（DEVICE_PROTOCOL §3），不在本文件。
-- 时间：一律 ISO 8601 UTC 字符串（如 `2026-08-14T03:00:00Z`）；展示层转本地时区。
+- 时间：一律 ISO 8601 UTC 字符串（如 `2026-08-14T03:00:00Z`）；展示层转本地时区。查询参数里的时间带时间部分时必须带显式时区（`Z` / `±hh:mm`），缺时区 400（2026-10-17：原来按服务器进程时区解析）；只有日期（`2026-10-01`）按 UTC 零点。
 - 业务主键：UUID v7 / cuid；设备用硬件团队的 `deviceId`。
 - 分页：`?page=1&pageSize=20`（page 1–2147483647，超出 400 VALIDATION_FAILED（2026-10-16 #202）；pageSize 默认 20，最大 100）→ 响应 `{ "items": [...], "total": 0, "page": 1, "pageSize": 20 }`。
 - 统一错误格式：
@@ -97,7 +97,7 @@ Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / 
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | /devices/bind | 绑定。body：`{ deviceId, bindCode }`（✅ 绑定凭证 = 出厂 8 位绑定码 + 绑定二维码，格式 DEVICE_PROTOCOL §11、由 `provision:batch` 产出；⚠️ 印制载体待硬件确认；Mock 设备用注册时生成的 bindCode 走同一流程） |
+| POST | /devices/bind | 绑定。body：`{ deviceId, bindCode }`（deviceId 不分大小写：查不到时按小写再查，出厂编号一律小写，2026-10-17）（✅ 绑定凭证 = 出厂 8 位绑定码 + 绑定二维码，格式 DEVICE_PROTOCOL §11、由 `provision:batch` 产出；⚠️ 印制载体待硬件确认；Mock 设备用注册时生成的 bindCode 走同一流程） |
 | GET | /devices | 我的设备列表 |
 | GET | /devices/{deviceId} | 设备详情（含实时状态快照） |
 | PATCH | /devices/{deviceId} | 重命名（2026-08-17）。body：`{ name?: string \| null }`（整理后 ≤20 字符，整理后空串或 null = 清除，App 回退显示 deviceId；**不传 name = 不改**，2026-10-16 B7——原来空对象也会清名）；返回更新后的 device 对象 |
@@ -119,7 +119,7 @@ device 对象补充字段（2026-08-17，TS 类型见 `@helmet/shared` DevicePub
 |------|------|------|
 | GET | /devices/{deviceId}/locations/latest | 最新位置：`200 { "location": <location 对象> \| null }`（设备存在但尚无数据时为 null，✅ 定稿）。设备时钟跑到未来的点（`timestamp` 超过服务器当前时间 5 分钟以上，DEVICE_PROTOCOL §8 的偏移阈值）不参与「最新」判定——否则一条错误时间的点会永久排在最前；该点照常留档，按时间范围仍可查到（2026-10-03） |
 | GET | /devices/{deviceId}/locations?from=&to=&page=&pageSize= | 历史轨迹（from/to 必填 ISO 8601；**单次范围上限 24h，✅ 定稿**；按 timestamp 升序；统一分页结构） |
-| GET | /devices/{deviceId}/locations/summary?from=&to= | 区间轨迹统计（2026-09-17 A 线新增，App 首页「今日骑行」）：`200 { distanceMeters, movingSeconds, maxSpeed, pointCount, firstAt, lastAt }`；from/to 规则同上（必填、≤24h）；服务端按相邻点大圆距离累加，间隔 >10 min 的段不桥接、隐含速度 >55 m/s 视为漂移不计；`movingSeconds` 只累计平均速度 ≥0.5 m/s 的段；`maxSpeed` 为设备上报速度最大值（m/s），无点时 maxSpeed/firstAt/lastAt 为 null。TS 类型 `LocationSummaryResponse` |
+| GET | /devices/{deviceId}/locations/summary?from=&to= | 区间轨迹统计（2026-09-17 A 线新增，App 首页「今日骑行」）：`200 { distanceMeters, movingSeconds, maxSpeed（只取 ≤ 55 m/s 的点速，更大的按 GPS 漂移不计，2026-10-17）, pointCount, firstAt, lastAt }`；from/to 规则同上（必填、≤24h）；服务端按相邻点大圆距离累加，间隔 >10 min 的段不桥接、隐含速度 >55 m/s 视为漂移不计；`movingSeconds` 只累计平均速度 ≥0.5 m/s 的段；`maxSpeed` 为设备上报速度最大值（m/s），无点时 maxSpeed/firstAt/lastAt 为 null。TS 类型 `LocationSummaryResponse` |
 | GET | /devices/{deviceId}/rides?from=&to= | 行程列表（2026-10-07 A 线新增，App 地图页「行程」；B 线 10-08 Review 通过）：`200 { "rides": [{ startAt, endAt, distanceMeters, movingSeconds, maxSpeed, ongoing }] }`，最新在前；返回**起点**落在 `[from, to)` 内的行程（跨边界的那一趟归到起点所在的区间，App 按月往前翻页时不重不漏）。from/to 必填 ISO 8601、from < to、**单次范围上限 32 天**（够一个自然月；夏令时结束的那个月比 31 天多 1 小时）（服务端为了把跨边界的行程算完整，实际会多取 from 之前 24h、to 之后 48h 的点）。**一趟怎么切**（负责人 2026-10-07 定，展示用的分段，不是骑行状态判断、不触发任何业务流程）：相邻点断档超过 15 分钟，或停住不动超过 15 分钟（相邻点隐含速度 <0.5 m/s，口径同 summary 的 `movingSeconds`），上一趟就结束在最后一个在动的点；里程不足 50 m 的不算一趟。最后一趟若距最后一次在动不超过 15 分钟，`ongoing=true`，此时 `endAt` 是目前收到的最后一个点。**连续不停的超长行程**（真实头盔电量撑不到，常驻的 Mock 设备会这样）：在 `from + n×24h` 这些时刻，一趟若已经连续进行了 23 小时 45 分以上，就在该时刻结束、之后的第一个点起算新的一趟——否则它的起点早已在查询范围之外，当前这页里反而没有它。切点以 `from` 为基准，所以**调用方要固定用同一种对齐方式的 from**（App 一律用本地零点），不同页的结果才对得上；一趟因此最长不到 48 小时。各字段统计口径同 summary。设备时钟跑到未来的点不参与（同 latest）。只读、无表结构变更。TS 类型 `RidesResponse` / `RideSummary` **量级**：服务端一次把范围内（含前后各 1–2 天）的点全部读进内存再切分，一台常驻 Mock 每天约 9 千点、32 天约 28 万点（dev 库 10-08 实测 94 MB 表里 28 万行）仍可承受；真实头盔每天一两千点不成问题。若将来单设备月点数超过约 50 万，再改成按天分块计算。 |
 | GET | /devices/{deviceId}/locations/track?from=&to=&maxPoints= | 抽稀轨迹（2026-10-07 A 线新增，App 地图页单趟行程的画线与回放；B 线 10-08 Review 通过）：`200 { points: <location 对象>[], total, summary }`。`points` 按 timestamp 升序，点数超过 `maxPoints`（选填，2–2000，默认 1000）时**等间隔抽稀**，首尾两点一定保留；`total` 是抽稀前的点数；`summary` 与上一行 summary 接口同结构，**用全部点计算**，不受抽稀影响。from/to 规则同上两行（必填、≤24h）。解决的问题：原分页接口每页上限 100，App 拉满 1000 点（运动时 5 秒一点，约 83 分钟）后更长的行程被截断。TS 类型 `TrackResponse` |
 
@@ -178,7 +178,7 @@ SOS 状态机为服务端权威（DECISIONS #8/#26）：`pending → notified | 
 | POST | /devices/{deviceId}/settings/reported | **头盔实际设置上报（✅ 2026-09-19，决策 #45）**：App 每次 BLE 握手后读回头盔 0x20–0x2D 上报，body `{ settings: { <key>: <值> } }`（≤ 32 键）→ `200 { settings, applied, skipped }`（TS 类型 ReportSettingsRequest / ReportSettingsResponse）。**逐键**校验：清单外、类型不符、越界只跳过该键（`reason: invalid`），不整批拒；**有未完成（pending/delivered）或 30 s 内刚 success 的命令碰过的键跳过**（`reason: recent_command`，以命令为准——App 读到的可能是写入前的旧值）；已判 offline 的命令不保护。不创建命令、不改 lastCommand。归属：非本人 404 DEVICE_NOT_FOUND；结构错误（非对象/空/超 32 键）400 VALIDATION_FAILED |
 | GET | /devices/{deviceId}/commands?page=&pageSize= | 命令历史（最新在前，TS 类型 CommandPublic）。**只含本人下发的命令**（2026-10-14，决策 #39 同口径：换绑后新主人看不到上一位主人的设置记录，`GET /commands/{id}` 与 WS 连接补推同此） |
 | GET | /commands/{commandId} | 命令状态：`pending → delivered → success \| failed \| offline`（语义见 DEVICE_PROTOCOL §7，**未回执绝不显示成功**） |
-| POST | /devices/{deviceId}/commands/{commandId}/relay-ack | **BLE 下行链的回执入口（决策 #36）**：App 替头盔提交命令回执。body：`{ "stage": "delivered" }`（App 已收到命令并写入头盔——蓝牙版的 delivered 语义，对应 4G 版的 PUBACK）或 `{ "stage": "executed", "result": "success" \| "failed", "errorCode"?, "executedAt"? }`（头盔执行结果；executedAt 缺省、不是合法 ISO 8601、或年份不在 1970–9999 内时一律取服务器时间——设备/App 时钟不可信；MQTT cmd_ack 同口径）→ `200 { commandId, status }`（更新后状态）。**幂等不报错**：已终态命令再收 delivered/重复 executed 都返回当前状态；已判 offline 后迟到 executed 如实覆盖（同 MQTT cmd_ack 语义）。鉴权：用户 JWT + 设备归属（非本人 404 DEVICE_NOT_FOUND）+ 命令须属于该设备（否则 404 NOT_FOUND）。信任级与 §12.1 app-relay 一致（App 本就是蓝牙版设备的代理） |
+| POST | /devices/{deviceId}/commands/{commandId}/relay-ack | **BLE 下行链的回执入口（决策 #36）**：App 替头盔提交命令回执。body：`{ "stage": "delivered" }`（App 已收到命令并写入头盔——蓝牙版的 delivered 语义，对应 4G 版的 PUBACK）或 `{ "stage": "executed", "result": "success" \| "failed", "errorCode"?, "executedAt"? }`（头盔执行结果；executedAt 缺省、不是合法 ISO 8601、或年份不在 1970–9999 内时一律取服务器时间——设备/App 时钟不可信；MQTT cmd_ack 同口径）→ `200 { commandId, status }`（更新后状态）。**幂等不报错**：已终态命令再收 delivered/重复 executed 都返回当前状态；已判 offline 后迟到 executed 如实覆盖（同 MQTT cmd_ack 语义）。鉴权：用户 JWT + 设备归属（非本人 404 DEVICE_NOT_FOUND）+ 命令须属于该设备（否则 404 NOT_FOUND）。信任级与 §12.1 app-relay 一致（App 本就是蓝牙版设备的代理）；**只认本人下发的命令**：换绑后新主人回执前主人下发的命令 404、设置不生效，与列表 / 详情 / 连接补推同口径（2026-10-17） |
 
 - **可下发参数（源 = BLE 协议 v0.6 内存控制表 0x20–0x2D，App 端寄存器映射见 `app/src/services/ble/protocol.ts`）**：
 

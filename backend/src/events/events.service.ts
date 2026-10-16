@@ -15,7 +15,6 @@ import type { Prisma } from '../generated/prisma/client';
 import { SUPPORTED_SCHEMA_VERSIONS } from '../ingest/envelope';
 import { PrismaService } from '../prisma/prisma.service';
 import {
-  INVALID_EVENT_TYPE,
   isKnownEventType,
   toWireEventDetail,
   toWireEventItem,
@@ -89,24 +88,29 @@ export class EventsService {
       where: { bindUserId: userId },
       select: { deviceId: true },
     });
-    const event =
+    // 本人名下几台设备可能各有一条同号事件（eventId 只在设备内唯一）：逐条找第一条本人看得到的。
+    // 原来 findFirst 不排序只取一条，取到的若是另一台上前主人期间的那条就 404——列表里看得到、点进去「不存在」（10-17 评审 R4-4）
+    const candidates =
       owned.length === 0
-        ? null
-        : await this.prisma.rawEvent.findFirst({
-            where: { eventId, deviceId: { in: owned.map((d) => d.deviceId) } },
+        ? []
+        : await this.prisma.rawEvent.findMany({
+            where: {
+              eventId,
+              deviceId: { in: owned.map((d) => d.deviceId) },
+              eventType: { in: [...EVENT_TYPES] },
+              schemaVersion: { in: [...SUPPORTED_SCHEMA_VERSIONS] },
+            },
+            orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }],
           });
-    if (
-      !event ||
-      event.eventType === INVALID_EVENT_TYPE ||
-      !isKnownEventType(event.eventType) ||
-      !SUPPORTED_SCHEMA_VERSIONS.has(event.schemaVersion)
-    ) {
-      throw eventNotFound();
+    let event: (typeof candidates)[number] | undefined;
+    for (const c of candidates) {
+      const intervals = await this.scope.intervals(c.deviceId, userId);
+      if (this.scope.inScope(c.receivedAt, intervals)) {
+        event = c;
+        break;
+      }
     }
-    const intervals = await this.scope.intervals(event.deviceId, userId);
-    if (!this.scope.inScope(event.receivedAt, intervals)) {
-      throw eventNotFound();
-    }
+    if (!event) throw eventNotFound();
     // 关联媒体（§6/§9）：危险/摔倒事件反查 relatedEventId；video_ready 事件带自己那条
     // 限定同一设备：relatedEventId 是设备自报的字符串，别的设备可以填任意值，不能据此把它的媒体挂到本事件上（审计 MEDIA-01）
     const media = await this.prisma.media.findMany({

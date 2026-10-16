@@ -9,6 +9,7 @@ import type { Packet } from 'mqtt-packet';
 import { mqttBackendClientId, mqttBackendUsername } from '../common/env';
 import { errorMessage } from '../common/error-text';
 import { retrying } from '../common/retry';
+import { sleep } from '../common/sleep';
 import { IngestService } from './ingest.service';
 
 /** 设备侧 Topic（DEVICE_PROTOCOL §4）：helmet/{deviceId}/{status|location|event|cmd_ack} */
@@ -32,6 +33,9 @@ const SUBSCRIBE_RETRY_DELAY_MS = 5_000;
 
 /** 防日志伪造：外部输入进日志前去掉换行符 */
 const sanitize = (s: string): string => s.replace(/[\r\n]+/g, ' ');
+
+/** 关闭时最多等在飞的 QoS1 消息拿到 PUBACK 多久，之后强制断开（要小于 SHUTDOWN 的宽限期） */
+const MQTT_END_WAIT_MS = 3_000;
 
 @Injectable()
 export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
@@ -199,6 +203,15 @@ export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
       clearTimeout(this.subscribeTimer);
       this.subscribeTimer = null;
     }
-    await this.client?.endAsync();
+    const client = this.client;
+    if (!client) return;
+    // 优雅断开会等在飞的 QoS1 拿到 PUBACK：Broker 半开 / 不可达时永远等不到，关闭流程挂到被 SIGKILL（10-17 评审 R4-9）。
+    // 最多等 MQTT_END_WAIT_MS，之后强制断开（在飞的命令留 pending，由扫描按超时判 offline）
+    await Promise.race([
+      client.endAsync(),
+      sleep(MQTT_END_WAIT_MS).then(() => client.endAsync(true)),
+    ]).catch((err: unknown) =>
+      this.logger.warn(`MQTT 断开失败：${errorMessage(err)}`),
+    );
   }
 }

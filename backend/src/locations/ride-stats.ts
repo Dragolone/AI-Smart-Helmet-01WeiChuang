@@ -45,7 +45,14 @@ export function computeRideStats(points: RideStatsPoint[]): RideStats {
   let maxSpeed: number | null = null;
   for (let i = 0; i < points.length; i++) {
     const p = points[i];
-    if (maxSpeed === null || p.speed > maxSpeed) maxSpeed = p.speed;
+    // 超过漂移阈值的点速（GPS 飞点报 400 m/s）不算最高速度：原来一个飞点就把整段行程的最高速度顶成 1440 km/h，
+    // App 把 55 m/s 以上显示成「—」，真实最高速度也跟着没了（10-16 夜测 N15、10-17 评审 R4-7）
+    if (
+      Number.isFinite(p.speed) &&
+      p.speed <= GLITCH_MPS &&
+      (maxSpeed === null || p.speed > maxSpeed)
+    )
+      maxSpeed = p.speed;
     if (i === 0) continue;
     const prev = points[i - 1];
     const dtMs = p.timestamp.getTime() - prev.timestamp.getTime();

@@ -274,7 +274,7 @@ describe('边界：设置下发与回执 (e2e)', () => {
       expect(alien.body.code).toBe('DEVICE_NOT_FOUND');
     });
 
-    it('换绑后新主人替头盔回执上一位主人的命令：200 照收（命令属于设备、App 是设备代理，API.md §8 鉴权口径）；但新主人查不到这条命令', async () => {
+    it('换绑后新主人替头盔回执上一位主人的命令：404，设置不生效（与列表 / 详情 / 连接补推同口径只认本人下发的，观察项 12 / 10-17 评审 R4-2）；新主人也查不到这条命令', async () => {
       const old = (await put({ volume: 33 }, devRebind).expect(202)).body
         .commandId as string;
       await request(http)
@@ -288,8 +288,7 @@ describe('边界：设置下发与回执 (e2e)', () => {
         devRebind,
         other.token,
       );
-      expect(r.status).toBe(200);
-      expect(r.body.status).toBe('success');
+      expect(r.status).toBe(404);
       const detail = await request(http)
         .get(`/api/v1/commands/${old}`)
         .set(auth(other.token));

@@ -2,6 +2,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -50,11 +51,20 @@ export class DevicesService {
     private readonly scope: BindingScopeService,
   ) {}
 
-  async bind(userId: string, deviceId: string, bindCode: string) {
-    const device = await this.prisma.device.findUnique({
+  async bind(userId: string, rawDeviceId: string, bindCode: string) {
+    let deviceId = rawDeviceId;
+    let device = await this.prisma.device.findUnique({
       where: { deviceId },
       select: DEVICE_PUBLIC_SELECT,
     });
+    // 手动输入的设备号不分大小写：出厂编号一律小写（helmet_ + 6 位小写十六进制），照着标签敲成大写原来 404（10-16 夜测 N12）
+    if (!device && deviceId !== deviceId.toLowerCase()) {
+      deviceId = deviceId.toLowerCase();
+      device = await this.prisma.device.findUnique({
+        where: { deviceId },
+        select: DEVICE_PUBLIC_SELECT,
+      });
+    }
     if (!device) throw deviceNotFound();
     if (!device.bindCode || device.bindCode !== bindCode) {
       throw new ForbiddenException({
@@ -76,6 +86,16 @@ export class DevicesService {
     // 条件更新：并发绑定只有一方能把 null 改成自己，另一方如实拿到 409；
     // 同一事务开一段绑定历史（决策 #39：用户可见范围按绑定区间判定）
     const updated = await this.prisma.$transaction(async (tx) => {
+      // 先给用户行加共享锁并确认账号还在：与注销事务（第一句更新用户行）串行。否则注销前一刻通过鉴权的绑定请求能在
+      // 注销解绑全部设备之后才写进去，头盔挂在已注销账号上，买家再绑一直 409（10-17 评审）
+      const [owner] = await tx.$queryRaw<{ deleted_at: Date | null }[]>`
+        SELECT deleted_at FROM users WHERE id = ${userId} FOR SHARE`;
+      if (!owner || owner.deleted_at) {
+        throw new UnauthorizedException({
+          code: 'UNAUTHORIZED',
+          message: '账号已注销',
+        });
+      }
       const won = await tx.device.updateMany({
         where: { deviceId, bindUserId: null },
         data: { bindUserId: userId, boundAt: now },
@@ -125,14 +145,15 @@ export class DevicesService {
 
   /** 重命名(API.md §4):trim 后空串=清除自定义名,App 回退显示 deviceId */
   async rename(userId: string, deviceId: string, name: string | null) {
-    await this.getOwned(userId, deviceId);
     const trimmed = name?.trim() || null;
-    const updated = await this.prisma.device.update({
-      where: { deviceId },
+    // 带归属条件的更新：先查归属再无条件写的话，其间解绑 + 别人绑上，旧主人起的名字会写到新主人的头盔上
+    //（10-14 解绑清名要防的正是这个，10-17 评审 R4-6）
+    const { count } = await this.prisma.device.updateMany({
+      where: { deviceId, bindUserId: userId },
       data: { name: trimmed },
-      select: DEVICE_PUBLIC_SELECT,
     });
-    return this.toPublic(updated);
+    if (count === 0) throw deviceNotFound();
+    return this.getOwned(userId, deviceId);
   }
 
   async unbind(
@@ -217,26 +238,44 @@ export class DevicesService {
       ),
       ' OR ',
     );
+    // 时间按业务时间（同 common/device-time businessTime：比收到时超前 5 分钟以上、或早于 72 小时以上的按收到时间）：
+    // 时钟错乱（RTC 归零报 1970、跑到 2099）的心跳原来按设备时间落在窗口外，曲线上一个点都没有，
+    // 而同一批心跳的状态和位置都已按收到时间兜底（10-17 评审 R4-3）。外层再按设备时间 / 收到时间任一在窗口内预筛，索引照样能用
     const rows = await this.prisma.$queryRaw<
       { ts_ms: number; battery: number; charging: unknown }[]
     >`
       SELECT DISTINCT ON (bucket) ts_ms, battery, charging
       FROM (
         SELECT
-          (extract(epoch FROM "timestamp") * 1000)::float8 AS ts_ms,
-          floor(extract(epoch FROM "timestamp") / 600) AS bucket,
-          payload->'battery' AS battery,
-          payload->'charging' AS charging
-        FROM raw_events
-        WHERE device_id = ${deviceId}
-          AND event_type = 'device_status'
-          AND "timestamp" >= ${window.from}::timestamp
-          AND "timestamp" <= ${window.to}::timestamp
-          AND CASE WHEN jsonb_typeof(payload->'battery') = 'number'
-                   THEN (payload->'battery')::numeric BETWEEN 0 AND 100
-                    AND (payload->'battery')::numeric = trunc((payload->'battery')::numeric)
-                   ELSE false END
-          AND (${inScope})
+          (extract(epoch FROM t) * 1000)::float8 AS ts_ms,
+          floor(extract(epoch FROM t) / 600) AS bucket,
+          battery,
+          charging
+        FROM (
+          SELECT
+            CASE
+              WHEN "timestamp" > received_at + interval '5 minutes'
+                OR "timestamp" < received_at - interval '72 hours'
+              THEN received_at
+              ELSE "timestamp"
+            END AS t,
+            payload->'battery' AS battery,
+            payload->'charging' AS charging
+          FROM raw_events
+          WHERE device_id = ${deviceId}
+            AND event_type = 'device_status'
+            AND (
+              ("timestamp" >= ${window.from}::timestamp AND "timestamp" <= ${window.to}::timestamp)
+              OR (received_at >= ${window.from}::timestamp AND received_at <= ${window.to}::timestamp)
+            )
+            AND CASE WHEN jsonb_typeof(payload->'battery') = 'number'
+                     THEN (payload->'battery')::numeric BETWEEN 0 AND 100
+                      AND (payload->'battery')::numeric = trunc((payload->'battery')::numeric)
+                     ELSE false END
+            AND (${inScope})
+        ) effective
+        WHERE t >= ${window.from}::timestamp
+          AND t <= ${window.to}::timestamp
       ) heartbeats
       ORDER BY bucket, ts_ms DESC`;
     return {
