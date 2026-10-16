@@ -28,7 +28,12 @@ describe('DevicesService：其余路径', () => {
     deviceBinding: { updateMany: jest.fn() },
   };
   const prisma = {
-    device: { findUnique: jest.fn(), findMany: jest.fn(), update: jest.fn() },
+    device: {
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+    },
     deviceBinding: { findMany: jest.fn() },
     $transaction: jest.fn((fn: (t: typeof tx) => Promise<unknown>) => fn(tx)),
     $queryRaw: jest.fn(),
@@ -46,6 +51,7 @@ describe('DevicesService：其余路径', () => {
       ({ data }: { data: Record<string, unknown> }) =>
         Promise.resolve(device(data)),
     );
+    prisma.device.updateMany.mockResolvedValue({ count: 1 });
     prisma.deviceBinding.findMany.mockResolvedValue([
       { boundAt: new Date('2026-10-01T00:00:00Z'), unboundAt: null },
     ]);
@@ -87,18 +93,18 @@ describe('DevicesService：其余路径', () => {
       ['   ', null],
       [null, null],
     ])('name=%p → 存 %p（空白 = 清除自定义名）', async (input, stored) => {
+      prisma.device.findUnique.mockResolvedValue(device({ name: stored }));
       const r = await svc.rename('u1', 'helmet_001', input);
-      expect(prisma.device.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { deviceId: 'helmet_001' },
-          data: { name: stored },
-        }),
-      );
+      // 带归属条件写：查归属与写名之间解绑 + 别人绑上，旧主人起的名字不会写到新主人的头盔上（R4-6）
+      expect(prisma.device.updateMany).toHaveBeenCalledWith({
+        where: { deviceId: 'helmet_001', bindUserId: 'u1' },
+        data: { name: stored },
+      });
       expect(r.name).toBe(stored);
     });
 
-    it('不是本人的设备：404，不写库', async () => {
-      prisma.device.findUnique.mockResolvedValue(device({ bindUserId: 'u2' }));
+    it('不是本人的设备（或写之前刚被转手）：条件更新命中 0 行 → 404', async () => {
+      prisma.device.updateMany.mockResolvedValue({ count: 0 });
       await expect(svc.rename('u1', 'helmet_001', 'x')).rejects.toBeInstanceOf(
         NotFoundException,
       );

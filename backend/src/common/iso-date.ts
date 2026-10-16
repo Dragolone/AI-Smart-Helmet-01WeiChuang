@@ -4,10 +4,19 @@ import {
   type ValidationOptions,
 } from 'class-validator';
 
-/** 能被 new Date() 解析的 ISO 8601 时间 */
+/** 时间部分后面必须跟显式时区（Z / ±hh / ±hhmm / ±hh:mm） */
+const HAS_TIME = /T/i;
+const HAS_ZONE = /(Z|[+-]\d{2}(:?\d{2})?)$/i;
+
+/**
+ * 能被 new Date() 解析的 ISO 8601 时间；带时间部分的必须带显式时区。
+ * 不带时区的（2026-10-01T00:00:00）JS 按服务器进程时区解析，API.md §1 写的是一律 UTC——容器是 UTC 时看不出来，
+ * 开发机 / 换了 TZ 的部署上就差几个小时（观察项 3）。只有日期（2026-10-01）JS 本来就按 UTC 解析，照收
+ */
 export const isParsableIsoDateTime = (value: unknown): value is string =>
   typeof value === 'string' &&
   isISO8601(value, { strict: true }) &&
+  (!HAS_TIME.test(value) || HAS_ZONE.test(value)) &&
   !Number.isNaN(new Date(value).getTime());
 
 /**

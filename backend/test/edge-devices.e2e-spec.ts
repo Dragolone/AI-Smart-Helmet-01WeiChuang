@@ -94,15 +94,21 @@ describe('边界：设备 (e2e)', () => {
       }
     });
 
-    it('deviceId 大小写不同 → 404（区分大小写，不做归一化）', async () => {
+    it('deviceId 敲成大写：查不到时按小写再查，绑上的是小写那台（出厂编号一律小写，10-16 夜测 N12）；大小写都对不上仍 404', async () => {
       const u = await newUser();
       const d = await newDevice();
       const r = await bind(u, {
         deviceId: d.toUpperCase(),
         bindCode: `bc_${d}`,
       });
-      expect(r.status).toBe(404);
-      expect(r.body.code).toBe('DEVICE_NOT_FOUND');
+      expect(r.status).toBe(200);
+      expect(r.body.deviceId).toBe(d);
+      const missing = await bind(u, {
+        deviceId: `${d.toUpperCase()}_NOPE`,
+        bindCode: `bc_${d}`,
+      });
+      expect(missing.status).toBe(404);
+      expect(missing.body.code).toBe('DEVICE_NOT_FOUND');
     });
 
     it('设备库里 bindCode 为空（未签发）：任何码都 403 BIND_CODE_INVALID，不会被空码 / 「null」绑走', async () => {

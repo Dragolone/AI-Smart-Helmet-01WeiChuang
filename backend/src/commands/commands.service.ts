@@ -35,6 +35,10 @@ import {
   REPORT_SETTINGS_MAX_KEYS,
 } from './commands.constants';
 import { toWireCommand } from './command-wire';
+import { withTimeout } from '../common/with-timeout';
+
+/** 下发设置时请求里最多等 Broker PUBACK 多久 */
+const PUBLISH_WAIT_MS = 5_000;
 
 const validationFailed = (message: string) =>
   new BadRequestException({ code: 'VALIDATION_FAILED', message });
@@ -179,16 +183,23 @@ export class CommandsService implements OnModuleInit {
     // 双路下发（决策 #36）：MQTT（4G 链路）+ WS 推绑定用户（BLE 链路）。
     // 业务不感知设备形态；WS 先发——pushToUser 是同步扇出，避免等 PUBACK 徒增 BLE 路径时延
     this.gateway.pushToUser(userId, this.toWsMessage(command));
+    // PUBACK = 送达 Broker（口径 #27④）；条件更新防迟到——回执可能已先到并终态化。
+    // 请求里最多等 PUBLISH_WAIT_MS：Broker 半开 / 断了时 QoS1 一直在飞，原来这个 PUT 会一直挂着（10-17 评审 R4-9）；
+    // 超时后 PUBACK 晚到照样记 delivered，始终没到则由扫描按超时判 offline
+    const published = this.mqtt
+      .publishCommand(deviceId, JSON.stringify(wire))
+      .then(() =>
+        this.prisma.deviceCommand.updateMany({
+          where: { id: command.id, status: COMMAND_STATUS.pending },
+          data: { status: COMMAND_STATUS.delivered, deliveredAt: new Date() },
+        }),
+      );
     try {
-      await this.mqtt.publishCommand(deviceId, JSON.stringify(wire));
-      // PUBACK = 送达 Broker（口径 #27④）；条件更新防迟到——回执可能已先到并终态化
-      await this.prisma.deviceCommand.updateMany({
-        where: { id: command.id, status: COMMAND_STATUS.pending },
-        data: { status: COMMAND_STATUS.delivered, deliveredAt: new Date() },
-      });
+      await withTimeout(published, PUBLISH_WAIT_MS, 'mqtt.publishCommand');
     } catch (err) {
+      published.catch(() => undefined);
       this.logger.warn(
-        `命令发布失败（留 pending，超时后判 offline）${command.id}：${errorMessage(err)}`,
+        `命令发布失败或未及时确认（留 pending，超时后判 offline）${command.id}：${errorMessage(err)}`,
       );
     }
     return { commandId: command.id, status: 'pending' };
@@ -209,7 +220,13 @@ export class CommandsService implements OnModuleInit {
     const command = await this.prisma.deviceCommand.findUnique({
       where: { id: commandId },
     });
-    if (!command || command.deviceId !== deviceId) {
+    // 只认本人下发的命令（与列表 / 详情 / 连接补推同口径，API.md §8）：换绑后新主人原来能替头盔回执前主人的命令、
+    // 让那条设置生效，自己却查不到这条命令（观察项 12，10-17 评审 R4-2）
+    if (
+      !command ||
+      command.deviceId !== deviceId ||
+      command.issuedBy !== userId
+    ) {
       throw new NotFoundException({ code: 'NOT_FOUND', message: '命令不存在' });
     }
 
