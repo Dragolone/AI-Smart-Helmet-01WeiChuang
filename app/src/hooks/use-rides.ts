@@ -1,9 +1,9 @@
 // 地图页「行程」的数据：按月往前翻的行程列表、某一个月的行程（按日期找）、现在这一趟、
 // 一趟的轨迹和路上的安全事件、「在地图上查看该时刻」落在哪一趟。行程由服务器按定位点事后切分（API.md §5）。
 import {
-  keepPreviousData,
   useInfiniteQuery,
   useQuery,
+  type Query,
 } from "@tanstack/react-query";
 import type { EventListItem, RideSummary } from "@helmet/shared";
 
@@ -33,6 +33,11 @@ const RIDE_EVENTS_PAGE = 100;
 /** 一趟最多取这么多页事件（300 条）；再多的如实写「还有 N 条没标出来」 */
 const RIDE_EVENTS_MAX_PAGES = 3;
 const CURRENT_POLL_MS = 30_000;
+/**
+ * 行程列表那几页多久算旧：重新打开列表不把翻过的每一页都重拉一遍。
+ * 最新的几趟另有 useRecentRides 每 30 秒刷新、合并在最上面，列表页本身不必勤刷
+ */
+const PAGES_STALE_MS = 5 * 60_000;
 
 export interface RidePage {
   rides: RideSummary[];
@@ -80,12 +85,23 @@ export function useRidePages(
   const floor = Number.isNaN(sinceMs)
     ? { year: 2000, month: 0 }
     : monthOf(new Date(sinceMs));
+  // 键里带上「这个月」：刷新时 TanStack 从存下的第一页参数（当时的月份）开始重拉，
+  // 跨月之后键不变的话就永远从上个月翻起，新月份的行程列表里看不到
+  const thisMonth = monthOf(new Date());
   return useInfiniteQuery({
-    queryKey: ["rides", deviceId, floor.year, floor.month],
+    queryKey: [
+      "rides",
+      deviceId,
+      floor.year,
+      floor.month,
+      thisMonth.year,
+      thisMonth.month,
+    ],
     queryFn: ({ pageParam }) => fetchRidePage(deviceId!, pageParam, floor),
-    initialPageParam: monthOf(new Date()),
+    initialPageParam: thisMonth,
     getNextPageParam: (last) => last.next ?? undefined,
     enabled: enabled && !!deviceId,
+    staleTime: PAGES_STALE_MS,
     // 失败要尽快如实告诉用户（和「没有行程」是两回事），不在后台默默重试很久
     retry: 1,
   });
@@ -166,6 +182,18 @@ export function dropImplausibleFixes<
   return points === data.points ? data : { ...data, points };
 }
 
+/**
+ * 换范围时留着上一份，但只限同一顶头盔（键的第二位）：keepPreviousData 不分头盔，
+ * 换看另一顶时会把上一顶的线留着、再把新头盔的位置接上去，画出一根跨两地的直线
+ */
+export function previousIfSameDevice<T>(
+  previousData: T | undefined,
+  previousQuery: Pick<Query, "queryKey"> | undefined,
+  deviceId: string | undefined,
+): T | undefined {
+  return previousQuery?.queryKey[1] === deviceId ? previousData : undefined;
+}
+
 export function useRideTrack(
   deviceId: string | undefined,
   window: { from: string; to: string } | null,
@@ -176,7 +204,9 @@ export function useRideTrack(
     queryFn: () => devicesApi.track(deviceId!, window!.from, window!.to),
     select: dropImplausibleFixes,
     enabled: !!deviceId && !!window,
-    placeholderData: keepPrevious ? keepPreviousData : undefined,
+    placeholderData: keepPrevious
+      ? (prev, prevQuery) => previousIfSameDevice(prev, prevQuery, deviceId)
+      : undefined,
     retry: 1,
   });
 }

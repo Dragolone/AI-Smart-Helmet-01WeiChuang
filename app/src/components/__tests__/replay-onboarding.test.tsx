@@ -283,6 +283,81 @@ describe("RideReplay", () => {
     );
     expect(p.onSeek).not.toHaveBeenCalled();
   });
+
+  it("读数里的时速过一遍漂移把关：超过 200 km/h、负数、NaN 写「—」", () => {
+    for (const speed of [80, -1, Number.NaN]) {
+      const drift = [pt(0, { speed }), pt(10), pt(20)];
+      const r = render(
+        <RideReplay {...props()} points={drift} replayIdx={0} />,
+      );
+      expect(readout(r)).toBe(
+        tr("map.ride.readout", {
+          time: shortTime(drift[0].timestamp, "zh-CN"),
+          speed: "—",
+        }),
+      );
+    }
+    const alt = [pt(0, { speed: 99, altitude: 50 }), pt(10)];
+    expect(
+      readout(render(<RideReplay {...props()} points={alt} replayIdx={0} />)),
+    ).toBe(
+      tr("map.ride.readoutAlt", {
+        time: shortTime(alt[0].timestamp, "zh-CN"),
+        speed: "—",
+        alt: 50,
+      }),
+    );
+  });
+
+  it("失败时可以换一句话（查不到这一刻在哪一趟），仍带重试", () => {
+    const p = props();
+    const r = render(
+      <RideReplay {...p} status="error" failText="行程查询失败" />,
+    );
+    expect(readout(r)).toBe("行程查询失败");
+    r.press(tr("map.retry"));
+    expect(p.onRetry).toHaveBeenCalled();
+  });
+
+  it("读屏：进度条接得住增 / 减（每次全程的 5%，短轨迹至少一个点，夹在两头）；轨迹不可用时不响应", () => {
+    const p = props();
+    const seekOf = (r: Rendered) =>
+      r.root.find(
+        (n) =>
+          typeof n.type === "string" &&
+          n.props.accessibilityRole === "adjustable",
+      );
+    const act11y = (r: Rendered, actionName: string) =>
+      act(() =>
+        seekOf(r).props.onAccessibilityAction({ nativeEvent: { actionName } }),
+      );
+    // 3 个点：5% 不到一个点，按一个点走；没开始回放从起点算
+    let r = render(<RideReplay {...p} />);
+    expect(seekOf(r).props.accessibilityActions).toEqual([
+      { name: "increment" },
+      { name: "decrement" },
+    ]);
+    act11y(r, "increment");
+    expect(p.onSeek).toHaveBeenLastCalledWith(1);
+    act11y(r, "decrement");
+    expect(p.onSeek).toHaveBeenLastCalledWith(0);
+    r = render(<RideReplay {...p} replayIdx={2} />);
+    act11y(r, "increment");
+    expect(p.onSeek).toHaveBeenLastCalledWith(2);
+    // 41 个点：一步走 2 个点
+    const long = Array.from({ length: 41 }, (_, i) => pt(i));
+    r = render(<RideReplay {...p} points={long} replayIdx={10} />);
+    act11y(r, "increment");
+    expect(p.onSeek).toHaveBeenLastCalledWith(12);
+    act11y(r, "decrement");
+    expect(p.onSeek).toHaveBeenLastCalledWith(8);
+    p.onSeek.mockClear();
+    act11y(r, "activate");
+    expect(p.onSeek).not.toHaveBeenCalled();
+    r = render(<RideReplay {...p} status="loading" />);
+    act11y(r, "increment");
+    expect(p.onSeek).not.toHaveBeenCalled();
+  });
 });
 
 describe("首次连接引导", () => {

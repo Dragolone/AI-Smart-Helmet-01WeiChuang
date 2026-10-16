@@ -150,8 +150,8 @@ describe("AmapView", () => {
     ]);
   });
 
-  it("重载：就绪标志复位、整页重载，期间的命令排队等新的 ready；onReady 不重复回调", () => {
-    const { ref, message, onReady } = mount();
+  it("重载：就绪标志复位、整页重载，期间的命令排队等新的 ready；新页面 ready 后再回调一次 onReady（调用方重推状态），头像重新推", () => {
+    const { ref, message, onReady } = mount({ avatarUrl: "https://x/a.jpg" });
     message({ type: "ready" });
     ref.current!.reload();
     expect(mockWeb.reload).toHaveBeenCalled();
@@ -159,8 +159,14 @@ describe("AmapView", () => {
     ref.current!.setHelmetOnline(true);
     expect(cmds()).toHaveLength(before);
     message({ type: "ready" });
-    expect(cmds().pop()).toEqual({ type: "helmetState", online: true });
-    expect(onReady).toHaveBeenCalledTimes(1);
+    expect(cmds().slice(before)).toEqual([
+      { type: "avatar", url: "https://x/a.jpg" },
+      { type: "helmetState", online: true },
+    ]);
+    expect(onReady).toHaveBeenCalledTimes(2);
+    // 新页面的 ready 也会重发多次：只算一次
+    message({ type: "ready" });
+    expect(onReady).toHaveBeenCalledTimes(2);
   });
 
   it("用户拖动 / 页内报错转给调用方；报错没带文字用「未知错误」；不是 JSON 的消息不理", () => {
@@ -206,6 +212,89 @@ describe("AmapView", () => {
     expect(i18n.length).toBeGreaterThan(0);
     expect(i18n[0]).toContain(translate("map.err.init", undefined, "en"));
     expect(r.root.findAll((n) => isHost(n, "WebView"))).toHaveLength(1);
+  });
+
+  it("就绪前同一样东西的命令只留最后一条（头盔显示 / 收起同槽、轨迹画 / 清同槽），留下的保持先后；就绪后照常逐条注入", () => {
+    const { ref, message } = mount({ avatarUrl: "https://x/a.jpg" });
+    const h = ref.current!;
+    h.setHelmet({ longitude: 1, latitude: 1 });
+    h.setCenter({ longitude: 9, latitude: 9 }, 14);
+    h.setHelmet({ longitude: 2, latitude: 2 }, { follow: true });
+    h.hideHelmet();
+    h.setTrack([
+      { longitude: 1, latitude: 1 },
+      { longitude: 2, latitude: 2 },
+    ]);
+    h.clearTrack();
+    h.setTrack([{ longitude: 3, latitude: 3 }], { fit: false });
+    h.setHelmetOnline(false);
+    h.setMarks([]);
+    h.setHelmetOnline(true);
+    h.setHelmetReplay(true);
+    expect(cmds()).toEqual([]);
+    message({ type: "ready" });
+    expect(cmds()).toEqual([
+      { type: "avatar", url: "https://x/a.jpg" },
+      { type: "center", lng: 9, lat: 9, zoom: 14 },
+      { type: "hideHelmet" },
+      { type: "track", path: [[3, 3]], fit: false, pad: [70, 70, 70, 70] },
+      { type: "marks", items: [] },
+      { type: "helmetState", online: true },
+      { type: "helmetReplay", replay: true },
+    ]);
+    const before = cmds().length;
+    h.setHelmet({ longitude: 4, latitude: 4 });
+    h.setHelmet({ longitude: 5, latitude: 5 });
+    expect(cmds().slice(before)).toEqual([
+      { type: "helmet", lng: 4, lat: 4, follow: false },
+      { type: "helmet", lng: 5, lat: 5, follow: false },
+    ]);
+  });
+
+  it("内容进程被系统杀掉（iOS onContentProcessDidTerminate / Android onRenderProcessGone）：换一个新的 WebView，命令排队到新页面 ready，再回调 onReady", () => {
+    const { ref, message, onReady, web } = mount({
+      avatarUrl: "https://x/a.jpg",
+    });
+    message({ type: "ready" });
+    expect(onReady).toHaveBeenCalledTimes(1);
+    const first = web();
+    act(() => {
+      (first.props.onContentProcessDidTerminate as () => void)();
+    });
+    expect(web()).not.toBe(first);
+    const before = cmds().length;
+    ref.current!.hideHelmet();
+    expect(cmds()).toHaveLength(before);
+    message({ type: "ready" });
+    expect(cmds().slice(before)).toEqual([
+      { type: "avatar", url: "https://x/a.jpg" },
+      { type: "hideHelmet" },
+    ]);
+    expect(onReady).toHaveBeenCalledTimes(2);
+
+    const second = web();
+    act(() => {
+      (second.props.onRenderProcessGone as () => void)();
+    });
+    expect(web()).not.toBe(second);
+    ref.current!.setHelmetOnline(false);
+    message({ type: "ready" });
+    expect(cmds().pop()).toEqual({ type: "helmetState", online: false });
+    expect(onReady).toHaveBeenCalledTimes(3);
+  });
+
+  it("用户缩放 / 旋转单独报 userzoom（不当成拖动）；页内脚本认 hideHelmet，缩放只在手指刚碰过地图时上报", () => {
+    const onUserZoom = jest.fn();
+    const { message, onUserPan, web } = mount({ onUserZoom });
+    message({ type: "userzoom" });
+    expect(onUserZoom).toHaveBeenCalledTimes(1);
+    expect(onUserPan).not.toHaveBeenCalled();
+    const html = (web().props.source as { html: string }).html;
+    expect(html).toContain("cmd.type === 'hideHelmet'");
+    expect(html).toContain("map.on('zoomstart', userZoom)");
+    expect(html).toMatch(
+      /Date\.now\(\) - lastTouchAt < \d+\) post\(\{ type: 'userzoom' \}\)/,
+    );
   });
 
   it("卸载时清掉命令句柄", () => {
