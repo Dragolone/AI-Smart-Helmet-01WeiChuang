@@ -2,10 +2,10 @@ import { useQuery } from '@tanstack/react-query'
 import { Card, Checkbox, Input, Space, Table, Tag, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { formatMinute } from '../utils/format'
-import { useState } from 'react'
 import { api } from '../api/client'
 import QueryError from '../components/QueryError'
 import { useClampPage } from '../utils/use-clamp-page'
+import { useListParams } from '../utils/use-list-params'
 import type { AdminUserRow, Paginated } from '@helmet/shared'
 
 const columns: ColumnsType<AdminUserRow> = [
@@ -38,10 +38,11 @@ const columns: ColumnsType<AdminUserRow> = [
 ]
 
 export default function UsersPage() {
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(20)
-  const [keyword, setKeyword] = useState('')
-  const [includeDeleted, setIncludeDeleted] = useState(false)
+  // 页码 / 每页条数 / 筛选在地址栏里：翻页、筛选后刷新或返回不丢
+  const list = useListParams()
+  const { page, pageSize, setPage } = list
+  const keyword = list.get('keyword')
+  const includeDeleted = list.get('includeDeleted') === 'true'
 
   const query = useQuery({
     queryKey: ['admin', 'users', page, pageSize, keyword, includeDeleted],
@@ -69,17 +70,12 @@ export default function UsersPage() {
           // 后端 keyword / deviceId 上限 64 字，超出整页报 400，这里直接限住
           maxLength={64}
           style={{ width: 320 }}
-          onSearch={(value) => {
-            setPage(1)
-            setKeyword(value.trim())
-          }}
+          defaultValue={keyword}
+          onSearch={(value) => list.update({ page: 1, keyword: value.trim() })}
         />
         <Checkbox
           checked={includeDeleted}
-          onChange={(e) => {
-            setPage(1)
-            setIncludeDeleted(e.target.checked)
-          }}
+          onChange={(e) => list.update({ page: 1, includeDeleted: e.target.checked })}
         >
           含已注销
         </Checkbox>
@@ -97,10 +93,8 @@ export default function UsersPage() {
           pageSize,
           total: query.data?.total ?? 0,
           showTotal: (t) => `共 ${t} 个用户`,
-          onChange: (p, ps) => {
-            setPage(ps !== pageSize ? 1 : p)
-            setPageSize(ps)
-          },
+          onChange: (p, ps) =>
+            list.update({ page: ps !== pageSize ? 1 : p, pageSize: ps }),
         }}
       />
     </Card>

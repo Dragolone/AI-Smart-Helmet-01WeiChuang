@@ -1,11 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
 import { Card, Input, Select, Space, Table, Tag, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import QueryError from '../components/QueryError'
 import { useClampPage } from '../utils/use-clamp-page'
+import { useListParams } from '../utils/use-list-params'
 import { formatTime, formatUserLabel } from '../utils/format'
 import type { AdminDeviceRow, Paginated } from '@helmet/shared'
 
@@ -50,10 +50,12 @@ const columns: ColumnsType<AdminDeviceRow> = [
 ]
 
 export default function DevicesPage() {
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(20)
-  const [keyword, setKeyword] = useState('')
-  const [online, setOnline] = useState<'true' | 'false' | undefined>()
+  // 页码 / 每页条数 / 筛选在地址栏里：进设备详情再返回不丢
+  const list = useListParams()
+  const { page, pageSize, setPage } = list
+  const keyword = list.get('keyword')
+  const onlineRaw = list.get('online')
+  const online = onlineRaw === 'true' || onlineRaw === 'false' ? onlineRaw : undefined
 
   const query = useQuery({
     queryKey: ['admin', 'devices', page, pageSize, keyword, online],
@@ -83,10 +85,8 @@ export default function DevicesPage() {
           // 后端 keyword / deviceId 上限 64 字，超出整页报 400，这里直接限住
           maxLength={64}
           style={{ width: 320 }}
-          onSearch={(value) => {
-            setPage(1)
-            setKeyword(value.trim())
-          }}
+          defaultValue={keyword}
+          onSearch={(value) => list.update({ page: 1, keyword: value.trim() })}
         />
         <Select
           placeholder="在线状态"
@@ -96,10 +96,10 @@ export default function DevicesPage() {
             { value: 'true', label: '在线' },
             { value: 'false', label: '离线' },
           ]}
-          onChange={(value: 'true' | 'false' | undefined) => {
-            setPage(1)
-            setOnline(value)
-          }}
+          value={online}
+          onChange={(value: 'true' | 'false' | undefined) =>
+            list.update({ page: 1, online: value })
+          }
         />
       </Space>
       {query.isError && (
@@ -115,10 +115,8 @@ export default function DevicesPage() {
           pageSize,
           total: query.data?.total ?? 0,
           showTotal: (t) => `共 ${t} 台设备`,
-          onChange: (p, ps) => {
-            setPage(ps !== pageSize ? 1 : p)
-            setPageSize(ps)
-          },
+          onChange: (p, ps) =>
+            list.update({ page: ps !== pageSize ? 1 : p, pageSize: ps }),
         }}
       />
     </Card>

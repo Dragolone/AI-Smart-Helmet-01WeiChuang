@@ -10,11 +10,11 @@ import {
   Typography,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { useState } from 'react'
 import { api } from '../api/client'
 import QueryError from '../components/QueryError'
 import { formatTime } from '../utils/format'
 import { useClampPage } from '../utils/use-clamp-page'
+import { useListParams } from '../utils/use-list-params'
 import { EVENT_TYPES } from '@helmet/shared'
 import type { AdminEventRow, Paginated } from '@helmet/shared'
 
@@ -54,11 +54,15 @@ const columns: ColumnsType<AdminEventRow> = [
 ]
 
 export default function EventsPage() {
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(20)
-  const [types, setTypes] = useState<string[]>([])
-  const [deviceId, setDeviceId] = useState('')
-  const [invalidOnly, setInvalidOnly] = useState(false)
+  // 页码 / 每页条数 / 筛选在地址栏里：翻页、筛选后刷新或返回不丢；类型只认清单里有的
+  const list = useListParams()
+  const { page, pageSize, setPage } = list
+  const types = list
+    .get('type')
+    .split(',')
+    .filter((t) => (EVENT_TYPES as readonly string[]).includes(t))
+  const deviceId = list.get('deviceId')
+  const invalidOnly = list.get('invalid') === 'true'
 
   const query = useQuery({
     queryKey: [
@@ -97,10 +101,8 @@ export default function EventsPage() {
           disabled={invalidOnly}
           style={{ minWidth: 260 }}
           options={EVENT_TYPE_OPTIONS}
-          onChange={(value: string[]) => {
-            setPage(1)
-            setTypes(value)
-          }}
+          value={types}
+          onChange={(value: string[]) => list.update({ page: 1, type: value.join(',') })}
         />
         <Input.Search
           placeholder="按设备 ID 精确筛选"
@@ -108,18 +110,13 @@ export default function EventsPage() {
           // 后端 keyword / deviceId 上限 64 字，超出整页报 400，这里直接限住
           maxLength={64}
           style={{ width: 260 }}
-          onSearch={(value) => {
-            setPage(1)
-            setDeviceId(value.trim())
-          }}
+          defaultValue={deviceId}
+          onSearch={(value) => list.update({ page: 1, deviceId: value.trim() })}
         />
         <Space>
           <Switch
             checked={invalidOnly}
-            onChange={(checked) => {
-              setPage(1)
-              setInvalidOnly(checked)
-            }}
+            onChange={(checked) => list.update({ page: 1, invalid: checked })}
           />
           <Typography.Text>只看校验失败留档</Typography.Text>
         </Space>
@@ -145,10 +142,8 @@ export default function EventsPage() {
           pageSize,
           total: query.data?.total ?? 0,
           showTotal: (t) => `共 ${t} 条事件`,
-          onChange: (p, ps) => {
-            setPage(ps !== pageSize ? 1 : p)
-            setPageSize(ps)
-          },
+          onChange: (p, ps) =>
+            list.update({ page: ps !== pageSize ? 1 : p, pageSize: ps }),
         }}
       />
     </Card>
