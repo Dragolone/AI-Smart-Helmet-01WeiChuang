@@ -536,7 +536,106 @@ describe("FluidSegmented", () => {
         n.props.accessibilityRole === "radiogroup",
     );
     expect(flat(root.props.style).opacity).toBe(0.45);
-    expect(segs(r)[1].props.disabled).toBe(true);
+    // 只在整条上变淡一次：每一段不再交给 Tappable 的 disabled 各淡一次（叠起来只剩 0.2）
+    expect(segs(r)[1].props.disabled).toBeFalsy();
+    expect(segs(r)[1].props.onPress).toBeUndefined();
+    expect(segs(r)[1].props.accessibilityState).toEqual({
+      checked: false,
+      disabled: true,
+    });
+  });
+
+  it("10-17 评审：同一段的布局变了（字号、改名）滑块跟着挪；整条变宽右边距重算", () => {
+    const el = (current: number) => (
+      <FluidSegmented
+        options={options}
+        current={current}
+        palette={palette}
+        onSelect={() => undefined}
+      />
+    );
+    const r = render(el(1));
+    measure(r);
+    r.rerender(el(1));
+    expect(thumb(r)).toMatchObject({ left: 100, right: 100, height: 40 });
+    // 当前那一段变宽变高（大字号）
+    act(() =>
+      segs(r)[1].props.onLayout({
+        nativeEvent: { layout: { x: 90, y: 0, width: 140, height: 56 } },
+      }),
+    );
+    r.rerender(el(1));
+    expect(thumb(r)).toMatchObject({ left: 90, right: 70, top: 0, height: 56 });
+    // 整条变宽：右边距按新宽度算
+    const root = r.root.find(
+      (n) =>
+        typeof n.type === "string" &&
+        n.props.accessibilityRole === "radiogroup",
+    );
+    act(() => root.props.onLayout({ nativeEvent: { layout: { width: 400 } } }));
+    r.rerender(el(1));
+    expect(thumb(r)).toMatchObject({ left: 90, right: 170 });
+  });
+
+  it("10-17 评审：前面的选项没了（解绑一顶头盔），滑块按值找当前那段，不拿错下标的位置", () => {
+    const three = [
+      { value: "a", label: "甲" },
+      { value: "b", label: "乙" },
+      { value: "c", label: "丙" },
+    ];
+    const el = (opts: { value: string; label: string }[]) => (
+      <FluidSegmented
+        options={opts}
+        current="c"
+        equal={false}
+        palette={palette}
+        onSelect={() => undefined}
+      />
+    );
+    const r = render(el(three));
+    const lay = (widths: number[]) => {
+      let x = 0;
+      segs(r).forEach((s, i) => {
+        act(() =>
+          s.props.onLayout({
+            nativeEvent: { layout: { x, y: 0, width: widths[i], height: 34 } },
+          }),
+        );
+        x += widths[i] + 8;
+      });
+    };
+    lay([60, 70, 80]);
+    const root = r.root.find(
+      (n) =>
+        typeof n.type === "string" &&
+        n.props.accessibilityRole === "radiogroup",
+    );
+    act(() => root.props.onLayout({ nativeEvent: { layout: { width: 300 } } }));
+    r.rerender(el(three));
+    expect(thumb(r)).toMatchObject({ left: 146, right: 74 });
+    // 「甲」没了：「丙」挪到第二格
+    r.rerender(el(three.slice(1)));
+    lay([70, 80]);
+    r.rerender(el(three.slice(1)));
+    expect(thumb(r)).toMatchObject({ left: 78, right: 142 });
+  });
+
+  it("待确认那段带读屏说明（给了 tentativeHint 时）", () => {
+    const r = render(
+      <FluidSegmented
+        options={options}
+        current={0}
+        tentative={2}
+        tentativeHint="等待头盔确认"
+        palette={palette}
+        onSelect={() => undefined}
+      />,
+    );
+    expect(segs(r).map((s) => s.props.accessibilityHint)).toEqual([
+      undefined,
+      undefined,
+      "等待头盔确认",
+    ]);
   });
 });
 
@@ -882,7 +981,14 @@ describe("设备设置项", () => {
     const all = r.root.findAll(
       (n) => n.type === Tappable && n.props.accessibilityRole === "radio",
     );
-    expect(all.every((x) => x.props.disabled === true)).toBe(true);
+    // 不可点：没有 onPress、读屏念「不可用」（变淡由整条控件统一做，不在每一段上再淡一次）
+    expect(
+      all.every(
+        (x) =>
+          x.props.onPress === undefined &&
+          x.props.accessibilityState.disabled === true,
+      ),
+    ).toBe(true);
   });
 });
 

@@ -84,6 +84,9 @@ export default function ProfileScreen() {
   const openEdit = () => {
     setNickDraft(cleanNickname(user?.nickname));
     setAvatarDraft(user?.avatarUrl ?? null);
+    // 上次画勾还没画完就关了弹层（点遮罩 / 返回键）：按钮卸掉，onSuccessShown 不会再来，这里复位，
+    // 否则再打开时按钮直接是「已保存」、点不了，还会自己把弹层关掉
+    setSaved(false);
     setEditOpen(true);
   };
 

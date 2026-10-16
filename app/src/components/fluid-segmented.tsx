@@ -63,6 +63,7 @@ export function FluidSegmented<T extends string | number | boolean>({
   textStyle,
   thumbStyle,
   accessibilityLabel,
+  tentativeHint,
 }: {
   options: readonly SegmentOption<T>[];
   /** 高亮的那一段；null = 没有高亮（还没上报过） */
@@ -82,13 +83,18 @@ export function FluidSegmented<T extends string | number | boolean>({
   /** 滑块（圆角要和每一段一致） */
   thumbStyle?: StyleProp<ViewStyle>;
   accessibilityLabel?: string;
+  /** 读屏念给「待确认」那一段的说明（等待头盔确认之类）；不给就不念 */
+  tentativeHint?: string;
 }) {
   const reduced = useReducedMotion();
   const idx = options.findIndex((o) => o.value === current);
-  const rects = useRef<(Rect | undefined)[]>([]);
+  // 每一段量到的位置按选项的值记：选项增删（解绑一顶头盔、改名）后下标会挪，按下标记会拿错格子
+  const rects = useRef(new Map<string, Rect>());
   const rootW = useRef(0);
-  /** 滑块现在停在第几段；-1 = 还没放过 */
-  const placed = useRef(-1);
+  /** 滑块现在停在哪一段（选项的值）；null = 还没放过 */
+  const placed = useRef<string | null>(null);
+  /** 滑块现在对着的那块矩形：同一段的大小 / 位置变了（字号、换行、改名）要跟着挪 */
+  const placedRect = useRef<Rect | null>(null);
   const left = useSharedValue(0);
   const right = useSharedValue(0);
   const top = useSharedValue(0);
@@ -97,14 +103,16 @@ export function FluidSegmented<T extends string | number | boolean>({
 
   /** 把滑块放到第 i 段：dir = 0 直接放，1 / -1 往右 / 往左滑过去 */
   const settle = (i: number, dir: 0 | 1 | -1) => {
-    const r = rects.current[i];
+    const key = String(options[i].value);
+    const r = rects.current.get(key);
     const w = rootW.current;
     if (!r || w <= 0) return;
     const l = r.x;
     const rr = w - (r.x + r.w);
     top.set(r.y);
     height.set(r.h);
-    placed.current = i;
+    placed.current = key;
+    placedRect.current = r;
     if (dir === 0 || reduced) {
       left.set(l);
       right.set(rr);
@@ -122,16 +130,41 @@ export function FluidSegmented<T extends string | number | boolean>({
     shown.set(withTiming(1, { duration: TINT_MS }));
   };
 
-  // current 变了：从现在停的那一段滑到新的一段。第一次（还没放过）直接放；布局还没量到就等 onLayout 再放
+  // current 变了：从现在停的那一段滑到新的一段。第一次（还没放过）、或原来那段已经不在了，直接放；
+  // 布局还没量到就等 onLayout 再放
   useEffect(() => {
     if (idx < 0) {
-      if (placed.current >= 0) shown.set(withTiming(0, { duration: TINT_MS }));
-      placed.current = -1;
+      if (placed.current !== null)
+        shown.set(withTiming(0, { duration: TINT_MS }));
+      placed.current = null;
+      placedRect.current = null;
       return;
     }
-    if (idx === placed.current) return;
-    settle(idx, placed.current < 0 ? 0 : idx > placed.current ? 1 : -1);
+    if (String(options[idx].value) === placed.current) return;
+    const from =
+      placed.current === null
+        ? -1
+        : options.findIndex((o) => String(o.value) === placed.current);
+    settle(idx, from < 0 ? 0 : idx > from ? 1 : -1);
   });
+
+  /** 布局变了（这一段或整条的大小、位置）：滑块直接对到当前那一段的新位置 */
+  const realign = () => {
+    if (idx < 0) return;
+    const key = String(options[idx].value);
+    const r = rects.current.get(key);
+    const was = placedRect.current;
+    if (
+      placed.current !== key ||
+      !r ||
+      !was ||
+      r.x !== was.x ||
+      r.y !== was.y ||
+      r.w !== was.w ||
+      r.h !== was.h
+    )
+      settle(idx, 0);
+  };
 
   const thumbAnim = useAnimatedStyle(() => ({
     left: left.get(),
@@ -145,10 +178,15 @@ export function FluidSegmented<T extends string | number | boolean>({
     <View
       accessibilityRole="radiogroup"
       accessibilityLabel={accessibilityLabel}
+      // 不可点时整条变淡一次就够：每一段不再各自变淡（叠起来只剩 0.2，选中那段的字比滑块还淡）
       style={[styles.row, style, disabled && styles.disabled]}
       onLayout={(e: LayoutChangeEvent) => {
-        rootW.current = e.nativeEvent.layout.width;
-        if (idx >= 0 && placed.current !== idx) settle(idx, 0);
+        const w = e.nativeEvent.layout.width;
+        if (w === rootW.current && placed.current !== null) return;
+        rootW.current = w;
+        // 整条宽度变了，右边距跟着变：当前那一段要重新对
+        placedRect.current = null;
+        realign();
       }}
     >
       <Animated.View
@@ -166,6 +204,7 @@ export function FluidSegmented<T extends string | number | boolean>({
           label={o.label}
           active={i === idx}
           tentative={tentative !== null && o.value === tentative && i !== idx}
+          tentativeHint={tentativeHint}
           disabled={disabled}
           equal={equal}
           palette={palette}
@@ -174,8 +213,8 @@ export function FluidSegmented<T extends string | number | boolean>({
           onPress={() => onSelect(o.value)}
           onLayout={(e: LayoutChangeEvent) => {
             const { x, y, width, height: h } = e.nativeEvent.layout;
-            rects.current[i] = { x, y, w: width, h };
-            if (i === idx && placed.current !== idx) settle(idx, 0);
+            rects.current.set(String(o.value), { x, y, w: width, h });
+            if (i === idx) realign();
           }}
         />
       ))}
@@ -187,6 +226,7 @@ function Segment({
   label,
   active,
   tentative,
+  tentativeHint,
   disabled,
   equal,
   palette,
@@ -198,6 +238,7 @@ function Segment({
   label: string;
   active: boolean;
   tentative: boolean;
+  tentativeHint?: string;
   disabled: boolean;
   equal: boolean;
   palette: SegmentPalette;
@@ -232,12 +273,13 @@ function Segment({
   );
   return (
     <Tappable
-      feedback="opacity"
-      disabled={disabled}
-      onPress={onPress}
+      // 不可点由外层整条变淡来表示（见 FluidSegmented），这里不再交给 Tappable 的 disabled 再淡一次
+      feedback={disabled ? [] : "opacity"}
+      onPress={disabled ? undefined : onPress}
       onLayout={onLayout}
       accessibilityRole="radio"
       accessibilityState={{ checked: active, disabled }}
+      accessibilityHint={tentative ? tentativeHint : undefined}
       style={equal && styles.flex}
     >
       <Animated.View style={[styles.segment, style, borderAnim]}>

@@ -429,6 +429,41 @@ describe("编辑资料", () => {
     expect(modals(r)[0]).toBe(false);
   });
 
+  it("10-17 评审：画勾途中点遮罩关掉弹层，再打开时按钮是可点的「保存」，不会自己关掉", async () => {
+    jest.useFakeTimers();
+    const r = mount();
+    act(() => accountCard(r).props.onPress());
+    r.press(tr("common.save"));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    // 勾还没画完（约 1 秒）就关掉
+    act(() => {
+      jest.advanceTimersByTime(300);
+    });
+    act(() => r.root.findAllByType(Modal)[0].props.onRequestClose());
+    expect(modals(r)[0]).toBe(false);
+    act(() => {
+      jest.advanceTimersByTime(2000);
+    });
+    act(() => accountCard(r).props.onPress());
+    expect(modals(r)[0]).toBe(true);
+    // 按钮回到平时：读屏不念「已保存」、可点
+    const btn = r.root.find(
+      (n) =>
+        typeof n.type !== "string" &&
+        n.props.accessibilityState !== undefined &&
+        typeof n.props.onPressIn === "function" &&
+        n.props.disabled !== undefined,
+    );
+    expect(btn.props.accessibilityLabel).toBeUndefined();
+    expect(btn.props.disabled).toBe(false);
+    act(() => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(modals(r)[0]).toBe(true);
+  });
+
   it("保存失败：弹窗说明原因，弹层不关", async () => {
     m(authApi.updateMe).mockImplementation(() =>
       Promise.reject(new ApiRequestError(400, { code: "VALIDATION_FAILED" })),
