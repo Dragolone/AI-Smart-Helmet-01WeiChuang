@@ -12,6 +12,11 @@ import type { ActiveSosResponse, Sos } from "@helmet/shared";
 
 export type SosSyncDeps = {
   fetchActive: (deviceId: string) => Promise<ActiveSosResponse>;
+  /**
+   * 账号级进行中列表（GET /users/me/sos/active，B 线第 12 项）：给了就一次拿全，不再逐台查。
+   * 返回 null = 服务端还没有这个接口（旧服务端 404），退回逐台 fetchActive
+   */
+  fetchAccountActive?: () => Promise<{ items: Sos[]; total: number } | null>;
   openCountdown: (sosId: string, deviceId: string) => void;
   showLockScreenAlert: (
     sosId: string,
@@ -103,15 +108,9 @@ export async function resumePendingSos(
   reason = "冷启动",
 ): Promise<string[]> {
   const found: string[] = [];
-  for (const deviceId of deviceIds) {
-    let sos: Sos | null;
-    try {
-      ({ sos } = await deps.fetchActive(deviceId));
-    } catch {
-      continue; // 网络失败不阻塞；安全页仍会按常规查询展示
-    }
-    if (!sos || sos.status !== "pending") continue;
-    if (isFinal(qc, sos.sosId)) continue;
+  const take = (deviceId: string, sos: Sos | null) => {
+    if (!sos || sos.status !== "pending") return;
+    if (isFinal(qc, sos.sosId)) return;
     qc.setQueryData<ActiveSosResponse>(["sos-active", deviceId], { sos });
     qc.setQueryData(["sos", sos.sosId], sos);
     deps.showLockScreenAlert(
@@ -124,6 +123,29 @@ export async function resumePendingSos(
     if (present({ sosId: sos.sosId, deviceId }, presented, deps)) {
       deps.log?.(`${reason}发现进行中 SOS ${sos.sosId}`);
     }
+  };
+  // 账号级接口一次拿全：绑了多少顶都只发一个请求（原来逐台查，1 万顶时冷启动 / 重连要串行一万个请求，10-16 F10）；
+  // 头盔已解绑、单还是本人的也在里面。deviceIds 只在退回逐台查时用
+  if (deps.fetchAccountActive) {
+    let account: { items: Sos[] } | null;
+    try {
+      account = await deps.fetchAccountActive();
+    } catch {
+      return found; // 网络失败不阻塞（离线时不该再退成 N 个注定失败的请求）；安全页仍会按常规查询展示
+    }
+    if (account) {
+      for (const sos of account.items) take(sos.deviceId, sos);
+      return found;
+    }
+  }
+  for (const deviceId of deviceIds) {
+    let sos: Sos | null;
+    try {
+      ({ sos } = await deps.fetchActive(deviceId));
+    } catch {
+      continue; // 网络失败不阻塞；安全页仍会按常规查询展示
+    }
+    take(deviceId, sos);
   }
   return found;
 }
@@ -140,7 +162,13 @@ export function alertPendingOnBackground(
 ): number {
   if (appState !== "background") return 0;
   let n = 0;
-  for (const deviceId of deviceIds) {
+  // 设备列表之外，缓存里有进行中单的头盔也算：头盔解绑后单还是本人的，账号级补拉 / 轮询照样写进缓存（B 线第 12 项）
+  const cached = qc
+    .getQueryCache()
+    .findAll({ queryKey: ["sos-active"] })
+    .map((q) => q.queryKey[1])
+    .filter((id): id is string => typeof id === "string");
+  for (const deviceId of new Set([...deviceIds, ...cached])) {
     const active = qc.getQueryData<ActiveSosResponse>([
       "sos-active",
       deviceId,
@@ -210,24 +238,4 @@ export function guardActiveResult<T extends { sos: Pick<Sos, "sosId"> | null }>(
   result: T,
 ): T | { sos: null } {
   return result.sos && isFinal(qc, result.sos.sosId) ? { sos: null } : result;
-}
-
-/**
- * 轮询 `/devices/{id}/sos/active`：除了终态守卫，请求在途期间 WS / 补拉写过这顶头盔的进行中缓存的话，以缓存为准——
- * 那次写入（建单推送、终态推送）比这次应答新。迟到的 `{ sos: null }` 原来会把刚推来的进行中单冲掉：
- * 它从倒计时页的队列和胶囊里消失，结果页把还在倒数的单写成「正在通知紧急联系人」，离开前台也不补弹锁屏（10-16 评审）
- */
-export async function fetchActiveFresh(
-  qc: QueryClient,
-  deviceId: string,
-  fetchActive: (deviceId: string) => Promise<ActiveSosResponse>,
-): Promise<ActiveSosResponse> {
-  const startedAt = Date.now();
-  const result = guardActiveResult(qc, await fetchActive(deviceId));
-  const state = qc.getQueryState<ActiveSosResponse>(["sos-active", deviceId]);
-  // 同一毫秒算「在途期间」：宁可多信一次 WS 写入（30 秒后下一轮就纠正），不能让旧应答盖掉推送
-  if (state?.data !== undefined && state.dataUpdatedAt >= startedAt) {
-    return state.data;
-  }
-  return result;
 }

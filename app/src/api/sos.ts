@@ -3,6 +3,7 @@
 import type {
   AccidentDetail,
   AccidentListItem,
+  ActiveSosItem,
   ActiveSosResponse,
   Paginated,
   Sos,
@@ -14,6 +15,15 @@ export const sosApi = {
   active: (deviceId: string) =>
     api<ActiveSosResponse>(
       `/devices/${encodeURIComponent(deviceId)}/sos/active`,
+    ),
+
+  /**
+   * 本账号所有进行中的 SOS（API.md §7，上线清单 B 线第 12 项）：按到期先后，统一分页；头盔已解绑、单还是本人的也在。
+   * 默认取最早到期的 100 单——多于 100 单时 total 会大于 items.length，调用方据此知道列表不全
+   */
+  activeForAccount: (page = 1, pageSize = 100) =>
+    api<Paginated<ActiveSosItem>>(
+      `/users/me/sos/active?page=${page}&pageSize=${pageSize}`,
     ),
 
   cancel: (sosId: string) =>

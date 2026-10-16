@@ -1,9 +1,19 @@
 // 多顶头盔同时求救的队列（10-16 N10）：从缓存推导、按到期先后排、终态的不算、路由带来的那单也算
-import { beforeEach, describe, expect, it } from "@jest/globals";
+import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 import { QueryClient } from "@tanstack/react-query";
 import type { Sos } from "@helmet/shared";
 
-import { activeSosQueue, MAX_CHIPS, nextSos, sosScreen } from "../sos-queue";
+import {
+  activeSosQueue,
+  activeSosStore,
+  applyAccountActive,
+  MAX_CHIPS,
+  nextSos,
+  pollAccountActive,
+  refreshActiveSos,
+  SOS_ACTIVE_ACCOUNT_KEY,
+  sosScreen,
+} from "../sos-queue";
 
 const sos = (over: Partial<Sos> = {}): Sos => ({
   sosId: "s1",
@@ -92,10 +102,7 @@ describe("activeSosQueue", () => {
     qc.setQueryData(["sos-active", "d2"], {
       sos: sos({ sosId: "s2", deviceId: "d2" }),
     });
-    expect(activeSosQueue(qc, newer).map((s) => s.sosId)).toEqual([
-      "s2",
-      "s9",
-    ]);
+    expect(activeSosQueue(qc, newer).map((s) => s.sosId)).toEqual(["s2", "s9"]);
   });
 
   it("同一单缓存一份、路由带来一份：用路由那份（页面手上的是详情缓存里的对象，较新）", () => {
@@ -131,5 +138,106 @@ describe("nextSos", () => {
     expect(nextSos(q, "b")?.sosId).toBe("a");
     expect(nextSos([sos({ sosId: "a" })], "a")).toBeNull();
     expect(nextSos([], "a")).toBeNull();
+  });
+});
+
+describe("applyAccountActive（账号级列表写回按头盔的缓存，B 线第 12 项）", () => {
+  const T0 = Date.parse("2026-10-16T10:00:10.000Z");
+  const active = (id: string) =>
+    qc.getQueryData<{ sos: Sos | null }>(["sos-active", id])?.sos ?? null;
+
+  it("列表里的单写进各自头盔；设备列表里有、列表里没有的写 null；缓存里有过、这回没有的也清掉", () => {
+    qc.setQueryData(["sos-active", "old"], {
+      sos: sos({ sosId: "s0", deviceId: "old" }),
+    });
+    applyAccountActive(
+      qc,
+      { items: [sos({ sosId: "s1", deviceId: "d1" })], total: 1 },
+      ["d1", "d2"],
+      Date.now() + 1,
+    );
+    expect(active("d1")?.sosId).toBe("s1");
+    expect(qc.getQueryData(["sos-active", "d2"])).toEqual({ sos: null });
+    expect(active("old")).toBeNull();
+  });
+
+  it("在途守卫：请求发出后 WS 写过的头盔以缓存为准，迟到的「没有」不把刚推来的单冲掉（#213 同一问题）", () => {
+    const startedAt = Date.now();
+    qc.setQueryData(["sos-active", "d2"], {
+      sos: sos({ sosId: "s2", deviceId: "d2" }),
+    });
+    applyAccountActive(qc, { items: [], total: 0 }, ["d2"], startedAt);
+    expect(active("d2")?.sosId).toBe("s2");
+  });
+
+  it("终态守卫：本机已知结束的单（倒计时页刚取消）不回潮", () => {
+    qc.setQueryData(["sos", "s1"], sos({ status: "cancelled" }));
+    applyAccountActive(qc, { items: [sos()], total: 1 }, ["d1"], T0);
+    expect(active("d1")).toBeNull();
+  });
+
+  it("列表不全（total 多于这一页）：没出现在列表里的头盔不清，它们可能在下一页", () => {
+    qc.setQueryData(["sos-active", "d2"], {
+      sos: sos({ sosId: "s2", deviceId: "d2" }),
+    });
+    applyAccountActive(
+      qc,
+      { items: [sos({ sosId: "s1", deviceId: "d1" })], total: 150 },
+      ["d1", "d2"],
+      Date.now() + 1,
+    );
+    expect(active("d1")?.sosId).toBe("s1");
+    expect(active("d2")?.sosId).toBe("s2");
+  });
+
+  it("没变就不写（不产生缓存更新、不顶 dataUpdatedAt）", () => {
+    const s1 = sos();
+    qc.setQueryData(["sos-active", "d1"], { sos: s1 });
+    const before = qc.getQueryState(["sos-active", "d1"])?.dataUpdatedAt;
+    applyAccountActive(
+      qc,
+      { items: [{ ...s1 }], total: 1 },
+      ["d1"],
+      (before ?? 0) + 1,
+    );
+    expect(qc.getQueryState(["sos-active", "d1"])?.dataUpdatedAt).toBe(before);
+  });
+
+  it("pollAccountActive：拉一次、按发请求那一刻做在途判断、返回总数", async () => {
+    const fetch = jest.fn(async () => ({
+      items: [sos({ sosId: "s1", deviceId: "d1" })],
+      total: 1,
+    }));
+    await expect(pollAccountActive(qc, ["d1"], fetch)).resolves.toBe(1);
+    expect(active("d1")?.sosId).toBe("s1");
+  });
+});
+
+describe("activeSosStore（useSyncExternalStore 用）", () => {
+  it("缓存里 sos-active / sos 更新就通知；内容没变时快照还是同一个数组", () => {
+    const store = activeSosStore(qc);
+    const onChange = jest.fn();
+    const off = store.subscribe(onChange);
+    const empty = store.getSnapshot();
+    expect(store.getSnapshot()).toBe(empty);
+    qc.setQueryData(["sos-active", "d1"], { sos: sos() });
+    expect(onChange).toHaveBeenCalled();
+    const one = store.getSnapshot();
+    expect(one.map((s) => s.sosId)).toEqual(["s1"]);
+    expect(store.getSnapshot()).toBe(one);
+    qc.setQueryData(["sos", "s1"], sos({ status: "notified" }));
+    expect(store.getSnapshot()).toEqual([]);
+    off();
+  });
+});
+
+describe("refreshActiveSos", () => {
+  it("按头盔的缓存和账号级轮询一起失效", async () => {
+    const spy = jest.spyOn(qc, "invalidateQueries");
+    await refreshActiveSos(qc);
+    expect(spy.mock.calls.map((c) => c[0])).toEqual([
+      { queryKey: ["sos-active"] },
+      { queryKey: SOS_ACTIVE_ACCOUNT_KEY },
+    ]);
   });
 });

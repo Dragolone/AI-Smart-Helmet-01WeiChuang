@@ -16,7 +16,6 @@ import {
   applySosUpdate,
   COUNTDOWN_POLL_MS,
   countdownPollInterval,
-  fetchActiveFresh,
   onReconnect,
   resumePendingSos,
   settleSnapshot,
@@ -49,6 +48,10 @@ beforeEach(() => {
     fetchActive: jest.fn<SosSyncDeps["fetchActive"]>(async () => ({
       sos: null,
     })),
+    // null = 服务端没有账号级接口：这里的用例测的是逐台查那条路（账号级的用例见 sos-sync.test 末尾）
+    fetchAccountActive: jest.fn<NonNullable<SosSyncDeps["fetchAccountActive"]>>(
+      async () => null,
+    ),
     openCountdown: jest.fn<SosSyncDeps["openCountdown"]>(),
     showLockScreenAlert: jest.fn<SosSyncDeps["showLockScreenAlert"]>(),
     clearLockScreenAlert: jest.fn<SosSyncDeps["clearLockScreenAlert"]>(),
@@ -311,33 +314,76 @@ describe("倒计时页自己的轮询（2026-10-05 评审）", () => {
   });
 });
 
-describe("fetchActiveFresh（安全页 30 秒轮询 /sos/active，10-16 评审）", () => {
-  it("请求在途期间 WS 推来这顶头盔的新单：迟到的 { sos: null } 不把它冲掉，以缓存为准", async () => {
-    let answer!: (r: ActiveSosResponse) => void;
-    const fetchActive = jest.fn(
-      () => new Promise<ActiveSosResponse>((res) => (answer = res)),
-    );
-    const inFlight = fetchActiveFresh(qc, "d2", fetchActive);
-    const s2 = sos({ sosId: "s2", deviceId: "d2" });
-    applySosUpdate(qc, s2, presented, deps);
-    answer({ sos: null });
-    expect(await inFlight).toEqual({ sos: s2 });
-  });
-
-  it("在途期间没人写过：用这次应答（服务端说没有就是没有）", async () => {
-    qc.setQueryData(["sos-active", "d2"], {
-      sos: sos({ sosId: "s2", deviceId: "d2" }),
+describe("resumePendingSos：账号级接口一次拿全（B 线第 12 项）", () => {
+  it("给了 fetchAccountActive 就只发这一个请求，不逐台查；列表里每顶头盔的进行中单都写缓存、拉起、补锁屏提醒（解绑后的头盔也在）", async () => {
+    deps.fetchAccountActive.mockResolvedValue({
+      items: [
+        sos({ sosId: "s1", deviceId: "d1" }),
+        sos({ sosId: "s9", deviceId: "d-unbound" }),
+      ],
+      total: 2,
     });
-    await new Promise((r) => setTimeout(r, 5));
+    const found = await resumePendingSos(
+      qc,
+      ["d1", "d2", "d3"],
+      presented,
+      deps,
+    );
+    expect(found).toEqual(["s1", "s9"]);
+    expect(deps.fetchActive).not.toHaveBeenCalled();
+    expect(deps.fetchAccountActive).toHaveBeenCalledTimes(1);
     expect(
-      await fetchActiveFresh(qc, "d2", async () => ({ sos: null })),
-    ).toEqual({ sos: null });
+      qc.getQueryData<ActiveSosResponse>(["sos-active", "d-unbound"])?.sos
+        ?.sosId,
+    ).toBe("s9");
+    expect(deps.openCountdown.mock.calls).toEqual([
+      ["s1", "d1"],
+      ["s9", "d-unbound"],
+    ]);
+    expect(deps.showLockScreenAlert).toHaveBeenCalledTimes(2);
   });
 
-  it("应答是本机已知结束的单（迟到的 pending）：照旧按终态守卫清成 null", async () => {
+  it("本机已知结束的单（迟到的 pending）不拉起；已拉起过的不重复拉", async () => {
     qc.setQueryData(["sos", "s1"], sos({ status: "cancelled" }));
-    expect(await fetchActiveFresh(qc, "d1", async () => ({ sos: sos() }))).toEqual(
-      { sos: null },
+    presented.current.add("s2");
+    deps.fetchAccountActive.mockResolvedValue({
+      items: [sos(), sos({ sosId: "s2", deviceId: "d2" })],
+      total: 2,
+    });
+    expect(await resumePendingSos(qc, [], presented, deps)).toEqual(["s2"]);
+    expect(deps.openCountdown).not.toHaveBeenCalled();
+  });
+
+  it("服务端没有账号级接口（返回 null）：退回逐台查", async () => {
+    deps.fetchActive.mockImplementation(async (id) => ({
+      sos: id === "d2" ? sos({ sosId: "s2", deviceId: "d2" }) : null,
+    }));
+    expect(await resumePendingSos(qc, ["d1", "d2"], presented, deps)).toEqual([
+      "s2",
+    ]);
+    expect(deps.fetchActive).toHaveBeenCalledTimes(2);
+  });
+
+  it("账号级请求失败（断网）：什么都不做，也不退成 N 个注定失败的逐台请求", async () => {
+    deps.fetchAccountActive.mockRejectedValue(new Error("offline"));
+    expect(await resumePendingSos(qc, ["d1", "d2"], presented, deps)).toEqual(
+      [],
+    );
+    expect(deps.fetchActive).not.toHaveBeenCalled();
+  });
+});
+
+describe("alertPendingOnBackground：设备列表之外的头盔（B 线第 12 项）", () => {
+  it("头盔已解绑、单还是本人的（账号级补拉写进了缓存）：离开前台照样补弹锁屏", () => {
+    qc.setQueryData<ActiveSosResponse>(["sos-active", "d-unbound"], {
+      sos: sos({ sosId: "s9", deviceId: "d-unbound" }),
+    });
+    expect(alertPendingOnBackground(qc, "background", ["d1"], deps)).toBe(1);
+    expect(deps.showLockScreenAlert).toHaveBeenCalledWith(
+      "s9",
+      "d-unbound",
+      sos().deadline,
+      undefined,
     );
   });
 });

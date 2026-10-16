@@ -15,9 +15,9 @@ import type {
   WsSosData,
 } from "@helmet/shared";
 
-import { sosScreen } from "@/services/sos-queue";
+import { refreshActiveSos, sosScreen } from "@/services/sos-queue";
 import { sosActiveHref } from "@/services/sos-routes";
-import { forceRefreshTokens } from "@/api/client";
+import { ApiRequestError, forceRefreshTokens } from "@/api/client";
 import { devicesApi } from "@/api/devices";
 import { realtimeClient } from "@/api/realtime";
 import { sosApi } from "@/api/sos";
@@ -150,6 +150,15 @@ export function useRealtimeUpdates(): void {
     // SOS 同步的判断逻辑在 services/sos-sync.ts（纯函数 + 注入副作用，有单测）；这里只接线
     const sosDeps: SosSyncDeps = {
       fetchActive: (id) => sosApi.active(id),
+      // 账号级一次拿全（B 线第 12 项）；服务端还没有这个接口（404）就退回逐台查
+      fetchAccountActive: async () => {
+        try {
+          return await sosApi.activeForAccount();
+        } catch (e) {
+          if (e instanceof ApiRequestError && e.status === 404) return null;
+          throw e;
+        }
+      },
       // 全仓只有这里用 push：两顶头盔同时有进行中的单时要各开各的倒计时页（同一单只开一次由 presentedSos 管）。
       // 别处点了开页面一律用 navigate——同一页已经在最上面时不再叠一页（连点两下不会开出两页）
       openCountdown: (sosId, deviceId) => {
@@ -234,7 +243,7 @@ export function useRealtimeUpdates(): void {
       // 先把取消返回的终态写进缓存：弱网下接着的刷新失败也不会让页面回落到 pending 重新倒数
       if (sos) queryClient.setQueryData(["sos", sosId], sos);
       void queryClient.invalidateQueries({ queryKey: ["sos", sosId] });
-      void queryClient.invalidateQueries({ queryKey: ["sos-active"] });
+      void refreshActiveSos(queryClient);
     });
     const unsubscribeCache = queryClient.getQueryCache().subscribe((event) => {
       if (event.query.queryKey[0] === "devices" && event.type === "updated") {

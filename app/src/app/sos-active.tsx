@@ -88,6 +88,7 @@ import {
   activeSosQueue,
   MAX_CHIPS,
   nextSos,
+  refreshActiveSos,
   sosScreen,
 } from "@/services/sos-queue";
 import { helmetNameOf } from "@/services/safety-status";
@@ -742,9 +743,7 @@ function SosActiveContent() {
                       exact: true,
                     });
                 });
-                void queryClient.invalidateQueries({
-                  queryKey: ["sos-active"],
-                });
+                void refreshActiveSos(queryClient);
               })
               .finally(() => setBusy(null));
           },

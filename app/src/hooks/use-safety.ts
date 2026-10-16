@@ -1,13 +1,17 @@
 // 安全首页 / 安全记录页 / 安全设置页共用的几份数据。都是读取与推导，不发起任何连接或求救动作。
-import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { AppState } from "react-native";
 import type { DevicePublic, Sos } from "@helmet/shared";
 
 import { devicesApi } from "@/api/devices";
 import { sosApi } from "@/api/sos";
-import { fetchActiveFresh } from "@/services/sos-sync";
+import {
+  activeSosStore,
+  pollAccountActive,
+  SOS_ACTIVE_ACCOUNT_KEY,
+} from "@/services/sos-queue";
 import { readNotifyPermissionAfterAsk } from "@/services/notify-permission";
 import {
   helmetLinkOf,
@@ -96,23 +100,30 @@ export function useHelmetLinks(
 }
 
 /**
- * 所有头盔上仍在倒计时的求救（不按「正在查看的头盔」筛）：进行中的求救在哪一页都不能被筛掉。
- * WS 推送直写同一份 ["sos-active", id] 缓存；30 秒轮询兜底。
+ * 本账号所有仍在倒计时的求救（不按「正在查看的头盔」筛）：进行中的求救在哪一页都不能被筛掉，头盔已解绑、单还是本人的也在。
+ * 读的是按头盔的进行中缓存 ["sos-active", *]（WS 推送 / 补拉直写），按到期先后、每顶头盔一单（同倒计时页的队列）。
+ * 30 秒一轮的兜底轮询走账号级接口一次拿全（B 线第 12 项）：原来每顶头盔各一个查询，绑得多时把 App 拖死（10-16 F10）。
+ * 写回时过终态守卫和在途守卫（sos-queue 的 applyAccountActive）。没绑头盔时不轮询
  */
 export function usePendingSos(deviceIds: readonly string[]): Sos[] {
   const queryClient = useQueryClient();
-  const active = useQueries({
-    queries: deviceIds.map((id) => ({
-      queryKey: ["sos-active", id],
-      // 轮询结果过终态守卫：请求在途时用户已在倒计时页取消，迟到的 pending 不能把卡片顶回来（B 线 F9）；
-      // 在途期间 WS 推来的新单也不能被迟到的 null 冲掉
-      queryFn: () => fetchActiveFresh(queryClient, id, sosApi.active),
-      refetchInterval: 30_000,
-    })),
+  useQuery({
+    queryKey: SOS_ACTIVE_ACCOUNT_KEY,
+    queryFn: () =>
+      pollAccountActive(queryClient, deviceIds, () =>
+        sosApi.activeForAccount(),
+      ),
+    refetchInterval: 30_000,
+    enabled: deviceIds.length > 0,
   });
-  return active
-    .map((q) => q.data?.sos)
-    .filter((s): s is Sos => s != null && s.status === "pending");
+  return useActiveSosQueue();
+}
+
+/** 进行中队列（缓存推导，缓存一变就重算）；不发请求 */
+export function useActiveSosQueue(): Sos[] {
+  const queryClient = useQueryClient();
+  const store = useMemo(() => activeSosStore(queryClient), [queryClient]);
+  return useSyncExternalStore(store.subscribe, store.getSnapshot);
 }
 
 /**

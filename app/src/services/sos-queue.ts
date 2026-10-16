@@ -6,7 +6,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import type { ActiveSosResponse, Sos } from "@helmet/shared";
 
-import { isFinal } from "./sos-sync";
+import { guardActiveResult, isFinal } from "./sos-sync";
 
 /**
  * 倒计时页是否在屏上。在屏上时新到的单只进队列（页面顶部多一个胶囊、提示一句），不再叠一页；
@@ -54,3 +54,104 @@ export function nextSos(queue: readonly Sos[], currentId: string): Sos | null {
 
 /** 顶部胶囊最多画这么多个（一万顶同时报警也只画最前面的，其余写「还有 N 顶」） */
 export const MAX_CHIPS = 20;
+
+/** 安全页 / 安全记录页 30 秒一轮的账号级轮询（GET /users/me/sos/active）的查询键 */
+export const SOS_ACTIVE_ACCOUNT_KEY = ["sos-active-account"] as const;
+
+/** 「进行中」要立刻重新核对时（全部取消 / 锁屏通知取消成功后）：按头盔的缓存和账号级轮询一起刷新 */
+export const refreshActiveSos = (qc: QueryClient): Promise<unknown> =>
+  Promise.all([
+    qc.invalidateQueries({ queryKey: ["sos-active"] }),
+    qc.invalidateQueries({ queryKey: SOS_ACTIVE_ACCOUNT_KEY }),
+  ]);
+
+/**
+ * 账号级进行中列表写回按头盔的进行中缓存 ["sos-active", deviceId]（倒计时页队列、离开前台补弹锁屏、安全页都读它）：
+ * - 列表里的单：写成那顶头盔的进行中单；本机已知结束的不回潮（终态守卫，同逐台轮询）。
+ * - 列表里没有的头盔（设备列表里的 + 缓存里有过的）：服务端说它没有进行中的单 → 写 null。
+ *   列表不全（total 多于这一页）时不清——它们可能在下一页。
+ * - 在途守卫：请求发出后 WS / 补拉写过的头盔以缓存为准——那次写入比这次应答新。原来逐台轮询迟到的 { sos: null }
+ *   会把刚推来的进行中单冲掉，倒计时页的胶囊没了、结果页把还在倒数的单写成「正在通知」（10-16 评审，#213）。
+ */
+export function applyAccountActive(
+  qc: QueryClient,
+  result: { items: Sos[]; total: number },
+  knownDeviceIds: readonly string[],
+  startedAt: number,
+): void {
+  const complete = result.total <= result.items.length;
+  const byDevice = new Map<string, Sos>();
+  for (const s of result.items) {
+    const kept = guardActiveResult(qc, { sos: s }).sos;
+    if (!kept || kept.status !== "pending") continue;
+    const held = byDevice.get(kept.deviceId);
+    if (!held || createdLater(kept, held)) byDevice.set(kept.deviceId, kept);
+  }
+  const cached = qc
+    .getQueryCache()
+    .findAll({ queryKey: ["sos-active"] })
+    .map((q) => q.queryKey[1])
+    .filter((id): id is string => typeof id === "string");
+  for (const deviceId of new Set([
+    ...knownDeviceIds,
+    ...cached,
+    ...byDevice.keys(),
+  ])) {
+    const key = ["sos-active", deviceId];
+    const state = qc.getQueryState<ActiveSosResponse>(key);
+    // 同一毫秒算「在途期间」：宁可多信一次 WS 写入（30 秒后下一轮就纠正），不能让旧应答盖掉推送
+    if (state?.data !== undefined && state.dataUpdatedAt >= startedAt) continue;
+    const sos = byDevice.get(deviceId) ?? null;
+    if (!sos && !complete) continue;
+    const now = state?.data?.sos ?? null;
+    // 没变就不写：写一次就是一轮缓存更新事件，倒计时页会跟着重算
+    if (
+      state?.data !== undefined &&
+      now?.sosId === sos?.sosId &&
+      now?.status === sos?.status &&
+      now?.updatedAt === sos?.updatedAt
+    )
+      continue;
+    qc.setQueryData<ActiveSosResponse>(key, { sos });
+  }
+}
+
+/** 安全页的账号级轮询：拉一次、写回按头盔的缓存；返回这一轮拿到的单数（只给调试看） */
+export async function pollAccountActive(
+  qc: QueryClient,
+  knownDeviceIds: readonly string[],
+  fetchAccount: () => Promise<{ items: Sos[]; total: number }>,
+): Promise<number> {
+  const startedAt = Date.now();
+  const result = await fetchAccount();
+  applyAccountActive(qc, result, knownDeviceIds, startedAt);
+  return result.total;
+}
+
+/**
+ * 进行中队列做成外部 store（给 useSyncExternalStore）：缓存里 sos-active / sos 有更新就通知重读；
+ * 每次读都按缓存现算，内容没变时沿用旧数组（useSyncExternalStore 要求没变时返回同一个值）。
+ * 不用「空转 tick 强制重渲染」——React Compiler 判定输入没变会把 activeSosQueue(qc) 的结果 memo 住（见倒计时页 now 的注释）
+ */
+export function activeSosStore(qc: QueryClient): {
+  subscribe: (onChange: () => void) => () => void;
+  getSnapshot: () => Sos[];
+} {
+  let snapshot: Sos[] = [];
+  return {
+    subscribe: (onChange) =>
+      qc.getQueryCache().subscribe((e) => {
+        const k = e.query.queryKey[0];
+        if ((k === "sos-active" || k === "sos") && e.type === "updated")
+          onChange();
+      }),
+    getSnapshot: () => {
+      const next = activeSosQueue(qc);
+      const same =
+        next.length === snapshot.length &&
+        next.every((s, i) => s === snapshot[i]);
+      if (!same) snapshot = next;
+      return snapshot;
+    },
+  };
+}
