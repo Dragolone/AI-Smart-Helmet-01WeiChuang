@@ -50,6 +50,25 @@ describe("实时通道 / BLE 中转 / 推送与登录态同生命周期，不随
     }
   });
 
+  it("界面被拆而人还登录着（安卓从多任务划掉 App，进程还活着）：不删推送别名、不撤求救提醒，只有真的登出才做（10-17 夜模拟器）", () => {
+    const hook = read("hooks/use-realtime.ts");
+    const cleanup = hook.slice(hook.lastIndexOf("return () => {"));
+    const loggedOut = cleanup.indexOf(
+      "if (useAuthStore.getState().tokens === null) {",
+    );
+    expect(loggedOut).toBeGreaterThan(0);
+    const branch = cleanup.slice(loggedOut, cleanup.indexOf("}", loggedOut));
+    expect(branch).toContain("stopPush();");
+    expect(branch).toContain("resetSosAlerts();");
+    // 只出现在这个判断里
+    expect(cleanup.split("stopPush();").length - 1).toBe(1);
+    expect(cleanup.split("resetSosAlerts();").length - 1).toBe(1);
+    // 「拉起过哪几单」是界面的事：界面没了照样清，下次打开 App 进行中的单才会再弹倒计时页
+    expect(cleanup.indexOf("presentedSos.current.clear();")).toBeLessThan(
+      loggedOut,
+    );
+  });
+
   it("全仓只有一处调用", () => {
     const callers = [
       "app/_layout.tsx",
