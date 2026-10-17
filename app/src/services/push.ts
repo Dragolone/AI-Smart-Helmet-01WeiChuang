@@ -186,25 +186,24 @@ export async function landFromPush(extras: PushExtras): Promise<string | null> {
   // 「请求失败」≠「服务端说没有进行中的单」（2026-10-05 评审）：用户点的是「倒计时已开始」那条推送，
   // 刚唤醒的网络第一下常常不通，这时最可能的真实状态恰恰是 pending。原来两种情况都落事故详情，
   // 而详情页没有取消键。查不到就进倒计时页——它自己会拉权威状态，已结束的单会显示结束态。
-  let countdown = false;
+  // 落到哪一单的倒计时：点的这单本身还在倒数 → 它；同一顶头盔已经有更新的一单在倒数（点的是旧单留在通知中心的
+  // 推送，安卓上极光那条撤不掉）→ 直接去新的那一单。原来落旧单的记录页，压在正在响的倒计时上面，
+  // 页面写「已取消」、警报照响（REGRESSION 4.27 加测，10-17 华为实测）
+  let countdownId: string | null = null;
   if (typeof deviceId === "string" && deviceId) {
     try {
       const active: Sos | null = (await sosApi.active(deviceId)).sos;
-      countdown =
-        active !== null &&
-        active !== undefined &&
-        active.status === "pending" &&
-        active.sosId === sosId;
+      if (active?.status === "pending") countdownId = active.sosId;
     } catch {
-      countdown = true;
+      countdownId = sosId;
     }
   }
-  const target = countdown
-    ? sosActiveHref(sosId, deviceId)
+  const target = countdownId
+    ? sosActiveHref(countdownId, deviceId)
     : accidentHref(sosId);
   // navigate 而不是 push：后台收到 WS 时倒计时页多半已经在栈上了（12:07 华为实测），
   // 再 push 一份会叠两页倒计时；navigate 对同一路由只聚焦不新建。登记后 WS / 补拉也不再重复拉起
-  if (countdown) presentedSos.current.add(sosId);
+  if (countdownId) presentedSos.current.add(countdownId);
   router.navigate(target as never);
   return target;
 }
