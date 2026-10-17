@@ -73,6 +73,8 @@ export const safety = {
     "safety.sosSendFailed": "求救发送失败",
     "safety.sosRejected": "服务器没有接受这条求救，请直接拨打紧急电话。",
     "safety.sosQueued": "求救请求已暂存，网络恢复后将自动发送。",
+    "safety.sosNotSent":
+      "求救没有发出，也不会自动重发。需要帮助请直接拨打电话。",
     "safety.manualSos": "手动求救",
     "safety.status.pending": "进行中",
     "safety.status.notified": "通知已启动",
@@ -204,6 +206,8 @@ export const safety = {
     "safety.sosSendFailed": "求救傳送失敗",
     "safety.sosRejected": "伺服器沒有接受這筆求救，請直接撥打緊急電話。",
     "safety.sosQueued": "求救請求已暫存，網路恢復後將自動傳送。",
+    "safety.sosNotSent":
+      "求救沒有送出，也不會自動重發。需要協助請直接撥打電話。",
     "safety.manualSos": "手動求救",
     "safety.status.pending": "進行中",
     "safety.status.notified": "通知已啟動",
@@ -344,6 +348,8 @@ export const safety = {
       "The server did not accept this SOS. Please call emergency services directly.",
     "safety.sosQueued":
       "SOS request saved. It will be sent automatically when the connection returns.",
+    "safety.sosNotSent":
+      "Your SOS was not sent and won't be retried. If you need help, call directly.",
     "safety.manualSos": "Manual SOS",
     "safety.status.pending": "Active",
     "safety.status.notified": "Notifications started",

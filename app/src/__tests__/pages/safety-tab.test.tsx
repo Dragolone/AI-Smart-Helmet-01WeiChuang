@@ -442,6 +442,30 @@ describe("长按求救", () => {
     expect(notifyCriticalAccepted).not.toHaveBeenCalled();
   });
 
+  it("头盔已不在这个账号下（404）：不进持久队列，明说没发出、不会自动重发（10-17）", async () => {
+    m(relayApi.push).mockImplementation(() =>
+      Promise.reject(
+        new ApiRequestError(404, {
+          code: "DEVICE_NOT_FOUND",
+          message: "设备不存在或未绑定到当前用户",
+        }),
+      ),
+    );
+    const r = mount();
+    await act(async () => {
+      sosButton(r).props.onLongPress();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(alert).toHaveBeenCalled());
+    expect(enqueueRelayEvent).not.toHaveBeenCalled();
+    const [title, body] = alert.mock.calls.at(-1) as [string, string];
+    expect(title).toBe(translate("safety.sosSendFailed"));
+    expect(body).toContain(translate("safety.sosNotSent"));
+    expect(body).not.toContain(translate("safety.sosQueued"));
+    expect(notifyCriticalAccepted).not.toHaveBeenCalled();
+  });
+
   it("两次长按是两个不同的 eventId（服务端按它幂等，不能复用）", async () => {
     m(relayApi.push).mockImplementation(() => Promise.resolve({}));
     const r = mount();

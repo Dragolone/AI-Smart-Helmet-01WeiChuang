@@ -665,6 +665,25 @@ describe("已取消后「我还是需要帮助」", () => {
     );
   });
 
+  it("头盔已不在这个账号下（404）：不进补发队列，明说没发出、不会自动重发（10-17 安卓：倒数中被解绑）", async () => {
+    m(relayApi.push).mockImplementation(() =>
+      Promise.reject(
+        new ApiRequestError(404, {
+          code: "DEVICE_NOT_FOUND",
+          message: "设备不存在或未绑定到当前用户",
+        }),
+      ),
+    );
+    const r = await cancelled();
+    r.press(tr("sos.needHelp"));
+    await tick(0);
+    expect(enqueueRelayEvent).not.toHaveBeenCalled();
+    const [title, body] = alert.mock.calls.at(-1) as [string, string];
+    expect(title).toBe(tr("safety.sosSendFailed"));
+    expect(body).toContain(tr("safety.sosNotSent"));
+    expect(body).not.toContain(tr("safety.sosQueued"));
+  });
+
   it("之后的新单到了（中转成功后核对写进缓存）：这张页自己切回倒计时，不另开一页；同一顶头盔的旧单被顶掉，结束后仍是单条结果页（10-16 N10）", async () => {
     m(relayApi.push).mockImplementation(() =>
       Promise.resolve({ accepted: 1, duplicate: 0, invalid: 0 }),
@@ -826,6 +845,45 @@ describe("多顶头盔同时求救（10-16 N10：一张页 + 顶部胶囊点切�
     ).toEqual(["s1", "s2", "s3"]);
     expect(r.allText()).toContain(tr("sos.multiDoneTitle", { n: 3 }));
     expect(r.allText()).toContain("山地");
+  });
+
+  it("「全部取消」几单一起结束：屏上这单先结束时不提示「已取消，已切到下一单」（10-17 安卓：结果页顶上还挂着这句）", async () => {
+    twoHelmets();
+    // 请求逐单发、逐单回：屏上这单（s1）先回，其余两单晚一拍
+    const settle = new Map<string, () => void>();
+    m(sosApi.cancel).mockImplementation(
+      (id: unknown) =>
+        new Promise((resolve) => {
+          settle.set(id as string, () =>
+            resolve(
+              sosOf({
+                sosId: id as string,
+                deviceId: id === "s2" ? "h2" : id === "s3" ? "h3" : "h1",
+                status: "cancelled",
+              }),
+            ),
+          );
+        }),
+    );
+    const r = await mount();
+    arrive(second());
+    arrive(second("s3", "h3", 55));
+    await tick(0);
+    r.press(tr("sos.allCancel"));
+    const buttons = alert.mock.calls[0][2] as {
+      text: string;
+      onPress?: () => void;
+    }[];
+    act(() => buttons[1].onPress?.());
+    await tick(0);
+    settle.get("s1")?.();
+    for (let i = 0; i < 3; i++) await tick(0);
+    settle.get("s2")?.();
+    settle.get("s3")?.();
+    for (let i = 0; i < 4; i++) await tick(0);
+    expect(r.allText()).toContain(tr("sos.multiDoneTitle", { n: 3 }));
+    for (const name of ["通勤", "滑雪", "山地"])
+      expect(r.allText()).not.toContain(tr("sos.switchedCancelled", { name }));
   });
 
   it("「全部立即求救」：确认后每单都调确认接口；一单失败弹窗说明，其余照常", async () => {

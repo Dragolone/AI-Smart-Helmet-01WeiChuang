@@ -168,6 +168,11 @@ type Motion = {
   home: SharedValue<number>;
   /** 1 = 下一件还要人去做：光再出去点亮按钮 */
   out: SharedValue<number>;
+  /**
+   * 现在轮到第几件（卡片上停着显示的那件）。和上面几个在 advance 里一起设：页面重画可能比共享值先到动画线程，
+   * 一件内容露不露面只看共享值（见 services/device-guide 的 bodyPhase）
+   */
+  current: SharedValue<number>;
 };
 
 /** 上一件事处理完到现在，下一件的内容还差多久到位（毫秒）；到位之后才开始画勾。只在副作用里用 */
@@ -183,11 +188,10 @@ function bump(v: number, peak: number): number {
   return p < peak ? smooth(p / peak) : 1 - smooth((p - peak) / (1 - peak));
 }
 
-/** 卡片上的一行内容属于第几件事、这件事现在是轮到的还是刚让位的、它是第几行（越大浮上来得越晚） */
+/** 卡片上的一行内容属于第几件事、它是第几行（越大浮上来得越晚） */
 type RowOf = {
   motion: Motion;
   step: number;
-  role: "cur" | "past";
   order: 0 | 1 | 2 | 3;
 };
 
@@ -225,8 +229,8 @@ function Row({
     if (of) {
       const b = of.motion.beat.get();
       const phase = bodyPhase(
-        of.role,
         of.step,
+        of.motion.current.get(),
         of.motion.past.get(),
         of.motion.enter.get(),
       );
@@ -396,7 +400,7 @@ function StepBody({
         : card.primary?.icon === "bell"
           ? "notifications-outline"
           : "person-add-outline";
-  const row = (order: 0 | 1 | 2 | 3): RowOf => ({ motion, step, role, order });
+  const row = (order: 0 | 1 | 2 | 3): RowOf => ({ motion, step, order });
 
   return (
     <View
@@ -1006,13 +1010,19 @@ export function DeviceGuide({
   const enter = useSharedValue(0);
   const home = useSharedValue(0);
   const out = useSharedValue(0);
+  const current = useSharedValue<number>(front);
   const motion = useMemo<Motion>(
-    () => ({ beat, past, enter, home, out }),
-    [beat, past, enter, home, out],
+    () => ({ beat, past, enter, home, out, current }),
+    [beat, past, enter, home, out, current],
   );
+  // 不经 advance 换了轮到的那件（冷启动恢复进度、一件事的结果从别处记上）：跟上。经 advance 的那次早已设过，这里是同一个值
+  useEffect(() => {
+    current.set(front);
+  }, [front, current]);
 
-  // 一件事处理完：先把「换到下一件」那一段起起来，再记结果。共享值比页面重画早到动画线程，
-  // 所以新内容搭上来的那一帧已经是「还没浮上来」的样子，不会先整个闪出来一下
+  // 一件事处理完：先把「换到下一件」那一段起起来，再记结果。页面重画和这几个共享值谁先到动画线程不一定
+  //（10-17 安卓模拟器：重画先到一两帧），所以一件内容露不露面只看共享值（bodyPhase）：
+  // 共享值没到之前新的那件藏着、旧的那件照常显示，到了之后旧的淡走、新的浮上来，不会叠在一起
   const advance = (step: 1 | 2 | 3, result: "done" | "skipped") => {
     const now = useGuideStore.getState();
     const key = step === 1 ? "r1" : step === 2 ? "r2" : "r3";
@@ -1021,6 +1031,8 @@ export function DeviceGuide({
     const b = guideBeat(now.state, step, result, cards, bindOnly);
     past.set(b.next === 0 ? 0 : step);
     enter.set(b.next);
+    // 都处理完时最后一件留在卡片上，直到交给衔接动画
+    current.set(b.next === 0 ? step : b.next);
     home.set(b.home ? 1 : 0);
     out.set(b.out ? 1 : 0);
     beat.set(0);

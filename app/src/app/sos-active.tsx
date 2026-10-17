@@ -82,6 +82,7 @@ import {
   enqueueRelayEvent,
   notifyCriticalAccepted,
 } from "@/services/ble-relay-uplink";
+import { isUnrecoverableRelayError } from "@/services/relay-errors";
 import { msToNextSecond, shownSeconds } from "@/services/countdown";
 import { lateEventNote } from "@/services/sos-age";
 import {
@@ -480,6 +481,9 @@ function SosActiveContent() {
         deviceId: id,
       },
     );
+  // 「全部取消 / 全部立即求救」一起处理的那几单：请求是逐单发的，第一单先结束时其余几单在缓存里还算进行中，
+  // 下面会切过去——这时不说「已取消，已切到下一单」，几单是一起处理的（10-17 安卓：三单全部取消后，结果页顶上还挂着这句）
+  const [bulkIds, setBulkIds] = useState<readonly string[]>([]);
   // 当前这单结束（本页取消 / 立即求救、别处取消、到期通知）且还有别的单在倒数：提示一句、切到最早到期的那单。
   // 没有别的单才停在结果页。新单盖上来（「我还是需要帮助」之后那单）也走这里
   const next = finished ? nextSos(queue, sosId) : null;
@@ -487,7 +491,7 @@ function SosActiveContent() {
   if (!isDrill && next && sos && next.sosId !== selected) {
     // 同一顶头盔的新单（已取消页点了「我还是需要帮助」）：直接切回倒计时，不说「已取消，已切到下一单」
     //（10-16 iPhone：切回时提示写成了「测试头盔1：已取消，已切到下一单」）
-    if (next.deviceId !== sos.deviceId)
+    if (next.deviceId !== sos.deviceId && !bulkIds.includes(sos.sosId))
       setToast(
         t(
           sos.status === "cancelled"
@@ -680,6 +684,15 @@ function SosActiveContent() {
         notifyCriticalAccepted(helpDevice);
       })
       .catch((e) => {
+        // 服务端明确拒绝（头盔已不在这个账号下 404 / 无权 403 / 坏体 400）：重发也是同一个结果，补发队列也会直接丢掉。
+        // 不进队列，也别说「已暂存」（10-17 安卓：头盔在倒数中被解绑，结果页点「我还是需要帮助」，提示写着网络恢复后自动发送）
+        if (isUnrecoverableRelayError(e)) {
+          showNotice(
+            t("safety.sosSendFailed"),
+            `${toUserMessage(e)}\n${t("safety.sosNotSent")}`,
+          );
+          return;
+        }
         // 没发出去：进持久队列，网络恢复后按原 eventId 自动补发（同一条只入队一次）
         if (!helpQueued.current.has(helpDevice)) {
           helpQueued.current.add(helpDevice);
@@ -709,6 +722,7 @@ function SosActiveContent() {
           text: t("common.confirm"),
           style: kind === "cancel" ? "destructive" : "default",
           onPress: () => {
+            setBulkIds(targets.map((q) => q.sosId));
             setBusy(kind);
             void Promise.allSettled(
               targets.map((q) =>
