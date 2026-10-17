@@ -577,8 +577,11 @@ export interface AdminAccidentRow extends AccidentListItem {
   user: { id: string; phone: string; nickname: string | null } | null;
 }
 
-/** GET /admin/events 列表项：Admin 是排查工具，带业务接口不可见的 source/clockSkew */
-export interface AdminEventRow extends EventListItem {
+/**
+ * GET /admin/events 列表项：Admin 是排查工具，带业务接口不可见的 source/clockSkew。
+ * 这里的 timestamp 是设备上报的原值（不是 App 接口的业务时间，决策 #59），配合 clockSkew 排查时钟问题
+ */
+export interface AdminEventRow extends Omit<EventListItem, 'deviceTimestamp'> {
   payload: Record<string, unknown>;
   source: string;
   clockSkew: boolean;
