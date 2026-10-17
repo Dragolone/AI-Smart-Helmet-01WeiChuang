@@ -450,6 +450,11 @@ describe("多顶头盔", () => {
       expect(r.texts()).toContain(` · ${shortTime(today(9), "zh-CN")}`),
     );
     expect(r.texts()).toContain("通勤");
+    // 名字太长截中间：默认名都是「helmet_」开头，后几位才分得出是哪一顶（10-17 英文 360dp 宽只剩「helmet_q…」）
+    const name = r.root.findAll(
+      (n) => n.props.ellipsizeMode === "middle" && n.props.children === "通勤",
+    );
+    expect(name.length).toBeGreaterThan(0);
     await waitFor(
       () =>
         expect(r.allText()).toContain(
