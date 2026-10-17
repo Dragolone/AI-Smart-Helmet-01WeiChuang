@@ -262,6 +262,7 @@ MVP 实用为主，全部只读 + 少量运维操作。
 | device_command | `{ deviceId, commandId, type, params, issuedAt }` | ① 新命令创建（§8 下发）时实时推送；② **连接建立时补推**该用户绑定设备上**本人下发的**、`status ∈ {pending, delivered}` 的命令（BLE 下行通道，决策 #36；只推本人的：换绑后上一位主人没执行完的命令不由新主人的 App 写进头盔，2026-10-14） |
 
 - WebSocket 是加速通道不是可靠通道：App 重连后须用 REST 拉取兜底；SOS 兜底靠 Push（deadline 持久化在服务端）。
+- **服务端发送积压上限 4 MiB**（2026-10-17）：连接不读数据（脚本暂停读取、半开 TCP）导致服务端待发数据超过 4 MiB 时，服务端直接断开该连接（不发关闭帧，客户端看到 1006）。App 按普通断线重连并用 REST 补拉即可；正常读取的连接积压只有 KB 级，不会触发。
 - **device_command 的连接补推不违反「不补发」口径**：这是持久化命令的状态同步（commandId 幂等，App/头盔重复收到不重复执行），不是历史事件重放。补推含 `delivered` 是因为 delivered=PUBACK 只证明送达 Broker（口径 #27④）——蓝牙版设备不在 MQTT 上，PUBACK 照样成功，若只补推 pending 则蓝牙版 App 上线永远收不到已 PUBACK 的命令。`offline` 的命令不补推（用户可能已重发），REST 兜底可查。
 - ✅ 实现状态（2026-08-16）：通道 + 全部五类推送均已实现（`device_status` / `location_update` / `sos_update` / `risk_event` / `device_event`）；`device_command` + relay-ack（决策 #36）已实现（2026-08-25，e2e 12 场景 + Mock 中转实测四场景通过）。
 
