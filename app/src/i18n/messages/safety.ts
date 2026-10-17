@@ -381,7 +381,7 @@ export const safety = {
     "records.noHelmetBody":
       "Add a helmet to view its risk alerts and SOS records.",
     "records.pending": "{device} has an active SOS",
-    "records.sos.fall": "Possible fall · SOS",
+    "records.sos.fall": "Possible fall",
     "records.sos.manual": "Manual SOS",
     "records.detail.time": "Time",
     "records.detail.helmet": "Helmet",
