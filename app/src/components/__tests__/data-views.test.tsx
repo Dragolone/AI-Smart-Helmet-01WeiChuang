@@ -566,6 +566,8 @@ describe("HelmetPicker", () => {
     ).toHaveLength(1);
     expect(text).toContain(`h1 · ${tr("map.picker.battery", { n: 70 })}`);
     expect(r.texts()).toContain("h2");
+    // 没起名字的：名字就是编号，第二行不再把编号重复一遍（10-17 模拟器）
+    expect(r.texts().filter((x) => x === "h2")).toHaveLength(1);
     const rows = r.root.findAll(
       (n) =>
         n.type === Tappable &&
@@ -576,6 +578,22 @@ describe("HelmetPicker", () => {
       true,
     ]);
     expect(r.root.findAll((n) => isHost(n, "ExpoImage"))).toHaveLength(2);
+  });
+
+  it("没起名字、有电量：第二行只写电量，不写「编号 · 电量」", () => {
+    const r = render(
+      <HelmetPicker
+        visible
+        devices={[dev("h3", { battery: 55 })]}
+        links={{}}
+        viewedId="h3"
+        currentId={undefined}
+        onPick={jest.fn()}
+        onClose={jest.fn()}
+      />,
+    );
+    expect(r.texts()).toContain(tr("map.picker.battery", { n: 55 }));
+    expect(r.texts().filter((x) => x.includes("h3"))).toEqual(["h3"]);
   });
 
   it("连着的写连接状态，没连的写离线多久了", () => {

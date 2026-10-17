@@ -224,7 +224,7 @@ export const map = {
     "map.rideDistance": "This ride",
     "map.altitude": "Altitude",
     "map.battery": "Battery",
-    "map.batteryLast": "Last battery level",
+    "map.batteryLast": "Last battery",
     "map.navigate": "Navigate to location",
     "map.navigateLast": "Navigate to last location",
     "map.share": "Share location",

@@ -45,6 +45,13 @@ describe("数字是 1 时英文读得通", () => {
     );
   });
 
+  it("地图四格里的「上次电量」和设备页同一写法：「Last battery level」在格子里放不下（10-17 模拟器截成「Last battery le…」）", () => {
+    expect(translate("map.batteryLast", {}, "en")).toBe("Last battery");
+    expect(translate("map.batteryLast", {}, "en")).toBe(
+      translate("devices.batteryLast", {}, "en"),
+    );
+  });
+
   it("中文写法不变", () => {
     expect(translate("profile.devicesCount", { n: 1 }, "zh-CN")).toBe(
       "1 台设备",
