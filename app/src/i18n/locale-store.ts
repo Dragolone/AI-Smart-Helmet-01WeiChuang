@@ -21,7 +21,11 @@ const KEYCHAIN = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK };
 const isLocale = (v: string | null): v is Locale =>
   v !== null && (LOCALES as readonly string[]).includes(v);
 
-/** 系统语言 → 支持的三种之一（Hermes 的 Intl 能给出 BCP-47 标签，无需 expo-localization 原生依赖） */
+/**
+ * 系统语言 → 支持的三种之一（Hermes 的 Intl 能给出 BCP-47 标签，无需 expo-localization 原生依赖）。
+ * iOS 上 Intl 跟的是 App 声明支持的语言：app.json 的 ios.infoPlist.CFBundleLocalizations 里没有中文时，
+ * 中文系统也解析成英文（10-17 F12，模拟器上是 en-US）。
+ */
 export function detectLocale(): Locale {
   let tag = "zh-CN";
   try {
