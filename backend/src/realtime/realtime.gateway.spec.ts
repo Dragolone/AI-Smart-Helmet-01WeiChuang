@@ -1,21 +1,29 @@
 // WS 实时通道网关：鉴权分支、到期断开、连接钩子失败隔离、定向 / 广播推送跳过非 OPEN 连接与发送失败、注销断开。
-// JwtService / Prisma mock，WebSocket 用只带 readyState / send / close 的假对象。
+// JwtService / Prisma mock，WebSocket 用只带 readyState / bufferedAmount / send / close / terminate 的假对象。
 import { Logger } from '@nestjs/common';
 import type { JwtService } from '@nestjs/jwt';
 import type { IncomingMessage } from 'node:http';
 import { WebSocket } from 'ws';
 import type { PrismaService } from '../prisma/prisma.service';
-import { CLOSE_UNAUTHORIZED, RealtimeGateway } from './realtime.gateway';
+import {
+  CLOSE_UNAUTHORIZED,
+  RealtimeGateway,
+  WS_MAX_BUFFERED_BYTES,
+} from './realtime.gateway';
 
 type SendCb = (err?: Error) => void;
 interface FakeWs {
   readyState: number;
+  bufferedAmount: number;
   close: jest.Mock;
+  terminate: jest.Mock;
   send: jest.Mock<void, [string, SendCb]>;
 }
 const fakeWs = (readyState: number = WebSocket.OPEN): FakeWs => ({
   readyState,
+  bufferedAmount: 0,
   close: jest.fn(),
+  terminate: jest.fn(),
   send: jest.fn<void, [string, SendCb]>((_raw, cb) => cb()),
 });
 const asWs = (w: FakeWs) => w as unknown as WebSocket;
@@ -201,6 +209,17 @@ describe('RealtimeGateway', () => {
       gw.sendToClient(asWs(ws), msg);
       expect(warnSpy).toHaveBeenCalledWith('WS 定向推送失败：EPIPE');
     });
+
+    it('积压正好到上限：照发；超过上限：不再往里塞，直接断开', () => {
+      const ws = fakeWs();
+      ws.bufferedAmount = WS_MAX_BUFFERED_BYTES;
+      gw.sendToClient(asWs(ws), msg);
+      expect(ws.send).toHaveBeenCalledTimes(1);
+      ws.bufferedAmount = WS_MAX_BUFFERED_BYTES + 1;
+      gw.sendToClient(asWs(ws), msg);
+      expect(ws.send).toHaveBeenCalledTimes(1);
+      expect(ws.terminate).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('pushToUser（广播给该用户所有连接）', () => {
@@ -222,6 +241,18 @@ describe('RealtimeGateway', () => {
       expect(b.send).not.toHaveBeenCalled();
       expect(c.send).toHaveBeenCalledTimes(1);
       expect(warnSpy).toHaveBeenCalledWith('WS 推送失败：socket hang up');
+    });
+
+    it('一条连接积压超限被断开，同一用户的其他连接照收', async () => {
+      const slow = fakeWs();
+      const fast = fakeWs();
+      await connect(slow);
+      await connect(fast);
+      slow.bufferedAmount = WS_MAX_BUFFERED_BYTES + 1;
+      gw.pushToUser('u1', msg);
+      expect(slow.terminate).toHaveBeenCalledTimes(1);
+      expect(slow.send).not.toHaveBeenCalled();
+      expect(fast.send).toHaveBeenCalledTimes(1);
     });
 
     it('断开一个连接后：剩下的照收；全部断开后用户条目被清掉', async () => {

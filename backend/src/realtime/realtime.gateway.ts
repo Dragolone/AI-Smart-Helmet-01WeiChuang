@@ -27,6 +27,14 @@ export const CLOSE_UNAUTHORIZED = 4401;
  */
 export const WS_MAX_PAYLOAD_BYTES = 64 * 1024;
 
+/**
+ * 单条连接未发出的积压上限：对端不读（脚本暂停读取、进隧道的半开 TCP）时 ws 的发送缓冲只增不减，
+ * 一个账号一条连接加自己头盔的中转就能把进程内存顶上去（10-17 第二轮评审实测每 100 次中转涨约 5.8 MiB）。
+ * 超过就直接断开：WS 本来就不是可靠通道，App 重连后用 REST 补拉（API.md §11）。
+ * 正常读的连接积压在 KB 级；单条推送最大约 64 KiB，4 MiB 约是 60 条最大消息还没读走。
+ */
+export const WS_MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
+
 @WebSocketGateway({ path: '/ws', maxPayload: WS_MAX_PAYLOAD_BYTES })
 export class RealtimeGateway
   implements OnGatewayConnection, OnGatewayDisconnect
@@ -125,12 +133,22 @@ export class RealtimeGateway
 
   /** 定向发给单个连接（连接补推用；广播仍走 pushToUser） */
   sendToClient(client: WebSocket, message: WsMessage): void {
-    if (client.readyState === WebSocket.OPEN) {
-      const raw = JSON.stringify(message);
-      client.send(raw, (err) => {
-        if (err) this.logger.warn(`WS 定向推送失败：${err.message}`);
-      });
+    this.send(client, JSON.stringify(message), 'WS 定向推送');
+  }
+
+  private send(ws: WebSocket, raw: string, what: string): void {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    if (ws.bufferedAmount > WS_MAX_BUFFERED_BYTES) {
+      this.logger.warn(
+        `${what}跳过并断开：连接积压 ${ws.bufferedAmount} 字节未读（用户 ${this.clientUser.get(ws) ?? '未登记'}）`,
+      );
+      // terminate 不等对端握手（对端本来就不读）；close 事件照常走 handleDisconnect 清登记表
+      ws.terminate();
+      return;
     }
+    ws.send(raw, (err) => {
+      if (err) this.logger.warn(`${what}失败：${err.message}`);
+    });
   }
 
   handleDisconnect(client: WebSocket): void {
@@ -171,12 +189,6 @@ export class RealtimeGateway
     const conns = this.byUser.get(userId);
     if (!conns || conns.size === 0) return;
     const raw = JSON.stringify(message);
-    for (const ws of conns) {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(raw, (err) => {
-          if (err) this.logger.warn(`WS 推送失败：${err.message}`);
-        });
-      }
-    }
+    for (const ws of [...conns]) this.send(ws, raw, 'WS 推送');
   }
 }
