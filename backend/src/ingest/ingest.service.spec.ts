@@ -238,6 +238,7 @@ describe('IngestService', () => {
   const findUnique = jest.fn();
   const applyEvent = jest.fn();
   const record = jest.fn();
+  const recordIfMissing = jest.fn();
   const pushLocation = jest.fn();
   const pushDeviceStatus = jest.fn();
   const handleTrigger = jest.fn();
@@ -249,6 +250,7 @@ describe('IngestService', () => {
     findUnique.mockReset().mockResolvedValue(null);
     applyEvent.mockReset().mockResolvedValue(null); // 默认未注册设备：仅 raw 留档
     record.mockReset();
+    recordIfMissing.mockReset();
     pushLocation.mockReset();
     pushDeviceStatus.mockReset();
     handleTrigger.mockReset();
@@ -261,7 +263,10 @@ describe('IngestService', () => {
           useValue: { rawEvent: { create, findUnique } },
         },
         { provide: DeviceSnapshotService, useValue: { applyEvent } },
-        { provide: LocationRecorderService, useValue: { record } },
+        {
+          provide: LocationRecorderService,
+          useValue: { record, recordIfMissing },
+        },
         {
           provide: RealtimePushService,
           useValue: { pushLocation, pushDeviceStatus },
@@ -293,6 +298,13 @@ describe('IngestService', () => {
     await expect(
       service.ingestRaw(validMessage, 'helmet_001', 'mqtt'),
     ).resolves.toBe('duplicate');
+    // 重复的位置：补写上次可能中断的位置点（位置表按 eventId 幂等），不再走一遍完整分发
+    expect(recordIfMissing).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventId: '018f6b2a-7c3e-7000-8000-000000000001',
+      }),
+    );
+    expect(record).not.toHaveBeenCalled();
   });
 
   it('校验失败事件按 _invalid 落库 → stored_invalid（不丢弃）', async () => {

@@ -30,6 +30,8 @@ const env = (
 
 describe('LocationRecorderService', () => {
   const create = jest.fn();
+  const pointFindUnique = jest.fn();
+  const deviceFindUnique = jest.fn();
   let svc: LocationRecorderService;
   let warnSpy: jest.SpyInstance;
 
@@ -39,8 +41,11 @@ describe('LocationRecorderService', () => {
       .mockImplementation(({ data }: { data: Record<string, unknown> }) =>
         Promise.resolve({ id: 'p1', ...data }),
       );
+    pointFindUnique.mockReset().mockResolvedValue(null);
+    deviceFindUnique.mockReset().mockResolvedValue({ deviceId: 'helmet_001' });
     svc = new LocationRecorderService({
-      locationPoint: { create },
+      locationPoint: { create, findUnique: pointFindUnique },
+      device: { findUnique: deviceFindUnique },
     } as unknown as PrismaService);
     warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
   });
@@ -140,11 +145,62 @@ describe('LocationRecorderService', () => {
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
-  it('其他入库失败：只告警（副表失败不影响主流程），返回 null', async () => {
-    create.mockRejectedValue(new Error('numeric field overflow'));
+  it('数据库拒收这一条（列范围等）：只告警（副表失败不影响主流程），返回 null', async () => {
+    create.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('numeric field overflow', {
+        code: 'P2020',
+        clientVersion: 'test',
+      }),
+    );
     await expect(svc.record(env(goodPayload))).resolves.toBeNull();
     expect(warnSpy).toHaveBeenCalledWith(
       '位置点入库失败（raw 已留档）loc-1：numeric field overflow',
     );
+  });
+
+  it.each([
+    [
+      '连不上数据库 P1001',
+      new Prisma.PrismaClientKnownRequestError('down', {
+        code: 'P1001',
+        clientVersion: 'test',
+      }),
+    ],
+    [
+      '连接池超时 P2024',
+      new Prisma.PrismaClientKnownRequestError('pool', {
+        code: 'P2024',
+        clientVersion: 'test',
+      }),
+    ],
+    ['非 Prisma 异常', new Error('socket hang up')],
+  ])('瞬时故障（%s）：重抛，让入口回 5xx、上游重传', async (_name, err) => {
+    create.mockRejectedValue(err);
+    await expect(svc.record(env(goodPayload))).rejects.toBe(err);
+  });
+
+  describe('recordIfMissing（重复上报时补写上次中断的点）', () => {
+    it('位置表里已有：什么都不做', async () => {
+      pointFindUnique.mockResolvedValue({ id: 'p1' });
+      await svc.recordIfMissing(env(goodPayload));
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it('没有、设备已注册：补写', async () => {
+      await svc.recordIfMissing(env(goodPayload));
+      expect(pointFindUnique).toHaveBeenCalledWith({
+        where: {
+          deviceId_eventId: { deviceId: 'helmet_001', eventId: 'loc-1' },
+        },
+        select: { id: true },
+      });
+      expect(create).toHaveBeenCalledTimes(1);
+    });
+
+    it('没有、设备未注册：不写（与正常分发同条件）', async () => {
+      deviceFindUnique.mockResolvedValue(null);
+      await svc.recordIfMissing(env(goodPayload));
+      expect(create).not.toHaveBeenCalled();
+    });
   });
 });

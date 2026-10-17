@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { DeviceStatusPayload } from '@helmet/shared';
-import { isBackfill } from '../common/device-time';
+import {
+  CLOCK_SKEW_THRESHOLD_MS,
+  businessTime,
+  isBackfill,
+} from '../common/device-time';
 import { errorMessage } from '../common/error-text';
 import { isRecordNotFound } from '../common/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
@@ -43,6 +47,13 @@ export interface DeviceSnapshot {
   firmwareVersion: string | null;
 }
 
+/** 会改快照状态字段（电量 / 充电 / 信号 / 休眠）的事件 */
+const STATUS_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'device_status',
+  'sleep_entered',
+  'sleep_exited',
+]);
+
 const SNAPSHOT_SELECT = {
   bindUserId: true,
   lastSeenAt: true,
@@ -78,12 +89,20 @@ export class DeviceSnapshotService {
         select: SNAPSHOT_SELECT,
       });
     }
+    const now = new Date();
     const data: Record<string, unknown> = {
-      lastSeenAt: new Date(),
+      lastSeenAt: now,
       firmwareVersion: e.firmwareVersion,
     };
 
-    if (e.eventType === 'device_status') {
+    if (
+      STATUS_EVENT_TYPES.has(e.eventType) &&
+      (await this.newerStatusApplied(e, now))
+    ) {
+      // 乱序到达的旧状态：重连时实时心跳先到、几分钟前的补传心跳后到（5 分钟内不算 isBackfill）。原来按到达顺序覆盖，
+      // 电量 / 充电回退成旧值并经 WS 推给 App，要等下一次心跳（默认 60 s）才恢复（10-17 第二轮评审 r3）。只刷新在线时间
+      delete data.firmwareVersion;
+    } else if (e.eventType === 'device_status') {
       Object.assign(data, normalizeDeviceStatus(e.payload));
     } else if (e.eventType === 'sleep_entered') {
       data.sleeping = true;
@@ -104,6 +123,42 @@ export class DeviceSnapshotService {
         where: { deviceId: e.deviceId },
         select: SNAPSHOT_SELECT,
       });
+    }
+  }
+
+  /**
+   * 这台设备是否已经收到过业务时间更晚的状态类事件（不含本条）。只看最近 10 分钟到达的：
+   * 本条不是补传（业务时间在 5 分钟内），比它新的那条业务时间也在 5 分钟内，最多超前收到时间 5 分钟就会被兜底成收到时间。
+   * 业务时间同 businessTime（与电量曲线同一个 CASE）。查询失败按「没有」处理，不影响快照刷新。
+   */
+  private async newerStatusApplied(
+    e: ValidEnvelope,
+    receivedAt: Date,
+  ): Promise<boolean> {
+    const at = businessTime(e.timestamp, receivedAt).toISOString();
+    const since = new Date(
+      receivedAt.getTime() - 2 * CLOCK_SKEW_THRESHOLD_MS,
+    ).toISOString();
+    try {
+      const rows = await this.prisma.$queryRaw<{ one: number }[]>`
+        SELECT 1 AS one FROM raw_events
+        WHERE device_id = ${e.deviceId}
+          AND event_type IN ('device_status', 'sleep_entered', 'sleep_exited')
+          AND event_id <> ${e.eventId}
+          AND received_at > ${since}::timestamp
+          AND CASE
+                WHEN "timestamp" > received_at + interval '5 minutes'
+                  OR "timestamp" < received_at - interval '72 hours'
+                THEN received_at
+                ELSE "timestamp"
+              END > ${at}::timestamp
+        LIMIT 1`;
+      return rows.length > 0;
+    } catch (err) {
+      this.logger.warn(
+        `乱序状态检查失败，按最新处理 ${e.deviceId}：${errorMessage(err)}`,
+      );
+      return false;
     }
   }
 }

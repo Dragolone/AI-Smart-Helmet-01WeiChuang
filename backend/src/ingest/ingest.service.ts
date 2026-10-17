@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { EVENT_TYPES } from '@helmet/shared';
 import { CLOCK_SKEW_THRESHOLD_MS, isBackfill } from '../common/device-time';
-import { isUniqueViolation } from '../common/prisma-errors';
+import { dbRejectionCode, isUniqueViolation } from '../common/prisma-errors';
 import { DeviceSnapshotService } from '../devices/device-snapshot.service';
 import { LocationRecorderService } from '../locations/location-recorder.service';
 import { MediaRecorderService } from '../media/media-recorder.service';
@@ -48,44 +48,6 @@ const KNOWN_OBJECT_TYPES = new Set([
   'obstacle',
   'unknown',
 ]);
-
-/**
- * 瞬时故障的 Prisma 错误码：P2024 连接池超时、P2028 事务 API、P2034 写冲突 / 死锁、P2036 / P2037 驱动适配器错误 / 连接数满。
- * adapter-pg 下没有专门映射的 SQLSTATE 一律报 P2039——要再看原始 SQLSTATE 才分得清
- */
-const TRANSIENT_PRISMA_CODES = new Set([
-  'P2024',
-  'P2028',
-  'P2034',
-  'P2036',
-  'P2037',
-]);
-/** 瞬时类 SQLSTATE：08 连接、40 事务回滚 / 死锁、53 资源不足、55 锁不可得、57 管理员关停 / 取消、58 系统、XX 内部 */
-const TRANSIENT_SQLSTATE = /^(08|40|53|55|57|58|XX)/;
-
-/**
- * 数据库对"这一条数据"的拒绝（列范围、编码、非法值）→ 返回原因码，按 _invalid 留档；
- * 瞬时故障（连接、死锁、关停、资源不足……）→ null，交给上层按真实 5xx 处理、App / MQTT 重试。
- * 原来 P1 开头以外的已知错误码一律当「这条数据被拒」：adapter-pg 把后端被杀（57P01）、死锁（40P01）、连接数满（53300）
- * 报成 P2039 / P2037，摔倒事件就被改记成随机 eventId 的 _invalid、202 回给 App（App 从队列删掉），对账也捞不到——求救永久丢失（10-17 评审）
- */
-export function dbRejectionCode(err: unknown): string | null {
-  if (err instanceof Prisma.PrismaClientValidationError) return 'validation';
-  // 引擎报不出码的未知错误照旧按这条数据留档：一律重抛的话，一条毒数据会让 App 整批反复重传、堵住后面的摔倒（队头阻塞）
-  if (err instanceof Prisma.PrismaClientUnknownRequestError) return 'unknown';
-  if (!(err instanceof Prisma.PrismaClientKnownRequestError)) return null;
-  if (err.code.startsWith('P1') || TRANSIENT_PRISMA_CODES.has(err.code)) {
-    return null;
-  }
-  const sqlState = (
-    err.meta?.driverAdapterError as
-      { cause?: { originalCode?: unknown } } | undefined
-  )?.cause?.originalCode;
-  if (typeof sqlState === 'string' && TRANSIENT_SQLSTATE.test(sqlState)) {
-    return null;
-  }
-  return err.code;
-}
 
 /** payload 的规范化 JSON（键排序）：给冲突事件另存时算摘要用 */
 const canonicalJson = (v: unknown): string =>
@@ -217,6 +179,9 @@ export class IngestService {
       }
       // 分发的是实际落库的那份（冲突另存时 eventId 带了摘要后缀，求救单按它幂等）
       await this.dispatchStored(stored);
+    } else if (result.envelope.eventType === 'location_update') {
+      // 重传的位置：上一次可能写完 raw、写位置表时撞上瞬时故障回了 5xx，这次补上（位置表按 eventId 幂等）
+      await this.locationRecorder.recordIfMissing(result.envelope);
     }
     return stored ? 'stored' : 'duplicate';
   }
