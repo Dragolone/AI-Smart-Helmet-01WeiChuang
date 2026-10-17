@@ -7,7 +7,9 @@
 import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
 
-const KEY = "helmet.everHadHelmet";
+import { SECURE_KEYS } from "@/services/secure-keys";
+
+const KEY = SECURE_KEYS.everHadHelmet;
 /** 最多记这么多个账号（一台手机上登过的账号不会多；有上限是为了存的东西不会一直长） */
 const MAX_USERS = 20;
 

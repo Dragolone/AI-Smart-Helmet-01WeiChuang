@@ -24,9 +24,10 @@ import { ThemedText } from "@/components/themed-text";
 import { Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
+import { SECURE_KEYS } from "@/services/secure-keys";
 import { useBleStore } from "@/stores/ble-store";
 
-const DISMISS_KEY = "ble_onboarding_dismissed";
+const DISMISS_KEY = SECURE_KEYS.bleOnboardingDismissed;
 
 type Step = {
   key: "bluetooth" | "permission" | "whitelist";

@@ -4,17 +4,18 @@ import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
 
 import { retryWhenActive } from "@/services/retry-when-active";
+import { SECURE_KEYS } from "@/services/secure-keys";
 
 export const LOCALES = ["zh-CN", "zh-TW", "en"] as const;
 export type Locale = (typeof LOCALES)[number];
 
 /** 旧条目：当初没带可访问性选项，是钥匙串默认的 WHEN_UNLOCKED——锁屏时读不到 */
-const LEGACY_KEY = "helmet.locale";
+const LEGACY_KEY = SECURE_KEYS.localeLegacy;
 /**
  * 现行条目：首次解锁后即可读（同 consent-store）。锁屏下被 BLE 拉起的进程读不到旧条目，原来就按系统语言定死
  * 整个进程（通知通道名、前台服务文案跟着错）。换 key 而不是原地改：钥匙串的 update 不改可访问性。
  */
-const KEY = "helmet.locale.v2";
+const KEY = SECURE_KEYS.locale;
 const KEYCHAIN = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK };
 
 const isLocale = (v: string | null): v is Locale =>

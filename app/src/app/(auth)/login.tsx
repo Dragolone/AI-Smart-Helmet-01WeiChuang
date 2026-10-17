@@ -34,6 +34,7 @@ import { ThemedView } from "@/components/themed-view";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
+import { SECURE_KEYS } from "@/services/secure-keys";
 import { useAuthStore } from "@/stores/auth-store";
 import { useConsentStore } from "@/stores/consent-store";
 
@@ -71,7 +72,7 @@ export default function LoginScreen() {
 
   // 记住上次登录的手机号(只存号码不存密码);读取失败静默忽略
   useEffect(() => {
-    SecureStore.getItemAsync("last_login_phone")
+    SecureStore.getItemAsync(SECURE_KEYS.lastLoginPhone)
       .then((v) => {
         if (v) setPhone((cur) => cur || v);
       })
@@ -92,7 +93,9 @@ export default function LoginScreen() {
     try {
       const auth = await authApi.login({ phone: cleanPhone, password });
       if (needConsent) await acceptPrivacy();
-      SecureStore.setItemAsync("last_login_phone", cleanPhone).catch(() => {});
+      SecureStore.setItemAsync(SECURE_KEYS.lastLoginPhone, cleanPhone).catch(
+        () => {},
+      );
       await signIn(auth); // AuthGate 检测到会话后自动跳转主页
     } catch (e) {
       const field = errorField(e);

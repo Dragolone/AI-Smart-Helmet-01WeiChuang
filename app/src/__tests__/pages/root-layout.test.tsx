@@ -169,6 +169,14 @@ jest.mock("@/services/session-notice", () => ({
   notifySessionExpired: jest.fn(),
   clearSessionExpiredNotice: jest.fn(),
 }));
+/** 重装检查（iOS 重装后清钥匙串）：由用例决定什么时候清完 */
+let mockFreshInstallDone: () => void = () => undefined;
+jest.mock("@/services/fresh-install", () => ({
+  clearIfFreshInstall: () =>
+    new Promise<void>((resolve) => {
+      mockFreshInstallDone = resolve;
+    }),
+}));
 
 // 模块加载时的调用：在任何用例清掉替身记录之前先记下来
 const atImport = {
@@ -319,8 +327,16 @@ describe("登录态变化", () => {
 });
 
 describe("根布局", () => {
-  it("一挂上就恢复四份本机设置；三份（登录 / 语言 / 外观）都恢复完才挂路由和实时通道，开屏等常驻层一直在", () => {
+  it("一挂上先等重装检查清完钥匙串，再恢复四份本机设置；三份（登录 / 语言 / 外观）都恢复完才挂路由和实时通道，开屏等常驻层一直在", async () => {
     const r = render(<RootLayout />);
+    // 重装检查还没完（iOS 重装后要先清掉上一次安装留在钥匙串里的东西）：一样都不读
+    expect(hydrators.auth).not.toHaveBeenCalled();
+    expect(hydrators.locale).not.toHaveBeenCalled();
+    expect(hydrators.theme).not.toHaveBeenCalled();
+    expect(hydrators.consent).not.toHaveBeenCalled();
+    await act(async () => {
+      mockFreshInstallDone();
+    });
     expect(hydrators.auth).toHaveBeenCalledTimes(1);
     expect(hydrators.locale).toHaveBeenCalledTimes(1);
     expect(hydrators.theme).toHaveBeenCalledTimes(1);

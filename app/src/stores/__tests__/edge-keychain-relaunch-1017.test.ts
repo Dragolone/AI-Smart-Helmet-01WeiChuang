@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 type ThemeStore = typeof import("../theme-store");
 type LocaleStore = typeof import("@/i18n/locale-store");
 type HelmetStore = typeof import("../current-helmet-store");
+type SecureKeys = typeof import("@/services/secure-keys");
 
 const mockKv = new Map<string, string>();
 const mockFail = { get: false };
@@ -120,8 +121,7 @@ describe("外观", () => {
 });
 
 describe("语言", () => {
-  const load = () =>
-    fresh<LocaleStore>("@/i18n/locale-store").useLocaleStore;
+  const load = () => fresh<LocaleStore>("@/i18n/locale-store").useLocaleStore;
 
   it("改语言写的是锁屏可读的新条目；旧条目读出来用并搬过去", async () => {
     mockKv.set("helmet.locale", "zh-TW");
@@ -203,12 +203,12 @@ describe("当前头盔", () => {
   });
 
   it("注销账号要删的条目：新旧两条都在里面", () => {
-    const { currentHelmetKeysOf } = fresh<HelmetStore>(
-      "../current-helmet-store",
+    const { accountSecureKeysOf } = fresh<SecureKeys>("@/services/secure-keys");
+    expect(accountSecureKeysOf("u1")).toEqual(
+      expect.arrayContaining([
+        "helmet.currentHelmet.v2.u1",
+        "helmet.currentHelmet.u1",
+      ]),
     );
-    expect(currentHelmetKeysOf("u1")).toEqual([
-      "helmet.currentHelmet.v2.u1",
-      "helmet.currentHelmet.u1",
-    ]);
   });
 });

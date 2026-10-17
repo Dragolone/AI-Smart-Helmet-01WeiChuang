@@ -33,6 +33,7 @@ import { scheduleOnRN, scheduleOnUI } from "react-native-worklets";
 import { devicesApi } from "@/api/devices";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useT } from "@/i18n";
+import { clearIfFreshInstall } from "@/services/fresh-install";
 import { launchedByNotification } from "@/services/launch-intent";
 import { useAuthStore } from "@/stores/auth-store";
 import { useLaunchMemoryStore } from "@/stores/launch-memory-store";
@@ -213,7 +214,14 @@ function LaunchMemory() {
   const hydrate = useLaunchMemoryStore((s) => s.hydrate);
   const remember = useLaunchMemoryStore((s) => s.remember);
   useEffect(() => {
-    void hydrate();
+    // 启动记录也在钥匙串里：等重装检查清完再读（services/fresh-install）
+    let cancelled = false;
+    void clearIfFreshInstall().then(() => {
+      if (!cancelled) void hydrate();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [hydrate]);
   const count = devices.data ? devices.data.length : null;
   useEffect(() => {
@@ -246,9 +254,7 @@ function SplashPlayer({ onDone }: { onDone: () => void }) {
 
   // ------------------------------------------------------------ 安卓：路线段的视频
   // 由通知拉起时不播开屏，播放器也就不用建
-  const [videoOn, setVideoOn] = useState(
-    () => ROUTE_VIDEO && !byNotification,
-  );
+  const [videoOn, setVideoOn] = useState(() => ROUTE_VIDEO && !byNotification);
   // 这一层还指望着视频（没放完、也没放弃）
   const videoLive = useRef(videoOn);
   // 路线段最后是怎么播的（只为日志）

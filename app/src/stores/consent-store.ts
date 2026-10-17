@@ -2,19 +2,22 @@
 // 为什么要单独存：极光等第三方 SDK 必须等用户明确同意之后才能初始化（商店合规硬要求，THIRD_PARTY §6），
 // 而「登录成功」不等于「同意过」——老用户换新手机直接登录、从没见过勾选框。
 // 口径：注册页 / 登录页勾选并提交成功 → accept()；每台设备只问一次；不随登出清除（同意的是这台设备上的这个人）。
+// 删掉 App 重装算新装、要再问：安卓卸载即清，iOS 由 services/fresh-install 在重装后第一次打开时清掉。
 import * as SecureStore from "expo-secure-store";
 import { AppState } from "react-native";
 import { create } from "zustand";
 
+import { SECURE_KEYS } from "@/services/secure-keys";
+
 /** 旧条目：当初没带可访问性选项，是钥匙串默认的 WHEN_UNLOCKED——锁屏时读不到 */
-const LEGACY_KEY = "helmet.privacy.accepted";
+const LEGACY_KEY = SECURE_KEYS.privacyAcceptedLegacy;
 /**
  * 现行条目：首次解锁后即可读（与会话 token 同口径，见 auth-store）。
  * 头盔的 BLE 事件能在锁屏下把被回收的 App 重新拉起（状态恢复）：token 读得出、登录态成立，
  * 同意标记却读不到——原来按「未同意」处理，这次进程里极光不初始化，用户解锁后还被要求重新勾选，
  * 旁边就是「不同意，退出登录」（2026-10-05 评审）。换 key 而不是原地改：钥匙串的 update 不改可访问性。
  */
-const KEY = "helmet.privacy.accepted.v2";
+const KEY = SECURE_KEYS.privacyAccepted;
 const KEYCHAIN = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK };
 /** 存的是接受时的政策版本号；以后政策大改要重新征求同意时把这个值改掉即可 */
 export const PRIVACY_VERSION = "2026-09-23";

@@ -22,12 +22,8 @@ import { showToast } from "@/components/toast";
 import { useTheme } from "@/hooks/use-theme";
 import { translate, useT, type MessageKey } from "@/i18n";
 import { discardRelayQueue } from "@/services/ble-relay-uplink";
-import { bleTargetsKeyOf } from "@/services/ble-targets";
+import { accountSecureKeysOf, SECURE_KEYS } from "@/services/secure-keys";
 import { useAuthStore } from "@/stores/auth-store";
-import { currentHelmetKeysOf } from "@/stores/current-helmet-store";
-import { drillSeenKeyOf } from "@/stores/drill-store";
-import { openMicSeenKeyOf } from "@/stores/intercom-store";
-import { switchReminderKeyOf } from "@/stores/switch-reminder-store";
 
 const CONSEQUENCES: {
   icon: keyof typeof Ionicons.glyphMap;
@@ -47,13 +43,9 @@ const CONSEQUENCES: {
 async function forgetAccountLocalData(userId: string): Promise<void> {
   discardRelayQueue(userId);
   await Promise.all(
-    [
-      bleTargetsKeyOf(userId),
-      ...currentHelmetKeysOf(userId),
-      drillSeenKeyOf(userId),
-      openMicSeenKeyOf(userId),
-      switchReminderKeyOf(userId),
-    ].map((key) => SecureStore.deleteItemAsync(key).catch(() => undefined)),
+    accountSecureKeysOf(userId).map((key) =>
+      SecureStore.deleteItemAsync(key).catch(() => undefined),
+    ),
   );
 }
 
@@ -73,7 +65,7 @@ export default function DeleteAccountScreen() {
       await authApi.deleteMe({ password });
       showToast(translate("auth.deleteDone"));
       // 账号已不存在：登录页不再预填这个手机号（登出保留是为了方便，注销不该留）
-      await SecureStore.deleteItemAsync("last_login_phone").catch(
+      await SecureStore.deleteItemAsync(SECURE_KEYS.lastLoginPhone).catch(
         () => undefined,
       );
       // 清会话即触发 Stack.Protected 切到登录组，无需手动导航

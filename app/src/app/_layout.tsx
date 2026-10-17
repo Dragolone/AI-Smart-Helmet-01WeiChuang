@@ -21,6 +21,7 @@ import { ConnectionBanner } from "@/components/connection-banner";
 import { PrivacyConsentModal } from "@/components/privacy-consent-modal";
 import { ThemeFade } from "@/components/theme-fade";
 import { installDevErrorTap } from "@/services/dev-log";
+import { clearIfFreshInstall } from "@/services/fresh-install";
 import {
   clearSessionExpiredNotice,
   notifySessionExpired,
@@ -215,10 +216,18 @@ export default function RootLayout() {
   const themeHydrated = useThemeStore((s) => s.hydrated);
 
   useEffect(() => {
-    void hydrate();
-    void hydrateLocale();
-    void hydrateTheme();
-    void hydrateConsent();
+    // 这四样都在钥匙串里：iOS 重装后第一次打开要先清掉上一次安装留下的，清完再读（services/fresh-install）
+    let cancelled = false;
+    void clearIfFreshInstall().then(() => {
+      if (cancelled) return;
+      void hydrate();
+      void hydrateLocale();
+      void hydrateTheme();
+      void hydrateConsent();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [hydrate, hydrateLocale, hydrateTheme, hydrateConsent]);
 
   return (

@@ -85,7 +85,7 @@ describe("四页提交前都过 normalizePhone", () => {
       "authApi.login({ phone: cleanPhone, password })",
     );
     expect(PAGES.login).toMatch(
-      /setItemAsync\("last_login_phone", cleanPhone\)/,
+      /setItemAsync\(SECURE_KEYS\.lastLoginPhone, cleanPhone\)/,
     );
   });
 

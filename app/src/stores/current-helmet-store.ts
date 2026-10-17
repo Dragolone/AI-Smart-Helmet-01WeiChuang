@@ -7,21 +7,18 @@ import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
 
 import { retryWhenActive } from "@/services/retry-when-active";
+import {
+  currentHelmetKeyOf,
+  currentHelmetLegacyKeyOf,
+} from "@/services/secure-keys";
 
-/** SecureStore 的 key 只允许字母数字和 . - _；用户 id 是 cuid，满足 */
-const legacyKeyOf = (userId: string) => `helmet.currentHelmet.${userId}`;
+const legacyKeyOf = currentHelmetLegacyKeyOf;
 /**
  * 现行条目：首次解锁后即可读。旧条目是钥匙串默认的 WHEN_UNLOCKED，锁屏下被 BLE 拉起的进程读不到，
  * 原来按「没选过」定死整个进程——这期间 App 内求救可能记到另一顶头盔名下（10-17 评审）
  */
-const keyOf = (userId: string) => `helmet.currentHelmet.v2.${userId}`;
+const keyOf = currentHelmetKeyOf;
 const KEYCHAIN = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK };
-
-/** 这个账号在本机存过的条目（注销账号时一并删掉，见 account/delete） */
-export const currentHelmetKeysOf = (userId: string): string[] => [
-  keyOf(userId),
-  legacyKeyOf(userId),
-];
 
 /** 读失败、暂按「没选过」顶着的账号：回到前台再读一次，读到之前用户点了「设为当前」就以用户的为准 */
 const unread = new Set<string>();

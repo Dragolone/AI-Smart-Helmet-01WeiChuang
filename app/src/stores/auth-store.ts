@@ -4,13 +4,14 @@ import { create } from "zustand";
 import type { AuthResponse, AuthTokens, UserProfile } from "@helmet/shared";
 import { attachSession } from "@/api/client";
 import { authApi } from "@/api/auth";
+import { SECURE_KEYS } from "@/services/secure-keys";
 
-const TOKEN_KEY = "helmet.session.tokens";
+const TOKEN_KEY = SECURE_KEYS.sessionTokens;
 /** 钥匙串可访问性：默认 WHEN_UNLOCKED 在锁屏时写入会抛 "User interaction is not allowed"
  *  （2026-09-16 iPhone 锁屏 BLE 中转实测：后台刷新 token 后持久化失败，冷启动即掉登录）。
  *  改为首次解锁后即可读写，后台/锁屏期间的 token 轮换才能落盘。 */
 const KEYCHAIN = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK };
-const USER_KEY = "helmet.session.user";
+const USER_KEY = SECURE_KEYS.sessionUser;
 
 /** SecureStore 只存最小档案:iOS 钥匙串单值上限 2KB,data-URI 头像(≈20KB)绝不能入;
  *  完整档案(含头像)启动后由 /users/me 拉取进内存。 */
