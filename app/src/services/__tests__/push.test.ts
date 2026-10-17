@@ -183,17 +183,24 @@ describe("点通知落地", () => {
     expect(presentedSos.current.has("s1")).toBe(true);
   });
 
-  it("SOS 已结束（或进行中的是另一单）→ 事故详情", async () => {
-    mockActive.mockResolvedValueOnce({
-      sos: { sosId: "other", deviceId: "d1", status: "pending" },
-    });
-    expect(await landFromPush({ sosId: "s1", deviceId: "d1" })).toBe(
-      "/accident/s1",
-    );
+  it("SOS 已结束、这顶头盔也没有别的单在倒数 → 事故详情", async () => {
     mockActive.mockResolvedValueOnce({ sos: null });
     expect(await landFromPush({ sosId: "s2", deviceId: "d1" })).toBe(
       "/accident/s2",
     );
+    expect(presentedSos.current.has("s2")).toBe(false);
+  });
+
+  it("点的是旧单留下的推送、同一顶头盔有更新的一单在倒数 → 去那一单的倒计时，不把旧单的记录页压在倒计时上（4.27 加测，10-17 华为实测）", async () => {
+    mockActive.mockResolvedValueOnce({
+      sos: { sosId: "other", deviceId: "d1", status: "pending" },
+    });
+    expect(await landFromPush({ sosId: "s1", deviceId: "d1" })).toBe(
+      "/sos-active?sosId=other&deviceId=d1",
+    );
+    // 登记的是正在倒数的那一单（随后的 WS 推送 / 补拉不再为它再拉一页）
+    expect(presentedSos.current.has("other")).toBe(true);
+    expect(presentedSos.current.has("s1")).toBe(false);
   });
 
   it("查询失败 ≠ 已结束：进倒计时页（它自己拉权威状态），不落到没有取消键的事故详情", async () => {
