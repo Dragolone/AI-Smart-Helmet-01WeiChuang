@@ -6,7 +6,7 @@ import { useState } from "react";
 import { Alert, ScrollView, StyleSheet, View } from "react-native";
 
 import { authApi } from "@/api/auth";
-import { toUserMessage } from "@/api/error-messages";
+import { isSessionEnded, toUserMessage } from "@/api/error-messages";
 import { FormError, FormInput, PrimaryButton } from "@/components/form";
 import { KeyboardAvoid } from "@/components/keyboard-avoid";
 import { Card } from "@/components/list";
@@ -67,6 +67,8 @@ export default function DeleteAccountScreen() {
       // 放在清会话之后：链路停下来时不再替这个账号落盘，设备列表也不会再替它存一份
       if (userId) await forgetAccountLocalData(userId);
     } catch (e) {
+      // 会话已失效：正被送回登录页，登录页自有说明
+      if (isSessionEnded(e)) return;
       setError(toUserMessage(e));
     } finally {
       setBusy(false);

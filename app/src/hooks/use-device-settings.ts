@@ -9,9 +9,8 @@ import { useState } from "react";
 import type { CommandPublic } from "@helmet/shared";
 
 import { devicesApi } from "@/api/devices";
-import { toUserMessage } from "@/api/error-messages";
 import { useT } from "@/i18n";
-import { showNotice } from "@/services/notice";
+import { showFailure } from "@/services/notice";
 
 export function useDeviceSettings(deviceId: string): {
   /** 当前生效设置（只含头盔确认过的值）；还没拿到时为 undefined */
@@ -49,7 +48,7 @@ export function useDeviceSettings(deviceId: string): {
           queryKey: ["device-settings", deviceId],
         }),
       )
-      .catch((e) => showNotice(t("device.sendFailed"), toUserMessage(e)))
+      .catch((e) => showFailure(t("device.sendFailed"), e))
       .finally(() => setSending(false));
     // 命令号一回来就交出去，不等重新拉设置：拉回来时调用方已经认得出哪条是自己的
     return put.then(

@@ -22,7 +22,7 @@ import {
   waitFor,
   type Rendered,
 } from "@/__tests__/helpers/render";
-import { ApiRequestError } from "@/api/client";
+import { ApiRequestError, SessionEndedError } from "@/api/client";
 import { contactsApi } from "@/api/contacts";
 import { relayApi } from "@/api/relay";
 import { sosApi } from "@/api/sos";
@@ -464,6 +464,20 @@ describe("长按求救", () => {
     expect(body).toContain(translate("safety.sosNotSent"));
     expect(body).not.toContain(translate("safety.sosQueued"));
     expect(notifyCriticalAccepted).not.toHaveBeenCalled();
+  });
+
+  it("发送时会话已失效：照样弹「求救发送失败」——别的页这时不再提示，求救是例外：登录页只说重新登录前摔倒不会通知，不会告诉他刚才这条没发出去", async () => {
+    m(relayApi.push).mockImplementation(() =>
+      Promise.reject(new SessionEndedError()),
+    );
+    const r = mount();
+    await act(async () => {
+      sosButton(r).props.onLongPress();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(alert).toHaveBeenCalled());
+    expect(alert.mock.calls.at(-1)![0]).toBe(translate("safety.sosSendFailed"));
   });
 
   it("两次长按是两个不同的 eventId（服务端按它幂等，不能复用）", async () => {

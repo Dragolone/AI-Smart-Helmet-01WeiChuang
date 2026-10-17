@@ -20,7 +20,7 @@ import {
   render,
   type Rendered,
 } from "@/__tests__/helpers/render";
-import { ApiRequestError } from "@/api/client";
+import { ApiRequestError, SessionEndedError } from "@/api/client";
 import { contactsApi } from "@/api/contacts";
 import { devicesApi } from "@/api/devices";
 import { translate, useLocaleStore, type MessageKey } from "@/i18n";
@@ -459,5 +459,38 @@ describe("Android 返回键", () => {
       back!();
     });
     expect(mockRouter.dismissAll).toHaveBeenCalled();
+  });
+});
+
+describe("会话已失效（正被送回登录页）：不再单独提示，登录页自有说明", () => {
+  it("扫码绑定时会话已失效：不出「没绑上 · 登录已失效」的卡片，读屏也不播", async () => {
+    m(devicesApi.bind).mockImplementation(() =>
+      Promise.reject(new SessionEndedError()),
+    );
+    const r = mount();
+    scan(r, QR);
+    await flush(900);
+    expect(devicesApi.bind).toHaveBeenCalledTimes(1);
+    expect(r.allText()).not.toContain(tr("bind.failedTitle"));
+    expect(r.allText()).not.toContain(tr("error.sessionEnded"));
+    expect(
+      announce.mock.calls.some((c: unknown[]) =>
+        String(c[0]).includes(tr("error.sessionEnded")),
+      ),
+    ).toBe(false);
+  });
+
+  it("手输绑定时会话已失效：面板里不写「登录已失效」", async () => {
+    routerState.params = { manual: "1" };
+    m(devicesApi.bind).mockImplementation(() =>
+      Promise.reject(new SessionEndedError()),
+    );
+    const r = mount();
+    r.type(P.id, "helmet_m");
+    r.type(P.code, "11112222");
+    r.press(tr("device.bindAction"));
+    await flush();
+    expect(devicesApi.bind).toHaveBeenCalledTimes(1);
+    expect(r.allText()).not.toContain(tr("error.sessionEnded"));
   });
 });

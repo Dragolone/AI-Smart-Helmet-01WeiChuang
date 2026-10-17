@@ -25,7 +25,7 @@ import {
   render,
   type Rendered,
 } from "@/__tests__/helpers/render";
-import { ApiRequestError } from "@/api/client";
+import { ApiRequestError, SessionEndedError } from "@/api/client";
 import { contactsApi } from "@/api/contacts";
 import { devicesApi } from "@/api/devices";
 import { relayApi } from "@/api/relay";
@@ -505,6 +505,20 @@ describe("取消 / 立即求救", () => {
       NOTICE_OK,
     );
     expect(number(r)).toBe("45");
+  });
+
+  it("会话已失效：照样弹「操作失败」——别的页这时不再提示，倒计时页是例外：没取消掉 / 没立即通知的结果，登录页的说明讲不出来", async () => {
+    m(sosApi.confirm).mockImplementation(() =>
+      Promise.reject(new SessionEndedError()),
+    );
+    const r = await mount();
+    r.press(tr("sos.sendNow"));
+    await tick(0);
+    expect(alert).toHaveBeenCalledWith(
+      tr("common.failed"),
+      tr("error.sessionEnded"),
+      NOTICE_OK,
+    );
   });
 });
 

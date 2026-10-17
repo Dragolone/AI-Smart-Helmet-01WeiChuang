@@ -22,7 +22,7 @@ import {
   type Rendered,
 } from "@/__tests__/helpers/render";
 import { authApi } from "@/api/auth";
-import { ApiRequestError } from "@/api/client";
+import { ApiRequestError, SessionEndedError } from "@/api/client";
 import { contactsApi } from "@/api/contacts";
 import { devicesApi } from "@/api/devices";
 import { Tappable } from "@/components/tappable";
@@ -508,6 +508,21 @@ describe("编辑资料", () => {
     );
     expect(modals(r)[0]).toBe(true);
     expect(setUser).not.toHaveBeenCalled();
+  });
+
+  it("保存时会话已失效（正被送回登录页）：不弹「保存失败 · 登录已失效」，登录页自有说明", async () => {
+    m(authApi.updateMe).mockImplementation(() =>
+      Promise.reject(new SessionEndedError()),
+    );
+    const r = mount();
+    act(() => accountCard(r).props.onPress());
+    r.type(nickBox, "老李");
+    r.press(tr("common.save"));
+    await waitFor(() => expect(authApi.updateMe).toHaveBeenCalled());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(alert).not.toHaveBeenCalled();
   });
 
   it("点遮罩 / 返回键关掉弹层；点卡片本身不关", () => {

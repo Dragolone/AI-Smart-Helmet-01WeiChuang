@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 
 import { devicesApi } from "@/api/devices";
-import { toUserMessage } from "@/api/error-messages";
+import { isSessionEnded, toUserMessage } from "@/api/error-messages";
 import { DeviceContext } from "@/components/device-settings-page";
 import { Card, ListRow } from "@/components/list";
 import { Tappable } from "@/components/tappable";
@@ -110,7 +110,7 @@ export default function DeviceAboutScreen() {
         showsVerticalScrollIndicator={false}
       >
         <DeviceContext deviceId={deviceId} />
-        {status.isError && !s && (
+        {status.isError && !s && !isSessionEnded(status.error) && (
           <ThemedText type="small" themeColor="danger">
             {toUserMessage(status.error)}
           </ThemedText>

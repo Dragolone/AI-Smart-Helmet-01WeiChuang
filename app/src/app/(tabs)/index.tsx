@@ -32,7 +32,7 @@ import type { DevicePublic } from "@helmet/shared";
 
 import { contactsApi } from "@/api/contacts";
 import { devicesApi } from "@/api/devices";
-import { toUserMessage } from "@/api/error-messages";
+import { isSessionEnded, toUserMessage } from "@/api/error-messages";
 import { BatteryArc } from "@/components/battery-arc";
 import { DeviceGuide } from "@/components/device-guide";
 import { EmptyState } from "@/components/empty-state";
@@ -813,7 +813,7 @@ export default function DevicesScreen() {
             </SplashArrive>
           </View>
 
-          {devices.isError && (
+          {devices.isError && !isSessionEnded(devices.error) && (
             <ThemedText type="small" themeColor="danger">
               {toUserMessage(devices.error)}
             </ThemedText>

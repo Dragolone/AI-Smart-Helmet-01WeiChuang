@@ -8,7 +8,7 @@ import { ScrollView, StyleSheet, View } from "react-native";
 import type { DeviceSettingKey } from "@helmet/shared";
 
 import { devicesApi } from "@/api/devices";
-import { toUserMessage } from "@/api/error-messages";
+import { isSessionEnded, toUserMessage } from "@/api/error-messages";
 import { DeviceSettingList } from "@/components/device-settings";
 import { Card } from "@/components/list";
 import { ThemedText } from "@/components/themed-text";
@@ -78,7 +78,9 @@ export function DeviceSettingsPage({
       >
         <DeviceContext deviceId={deviceId} />
         {/* 当前值没拿到时如实说，不让一排没有高亮的选项看起来像「全都关着」 */}
-        {settings.isError && settings.values === undefined && (
+        {settings.isError &&
+          settings.values === undefined &&
+          !isSessionEnded(settings.error) && (
           <ThemedText type="small" themeColor="danger">
             {toUserMessage(settings.error)}
           </ThemedText>

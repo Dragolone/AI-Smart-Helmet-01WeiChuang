@@ -36,6 +36,7 @@ import {
   waitFor,
   type Rendered,
 } from "@/__tests__/helpers/render";
+import { SessionEndedError } from "@/api/client";
 import { devicesApi } from "@/api/devices";
 import { Colors } from "@/constants/theme";
 import { useDeviceSettings } from "@/hooks/use-device-settings";
@@ -1354,5 +1355,31 @@ describe("设置分类页", () => {
     act(() => on.props.onPress());
     expect(send).toHaveBeenCalledWith("buzzer", true);
     expect(View).toBeTruthy();
+  });
+
+  it("设置没拿到是因为会话已失效（正被送回登录页）：不写「登录已失效」，登录页自有说明", () => {
+    (devicesApi.detail as jest.Mock).mockImplementation(
+      () => new Promise(() => undefined),
+    );
+    (devicesApi.status as jest.Mock).mockImplementation(
+      () => new Promise(() => undefined),
+    );
+    settingsHook.mockReturnValue({
+      values: undefined,
+      lastCommand: null,
+      sending: false,
+      send: jest.fn(),
+      isError: true,
+      error: new SessionEndedError(),
+    });
+    const r = mount(
+      <DeviceSettingsPage
+        deviceId="h1"
+        groups={[{ keys: ["buzzer"] as DeviceSettingKey[] }]}
+      />,
+    );
+    expect(r.allText()).not.toContain(
+      translate("error.sessionEnded", undefined, "zh-CN"),
+    );
   });
 });
