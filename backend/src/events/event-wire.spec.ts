@@ -65,7 +65,7 @@ describe('toWireEventItem / toWireEventDetail', () => {
       ...row,
       timestamp: new Date('1970-01-01T00:00:10Z'),
       businessTime: new Date('2026-10-16T00:00:01Z'),
-    } as unknown as RawEvent;
+    };
     expect(toWireEventItem(skewed)).toMatchObject({
       timestamp: '2026-10-16T00:00:01.000Z',
       deviceTimestamp: '1970-01-01T00:00:10.000Z',
