@@ -246,7 +246,7 @@ MVP 实用为主，全部只读 + 少量运维操作。
 
 ## 11. WebSocket（App 实时通道）
 
-- 端点：`/ws?token=<accessToken>`（✅ 定稿：**原生 ws**，决策 #25；token 走查询参数——RN/浏览器原生 WebSocket 无法可靠设置 header）；鉴权失败以关闭码 **4401** 断开（用户密钥签的 `typ=admin` token 同样 4401）；客户端上行单帧超过 64 KiB 以 **1009** 断开（App 不往上发消息，2026-10-17）；连接在 accessToken 的 `exp` 到期时也以 4401 断开（连接不比凭证活得久），App 刷新 token 后重连。
+- 端点：`/ws?token=<accessToken>`（✅ 定稿：**原生 ws**，决策 #25；token 走查询参数——RN/浏览器原生 WebSocket 无法可靠设置 header）；鉴权失败以关闭码 **4401** 断开（用户密钥签的 `typ=admin` token 同样 4401）；验签通过后查注销状态时数据库出错以 **1011** 断开（不是凭证问题，App 走普通退避重连、不刷新 token，2026-10-17）；客户端上行单帧超过 64 KiB 以 **1009** 断开（App 不往上发消息，2026-10-17）；连接在 accessToken 的 `exp` 到期时也以 4401 断开（连接不比凭证活得久），App 刷新 token 后重连。
 - 连接后服务端自动按“当前用户绑定的设备”推送，无需客户端订阅指令（MVP 简化）；data 内带 `deviceId` 区分多设备。
 - 消息统一格式（TS 类型见 `@helmet/shared` WsMessage）：
 
