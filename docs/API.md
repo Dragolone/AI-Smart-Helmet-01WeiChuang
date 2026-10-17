@@ -297,7 +297,7 @@ MVP 实用为主，全部只读 + 少量运维操作。
 |------|------|------|
 | POST | /voice/channels | 建频道。body：`{ name }`（整理后 1–30 字，全空白 / 只含零宽字符 400）→ channel 对象（创建者自动入频道） |
 | GET | /voice/channels | 我加入的频道列表 |
-| POST | /voice/channels/join | body：`{ inviteCode }`（6 位字母 / 数字，不区分大小写；形状不对 400）；邀请码错误 404；满员 409 `CHANNEL_FULL`；重复加入幂等返回频道 |
+| POST | /voice/channels/join | body：`{ inviteCode }`（6 位字母 / 数字，不区分大小写；形状不对 400）；邀请码错误 404；满员 409 `CHANNEL_FULL`；重复加入幂等返回频道；限频每账号每分钟 10 次、同一 IP 每分钟 60 次（决策 #57，超限 429 `RATE_LIMITED`） |
 | DELETE | /voice/channels/{channelId}/membership | 退出频道（非成员 404；频道保留，MVP 不做解散/回收） |
 | GET | /voice/channels/{channelId}/members | 成员列表（仅成员可见）：`{ userId, nickname, avatarUrl, phone, joinedAt }`（**手机号脱敏**；avatarUrl 同频道成员互相可见,2026-08-17；TS 类型 VoiceChannelMemberPublic） |
 | POST | /voice/channels/{channelId}/token | 进房凭证（仅成员）：`{ sdkAppId, userId, roomId, userSig, privateMapKey, expiresAt }`；`privateMapKey` 为**绑定该房间**的权限钥匙（TRTC PrivateMapKey，默认 10 分钟有效 `TRTC_ROOM_KEY_EXPIRE_SECONDS`，App 进房前现取，填 `TRTCParams.privateMapKey`；2026-10-14 决策 #56——TRTC 控制台开启「高级权限控制」后不带它进不了房）；TRTC 未配置时 503 `TRTC_NOT_CONFIGURED` |

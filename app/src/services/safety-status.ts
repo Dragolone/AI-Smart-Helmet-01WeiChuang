@@ -15,6 +15,13 @@ const INVISIBLE_IN_NAME =
   /[\u0000-\u0008\u000E-\u001F\u007F-\u009F\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B\u200C\u200E\u200F\u202A-\u202E\u2060-\u206F\u3164\uFEFF\uFFA0\uFFF9-\uFFFB]/g;
 
 /**
+ * BMP 以外同样看不见的字符：标签字符 U+E0000–E007F 及其后未分配的默认可忽略码位、乐谱格式符、速记格式符。
+ * 例外：黑旗 + 标签序列 + 结束符是英格兰 / 苏格兰 / 威尔士旗，整段保留（第一个分组）。与后端 display-name.ts 同一规则。
+ */
+const INVISIBLE_ASTRAL =
+  /(\u{1F3F4}[\u{E0020}-\u{E007E}]+\u{E007F})|[\u{E0000}-\u{E00FF}\u{E01F0}-\u{E0FFF}\u{1D173}-\u{1D17A}\u{1BCA0}-\u{1BCA3}]/gu;
+
+/**
  * 用户起的头盔名整理成一行能显示的样子：去掉看不见的字符，换行、制表等连续空白压成一个空格，去掉首尾空白。
  * 接口接受只含零宽字符或带换行的名字（2026-10-16 华为真机：「其他头盔」那一行一片空白；
  * 换行名单行显示只剩「第一行…」）。整理完是空串就等于没起名。改名提交前也过一遍。
@@ -24,10 +31,11 @@ export function cleanHelmetName(raw: string | null | undefined): string {
   return (
     raw
       .replace(INVISIBLE_IN_NAME, "")
+      .replace(INVISIBLE_ASTRAL, (_m, flag?: string) => flag ?? "")
       // 盲文空白（U+2800）显示出来也是空白，和空格同等对待
       .replace(/[\s\u2800]+/g, " ")
       // 零宽连接符 / 变体选择符只有跟在可见字符后面才有用：落在开头或空格后面的去掉，连接符落在结尾或空格前面的也去掉
-      .replace(/(^|\s)[\u200D\uFE00-\uFE0F]+/g, "$1")
+      .replace(/(^|\s)[\u200D\uFE00-\uFE0F\u{E0100}-\u{E01EF}]+/gu, "$1")
       .replace(/\u200D+(?=\s|$)/g, "")
       // 去掉连接符后两边的空格会挨在一起
       .replace(/ {2,}/g, " ")

@@ -44,8 +44,13 @@ export class VoiceController {
   }
 
   // 邀请码 6 位字母 / 数字（决策 #57）、长期有效，且「码错 404 / 码对 200」能区分猜没猜中：不限频时一个脚本就能
-  // 枚举出陌生人的频道并自动入群（看到成员昵称头像、拿进房凭证）。与绑定码同口径（决策 #53）
-  @RateLimit({ name: 'voice_join', limit: 10, windowMs: 60_000 })
+  // 枚举出陌生人的频道并自动入群（看到成员昵称头像、拿进房凭证）。
+  // 按账号计（决策 #57「每账号每分钟 10 次」）：原来按 IP，集合点大家连同一个热点 / 运营商 NAT 出口，
+  // 第 11 个人凭正确的码入群就 429（10-17 第二轮评审 r1）。另留一条宽松的按 IP 上限，挡同一出口批量注册小号枚举
+  @RateLimit(
+    { name: 'voice_join', limit: 10, windowMs: 60_000, keyBy: 'user' },
+    { name: 'voice_join_ip', limit: 60, windowMs: 60_000 },
+  )
   @Post('join')
   @HttpCode(200)
   join(@Req() req: AuthenticatedRequest, @Body() dto: JoinChannelDto) {
