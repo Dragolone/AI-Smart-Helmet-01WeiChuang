@@ -1894,6 +1894,34 @@ describe("重连被拒时自动重进", () => {
     expect(cues()).toEqual(["lost"]);
   });
 
+  it("自动重进途中自己在「更多」里退出了这个频道：这次重进作废、退房，不响掉线音；凭证晚到也不进房", async () => {
+    const r = await inRoomFake();
+    let give!: (t: VoiceTokenResponse) => void;
+    m(channelsApi.token).mockImplementation(
+      () => new Promise<VoiceTokenResponse>((res) => (give = res)),
+    );
+    fire("onTryToReconnect");
+    fire("onExitRoom", { reason: 1 });
+    await advance(0);
+    expect(tokens()).toBe(2);
+    m(playCue).mockClear();
+    await tap(r, tr("intercom.more.a11y", { name: C1.name }));
+    await press(r, tr("intercom.more.quit"));
+    const buttons = alert.mock.calls.at(-1)![2] as { onPress?: () => void }[];
+    const enters = mockCloud.enterRoom.mock.calls.length;
+    await act(async () => {
+      buttons[1].onPress!();
+    });
+    expect(channelsApi.leave).toHaveBeenCalledWith("c1");
+    expect(cues()).toEqual([]);
+    expect(r.root.findAllByType(DotsLoader)).toHaveLength(0);
+    await act(async () => {
+      give(TOKEN);
+    });
+    await advance(0);
+    expect(mockCloud.enterRoom.mock.calls.length).toBe(enters);
+  });
+
   it("没进房（进房途中）的钥匙报错不自动重进；正在结束通话时被拒也不重进", async () => {
     let give!: (t: VoiceTokenResponse) => void;
     m(channelsApi.token).mockImplementation(

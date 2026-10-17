@@ -27,7 +27,10 @@ const memberLimit = (): number =>
 const sigExpireSeconds = (): number =>
   envPositiveInt('TRTC_SIG_EXPIRE_SECONDS', 86400);
 
-/** 房间权限钥匙有效期（决策 #56）：只在进房那一刻校验，App 进房前现取 /token，10 分钟够用 */
+/**
+ * 房间权限钥匙有效期（决策 #56）：进房和断线重连重新进房时校验。App 进房前现取 /token，
+ * 在房期间每 5 分钟再取一把交给 SDK（决策 #60），离开房间后最多这么久手里那把就作废
+ */
 const roomKeyExpireSeconds = (): number =>
   envPositiveInt('TRTC_ROOM_KEY_EXPIRE_SECONDS', 600);
 

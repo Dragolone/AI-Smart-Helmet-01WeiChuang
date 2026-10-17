@@ -704,9 +704,12 @@ export default function IntercomScreen() {
     };
   }, [keepAwake]);
 
-  /** 进房结束（成功之外的各种收场）：自动重进没进去要响一声，锁着屏的人才知道通话断了 */
-  const stopJoining = () => {
-    if (resume.current) {
+  /**
+   * 进房结束（成功之外的各种收场）。failed：没进去（不是自己结束 / 退出频道）——
+   * 自动重进没进去要响一声，锁着屏的人才知道通话断了
+   */
+  const stopJoining = (failed: boolean) => {
+    if (failed && resume.current) {
       playCue("lost");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(
         () => {},
@@ -742,7 +745,7 @@ export default function IntercomScreen() {
           : true;
     if (stale()) return;
     if (!micGranted) {
-      stopJoining();
+      stopJoining(true);
       setJoinError(translate("intercom.micDenied"));
       return;
     }
@@ -762,7 +765,7 @@ export default function IntercomScreen() {
       if (stale()) return;
       cancelJoin();
       abandonRoom(trtc.current);
-      stopJoining();
+      stopJoining(true);
       setJoinError(translate("intercom.joinTimeout"));
     }, 8000);
     try {
@@ -796,7 +799,7 @@ export default function IntercomScreen() {
       // 半路出错也不能留个开着采集、可能已进房的半截状态
       cancelJoin();
       abandonRoom(trtc.current);
-      stopJoining();
+      stopJoining(true);
       setJoinError(toUserMessage(e));
     }
   };
@@ -814,7 +817,7 @@ export default function IntercomScreen() {
     leaving.current = true;
     // 换频道的进房还在半路时点了结束：那一次也作废，不然退完房它又进去了
     cancelJoin();
-    stopJoining();
+    stopJoining(false);
     trtc.current.muteLocalAudio(true).catch(() => {});
     playCue("leave");
     // 留一点时间让提示音响完：退房会把 TRTC 的音频引擎一起停掉
@@ -849,7 +852,7 @@ export default function IntercomScreen() {
             const cur = live.current;
             if (cur.activeId === c.channelId && (cur.inRoom || cur.joining)) {
               cancelJoin();
-              stopJoining();
+              stopJoining(false);
               abandonRoom(trtc.current);
             }
             channelsApi
