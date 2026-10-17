@@ -352,7 +352,7 @@ export const safety = {
       "Your SOS was not sent and won't be retried. If you need help, call directly.",
     "safety.manualSos": "Manual SOS",
     "safety.status.pending": "Active",
-    "safety.status.notified": "Notifications started",
+    "safety.status.notified": "Alerts started",
     "safety.status.cancelled": "Cancelled",
     "safety.dev.title": "Dev tools (DEV builds only)",
     "safety.dev.fall": "Simulate fall",

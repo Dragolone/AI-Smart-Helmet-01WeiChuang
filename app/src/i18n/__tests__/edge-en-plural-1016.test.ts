@@ -52,6 +52,12 @@ describe("数字是 1 时英文读得通", () => {
     );
   });
 
+  it("求救记录的「通知已启动」英文写短：原来的「Notifications started」在 360dp 宽的列表里把标题挤成「Manu…」、头盔名只剩「…」（10-17 模拟器）", () => {
+    expect(translate("safety.status.notified", {}, "en")).toBe(
+      "Alerts started",
+    );
+  });
+
   it("中文写法不变", () => {
     expect(translate("profile.devicesCount", { n: 1 }, "zh-CN")).toBe(
       "1 台设备",

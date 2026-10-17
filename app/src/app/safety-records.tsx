@@ -419,6 +419,8 @@ export default function SafetyRecordsScreen() {
           themeColor="textSecondary"
           style={[styles.rowSub, styles.subName]}
           numberOfLines={1}
+          // 放不下时截中间：默认名都是「helmet_」开头，后几位才分得出是哪一顶（10-17 英文 360dp 宽只剩「helmet_q…」）
+          ellipsizeMode="middle"
         >
           {nameOfDevice(deviceId)}
         </ThemedText>
