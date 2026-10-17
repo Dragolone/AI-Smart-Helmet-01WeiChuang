@@ -173,7 +173,9 @@ export class SosService {
       }),
       this.prisma.sosNotification.findMany({
         where: { sosId: accidentId },
-        orderBy: { createdAt: 'asc' },
+        // 短信行与本人 Push 行同一事务建、createdAt 完全相同，只按它排时次序看行的物理位置：
+        // 某条短信重试成功（行被更新）后刷新一次列表就换顺序（10-17 第二轮评审 r4）。与投递扫描同一套次序键
+        orderBy: [{ createdAt: 'asc' }, { channel: 'desc' }, { id: 'asc' }],
       }),
     ]);
     return {

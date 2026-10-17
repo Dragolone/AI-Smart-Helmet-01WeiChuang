@@ -67,6 +67,15 @@ describe('AdminAuthGuard', () => {
     await expect401({ headers: { authorization: 'Bearer tok' } });
   });
 
+  it('查库失败（数据库瞬断）：原样抛出，不当成令牌无效（401 会让后台前端清会话、把管理员踢回登录页）', async () => {
+    verifyAsync.mockResolvedValue({ sub: 'a1', typ: 'admin', pv });
+    const err = new Error('connection terminated');
+    findUnique.mockRejectedValue(err);
+    await expect(
+      guard.canActivate(ctxFor({ headers: { authorization: 'Bearer tok' } })),
+    ).rejects.toBe(err);
+  });
+
   it('验签失败：401', async () => {
     verifyAsync.mockRejectedValue(new Error('invalid signature'));
     await expect401({ headers: { authorization: 'Bearer tok' } });

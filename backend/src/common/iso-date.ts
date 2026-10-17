@@ -4,8 +4,11 @@ import {
   type ValidationOptions,
 } from 'class-validator';
 
-/** 时间部分后面必须跟显式时区（Z / ±hh / ±hhmm / ±hh:mm） */
-const HAS_TIME = /T/i;
+/**
+ * 时间部分后面必须跟显式时区（Z / ±hh / ±hhmm / ±hh:mm）。日期与时间之间 IsISO8601 也认空格（2026-10-01 10:00:00），
+ * 原来只认 T，空格写法不带时区也放行、按进程时区解析（10-17 第二轮评审 r4）
+ */
+const HAS_TIME = /[T\s]/i;
 const HAS_ZONE = /(Z|[+-]\d{2}(:?\d{2})?)$/i;
 
 /**

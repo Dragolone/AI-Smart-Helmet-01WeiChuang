@@ -212,7 +212,8 @@ export class AdminService {
     }
     const recent = await this.prisma.rawEvent.findMany({
       where: { deviceId },
-      orderBy: { receivedAt: 'desc' },
+      // 同一毫秒到达（一批中转）的事件没有次序键时截前 10 条是随机切的
+      orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }],
       take: 10,
     });
     return {
