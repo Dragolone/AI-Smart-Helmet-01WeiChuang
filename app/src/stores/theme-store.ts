@@ -4,14 +4,15 @@ import { Appearance } from "react-native";
 import { create } from "zustand";
 
 import { retryWhenActive } from "@/services/retry-when-active";
+import { SECURE_KEYS } from "@/services/secure-keys";
 
 export const THEME_MODES = ["system", "dark", "light"] as const;
 export type ThemeMode = (typeof THEME_MODES)[number];
 
 /** 旧条目：钥匙串默认的 WHEN_UNLOCKED，锁屏时读不到 */
-const LEGACY_KEY = "helmet.theme";
+const LEGACY_KEY = SECURE_KEYS.themeLegacy;
 /** 现行条目：首次解锁后即可读（同 locale-store / consent-store；换 key 是因为钥匙串的 update 不改可访问性） */
-const KEY = "helmet.theme.v2";
+const KEY = SECURE_KEYS.theme;
 const KEYCHAIN = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK };
 
 const isMode = (v: string | null): v is ThemeMode =>

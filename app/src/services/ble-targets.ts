@@ -7,13 +7,13 @@ import type { QueryClient } from "@tanstack/react-query";
 import * as SecureStore from "expo-secure-store";
 import type { DevicePublic } from "@helmet/shared";
 
+import { bleTargetsKeyOf } from "@/services/secure-keys";
+
 /** 首次解锁后即可读写：BLE 事件在锁屏下把进程拉起来时也要读得到（同 auth-store） */
 const KEYCHAIN = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK };
 /** 钥匙串单值有 2KB 上限；一个账号绑不了这么多台，超出的截掉 */
 const MAX_CACHED = 20;
-/** 注销账号时一并删掉（account/delete） */
-export const bleTargetsKeyOf = (userId: string) =>
-  `helmet.ble.targets.${userId.replace(/[^A-Za-z0-9._-]/g, "_")}`;
+/** 注销账号、重装后清理时一并删掉（services/secure-keys 的 accountSecureKeysOf） */
 const keyOf = bleTargetsKeyOf;
 
 /**

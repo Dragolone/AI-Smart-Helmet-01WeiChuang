@@ -124,8 +124,8 @@ describe("接线（源码不变式）", () => {
   it("注销账号：不再保留上次登录的手机号（登出保留，注销不留）", () => {
     const del = read("app/account/delete.tsx");
     const done = del.indexOf("authApi.deleteMe");
-    const wipe = del.indexOf('deleteItemAsync("last_login_phone")');
+    const wipe = del.indexOf("deleteItemAsync(SECURE_KEYS.lastLoginPhone)");
     expect(wipe).toBeGreaterThan(done);
-    expect(read("stores/auth-store.ts")).not.toContain("last_login_phone");
+    expect(read("stores/auth-store.ts")).not.toContain("lastLoginPhone");
   });
 });

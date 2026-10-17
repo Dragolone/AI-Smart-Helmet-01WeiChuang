@@ -5,7 +5,9 @@
 import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
 
-const KEY = "helmet.launchMemory";
+import { SECURE_KEYS } from "@/services/secure-keys";
+
+const KEY = SECURE_KEYS.launchMemory;
 
 export type LaunchRecord = {
   userId: string;

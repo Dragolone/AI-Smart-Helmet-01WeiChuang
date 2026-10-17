@@ -4,9 +4,9 @@
 import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
 
-/** SecureStore 的 key 只允许字母数字和 . - _；用户 id 是 cuid，满足。注销账号时一并删掉（account/delete） */
-export const drillSeenKeyOf = (userId: string) =>
-  `helmet.sosDrillSeen.${userId}`;
+import { drillSeenKeyOf } from "@/services/secure-keys";
+
+/** 注销账号、重装后清理时一并删掉（services/secure-keys 的 accountSecureKeysOf） */
 const keyOf = drillSeenKeyOf;
 
 type DrillState = {

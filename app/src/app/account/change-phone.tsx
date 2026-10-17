@@ -28,6 +28,7 @@ import {
 } from "@/hooks/use-sms-code";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
+import { SECURE_KEYS } from "@/services/secure-keys";
 import { useAuthStore } from "@/stores/auth-store";
 
 export default function ChangePhoneScreen() {
@@ -93,7 +94,7 @@ export default function ChangePhoneScreen() {
       });
       await setUser(updated);
       // 登录页预填的是上次登录用的号码：换成新号，不然下次登录预填的是已经释放、可能被别人注册的旧号
-      SecureStore.setItemAsync("last_login_phone", cleanPhone).catch(
+      SecureStore.setItemAsync(SECURE_KEYS.lastLoginPhone, cleanPhone).catch(
         () => undefined,
       );
       setDone(true);

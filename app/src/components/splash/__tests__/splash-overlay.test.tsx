@@ -116,6 +116,10 @@ jest.mock("expo-secure-store", () => ({
   },
   AFTER_FIRST_UNLOCK: 0,
 }));
+// 重装检查（iOS 重装后清钥匙串）当作已经做完：这里只看开屏本身
+jest.mock("@/services/fresh-install", () => ({
+  clearIfFreshInstall: () => Promise.resolve(),
+}));
 jest.mock("@/api/devices", () => ({ devicesApi: { list: jest.fn() } }));
 jest.mock("@/services/launch-intent", () => ({
   launchedByNotification: jest.fn(() => false),

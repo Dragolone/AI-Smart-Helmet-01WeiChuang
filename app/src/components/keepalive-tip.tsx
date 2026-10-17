@@ -11,9 +11,10 @@ import { ThemedText } from "@/components/themed-text";
 import { Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
+import { SECURE_KEYS } from "@/services/secure-keys";
 import { useBleStore } from "@/stores/ble-store";
 
-const SHOWN_KEY = "keepalive_tip_shown";
+const SHOWN_KEY = SECURE_KEYS.keepaliveTipShown;
 
 export function KeepAliveTip() {
   const theme = useTheme();
