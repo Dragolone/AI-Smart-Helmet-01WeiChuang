@@ -1,6 +1,6 @@
 ## EMQX 生产配置模板 —— 由 deploy/render-config.sh 渲染出 deploy/generated/emqx.conf（gitignored）
 ## 与本地 emqx/emqx.conf 的差异：
-##   ① 认证/授权回调直连容器网络的 backend:3000（本地是 host.docker.internal:3000——写死端口的坑见 DEVELOPMENT.md）
+##   ① 认证回调直连容器网络的 backend:3000（本地是 host.docker.internal:3000——写死端口的坑见 DEVELOPMENT.md）
 ##   ② 内部令牌来自 deploy/.env 的 EMQX_INTERNAL_TOKEN（占位符渲染，不进 Git）
 ## MQTT TLS(8883) 暂不启用：4G 模组是否支持 TLS 待硬件确认（DEVICE_PROTOCOL §3 ⚠️）；
 ## 联调期 1883 明文 + 云防火墙限源 IP，硬件确认后在此追加 ssl listener 并同步 DEPLOYMENT.md。
@@ -22,7 +22,7 @@ dashboard {
     }
 }
 
-## ———— 设备认证 + Topic ACL（DEVICE_PROTOCOL §3/§4）：转发后端内部接口校验 ————
+## ———— 设备认证 + Topic ACL（DEVICE_PROTOCOL §3/§4）：认证转发后端内部接口校验，ACL 随认证应答下发 ————
 ## enable_pipelining=1：避免连接池复用与后端 keep-alive 空闲关闭的竞态（与本地配置一致）。
 
 authentication = [
@@ -43,26 +43,13 @@ authentication = [
 ]
 
 authorization {
+  ## 不配任何授权源：设备权限随认证应答的 acl 字段下发（后端 emqx-hook authenticate），服务账号是超级用户。
+  ## 不再回调后端 authorize——EMQX 刚启动约 0.1 s 内的连接不经认证就被放进来（错密码也行，2026-10-17 本机 5.8.8 复现），
+  ## 按 username 匹配 topic 的回调 / 本地 ACL 会让这种连接冒充任意头盔发假摔倒；随认证下发的 ACL 它拿不到，什么都发不了。
+  ## 附带：发布不再依赖后端在线，后端重启不会让已连着的设备被拒（原先拒绝结果还缓存 1 分钟）。
   no_match = deny
-  sources = [
-    {
-      type = http
-      method = post
-      url = "http://backend:3000/api/v1/internal/emqx/authorize?token=__EMQX_INTERNAL_TOKEN__"
-      body {
-        clientid = "${clientid}"
-        username = "${username}"
-        topic = "${topic}"
-        action = "${action}"
-      }
-      enable_pipelining = 1
-      connect_timeout = "5s"
-      request_timeout = "5s"
-    }
-    ## 后端回调不可达时的本地兜底：规则同后端 authorize，原因见 emqx/acl-fallback.conf 文件头
-    {
-      type = file
-      path = "/opt/emqx/etc/acl-fallback.conf"
-    }
-  ]
+  ## 被拒就断开：启动窗口里混进来的连接（含我们自己重连得太快的设备）一发布就被踢，重连时走正常认证拿到 ACL；
+  ## QoS 1 消息没拿到 PUBACK，设备会重发。默认的 ignore 会照回 PUBACK（MQTT 3.1.1 不带结果码）——消息静默丢掉
+  deny_action = disconnect
+  sources = []
 }

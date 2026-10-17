@@ -3,7 +3,7 @@
 import { Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import type { PrismaService } from '../prisma/prisma.service';
-import { EmqxHookService } from './emqx-hook.service';
+import { EmqxHookService, deviceAcl } from './emqx-hook.service';
 
 describe('EmqxHookService.authenticate：clientId 规则', () => {
   const findUnique = jest.fn();
@@ -65,7 +65,7 @@ describe('EmqxHookService.authenticate：clientId 规则', () => {
   it('设备用自己的 clientId：按密钥判定', async () => {
     await expect(
       svc.authenticate('helmet_001', 'dev_secret', 'helmet_001'),
-    ).resolves.toEqual({ result: 'allow' });
+    ).resolves.toEqual({ result: 'allow', acl: deviceAcl('helmet_001') });
   });
 
   it('服务账号密码未配置（空）：一律 deny，空密码也撞不进来', async () => {

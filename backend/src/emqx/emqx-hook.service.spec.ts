@@ -1,6 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { createHash } from 'node:crypto';
-import { EmqxHookService } from './emqx-hook.service';
+import { EmqxHookService, deviceAcl } from './emqx-hook.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 describe('EmqxHookService（认证与 Topic 授权）', () => {
@@ -30,13 +30,13 @@ describe('EmqxHookService（认证与 Topic 授权）', () => {
       ).resolves.toEqual({ result: 'deny' });
     });
 
-    it('设备密钥正确 → allow', async () => {
+    it('设备密钥正确 → allow，并带上只含本设备 Topic 的 ACL', async () => {
       findUnique.mockResolvedValue({
         deviceSecretHash: createHash('sha256').update('secret1').digest('hex'),
       });
       await expect(
         service.authenticate('helmet_001', 'secret1'),
-      ).resolves.toEqual({ result: 'allow' });
+      ).resolves.toEqual({ result: 'allow', acl: deviceAcl('helmet_001') });
     });
 
     it('设备密钥错误 / 未知设备 / 缺参数 → deny', async () => {

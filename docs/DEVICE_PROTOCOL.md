@@ -89,17 +89,20 @@
 
 ### 3.1 EMQX → 后端 内部回调（✅ 已实现，部署时 EMQX 按此配置）
 
-EMQX 不自己存凭证，每次连接都回调后端认证；发布/订阅先回调后端授权，**后端不可达时由 EMQX 本地 ACL 兜底**（`emqx/acl-fallback.conf`，规则与 §4 相同，见下方第四条）。两个端点都要求内部共享令牌（非用户 JWT），以 `?token=<EMQX_INTERNAL_TOKEN>` 或 `X-Internal-Token` 请求头携带（EMQX 配置用 query 形式）；令牌不匹配或未配置一律 401。端点**只在容器网络内可达，不经网关对公网暴露**。
+EMQX 不自己存凭证，每次连接都回调后端认证；**设备的 Topic 权限随认证应答下发**（`acl` 字段，§4 规则），发布 / 订阅时不再回调后端（2026-10-17 起，原因见下方第四条）。两个端点都要求内部共享令牌（非用户 JWT），以 `?token=<EMQX_INTERNAL_TOKEN>` 或 `X-Internal-Token` 请求头携带（EMQX 配置用 query 形式）；令牌不匹配或未配置一律 401。端点**只在容器网络内可达，不经网关对公网暴露**。
 
 | 方法 | 路径 | 请求体 | 响应 |
 |------|------|--------|------|
-| POST | /api/v1/internal/emqx/authenticate | `{ clientid, username, password }` | `200 { result: "allow" \| "deny" }`——username=deviceId、password=deviceSecret，与库中哈希比对；后端服务账号额外带 `is_superuser: true`（EMQX 对它跳过授权，2026-10-17） |
-| POST | /api/v1/internal/emqx/authorize | `{ clientid, username, topic, action }` | `200 { result: "allow" \| "deny" }`——按 §4 ACL 规则判定设备是否越权 |
+| POST | /api/v1/internal/emqx/authenticate | `{ clientid, username, password }` | `200 { result: "allow" \| "deny" }`——username=deviceId、password=deviceSecret，与库中哈希比对；设备 allow 时带 `acl`（本设备 4 条 publish + 1 条 subscribe，见 §4），后端服务账号带 `is_superuser: true`；deviceId 不符合 `^[A-Za-z0-9_-]{1,64}$`（含 `+` `#` `/`）一律 deny |
+| POST | /api/v1/internal/emqx/authorize | `{ clientid, username, topic, action }` | `200 { result: "allow" \| "deny" }`——按 §4 ACL 规则判定。**2026-10-17 起 EMQX 不再配置此回调**（只看 username 与 topic，分不出没过认证的连接，见下方第四条），保留一版供旧配置过渡，**不要再加回 `authorization.sources`** |
 
 - 令牌配置在 `deploy/.env` 的 `EMQX_INTERNAL_TOKEN`，渲染进 EMQX 配置（`deploy/render-config.sh`）；改动后须重跑渲染并重启 EMQX。
 - EMQX 侧超时：`connect_timeout` / `request_timeout` 均 5s，`enable_pipelining = 1`（避免连接池复用与后端 keep-alive 空闲关闭的竞态）。
 - 授权无匹配规则时 `no_match = deny`（默认拒绝）。✅ **后端不可达时连接认证 fail-closed 已实测**（2026-08-25，两场景：回调返回非预期响应 / 端口无监听，均 `Connection refused: Not authorized`，不存在默认放行）。
-- **授权的本地兜底（2026-10-17）**：`authorization.sources` 第一项是上表 authorize 回调，第二项是 EMQX file 源 `emqx/acl-fallback.conf`。后端可达时回调的 allow / deny 就是最终结果；回调不可达（后端重启、EMQX 回调连接等健康检查恢复的约 15 s）时才落到本地规则——同样只放行设备自己的 Topic，越权照样拒。原因：原先回调不可达 → 拒绝，且 EMQX 把拒绝缓存 1 分钟（`authorization.cache.ttl`），而 MQTT 3.1.1 的 PUBACK 不带结果码，设备以为送达——**后端每重启一次，已连着的设备在之后约一分钟里发的 QoS 1 事件（含摔倒）都会被静默丢掉**（本机 EMQX 5.8.8 复现；云端重启后同样的拒绝日志）。两份规则由 `backend/src/emqx/emqx-acl-fallback.spec.ts` 逐条对比，改 §4 必须两边一起改。
+- **权限随认证下发（2026-10-17，取代同日 #232 的「本地 ACL 兜底」）**：`authorization.sources = []`（只用认证应答里的 `acl`），`no_match = deny`，`deny_action = disconnect`。原因两条，都在本机 EMQX 5.8.8 复现、云端日志可见：
+  ① **EMQX 刚启动约 0.1 s 内，连接不经认证就被放进来，错密码也行**（认证链还没就绪，认证回调一次都没调）。原先授权按 username 匹配 topic（回调 authorize 与 #232 的本地 ACL 都是），这种连接等授权就绪后就能**冒充任意头盔发假摔倒 / 假位置**——实验里错密码的连接在 EMQX 启动瞬间连上，几十秒后发的 `possible_fall` 真进了后端。权限改为随认证下发后，没过认证的连接没有 ACL，发布 / 订阅一律被拒并断开；
+  ② 授权回调要后端在线：后端重启那十几秒 + EMQX 把拒绝缓存 1 分钟（`authorization.cache.ttl`），已连着的设备一直被拒，MQTT 3.1.1 的 PUBACK 不带结果码，QoS 1 事件被静默丢掉。权限随认证下发后发布不再依赖后端。
+  `deny_action = disconnect` 让启动窗口里连上的正常设备（重连太快正好撞上）一发布就被踢、重连时走正常认证拿到 ACL，没拿到 PUBACK 的 QoS 1 消息由设备重发；后端消费者订阅被拒同样断线重连。**注意**：设备一旦发布到 §4 以外的 Topic 也会被断开——固件只能用 §4 的 Topic。EMQX 本身重启时会话在内存里，后端重新订阅前（约 1 s）设备发的消息没有订阅者会被丢弃，这是 EMQX 重启固有的，与本条无关。
 
 ## 4. Topic 与 ACL
 
@@ -113,7 +116,7 @@ EMQX 不自己存凭证，每次连接都回调后端认证；发布/订阅先�
 | 云 → 设备 (subscribe) | `helmet/{deviceId}/cmd` | 下发命令/配置 |
 | 设备 → 云 (publish) | `helmet/{deviceId}/cmd_ack` | 命令执行回执 |
 
-ACL 规则：设备 `helmet_001` 只允许 publish `helmet/helmet_001/{status,location,event,cmd_ack}`、subscribe `helmet/helmet_001/cmd`。✅（后端 authorize 回调判定；回调不可达时 EMQX 本地 `emqx/acl-fallback.conf` 按同一套规则兜底，见 §3.1）
+ACL 规则：设备 `helmet_001` 只允许 publish `helmet/helmet_001/{status,location,event,cmd_ack}`、subscribe `helmet/helmet_001/cmd`。✅（规则由后端在认证应答里下发，见 §3.1；`backend/src/emqx/emqx-acl.spec.ts` 逐条对照 authorize 的判定）
 
 ## 5. QoS / Keep Alive / 会话
 

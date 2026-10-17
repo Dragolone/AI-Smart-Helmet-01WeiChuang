@@ -41,8 +41,6 @@ services:
     volumes:
       - emqx_data:/opt/emqx/data
       - ./generated/emqx.conf:/opt/emqx/etc/emqx.conf:ro
-      # 授权回调不可达时的本地 ACL 兜底（与本地开发共用一份；改了要 up -d --force-recreate emqx）
-      - ../emqx/acl-fallback.conf:/opt/emqx/etc/acl-fallback.conf:ro
     environment:
       # 覆盖模板里的占位 cookie（Erlang 分布式协议凭证，单节点也别用默认值）
       EMQX_NODE__COOKIE: ${EMQX_NODE_COOKIE:?deploy/.env 未配置 EMQX_NODE_COOKIE}

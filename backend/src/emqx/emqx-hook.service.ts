@@ -3,24 +3,26 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { mqttBackendClientId, mqttBackendUsername } from '../common/env';
 import { PrismaService } from '../prisma/prisma.service';
 
-/** EMQX HTTP 认证/授权的应答格式；is_superuser 只在认证应答里出现 */
-export type EmqxResult = { result: 'allow' | 'deny'; is_superuser?: boolean };
+/** 随认证应答下发的一条 ACL（EMQX HTTP 认证的 acl 字段） */
+export type EmqxAclRule = {
+  permission: 'allow';
+  action: 'publish' | 'subscribe';
+  topic: string;
+};
+
+/** EMQX HTTP 认证/授权的应答格式；is_superuser / acl 只在认证应答里出现 */
+export type EmqxResult = {
+  result: 'allow' | 'deny';
+  is_superuser?: boolean;
+  acl?: EmqxAclRule[];
+};
 
 const ALLOW: EmqxResult = { result: 'allow' };
 const DENY: EmqxResult = { result: 'deny' };
-/**
- * 服务账号标超级用户，EMQX 对它跳过授权。授权回调指向的就是后端自己：后端重启后，
- * EMQX 侧的回调连接要等下一次健康检查（约 15 s）才恢复，这期间的拒绝结果还会按
- * authorization.cache 缓存 1 分钟——订阅会被连续拒约一分钟（2026-10-17 云端实测重试 12 次）。
- * 授权里服务账号本来就全部放行（见 authorize），跳过不改变权限。
- */
+/** 服务账号标超级用户，EMQX 对它跳过授权（授权里它本来就全部放行，见 authorize） */
 const SERVICE_ALLOW: EmqxResult = { result: 'allow', is_superuser: true };
 
-/**
- * 设备可发布的 Topic 叶子（DEVICE_PROTOCOL §4）。
- * emqx/acl-fallback.conf 是同一套规则的 EMQX 本地副本（后端不可达时兜底），改这里要同步改那里，
- * emqx-acl-fallback.spec 会对比两边。
- */
+/** 设备可发布的 Topic 叶子（DEVICE_PROTOCOL §4） */
 export const DEVICE_PUBLISH_LEAVES = new Set([
   'status',
   'location',
@@ -28,6 +30,27 @@ export const DEVICE_PUBLISH_LEAVES = new Set([
   'cmd_ack',
 ]);
 const TOPIC_PATTERN = /^helmet\/([^/]+)\/([^/]+)$/;
+/** 要拼进 ACL topic 的 deviceId 不能带 MQTT 通配符 / 层级分隔符，否则一条规则就放行了别的设备 */
+const DEVICE_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * 设备的全部权限，随认证应答交给 EMQX（DEVICE_PROTOCOL §3.1 / §4）：只能发布自己的
+ * helmet/{deviceId}/{status,location,event,cmd_ack}，只能订阅自己的 helmet/{deviceId}/cmd。
+ */
+export function deviceAcl(deviceId: string): EmqxAclRule[] {
+  return [
+    ...[...DEVICE_PUBLISH_LEAVES].map((leaf): EmqxAclRule => ({
+      permission: 'allow',
+      action: 'publish',
+      topic: `helmet/${deviceId}/${leaf}`,
+    })),
+    {
+      permission: 'allow',
+      action: 'subscribe',
+      topic: `helmet/${deviceId}/cmd`,
+    },
+  ];
+}
 
 const sha256 = (s: string): string =>
   createHash('sha256').update(s).digest('hex');
@@ -77,6 +100,10 @@ export class EmqxHookService {
       return DENY;
     }
 
+    if (!DEVICE_ID_PATTERN.test(username)) {
+      this.logger.warn(`MQTT 认证拒绝：设备号格式不合法（${username}）`);
+      return DENY;
+    }
     const device = await this.prisma.device.findUnique({
       where: { deviceId: username },
       select: { deviceSecretHash: true },
@@ -85,10 +112,17 @@ export class EmqxHookService {
       this.logger.warn(`MQTT 认证拒绝：${username}`);
       return DENY;
     }
-    return ALLOW;
+    // 权限跟着这次认证走，而不是事后按 username 回调 authorize：EMQX 刚启动那一下（约 0.1 s）
+    // 认证链还没就绪，连接不经认证就被放进来，错密码也行（2026-10-17 本机 5.8.8 复现）。
+    // 那种连接没有这份 ACL，什么都发不了；按 username 判的 authorize 却会放行它冒充任意头盔。
+    return { result: 'allow', acl: deviceAcl(username) };
   }
 
-  /** Topic 授权：设备只准操作自己的 helmet/{deviceId}/*；服务账号放行。 */
+  /**
+   * Topic 授权：设备只准操作自己的 helmet/{deviceId}/*；服务账号放行。
+   * EMQX 已不再配置这个回调（权限随认证下发，见 authenticate）——它只看 username 与 topic，
+   * 分不出没过认证的连接，不要再把它加回 authorization.sources。保留一版供旧配置过渡。
+   */
   authorize(
     username: string | undefined,
     topic: string | undefined,

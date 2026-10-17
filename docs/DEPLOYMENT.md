@@ -96,7 +96,7 @@ docker compose -f docker-compose.prod.yml exec backend npm run provision:device 
 #   休眠→唤醒、蓝牙断开；每轮一次求救到期会真发短信，只绑自测账号。MOCK4_TOUR_CYCLE_POINTS 可改轮长（≥40 个点）
 # 第五、六顶常驻 Mock（负责人看多头盔界面用，2026-10-15）：MOCK5_DEVICE_* / demo5 / mock5、MOCK6_DEVICE_* / demo6 / mock6，剧本留空（riding）
 # 注意：`up -d --build mock2` 会连带重建 backend。原先 backend 重启那十几秒里 EMQX 会把授权结果缓存成「拒绝」（订阅 cmd 失败、
-# 事件 not_authorized）；2026-10-17 起授权回调不可达时由 emqx/acl-fallback.conf 兜底，不再需要事后 `restart mock2`
+# 事件 not_authorized）；2026-10-17 起设备权限随认证下发、发布不再回调后端，不再需要事后 `restart mock2`
 docker compose -f docker-compose.prod.yml exec backend npm run provision:batch -- --count 20   # 产线批量开通:CSV + 二维码,产物在容器 /repo/backend/provision-out/
 docker compose -f docker-compose.prod.yml cp backend:/repo/backend/provision-out ./provision-out   # 拷出后交接,两边都销毁
 ```
@@ -164,7 +164,7 @@ docker compose -f docker-compose.prod.yml exec -T postgres pg_restore -U helmet 
 - **对外拨测告警**(上线前清单 #6 ③,✅ 2026-09-22 已开通 UptimeRobot,账号 zhongqilong@01weichuang.com,HTTP/S 类型即可——`/health` 故障返回 503):UptimeRobot(免费档 5 分钟一次)或腾讯云「云拨测」新建 HTTP(s) 监控 → URL `https://dev-api.01weichuang.com/api/v1/health`、方法 GET、关键字匹配 `"status":"ok"`、失败 2 次告警到邮箱/微信;production 上线时把 `api.01weichuang.com` 再加一条。`/health` 返回 `503 draining` 只在发布重启的几秒内出现,拨测间隔远大于它,不会误报。
 
 - 改了 `deploy/.env` 里的 `EMQX_INTERNAL_TOKEN`:重跑 `sh render-config.sh` 再 `up -d`(backend 与 emqx 都要重启)。
-- 改了 `emqx/acl-fallback.conf`(授权回调不可达时的本地 ACL,DEVICE_PROTOCOL §3.1),或第一次部署带它的版本:`sh render-config.sh` 后 `up -d --force-recreate emqx`——单文件挂载绑的是旧文件,普通 `up -d` 读不到新内容。EMQX 重启时 Mock 与 backend 会断开几秒再自动重连。
+- 改了 EMQX 配置模板(`emqx.prod.conf.template`):`sh render-config.sh` 后 `up -d --force-recreate emqx`——单文件挂载绑的是旧文件,普通 `up -d` 读不到新内容。EMQX 重启时 Mock 与 backend 断开几秒再自动重连;**EMQX 会话在内存里,backend 重新订阅前(约 1 s)设备发的消息会丢**,所以别在演示中途重启 EMQX。
 - `.env` 里 `COMPOSE_PROFILES=demo` 打开后,§5 所有命令自动包含 mock 服务;`git pull` 后 `up -d --build` 会连 mock 一起重建。
 - 改了 `Caddyfile`:**用一次性容器校验,再强制重建网关**。配置写坏会让网关起不来,API 与 Admin 一起断:
 
@@ -213,7 +213,7 @@ docker compose -f docker-compose.prod.yml exec -T postgres pg_restore -U helmet 
 | Caddy 日志反复 `obtaining certificate` 失败 | 先查 DNS 是否已解析到本机(`dig dev-api.01weichuang.com`)、80 端口是否放通。若确认是 Let's Encrypt 网络不通(国内偶发):腾讯云 SSL 控制台按子域名申请免费 DV 证书,下载 nginx 格式的 crt/key 放服务器 `/opt/certs/`,compose 给 gateway 加挂载 `- /opt/certs:/certs:ro`,Caddyfile 对应站点块内加一行 `tls /certs/<域名>.crt /certs/<域名>.key`,restart gateway。两分钟的事,不影响其他一切 |
 | `npm ci` / `apt-get` 在构建时极慢/超时 | 国内服务器访问 npmjs 与 deb.debian.org 不稳。按 §3 ②' 切腾讯云内网源 + npmmirror(本地开发不需要,别提交) |
 | ubuntu 用户 `docker` 报 `permission denied ... docker.sock` | 首次登录用户不在 docker 组:`sudo usermod -aG docker $USER && newgrp docker` |
-| Mock/设备连 MQTT 被拒 `Not authorized` | 依次查:① deviceId/deviceSecret 是否 §3 开通的那套;② `generated/emqx.conf` 是否渲染过、token 与 `.env` 一致;③ backend 是否健康(连接认证 fail-closed,后端挂了新连接全拒,这是设计行为;已连着的设备发自己的 Topic 由 `emqx/acl-fallback.conf` 兜底放行) |
+| Mock/设备连 MQTT 被拒 `Not authorized` | 依次查:① deviceId/deviceSecret 是否 §3 开通的那套;② `generated/emqx.conf` 是否渲染过、token 与 `.env` 一致;③ backend 是否健康(连接认证 fail-closed,后端挂了新连接全拒,这是设计行为;已连着的设备权限随认证下发,不受后端重启影响) |
 | backend 起不来:`P1001 Can't reach database` | postgres 容器健康检查未过就被连了,`docker compose ... ps` 看 postgres 状态;一般 restart backend 即愈(depends_on 已配 healthy,极少出现) |
 | Admin 页面白屏 | 强刷(Cmd+Shift+R);仍白屏看 gateway 日志 `docker compose ... logs gateway`,确认 /srv/admin 有产物(镜像构建时烧入,重建 gateway 镜像) |
 
