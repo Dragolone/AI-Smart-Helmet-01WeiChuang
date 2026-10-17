@@ -38,7 +38,10 @@ import {
   enqueueRelayEvent,
   notifyCriticalAccepted,
 } from "@/services/ble-relay-uplink";
-import { isUnrecoverableRelayError } from "@/services/relay-errors";
+import {
+  isHelmetGoneError,
+  isUnrecoverableRelayError,
+} from "@/services/relay-errors";
 import { sosApi } from "@/api/sos";
 import { AnimatedPressable } from "@/components/animated-pressable";
 import { PrimaryButton, SecondaryButton } from "@/components/form";
@@ -313,7 +316,7 @@ export default function SafetyScreen() {
         if (isUnrecoverableRelayError(e)) {
           showNotice(
             translate("safety.sosSendFailed"),
-            `${toUserMessage(e)}\n${translate("safety.sosNotSent")}`,
+            `${isHelmetGoneError(e) ? translate("safety.sosHelmetGone") : toUserMessage(e)}\n${translate("safety.sosNotSent")}`,
           );
           return;
         }

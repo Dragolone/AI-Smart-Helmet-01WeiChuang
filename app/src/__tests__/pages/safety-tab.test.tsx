@@ -463,6 +463,9 @@ describe("长按求救", () => {
     expect(title).toBe(translate("safety.sosSendFailed"));
     expect(body).toContain(translate("safety.sosNotSent"));
     expect(body).not.toContain(translate("safety.sosQueued"));
+    // 第一行说「这顶头盔已不在你的账号下」，不是给手动绑定看的「请核对设备编号」（10-18 模拟器）
+    expect(body).toContain(translate("safety.sosHelmetGone"));
+    expect(body).not.toContain(translate("error.deviceNotFound"));
     expect(notifyCriticalAccepted).not.toHaveBeenCalled();
   });
 

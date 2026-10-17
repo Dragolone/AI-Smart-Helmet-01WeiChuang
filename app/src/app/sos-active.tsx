@@ -82,7 +82,10 @@ import {
   enqueueRelayEvent,
   notifyCriticalAccepted,
 } from "@/services/ble-relay-uplink";
-import { isUnrecoverableRelayError } from "@/services/relay-errors";
+import {
+  isHelmetGoneError,
+  isUnrecoverableRelayError,
+} from "@/services/relay-errors";
 import { msToNextSecond, shownSeconds } from "@/services/countdown";
 import { lateEventNote } from "@/services/sos-age";
 import {
@@ -483,6 +486,9 @@ function SosActiveContent() {
 
   // 页内一句话提示（当前单结束已切到下一单 / 又一顶开始倒计时），4 秒自己消失
   const [toast, setToast] = useState<string | null>(null);
+  // 顶上有头盔胶囊时提示放在胶囊区下面：原来贴着顶，第二单到达的那 4 秒正好把胶囊和「全部」按钮盖住（10-18 模拟器）
+  const multiRef = useRef<View>(null);
+  const [multiBottom, setMultiBottom] = useState(0);
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(null), 4_000);
@@ -704,7 +710,7 @@ function SosActiveContent() {
         if (isUnrecoverableRelayError(e)) {
           showNotice(
             t("safety.sosSendFailed"),
-            `${toUserMessage(e)}\n${t("safety.sosNotSent")}`,
+            `${isHelmetGoneError(e) ? t("safety.sosHelmetGone") : toUserMessage(e)}\n${t("safety.sosNotSent")}`,
           );
           return;
         }
@@ -928,7 +934,10 @@ function SosActiveContent() {
           style={[
             styles.toast,
             {
-              top: insets.top + 8,
+              top:
+                others.length > 0 && multiBottom > 0
+                  ? multiBottom + 8
+                  : insets.top + 8,
               backgroundColor: theme.backgroundElement,
               borderColor: theme.border,
             },
@@ -957,7 +966,15 @@ function SosActiveContent() {
             >
               <View style={styles.grow} />
               {others.length > 0 ? (
-                <View style={styles.multi}>
+                <View
+                  ref={multiRef}
+                  style={styles.multi}
+                  onLayout={() =>
+                    multiRef.current?.measureInWindow((_x, y, _w, h) =>
+                      setMultiBottom(y + h),
+                    )
+                  }
+                >
                   <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
