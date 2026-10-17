@@ -10,6 +10,7 @@ import { JwtService } from '@nestjs/jwt';
 import { createHash, randomBytes } from 'node:crypto';
 import * as bcrypt from 'bcrypt';
 import { isUniqueViolation } from '../common/prisma-errors';
+import { accountDeleted } from '../common/live-user';
 import { PrismaService } from '../prisma/prisma.service';
 import { SmsCodeService, type SmsCodePurpose } from './sms-code.service';
 
@@ -249,16 +250,21 @@ export class AuthService {
     });
     if (taken) throw phoneTaken();
     await this.smsCodes.verifyAndConsume(newPhone, 'change_phone', code);
-    let user;
     try {
-      user = await this.prisma.user.update({
-        where: { id: userId },
+      // 条件更新：注销在守卫之后提交时这里改 0 行。否则已注销账号拿走新号码——新号注册永远 409、登录又 401，
+      // 号码的真正主人再也用不了它，也违背隐私政策「注销清除手机号」
+      const { count } = await this.prisma.user.updateMany({
+        where: { id: userId, deletedAt: null },
         data: { phone: newPhone },
       });
+      if (count === 0) throw accountDeleted();
     } catch (err) {
       if (isUniqueViolation(err)) throw phoneTaken();
       throw err;
     }
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+    });
     this.logger.log(`用户 ${userId} 已换绑手机号`);
     return this.toSafeUser(user);
   }

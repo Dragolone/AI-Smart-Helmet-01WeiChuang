@@ -1,5 +1,9 @@
 // 紧急联系人（API.md §3）：上限 5（咨询锁串行化计数）、只改传了的字段、归属 + 未删校验、注销时批量软删。
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import type { PrismaService } from '../prisma/prisma.service';
 import { CONTACT_LIMIT, ContactsService } from './contacts.service';
 
@@ -17,6 +21,7 @@ const row = (over: Record<string, unknown> = {}) => ({
 describe('ContactsService', () => {
   const tx = {
     $executeRaw: jest.fn(),
+    $queryRaw: jest.fn(),
     emergencyContact: { count: jest.fn(), create: jest.fn() },
   };
   const prisma = {
@@ -33,6 +38,7 @@ describe('ContactsService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     tx.$executeRaw.mockResolvedValue(1);
+    tx.$queryRaw.mockResolvedValue([{ deleted_at: null }]);
   });
 
   it('list：只列未删的，按创建时间正序，时间转 ISO', async () => {
@@ -68,6 +74,16 @@ describe('ContactsService', () => {
       expect(tx.emergencyContact.create).toHaveBeenCalledWith({
         data: { userId: 'u1', name: '妈', phone: '13800001111' },
       });
+    });
+
+    it('拿到锁后发现账号已被注销：401，不计数不创建', async () => {
+      tx.$queryRaw.mockResolvedValue([{ deleted_at: new Date() }]);
+      const err = await svc
+        .create('u1', { name: '妈', phone: '13800001111' })
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(UnauthorizedException);
+      expect(tx.emergencyContact.count).not.toHaveBeenCalled();
+      expect(tx.emergencyContact.create).not.toHaveBeenCalled();
     });
 
     it('已满 5 个：409 EMERGENCY_CONTACT_LIMIT_REACHED，不创建', async () => {

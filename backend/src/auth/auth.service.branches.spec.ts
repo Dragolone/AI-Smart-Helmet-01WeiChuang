@@ -16,7 +16,13 @@ const p2002 = () =>
 
 describe('AuthService：剩余分支', () => {
   const prisma = {
-    user: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
+    user: {
+      findUnique: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+    },
     refreshToken: {
       create: jest.fn(),
       update: jest.fn(),
@@ -295,7 +301,7 @@ describe('AuthService：剩余分支', () => {
     });
 
     it('改号时撞唯一约束（并发有人注册了这个号）：409', async () => {
-      prisma.user.update.mockRejectedValue(p2002());
+      prisma.user.updateMany.mockRejectedValue(p2002());
       await expect(
         svc.changePhone('u1', '13900000000', '123456', 'old-password'),
       ).rejects.toMatchObject({
@@ -305,10 +311,25 @@ describe('AuthService：剩余分支', () => {
     });
 
     it('改号遇到其他数据库错误：原样抛出', async () => {
-      prisma.user.update.mockRejectedValue(new Error('timeout'));
+      prisma.user.updateMany.mockRejectedValue(new Error('timeout'));
       await expect(
         svc.changePhone('u1', '13900000000', '123456', 'old-password'),
       ).rejects.toThrow('timeout');
+    });
+
+    it('验证码核销后发现账号已被注销（条件更新改 0 行）：401，号码不落到已注销账号上', async () => {
+      prisma.user.updateMany.mockResolvedValue({ count: 0 });
+      await expect(
+        svc.changePhone('u1', '13900000000', '123456', 'old-password'),
+      ).rejects.toMatchObject({
+        status: 401,
+        response: { code: 'UNAUTHORIZED', message: '账号已注销' },
+      });
+      expect(prisma.user.updateMany).toHaveBeenCalledWith({
+        where: { id: 'u1', deletedAt: null },
+        data: { phone: '13900000000' },
+      });
+      expect(prisma.user.findUniqueOrThrow).not.toHaveBeenCalled();
     });
 
     it('新号已被占用：409，不消费验证码', async () => {

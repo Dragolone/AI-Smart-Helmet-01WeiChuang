@@ -2,9 +2,9 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client';
+import { lockLiveUser } from '../common/live-user';
 import { PrismaService } from '../prisma/prisma.service';
 import { BindingScopeService } from './binding-scope.service';
 import { deviceNotFound } from './device-access';
@@ -86,16 +86,8 @@ export class DevicesService {
     // 条件更新：并发绑定只有一方能把 null 改成自己，另一方如实拿到 409；
     // 同一事务开一段绑定历史（决策 #39：用户可见范围按绑定区间判定）
     const updated = await this.prisma.$transaction(async (tx) => {
-      // 先给用户行加共享锁并确认账号还在：与注销事务（第一句更新用户行）串行。否则注销前一刻通过鉴权的绑定请求能在
-      // 注销解绑全部设备之后才写进去，头盔挂在已注销账号上，买家再绑一直 409（10-17 评审）
-      const [owner] = await tx.$queryRaw<{ deleted_at: Date | null }[]>`
-        SELECT deleted_at FROM users WHERE id = ${userId} FOR SHARE`;
-      if (!owner || owner.deleted_at) {
-        throw new UnauthorizedException({
-          code: 'UNAUTHORIZED',
-          message: '账号已注销',
-        });
-      }
+      // 不锁的话注销前一刻通过鉴权的绑定能在注销解绑全部设备之后才写进去，头盔挂在已注销账号上，买家再绑一直 409
+      await lockLiveUser(tx, userId);
       const won = await tx.device.updateMany({
         where: { deviceId, bindUserId: null },
         data: { bindUserId: userId, boundAt: now },

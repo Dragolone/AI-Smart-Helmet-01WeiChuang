@@ -11,7 +11,13 @@ const hashToken = (token: string): string =>
 
 describe('AuthService（单测，mock 数据层）', () => {
   const prismaMock = {
-    user: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
+    user: {
+      findUnique: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+    },
     refreshToken: {
       findUnique: jest.fn(),
       create: jest.fn(),
@@ -470,7 +476,8 @@ describe('AuthService（单测，mock 数据层）', () => {
       .mockResolvedValueOnce(await selfWithPassword())
       .mockResolvedValueOnce(null);
     smsCodesMock.verifyAndConsume.mockResolvedValue(undefined);
-    prismaMock.user.update.mockResolvedValue({
+    prismaMock.user.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.user.findUniqueOrThrow.mockResolvedValue({
       id: 'u1',
       phone: '13900139000',
       passwordHash: 'x',

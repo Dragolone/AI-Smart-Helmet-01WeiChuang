@@ -1,5 +1,9 @@
 // 对讲频道服务的单测分支：建频道撞码重试 / 耗尽 / 其他错误，加入时锁内复查与唯一约束兜底，成员列表缺用户行，TRTC 未配置。
-import { ConflictException, Logger } from '@nestjs/common';
+import {
+  ConflictException,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
 import { verifyUserSig } from './trtc-sig';
@@ -25,6 +29,7 @@ const channelRow = (over: Record<string, unknown> = {}) => ({
 describe('VoiceService', () => {
   const tx = {
     $executeRaw: jest.fn(),
+    $queryRaw: jest.fn(),
     voiceChannelMember: {
       findUnique: jest.fn(),
       count: jest.fn(),
@@ -45,6 +50,8 @@ describe('VoiceService', () => {
     user: { findMany: jest.fn() },
     $transaction: jest.fn((fn: (t: typeof tx) => Promise<unknown>) => fn(tx)),
   };
+  // 建频道在事务里写：事务客户端上的 voiceChannel 就用同一组 mock
+  Object.assign(tx, { voiceChannel: prisma.voiceChannel });
   let svc: VoiceService;
   const saved: Record<string, string | undefined> = {};
   const ENV = [
@@ -68,6 +75,7 @@ describe('VoiceService', () => {
     ])
       for (const fn of Object.values(group)) fn.mockReset();
     tx.$executeRaw.mockReset().mockResolvedValue(1);
+    tx.$queryRaw.mockReset().mockResolvedValue([{ deleted_at: null }]);
     svc = new VoiceService(prisma as unknown as PrismaService);
     jest.spyOn(Logger.prototype, 'log').mockImplementation();
   });
@@ -80,6 +88,15 @@ describe('VoiceService', () => {
   });
 
   describe('create', () => {
+    it('写入后发现账号已被注销：401（事务回滚，频道与成员身份都不留）', async () => {
+      prisma.voiceChannel.create.mockResolvedValue(channelRow());
+      tx.$queryRaw.mockResolvedValue([{ deleted_at: new Date() }]);
+      await expect(svc.create('u1', '车队')).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+      expect(prisma.$transaction).toHaveBeenCalled();
+    });
+
     it('邀请码 / 房间号撞车（P2002）：换一个重试，第二次成功；房间号落在 [1e9, 2^31)', async () => {
       prisma.voiceChannel.create
         .mockRejectedValueOnce(uniqueErr())
@@ -156,6 +173,14 @@ describe('VoiceService', () => {
       tx.voiceChannelMember.create.mockRejectedValue(new Error('deadlock'));
       await expect(svc.join('u2', 'ABC234')).rejects.toThrow('deadlock');
       expect(prisma.voiceChannel.findUniqueOrThrow).not.toHaveBeenCalled();
+    });
+
+    it('锁内发现账号已被注销：401，不计数不插入', async () => {
+      tx.$queryRaw.mockResolvedValue([{ deleted_at: new Date() }]);
+      const err = await svc.join('u2', 'ABC234').catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(UnauthorizedException);
+      expect(tx.voiceChannelMember.count).not.toHaveBeenCalled();
+      expect(tx.voiceChannelMember.create).not.toHaveBeenCalled();
     });
 
     it('人数已到上限（env 调成 2）：409 CHANNEL_FULL，文案带上限', async () => {
