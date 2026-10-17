@@ -201,7 +201,7 @@ describe('AdminService', () => {
       const d = await svc.getDeviceDetail('helmet_001');
       expect(prisma.rawEvent.findMany).toHaveBeenCalledWith({
         where: { deviceId: 'helmet_001' },
-        orderBy: { receivedAt: 'desc' },
+        orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }],
         take: 10,
       });
       expect(d).toMatchObject({ online: true, settings: {} });
