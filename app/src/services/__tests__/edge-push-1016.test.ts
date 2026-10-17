@@ -76,13 +76,14 @@ describe("landFromPush：extras 的形态", () => {
     expect(mockActive).not.toHaveBeenCalled();
   });
 
-  it("这台头盔进行中的是另一单：进被点那一单的事故详情，不把它登记成已拉起", async () => {
+  // 10-17 起改了行为（REGRESSION 4.27 加测，华为实测旧单记录页压在新单的倒计时上）：去正在倒数的那一单
+  it("这台头盔进行中的是另一单：去那一单的倒计时并登记它，不进被点那一单的事故详情", async () => {
     mockActive.mockResolvedValueOnce(pending("s-new"));
     expect(await landFromPush({ sosId: "s-old", deviceId: "helmet_1" })).toBe(
-      "/accident/s-old",
+      "/sos-active?sosId=s-new&deviceId=helmet_1",
     );
     expect(presentedSos.current.has("s-old")).toBe(false);
-    expect(presentedSos.current.has("s-new")).toBe(false);
+    expect(presentedSos.current.has("s-new")).toBe(true);
   });
 
   it("查进行中状态失败（刚唤醒的网络）：进倒计时页并登记，之后 WS / 补拉不再重复拉起", async () => {
