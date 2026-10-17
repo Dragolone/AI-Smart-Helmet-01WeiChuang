@@ -1,5 +1,6 @@
 // 电量历史图（设备详情页，2026-09-10）：仿 iPhone「电池」页的 24 小时柱状图。
-// 纯 View 画柱子，不引 SVG/图表依赖；每根柱 = 一小时（取该小时最后一个采样），充电中的小时用 warning 色。
+// 纯 View 画柱子，不引 SVG/图表依赖；每根柱 = 一小时（取该小时最后一个采样），充电中的小时用绿色（success）。
+// 原来充电用 warning 黄，与 ≤20% 低电量同色分不出；10-17 负责人定为绿色。
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import type { BatteryHistoryPoint } from "@helmet/shared";
@@ -137,7 +138,7 @@ export function BatteryChart({
                     {
                       height: `${Math.max(3, b.battery)}%`,
                       backgroundColor: b.charging
-                        ? theme.warning
+                        ? theme.success
                         : tierColor(b.battery),
                     },
                   ]}
