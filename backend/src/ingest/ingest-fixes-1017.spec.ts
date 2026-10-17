@@ -4,7 +4,7 @@ import { Prisma } from '../generated/prisma/client';
 import { isBackfill } from '../common/device-time';
 import { buildSummary } from '../events/event-wire';
 import { validateEnvelope } from './envelope';
-import { dbRejectionCode } from './ingest.service';
+import { dbRejectionCode } from '../common/prisma-errors';
 
 const adapterError = (code: string, sqlState?: string) =>
   new Prisma.PrismaClientKnownRequestError('db error', {

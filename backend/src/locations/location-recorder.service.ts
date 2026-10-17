@@ -5,7 +5,7 @@ import type {
 } from '@helmet/shared';
 import { businessTime } from '../common/device-time';
 import { errorMessage } from '../common/error-text';
-import { isUniqueViolation } from '../common/prisma-errors';
+import { dbRejectionCode, isUniqueViolation } from '../common/prisma-errors';
 import type { ValidEnvelope } from '../ingest/envelope';
 import { PrismaService } from '../prisma/prisma.service';
 import { toWireLocation } from './location-wire';
@@ -57,7 +57,9 @@ export class LocationRecorderService {
   /**
    * location_update 入位置表；返回入库的线上格式位置点（供 WS 推送），
    * payload 不合法或 eventId 重复时返回 null。
-   * 失败只告警不抛出：与设备快照同哲学——副表失败不影响事件主流程，raw 留档可回填。
+   * 数据库拒收这一条只告警不抛出（raw 已留档）；**瞬时故障（断连、关停、死锁）重抛**，让入口回 5xx、App / MQTT 重传，
+   * 重传按重复走 recordIfMissing 把这个点补上。原来一律吞掉：入口回「已接受」，重传又回「重复」，
+   * 这个点永远进不了轨迹（10-17 第二轮评审 r3）。
    */
   async record(e: ValidEnvelope): Promise<WireLocationPoint | null> {
     const loc = extractLocation(e.payload);
@@ -85,10 +87,31 @@ export class LocationRecorderService {
         // eventId 已入过位置表（并发/重放），幂等跳过
         return null;
       }
+      if (dbRejectionCode(err) === null) throw err;
       this.logger.warn(
         `位置点入库失败（raw 已留档）${e.eventId}：${errorMessage(err)}`,
       );
       return null;
+    }
+  }
+
+  /**
+   * 重复上报的 location_update：raw 已在，但上一次可能在写位置表时遇到瞬时故障（见 record）。
+   * 位置表里没有这一条、且设备已注册（与正常分发同条件）就补写一次；不推实时（已经是迟到的点）。
+   */
+  async recordIfMissing(e: ValidEnvelope): Promise<void> {
+    const existing = await this.prisma.locationPoint.findUnique({
+      where: { deviceId_eventId: { deviceId: e.deviceId, eventId: e.eventId } },
+      select: { id: true },
+    });
+    if (existing) return;
+    const device = await this.prisma.device.findUnique({
+      where: { deviceId: e.deviceId },
+      select: { deviceId: true },
+    });
+    if (!device) return;
+    if (await this.record(e)) {
+      this.logger.warn(`位置点补写（上次入库中断）：${e.eventId}`);
     }
   }
 }
