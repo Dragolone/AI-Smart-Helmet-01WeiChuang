@@ -411,18 +411,20 @@ function SosActiveContent() {
       .then(safePlay);
     // 每秒重播警报段(0.9s 素材)+ 振动;不用 player.loop——
     // React Compiler 禁止修改 hook 返回对象的属性
-    // 最后 10 秒震动改成连着两下（设计规范：警示震感每秒一次，最后 10 秒双击）
+    // 震感按设计规范：每秒一下，最后 10 秒连着两下。原来每秒用的是 Warning，它本身就是两下短震
+    //（iOS 的 warning 反馈；安卓 expo-haptics 是 40ms + 间隔 120ms + 60ms 的波形），平时已经两下、
+    // 最后 10 秒变成四下（10-17 华为系统震动记录）。改用单下的 Heavy
     let second: ReturnType<typeof setTimeout> | undefined;
-    const warn = () =>
-      void Haptics.notificationAsync(
-        Haptics.NotificationFeedbackType.Warning,
-      ).catch(() => {});
+    const pulse = () =>
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(
+        () => {},
+      );
     const t = setInterval(() => {
       alarm.seekTo(0).catch(() => {});
       safePlay();
-      warn();
+      pulse();
       if (deadline && secondsLeft(deadline, serverNow()) <= URGENT_SECONDS) {
-        second = setTimeout(warn, 160);
+        second = setTimeout(pulse, 160);
       }
     }, 1000);
     return () => {

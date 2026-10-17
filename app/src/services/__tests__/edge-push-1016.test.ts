@@ -28,7 +28,11 @@ jest.mock("expo-router", () => ({
   router: { navigate: (h: string) => mockNavigate(h) },
 }));
 jest.mock("@/api/sos", () => ({
-  sosApi: { active: (d: string) => mockActive(d) },
+  sosApi: {
+    active: (d: string) => mockActive(d),
+    // 10-17 起这顶头盔没有在倒数的单时会再查账号级列表；这里一律没有
+    activeForAccount: async () => ({ items: [] }),
+  },
 }));
 jest.mock("@/services/dev-log", () => ({ devLog: jest.fn() }));
 jest.mock("expo-notifications", () => ({

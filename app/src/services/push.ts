@@ -176,6 +176,22 @@ function onAliasResult(
   }
 }
 
+/** 账号下最先到期的一单进行中求救；查不到或请求失败都当没有（只是落地页的兜底，不能因此进错页） */
+async function firstActiveOnAccount(): Promise<{
+  sosId: string;
+  deviceId: string;
+} | null> {
+  try {
+    const page = await sosApi.activeForAccount();
+    const items = [...(page?.items ?? [])].sort((a, b) =>
+      a.deadline.localeCompare(b.deadline),
+    );
+    return items[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * 通知被点开 → 落地页。extras 只有 sosId/deviceId，进行中就回倒计时页，否则进事故详情
  * （事故记录 = SOS 单，accidentId 就是 sosId，shared AccidentListItem extends Sos）。
@@ -190,16 +206,26 @@ export async function landFromPush(extras: PushExtras): Promise<string | null> {
   // 推送，安卓上极光那条撤不掉）→ 直接去新的那一单。原来落旧单的记录页，压在正在响的倒计时上面，
   // 页面写「已取消」、警报照响（REGRESSION 4.27 加测，10-17 华为实测）
   let countdownId: string | null = null;
+  let countdownDevice = deviceId;
   if (typeof deviceId === "string" && deviceId) {
     try {
       const active: Sos | null = (await sosApi.active(deviceId)).sos;
       if (active?.status === "pending") countdownId = active.sosId;
+      else {
+        // 这顶头盔没有在倒数的单，账号下别的头盔有：同样先去倒计时（那张页多半早在栈上、警报在响），
+        // 不把这单的记录页压上去；几单同时倒数时页顶有胶囊可切（10-17 负责人交我定）
+        const other = await firstActiveOnAccount();
+        if (other) {
+          countdownId = other.sosId;
+          countdownDevice = other.deviceId;
+        }
+      }
     } catch {
       countdownId = sosId;
     }
   }
   const target = countdownId
-    ? sosActiveHref(countdownId, deviceId)
+    ? sosActiveHref(countdownId, countdownDevice)
     : accidentHref(sosId);
   // navigate 而不是 push：后台收到 WS 时倒计时页多半已经在栈上了（12:07 华为实测），
   // 再 push 一份会叠两页倒计时；navigate 对同一路由只聚焦不新建。登记后 WS / 补拉也不再重复拉起

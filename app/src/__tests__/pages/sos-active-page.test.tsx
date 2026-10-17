@@ -257,7 +257,7 @@ describe("倒数中", () => {
     expect(number(r)).toBe("59");
   });
 
-  it("警报：音频设成锁屏 / 静音键下也响，每秒重播 + 警示震动；最后 10 秒每秒连震两下", async () => {
+  it("警报：音频设成锁屏 / 静音键下也响，每秒重播 + 震一下；最后 10 秒每秒连震两下", async () => {
     m(sosApi.snapshot).mockImplementation(() =>
       Promise.resolve(
         sosOf({ deadline: new Date(Date.now() + 12_000).toISOString() }),
@@ -270,18 +270,21 @@ describe("倒数中", () => {
         shouldPlayInBackground: true,
       }),
     );
-    const warnings = () =>
-      m(Haptics.notificationAsync).mock.calls.filter((c) => c[0] === "warning")
-        .length;
+    // 每秒单下的 Heavy：Warning 本身是两下短震，平时就用它的话最后 10 秒成了四下（10-17 华为震动记录）
+    const pulses = () =>
+      m(Haptics.impactAsync).mock.calls.filter((c) => c[0] === "heavy").length;
     await tick(1000);
     expect(mockAlarm.seekTo).toHaveBeenCalledWith(0);
-    expect(warnings()).toBe(1);
+    expect(pulses()).toBe(1);
     await tick(1000);
     await tick(1000);
     // 剩 9 秒起：每秒两下
-    const before = warnings();
+    const before = pulses();
     await tick(1000);
-    expect(warnings() - before).toBe(2);
+    expect(pulses() - before).toBe(2);
+    expect(
+      m(Haptics.notificationAsync).mock.calls.filter((c) => c[0] === "warning"),
+    ).toHaveLength(0);
   });
 
   it("警报音播放抛错（锁屏时音频会话激活失败）不把页面打崩", async () => {

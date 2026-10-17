@@ -28,6 +28,9 @@ const mockRouterPush = jest.fn();
 const mockActive = jest.fn(async (_deviceId: string) => ({
   sos: null as unknown,
 }));
+const mockActiveForAccount = jest.fn(async () => ({
+  items: [] as { sosId: string; deviceId: string; deadline: string }[],
+}));
 const mockSecure = new Map<string, string>();
 
 jest.mock("jpush-react-native", () => ({
@@ -51,7 +54,10 @@ jest.mock("expo-router", () => ({
   router: { navigate: (h: string) => mockRouterPush(h) },
 }));
 jest.mock("@/api/sos", () => ({
-  sosApi: { active: (d: string) => mockActive(d) },
+  sosApi: {
+    active: (d: string) => mockActive(d),
+    activeForAccount: () => mockActiveForAccount(),
+  },
 }));
 jest.mock("@/services/dev-log", () => ({ devLog: jest.fn() }));
 const mockLastResponse = jest.fn((): unknown => null);
@@ -201,6 +207,29 @@ describe("点通知落地", () => {
     // 登记的是正在倒数的那一单（随后的 WS 推送 / 补拉不再为它再拉一页）
     expect(presentedSos.current.has("other")).toBe(true);
     expect(presentedSos.current.has("s1")).toBe(false);
+  });
+
+  it("这顶头盔没有在倒数的单、账号下别的头盔有：去先到期的那一单的倒计时，不把这单的记录页压上去（10-17）", async () => {
+    mockActive.mockResolvedValueOnce({ sos: null });
+    mockActiveForAccount.mockResolvedValueOnce({
+      items: [
+        { sosId: "b2", deviceId: "d3", deadline: "2026-10-17T10:00:40.000Z" },
+        { sosId: "b1", deviceId: "d2", deadline: "2026-10-17T10:00:20.000Z" },
+      ],
+    });
+    expect(await landFromPush({ sosId: "a1", deviceId: "d1" })).toBe(
+      "/sos-active?sosId=b1&deviceId=d2",
+    );
+    expect(presentedSos.current.has("b1")).toBe(true);
+    expect(presentedSos.current.has("a1")).toBe(false);
+  });
+
+  it("账号级查询失败：照旧进这单的事故详情（兜底不能把人带错页）", async () => {
+    mockActive.mockResolvedValueOnce({ sos: null });
+    mockActiveForAccount.mockRejectedValueOnce(new Error("offline"));
+    expect(await landFromPush({ sosId: "a2", deviceId: "d1" })).toBe(
+      "/accident/a2",
+    );
   });
 
   it("查询失败 ≠ 已结束：进倒计时页（它自己拉权威状态），不落到没有取消键的事故详情", async () => {
