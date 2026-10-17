@@ -4,8 +4,6 @@ import { router } from "expo-router";
 import { useState } from "react";
 import {
   Keyboard,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -22,6 +20,7 @@ import {
   errorField,
   type FormField,
 } from "@/components/form";
+import { KeyboardAvoid } from "@/components/keyboard-avoid";
 import { showToast } from "@/components/toast";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
@@ -123,10 +122,7 @@ export default function ResetPasswordScreen() {
 
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: theme.background }]}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
+      <KeyboardAvoid>
         {/* 可滚动 + 点空白 / 拖动收键盘：原来是一个定高的居中容器，键盘弹出后既收不回去，
             也够不到被挡住的按钮和底部链接（2026-10-06 iPhone 实测：注册页想回登录页回不去） */}
         <ThemedView style={styles.flex}>
@@ -249,7 +245,7 @@ export default function ResetPasswordScreen() {
             </Pressable>
           </ScrollView>
         </ThemedView>
-      </KeyboardAvoidingView>
+      </KeyboardAvoid>
     </SafeAreaView>
   );
 }

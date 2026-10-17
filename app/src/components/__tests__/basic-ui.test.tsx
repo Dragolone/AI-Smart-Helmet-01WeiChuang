@@ -8,7 +8,13 @@ import {
   it,
   jest,
 } from "@jest/globals";
-import { Animated as RNAnimated, Platform, Text, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Animated as RNAnimated,
+  Platform,
+  Text,
+  View,
+} from "react-native";
 import { act } from "react-test-renderer";
 import { flat, render, rootJson } from "@/__tests__/helpers/render";
 import { Colors } from "@/constants/theme";
@@ -415,28 +421,40 @@ describe("KeyboardAvoid", () => {
     });
   });
 
-  it("iOS 用 padding 顶起；Android 交给系统（不设 behavior）", () => {
-    Object.defineProperty(Platform, "OS", { value: "ios", configurable: true });
-    const kav = (r: ReturnType<typeof render>) =>
-      r.root.find(
-        (n) => n.props.behavior !== undefined || n.props.style?.flex === 1,
+  it.each(["ios", "android"] as const)(
+    "%s 都用 padding 顶起：Android 内容铺到系统栏底下后，系统不再把窗口缩到键盘上方（2026-10-17 模拟器实测）",
+    (os) => {
+      Object.defineProperty(Platform, "OS", { value: os, configurable: true });
+      const r = render(
+        <KeyboardAvoid>
+          <Text>表单</Text>
+        </KeyboardAvoid>,
       );
-    let r = render(
+      expect(r.root.findByType(KeyboardAvoidingView).props.behavior).toBe(
+        "padding",
+      );
+      expect(r.allText()).toBe("表单");
+    },
+  );
+
+  it("量出自己在窗口里的纵向位置作为偏移：页面顶上有导航栏时不少算导航栏那一截", () => {
+    const r = render(
       <KeyboardAvoid>
         <Text>表单</Text>
       </KeyboardAvoid>,
     );
-    expect(kav(r).props.behavior).toBe("padding");
-    Object.defineProperty(Platform, "OS", {
-      value: "android",
-      configurable: true,
-    });
-    r = render(
-      <KeyboardAvoid>
-        <Text>表单</Text>
-      </KeyboardAvoid>,
+    const kav = () => r.root.findByType(KeyboardAvoidingView);
+    expect(kav().props.keyboardVerticalOffset).toBe(0);
+    // 第一个 View 就是外面那层（KeyboardAvoidingView 里面还有一个）；测试环境的 View 是假的，量位置要自己给结果
+    const outer = r.root.findAllByType(View)[0];
+    outer.instance.measureInWindow = (
+      cb: (x: number, y: number, w: number, h: number) => void,
+    ) => cb(0, 112, 402, 760);
+    act(() =>
+      outer.props.onLayout({
+        nativeEvent: { layout: { x: 0, y: 0, width: 402, height: 760 } },
+      }),
     );
-    expect(kav(r).props.behavior).toBeUndefined();
-    expect(r.allText()).toBe("表单");
+    expect(kav().props.keyboardVerticalOffset).toBe(112);
   });
 });

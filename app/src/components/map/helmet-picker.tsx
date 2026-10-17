@@ -121,6 +121,13 @@ export function HelmetPicker({
                 d.battery === null
                   ? null
                   : t("map.picker.battery", { n: d.battery });
+              // 没起名字时名字就是编号：编号不再在第二行重复一遍（10-17 模拟器：「helmet_q17p」上下两行一样）
+              const sub = [
+                helmetNameOf(d) === d.deviceId ? null : d.deviceId,
+                battery,
+              ]
+                .filter((x): x is string => x !== null)
+                .join(" · ");
               return (
                 <Tappable
                   key={d.deviceId}
@@ -171,13 +178,15 @@ export function HelmetPicker({
                         </View>
                       )}
                     </View>
-                    <ThemedText
-                      themeColor="textSecondary"
-                      numberOfLines={1}
-                      style={styles.sub}
-                    >
-                      {battery ? `${d.deviceId} · ${battery}` : d.deviceId}
-                    </ThemedText>
+                    {sub !== "" && (
+                      <ThemedText
+                        themeColor="textSecondary"
+                        numberOfLines={1}
+                        style={styles.sub}
+                      >
+                        {sub}
+                      </ThemedText>
+                    )}
                     <View style={styles.linkRow}>
                       <View
                         style={[
