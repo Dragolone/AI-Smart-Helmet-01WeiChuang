@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import { AppModule } from '../src/app.module';
 import { UnifiedExceptionFilter } from '../src/common/http-exception.filter';
 import { requestIdMiddleware } from '../src/common/request-id.middleware';
+import { businessTime } from '../src/common/device-time';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { registerUser } from './helpers/register';
 
@@ -161,6 +162,7 @@ describe('设备绑定全链路 (e2e)', () => {
         deviceId,
         eventType: 'device_status',
         timestamp: new Date(x.t),
+        businessTime: businessTime(new Date(x.t), new Date()),
         schemaVersion: 1,
         payload: { battery: x.battery, charging: x.charging },
         source: 'mqtt',

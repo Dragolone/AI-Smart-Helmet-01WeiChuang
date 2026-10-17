@@ -11,7 +11,8 @@ import type {
 } from '@helmet/shared';
 import type { DeviceSnapshot } from '../devices/device-snapshot.service';
 import { buildSummary } from '../events/event-wire';
-import type { ValidEnvelope } from '../ingest/envelope';
+import { businessTime } from '../common/device-time';
+import type { StoredEnvelope } from '../ingest/envelope';
 import { RealtimeGateway } from './realtime.gateway';
 
 /** 事件 → §11 WS 消息的组装与投递：device_status / location_update / sos_update / risk_event / device_event */
@@ -30,7 +31,7 @@ export class RealtimePushService {
   }
 
   /** collision_risk / obstacle_risk / risk_cleared → 事件详情；当前危险状态由 App 从事件流推导（决策 #27） */
-  pushRiskEvent(userId: string, e: ValidEnvelope): void {
+  pushRiskEvent(userId: string, e: StoredEnvelope): void {
     const message: WsMessage<WsRiskEventData> = {
       type: 'risk_event',
       data: { ...this.toEventItem(e), payload: e.payload, media: [] },
@@ -40,7 +41,7 @@ export class RealtimePushService {
   }
 
   /** sleep_* / bluetooth_lost / video_ready → 事件列表项 */
-  pushDeviceEvent(userId: string, e: ValidEnvelope): void {
+  pushDeviceEvent(userId: string, e: StoredEnvelope): void {
     const message: WsMessage<WsDeviceEventData> = {
       type: 'device_event',
       data: this.toEventItem(e),
@@ -49,14 +50,15 @@ export class RealtimePushService {
     this.gateway.pushToUser(userId, message);
   }
 
-  private toEventItem(e: ValidEnvelope) {
+  /** 与 GET /devices/{id}/events 的列表项同口径（event-wire toWireEventItem）：timestamp 是业务时间（决策 #59） */
+  private toEventItem(e: StoredEnvelope) {
     return {
       eventId: e.eventId,
       deviceId: e.deviceId,
       eventType: e.eventType,
-      timestamp: e.timestamp.toISOString(),
-      // WS 推送发生在入库后一瞬间，receivedAt 以当下时间为准（与落库值毫秒级差异，展示无感）
-      receivedAt: new Date().toISOString(),
+      timestamp: businessTime(e.timestamp, e.receivedAt).toISOString(),
+      deviceTimestamp: e.timestamp.toISOString(),
+      receivedAt: e.receivedAt.toISOString(),
       summary: buildSummary(e.eventType, e.payload),
     };
   }

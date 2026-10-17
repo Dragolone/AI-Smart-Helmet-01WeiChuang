@@ -1,5 +1,5 @@
 // WS 五类消息的组装（API.md §11）：格式与投递对象。
-import type { ValidEnvelope } from '../ingest/envelope';
+import type { StoredEnvelope } from '../ingest/envelope';
 import type { RealtimeGateway } from './realtime.gateway';
 import { RealtimePushService } from './realtime-push.service';
 
@@ -8,12 +8,13 @@ describe('RealtimePushService', () => {
   const svc = new RealtimePushService({
     pushToUser,
   } as unknown as RealtimeGateway);
-  const e: ValidEnvelope = {
+  const e: StoredEnvelope = {
     schemaVersion: 1,
     eventId: 'e1',
     deviceId: 'helmet_001',
     eventType: 'collision_risk',
     timestamp: new Date('2026-10-16T00:00:00Z'),
+    receivedAt: new Date('2026-10-16T00:00:01Z'),
     firmwareVersion: '1.0.0',
     payload: { riskLevel: 'high', direction: 'rear' },
   };
@@ -63,10 +64,24 @@ describe('RealtimePushService', () => {
         deviceId: 'helmet_001',
         eventType: 'collision_risk',
         timestamp: '2026-10-16T00:00:00.000Z',
+        deviceTimestamp: '2026-10-16T00:00:00.000Z',
+        receivedAt: '2026-10-16T00:00:01.000Z',
         summary: '碰撞风险 high（rear）',
         payload: { riskLevel: 'high', direction: 'rear' },
         media: [],
       },
+    });
+  });
+
+  it('头盔时钟错乱（报 1970）：timestamp 给业务时间（= 落库的收到时间），设备原值放 deviceTimestamp——与事件列表同口径', () => {
+    svc.pushRiskEvent('u1', {
+      ...e,
+      timestamp: new Date('1970-01-01T00:00:10Z'),
+    });
+    expect(sent()[1].data).toMatchObject({
+      timestamp: '2026-10-16T00:00:01.000Z',
+      deviceTimestamp: '1970-01-01T00:00:10.000Z',
+      receivedAt: '2026-10-16T00:00:01.000Z',
     });
   });
 

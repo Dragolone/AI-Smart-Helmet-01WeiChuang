@@ -292,6 +292,10 @@ model RawEvent {
   eventType       String   @map("event_type")
   timestamp       DateTime
   receivedAt      DateTime @default(now()) @map("received_at")
+  // 业务时间（决策 #59）：设备时间可信时等于 timestamp，时钟错乱（比收到时超前 5 分钟以上 / 早 72 小时以上）时等于 receivedAt，
+  // 规则同 common/device-time businessTime。入库时写好，事件列表 / 电量曲线按它排序过滤；timestamp 永远是设备原值。
+  // 默认 now() 只是兜底：回滚到不写这一列的旧代码时插入照样能成功（≈ 收到时间）
+  businessTime    DateTime @default(now()) @map("business_time")
   schemaVersion   Int      @map("schema_version")
   firmwareVersion String?  @map("firmware_version")
   payload         Json
@@ -302,6 +306,8 @@ model RawEvent {
 
   @@unique([deviceId, eventId])
   @@index([deviceId, timestamp])
+  // App 事件历史（§6）按业务时间分页 / 按时间窗过滤
+  @@index([deviceId, businessTime])
   // Admin 概览/全量事件列表与 SOS 对账都按接收时间查；没有它就是全表扫描
   @@index([receivedAt])
   @@map("raw_events")

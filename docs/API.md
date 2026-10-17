@@ -137,7 +137,9 @@ device 对象补充字段（2026-08-17，TS 类型见 `@helmet/shared` DevicePub
 | GET | /devices/{deviceId}/events?type=&from=&to=&page=&pageSize= | 事件历史（最新在前）；**只列 EVENTS.md §3 已知类型且 schemaVersion 受支持的事件**——未知类型 / 未知版本只留档、不进业务流程，App 查不到（列表与 `GET /events/{eventId}` 同口径，后者 404；Admin 事件查询不受影响；2026-10-16 #202）；`type` 可多值逗号分隔（取值 = EVENTS.md §3 eventType，未知值 400）；from/to 均选填（事件量级低，不设 §5 的 24h 上限），同给时须 from < to |
 | GET | /events/{eventId} | 事件详情（含原始 payload、关联媒体） |
 
-`event` 列表项（TS 类型见 `@helmet/shared` EventListItem）：`{ eventId, deviceId, eventType, timestamp, receivedAt, summary }`；详情（EventDetail）追加 `payload`（原样）与 `media: [{ mediaId, status, duration }]`。
+`event` 列表项（TS 类型见 `@helmet/shared` EventListItem）：`{ eventId, deviceId, eventType, timestamp, deviceTimestamp, receivedAt, summary }`；详情（EventDetail）追加 `payload`（原样）与 `media: [{ mediaId, status, duration }]`。
+
+- **`timestamp` 是业务时间（决策 #59，2026-10-17）**：设备时钟可信时就是设备上报的时间；设备时间比收到时超前 5 分钟以上、或早 72 小时以上（时钟错乱，DEVICE_PROTOCOL §8）时取收到时间——与 §5 轨迹点的 `timestamp` 同一口径。列表按它倒序（并列按内部 id），`from` / `to` 也按它过滤。**`deviceTimestamp`** 是设备上报的原值（时钟错乱时可能是 1970 / 2099），仅供排查。WS `risk_event` / `device_event` 同口径。Admin 事件接口（§10）不受影响，照旧给设备原值。
 
 - `summary` 为服务端生成的一句话摘要，仅兜底展示；**客户端逻辑不得依赖其内容**（App 有本地化文案时可忽略）。
 - 归属口径：设备须**当前绑定**给本人（与 §4/§5 一致），且列表/详情只含本人**绑定区间内**到达的事件（决策 #39，按 receivedAt 判）；校验失败的 `_invalid` 占位事件不出现在任何查询结果。

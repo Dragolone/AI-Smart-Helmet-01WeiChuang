@@ -13,6 +13,7 @@ const ev = (over: Record<string, unknown> = {}) => ({
   schemaVersion: 1,
   timestamp: new Date('2026-10-16T00:00:00Z'),
   receivedAt: new Date('2026-10-16T00:00:01Z'),
+  businessTime: new Date('2026-10-16T00:00:00Z'),
   payload: { riskLevel: 'high' },
   ...over,
 });
@@ -70,7 +71,7 @@ describe('EventsService', () => {
       });
       expect(prisma.rawEvent.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
+          orderBy: [{ businessTime: 'desc' }, { id: 'desc' }],
           skip: 5,
           take: 5,
         }),
@@ -114,16 +115,18 @@ describe('EventsService', () => {
         page: 1,
         pageSize: 20,
       });
-      expect(listWhere().timestamp).toEqual({
+      // 时间窗按业务时间（决策 #59），不按设备自报时间
+      expect(listWhere().businessTime).toEqual({
         gte: new Date('2026-10-15T00:00:00Z'),
       });
+      expect(listWhere().timestamp).toBeUndefined();
       prisma.rawEvent.findMany.mockClear();
       await svc.list('u1', 'helmet_001', {
         to: '2026-10-16T00:00:00Z',
         page: 1,
         pageSize: 20,
       });
-      expect(listWhere().timestamp).toEqual({
+      expect(listWhere().businessTime).toEqual({
         lte: new Date('2026-10-16T00:00:00Z'),
       });
     });

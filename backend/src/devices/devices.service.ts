@@ -230,9 +230,8 @@ export class DevicesService {
       ),
       ' OR ',
     );
-    // 时间按业务时间（同 common/device-time businessTime：比收到时超前 5 分钟以上、或早于 72 小时以上的按收到时间）：
-    // 时钟错乱（RTC 归零报 1970、跑到 2099）的心跳原来按设备时间落在窗口外，曲线上一个点都没有，
-    // 而同一批心跳的状态和位置都已按收到时间兜底（10-17 评审 R4-3）。外层再按设备时间 / 收到时间任一在窗口内预筛，索引照样能用
+    // 时间按业务时间（business_time 列，决策 #59）：时钟错乱（RTC 归零报 1970、跑到 2099）的心跳按设备时间会落在窗口外，
+    // 曲线上一个点都没有，而同一批心跳的状态和位置都已按收到时间兜底（10-17 评审 R4-3）
     const rows = await this.prisma.$queryRaw<
       { ts_ms: number; battery: number; charging: unknown }[]
     >`
@@ -245,29 +244,20 @@ export class DevicesService {
           charging
         FROM (
           SELECT
-            CASE
-              WHEN "timestamp" > received_at + interval '5 minutes'
-                OR "timestamp" < received_at - interval '72 hours'
-              THEN received_at
-              ELSE "timestamp"
-            END AS t,
+            business_time AS t,
             payload->'battery' AS battery,
             payload->'charging' AS charging
           FROM raw_events
           WHERE device_id = ${deviceId}
             AND event_type = 'device_status'
-            AND (
-              ("timestamp" >= ${window.from}::timestamp AND "timestamp" <= ${window.to}::timestamp)
-              OR (received_at >= ${window.from}::timestamp AND received_at <= ${window.to}::timestamp)
-            )
+            AND business_time >= ${window.from}::timestamp
+            AND business_time <= ${window.to}::timestamp
             AND CASE WHEN jsonb_typeof(payload->'battery') = 'number'
                      THEN (payload->'battery')::numeric BETWEEN 0 AND 100
                       AND (payload->'battery')::numeric = trunc((payload->'battery')::numeric)
                      ELSE false END
             AND (${inScope})
         ) effective
-        WHERE t >= ${window.from}::timestamp
-          AND t <= ${window.to}::timestamp
       ) heartbeats
       ORDER BY bucket, ts_ms DESC`;
     return {
