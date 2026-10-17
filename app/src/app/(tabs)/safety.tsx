@@ -38,6 +38,7 @@ import {
   enqueueRelayEvent,
   notifyCriticalAccepted,
 } from "@/services/ble-relay-uplink";
+import { isUnrecoverableRelayError } from "@/services/relay-errors";
 import { sosApi } from "@/api/sos";
 import { AnimatedPressable } from "@/components/animated-pressable";
 import { PrimaryButton, SecondaryButton } from "@/components/form";
@@ -308,6 +309,14 @@ export default function SafetyScreen() {
       .push({ deviceId: sosTargetId, envelopes: [envelope] })
       .then(() => notifyCriticalAccepted(sosTargetId))
       .catch((e) => {
+        // 服务端明确拒绝（头盔已不在这个账号下 / 无权 / 坏体）：重发也没用，补发队列也会丢掉，不进队列、不说「已暂存」
+        if (isUnrecoverableRelayError(e)) {
+          showNotice(
+            translate("safety.sosSendFailed"),
+            `${toUserMessage(e)}\n${translate("safety.sosNotSent")}`,
+          );
+          return;
+        }
         enqueueRelayEvent(envelope as EventEnvelope<EventType>);
         showNotice(
           translate("safety.sosSendFailed"),

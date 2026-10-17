@@ -274,28 +274,31 @@ export type GuideBeat = {
   /** 光再从徽标出去、把下一件的按钮点亮：下一件还要人去做才有（已经具备的会自己打勾，没有按钮可点亮） */
   out: boolean;
 };
-/** 第 step 件刚处理完（result）：换到下一件的那一段怎么演。cards 是这一刻三张卡各自写的东西 */
 /**
  * 卡片上某一件内容此刻怎么显示（动画线程上调用）。卡片上最多同时挂两件：轮到的这件和刚让位的上一件。
- * - leave：正在让位（共享值 past 指着它；它比页面重画早到一步，所以以它为准）：淡出、往上走
- * - gone：更早让过位的那件——早就淡走了。换下一件时 beat 从 0 重来、页面还没重画，它还挂在卡片上，
- *   要是也按「正在让位」算，透明度会回到 1，旧字叠在新字上（10-16 iPhone：第二件换第三件时第一件的
- *   「已连上头盔 / 已绑定」叠上来约 4 帧）
- * - enter：正在浮上来；still：停着
+ * 只看共享值，不看页面传下来的「轮到哪件」：新架构下页面重画（新的那件搭上卡片）可能比这几个共享值先到
+ * 动画线程，那一两帧里共享值还是上一次的。原来按页面给的角色算，新的那件在这一两帧里算「停着」，整块露出来
+ * 叠在旧字上（10-16 iPhone：第二件换第三件约 4 帧；10-17 安卓模拟器：状态标签先换成下一件，下一件早已备齐时
+ * 整块叠两帧）。current 和 past / enter / beat 在 advance 里一起设：要么都是旧的，要么都是新的。
+ * - leave：正在让位（past 指着它）：淡出、往上走
+ * - enter：正在浮上来（enter 指着它；浮完之后停在浮好的样子）
+ * - still：轮到的这件，停着（current 指着它）
+ * - gone：其余的——更早让过位的那件；或共享值还没到、还不该露面的新一件
  */
 export function bodyPhase(
-  role: "cur" | "past",
   step: number,
+  current: number,
   leaving: number,
   entering: number,
 ): "leave" | "gone" | "enter" | "still" {
   "worklet";
   if (leaving === step) return "leave";
-  if (role === "past") return "gone";
   if (entering === step) return "enter";
-  return "still";
+  if (current === step) return "still";
+  return "gone";
 }
 
+/** 第 step 件刚处理完（result）：换到下一件的那一段怎么演。cards 是这一刻三张卡各自写的东西 */
 export function guideBeat(
   s: GuideState,
   step: 1 | 2 | 3,

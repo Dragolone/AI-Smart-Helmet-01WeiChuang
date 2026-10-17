@@ -13,6 +13,7 @@ import { File, Paths } from "expo-file-system";
 
 import { relayApi } from "@/api/relay";
 import { devLog } from "@/services/dev-log";
+import { isUnrecoverableRelayError } from "@/services/relay-errors";
 import { HelmetLinkService } from "helmet-link-service";
 
 const RELAY_SCOPE = new Set<string>(BLE_RELAY_EVENT_TYPES);
@@ -232,13 +233,6 @@ export function enqueueRelayEvent(envelope: Envelope): void {
   persist();
 }
 
-/** 客户端规范化错误（api/client.ts）里带 HTTP 状态时，判断这一批是否再试也没用 */
-const isUnrecoverable = (e: unknown): boolean => {
-  const status = (e as { status?: unknown })?.status;
-  // 404=设备不属于当前账号、403=无权、400=结构性坏体：重试永远同一个结果，再等下去只会堵住别的设备（审计 BLE-05）
-  return status === 404 || status === 403 || status === 400;
-};
-
 /** flush 进行中又被叫到（高危帧「立即冲刷」正撞上在途的位置包）：结束后立刻补跑一次，不等下个 5 s tick（10-06 并发评审 F5） */
 let rerunAfterFlush = false;
 
@@ -332,7 +326,7 @@ export async function flushRelayQueue(): Promise<void> {
           `${dev} 这一批太大(413)，批量减到 ${batchLimit} 条立即重试`,
           e,
         );
-      } else if (isUnrecoverable(e)) {
+      } else if (isUnrecoverableRelayError(e)) {
         // 这台设备在当前账号下永远送不出去（已解绑/换账号）：丢掉它的积压，别拖住其他设备
         const doomed = new Set(mine);
         queue = queue.filter((x) => !doomed.has(x));

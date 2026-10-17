@@ -252,28 +252,41 @@ describe("一件事处理完，换到下一件的那一段", () => {
   });
 });
 
-describe("卡片上每一件内容怎么显示（bodyPhase，10-16 iPhone 叠字修复）", () => {
-  it("第一件换第二件：只挂着第一件，它正在让位；页面重画后第二件浮上来、第一件继续淡走", () => {
-    expect(bodyPhase("cur", 1, 1, 2)).toBe("leave");
-    expect(bodyPhase("past", 1, 1, 2)).toBe("leave");
-    expect(bodyPhase("cur", 2, 1, 2)).toBe("enter");
+describe("卡片上每一件内容怎么显示（bodyPhase，10-16 iPhone / 10-17 安卓叠字修复）", () => {
+  // bodyPhase(这一件是第几件, current, past, enter)：只看共享值，页面重画和共享值谁先到都不会叠
+  it("停着的时候：轮到的这件照常显示，其余的藏着", () => {
+    expect(bodyPhase(1, 1, 0, 0)).toBe("still");
+    expect(bodyPhase(2, 1, 0, 0)).toBe("gone");
   });
 
-  it("第二件换第三件、页面还没重画：早就让过位的第一件藏着，不能因为 beat 从 0 重来又露出来", () => {
-    // 共享值已经是「第二件让位、第三件浮上来」，卡片上挂着的还是 [第一件(past), 第二件(cur)]
-    expect(bodyPhase("past", 1, 2, 3)).toBe("gone");
-    expect(bodyPhase("cur", 2, 2, 3)).toBe("leave");
-    // 重画之后是 [第二件(past), 第三件(cur)]
-    expect(bodyPhase("past", 2, 2, 3)).toBe("leave");
-    expect(bodyPhase("cur", 3, 2, 3)).toBe("enter");
+  it("第一件换第二件：共享值到了，第一件让位、第二件浮上来", () => {
+    expect(bodyPhase(1, 2, 1, 2)).toBe("leave");
+    expect(bodyPhase(2, 2, 1, 2)).toBe("enter");
   });
 
-  it("最后一件做完（past 记 0、没有下一件）：最后一件留在卡片上，更早那件仍藏着", () => {
-    expect(bodyPhase("cur", 3, 0, 0)).toBe("still");
-    expect(bodyPhase("past", 2, 0, 0)).toBe("gone");
+  it("页面重画比共享值先到（10-17 安卓）：刚搭上来的第二件先藏着，第一件照常显示", () => {
+    // 共享值还是换之前的：轮到第一件，没有正在让位 / 浮上来的
+    expect(bodyPhase(2, 1, 0, 0)).toBe("gone");
+    expect(bodyPhase(1, 1, 0, 0)).toBe("still");
   });
 
-  it("停着的时候：轮到的这件照常显示", () => {
-    expect(bodyPhase("cur", 1, 0, 0)).toBe("still");
+  it("第二件换第三件：页面先到时第三件藏着、第二件停在浮好的样子；共享值到了才一走一来", () => {
+    // 共享值还是上一段的（第一件让位、第二件浮上来），卡片上已经是 [第二件, 第三件]
+    expect(bodyPhase(3, 2, 1, 2)).toBe("gone");
+    expect(bodyPhase(2, 2, 1, 2)).toBe("enter");
+    // 共享值到了
+    expect(bodyPhase(2, 3, 2, 3)).toBe("leave");
+    expect(bodyPhase(3, 3, 2, 3)).toBe("enter");
+  });
+
+  it("第二件换第三件、页面还没重画（10-16 iPhone）：早就让过位的第一件藏着，不因 beat 从 0 重来又露出来", () => {
+    // 共享值已经是「第二件让位、第三件浮上来」，卡片上挂着的还是 [第一件, 第二件]
+    expect(bodyPhase(1, 3, 2, 3)).toBe("gone");
+    expect(bodyPhase(2, 3, 2, 3)).toBe("leave");
+  });
+
+  it("最后一件做完（past / enter 记 0）：最后一件留在卡片上，更早那件仍藏着", () => {
+    expect(bodyPhase(3, 3, 0, 0)).toBe("still");
+    expect(bodyPhase(2, 3, 0, 0)).toBe("gone");
   });
 });
