@@ -924,7 +924,7 @@ describe("多顶头盔同时求救（10-16 N10：一张页 + 顶部胶囊点切�
     expect(number(r)).toBe("49");
   });
 
-  it("屏上这单本机还是倒计时、同一顶头盔却来了新单（旧单终态没收到）：不崩，立刻拉旧单的权威状态，结束了就切到新单、不提示「已切到下一单」（10-16 评审）", async () => {
+  it("屏上这单本机还是倒计时、同一顶头盔却来了新单（旧单终态没收到）：不崩，直接切到新单，不等旧单的权威状态——中间不出新单的胶囊、「全部取消」「也在倒计时」；旧单撤锁屏提醒、照样拉一次权威状态；不提示「已切到下一单」（10-16 评审，10-17 华为 4.27）", async () => {
     const s9 = second("s9", "h1", 55);
     m(sosApi.snapshot).mockImplementation((id: unknown) =>
       Promise.resolve(id === "s9" ? s9 : sosOf()),
@@ -932,18 +932,32 @@ describe("多顶头盔同时求救（10-16 N10：一张页 + 顶部胶囊点切�
     const r = await mount();
     expect(number(r)).toBe("45");
     const before = m(sosApi.snapshot).mock.calls.length;
+    // 旧单的权威状态要 2 秒才回来（刚恢复的网络）：这 2 秒里屏上就该是新单
     m(sosApi.snapshot).mockImplementation((id: unknown) =>
-      Promise.resolve(id === "s9" ? s9 : sosOf({ status: "notified" })),
+      id === "s9"
+        ? Promise.resolve(s9)
+        : new Promise((res) =>
+            setTimeout(() => res(sosOf({ status: "notified" })), 2_000),
+          ),
     );
     arrive(s9);
-    for (let i = 0; i < 4; i++) await tick(0);
+    await tick(0);
+    await tick(0);
     expect(r.tree.toJSON()).not.toBeNull();
+    expect(number(r)).toBe("55");
+    expect(r.allText()).not.toContain(tr("sos.alsoCounting", { name: "通勤" }));
+    expect(r.allText()).not.toContain(tr("sos.allCancel"));
+    expect(r.allText()).not.toContain(tr("sos.allSendNow"));
+    expect(clearSosAlert).toHaveBeenCalledWith("s1");
+    expect(clearSosAlert).not.toHaveBeenCalledWith("s9");
     expect(
       m(sosApi.snapshot)
         .mock.calls.slice(before)
         .some((c) => c[0] === "s1"),
     ).toBe(true);
-    expect(number(r)).toBe("55");
+    await tick(2_100);
+    expect(qc.getQueryData<Sos>(["sos", "s1"])?.status).toBe("notified");
+    expect(number(r)).toBe("53");
     expect(r.allText()).not.toContain(
       tr("sos.switchedNotified", { name: "通勤" }),
     );
@@ -963,6 +977,7 @@ describe("多顶头盔同时求救（10-16 N10：一张页 + 顶部胶囊点切�
     for (let i = 0; i < 3; i++) await tick(0);
     expect(r.tree.toJSON()).not.toBeNull();
     expect(number(r)).toBe("55");
+    expect(clearSosAlert).toHaveBeenCalledWith("s1");
   });
 
   it("页面被切到一个不存在的单号（已解绑头盔的推送 / 外部链接，404），而另一单还在倒数：切到那单，不用「这条求救不存在」盖住它", async () => {
