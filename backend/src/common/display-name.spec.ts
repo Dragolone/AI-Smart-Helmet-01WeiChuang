@@ -1,6 +1,7 @@
 // 与 App 的 cleanHelmetName 同一套用例（app/src/services/__tests__/edge-helmet-name.test.ts），两端整理结果必须一致。
 // 看不见的字符一律写成 \u 转义，源码里不放原字符
 import { cleanDisplayName, cleanName, cleanNameOrNull } from './display-name';
+import { helmetLabel } from './helmet-label';
 
 describe('cleanDisplayName：整理成一行', () => {
   it('换行名压成一行', () => {
@@ -80,5 +81,55 @@ describe('@Transform 用的两个包装', () => {
     expect(cleanNameOrNull({ value: ' a\nb ' })).toBe('a b');
     expect(cleanNameOrNull({ value: '\u200B\n' })).toBeNull();
     expect(cleanNameOrNull({ value: 7 })).toBe(7);
+  });
+});
+
+describe('cleanDisplayName：BMP 以外的不可见字符（10-17 第二轮评审 r1）', () => {
+  const cp = (...cps: number[]) => String.fromCodePoint(...cps);
+
+  it.each([
+    ['标签空格 U+E0020', 0xe0020],
+    ['标签字母 U+E0041', 0xe0041],
+    ['语言标签 U+E0001', 0xe0001],
+    ['补充变体选择符 U+E0100', 0xe0100],
+    ['乐谱格式符 U+1D173', 0x1d173],
+    ['速记格式符 U+1BCA0', 0x1bca0],
+  ])('只含 %s：整理后为空', (_label, code) => {
+    expect(cleanDisplayName(cp(code, code, code))).toBe('');
+  });
+
+  it('夹在字中间的标签字符 / 乐谱格式符去掉', () => {
+    expect(
+      cleanDisplayName(`我的${cp(0xe0041, 0xe0042)}头${cp(0x1d173)}盔`),
+    ).toBe('我的头盔');
+  });
+
+  it('英格兰旗（黑旗 + 标签序列 + 结束符）整段保留；没有结束符的标签串去掉、黑旗留下', () => {
+    const england = cp(
+      0x1f3f4,
+      0xe0067,
+      0xe0062,
+      0xe0065,
+      0xe006e,
+      0xe0067,
+      0xe007f,
+    );
+    expect(cleanDisplayName(`车队${england}`)).toBe(`车队${england}`);
+    expect(cleanDisplayName(cp(0x1f3f4, 0xe0067, 0xe0062))).toBe(cp(0x1f3f4));
+  });
+
+  it('补充变体选择符跟在汉字后面保留（异体字），落在开头 / 空格后去掉', () => {
+    const variant = `葛${cp(0xe0100)}`;
+    expect(cleanDisplayName(`${variant}城`)).toBe(`${variant}城`);
+    expect(cleanDisplayName(`${cp(0xe0100)}葛 ${cp(0xe0101)}城`)).toBe('葛 城');
+  });
+
+  it('只含标签字符的头盔名：推送称呼回落设备号', () => {
+    expect(
+      helmetLabel({
+        name: cp(0xe0020, 0xe0020, 0xe0020),
+        deviceId: 'helmet_001',
+      }),
+    ).toBe('helmet_001');
   });
 });

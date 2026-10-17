@@ -185,3 +185,30 @@ describe("接线：显示头盔名的地方不直接读 device.name", () => {
     );
   });
 });
+
+// BMP 以外的不可见字符（2026-10-17 第二轮评审）：标签字符、补充变体选择符、乐谱格式符组成的名字原来照样显示成一片空白。
+// 与后端 display-name.spec 同一组用例。
+describe("cleanHelmetName：BMP 以外的不可见字符", () => {
+  const cp = (...cps: number[]) => String.fromCodePoint(...cps);
+
+  it.each([
+    ["标签空格 U+E0020", 0xe0020],
+    ["标签字母 U+E0041", 0xe0041],
+    ["语言标签 U+E0001", 0xe0001],
+    ["补充变体选择符 U+E0100", 0xe0100],
+    ["乐谱格式符 U+1D173", 0x1d173],
+    ["速记格式符 U+1BCA0", 0x1bca0],
+  ])("只含 %s：整理后为空，显示回退设备号", (_label, code) => {
+    expect(cleanHelmetName(cp(code, code, code))).toBe("");
+    expect(nameOf(cp(code, code, code))).toBe(ID);
+  });
+
+  it("夹在字中间的去掉；英格兰旗整段保留；汉字后的异体字选择符保留", () => {
+    expect(cleanHelmetName(`我的${cp(0xe0041)}头${cp(0x1d173)}盔`)).toBe("我的头盔");
+    const england = cp(0x1f3f4, 0xe0067, 0xe0062, 0xe0065, 0xe006e, 0xe0067, 0xe007f);
+    expect(cleanHelmetName(`车队${england}`)).toBe(`车队${england}`);
+    const variant = `葛${cp(0xe0100)}`;
+    expect(cleanHelmetName(`${variant}城`)).toBe(`${variant}城`);
+    expect(cleanHelmetName(`${cp(0xe0100)}葛`)).toBe("葛");
+  });
+});
