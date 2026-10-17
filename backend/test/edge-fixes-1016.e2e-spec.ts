@@ -4,6 +4,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { deviceAcl } from '../src/emqx/emqx-hook.service';
 import { adminGet, cleanupAdmins, createAdmin } from './helpers/audit-admin';
 import { webhook } from './helpers/audit-ingest';
 import {
@@ -369,6 +370,7 @@ describe('边界测试发现的修复 (e2e)', () => {
     }
     expect((await authn({ username: dev, password: 's3cret' })).body).toEqual({
       result: 'allow',
+      acl: deviceAcl(dev),
     });
   });
 

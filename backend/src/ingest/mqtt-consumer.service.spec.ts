@@ -1,5 +1,5 @@
 // MQTT 消费者单测：不连真 Broker——mqtt.connect 换成假客户端，直接驱动 handleMessage / 'connect' / SUBACK，
-// 钉住「入库成功才签收」「订阅失败一直重试」「重试耗尽只告警不断连」这几条保命链路上的行为。
+// 钉住「入库成功才签收」「订阅失败一直重连重试」「重试耗尽只告警不断连」这几条保命链路上的行为。
 import { EventEmitter } from 'node:events';
 import { Logger } from '@nestjs/common';
 
@@ -22,6 +22,7 @@ class FakeClient extends EventEmitter {
   subscribe = jest.fn<void, [string[], { qos: number }, SubCb]>();
   publish = jest.fn<void, [string, string, { qos: number }, PubCb]>();
   endAsync = jest.fn(() => Promise.resolve());
+  stream = { destroy: jest.fn() };
 }
 
 const connectMock = connect as unknown as jest.Mock;
@@ -158,28 +159,42 @@ describe('MqttConsumerService', () => {
       expect(errorSpy).not.toHaveBeenCalled();
     });
 
-    it('订阅报错：5 秒后重试，次数递增，直到成功为止', () => {
+    it('订阅报错：5 秒后掐断连接让 mqtt.js 重连（重新认证），重连后再订，次数跨连接递增，直到成功为止', () => {
       jest.useFakeTimers();
       service.onModuleInit();
       client.emit('connect', { sessionPresent: false });
-      client.subscribe.mock.calls[0][2](new Error('授权服务超时'));
+      client.subscribe.mock.calls[0][2](new Error('Unspecified error'));
       expect(errorSpy).toHaveBeenCalledWith(
-        '订阅失败（第 1 次）：授权服务超时；5000ms 后重试',
+        '订阅失败（第 1 次）：Unspecified error；5000ms 后断线重连再订',
       );
       jest.advanceTimersByTime(4_999);
-      expect(client.subscribe).toHaveBeenCalledTimes(1);
+      expect(client.stream.destroy).not.toHaveBeenCalled();
       jest.advanceTimersByTime(1);
-      expect(client.subscribe).toHaveBeenCalledTimes(2);
+      expect(client.stream.destroy).toHaveBeenCalledTimes(1);
+      // 不在原连接上重订：没过认证的连接重订多少次都被拒
+      expect(client.subscribe).toHaveBeenCalledTimes(1);
 
-      client.subscribe.mock.calls[1][2](new Error('还是超时'));
+      client.emit('connect', { sessionPresent: true });
+      expect(client.subscribe).toHaveBeenCalledTimes(2);
+      client.subscribe.mock.calls[1][2](new Error('还是被拒'));
       expect(errorSpy).toHaveBeenLastCalledWith(
-        '订阅失败（第 2 次）：还是超时；5000ms 后重试',
+        '订阅失败（第 2 次）：还是被拒；5000ms 后断线重连再订',
       );
       jest.advanceTimersByTime(5_000);
-      expect(client.subscribe).toHaveBeenCalledTimes(3);
+      expect(client.stream.destroy).toHaveBeenCalledTimes(2);
+      client.emit('connect', { sessionPresent: true });
       client.subscribe.mock.calls[2][2](null, [{ topic: TOPICS[0], qos: 1 }]);
+      expect(logSpy).toHaveBeenLastCalledWith(`已订阅：${TOPICS.join(', ')}`);
       jest.advanceTimersByTime(60_000);
       expect(client.subscribe).toHaveBeenCalledTimes(3);
+      expect(client.stream.destroy).toHaveBeenCalledTimes(2);
+
+      // 成功后计数清零：下一次失败重新从第 1 次数
+      client.emit('connect', { sessionPresent: false });
+      client.subscribe.mock.calls[3][2](new Error('又失败'));
+      expect(errorSpy).toHaveBeenLastCalledWith(
+        '订阅失败（第 1 次）：又失败；5000ms 后断线重连再订',
+      );
     });
 
     it('SUBACK 里有 qos=128（Broker 按 ACL 逐主题拒绝）：mqtt.js 不当错误，我们必须当失败重试并点名主题', () => {
@@ -193,27 +208,27 @@ describe('MqttConsumerService', () => {
         { topic: 'helmet/+/cmd_ack', qos: 128 },
       ]);
       expect(errorSpy).toHaveBeenCalledWith(
-        '订阅失败（第 1 次）：Broker 拒绝：helmet/+/location, helmet/+/cmd_ack；5000ms 后重试',
+        '订阅失败（第 1 次）：Broker 拒绝：helmet/+/location, helmet/+/cmd_ack；5000ms 后断线重连再订',
       );
       jest.advanceTimersByTime(5_000);
-      expect(client.subscribe).toHaveBeenCalledTimes(2);
+      expect(client.stream.destroy).toHaveBeenCalledTimes(1);
     });
 
-    it('等重试期间断线重连（clientId 被顶替后 sessionPresent=false）：清掉旧计时器，只剩一路订阅', () => {
+    it('等重试期间断线重连（clientId 被顶替后 sessionPresent=false）：清掉旧计时器，不会把新连接再掐掉', () => {
       jest.useFakeTimers();
       service.onModuleInit();
       client.emit('connect', { sessionPresent: true });
       client.subscribe.mock.calls[0][2](new Error('瞬时失败'));
-      // 重试计时器挂着的时候重新连上
+      // 计时器挂着的时候已经自己重新连上
       jest.advanceTimersByTime(2_000);
       client.emit('connect', { sessionPresent: false });
       expect(logSpy).toHaveBeenCalledWith(
         '已连接 MQTT Broker：mqtt://localhost:1883（sessionPresent=false）',
       );
       expect(client.subscribe).toHaveBeenCalledTimes(2);
-      // 旧计时器原本会在 t=5000 触发；被清掉后不应再多出一次订阅
+      // 旧计时器原本会在 t=5000 掐断连接；被清掉后新连接不受影响
       jest.advanceTimersByTime(10_000);
-      expect(client.subscribe).toHaveBeenCalledTimes(2);
+      expect(client.stream.destroy).not.toHaveBeenCalled();
     });
 
     it('重连时没有挂起的重试：照样显式重新订阅（resubscribe:false 下不靠 mqtt.js 去重）', () => {
@@ -232,7 +247,7 @@ describe('MqttConsumerService', () => {
       client.subscribe.mock.calls[0][2](new Error('连接已关闭'));
       expect(errorSpy).not.toHaveBeenCalled();
       jest.advanceTimersByTime(60_000);
-      expect(client.subscribe).toHaveBeenCalledTimes(1);
+      expect(client.stream.destroy).not.toHaveBeenCalled();
     });
   });
 
@@ -245,7 +260,7 @@ describe('MqttConsumerService', () => {
       await service.onModuleDestroy();
       expect(client.endAsync).toHaveBeenCalledTimes(1);
       jest.advanceTimersByTime(60_000);
-      expect(client.subscribe).toHaveBeenCalledTimes(1);
+      expect(client.stream.destroy).not.toHaveBeenCalled();
     });
 
     it('从未初始化（没有客户端）也能安全关停', async () => {

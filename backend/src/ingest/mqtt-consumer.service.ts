@@ -28,7 +28,7 @@ export type CmdAckHandler = (deviceId: string, raw: string) => Promise<void>;
 const PERSIST_RETRIES = 2;
 const PERSIST_RETRY_DELAY_MS = 300;
 
-/** 订阅失败重试间隔：订阅失败 = 连着 Broker 却收不到任何消息，只告警不重试会静默失聪 */
+/** 订阅失败后多久断线重连再订：订阅失败 = 连着 Broker 却收不到任何消息，只告警不重试会静默失聪 */
 const SUBSCRIBE_RETRY_DELAY_MS = 5_000;
 
 /** 防日志伪造：外部输入进日志前去掉换行符 */
@@ -42,6 +42,7 @@ export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MqttConsumerService.name);
   private client: MqttClient | null = null;
   private subscribeTimer: NodeJS.Timeout | null = null;
+  private subscribeFailures = 0;
   private shuttingDown = false;
   private cmdAckHandler: CmdAckHandler | null = null;
 
@@ -115,7 +116,7 @@ export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
       this.logger.log(
         `已连接 MQTT Broker：${url}（sessionPresent=${String(connack.sessionPresent)}）`,
       );
-      this.subscribeWithRetry(1);
+      this.subscribe();
     });
 
     this.client.on('reconnect', () => this.logger.warn('MQTT 重连中…'));
@@ -125,11 +126,12 @@ export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * 订阅失败必须重试直到成功：SUBACK 被拒（如授权侧瞬时故障）时连接仍在，
-   * mqtt.js 不会自动补订阅，不重试就会"连着却永远收不到消息"。
-   * 断线重连后 'connect' 会重新进入本方法，先清掉旧的待重试计时器避免并发订阅。
+   * 订阅失败必须重试直到成功，否则就是「连着却永远收不到消息」。重试走断线重连而不是在原连接上重订：
+   * 服务账号是超级用户、不经授权，订阅被拒只可能是这条连接没过认证——EMQX 刚启动那一下连上的连接
+   * 认证链还没就绪，直接被放进来（2026-10-17 云端 EMQX 重建后实测）。它在 EMQX 眼里不是超级用户，
+   * 在上面重订多少次都被拒；重连会重新走认证。断线重连后 'connect' 再进入本方法，先清掉待执行的计时器。
    */
-  private subscribeWithRetry(attempt: number): void {
+  private subscribe(): void {
     if (this.subscribeTimer) {
       clearTimeout(this.subscribeTimer);
       this.subscribeTimer = null;
@@ -138,20 +140,23 @@ export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
       // SUBACK 里 qos=128 是 Broker 逐主题拒绝（ACL 未放行），mqtt.js 不把它当 err，必须自己看
       const rejected = (granted ?? []).filter((g) => g.qos === 128);
       if (!err && rejected.length === 0) {
+        this.subscribeFailures = 0;
         this.logger.log(`已订阅：${SUBSCRIBE_TOPICS.join(', ')}`);
         return;
       }
       if (this.shuttingDown) return;
+      this.subscribeFailures += 1;
       const reason = err
         ? err.message
         : `Broker 拒绝：${rejected.map((g) => g.topic).join(', ')}`;
       this.logger.error(
-        `订阅失败（第 ${attempt} 次）：${reason}；${SUBSCRIBE_RETRY_DELAY_MS}ms 后重试`,
+        `订阅失败（第 ${this.subscribeFailures} 次）：${reason}；${SUBSCRIBE_RETRY_DELAY_MS}ms 后断线重连再订`,
       );
-      this.subscribeTimer = setTimeout(
-        () => this.subscribeWithRetry(attempt + 1),
-        SUBSCRIBE_RETRY_DELAY_MS,
-      );
+      this.subscribeTimer = setTimeout(() => {
+        this.subscribeTimer = null;
+        // 掐掉底层连接 = 模拟断网，mqtt.js 按 reconnectPeriod 自动重连并重新认证
+        if (!this.shuttingDown) this.client?.stream.destroy();
+      }, SUBSCRIBE_RETRY_DELAY_MS);
     });
   }
 

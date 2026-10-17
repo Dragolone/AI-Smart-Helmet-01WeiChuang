@@ -5,6 +5,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { deviceAcl } from '../src/emqx/emqx-hook.service';
 import { buildApp, cleanupDevices, type Http } from './helpers/hardening';
 
 jest.setTimeout(60_000);
@@ -56,7 +57,7 @@ describe('边界：EMQX 内部回调 (e2e)', () => {
         )
         .send({ username: dev, password: SECRET });
       expect(ok.status).toBe(200);
-      expect(ok.body).toEqual({ result: 'allow' });
+      expect(ok.body).toEqual({ result: 'allow', acl: deviceAcl(dev) });
       const headerWins = await request(http)
         .post(
           `/api/v1/internal/emqx/authenticate?token=${encodeURIComponent(TOKEN)}`,
@@ -97,7 +98,7 @@ describe('边界：EMQX 内部回调 (e2e)', () => {
         password: SECRET,
         clientid: dev,
       }).expect(200);
-      expect(r.body).toEqual({ result: 'allow' });
+      expect(r.body).toEqual({ result: 'allow', acl: deviceAcl(dev) });
     });
 
     it('书写变体一律 deny：deviceId 大小写 / 首尾空格；密钥带换行 / 首尾空格 / 大小写；空串', async () => {
@@ -131,6 +132,7 @@ describe('边界：EMQX 内部回调 (e2e)', () => {
       // 之后正常请求不受影响
       expect((await authn({ username: dev, password: SECRET })).body).toEqual({
         result: 'allow',
+        acl: deviceAcl(dev),
       });
     });
   });

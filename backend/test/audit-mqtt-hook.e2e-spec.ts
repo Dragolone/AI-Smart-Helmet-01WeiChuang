@@ -9,6 +9,7 @@ import request from 'supertest';
 import { createHash } from 'node:crypto';
 import { buildApp, cleanupDevices, type Http } from './helpers/hardening';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { deviceAcl } from '../src/emqx/emqx-hook.service';
 
 const SUF = `mqtthook_${Date.now().toString(36)}`;
 const DEV_A = `${SUF}_a`;
@@ -84,7 +85,7 @@ describe('审计 §7 EMQX 内部回调：认证 / 授权 / 内部令牌 (e2e in-
       username: DEV_A,
       password: SECRET,
     }).expect(200);
-    expect(res.body).toEqual({ result: 'allow' });
+    expect(res.body).toEqual({ result: 'allow', acl: deviceAcl(DEV_A) });
   });
 
   it('AUTHN-WRONG 错误密钥 → deny', async () => {
