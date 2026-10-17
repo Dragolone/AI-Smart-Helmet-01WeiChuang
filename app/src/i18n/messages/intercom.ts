@@ -86,6 +86,10 @@ export const intercom = {
     "intercom.mini.back": "返回",
     "intercom.exit.kicked": "通话已被结束：你的账号可能在另一台手机上进入了对讲",
     "intercom.exit.dismissed": "频道的通话房间已关闭，通话已结束",
+    "intercom.exit.removed": "你已不在这个频道里，通话已结束",
+    "intercom.exit.rejected": "断线后没能回到通话（{code}），请重新进入",
+    "intercom.service.title": "对讲进行中",
+    "intercom.service.text": "正在「{name}」里通话",
     "intercom.error":
       "通话出错（{code}），已关闭麦克风。若反复出现，请结束通话后重新进入",
     "intercom.member.muteHint": "仅在本机静音这位成员",
@@ -178,6 +182,10 @@ export const intercom = {
     "intercom.mini.back": "返回",
     "intercom.exit.kicked": "通話已被結束：你的帳號可能在另一支手機上進入了對講",
     "intercom.exit.dismissed": "頻道的通話房間已關閉，通話已結束",
+    "intercom.exit.removed": "你已不在這個頻道裡，通話已結束",
+    "intercom.exit.rejected": "斷線後沒能回到通話（{code}），請重新進入",
+    "intercom.service.title": "對講進行中",
+    "intercom.service.text": "正在「{name}」裡通話",
     "intercom.error":
       "通話出錯（{code}），已關閉麥克風。若反覆出現，請結束通話後重新進入",
     "intercom.member.muteHint": "僅在本機將這位成員靜音",
@@ -279,6 +287,11 @@ export const intercom = {
     "intercom.exit.kicked":
       "Call ended: your account may have joined the intercom on another phone",
     "intercom.exit.dismissed": "The channel's call room was closed. Call ended.",
+    "intercom.exit.removed": "You're no longer in this channel. Call ended.",
+    "intercom.exit.rejected":
+      "Couldn't get back into the call after the connection dropped ({code}). Please rejoin.",
+    "intercom.service.title": "Intercom on",
+    "intercom.service.text": "In a call in “{name}”",
     "intercom.error":
       "Call error ({code}). Microphone turned off. If this keeps happening, end the call and rejoin.",
     "intercom.member.muteHint": "Mutes this member for you only",

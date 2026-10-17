@@ -10,36 +10,99 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 
 /**
  * BLE 头盔链路前台服务（决策 #41）：本身不做任何蓝牙操作，只是让进程在退后台/锁屏后不被系统回收，
  * 真正的扫描/连接/中转仍在 JS 线程（services/ble-link.ts）。通知文案由 JS 按当前语言传入。
+ *
+ * 2026-10-17 起对讲也用这个服务：在房期间加上 microphone 类型——Android 11 起退到后台 / 锁屏后，
+ * 没有这一类前台服务的 App 麦克风被系统静音，对端只听到静音。头盔链路（linkOn）和对讲（micOn）各自开关，
+ * 类型按当前开着的那几样声明，两样都不用了才退出；开着对讲时通知写对讲。
  */
 class HelmetLinkService : Service() {
   override fun onBind(intent: Intent?): IBinder? = null
+
+  override fun onCreate() {
+    super.onCreate()
+    instance = this
+  }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     if (intent?.action == ACTION_STOP) {
       stopSelf()
       return START_NOT_STICKY
     }
-    val title = intent?.getStringExtra(EXTRA_TITLE) ?: getString(R.string.helmet_link_channel_name)
-    val text = intent?.getStringExtra(EXTRA_TEXT) ?: ""
-    ensureChannel()
-    val notification = buildNotification(title, text)
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-      startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
-    } else {
-      startForeground(NOTIFICATION_ID, notification)
+    if (intent?.action == ACTION_MIC) {
+      if (!linkOn && !micOn) {
+        // 起服务的 Intent 还没送到就又撤了（断网时点进入、马上失败）：startForegroundService 之后
+        // 必须 startForeground 一次，否则系统判 App 崩溃。露个面就收掉
+        try {
+          startTyped(true)
+        } catch (e: RuntimeException) {
+          Log.w(TAG, "foreground start refused", e)
+        }
+        stopSelf()
+      } else {
+        applyForeground()
+      }
+      // 开关由模块先写进 micOn；进程被回收后对讲早就不在了，这个 Intent 不要重新送回来
+      return START_NOT_STICKY
     }
-    running = true
+    linkOn = true
+    linkTitle = intent?.getStringExtra(EXTRA_TITLE) ?: getString(R.string.helmet_link_channel_name)
+    linkText = intent?.getStringExtra(EXTRA_TEXT) ?: ""
+    applyForeground()
     // 系统因内存回收后自动重启服务（Intent 保留），配合 JS 端启动时的重连
     return START_REDELIVER_INTENT
   }
 
   override fun onDestroy() {
     running = false
+    linkOn = false
+    micOn = false
+    if (instance === this) instance = null
     super.onDestroy()
+  }
+
+  /** 按头盔链路 / 对讲此刻开着哪几样重新声明前台服务类型；两样都不用了就退出 */
+  fun applyForeground() {
+    if (!linkOn && !micOn) {
+      stopSelf()
+      return
+    }
+    ensureChannel()
+    try {
+      startTyped(micOn)
+    } catch (e: RuntimeException) {
+      // 麦克风类型被系统拒（Android 14：不在前台 / 没有录音权限）：退回只连头盔，别让整个服务一起起不来
+      if (!micOn) throw e
+      Log.w(TAG, "microphone foreground type refused", e)
+      micOn = false
+      if (!linkOn) {
+        stopSelf()
+        return
+      }
+      startTyped(false)
+    }
+    running = true
+  }
+
+  private fun startTyped(mic: Boolean) {
+    val notification =
+      if (mic) buildNotification(micTitle, micText) else buildNotification(linkTitle, linkText)
+    when {
+      Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> {
+        var type = 0
+        if (linkOn) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+        if (mic) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        startForeground(NOTIFICATION_ID, notification, type)
+      }
+      Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && linkOn ->
+        startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+      // Android 10 只开对讲 / 更老的系统：还没有按类型管麦克风，有前台服务就行（类型取清单里声明的）
+      else -> startForeground(NOTIFICATION_ID, notification)
+    }
   }
 
   private fun ensureChannel() {
@@ -69,7 +132,7 @@ class HelmetLinkService : Service() {
       @Suppress("DEPRECATION") Notification.Builder(this)
     }
     return builder
-      .setContentTitle(title)
+      .setContentTitle(title.ifEmpty { getString(R.string.helmet_link_channel_name) })
       .setContentText(text)
       .setSmallIcon(applicationInfo.icon)
       .setOngoing(true)
@@ -80,11 +143,23 @@ class HelmetLinkService : Service() {
   }
 
   companion object {
+    private const val TAG = "HelmetLinkService"
     const val CHANNEL_ID = "helmet_link"
     const val NOTIFICATION_ID = 0x4C4E // "LN"
     const val ACTION_STOP = "com.lingyiweichuang.linkservice.STOP"
+    const val ACTION_MIC = "com.lingyiweichuang.linkservice.MIC"
     const val EXTRA_TITLE = "title"
     const val EXTRA_TEXT = "text"
     @Volatile var running = false
+    /** 头盔链路要前台服务（JS start / stop） */
+    @Volatile var linkOn = false
+    /** 对讲在房、要麦克风类型（JS setMicrophone） */
+    @Volatile var micOn = false
+    @Volatile var linkTitle = ""
+    @Volatile var linkText = ""
+    @Volatile var micTitle = ""
+    @Volatile var micText = ""
+    /** 正在运行的实例：撤掉一样时直接在它身上重新声明类型，不再发 Intent（这时 App 可能已在后台） */
+    @Volatile var instance: HelmetLinkService? = null
   }
 }
