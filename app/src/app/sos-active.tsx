@@ -346,16 +346,29 @@ function SosActiveContent() {
   }
 
   // 同一顶头盔来了新单，而屏上这单本机还是倒计时：服务端每顶头盔至多一单在倒计时，屏上这单其实已结束、只是终态没收到
-  //（WS 断着、10 秒轮询还没跑，或是点了它留在锁屏上的旧通知进来）。立刻拉一次它的权威状态，结束了就照常切到新单
+  //（WS 断着、10 秒轮询还没跑，或是点了它留在锁屏上的旧通知进来）。直接切到新单，不等旧单的权威状态——原来先拉一次
+  // 旧单再切，中间约 2 秒顶上多出新单的胶囊、「全部取消」和「也在倒计时」，数字还是旧单的（10-17 华为 4.27）
   const supersededBy =
     !isDrill && sos?.status === "pending"
       ? queue.find((q) => q.deviceId === sos.deviceId && q.sosId !== sos.sosId)
           ?.sosId
       : undefined;
+  const [superseded, setSuperseded] = useState<readonly string[]>([]);
+  if (supersededBy) {
+    setSuperseded([...superseded, sosId]);
+    setSelected(supersededBy);
+  }
+  // 被顶掉的旧单：撤掉它的锁屏提醒（「处理过的单」里它已被新单顶掉，下面按处理过的单撤提醒的那条走不到它，
+  // 留着的话它在后台排好的「还剩 30 / 10 秒」照样会响），再拉一次它的权威状态写进缓存，之后迟到的 pending 翻不回来
+  const supersededSettled = useRef(new Set<string>());
   useEffect(() => {
-    if (!supersededBy) return;
-    void queryClient.refetchQueries({ queryKey: ["sos", sosId], exact: true });
-  }, [supersededBy, sosId, queryClient]);
+    for (const id of superseded) {
+      if (supersededSettled.current.has(id)) continue;
+      supersededSettled.current.add(id);
+      void clearSosAlert(id);
+      void queryClient.refetchQueries({ queryKey: ["sos", id], exact: true });
+    }
+  }, [superseded, queryClient]);
 
   // 推进"当前时刻"，渲染期据此重算剩余秒数（仅展示用途，超时判定在服务端）。
   // 对着「数字该换的那一刻」去读时钟（services/countdown），不是固定每秒一次：固定间隔时定时器每次晚几毫秒，
