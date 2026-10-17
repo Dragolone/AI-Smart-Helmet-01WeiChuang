@@ -54,12 +54,17 @@ export function buildSummary(
   }
 }
 
+/**
+ * timestamp 给的是业务时间（决策 #59）：设备时钟可信时就是设备时间，时钟错乱时是收到时间——与轨迹点同口径，
+ * App 按它排序、分组、对到轨迹上；设备上报的原值放在 deviceTimestamp。
+ */
 export function toWireEventItem(e: RawEvent): EventListItem {
   return {
     eventId: e.eventId,
     deviceId: e.deviceId,
     eventType: e.eventType,
-    timestamp: e.timestamp.toISOString(),
+    timestamp: e.businessTime.toISOString(),
+    deviceTimestamp: e.timestamp.toISOString(),
     receivedAt: e.receivedAt.toISOString(),
     summary: buildSummary(e.eventType, e.payload as Record<string, unknown>),
   };

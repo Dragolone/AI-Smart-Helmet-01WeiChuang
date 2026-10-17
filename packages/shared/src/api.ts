@@ -259,7 +259,10 @@ export interface EventListItem {
   eventId: string;
   deviceId: string;
   eventType: string;
+  /** 业务时间（决策 #59）：设备时钟可信时 = 设备时间，时钟错乱时 = 收到时间；列表按它排序，App 按它显示 */
   timestamp: string;
+  /** 设备上报的原始时间（时钟错乱时可能是 1970 / 2099，仅供排查） */
+  deviceTimestamp: string;
   receivedAt: string;
   summary: string;
 }

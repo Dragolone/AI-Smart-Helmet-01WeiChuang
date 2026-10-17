@@ -3,6 +3,7 @@
 // 7 天电量历史截断、查询时间极值、未来时钟的位置点、并列时间戳分页、Ingest 的 NUL 误判与孤立代理项。
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
+import { businessTime } from '../src/common/device-time';
 import { randomUUID } from 'node:crypto';
 import { WebSocket } from 'ws';
 import { SmsCodeService } from '../src/auth/sms-code.service';
@@ -214,6 +215,7 @@ describe('边缘情况补测 (e2e)', () => {
           eventType: 'device_status',
           timestamp: at,
           receivedAt: at,
+          businessTime: at,
           schemaVersion: 1,
           payload: { battery: 100 - (i % 100), charging: false },
           source: 'app_relay',
@@ -248,6 +250,10 @@ describe('边缘情况补测 (e2e)', () => {
         eventType: 'device_status',
         timestamp: new Date(now - minutesAgo * 60_000),
         receivedAt: new Date(now),
+        businessTime: businessTime(
+          new Date(now - minutesAgo * 60_000),
+          new Date(now),
+        ),
         schemaVersion: 1,
         payload: { battery, charging: false } as object,
         source: 'app_relay',
@@ -388,6 +394,7 @@ describe('边缘情况补测 (e2e)', () => {
           deviceId,
           eventType: 'collision_risk',
           timestamp: at,
+          businessTime: at,
           schemaVersion: 1,
           payload: { riskLevel: 'high' },
           source: 'app_relay',

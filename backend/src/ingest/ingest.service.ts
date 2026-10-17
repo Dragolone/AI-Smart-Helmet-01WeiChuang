@@ -2,7 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { EVENT_TYPES } from '@helmet/shared';
-import { CLOCK_SKEW_THRESHOLD_MS, isBackfill } from '../common/device-time';
+import {
+  CLOCK_SKEW_THRESHOLD_MS,
+  businessTime,
+  isBackfill,
+} from '../common/device-time';
 import { dbRejectionCode, isUniqueViolation } from '../common/prisma-errors';
 import { DeviceSnapshotService } from '../devices/device-snapshot.service';
 import { LocationRecorderService } from '../locations/location-recorder.service';
@@ -15,6 +19,7 @@ import {
   SUPPORTED_SCHEMA_VERSIONS,
   buildInvalidRecord,
   validateEnvelope,
+  type StoredEnvelope,
   type ValidEnvelope,
 } from './envelope';
 
@@ -153,7 +158,7 @@ export class IngestService {
       return archived ? 'stored_invalid' : 'duplicate';
     }
 
-    let stored: ValidEnvelope | null;
+    let stored: StoredEnvelope | null;
     try {
       stored = await this.persist(result.envelope, source);
     } catch (err) {
@@ -190,7 +195,7 @@ export class IngestService {
    * 入库成功后的业务分发：快照 → 位置表 → SOS 触发 → 媒体表 → WS 推送。
    * 只对已注册设备生效（未注册的仅 raw 留档）；推送只发给绑定用户。
    */
-  private async dispatchStored(e: ValidEnvelope): Promise<void> {
+  private async dispatchStored(e: StoredEnvelope): Promise<void> {
     const device = await this.snapshot.applyEvent(e);
     if (!device) return;
 
@@ -267,7 +272,7 @@ export class IngestService {
   private async persist(
     e: ValidEnvelope,
     source: IngestSource,
-  ): Promise<ValidEnvelope | null> {
+  ): Promise<StoredEnvelope | null> {
     const receivedAt = new Date();
     // 补传事件本应豁免此标记，但补传语义待设备离线缓存实装后才能识别（DEVICE_PROTOCOL §6 ⚠️），当前一律按偏差判定
     const clockSkew =
@@ -286,6 +291,7 @@ export class IngestService {
           eventType: e.eventType,
           timestamp: e.timestamp,
           receivedAt,
+          businessTime: businessTime(e.timestamp, receivedAt),
           schemaVersion: e.schemaVersion,
           firmwareVersion: e.firmwareVersion,
           payload: e.payload as Prisma.InputJsonValue,
@@ -295,7 +301,7 @@ export class IngestService {
         // 只要「写进去了」这个事实：不让数据库把整行（含 payload）再回传一遍
         select: { id: true },
       });
-      return e;
+      return { ...e, receivedAt };
     } catch (err) {
       if (isUniqueViolation(err)) return this.handleCollision(e, source);
       throw err;
@@ -312,7 +318,7 @@ export class IngestService {
   private async handleCollision(
     e: ValidEnvelope,
     source: IngestSource,
-  ): Promise<ValidEnvelope | null> {
+  ): Promise<StoredEnvelope | null> {
     const prior = await this.prisma.rawEvent.findUnique({
       where: {
         deviceId_eventId: { deviceId: e.deviceId, eventId: e.eventId },

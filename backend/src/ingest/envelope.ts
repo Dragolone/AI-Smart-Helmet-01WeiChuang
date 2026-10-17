@@ -11,6 +11,9 @@ export interface ValidEnvelope {
   payload: Record<string, unknown>;
 }
 
+/** 已落库的 envelope：带上服务器生成并写进库的收到时间（WS 推送与列表按同一个值算业务时间） */
+export type StoredEnvelope = ValidEnvelope & { receivedAt: Date };
+
 export type EnvelopeResult =
   { ok: true; envelope: ValidEnvelope } | { ok: false; reason: string };
 

@@ -4,6 +4,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 import type { Prisma } from '../src/generated/prisma/client';
+import { businessTime } from '../src/common/device-time';
 import { PrismaService } from '../src/prisma/prisma.service';
 import {
   auth,
@@ -108,6 +109,8 @@ describe('审计 §6：决策 #39 绑定区间 / 电量历史 / 绑定竞态 (e2
         eventType,
         timestamp,
         receivedAt,
+        // 与入库同口径（决策 #59）：直接写库时也要给业务时间，否则落成写入时刻
+        businessTime: businessTime(timestamp, receivedAt),
         schemaVersion: 1,
         firmwareVersion: '0.1.0-audit',
         payload: payload as Prisma.InputJsonValue,
