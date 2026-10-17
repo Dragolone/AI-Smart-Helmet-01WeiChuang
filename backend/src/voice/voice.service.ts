@@ -14,6 +14,7 @@ import type {
 import { envPositiveInt } from '../common/env';
 import { isUniqueViolation } from '../common/prisma-errors';
 import { Prisma } from '../generated/prisma/client';
+import { lockLiveUser } from '../common/live-user';
 import { PrismaService } from '../prisma/prisma.service';
 import { maskPhone } from '../providers/sms.provider';
 import { generateInviteCode, normalizeInviteCode } from './invite-code';
@@ -53,15 +54,20 @@ export class VoiceService {
   async create(userId: string, name: string): Promise<WireChannel> {
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
-        const channel = await this.prisma.voiceChannel.create({
-          data: {
-            name,
-            ownerId: userId,
-            roomId: randomRoomId(),
-            inviteCode: generateInviteCode(),
-            members: { create: { userId } },
-          },
-          include: { _count: { select: { members: true } } },
+        const channel = await this.prisma.$transaction(async (tx) => {
+          const created = await tx.voiceChannel.create({
+            data: {
+              name,
+              ownerId: userId,
+              roomId: randomRoomId(),
+              inviteCode: generateInviteCode(),
+              members: { create: { userId } },
+            },
+            include: { _count: { select: { members: true } } },
+          });
+          // 提交前确认账号还在：否则注销退出全部频道之后，这个频道连同成员身份才写进去
+          await lockLiveUser(tx, userId);
+          return created;
         });
         return this.toWire(channel);
       } catch (err) {
@@ -101,6 +107,8 @@ export class VoiceService {
     // 事务级咨询锁按频道串行化「计数 → 加入」：并发加入不会突破成员上限（TRTC 房间超员）
     await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`voice:${channel.id}`}))`;
+      // 注销同时在进行时，不能让已注销账号成为幽灵成员占名额（审计 VOICE-02 同症状）
+      await lockLiveUser(tx, userId);
       // 锁内再查一次成员身份：同一人并发加入时，先到者已入座，后到者必须幂等返回而不是撞名额 409（审计 VOICE-01）
       const alreadyMember = await tx.voiceChannelMember.findUnique({
         where: { channelId_userId: { channelId: channel.id, userId } },

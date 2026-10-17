@@ -560,13 +560,13 @@ describe('审计 §6：账号全流程 / 验证码 / refresh / 撤销规则 (e2e
       extraUsers.push({ id: reg.body.user.id as string, phone: oldPhone });
 
       // 竞态注入：change-phone 与 register 同一新号——两者各自持独立用途的验证码，都能通过前置查重，
-      // 后写者撞 users.phone 唯一约束。用 spyOn 让 user.update 前先由"另一个注册"占号，模拟窗口。
+      // 后写者撞 users.phone 唯一约束。用 spyOn 让改号的条件更新（updateMany）前先由"另一个注册"占号，模拟窗口。
       const racePhone = randomPhone();
       phones.push(racePhone);
       const changeCode = await issueCode(app, http, racePhone, 'change_phone');
-      const originalUpdate = prisma.user.update.bind(prisma.user);
+      const originalUpdate = prisma.user.updateMany.bind(prisma.user);
       const spy = jest
-        .spyOn(prisma.user, 'update')
+        .spyOn(prisma.user, 'updateMany')
         .mockImplementationOnce((async (args: unknown) => {
           const created = await prisma.user.create({
             data: { phone: racePhone, passwordHash: 'x' },

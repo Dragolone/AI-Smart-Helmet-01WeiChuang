@@ -6,7 +6,13 @@ import { UsersController } from './users.controller';
 import type { UsersService } from './users.service';
 
 describe('UsersController', () => {
-  const prisma = { user: { findUnique: jest.fn(), update: jest.fn() } };
+  const prisma = {
+    user: {
+      findUnique: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
+      updateMany: jest.fn(),
+    },
+  };
   const users = { deleteAccount: jest.fn() };
   const ctl = new UsersController(
     prisma as unknown as PrismaService,
@@ -63,15 +69,30 @@ describe('UsersController', () => {
     await expect(ctl.me(req)).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('PATCH /me：只改传了的字段；都不传就是空更新', async () => {
+  it('PATCH /me：只改传了的字段；都不传就是空更新；只改未注销的账号', async () => {
+    prisma.user.updateMany.mockResolvedValue({ count: 1 });
     await ctl.updateMe(req, { nickname: '新昵称' });
     await ctl.updateMe(req, { avatarUrl: 'https://x/a.png' });
     await ctl.updateMe(req, {});
-    expect(
-      prisma.user.update.mock.calls.map(
-        (c) => (c as [{ data: object }])[0].data,
-      ),
-    ).toEqual([{ nickname: '新昵称' }, { avatarUrl: 'https://x/a.png' }, {}]);
+    const calls = prisma.user.updateMany.mock.calls.map(
+      (c) => (c as [{ where: object; data: object }])[0],
+    );
+    expect(calls.map((c) => c.data)).toEqual([
+      { nickname: '新昵称' },
+      { avatarUrl: 'https://x/a.png' },
+      {},
+    ]);
+    for (const c of calls)
+      expect(c.where).toEqual({ id: 'u1', deletedAt: null });
+  });
+
+  it('PATCH /me：守卫之后账号被注销（改 0 行）→ 401，不回读', async () => {
+    prisma.user.updateMany.mockResolvedValue({ count: 0 });
+    await expect(ctl.updateMe(req, { nickname: 'x' })).rejects.toMatchObject({
+      status: 401,
+      response: { code: 'UNAUTHORIZED', message: '账号已注销' },
+    });
+    expect(prisma.user.findUniqueOrThrow).not.toHaveBeenCalled();
   });
 
   it('DELETE /me：交给服务层（带当前密码）', async () => {

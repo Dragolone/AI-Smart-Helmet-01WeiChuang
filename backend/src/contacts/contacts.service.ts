@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import type { EmergencyContact as WireContact } from '@helmet/shared';
 import type { EmergencyContact, Prisma } from '../generated/prisma/client';
+import { lockLiveUser } from '../common/live-user';
 import { PrismaService } from '../prisma/prisma.service';
 
 type DbClient = PrismaService | Prisma.TransactionClient;
@@ -37,6 +38,8 @@ export class ContactsService {
     // 事务级咨询锁按用户串行化「计数 → 创建」：并发创建不会突破名额（先查后写的经典竞态）
     const created = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`contacts:${userId}`}))`;
+      // 注销同时在进行时，不能给已注销账号留下一个第三方的姓名和手机号
+      await lockLiveUser(tx, userId);
       const active = await tx.emergencyContact.count({
         where: { userId, deletedAt: null },
       });

@@ -20,6 +20,7 @@ import { Transform } from 'class-transformer';
 import { MAX_PASSWORD_BYTES, MaxBytes } from '../auth/auth.dto';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
 import { cleanNameOrNull } from '../common/display-name';
+import { accountDeleted } from '../common/live-user';
 import { PASSWORD_CHECK_LIMITS, RateLimit } from '../common/rate-limit.guard';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from './users.service';
@@ -105,13 +106,19 @@ export class UsersController {
   }
 
   @Patch('me')
-  updateMe(@Req() req: AuthenticatedRequest, @Body() dto: UpdateMeDto) {
-    return this.prisma.user.update({
-      where: { id: req.user.userId },
+  async updateMe(@Req() req: AuthenticatedRequest, @Body() dto: UpdateMeDto) {
+    const userId = req.user.userId;
+    // 条件更新：注销在守卫之后提交时这里改 0 行——否则注销清掉的头像 / 昵称又被写回已注销账号
+    const { count } = await this.prisma.user.updateMany({
+      where: { id: userId, deletedAt: null },
       data: {
         ...(dto.nickname !== undefined && { nickname: dto.nickname }),
         ...(dto.avatarUrl !== undefined && { avatarUrl: dto.avatarUrl }),
       },
+    });
+    if (count === 0) throw accountDeleted();
+    return this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
       select: SAFE_USER_SELECT,
     });
   }
