@@ -36,6 +36,15 @@ describe("数字是 1 时英文读得通", () => {
     expect(en("intercom.memberTotal", { n: 12 })).toBe("Members: 12");
   });
 
+  it("行程分组的趟数同样用标签写法：「Rides: 1 · …」，不写成「Rides 1」（10-15 / 10-17 华为英文界面）", () => {
+    expect(en("map.rides.daySum", { n: 1, km: 238.6 })).toBe(
+      "Rides: 1 · 238.6 km",
+    );
+    expect(translate("map.rides.daySum", { n: 1, km: 238.6 }, "zh-CN")).toBe(
+      "1 趟 · 238.6 km",
+    );
+  });
+
   it("中文写法不变", () => {
     expect(translate("profile.devicesCount", { n: 1 }, "zh-CN")).toBe(
       "1 台设备",

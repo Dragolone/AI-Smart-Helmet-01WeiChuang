@@ -614,6 +614,38 @@ describe("常用控制：音量乐观值只认自己那条命令", () => {
     expect(settings.send).not.toHaveBeenCalled();
   });
 
+  it("头盔没报过音量、从显示的默认 80 往上拖过线又取消：拖动中不把 80 发出去，什么都不下发（10-17 模拟器实测曾下发 80）", async () => {
+    jest.useFakeTimers();
+    settings.values = {};
+    const r = mount();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10);
+    });
+    const [pan] = volumeGesture(r);
+    const hit = r.root.find(
+      (n) =>
+        typeof n.type === "string" &&
+        typeof n.props.onLayout === "function" &&
+        n.props.style?.height === 40,
+    );
+    act(() => hit.props.onLayout({ nativeEvent: { layout: { width: 100 } } }));
+    act(() => pan.handlers.onStart({ x: 80 }));
+    act(() => pan.handlers.onUpdate({ x: 90 }));
+    act(() => pan.handlers.onUpdate({ x: 100 }));
+    act(() => {
+      jest.advanceTimersByTime(400);
+    });
+    expect(devicesApi.putSettings).not.toHaveBeenCalled();
+    act(() => pan.handlers.onFinalize({}, true));
+    const buttons = alert.mock.calls[0][2] as { onPress?: () => void }[];
+    act(() => buttons[0].onPress!());
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1000);
+    });
+    expect(devicesApi.putSettings).not.toHaveBeenCalled();
+    expect(settings.send).not.toHaveBeenCalled();
+  });
+
   it("拖到一半被系统打断：返回手势恢复，还没发出去的中间值不再发，也不交出松手值", async () => {
     jest.useFakeTimers();
     const r = mount();

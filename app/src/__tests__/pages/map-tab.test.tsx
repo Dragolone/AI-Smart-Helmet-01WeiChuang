@@ -488,6 +488,12 @@ describe("多顶头盔", () => {
     const r = await mount();
     await waitFor(() => expect(r.allText()).toContain(tr("map.pill.switch")));
     expect(r.allText()).toContain(tr("map.pill.current"));
+    // 名字放不下时截中间：默认名都是「helmet_」开头，后几位才分得出是哪一顶（10-17 英文下截成「helme…」）
+    const pillName = r.root.findAll(
+      (n) => n.props.ellipsizeMode === "middle",
+    )[0];
+    expect(pillName.props.numberOfLines).toBe(1);
+    expect(pillName.props.children).toBe("通勤");
     act(() => {
       r.root
         .find(
@@ -536,6 +542,14 @@ describe("行程", () => {
     });
     expect(r.allText()).toContain(tr("map.ride.duration"));
     expect(r.allText()).toContain(tr("map.ride.max"));
+    // 标题最多两行：英文「Yesterday 01:00 – 00:59 next day」一行放不下（10-15 iPhone 截成「…ne…」）
+    expect(
+      r.root.findAll(
+        (n) =>
+          n.props.accessibilityRole === "header" &&
+          n.props.numberOfLines === 2,
+      ).length,
+    ).toBeGreaterThan(0);
     expect(mockMap.setTrack).toHaveBeenLastCalledWith(
       expect.any(Array),
       expect.objectContaining({ pad: expect.any(Array) }),

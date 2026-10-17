@@ -242,7 +242,9 @@ export default function DeviceDetailScreen() {
     // 拖动时关掉 iOS 返回手势，免得向右滑把页面滑走
     navigation.setOptions({ gestureEnabled: !dragging });
     if (dragging) {
-      liveSent.current = null;
+      // 从滑杆此刻显示的值算起：中间值封顶在高音量线上，起点本来就在线上时（头盔没报过音量、显示出厂默认 80 也算）
+      // 往上拖不再把同一个值发一遍——没报过音量的头盔会被写成 80，取消高音量确认也撤不回（10-17 模拟器实测）
+      liveSent.current = optimisticVolume ?? confirmedVolume ?? VOLUME_DEFAULT;
       // 头盔没确认过音量时不知道拖动前是多少：记 null，取消高音量确认时不拿出厂默认去「还原」
       dragStart.current = optimisticVolume ?? confirmedVolume;
       return;

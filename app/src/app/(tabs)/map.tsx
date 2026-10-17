@@ -1037,7 +1037,13 @@ export default function MapScreen() {
   const devicePillBody = (
     <>
       <View style={[styles.liveDot, { backgroundColor: dotColor }]} />
-      <ThemedText type="smallBold" numberOfLines={1} style={styles.pillName}>
+      {/* 放不下时截中间：默认名都是「helmet_」开头，区分得出是哪一顶的是后几位（10-17 英文下截成「helme…」） */}
+      <ThemedText
+        type="smallBold"
+        numberOfLines={1}
+        ellipsizeMode="middle"
+        style={styles.pillName}
+      >
         {device ? helmetNameOf(device) : ""}
       </ThemedText>
       {canPick && (
@@ -1480,9 +1486,11 @@ export default function MapScreen() {
                                 {t("map.rides.title")}
                               </ThemedText>
                             </Tappable>
+                            {/* 最多两行：英文的「Yesterday 01:00 – 00:59 next day」一行放不下，原来截成「…ne…」
+                                （10-15 iPhone）；两行仍在 44 高的头部里 */}
                             <ThemedText
                               type="smallBold"
-                              numberOfLines={1}
+                              numberOfLines={2}
                               accessibilityRole="header"
                               style={styles.rideTitle}
                             >

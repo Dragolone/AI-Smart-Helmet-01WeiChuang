@@ -235,7 +235,7 @@ export const map = {
     "map.sheet.expand": "Expand panel",
     "map.sheet.collapse": "Collapse panel",
     "map.pill.current": "Current",
-    "map.pill.switch": "Switch helmet",
+    "map.pill.switch": "Switch",
     "map.pill.a11y": "Switch the helmet shown on the map, currently {name}",
     "map.picker.title": "Choose helmet to view",
     "map.picker.lead":
@@ -244,7 +244,7 @@ export const map = {
     "map.picker.battery": "Battery {n}%",
     "map.rides.title": "Rides",
     "map.rides.close": "Close rides and return to location view",
-    "map.rides.daySum": "Rides {n} · {km} km",
+    "map.rides.daySum": "Rides: {n} · {km} km",
     "map.rides.now": "now",
     "map.rides.nextDay": "{time} next day",
     "map.rides.live": "In progress · {dur} so far",

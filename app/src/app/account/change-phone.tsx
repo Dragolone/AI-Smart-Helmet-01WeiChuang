@@ -3,17 +3,12 @@
 import { useState } from "react";
 import { router } from "expo-router";
 import * as SecureStore from "expo-secure-store";
-import {
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  View,
-} from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
 
 import { authApi, maskPhone } from "@/api/auth";
 import { changePhoneErrorMessage } from "@/api/error-messages";
 import { FormError, FormInput, PrimaryButton } from "@/components/form";
+import { KeyboardAvoid } from "@/components/keyboard-avoid";
 import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
@@ -109,10 +104,7 @@ export default function ChangePhoneScreen() {
 
   return (
     <ThemedView style={styles.flex}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
+      <KeyboardAvoid>
         <ScrollView
           contentContainerStyle={styles.container}
           keyboardShouldPersistTaps="handled"
@@ -218,7 +210,7 @@ export default function ChangePhoneScreen() {
             }}
           />
         </View>
-      </KeyboardAvoidingView>
+      </KeyboardAvoid>
     </ThemedView>
   );
 }

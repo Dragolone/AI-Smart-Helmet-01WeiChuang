@@ -3,18 +3,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as SecureStore from "expo-secure-store";
 import { useState } from "react";
-import {
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  View,
-} from "react-native";
+import { Alert, ScrollView, StyleSheet, View } from "react-native";
 
 import { authApi } from "@/api/auth";
 import { toUserMessage } from "@/api/error-messages";
 import { FormError, FormInput, PrimaryButton } from "@/components/form";
+import { KeyboardAvoid } from "@/components/keyboard-avoid";
 import { Card } from "@/components/list";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
@@ -101,10 +95,7 @@ export default function DeleteAccountScreen() {
 
   return (
     <ThemedView style={styles.flex}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
+      <KeyboardAvoid>
         <ScrollView
           contentContainerStyle={styles.container}
           keyboardShouldPersistTaps="handled"
@@ -154,7 +145,7 @@ export default function DeleteAccountScreen() {
             loading={busy}
           />
         </View>
-      </KeyboardAvoidingView>
+      </KeyboardAvoid>
     </ThemedView>
   );
 }
