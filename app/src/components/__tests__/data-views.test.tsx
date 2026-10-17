@@ -568,6 +568,13 @@ describe("HelmetPicker", () => {
     expect(r.texts()).toContain("h2");
     // 没起名字的：名字就是编号，第二行不再把编号重复一遍（10-17 模拟器）
     expect(r.texts().filter((x) => x === "h2")).toHaveLength(1);
+    // 名字截中间：旁边有「当前头盔」标签时放不下，编号后几位得留住（10-17 华为英文下截成「helmet_…」）
+    const names = r.root.findAll(
+      (n) => n.props.ellipsizeMode === "middle" && n.props.numberOfLines === 1,
+    );
+    expect(names.map((n) => n.props.children)).toEqual(
+      expect.arrayContaining(["通勤", "h2"]),
+    );
     const rows = r.root.findAll(
       (n) =>
         n.type === Tappable &&
