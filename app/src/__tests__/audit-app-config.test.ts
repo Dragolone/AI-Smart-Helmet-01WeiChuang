@@ -157,6 +157,12 @@ describe("app.json 实时视频预览（决策 #37 / #49，DEVICE_PROTOCOL §1.3
     ).toBe(true);
   });
 
+  it("iOS 声明支持的三种语言：不声明时系统把 App 当成只有英文，Intl 跟着解析成英文，没设过语言的人默认英文界面（10-17 F12）", () => {
+    expect(expo.ios?.infoPlist?.CFBundleLocalizations).toEqual(
+      expect.arrayContaining(["zh-Hans", "zh-Hant", "en"]),
+    );
+  });
+
   it("iOS 本地网络与存截图都有中文用途说明（缺了连头盔会被系统静默拒绝）", () => {
     expectPurposeString(
       "NSLocalNetworkUsageDescription",
