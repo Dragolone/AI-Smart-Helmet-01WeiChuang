@@ -685,6 +685,9 @@ describe("已取消后「我还是需要帮助」", () => {
     expect(title).toBe(tr("safety.sosSendFailed"));
     expect(body).toContain(tr("safety.sosNotSent"));
     expect(body).not.toContain(tr("safety.sosQueued"));
+    // 第一行说「这顶头盔已不在你的账号下」，不是给手动绑定看的「请核对设备编号」（10-18 模拟器）
+    expect(body).toContain(tr("safety.sosHelmetGone"));
+    expect(body).not.toContain(tr("error.deviceNotFound"));
   });
 
   it("之后的新单到了（中转成功后核对写进缓存）：这张页自己切回倒计时，不另开一页；同一顶头盔的旧单被顶掉，结束后仍是单条结果页（10-16 N10）", async () => {

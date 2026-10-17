@@ -75,6 +75,7 @@ export const safety = {
     "safety.sosQueued": "求救请求已暂存，网络恢复后将自动发送。",
     "safety.sosNotSent":
       "求救没有发出，也不会自动重发。需要帮助请直接拨打电话。",
+    "safety.sosHelmetGone": "这顶头盔已不在你的账号下。",
     "safety.manualSos": "手动求救",
     "safety.status.pending": "进行中",
     "safety.status.notified": "通知已启动",
@@ -208,6 +209,7 @@ export const safety = {
     "safety.sosQueued": "求救請求已暫存，網路恢復後將自動傳送。",
     "safety.sosNotSent":
       "求救沒有送出，也不會自動重發。需要協助請直接撥打電話。",
+    "safety.sosHelmetGone": "這頂安全帽已不在你的帳號下。",
     "safety.manualSos": "手動求救",
     "safety.status.pending": "進行中",
     "safety.status.notified": "通知已啟動",
@@ -350,6 +352,7 @@ export const safety = {
       "SOS request saved. It will be sent automatically when the connection returns.",
     "safety.sosNotSent":
       "Your SOS was not sent and won't be retried. If you need help, call directly.",
+    "safety.sosHelmetGone": "This helmet is no longer on your account.",
     "safety.manualSos": "Manual SOS",
     "safety.status.pending": "Active",
     "safety.status.notified": "Alerts started",
