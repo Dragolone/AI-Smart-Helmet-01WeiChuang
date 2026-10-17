@@ -102,6 +102,32 @@ const canonicalJson = (v: unknown): string =>
 /** 冲突事件另存用的 eventId 分隔符（原 eventId 不含它时才另存，避免无限递归） */
 const COLLISION_SEPARATOR = '~';
 
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/**
+ * 两份载荷是否同一次事件的两次上报：按入库后的形态比（JSON 往返——`-0.0` 进 jsonb 读回是 0，
+ * 原文直比会把 MQTT 重投当成撞号），相等，或一份是另一份的子集且共有字段取值都相同。
+ * 子集：头盔第一次发的帧被截短（MTU 没协商上去），App 只填解得出的字段照样上云；1.5 s 重发或重连补传
+ * 的是完整帧，多出 impactG / location 等（DEVICE_PROTOCOL §1.2）。它们是同一次摔倒 / 求救——原来按「撞号」
+ * 另存后照常分发，手动求救的重传把本人的 60 秒取消窗口跳过、直接通知联系人，摔倒取消后又起一单（10-17 第二轮评审）。
+ * 共有字段只要有一个值不同就是另一件事（序号回退撞号），照旧另存。
+ */
+export function sameEventPayload(stored: unknown, incoming: unknown): boolean {
+  return compatible(stored, JSON.parse(JSON.stringify(incoming ?? null)));
+}
+
+function compatible(a: unknown, b: unknown): boolean {
+  if (isPlainObject(a) && isPlainObject(b)) {
+    const [small, big] =
+      Object.keys(a).length <= Object.keys(b).length ? [a, b] : [b, a];
+    return Object.keys(small).every(
+      (k) => Object.hasOwn(big, k) && compatible(small[k], big[k]),
+    );
+  }
+  return isDeepStrictEqual(a, b);
+}
+
 @Injectable()
 export class IngestService {
   private readonly logger = new Logger(IngestService.name);
@@ -312,7 +338,8 @@ export class IngestService {
   }
 
   /**
-   * (deviceId, eventId) 已存在。类型与 payload 都和库里那条相同 → 重传（App 重发、MQTT 重投、Webhook 重试），按重复跳过；
+   * (deviceId, eventId) 已存在。类型相同、payload 是同一次事件（见 sameEventPayload）→ 重传（App 重发、MQTT 重投、
+   * Webhook 重试、截短帧补全），按重复跳过；
    * 否则是另一件事撞了号：头盔恢复出厂 / 掉电后 Event_Seq 回退（DEVICE_PROTOCOL §10 第 20 条），或头盔转手后前主人
    * 用可推算的 UUIDv5(deviceId:seq) 预先占号——原来一律当重复，新主人的摔倒不建单、对账也补不回来（10-17 评审 R4-1）。
    * 不比时间戳：没校时的头盔重传时 App 填的是收到时刻，几小时后同一事件重传时间会不同，比了反而重复建单。
@@ -330,7 +357,7 @@ export class IngestService {
     if (
       !prior ||
       (prior.eventType === e.eventType &&
-        isDeepStrictEqual(prior.payload, e.payload))
+        sameEventPayload(prior.payload, e.payload))
     ) {
       this.logger.debug(`重复 eventId 已跳过：${e.eventId}`);
       return null;
