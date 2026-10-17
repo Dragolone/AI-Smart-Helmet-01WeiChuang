@@ -294,7 +294,25 @@ describe("sos-alert", () => {
       const m = load();
       await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
       await m.clearSosAlert("other");
-      expect(mockCancelScheduled).not.toHaveBeenCalled();
+      const touched = [
+        ...mockCancelScheduled.mock.calls,
+        ...mockDismiss.mock.calls,
+      ].map((c) => c[0]);
+      expect(touched).not.toContain("sos-s1");
+      expect(touched).not.toContain("sos-s1-10");
+    });
+
+    it("表里没有这单（进程被杀后点通知按钮取消，冷启动的进程表是空的）：也按固定编号撤首条和预排的刷新（10-17 夜模拟器）", async () => {
+      const m = load();
+      await m.clearSosAlert("s9");
+      expect(mockCancelScheduled.mock.calls.map((c) => c[0])).toEqual([
+        "sos-s9",
+        "sos-s9-10",
+      ]);
+      expect(mockDismiss.mock.calls.map((c) => c[0])).toEqual([
+        "sos-s9",
+        "sos-s9-10",
+      ]);
     });
 
     it("撤销接口抛错也不影响（通知可能已被划掉）", async () => {

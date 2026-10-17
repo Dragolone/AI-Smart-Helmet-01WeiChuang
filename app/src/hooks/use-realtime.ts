@@ -388,9 +388,15 @@ export function useRealtimeUpdates(): void {
       setPushArrivalHandler(null);
       setCriticalAcceptedHandler(null);
       setSosCancelConfirmedListener(null);
-      void resetSosAlerts();
       presentedSos.current.clear();
-      stopPush();
+      // 推送别名和求救锁屏提醒只在真的退出登录时才拆。界面被拆而人还登录着时不能动：安卓从多任务划掉 App，
+      // 进程被极光的服务撑着还活着，React 树却卸载了、走到这里。原来一律按登出处理，划掉后极光别名被删、
+      // 锁屏上的倒计时通知连同「我没事，取消」一起被撤，下次打开 App 之前这台手机收不到任何求救提醒
+      //（10-17 夜模拟器实测：划掉后来单，10 秒内什么都没有）
+      if (useAuthStore.getState().tokens === null) {
+        void resetSosAlerts();
+        stopPush();
+      }
     };
   }, [authed, queryClient]);
 }
