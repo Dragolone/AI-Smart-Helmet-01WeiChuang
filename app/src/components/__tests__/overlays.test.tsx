@@ -90,7 +90,8 @@ jest.mock("expo-router", () =>
     .expoRouterMock(),
 );
 jest.mock("expo-router/unstable-native-tabs", () => {
-  const { createElement } = jest.requireActual<typeof import("react")>("react");
+  const { createElement, useEffect } =
+    jest.requireActual<typeof import("react")>("react");
   const host =
     (name: string) =>
     ({ children, ...props }: { children?: unknown }) =>
@@ -99,7 +100,15 @@ jest.mock("expo-router/unstable-native-tabs", () => {
     Label: host("TriggerLabel"),
     Icon: host("TriggerIcon"),
   });
-  return { NativeTabs: Object.assign(host("NativeTabs"), { Trigger }) };
+  // 记挂载次数：切语言时标签栏要不要整个重建（key 变了 = 卸掉重挂）
+  const mounts = { n: 0 };
+  const Tabs = ({ children, ...props }: { children?: unknown }) => {
+    useEffect(() => {
+      mounts.n += 1;
+    }, []);
+    return createElement("NativeTabs", props, children as never);
+  };
+  return { NativeTabs: Object.assign(Tabs, { Trigger, mounts }) };
 });
 jest.mock("expo-haptics", () => ({
   impactAsync: jest.fn(() => Promise.resolve()),
@@ -752,5 +761,87 @@ describe("AppTabs", () => {
     expect(r.root.find((n) => isHost(n, "NativeTabs")).props.tintColor).toBe(
       Colors.light.brand,
     );
+  });
+
+  const tabsMounts = () =>
+    (
+      jest.requireMock("expo-router/unstable-native-tabs") as {
+        NativeTabs: { mounts: { n: number } };
+      }
+    ).NativeTabs.mounts.n;
+  const labelsOf = (r: ReturnType<typeof render>) =>
+    r.root
+      .findAll((n) => isHost(n, "TriggerLabel"))
+      .map((n) => n.props.children);
+
+  it("iOS 切换语言：标签栏整个重建（原生标签项的读屏标签只在创建时取一次，10-16 iPhone），重建完回到原来那一页", () => {
+    jest.useFakeTimers();
+    routerState.pathname = "/profile";
+    const r = render(<AppTabs />);
+    const before = tabsMounts();
+    act(() => useLocaleStore.setState({ locale: "en" }));
+    expect(tabsMounts()).toBe(before + 1);
+    expect(labelsOf(r)[0]).toBe(translate("tab.devices", undefined, "en"));
+    act(() => {
+      jest.advanceTimersByTime(0);
+    });
+    expect(mockRouter.navigate).toHaveBeenCalledWith("/profile");
+    // 主题变了不重建
+    act(() => useThemeStore.setState({ mode: "light" }));
+    expect(tabsMounts()).toBe(before + 1);
+  });
+
+  it("在对讲房间里切语言：先不重建（重建会卸掉对讲页、通话就断了），出了房间再换", () => {
+    jest.useFakeTimers();
+    routerState.pathname = "/intercom";
+    act(() =>
+      useIntercomStore.getState().setSession({
+        channelId: "c1",
+        channelName: "emutest",
+        micOpen: false,
+        reconnecting: false,
+      }),
+    );
+    const r = render(<AppTabs />);
+    const before = tabsMounts();
+    act(() => useLocaleStore.setState({ locale: "en" }));
+    expect(tabsMounts()).toBe(before);
+    // 文字照样换（只是读屏标签要等重建）
+    expect(labelsOf(r)[0]).toBe(translate("tab.devices", undefined, "en"));
+    act(() => useIntercomStore.getState().setSession(null));
+    expect(tabsMounts()).toBe(before + 1);
+  });
+
+  it("首页切语言（已经在第一页）：重建后不用再跳；安卓不重建（只 iOS 有读屏标签不更新的问题）", () => {
+    jest.useFakeTimers();
+    routerState.pathname = "/";
+    const r1 = render(<AppTabs />);
+    const before = tabsMounts();
+    act(() => useLocaleStore.setState({ locale: "en" }));
+    expect(tabsMounts()).toBe(before + 1);
+    act(() => {
+      jest.advanceTimersByTime(0);
+    });
+    expect(mockRouter.navigate).not.toHaveBeenCalled();
+    r1.unmount();
+    const original = Platform.OS;
+    Object.defineProperty(Platform, "OS", {
+      value: "android",
+      configurable: true,
+    });
+    try {
+      const r2 = render(<AppTabs />);
+      const mid = tabsMounts();
+      act(() => useLocaleStore.setState({ locale: "zh-TW" }));
+      expect(tabsMounts()).toBe(mid);
+      expect(labelsOf(r2)[0]).toBe(
+        translate("tab.devices", undefined, "zh-TW"),
+      );
+    } finally {
+      Object.defineProperty(Platform, "OS", {
+        value: original,
+        configurable: true,
+      });
+    }
   });
 });
