@@ -67,6 +67,11 @@ import {
   resumePendingSos,
   type SosSyncDeps,
 } from "@/services/sos-sync";
+import {
+  attachBridgeUi,
+  bridgeUi,
+  orphanBridge,
+} from "@/services/bridge-lifecycle";
 import { useAuthStore } from "@/stores/auth-store";
 import { useCurrentHelmetStore } from "@/stores/current-helmet-store";
 
@@ -100,6 +105,9 @@ export function useRealtimeUpdates(): void {
     devLog("realtime", "effect authed=", authed);
     if (!authed) return;
     const generation = ++bridgeGeneration;
+    // 上一个界面被拆时留下的订阅先拆掉（下面重挂），连接接着用；它拉起过的倒计时页已经不在了，
+    // 「拉起过」的登记清掉，下面的补拉才会把进行中的单再弹出来
+    if (attachBridgeUi()) presentedSos.current.clear();
 
     realtimeClient.start({
       getAccessToken: () => useAuthStore.getState().tokens?.accessToken ?? null,
@@ -178,8 +186,9 @@ export function useRealtimeUpdates(): void {
       // 全仓只有这里用 push：两顶头盔同时有进行中的单时要各开各的倒计时页（同一单只开一次由 presentedSos 管）。
       // 别处点了开页面一律用 navigate——同一页已经在最上面时不再叠一页（连点两下不会开出两页）
       openCountdown: (sosId, deviceId) => {
-        // 倒计时页已在屏上：这单只进队列，页面顶部多一个胶囊并提示一句，不再叠一页（10-16 N10）
-        if (sosScreen.mounted) return;
+        // 倒计时页已在屏上：这单只进队列，页面顶部多一个胶囊并提示一句，不再叠一页（10-16 N10）。
+        // 界面被拆了（划掉 App、仍登录）：导航器没挂着，跳页会抛错、连带锁屏提醒弹不出来；界面回来时补拉再拉起
+        if (sosScreen.mounted || !bridgeUi.attached) return;
         router.push(sosActiveHref(sosId, deviceId));
       },
       showLockScreenAlert: (sosId, deviceId, deadline, triggeredAt) =>
@@ -367,7 +376,8 @@ export function useRealtimeUpdates(): void {
       alertPendingOnBackground(queryClient, state, bleTargetsOf(), sosDeps);
     });
 
-    return () => {
+    // 这一次挂上的订阅
+    const detach = () => {
       cancelled = true;
       devicesLoad.cancel();
       unsubscribe();
@@ -375,11 +385,9 @@ export function useRealtimeUpdates(): void {
       unsubscribeUser();
       appState.remove();
       unsubscribeCache();
-      // 以下是全 App 共用的：已有更新的一次接管（界面重建）就留给它，不拆
-      if (generation !== bridgeGeneration) {
-        devLog("realtime", "界面重建：新界面已接管，旧界面不拆共享连接");
-        return;
-      }
+    };
+    // 全 App 共用的连接与状态，只在真的退出登录时才拆
+    const stopShared = () => {
       realtimeClient.stop();
       stopRelayUplink();
       stopBleLink();
@@ -389,14 +397,33 @@ export function useRealtimeUpdates(): void {
       setCriticalAcceptedHandler(null);
       setSosCancelConfirmedListener(null);
       presentedSos.current.clear();
-      // 推送别名和求救锁屏提醒只在真的退出登录时才拆。界面被拆而人还登录着时不能动：安卓从多任务划掉 App，
-      // 进程被极光的服务撑着还活着，React 树却卸载了、走到这里。原来一律按登出处理，划掉后极光别名被删、
-      // 锁屏上的倒计时通知连同「我没事，取消」一起被撤，下次打开 App 之前这台手机收不到任何求救提醒
-      //（10-17 夜模拟器实测：划掉后来单，10 秒内什么都没有）
-      if (useAuthStore.getState().tokens === null) {
-        void resetSosAlerts();
-        stopPush();
+      void resetSosAlerts();
+      stopPush();
+    };
+    return () => {
+      // 已有更新的一次接管（界面重建）：只拆自己的订阅，共享连接留给它
+      if (generation !== bridgeGeneration) {
+        detach();
+        devLog("realtime", "界面重建：新界面已接管，旧界面不拆共享连接");
+        return;
       }
+      // 界面被拆而人还登录着（安卓从多任务划掉 App，进程被极光的服务撑着）：订阅和连接都留着，划掉后来单照样
+      // 弹锁屏提醒、头盔事件照样中转（负责人 10-18 定）。原来一律按登出处理，划掉后什么提醒都没有（10-18 模拟器实测）。
+      // 下次界面起来时接手；这期间退出登录（会话过期）就全部拆掉
+      if (useAuthStore.getState().tokens !== null) {
+        devLog(
+          "realtime",
+          "界面被拆、仍登录：连接和订阅都留着，等界面回来接手",
+        );
+        orphanBridge({ detach, stopShared }, (onLogout) =>
+          useAuthStore.subscribe((st) => {
+            if (st.tokens === null) onLogout();
+          }),
+        );
+        return;
+      }
+      detach();
+      stopShared();
     };
   }, [authed, queryClient]);
 }
