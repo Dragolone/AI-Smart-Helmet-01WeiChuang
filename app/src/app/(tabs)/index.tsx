@@ -604,7 +604,10 @@ function OtherRow({
             accessible
             accessibilityLabel={
               device.charging
-                ? `${t("devices.charging")} ${battery ?? "—"}%`
+                ? // 电量没上报（越界值被后端丢掉、充电状态照留）时只读「充电中」：原来读成「充电中 —%」（10-19 夜测）
+                  battery !== null
+                  ? `${t("devices.charging")} ${battery}%`
+                  : t("devices.charging")
                 : undefined
             }
           >

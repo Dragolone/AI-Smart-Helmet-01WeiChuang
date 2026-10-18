@@ -677,7 +677,7 @@ describe("大图与其他设备的颜色、电量", () => {
     ).toHaveLength(1);
   });
 
-  it("疑似缺陷：充电中但电量没上报时，读屏读成「充电中 —%」（多了个 %，屏幕上只写「—」）", async () => {
+  it("充电中但电量没上报时，读屏只读「充电中」（不读成「充电中 —%」，与屏幕上的闪电 + 「—」一致）", async () => {
     mockSafety.links = { h1: "connected", h2: "connected" };
     m(devicesApi.list).mockImplementation(() =>
       Promise.resolve([
@@ -698,7 +698,7 @@ describe("大图与其他设备的颜色、电量", () => {
           ),
       )
       .map((n) => n.props.accessibilityLabel);
-    expect(labels).toEqual([`${tr("devices.charging")} —%`]);
+    expect(labels).toEqual([tr("devices.charging")]);
   });
 
   it("大图的光晕：上方留白够时铺到大图边长的 1.05 倍；不够时缩到刚好碰到滚动区上沿（不被齐齐裁出一条边）", async () => {
