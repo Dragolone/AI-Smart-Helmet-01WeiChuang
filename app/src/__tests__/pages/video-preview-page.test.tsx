@@ -302,6 +302,79 @@ describe("连头盔热点", () => {
     await join();
     expect(mockWifi.release).toHaveBeenCalled();
   });
+
+  it("连热点途中离开、很快又回来：第二次连接已经在用热点，第一次迟到的结果不去还热点", async () => {
+    const el = () => (
+      <>
+        <VideoPreviewScreen />
+        <ToastHost />
+      </>
+    );
+    const r = mount();
+    const first = resolveJoin;
+    routerState.focused = false;
+    r.rerender(el());
+    routerState.focused = true;
+    r.rerender(el());
+    expect(mockWifi.connect).toHaveBeenCalledTimes(2);
+    mockWifi.release.mockClear();
+    await act(async () => {
+      first();
+      await Promise.resolve();
+    });
+    expect(mockWifi.release).not.toHaveBeenCalled();
+    await join();
+    expect(player(r)).toBeTruthy();
+  });
+
+  it("连热点途中离开页面后才报失败：页面已经暂停，不再显示失败", async () => {
+    const r = mount();
+    routerState.focused = false;
+    r.rerender(
+      <>
+        <VideoPreviewScreen />
+        <ToastHost />
+      </>,
+    );
+    await act(async () => {
+      rejectJoin({ code: "USER_DENIED" });
+      await Promise.resolve();
+    });
+    expect(r.allText()).not.toContain(tr("video.err.denied"));
+    expect(r.allText()).not.toContain(tr("video.retry"));
+  });
+
+  it("开发包的测试参数：?ssid=&pass= 换成别的热点、wpa3=1 按 WPA3 请求、?url=rtsp:// 换测试流；只给 ssid 按空密码连；不是 rtsp:// 的地址不认", async () => {
+    routerState.params = {
+      ssid: "测试热点",
+      pass: "pw123456",
+      wpa3: "1",
+      url: "rtsp://10.0.0.2:8554/ch0",
+    };
+    let r = mount();
+    expect(r.allText()).toContain(tr("video.joining", { ssid: "测试热点" }));
+    expect(mockWifi.connect).toHaveBeenLastCalledWith(
+      "测试热点",
+      "pw123456",
+      30_000,
+      { wpa3: true },
+    );
+    await join();
+    expect((player(r).props.source as { uri: string }).uri).toBe(
+      "rtsp://10.0.0.2:8554/ch0",
+    );
+    r.unmount();
+
+    routerState.params = { ssid: "测试热点", url: "http://10.0.0.2/ch0" };
+    r = mount();
+    expect(mockWifi.connect).toHaveBeenLastCalledWith("测试热点", "", 30_000, {
+      wpa3: false,
+    });
+    await join();
+    expect((player(r).props.source as { uri: string }).uri).toBe(
+      "rtsp://192.168.176.1:8554/ch0",
+    );
+  });
 });
 
 describe("什么时候把热点还回去", () => {
@@ -388,6 +461,44 @@ describe("什么时候把热点还回去", () => {
     r.unmount();
     expect(mockWifi.release).toHaveBeenCalled();
   });
+
+  it("系统短暂打断（iOS 下拉控制中心等，inactive）：不算退后台，不释放、不暂停", async () => {
+    const r = mount();
+    await join();
+    act(() => (player(r).props.onPlaying as () => void)());
+    act(() => appListener!("inactive"));
+    expect(mockWifi.release).not.toHaveBeenCalled();
+    expect(r.allText()).toContain(tr("video.snapshot"));
+  });
+
+  it("播放中断流（onEnd / onStopped）：写画面中断了、释放热点，可重新连接", async () => {
+    const r = mount();
+    await join();
+    act(() => (player(r).props.onPlaying as () => void)());
+    act(() => (player(r).props.onEnd as () => void)());
+    expect(r.allText()).toContain(tr("video.err.streamEnded"));
+    expect(mockWifi.release).toHaveBeenCalledTimes(1);
+    r.press(tr("video.retry"));
+    await join();
+    act(() => (player(r).props.onPlaying as () => void)());
+    act(() => (player(r).props.onStopped as () => void)());
+    expect(r.allText()).toContain(tr("video.err.streamEnded"));
+    expect(mockWifi.release).toHaveBeenCalledTimes(2);
+  });
+
+  it("播放中又收到 onPlaying（缓冲后恢复）：照常播放，首帧耗时只记一次", async () => {
+    const { devLog } = jest.requireMock<{ devLog: jest.Mock }>(
+      "@/services/dev-log",
+    );
+    const r = mount();
+    await join();
+    act(() => (player(r).props.onPlaying as () => void)());
+    act(() => (player(r).props.onPlaying as () => void)());
+    expect(r.allText()).toContain(tr("video.snapshot"));
+    expect(
+      devLog.mock.calls.filter((c) => String(c[1]).startsWith("首帧")),
+    ).toHaveLength(1);
+  });
 });
 
 describe("iOS 拒过「本地网络」权限", () => {
@@ -431,6 +542,23 @@ describe("iOS 拒过「本地网络」权限", () => {
     act(() => mockWifi.lost.forEach((l) => l()));
     expect(r.allText()).toContain(tr("video.err.wifiLost"));
     expect(r.allText()).not.toContain(tr("video.err.openSettings"));
+  });
+
+  it("去设置打不开（系统拒绝）：吞掉，提示和按钮照常留着", async () => {
+    setOs("ios");
+    const settings = jest
+      .spyOn(Linking, "openSettings")
+      .mockImplementation(() => Promise.reject(new Error("no settings")));
+    const r = mount();
+    await join();
+    act(() => (player(r).props.onError as () => void)());
+    await act(async () => {
+      r.press(tr("video.err.openSettings"));
+    });
+    expect(settings).toHaveBeenCalledTimes(1);
+    expect(r.allText()).toContain(tr("video.err.localNetwork"));
+    expect(r.allText()).toContain(tr("video.err.openSettings"));
+    settings.mockRestore();
   });
 });
 
@@ -478,6 +606,62 @@ describe("截图", () => {
     );
     await shoot({ success: true });
     expect(r.allText()).toContain(tr("video.snapshot.denied"));
+  });
+
+  it("回调先到、文件后到（iOS 异步落盘）：等文件出现再存相册", async () => {
+    const r = await playing();
+    r.press(tr("video.snapshot"));
+    mockFiles.exists = false;
+    await act(async () => {
+      (player(r).props.onSnapshot as (e: unknown) => void)({ success: true });
+      await jest.advanceTimersByTimeAsync(300);
+    });
+    expect(mockWifi.saveImage).not.toHaveBeenCalled();
+    mockFiles.exists = true;
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(100);
+    });
+    expect(mockWifi.saveImage).toHaveBeenCalledTimes(1);
+    expect(r.allText()).toContain(tr("video.snapshot.saved"));
+  });
+
+  it("文件 2 秒还没落盘：算失败，提示并删掉缓存", async () => {
+    const r = await playing();
+    r.press(tr("video.snapshot"));
+    mockFiles.exists = false;
+    await act(async () => {
+      (player(r).props.onSnapshot as (e: unknown) => void)({ success: true });
+      await jest.advanceTimersByTimeAsync(2_100);
+    });
+    expect(mockWifi.saveImage).not.toHaveBeenCalled();
+    expect(r.allText()).toContain(tr("video.snapshot.failed"));
+    expect(mockFiles.deleted).toHaveLength(1);
+  });
+
+  it("存相册报不认识的错：提示截图失败", async () => {
+    const r = await playing();
+    mockWifi.saveImage.mockImplementationOnce(() =>
+      Promise.reject({ code: "E_IO" }),
+    );
+    r.press(tr("video.snapshot"));
+    await act(async () => {
+      (player(r).props.onSnapshot as (e: unknown) => void)({ success: true });
+    });
+    expect(mockWifi.saveImage).toHaveBeenCalledTimes(1);
+    expect(r.allText()).toContain(tr("video.snapshot.failed"));
+  });
+
+  it("成功之后 4 秒的兜底计时到点：不再提示失败", async () => {
+    const r = await playing();
+    r.press(tr("video.snapshot"));
+    await act(async () => {
+      (player(r).props.onSnapshot as (e: unknown) => void)({ success: true });
+    });
+    expect(r.allText()).toContain(tr("video.snapshot.saved"));
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(4_000);
+    });
+    expect(r.allText()).not.toContain(tr("video.snapshot.failed"));
   });
 
   it("原生侧一直没回调：4 秒后按钮不再转圈并提示失败；迟到的回调不再处理", async () => {
