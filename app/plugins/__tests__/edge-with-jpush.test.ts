@@ -84,6 +84,21 @@ class AppDelegate: ExpoAppDelegate {
 }
 `;
 
+const MAIN_APPLICATION = `package com.lingyiweichuang.app
+
+import android.app.Application
+
+import expo.modules.ApplicationLifecycleDispatcher
+
+class MainApplication : Application(), ReactApplication {
+  override fun onCreate() {
+    super.onCreate()
+    loadReactNative(this)
+    ApplicationLifecycleDispatcher.onApplicationCreate(this)
+  }
+}
+`;
+
 const tmpDirs: string[] = [];
 const tmp = () => {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), "with-jpush-"));
@@ -122,10 +137,16 @@ describe("withJPush 组装", () => {
     expect(() => plugin(configOf(undefined))).toThrow(/extra\.jpush\.appKey/);
   });
 
-  it("登记了 Android 四个 mod、iOS 三个 mod；同一份 config 再挂一次不重复（runOnce）", () => {
+  it("登记了 Android 五个 mod、iOS 三个 mod；同一份 config 再挂一次不重复（runOnce）", () => {
     const cfg = plugin(configOf({ appKey: "k" }));
     expect(Object.keys(cfg.mods!.android).sort()).toEqual(
-      ["appBuildGradle", "dangerous", "manifest", "projectBuildGradle"].sort(),
+      [
+        "appBuildGradle",
+        "dangerous",
+        "mainApplication",
+        "manifest",
+        "projectBuildGradle",
+      ].sort(),
     );
     expect(Object.keys(cfg.mods!.ios).sort()).toEqual(
       ["appDelegate", "dangerous", "infoPlist"].sort(),
@@ -274,6 +295,25 @@ describe("withJPush 组装", () => {
         modResults: { contents: "", language: "objcpp" },
       }),
     ).rejects.toThrow(/Swift/);
+  });
+
+  it("MainApplication mod：Kotlin 补上 HelmetPushBoot.onCreate；Java 直接报错", async () => {
+    const cfg = plugin(configOf({ appKey: "k" }));
+    const out = await run(cfg, "android", "mainApplication", {
+      modRequest: {},
+      modResults: { contents: MAIN_APPLICATION, language: "kt" },
+    });
+    const kt = (out.modResults as { contents: string }).contents;
+    expect(kt).toContain(
+      "import com.lingyiweichuang.linkservice.HelmetPushBoot",
+    );
+    expect(kt).toContain("HelmetPushBoot.onCreate(this)");
+    await expect(
+      run(cfg, "android", "mainApplication", {
+        modRequest: {},
+        modResults: { contents: "", language: "java" },
+      }),
+    ).rejects.toThrow(/Kotlin/);
   });
 
   it("iOS 危险 mod：bridging header 不存在就新建、存在就补在模板注释后", async () => {

@@ -15,6 +15,7 @@ const plugin = require("../with-jpush.js") as {
     cfg: { appKey: string; channel: string; xiaomi?: { appId: string; appKey: string } },
   ) => string;
   applyAndroidManifest: (m: unknown) => unknown;
+  applyMainApplication: (s: string) => string;
   applyBridgingHeader: (s: string) => string;
   applyInfoPlist: (p: Record<string, unknown>) => Record<string, unknown>;
   readJPushExtra: (c: unknown) => {
@@ -364,5 +365,112 @@ describe("Android 小米厂商通道", () => {
   it("仓库里的 app.json 配的就是小米开发者站上的值", () => {
     const appJson = require("../../app.json") as { expo: unknown };
     expect(plugin.readJPushExtra(appJson.expo).xiaomi).toEqual(xiaomi);
+  });
+});
+
+// Expo SDK 57 prebuild 产物 android/app/src/main/java/com/lingyiweichuang/app/MainApplication.kt（2026-10-18 实际生成）
+const MAIN_APPLICATION_SDK57 = `package com.lingyiweichuang.app
+
+import android.app.Application
+import android.content.res.Configuration
+
+import com.facebook.react.PackageList
+import com.facebook.react.ReactApplication
+import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
+import com.facebook.react.ReactPackage
+import com.facebook.react.ReactHost
+import com.facebook.react.common.ReleaseLevel
+import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint
+
+import expo.modules.ApplicationLifecycleDispatcher
+import expo.modules.ExpoReactHostFactory
+
+class MainApplication : Application(), ReactApplication {
+
+  override val reactHost: ReactHost by lazy {
+    ExpoReactHostFactory.getDefaultReactHost(
+      context = applicationContext,
+      packageList =
+        PackageList(this).packages.apply {
+          // Packages that cannot be autolinked yet can be added manually here, for example:
+          // add(MyReactNativePackage())
+        }
+    )
+  }
+
+  override fun onCreate() {
+    super.onCreate()
+    DefaultNewArchitectureEntryPoint.releaseLevel = try {
+      ReleaseLevel.valueOf(BuildConfig.REACT_NATIVE_RELEASE_LEVEL.uppercase())
+    } catch (e: IllegalArgumentException) {
+      ReleaseLevel.STABLE
+    }
+    loadReactNative(this)
+    ApplicationLifecycleDispatcher.onApplicationCreate(this)
+  }
+
+  override fun onConfigurationChanged(newConfig: Configuration) {
+    super.onConfigurationChanged(newConfig)
+    ApplicationLifecycleDispatcher.onConfigurationChanged(this, newConfig)
+  }
+}
+`;
+
+describe("Android MainApplication.kt：进程一起来就提前初始化极光（华为强停后 HMS 刷新令牌时 JS 不跑，REGRESSION 4.8）", () => {
+  const once = plugin.applyMainApplication(MAIN_APPLICATION_SDK57);
+
+  it("import 与 onCreate 里的一行都补上，且紧跟 ApplicationLifecycleDispatcher.onApplicationCreate 之后", () => {
+    expect(once).toContain("import com.lingyiweichuang.linkservice.HelmetPushBoot");
+    expect(once.indexOf("import com.lingyiweichuang.linkservice.HelmetPushBoot")).toBeLessThan(once.indexOf("class MainApplication"));
+    expect(once).toMatch(
+      /ApplicationLifecycleDispatcher\.onApplicationCreate\(this\)\n\s*\/\/ @generated begin with-jpush-boot-call.*\n\s*HelmetPushBoot\.onCreate\(this\)\n\s*\/\/ @generated end with-jpush-boot-call/,
+    );
+    // 在 onCreate 块里，不是 onConfigurationChanged
+    const onCreate = once.slice(once.indexOf("override fun onCreate()"), once.indexOf("override fun onConfigurationChanged"));
+    expect(onCreate).toContain("HelmetPushBoot.onCreate(this)");
+    expect(once.split("HelmetPushBoot.onCreate(this)").length).toBe(2);
+  });
+
+  it("幂等：再补一次结果不变", () => {
+    expect(plugin.applyMainApplication(once)).toBe(once);
+  });
+
+  it("模板变了（锚点找不到）就报错，不静默漏接", () => {
+    expect(() => plugin.applyMainApplication("class MainApplication : Application() {}")).toThrow(/boot-import/);
+    const noDispatcher = MAIN_APPLICATION_SDK57.replace("    ApplicationLifecycleDispatcher.onApplicationCreate(this)\n", "");
+    expect(() => plugin.applyMainApplication(noDispatcher)).toThrow(/boot-call/);
+  });
+
+  it("原生这一步仍守同意门控：HelmetPushBoot 查不到「已同意」就什么都不做，做的事与 jpush-react-native 的 init() 一样（决策 #48）", () => {
+    const fs = require("node:fs") as typeof import("node:fs");
+    const path = require("node:path") as typeof import("node:path");
+    const kt = fs.readFileSync(
+      path.join(__dirname, "../../modules/helmet-link-service/android/src/main/java/com/lingyiweichuang/linkservice/HelmetPushBoot.kt"),
+      "utf8",
+    );
+    const guard = kt.indexOf("if (!isPrivacyAccepted(application)) return");
+    const init = kt.indexOf("JPushInterface.init(application)");
+    expect(guard).toBeGreaterThan(0);
+    expect(init).toBeGreaterThan(guard);
+    expect(kt).toContain("JPushInterface.setNotificationCallBackEnable(application, true)");
+    // 库那边 init() 就是这两步（库升级后若多了步骤，这条会提醒同步）
+    const lib = fs.readFileSync(
+      path.join(__dirname, "../../../node_modules/jpush-react-native/android/src/main/java/cn/jiguang/plugins/push/JPushModule.java"),
+      "utf8",
+    );
+    const body = lib.slice(lib.indexOf("public void init()"), lib.indexOf("public void stopPush()"));
+    expect(body).toContain("JPushInterface.init(reactContext)");
+    expect(body).toContain("JPushInterface.setNotificationCallBackEnable(reactContext,true)");
+    expect(body.match(/JPushInterface\./g)).toHaveLength(2);
+  });
+
+  it("helmet-link-service 为编译 HelmetPushBoot 引的极光 SDK 版本与 jpush-react-native 自带的一致（库升级后这条会提醒同步）", () => {
+    const fs = require("node:fs") as typeof import("node:fs");
+    const path = require("node:path") as typeof import("node:path");
+    const lib = fs.readFileSync(path.join(__dirname, "../../../node_modules/jpush-react-native/android/build.gradle"), "utf8");
+    const mod = fs.readFileSync(path.join(__dirname, "../../modules/helmet-link-service/android/build.gradle"), "utf8");
+    const libVersion = /cn\.jiguang\.sdk:jpush:([\d.]+)/.exec(lib)?.[1];
+    expect(libVersion).toBeTruthy();
+    expect(mod).toContain(`compileOnly("cn.jiguang.sdk:jpush:${libVersion}")`);
   });
 });

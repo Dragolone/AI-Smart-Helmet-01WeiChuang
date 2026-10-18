@@ -4,6 +4,7 @@
 // 口径：注册页 / 登录页勾选并提交成功 → accept()；每台设备只问一次；不随登出清除（同意的是这台设备上的这个人）。
 // 删掉 App 重装算新装、要再问：安卓卸载即清，iOS 由 services/fresh-install 在重装后第一次打开时清掉。
 import * as SecureStore from "expo-secure-store";
+import { HelmetLinkService } from "helmet-link-service";
 import { AppState } from "react-native";
 import { create } from "zustand";
 
@@ -49,6 +50,8 @@ export const useConsentStore = create<ConsentState>((set, get) => ({
     try {
       if ((await SecureStore.getItemAsync(KEY)) === PRIVACY_VERSION) {
         set({ privacyAccepted: true, hydrated: true });
+        // 同意标记也给原生一份：Android 进程一起来就能提前初始化极光（已同意的老用户靠这里补上）
+        HelmetLinkService.setPrivacyAccepted(true);
         return;
       }
       const legacy = await SecureStore.getItemAsync(LEGACY_KEY);
@@ -59,10 +62,12 @@ export const useConsentStore = create<ConsentState>((set, get) => ({
         hydrated: true,
       });
       // 旧条目搬到锁屏可读的新条目；搬不成下次再搬
-      if (accepted)
+      if (accepted) {
+        HelmetLinkService.setPrivacyAccepted(true);
         SecureStore.setItemAsync(KEY, PRIVACY_VERSION, KEYCHAIN).catch(
           () => undefined,
         );
+      }
     } catch {
       // 读不出来 ≠ 没同意：保持「还没读完」（登录页照样要求勾选、极光照样不初始化——宁可多问不能少问，
       // 但不弹「请同意否则退出登录」），回到前台再读一次
@@ -72,6 +77,7 @@ export const useConsentStore = create<ConsentState>((set, get) => ({
   },
   accept: async () => {
     set({ privacyAccepted: true, hydrated: true });
+    HelmetLinkService.setPrivacyAccepted(true);
     try {
       await SecureStore.setItemAsync(KEY, PRIVACY_VERSION, KEYCHAIN);
     } catch {

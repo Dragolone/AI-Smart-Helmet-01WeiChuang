@@ -58,6 +58,14 @@ class HelmetLinkServiceModule : Module() {
 
     Function("isRunning") { -> HelmetLinkService.running }
 
+    /**
+     * 用户同意过隐私政策：记进原生偏好，下次进程一起来（含被 HMS 悄悄拉起送新令牌）HelmetPushBoot 就能提前初始化极光。
+     * 同意是按设备记的、不随登出清除，与 stores/consent-store 同口径
+     */
+    Function("setPrivacyAccepted") { accepted: Boolean ->
+      HelmetPushBoot.setPrivacyAccepted(context.applicationContext, accepted)
+    }
+
     /** 是否已加入省电白名单（华为/小米等激进杀后台的机型未加入时链路随时可能被杀） */
     Function("isIgnoringBatteryOptimizations") { ->
       if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {

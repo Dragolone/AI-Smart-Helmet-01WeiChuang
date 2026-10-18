@@ -13,3 +13,9 @@ android {
     versionName "1.0.0"
   }
 }
+
+dependencies {
+  // 极光 SDK 由 jpush-react-native 带进 App（implementation，运行时在）；这里只为编译 HelmetPushBoot。
+  // 版本必须和 node_modules/jpush-react-native/android/build.gradle 一致（plugins/__tests__/with-jpush.test.ts 对照）
+  compileOnly("cn.jiguang.sdk:jpush:6.2.0")
+}

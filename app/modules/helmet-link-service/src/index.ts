@@ -11,6 +11,7 @@ interface NativeLinkService {
   requestIgnoreBatteryOptimizations(): void;
   holdNetwork(ms: number): void;
   releaseNetwork(): void;
+  setPrivacyAccepted(accepted: boolean): void;
 }
 
 const native =
@@ -44,5 +45,14 @@ export const HelmetLinkService = {
   },
   releaseNetwork(): void {
     if (typeof native?.releaseNetwork === "function") native.releaseNetwork();
+  },
+  /**
+   * 用户同意过隐私政策：写进原生偏好，Android 下次进程一起来就提前初始化极光（HelmetPushBoot）。
+   * 划掉 App 后 HMS 刷新令牌时 JS 没跑，不提前初始化新令牌报不上去，推送就到不了（10-18 华为，REGRESSION 4.8）。
+   * iOS、原生包比 JS 旧（还没有这个方法）时什么都不做
+   */
+  setPrivacyAccepted(accepted: boolean): void {
+    if (typeof native?.setPrivacyAccepted === "function")
+      native.setPrivacyAccepted(accepted);
   },
 };

@@ -2,6 +2,8 @@
 // CNG 下 ios/ 与 android/ 都是 prebuild 产物不进 Git，所以极光要求手改的原生配置全部由这里生成：
 //
 // Android：manifestPlaceholders（JPUSH_PKGNAME / JPUSH_APPKEY / JPUSH_CHANNEL）+ 应用 manifest 的两条 meta-data。
+//   另在 MainApplication.onCreate 里加一行 HelmetPushBoot.onCreate(this)（本地模块 helmet-link-service）：用户之前同意过
+//   隐私政策时提前初始化极光——华为划掉 App 后 HMS 刷新令牌、只拉起进程不跑 JS，不提前初始化新令牌报不上去（10-18）。
 //   RN 插件 3.2.6 起自己不带 meta-data，但极光 SDK 的 aar 仍从 meta-data 读 AppKey，Android 侧 init() 没有参数。
 //   多余权限（READ_PHONE_STATE / 外部存储 / GET_TASKS / 后台定位）不在这里删，用 app.json `android.blockedPermissions`。
 //
@@ -27,6 +29,7 @@
 const {
   withProjectBuildGradle,
   withAppBuildGradle,
+  withMainApplication,
   withAndroidManifest,
   withAppDelegate,
   withInfoPlist,
@@ -198,6 +201,45 @@ function applyAppBuildGradleXiaomi(contents) {
   } catch (e) {
     throw new Error(`[${PLUGIN_NAME}] app/build.gradle 锚点失效：xiaomi-deps（Expo 模板变了，请更新插件；${e.message}）`);
   }
+}
+
+/**
+ * MainApplication.kt：import + onCreate 里一行 HelmetPushBoot.onCreate(this)。
+ * 只在用户同意过隐私政策时才真的初始化（判断在 HelmetPushBoot 里），所以放在 Application 里不违反同意门控（决策 #48）
+ */
+function applyMainApplication(contents) {
+  const importTag = `${PLUGIN_NAME}-boot-import`;
+  const callTag = `${PLUGIN_NAME}-boot-call`;
+  let next = contents;
+  if (!next.includes(`@generated begin ${importTag}`)) {
+    try {
+      next = mergeContents({
+        src: next,
+        newSrc: "import com.lingyiweichuang.linkservice.HelmetPushBoot",
+        tag: importTag,
+        anchor: /^import expo\.modules\.ApplicationLifecycleDispatcher$/m,
+        offset: 1,
+        comment: "//",
+      }).contents;
+    } catch (e) {
+      throw new Error(`[${PLUGIN_NAME}] MainApplication.kt 锚点失效：boot-import（Expo 模板变了，请更新插件；${e.message}）`);
+    }
+  }
+  if (!next.includes(`@generated begin ${callTag}`)) {
+    try {
+      next = mergeContents({
+        src: next,
+        newSrc: "    HelmetPushBoot.onCreate(this)",
+        tag: callTag,
+        anchor: /^\s*ApplicationLifecycleDispatcher\.onApplicationCreate\(this\)\s*$/m,
+        offset: 1,
+        comment: "//",
+      }).contents;
+    } catch (e) {
+      throw new Error(`[${PLUGIN_NAME}] MainApplication.kt 锚点失效：boot-call（Expo 模板变了，请更新插件；${e.message}）`);
+    }
+  }
+  return next;
 }
 
 function applyAndroidManifest(androidManifest) {
@@ -424,6 +466,13 @@ const withJPush = (config) => {
     c.modResults = applyAndroidManifest(c.modResults);
     return c;
   });
+  config = withMainApplication(config, (c) => {
+    if (c.modResults.language !== "kt") {
+      throw new Error(`[${PLUGIN_NAME}] 只支持 Kotlin MainApplication（当前 ${c.modResults.language}）`);
+    }
+    c.modResults.contents = applyMainApplication(c.modResults.contents);
+    return c;
+  });
 
   config = withInfoPlist(config, (c) => {
     c.modResults = applyInfoPlist(c.modResults);
@@ -457,6 +506,7 @@ module.exports.readAgpVersion = readAgpVersion;
 module.exports.applyAppBuildGradleXiaomi = applyAppBuildGradleXiaomi;
 module.exports.JPUSH_VENDOR_PLUGIN_VERSION = JPUSH_VENDOR_PLUGIN_VERSION;
 module.exports.applyAndroidManifest = applyAndroidManifest;
+module.exports.applyMainApplication = applyMainApplication;
 module.exports.applyAppDelegate = applyAppDelegate;
 module.exports.applyBridgingHeader = applyBridgingHeader;
 module.exports.applyInfoPlist = applyInfoPlist;
