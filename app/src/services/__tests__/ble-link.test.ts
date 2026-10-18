@@ -1563,7 +1563,7 @@ describe("补分支（2026-10-19）", () => {
       }
     });
 
-    it("疑似缺陷：扫描出错累起来的退避，之后扫描恢复、连上头盔也不复位——掉线后再出一次错要等 16 s 才重扫（应从 2 s 重新算）", async () => {
+    it("扫描出错累起来的退避：扫描恢复、连上头盔后清零——掉线后再出一次错，2 s 就重扫（10-19 夜测）", async () => {
       jest.useFakeTimers();
       await startBleLink([ID]);
       await jest.advanceTimersByTimeAsync(0);
@@ -1580,11 +1580,28 @@ describe("补分支（2026-10-19）", () => {
       await jest.advanceTimersByTimeAsync(2_000);
       expect(mockScans).toHaveLength(5);
       scanError();
-      await jest.advanceTimersByTimeAsync(2_000);
-      // 现状：退避接着上次的 8 s 翻倍成 16 s，2 s 时还没重扫
+      await jest.advanceTimersByTimeAsync(1_999);
       expect(mockScans).toHaveLength(5);
-      await jest.advanceTimersByTimeAsync(14_000);
+      await jest.advanceTimersByTimeAsync(1);
       expect(mockScans).toHaveLength(6);
+    });
+
+    it("带设备号的重试（设备页「重试连接」）：扫描出错的退避也清零、立即重扫，之后再出错从 2 s 算", async () => {
+      jest.useFakeTimers();
+      await startBleLink([ID]);
+      await jest.advanceTimersByTimeAsync(0);
+      for (const wait of [2_000, 4_000]) {
+        scanError();
+        await jest.advanceTimersByTimeAsync(wait);
+      }
+      expect(mockScans).toHaveLength(3);
+      scanError(); // 不重试的话这次要等 8 s
+      retryBleLink(ID);
+      await jest.advanceTimersByTimeAsync(0);
+      expect(mockScans).toHaveLength(4);
+      scanError();
+      await jest.advanceTimersByTimeAsync(2_000);
+      expect(mockScans).toHaveLength(5);
     });
 
     it("不带设备号的重试（开发面板「全部重连」）：扫描出错累起来的退避清零、立即重扫，之后再出错从 2 s 算", async () => {
