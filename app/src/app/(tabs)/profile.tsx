@@ -233,14 +233,23 @@ export default function ProfileScreen() {
                 >
                   {cleanNickname(user?.nickname) || t("profile.setNickname")}
                 </ThemedText>
-                <ThemedText
-                  type="small"
-                  themeColor="textSecondary"
-                  style={{ fontSize: 13 }}
-                >
-                  {user?.phone ?? "—"} ·{" "}
-                  {t("profile.devicesCount", { n: deviceCount })}
-                </ThemedText>
+                {/* 手机号和设备数分两段：放不下时设备数整段换到下一行，不在「2 台设 / 备」中间断开（10-19 华为 1.3 倍字体实测） */}
+                <View style={styles.accountMeta}>
+                  <ThemedText
+                    type="small"
+                    themeColor="textSecondary"
+                    style={{ fontSize: 13 }}
+                  >
+                    {`${user?.phone ?? "—"} · `}
+                  </ThemedText>
+                  <ThemedText
+                    type="small"
+                    themeColor="textSecondary"
+                    style={{ fontSize: 13 }}
+                  >
+                    {t("profile.devicesCount", { n: deviceCount })}
+                  </ThemedText>
+                </View>
               </View>
               <Ionicons
                 name="chevron-forward"
@@ -571,6 +580,7 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
+  accountMeta: { flexDirection: "row", flexWrap: "wrap" },
   flex: { flex: 1 },
   miniBar: { paddingHorizontal: 12, paddingBottom: 12 },
   container: { paddingHorizontal: 20, paddingBottom: 28, gap: 14 },
