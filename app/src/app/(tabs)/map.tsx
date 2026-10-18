@@ -553,6 +553,16 @@ export default function MapScreen() {
         setStage("list");
         setRideFilter({ kind: "all" });
         setCalendar(null);
+      } else if (target) {
+        // 只带头盔号（外部链接）：和面板里换头盔（pickHelmet）一样——正在看的那一趟、按日期的筛选都是上一顶的，
+        // 退回行程列表、筛选回到全部（10-19 夜测 #281 测出：药丸换了，抽屉还停在上一顶那一趟）
+        setPlaying(false);
+        setReplayIdx(null);
+        setDetail(null);
+        setStage((s) => (s === "ride" ? "list" : s));
+        setRideFilter({ kind: "all" });
+        setCalendar(null);
+        setFollowing(true);
       }
       // 已经在这一页、抽屉又收着时再带参数进来：也要展开
       if (atMs !== null || wantRides) {

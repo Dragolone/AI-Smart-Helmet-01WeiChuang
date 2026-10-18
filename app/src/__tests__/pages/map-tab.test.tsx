@@ -1201,7 +1201,7 @@ describe("带参数进来", () => {
     expect(statOf(r, tr("map.ride.avg")).value).toBe("—");
   });
 
-  it("疑似缺陷：看一趟时外部链接只带 deviceId 换到另一顶，抽屉仍停在上一顶的那一趟", async () => {
+  it("看一趟时外部链接只带 deviceId 换到另一顶：和面板里换头盔一样退回行程列表（不再停在上一顶那一趟）", async () => {
     m(devicesApi.list).mockImplementation(() =>
       Promise.resolve([
         dev("h1", { name: "通勤" }),
@@ -1219,9 +1219,10 @@ describe("带参数进来", () => {
     await waitFor(() =>
       expect(round(r, tr("map.pill.a11y", { name: "滑雪" }))).toBeTruthy(),
     );
-    // 现状：药丸已经换成滑雪，抽屉还是通勤那一趟（在面板里换头盔会退回列表，见 pickHelmet）
-    expect(r.allText()).toContain(tr("map.ride.duration"));
-    expect(r.allText()).not.toContain(tr("map.rides.pickDate"));
+    await waitFor(() =>
+      expect(r.allText()).not.toContain(tr("map.ride.duration")),
+    );
+    expect(r.allText()).toContain(tr("map.rides.pickDate"));
   });
 });
 
