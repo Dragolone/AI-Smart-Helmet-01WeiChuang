@@ -287,6 +287,75 @@ describe("PrimaryButton", () => {
     act(() => p.props.onLayout({ nativeEvent: { layout: { width: 120 } } }));
   });
 
+  it("成功态：量到过整条宽和「✓ 已保存」那一行的宽，整条收成刚好包住它的短药丸（两边各留 22）；减弱动态效果时直接收好", () => {
+    const shrunk = (reduced: boolean) => {
+      mockFlags.reducedMotion = reduced;
+      const el = (success: boolean) => (
+        <PrimaryButton
+          title="保存"
+          success={success}
+          onPress={() => undefined}
+        />
+      );
+      const r = render(el(false));
+      act(() =>
+        pressableOf(r).props.onLayout({
+          nativeEvent: { layout: { width: 300 } },
+        }),
+      );
+      const row = r.root.find(
+        (n) =>
+          typeof n.type === "string" &&
+          typeof n.props.onLayout === "function" &&
+          n.props.accessibilityState === undefined,
+      );
+      act(() => row.props.onLayout({ nativeEvent: { layout: { width: 80 } } }));
+      r.rerender(el(true));
+      // 收窄写在 effect 里：再渲染一次才看得到
+      r.rerender(el(true));
+      return flat(buttonOf(r).props.style).width;
+    };
+    expect(shrunk(false)).toBe(80 + 22 * 2);
+    expect(shrunk(true)).toBe(80 + 22 * 2);
+  });
+
+  it("触觉反馈失败（有的机器不支持）：成功态照常显示、照常回调；按下照常", async () => {
+    jest.useFakeTimers();
+    (Haptics.notificationAsync as jest.Mock).mockImplementationOnce(() =>
+      Promise.reject(new Error("haptics unavailable")),
+    );
+    (Haptics.impactAsync as jest.Mock).mockImplementationOnce(() =>
+      Promise.reject(new Error("haptics unavailable")),
+    );
+    const shown = jest.fn();
+    const onPress = jest.fn();
+    const el = (success: boolean) => (
+      <PrimaryButton
+        title="保存"
+        success={success}
+        onPress={onPress}
+        onSuccessShown={shown}
+      />
+    );
+    const r = render(el(false));
+    act(() => {
+      pressableOf(r).props.onPressIn();
+      pressableOf(r).props.onPress();
+    });
+    expect(onPress).toHaveBeenCalled();
+    r.rerender(el(true));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(buttonOf(r).props.accessibilityLabel).toBe(
+      translate("common.saved", undefined, "zh-CN"),
+    );
+    act(() => {
+      jest.advanceTimersByTime(1100);
+    });
+    expect(shown).toHaveBeenCalledTimes(1);
+  });
+
   it("成功态但还没量到整条宽：原样不收、不居中（不会缩成内容宽）", () => {
     const r = render(
       <PrimaryButton title="保存" success onPress={() => undefined} />,
@@ -403,6 +472,18 @@ describe("SecondaryButton", () => {
     expect(pressed.opacity).toBe(0.55);
     expect(pressed.transform).toBeUndefined();
     expect(pressed.minHeight).toBe(46);
+  });
+
+  it("renderIcon 不紧凑时拿到 18、正文色", () => {
+    const renderIcon = jest.fn(() => null);
+    render(
+      <SecondaryButton
+        title="x"
+        renderIcon={renderIcon}
+        onPress={() => undefined}
+      />,
+    );
+    expect(renderIcon).toHaveBeenCalledWith({ size: 18, color: dark.text });
   });
 
   it("renderIcon 拿到正文色和紧凑尺寸", () => {

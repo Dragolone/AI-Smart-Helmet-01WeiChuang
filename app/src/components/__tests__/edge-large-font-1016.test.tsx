@@ -9,6 +9,8 @@ import { afterEach, describe, expect, it, jest } from "@jest/globals";
 import * as RN from "react-native";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 
+import { Colors } from "@/constants/theme";
+import { useThemeStore } from "@/stores/theme-store";
 import { STACK_FONT_SCALE, StatusRow, statusRowStacked } from "../status-row";
 
 // 仓库里有两份 React（app/node_modules 与根目录）；让组件和 react-test-renderer 用同一份
@@ -101,6 +103,28 @@ describe("StatusRow 在 2 倍字体下把右边的值挪到结论下面", () => 
       false,
     );
     expect(insideTextColumn(renderAt(1, ble), "重试连接")).toBe(false);
+  });
+
+  it("轻重只落在图标颜色上：正常绿、提醒黄、出错红、说不准灰；结论文字的颜色不跟着变", () => {
+    useThemeStore.setState({ mode: "dark" });
+    const dark = Colors.dark;
+    const iconColor = (tone: "ok" | "warn" | "bad" | "neutral") => {
+      const r = renderAt(1, { icon: "bluetooth-outline", tone, title: "蓝牙" });
+      return r.root.find((n) => n.props.name === "bluetooth-outline").props
+        .color;
+    };
+    expect(iconColor("ok")).toBe(dark.success);
+    expect(iconColor("warn")).toBe(dark.warning);
+    expect(iconColor("bad")).toBe(dark.danger);
+    expect(iconColor("neutral")).toBe(dark.textSecondary);
+    const titles = (["ok", "bad"] as const).map((tone) => {
+      const r = renderAt(1, { icon: "bluetooth-outline", tone, title: "蓝牙" });
+      const t = r.root.find(
+        (n) => n.type === RN.Text && [n.props.children].flat().includes("蓝牙"),
+      );
+      return RN.StyleSheet.flatten(t.props.style).color;
+    });
+    expect(titles[0]).toBe(titles[1]);
   });
 
   it("并排时右边的时间 / 入口最多占一半宽，左边的结论放得下", () => {

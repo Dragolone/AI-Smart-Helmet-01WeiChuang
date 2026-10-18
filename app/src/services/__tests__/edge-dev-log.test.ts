@@ -94,4 +94,52 @@ describe("devLog", () => {
     load("").devLog("X", "a");
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("错误对象没有堆栈（有的运行时不给）：写它的 message", () => {
+    const err = new Error("no stack here");
+    err.stack = undefined;
+    load(SINK).devLog("X", err);
+    expect(sent()[0]).toBe("[X] no stack here");
+  });
+});
+
+describe("installDevErrorTap", () => {
+  type Handler = (error: unknown, isFatal?: boolean) => void;
+  const g = globalThis as { ErrorUtils?: unknown };
+  let saved: unknown;
+  /** 替身 ErrorUtils：记下装上去的处理函数，原来的处理是 prev */
+  const box: { installed?: Handler; prev: jest.Mock<Handler> } = {
+    prev: jest.fn<Handler>(),
+  };
+  beforeEach(() => {
+    saved = g.ErrorUtils;
+    box.installed = undefined;
+    box.prev = jest.fn<Handler>();
+    g.ErrorUtils = {
+      getGlobalHandler: () => box.prev,
+      setGlobalHandler: (h: Handler) => {
+        box.installed = h;
+      },
+    };
+  });
+  afterEach(() => {
+    g.ErrorUtils = saved;
+  });
+
+  it("没配接收地址：不动全局的异常处理", () => {
+    load(undefined).installDevErrorTap();
+    expect(box.installed).toBeUndefined();
+  });
+
+  it("配了：未捕获的异常（致命 / 非致命）也旁路发一行，然后照常交回原来的处理（红屏照出）", () => {
+    load(SINK).installDevErrorTap();
+    const err = new Error("render crashed");
+    box.installed!(err, true);
+    box.installed!(err, false);
+    expect(sent()[0].startsWith("[UNCAUGHT] fatal ")).toBe(true);
+    expect(sent()[0]).toContain("render crashed");
+    expect(sent()[1].startsWith("[UNCAUGHT] non-fatal ")).toBe(true);
+    expect(box.prev).toHaveBeenNthCalledWith(1, err, true);
+    expect(box.prev).toHaveBeenNthCalledWith(2, err, false);
+  });
 });

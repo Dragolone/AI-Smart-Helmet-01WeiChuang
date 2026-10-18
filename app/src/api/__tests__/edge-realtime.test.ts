@@ -1,6 +1,13 @@
 // 边界补测（2026-10-03）：实时通道客户端。realtime.test.ts 钉了 1s/2s 退避与 kick；
 // 这里补退避封顶、4401 换 token、会话被清、畸形消息、stop 之后的迟到回调。
-import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+} from "@jest/globals";
 
 import { STABLE_MS } from "../realtime";
 
@@ -50,7 +57,10 @@ const load = () =>
   (require("../realtime") as typeof import("../realtime")).realtimeClient;
 const last = () => FakeWs.instances[FakeWs.instances.length - 1];
 const count = () => FakeWs.instances.length;
-const depsWith = (token: () => string | null, refresh: () => Promise<unknown> = async () => undefined) => ({
+const depsWith = (
+  token: () => string | null,
+  refresh: () => Promise<unknown> = async () => undefined,
+) => ({
   getAccessToken: token,
   triggerTokenRefresh: jest.fn(refresh),
 });
@@ -271,18 +281,58 @@ describe("消息分发", () => {
     const c = load();
     const got: unknown[] = [];
     c.subscribe((m) => {
-      if ((m as { type?: string })?.type === "boom") throw new Error("listener bug");
+      if ((m as { type?: string })?.type === "boom")
+        throw new Error("listener bug");
       got.push(m);
     });
     c.start(depsWith(() => "tok"));
     last().open();
     expect(() => last().message("{not json")).not.toThrow();
     expect(() => last().message("")).not.toThrow();
-    expect(() => last().message(JSON.stringify({ type: "boom" }))).not.toThrow();
-    last().message(JSON.stringify({ type: "device_status", data: { deviceId: "d1" } }));
+    expect(() =>
+      last().message(JSON.stringify({ type: "boom" })),
+    ).not.toThrow();
+    last().message(
+      JSON.stringify({ type: "device_status", data: { deviceId: "d1" } }),
+    );
     expect(got).toEqual([{ type: "device_status", data: { deviceId: "d1" } }]);
     expect(last().closed).toBe(false);
     expect(count()).toBe(1);
+    c.stop();
+  });
+
+  it("解析不了的消息：开发包里打一句警告，正式包（__DEV__ 为假）里静默丢掉", () => {
+    const c = load();
+    c.start(depsWith(() => "tok"));
+    last().open();
+    last().message("{not json");
+    expect(console.warn).toHaveBeenCalledTimes(1);
+    const g = globalThis as { __DEV__?: boolean };
+    const dev = g.__DEV__;
+    g.__DEV__ = false;
+    try {
+      last().message("{still not json");
+    } finally {
+      g.__DEV__ = dev;
+    }
+    expect(console.warn).toHaveBeenCalledTimes(1);
+    expect(count()).toBe(1);
+    c.stop();
+  });
+
+  it("连接出错（onerror）：自己什么都不做，等随后的 onclose 统一走重连", () => {
+    const c = load();
+    const states: boolean[] = [];
+    c.subscribeState((v) => states.push(v));
+    c.start(depsWith(() => "tok"));
+    last().open();
+    last().onerror?.();
+    jest.advanceTimersByTime(60_000);
+    expect(count()).toBe(1);
+    expect(states).toEqual([false, true]);
+    last().drop();
+    jest.advanceTimersByTime(1000);
+    expect(count()).toBe(2);
     c.stop();
   });
 

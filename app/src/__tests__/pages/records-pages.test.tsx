@@ -28,6 +28,7 @@ import { sosApi } from "@/api/sos";
 import { Tappable } from "@/components/tappable";
 import { Colors } from "@/constants/theme";
 import { translate, useLocaleStore, type MessageKey } from "@/i18n";
+import { useAuthStore } from "@/stores/auth-store";
 import { useBleStore } from "@/stores/ble-store";
 import { useThemeStore } from "@/stores/theme-store";
 import AccidentDetailScreen from "@/app/accident/[accidentId]";
@@ -405,6 +406,55 @@ describe("添加紧急联系人", () => {
     expect(mockRouter.back).toHaveBeenCalled();
   });
 
+  it("号码已经是联系人了（规整后相同）：页面级说明，不提交", () => {
+    const qc = makeQueryClient();
+    qc.setQueryData(["contacts"], [contact("1", "妈妈")]);
+    const r = mount(<AddContactScreen />, qc);
+    r.type(P.name, "妈");
+    r.type(P.phone, "+86 138 0000 0001");
+    r.press(tr("common.save"));
+    expect(errors(r)).toEqual([tr("contacts.duplicatePhone")]);
+    expect(contactsApi.create).not.toHaveBeenCalled();
+  });
+
+  it("填的是自己的手机号：先弹窗问清楚（求救短信会发到自己手机上）；取消什么都不做，坚持添加才保存", async () => {
+    m(contactsApi.create).mockImplementation(() => Promise.resolve({}));
+    act(() =>
+      useAuthStore.setState({ user: { phone: "13900000042" } } as never),
+    );
+    try {
+      const r = mount(<AddContactScreen />);
+      r.type(P.name, "我");
+      r.type(P.phone, "139 0000 0042");
+      r.press(tr("common.save"));
+      expect(alert).toHaveBeenCalledTimes(1);
+      const [title, body, buttons] = alert.mock.calls[0] as [
+        string,
+        string,
+        { text: string; style?: string; onPress?: () => void }[],
+      ];
+      expect([title, body]).toEqual([
+        tr("contacts.selfPhoneTitle"),
+        tr("contacts.selfPhoneBody"),
+      ]);
+      expect(buttons.map((b) => b.text)).toEqual([
+        tr("common.cancel"),
+        tr("contacts.selfPhoneConfirm"),
+      ]);
+      expect(buttons[0].style).toBe("cancel");
+      expect(contactsApi.create).not.toHaveBeenCalled();
+      await act(async () => {
+        buttons[1].onPress!();
+      });
+      expect(contactsApi.create).toHaveBeenCalledWith({
+        name: "我",
+        phone: "13900000042",
+      });
+    } finally {
+      act(() => useAuthStore.setState({ user: null } as never));
+    }
+  });
+
   it("带关系一起提交；服务端拒绝时页面级说明", async () => {
     m(contactsApi.create).mockImplementation(() =>
       Promise.reject(new ApiRequestError(400, { code: "VALIDATION_FAILED" })),
@@ -641,6 +691,54 @@ describe("关于这顶头盔", () => {
       jest.advanceTimersByTime(5000);
     });
     expect(r.texts()).toContain("••••••••");
+  });
+
+  it("还没拿到绑定码（详情里没有）：点开显示一横", async () => {
+    m(devicesApi.status).mockImplementation(() => new Promise(() => undefined));
+    m(devicesApi.detail).mockImplementation(() =>
+      Promise.resolve({ name: "通勤", bindCode: null }),
+    );
+    const r = mount(<DeviceAboutScreen />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() =>
+      r.root
+        .find(
+          (n) =>
+            n.type === Tappable &&
+            n.props.accessibilityLabel === tr("device.about.showBindCode"),
+        )
+        .props.onPress(),
+    );
+    expect(r.texts()).toContain("—");
+    expect(r.texts()).not.toContain("••••••••");
+  });
+
+  it("绑定码显示着就离开了页面：那个 10 秒后收起的计时器跟着撤掉", async () => {
+    jest.useFakeTimers();
+    m(devicesApi.status).mockImplementation(() => new Promise(() => undefined));
+    const r = mount(<DeviceAboutScreen />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const set = jest.spyOn(globalThis, "setTimeout");
+    act(() =>
+      r.root
+        .find(
+          (n) =>
+            n.type === Tappable &&
+            n.props.accessibilityLabel === tr("device.about.showBindCode"),
+        )
+        .props.onPress(),
+    );
+    const at = set.mock.calls.findIndex((c) => c[1] === 10_000);
+    const timer = set.mock.results[at].value;
+    set.mockRestore();
+    const clear = jest.spyOn(globalThis, "clearTimeout");
+    r.unmount();
+    expect(clear).toHaveBeenCalledWith(timer);
+    clear.mockRestore();
   });
 
   it("蓝牙工程模式入口带上设备号", () => {

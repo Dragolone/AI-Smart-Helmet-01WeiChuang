@@ -120,6 +120,10 @@ afterAll(() => {
 beforeEach(() => {
   // jest 里 RN 的像素密度是 2：正好不缩，画布大小 = 屏幕大小
   ratio = jest.spyOn(PixelRatio, "get").mockReturnValue(2);
+  // 有的用例给预录帧设了返回值；clearAllMocks 只清调用记录、不清返回值，每条用例从「没有预录帧」起
+  (routeFrame as jest.Mock).mockReturnValue(null);
+  (routeFrameAt as jest.Mock).mockReturnValue(null);
+  (routeFramesHeight as jest.Mock).mockReturnValue(0);
   releaseRouteScene();
 });
 afterEach(() => {

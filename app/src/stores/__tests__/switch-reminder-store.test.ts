@@ -74,6 +74,29 @@ describe("开关", () => {
     expect(store.getState().enabled.u1).toBe(false);
   });
 
+  it("拨到和现在一样的值：什么都不做，不再落一次盘", async () => {
+    const store = load();
+    await store.getState().load("u1");
+    const before = store.getState();
+    store.getState().setEnabled("u1", true);
+    await flush();
+    expect(store.getState()).toBe(before);
+    expect(mockKv.size).toBe(0);
+  });
+
+  it("关掉再打开：落盘写「1」，重开 App 还是开着", async () => {
+    const store = load();
+    await store.getState().load("u1");
+    store.getState().setEnabled("u1", false);
+    store.getState().setEnabled("u1", true);
+    await flush();
+    expect(store.getState().enabled.u1).toBe(true);
+    expect([...mockKv.values()]).toEqual(["1"]);
+    const next = load();
+    await next.getState().load("u1");
+    expect(next.getState().enabled.u1).toBe(true);
+  });
+
   it("读不出来按开着处理、落盘失败不抛", async () => {
     mockFail.get = true;
     mockFail.set = true;
@@ -135,6 +158,17 @@ describe("问一次", () => {
     expect(store.getState().prompt).toBeNull();
     store.getState().offer("u1", { currentId: "a", otherId: "c" });
     expect(store.getState().prompt).toBeNull();
+  });
+
+  it("没有在问的时候答了 / 收起：什么都不变（不记成问过）", async () => {
+    const store = load();
+    await store.getState().load("u1");
+    const before = store.getState();
+    store.getState().answer("u1");
+    store.getState().withdraw();
+    expect(store.getState()).toBe(before);
+    store.getState().offer("u1", AB);
+    expect(store.getState().prompt).toEqual(AB);
   });
 
   it("重开 App 后可以再问（问过只记在内存里）", async () => {

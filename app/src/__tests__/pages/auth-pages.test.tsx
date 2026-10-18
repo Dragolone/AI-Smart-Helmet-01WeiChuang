@@ -175,6 +175,22 @@ const inputProps = (r: Rendered, placeholder: string) =>
     .map((n) => n.props as Record<string, unknown>);
 /** 7 个表情：14 个 UTF-16 单元，服务端按码点数只有 7 位 */
 const SEVEN_EMOJI = "😀".repeat(7);
+/** 25 个汉字：25 位、但按 UTF-8 是 75 字节，超过服务端 72 字节的上限 */
+const LONG_ZH = "密".repeat(25);
+/** 「获取验证码」那颗按钮在按下 / 没按下时的不透明度 */
+const codeButtonOpacity = (r: Rendered, pressed: boolean) => {
+  const btn = r.root.find(
+    (n) =>
+      typeof n.type !== "string" &&
+      typeof n.props.style === "function" &&
+      n.findAll(
+        (c) => c.type === Text && c.props.children === tr("auth.getCode"),
+      ).length > 0,
+  );
+  return flat(
+    (btn.props.style as (s: { pressed: boolean }) => unknown)({ pressed }),
+  ).opacity;
+};
 
 let signIn: jest.Mock;
 let accept: jest.Mock;
@@ -532,6 +548,39 @@ describe("注册页", () => {
     expect(mockRouter.navigate).toHaveBeenCalledWith("/legal/privacy");
     expect(dismiss).toHaveBeenCalled();
   });
+
+  it("服务条款链接先收键盘再打开条款页；点「已有账号」也先收键盘", () => {
+    const r = render(<RegisterScreen />);
+    r.press(tr("auth.consentTerms"));
+    expect(mockRouter.navigate).toHaveBeenCalledWith("/legal/terms");
+    expect(dismiss).toHaveBeenCalledTimes(1);
+    act(() => r.root.find((n) => isHost(n, "Link")).props.onPress());
+    expect(dismiss).toHaveBeenCalledTimes(2);
+  });
+
+  it("发验证码时断网（落不到具体字段）：页面级提示；按钮按下时变淡", async () => {
+    api.sendSmsCode.mockImplementationOnce(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    const r = render(<RegisterScreen />);
+    expect(codeButtonOpacity(r, true)).toBe(0.7);
+    expect(codeButtonOpacity(r, false)).toBe(1);
+    fill(r, { phone: "13900000042" });
+    r.press(tr("auth.getCode"));
+    await waitFor(() => expect(pageErrors(r)).toEqual([tr("error.network")]));
+    expect(fieldErrors(r)).toEqual([]);
+  });
+
+  it("密码长度上限按 UTF-8 字节算、与服务端同口径：25 个汉字（75 字节）落在密码框，不发请求", () => {
+    const r = render(<RegisterScreen />);
+    tick(r);
+    fill(r, { code: "123456", pwd: LONG_ZH, confirm: LONG_ZH });
+    r.press(tr("auth.registerAndLogin"));
+    expect(fieldErrors(r)).toEqual([
+      [tr("auth.password"), tr("auth.passwordTooLong")],
+    ]);
+    expect(api.register).not.toHaveBeenCalled();
+  });
 });
 
 describe("找回密码", () => {
@@ -604,6 +653,34 @@ describe("找回密码", () => {
       jest.advanceTimersByTime(1100);
     });
     expect(mockRouter.back).toHaveBeenCalled();
+  });
+
+  it("发验证码时就说号码没注册：落在手机号上；按钮按下时变淡", async () => {
+    api.sendSmsCode.mockImplementationOnce(() =>
+      Promise.reject(apiError(404, "PHONE_NOT_REGISTERED")),
+    );
+    const r = render(<ResetPasswordScreen />);
+    expect(codeButtonOpacity(r, true)).toBe(0.7);
+    r.type(P.phone, "13900000042");
+    r.press(tr("auth.getCode"));
+    await waitFor(() =>
+      expect(fieldErrors(r)).toEqual([
+        [tr("auth.phone"), tr("error.phoneNotRegistered")],
+      ]),
+    );
+    expect(pageErrors(r)).toEqual([]);
+  });
+
+  it("新密码超过 72 字节（25 个汉字）：落在密码框，不发请求", () => {
+    const r = render(<ResetPasswordScreen />);
+    r.type(P.code, "654321");
+    r.type(P.pwd, LONG_ZH);
+    r.type(P.confirm, LONG_ZH);
+    r.press(tr("auth.resetPassword"));
+    expect(fieldErrors(r)).toEqual([
+      [tr("auth.newPassword"), tr("auth.passwordTooLong")],
+    ]);
+    expect(api.resetPassword).not.toHaveBeenCalled();
   });
 
   it("失败：手机号没注册落到手机号、限频落页面级；「返回登录」收键盘再返回", async () => {
@@ -876,7 +953,9 @@ describe("注销账号", () => {
     act(() => confirmButton(r).props.onPress());
     const buttons = alert.mock.calls[0][2] as { onPress?: () => void }[];
     act(() => buttons[1].onPress!());
-    await waitFor(() => expect(mockDiscardRelayQueue).toHaveBeenCalledWith("u1"));
+    await waitFor(() =>
+      expect(mockDiscardRelayQueue).toHaveBeenCalledWith("u1"),
+    );
     await waitFor(() =>
       expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith(
         "helmet.switchReminder.u1",

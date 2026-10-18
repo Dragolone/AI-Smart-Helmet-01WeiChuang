@@ -75,6 +75,31 @@ describe("预录的路线帧", () => {
     expect(parseRouteFrames(new Uint8Array(4096))).toBeNull();
     expect(parseRouteFrames(pack.subarray(0, pack.byteLength - 1))).toBeNull();
   });
+
+  it("文件头本身坏了：说一帧都没有、偏移表还没读全文件就到头了、偏移表倒着走，都读不出来", () => {
+    /** 按约定拼一个小文件：count 帧，各帧起止位置 rel（相对数据区），数据区 data 字节 */
+    const synth = (count: number, rel: number[], data: number) => {
+      const base = 20 + 4 * rel.length;
+      const buf = new ArrayBuffer(base + data);
+      const v = new DataView(buf);
+      v.setUint32(0, 0x31465348, true); // "HSF1"
+      v.setUint32(4, count, true);
+      v.setUint32(8, FRAMES_FPS, true);
+      v.setFloat32(12, FRAMES_HEIGHT, true);
+      v.setFloat32(16, MARK_DONE, true);
+      rel.forEach((o, i) => v.setUint32(20 + 4 * i, o, true));
+      return new Uint8Array(buf);
+    };
+    // 对照：两帧、各 5 字节，读得出来
+    expect(parseRouteFrames(synth(2, [0, 5, 10], 10))?.offsets).toEqual([
+      32, 37, 42,
+    ]);
+    expect(parseRouteFrames(synth(0, [0], 4))).toBeNull();
+    // 说有 1000 帧，可整个文件才 64 字节
+    expect(parseRouteFrames(synth(1000, [0], 40))).toBeNull();
+    // 第二帧的终点在起点前面
+    expect(parseRouteFrames(synth(2, [0, 10, 5], 10))).toBeNull();
+  });
 });
 
 describe("画法里写死的几个 Skia 枚举值", () => {
