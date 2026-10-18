@@ -18,7 +18,7 @@ export const help = {
       "系统会向紧急联系人发送求救短信，并向求救者的 App 发送推送。短信发送结果可在 SOS 记录中查看；已发送不代表对方已收到或已响应。系统不会自动拨打电话或联系急救机构。",
     "help.q5": "为什么摔倒通知需要手机在身边并运行 App？",
     "help.a5":
-      "目前头盔本身不联网，事件必须先经蓝牙传到手机，再由 App 发到云端。因此手机需要在蓝牙范围内、App 保持运行（可在后台）且有网络。手机没电、离得太远或 App 被彻底关闭时，通知可能延迟或无法发出。 华为手机请在「设置 → 应用 → 应用启动管理」里把零一智行设为手动管理并打开三项（允许自启动、关联启动、后台活动），否则从多任务划掉后系统会强行停止 App。",
+      "目前头盔本身不联网，事件必须先经蓝牙传到手机，再由 App 发到云端。因此手机需要在蓝牙范围内、App 保持运行（可在后台）且有网络。手机没电、离得太远或 App 被彻底关闭时，通知可能延迟或无法发出。 华为手机请在「设置 → 应用和服务 → 应用启动管理」（有的机型是「设置 → 应用」）里把零一智行设为手动管理并打开三项（允许自启动、关联启动、后台活动），否则从多任务划掉后系统会强行停止 App。",
     "help.q6": "如何调整蜂鸣音量？",
     "help.a6":
       "进入「设备」页，点击头盔后选择「蜂鸣音量」，拖动滑块并保存。头盔确认执行后，设置才显示为已生效；离线时无法送达。",
@@ -51,7 +51,7 @@ export const help = {
       "系統會向緊急聯絡人傳送求救簡訊，並向求救者的 App 傳送推播。簡訊傳送結果可在 SOS 紀錄中查看；已傳送不代表對方已收到或已回應。系統不會自動撥打電話或聯絡急救機構。",
     "help.q5": "為什麼摔倒通知需要手機在身邊並執行 App？",
     "help.a5":
-      "目前頭盔本身不連網，事件必須先經藍牙傳到手機，再由 App 送到雲端。因此手機需在藍牙範圍內、App 保持執行（可在背景）且有網路。手機沒電、距離太遠或 App 被完全關閉時，通知可能延遲或無法送出。 華為手機請在「設定 → 應用程式 → 應用程式啟動管理」裡把零一智行設為手動管理並打開三項（允許自啟動、關聯啟動、背景活動），否則從多工列滑掉後系統會強制停止 App。",
+      "目前頭盔本身不連網，事件必須先經藍牙傳到手機，再由 App 送到雲端。因此手機需在藍牙範圍內、App 保持執行（可在背景）且有網路。手機沒電、距離太遠或 App 被完全關閉時，通知可能延遲或無法送出。 華為手機請在「設定 → 應用程式和服務 → 應用程式啟動管理」（有的機型是「設定 → 應用程式」）裡把零一智行設為手動管理並打開三項（允許自啟動、關聯啟動、背景活動），否則從多工列滑掉後系統會強制停止 App。",
     "help.q6": "如何調整蜂鳴音量？",
     "help.a6":
       "進入「裝置」頁，點選頭盔後選擇「蜂鳴音量」，拖曳滑桿並儲存。頭盔確認執行後，設定才顯示為已生效；離線時無法送達。",
@@ -85,7 +85,7 @@ export const help = {
     "help.q5":
       "Why must my phone be nearby with the app running for fall alerts?",
     "help.a5":
-      "The helmet has no network connection of its own. Events travel over Bluetooth to your phone, and the app forwards them to the cloud. Your phone therefore needs to be within Bluetooth range, keep the app running (background is fine) and have a network connection. If the phone is out of battery, too far away, or the app has been fully closed, alerts may be delayed or not sent. On Huawei phones, go to Settings → Apps → App launch, set this app to manual management and enable Auto-launch, Secondary launch and Run in background; otherwise the system force-stops the app when you swipe it away.",
+      "The helmet has no network connection of its own. Events travel over Bluetooth to your phone, and the app forwards them to the cloud. Your phone therefore needs to be within Bluetooth range, keep the app running (background is fine) and have a network connection. If the phone is out of battery, too far away, or the app has been fully closed, alerts may be delayed or not sent. On Huawei phones, go to Settings → Apps & services → App launch (Settings → Apps on some phones), set this app to manual management and enable Auto-launch, Secondary launch and Run in background; otherwise the system force-stops the app when you swipe it away.",
     "help.q6": "How do I change the buzzer volume?",
     "help.a6":
       "On the Devices tab, select your helmet, then Buzzer volume. Adjust the slider and save. Settings are shown as applied only after the helmet confirms execution. They cannot be delivered while the helmet is offline.",

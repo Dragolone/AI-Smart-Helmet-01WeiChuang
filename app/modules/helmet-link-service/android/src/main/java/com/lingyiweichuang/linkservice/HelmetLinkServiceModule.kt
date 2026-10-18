@@ -64,7 +64,8 @@ class HelmetLinkServiceModule : Module() {
      * 打开系统的「应用启动管理」（华为 / 荣耀）。华为上从多任务划掉 App = 系统强停、之后求救推送到不了，
      * 只有把本应用设成手动管理、三项全开才不会（10-18 华为 P30 Pro 实测，REGRESSION 4.8）。
      * 能直接开那一页就开（老系统）；新系统那两页要 com.huawei.permission.external_app_settings.USE_COMPONENT、
-     * 第三方拿不到，就开本应用的应用信息页。返回打开的是哪一种（launch / details / none），JS 据此提示
+     * 第三方拿不到，就开本应用的应用信息页（P30 Pro 上再点「耗电详情」→「启动管理」；耗电详情页
+     * DetailOfSoftConsumptionActivity 也要同一权限，不能直接开，10-18 adb 实测）。返回打开的是哪一种（launch / details / none）
      */
     Function("openAppLaunchSettings") { ->
       val direct = launchManagerIntent()

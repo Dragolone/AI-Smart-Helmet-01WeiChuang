@@ -211,7 +211,9 @@ describe("首次连接引导：华为「应用启动管理」那一步", () => {
     act(() => m.launch()?.action());
     // 先弹说明框（跳过去以后 App 里的说明就看不到了），点「去设置」才调原生
     expect(alerts).toHaveLength(1);
-    expect(alerts[0].body).toContain("电池");
+    // 路径按华为 P30 Pro 实测：应用信息 → 耗电详情 → 启动管理（10-18）
+    expect(alerts[0].body).toContain("耗电详情");
+    expect(alerts[0].body).toContain("启动管理");
     expect(alerts[0].body).toContain("允许后台活动");
     expect(mockLink.openCalls).toBe(1);
     expect(m.launch()?.done).toBe(false);

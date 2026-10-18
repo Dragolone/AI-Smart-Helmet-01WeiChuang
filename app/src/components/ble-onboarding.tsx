@@ -52,7 +52,8 @@ async function openBluetoothSettings(): Promise<void> {
 
 /**
  * 华为「应用启动管理」：跳系统设置之前先把要点哪几下说清楚——跳过去以后 App 里的说明就看不到了。
- * 新系统上第三方打不开启动管理页（原生里查过权限），打开的是本应用的应用信息页，得先点「电池」
+ * 新系统上第三方打不开启动管理页（原生里查过权限），打开的是本应用的应用信息页，
+ * 华为 P30 Pro 上还得点「耗电详情」→「启动管理」（10-18 实测；那一页同样要华为私有权限，不能直接开）
  */
 function confirmOpenLaunchSettings(): void {
   Alert.alert(

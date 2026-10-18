@@ -22,7 +22,7 @@ export const common = {
       "不设的话，从多任务划掉 App 后系统会强行停止它，收不到求救通知",
     "ble.launchGuide.title": "设为手动管理",
     "ble.launchGuide.body":
-      "接下来会打开系统设置：\n1. 若看到的是「应用信息」，先点「电池」，再点「应用启动管理」\n2. 关闭零一智行的「自动管理」\n3. 在弹出的框里打开「允许自启动」「允许关联启动」「允许后台活动」三项，点「确定」\n\n三项默认是关着的，全部打开才不会在划掉 App 后被系统强行停止。",
+      "接下来会打开系统设置：\n1. 若看到的是「应用信息」，点「耗电详情」（有的手机叫「电池」），再点「启动管理」\n2. 关闭零一智行的「自动管理」\n3. 把「允许自启动」「允许关联启动」「允许后台活动」三项都打开，点「确定」\n\n三项要全部打开，否则划掉 App 后系统仍会强行停止它。",
     "ble.onboarding.go": "去设置",
     "ble.banner.off": "手机蓝牙已关闭，头盔无法连接",
     "ble.banner.unauthorized": "未允许蓝牙权限，头盔无法连接",
@@ -126,7 +126,7 @@ export const common = {
       "不設的話，從多工列滑掉 App 後系統會強制停止它，收不到求救通知",
     "ble.launchGuide.title": "設為手動管理",
     "ble.launchGuide.body":
-      "接下來會打開系統設定：\n1. 若看到的是「應用程式資訊」，先點「電池」，再點「應用程式啟動管理」\n2. 關閉零一智行的「自動管理」\n3. 在彈出的框裡打開「允許自啟動」「允許關聯啟動」「允許背景活動」三項，點「確定」\n\n三項預設是關著的，全部打開才不會在滑掉 App 後被系統強制停止。",
+      "接下來會打開系統設定：\n1. 若看到的是「應用程式資訊」，點「耗電詳情」（有的手機叫「電池」），再點「啟動管理」\n2. 關閉零一智行的「自動管理」\n3. 把「允許自啟動」「允許關聯啟動」「允許背景活動」三項都打開，點「確定」\n\n三項要全部打開，否則滑掉 App 後系統仍會強制停止它。",
     "ble.onboarding.go": "去設定",
     "ble.banner.off": "手機藍牙已關閉，頭盔無法連線",
     "ble.banner.unauthorized": "未允許藍牙權限，頭盔無法連線",
@@ -232,7 +232,7 @@ export const common = {
       "Otherwise the system force-stops the app when you swipe it away, and SOS alerts won't arrive.",
     "ble.launchGuide.title": "Set App launch to manual",
     "ble.launchGuide.body":
-      "System settings will open next:\n1. If you see App info, tap Battery, then App launch\n2. Turn off Manage automatically for this app\n3. In the dialog, turn on Auto-launch, Secondary launch and Run in background, then tap OK\n\nAll three are off by default. Turn them all on so the system doesn't force-stop the app when you swipe it away.",
+      "System settings will open next:\n1. If you see App info, tap Power usage details (Battery on some phones), then App launch\n2. Turn off Manage automatically for this app\n3. Turn on Auto-launch, Secondary launch and Run in background, then tap OK\n\nAll three must be on, or the system will still force-stop the app when you swipe it away.",
     "ble.onboarding.go": "Settings",
     "ble.banner.off": "Bluetooth is off, the helmet can't connect",
     "ble.banner.unauthorized":
