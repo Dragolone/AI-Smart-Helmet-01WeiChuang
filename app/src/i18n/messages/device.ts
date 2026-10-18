@@ -108,6 +108,7 @@ export const device = {
     "device.ble.error": "身份不匹配，请检查绑定",
     "device.ble.off": "手机蓝牙已关闭",
     "device.ble.unauthorized": "未授权蓝牙权限",
+    "device.ble.unauthorizedLocation": "未允许位置信息（搜索头盔要用）",
     "device.ble.unsupported": "本机不支持蓝牙",
     "device.ble.serviceTitle": "头盔连接服务",
     "device.ble.serviceConnected": "已连接 {names}，正在接收安全事件",
@@ -269,6 +270,7 @@ export const device = {
     "device.ble.error": "身份不符，請檢查綁定",
     "device.ble.off": "手機藍牙已關閉",
     "device.ble.unauthorized": "未授權藍牙權限",
+    "device.ble.unauthorizedLocation": "未允許位置資訊（搜尋頭盔要用）",
     "device.ble.unsupported": "本機不支援藍牙",
     "device.ble.serviceTitle": "頭盔連線服務",
     "device.ble.serviceConnected": "已連接 {names}，正在接收安全事件",
@@ -442,6 +444,8 @@ export const device = {
     "device.ble.error": "Identity mismatch, check binding",
     "device.ble.off": "Phone Bluetooth is off",
     "device.ble.unauthorized": "Bluetooth permission denied",
+    "device.ble.unauthorizedLocation":
+      "Location permission needed to find the helmet",
     "device.ble.unsupported": "Bluetooth unavailable on this device",
     "device.ble.serviceTitle": "Helmet connection service",
     "device.ble.serviceConnected":

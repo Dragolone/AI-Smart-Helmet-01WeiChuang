@@ -60,6 +60,7 @@ import { useDeviceSettings } from "@/hooks/use-device-settings";
 import { useTheme } from "@/hooks/use-theme";
 import { useLocale, useT, type MessageKey } from "@/i18n";
 import { relativeTime } from "@/i18n/format";
+import { bleNeedsLocationPermission } from "@/services/ble-platform";
 import { retryBleLink } from "@/services/ble-link";
 import {
   bleRowOf,
@@ -505,9 +506,12 @@ export default function DeviceDetailScreen() {
                     : "device.status.bleNotConnected",
                 )}
                 detail={
-                  BLE_DETAIL[bleRow.state]
-                    ? t(BLE_DETAIL[bleRow.state]!)
-                    : undefined
+                  bleRow.state === "unauthorized" &&
+                  bleNeedsLocationPermission()
+                    ? t("device.ble.unauthorizedLocation")
+                    : BLE_DETAIL[bleRow.state]
+                      ? t(BLE_DETAIL[bleRow.state]!)
+                      : undefined
                 }
                 actionLabel={bleAction?.label}
                 onAction={bleAction?.run}
@@ -578,7 +582,9 @@ export default function DeviceDetailScreen() {
             <VolumeSlider
               value={optimisticVolume ?? confirmedVolume ?? VOLUME_DEFAULT}
               pending={volumePending}
-              unconfirmed={optimisticVolume === null && confirmedVolume === null}
+              unconfirmed={
+                optimisticVolume === null && confirmedVolume === null
+              }
               onStep={onVolumeStep}
               onRelease={sendVolume}
               onDraggingChange={onVolumeDragging}

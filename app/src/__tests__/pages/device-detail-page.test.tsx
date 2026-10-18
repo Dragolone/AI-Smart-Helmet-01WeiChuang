@@ -152,9 +152,7 @@ const command = (over: Partial<CommandPublic>): CommandPublic => ({
 /** 下发成功：交回新建的命令（页面按 commandId 认自己那条的回执） */
 const sendOk = () =>
   jest.fn((key: string, value: unknown) =>
-    Promise.resolve(
-      command({ commandId: "v1", params: { [key]: value } }),
-    ),
+    Promise.resolve(command({ commandId: "v1", params: { [key]: value } })),
   );
 const settings = {
   values: { volume: 60 } as Record<string, unknown> | undefined,
@@ -258,6 +256,33 @@ describe("状态卡", () => {
     expect(r.allText()).toContain(tr("device.status.lastBattery"));
     expect(r.allText()).toContain(tr("device.status.offlineHint"));
     expect(r.allText()).toContain(tr("device.neverReported"));
+  });
+
+  it("安卓 12 以下没权限：蓝牙那一行说要位置信息（系统设置里没有单独的蓝牙权限可开）", async () => {
+    const os = Platform.OS;
+    const version = Platform.Version;
+    Object.defineProperty(Platform, "OS", {
+      value: "android",
+      configurable: true,
+    });
+    Object.defineProperty(Platform, "Version", {
+      value: 29,
+      configurable: true,
+    });
+    try {
+      act(() => useBleStore.setState({ adapter: "unauthorized" }));
+      const r = mount();
+      await waitFor(() =>
+        expect(r.allText()).toContain(tr("device.ble.unauthorizedLocation")),
+      );
+      expect(r.allText()).not.toContain(tr("device.ble.unauthorized") + "，");
+    } finally {
+      Object.defineProperty(Platform, "OS", { value: os, configurable: true });
+      Object.defineProperty(Platform, "Version", {
+        value: version,
+        configurable: true,
+      });
+    }
   });
 
   it("电量低且没在充电：提醒充电；在充电就不催", async () => {
@@ -487,7 +512,9 @@ describe("常用控制：音量乐观值只认自己那条命令", () => {
     );
   /** 音量那一行的数字（「60%」或「40% · 正在应用设置…」） */
   const volumeText = (r: Rendered) =>
-    r.texts().find((x) => /^\d+%( · .*)?$/.test(x) && x !== "10%" && x !== "100%");
+    r
+      .texts()
+      .find((x) => /^\d+%( · .*)?$/.test(x) && x !== "10%" && x !== "100%");
   const flush = async () => {
     await act(async () => {
       await Promise.resolve();

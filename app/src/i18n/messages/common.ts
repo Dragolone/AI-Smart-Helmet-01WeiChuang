@@ -15,11 +15,15 @@ export const common = {
       "iPhone 在控制中心打开；安卓在系统设置里打开",
     "ble.onboarding.permission": "允许「零一智行」使用蓝牙",
     "ble.onboarding.permissionHint": "之前拒绝过，需要到系统设置里重新允许",
+    "ble.onboarding.permissionLocation": "允许「零一智行」使用位置信息",
+    "ble.onboarding.permissionLocationHint":
+      "这台手机搜索蓝牙头盔要用位置信息权限，之前拒绝过，需要到系统设置里重新允许",
     "ble.onboarding.whitelist": "允许后台运行",
     "ble.onboarding.whitelistHint": "关闭省电限制，减少后台连接中断",
     "ble.onboarding.go": "去设置",
     "ble.banner.off": "手机蓝牙已关闭，头盔无法连接",
     "ble.banner.unauthorized": "未允许蓝牙权限，头盔无法连接",
+    "ble.banner.unauthorizedLocation": "未允许位置信息权限，搜索不到头盔",
     "keepalive.title": "保持 App 在后台运行",
     "keepalive.body":
       "使用头盔时，请保持 App 运行，并确保手机蓝牙和网络可用。锁屏或切换应用后，App 可在后台运行；强制关闭 App 可能导致摔倒和求救通知延迟或无法发送。",
@@ -113,11 +117,15 @@ export const common = {
       "iPhone 在控制中心打開；Android 在系統設定裡打開",
     "ble.onboarding.permission": "允許「零一智行」使用藍牙",
     "ble.onboarding.permissionHint": "之前拒絕過，需要到系統設定裡重新允許",
+    "ble.onboarding.permissionLocation": "允許「零一智行」使用位置資訊",
+    "ble.onboarding.permissionLocationHint":
+      "這支手機搜尋藍牙頭盔要用位置資訊權限，之前拒絕過，需要到系統設定裡重新允許",
     "ble.onboarding.whitelist": "允許背景執行",
     "ble.onboarding.whitelistHint": "關閉省電限制，減少背景連線中斷",
     "ble.onboarding.go": "去設定",
     "ble.banner.off": "手機藍牙已關閉，頭盔無法連線",
     "ble.banner.unauthorized": "未允許藍牙權限，頭盔無法連線",
+    "ble.banner.unauthorizedLocation": "未允許位置資訊權限，搜尋不到頭盔",
     "keepalive.title": "保持 App 在背景執行",
     "keepalive.body":
       "使用頭盔時，請保持 App 執行，並確保手機藍牙和網路可用。鎖定螢幕或切換應用程式後，App 可在背景執行；強制關閉 App 可能導致跌倒和求救通知延遲或無法傳送。",
@@ -212,6 +220,9 @@ export const common = {
     "ble.onboarding.permission": "Allow Bluetooth for this app",
     "ble.onboarding.permissionHint":
       "It was denied before; re-enable it in system settings",
+    "ble.onboarding.permissionLocation": "Allow location for this app",
+    "ble.onboarding.permissionLocationHint":
+      "This phone needs location permission to find Bluetooth helmets. You denied it before, so allow it in system settings.",
     "ble.onboarding.whitelist": "Allow background activity",
     "ble.onboarding.whitelistHint":
       "Disable battery restrictions to reduce interruptions in the background",
@@ -219,6 +230,8 @@ export const common = {
     "ble.banner.off": "Bluetooth is off, the helmet can't connect",
     "ble.banner.unauthorized":
       "Bluetooth permission denied, the helmet can't connect",
+    "ble.banner.unauthorizedLocation":
+      "Location permission is off. The helmet can't be found.",
     "keepalive.title": "Keep the app running in the background",
     "keepalive.body":
       "Keep the app running while using your helmet, with Bluetooth and internet available. The app can run in the background when you lock the screen or switch apps. Force-closing it may delay or prevent fall and SOS alerts.",
