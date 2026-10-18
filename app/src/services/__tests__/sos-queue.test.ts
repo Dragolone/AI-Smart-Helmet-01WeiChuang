@@ -1,5 +1,12 @@
 // 多顶头盔同时求救的队列（10-16 N10）：从缓存推导、按到期先后排、终态的不算、路由带来的那单也算
-import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+} from "@jest/globals";
 import { QueryClient } from "@tanstack/react-query";
 import type { Sos } from "@helmet/shared";
 
@@ -115,6 +122,19 @@ describe("activeSosQueue", () => {
     expect(activeSosQueue(qc, fromPage)[0]).toBe(fromPage);
   });
 
+  it("同一顶头盔两单同一毫秒建：不管哪份在缓存、哪份是路由带来的，留下的是同一单（按单号定，结果稳定）", () => {
+    // 时间戳只到毫秒，撞上时只能靠单号定先后；只比建单时间就成了「先遍历到的留下」，
+    // 倒计时页自己那单在不在队列里，要看缓存里恰好是哪一份
+    const a = sos({ sosId: "s1" });
+    const b = sos({ sosId: "s9", deadline: "2026-10-16T10:01:05.000Z" });
+    qc.setQueryData(["sos-active", "d1"], { sos: a });
+    const cachedA = activeSosQueue(qc, b).map((s) => s.sosId);
+    qc.setQueryData(["sos-active", "d1"], { sos: b });
+    const cachedB = activeSosQueue(qc, a).map((s) => s.sosId);
+    expect(cachedA).toHaveLength(1);
+    expect(cachedB).toEqual(cachedA);
+  });
+
   it("一万顶同时报警：队列照样算得出来（页面只画前 20 个胶囊）", () => {
     for (let i = 0; i < 10_000; i += 1) {
       qc.setQueryData(["sos-active", `d${i}`], {
@@ -198,13 +218,77 @@ describe("applyAccountActive（账号级列表写回按头盔的缓存，B 线�
     const s1 = sos();
     qc.setQueryData(["sos-active", "d1"], { sos: s1 });
     const before = qc.getQueryState(["sos-active", "d1"])?.dataUpdatedAt;
+    // 只看 dataUpdatedAt 不够：照写也可能落在同一毫秒、时间戳不变，所以直接数缓存更新事件
+    const updates: unknown[] = [];
+    const off = qc.getQueryCache().subscribe((e) => {
+      if (e.type === "updated") updates.push(e.query.queryKey);
+    });
     applyAccountActive(
       qc,
       { items: [{ ...s1 }], total: 1 },
       ["d1"],
       (before ?? 0) + 1,
     );
+    off();
+    expect(updates).toEqual([]);
     expect(qc.getQueryState(["sos-active", "d1"])?.dataUpdatedAt).toBe(before);
+  });
+
+  it("这顶头盔缓存里还是上一单、列表里已是新的一单（两单时间戳一样）：换成新的一单", () => {
+    qc.setQueryData(["sos-active", "d1"], { sos: sos({ sosId: "s0" }) });
+    applyAccountActive(
+      qc,
+      { items: [sos({ sosId: "s1" })], total: 1 },
+      ["d1"],
+      Date.now() + 1,
+    );
+    expect(active("d1")?.sosId).toBe("s1");
+  });
+
+  it("同一单在服务端有了更新（updatedAt 变了）：写回新的那份", () => {
+    qc.setQueryData(["sos-active", "d1"], { sos: sos() });
+    const updated = sos({ updatedAt: "2026-10-16T10:00:30.000Z" });
+    applyAccountActive(
+      qc,
+      { items: [updated], total: 1 },
+      ["d1"],
+      Date.now() + 1,
+    );
+    expect(active("d1")).toEqual(updated);
+  });
+
+  it("列表里混进已结束的单：不当成进行中写回（进行中缓存只放 pending 或 null，几处读它的地方都这么认）", () => {
+    qc.setQueryData(["sos-active", "d1"], { sos: sos() });
+    applyAccountActive(
+      qc,
+      { items: [sos({ status: "notified" })], total: 1 },
+      ["d1"],
+      Date.now() + 1,
+    );
+    expect(active("d1")).toBeNull();
+  });
+
+  it("列表里同一顶头盔两单：写晚建的那单，与列表里的先后无关（与倒计时页队列同一口径）", () => {
+    // 服务端按 (头盔, 用户) 唯一索引不会给出两单；这里钉的是代码里专门写的兜底
+    const pair = (deviceId: string, oldId: string, newId: string) => [
+      sos({ sosId: oldId, deviceId }),
+      sos({
+        sosId: newId,
+        deviceId,
+        createdAt: "2026-10-16T10:00:20.000Z",
+        deadline: "2026-10-16T10:01:20.000Z",
+      }),
+    ];
+    const [o1, n1] = pair("d1", "s1", "s9");
+    const [o2, n2] = pair("d2", "s2", "s8");
+    applyAccountActive(
+      qc,
+      { items: [o1, n1, n2, o2], total: 4 },
+      ["d1", "d2"],
+      Date.now() + 1,
+    );
+    expect(active("d1")?.sosId).toBe("s9");
+    expect(active("d2")?.sosId).toBe("s8");
   });
 
   it("pollAccountActive：拉一次、按发请求那一刻做在途判断、返回总数", async () => {
@@ -214,6 +298,30 @@ describe("applyAccountActive（账号级列表写回按头盔的缓存，B 线�
     }));
     await expect(pollAccountActive(qc, ["d1"], fetch)).resolves.toBe(1);
     expect(active("d1")?.sosId).toBe("s1");
+  });
+
+  it("pollAccountActive：请求在路上时 WS 推来的单，不被这次迟到的「没有」冲掉（在途起点是发请求那一刻，不是应答回来那一刻）", async () => {
+    const now = jest.spyOn(Date, "now");
+    try {
+      const t0 = Date.parse("2026-10-16T10:00:10.000Z");
+      now.mockReturnValue(t0);
+      let answer!: (r: { items: Sos[]; total: number }) => void;
+      const polling = pollAccountActive(
+        qc,
+        ["d2"],
+        () => new Promise<{ items: Sos[]; total: number }>((r) => (answer = r)),
+      );
+      now.mockReturnValue(t0 + 5);
+      qc.setQueryData(["sos-active", "d2"], {
+        sos: sos({ sosId: "s2", deviceId: "d2" }),
+      });
+      now.mockReturnValue(t0 + 10);
+      answer({ items: [], total: 0 });
+      await polling;
+      expect(active("d2")?.sosId).toBe("s2");
+    } finally {
+      now.mockRestore();
+    }
   });
 });
 
@@ -232,6 +340,17 @@ describe("activeSosStore（useSyncExternalStore 用）", () => {
     qc.setQueryData(["sos", "s1"], sos({ status: "notified" }));
     expect(store.getSnapshot()).toEqual([]);
     off();
+  });
+
+  it("同一单内容更新（新对象、单号不变）：快照换成新的那份，不沿用旧对象", () => {
+    const store = activeSosStore(qc);
+    qc.setQueryData(["sos-active", "d1"], { sos: sos() });
+    const first = store.getSnapshot();
+    const updated = sos({ updatedAt: "2026-10-16T10:00:30.000Z" });
+    qc.setQueryData(["sos-active", "d1"], { sos: updated });
+    const next = store.getSnapshot();
+    expect(next).not.toBe(first);
+    expect(next).toEqual([updated]);
   });
 });
 

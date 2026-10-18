@@ -11,7 +11,7 @@ import {
   jest,
 } from "@jest/globals";
 import type { Mock } from "jest-mock";
-import { AppState, Platform } from "react-native";
+import { Alert, AppState, Platform } from "react-native";
 
 type SosAlert = typeof import("../sos-alert");
 
@@ -103,6 +103,18 @@ const load = (): SosAlert => {
   });
   loaded.push(mod);
   return mod;
+};
+/** 连同同一份隔离注册表里的 sos-sync 一起载入：跳倒计时页时登记的「已拉起」集合在它里面，顶层 import 的不是同一个实例 */
+const loadWithSync = (): { m: SosAlert; presented: Set<string> } => {
+  let mod!: SosAlert;
+  let sync!: typeof import("@/services/sos-sync");
+  jest.isolateModules(() => {
+    sync =
+      require("@/services/sos-sync") as typeof import("@/services/sos-sync");
+    mod = require("../sos-alert") as SosAlert;
+  });
+  loaded.push(mod);
+  return { m: mod, presented: sync.presentedSos.current };
 };
 
 type Req = {
@@ -680,8 +692,39 @@ describe("sos-alert", () => {
       expect(await m.cancelFromNotification("s1")).toBe(true);
     });
 
+    it("通知上的「取消」一直发不出去：重试用尽后按通知里带的头盔号把人带到这一单的倒计时页（不变式 F-11）", async () => {
+      jest.useFakeTimers();
+      const notice = jest
+        .spyOn(Alert, "alert")
+        .mockImplementation(() => undefined);
+      try {
+        override(AppState, "addEventListener", () => ({
+          remove: () => undefined,
+        }));
+        mockCancel.mockRejectedValue(new Error("offline"));
+        const m = load();
+        await m.ensureSosAlertPermission();
+        responseHandler?.({
+          actionIdentifier: "cancel",
+          notification: {
+            request: { content: { data: { sosId: "s1", deviceId: "d1" } } },
+          },
+        });
+        for (const ms of [0, 2_000, 5_000, 10_000])
+          await jest.advanceTimersByTimeAsync(ms);
+        expect(mockCancel).toHaveBeenCalledTimes(4);
+        expect(mockNavigate).toHaveBeenCalledWith(
+          "/sos-active?sosId=s1&deviceId=d1",
+        );
+        expect(notice).toHaveBeenCalledTimes(1);
+      } finally {
+        notice.mockRestore();
+        jest.useRealTimers();
+      }
+    });
+
     it("点横幅/「打开 App」进 SOS 页：用 navigate（页面多半已在栈上，push 会叠两页）并登记为已拉起", async () => {
-      const m = load();
+      const { m, presented } = loadWithSync();
       await m.ensureSosAlertPermission();
       responseHandler?.({
         actionIdentifier: "open",
@@ -693,6 +736,8 @@ describe("sos-alert", () => {
         "/sos-active?sosId=s1&deviceId=d1",
       );
       expect(mockPush).not.toHaveBeenCalled();
+      // 不登记的话随后的 WS 推送 / 冷启动补拉会再 push 一页：两页倒计时、两路警报音
+      expect(presented.has("s1")).toBe(true);
     });
 
     it("通知里没有 deviceId：不跳转（不把 undefined 拼进路由）", async () => {
@@ -950,6 +995,19 @@ describe("sos-alert", () => {
       await jest.advanceTimersByTimeAsync(20_000);
       expect(mockPresented).not.toHaveBeenCalled();
       jest.useRealTimers();
+    });
+
+    it("「取消」被服务端确认后，同一单的远程推送也撤掉（被杀状态下它是通知中心里唯一的一条，留着用户会再去长按，10-07 实测）；别的单的不动", async () => {
+      mockPresented.mockResolvedValue([
+        remote("apns-1", "s1"),
+        remote("apns-2", "s9"),
+      ]);
+      const m = load();
+      expect(await m.cancelFromNotification("s1")).toBe(true);
+      await new Promise((r) => setTimeout(r, 0));
+      const dismissed = mockDismiss.mock.calls.map((c) => c[0]);
+      expect(dismissed).toContain("apns-1");
+      expect(dismissed).not.toContain("apns-2");
     });
 
     it("查通知中心抛错不影响提醒本身", async () => {
