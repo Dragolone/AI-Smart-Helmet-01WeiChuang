@@ -58,9 +58,12 @@ describe("接线：设备详情页（源码不变式）", () => {
   );
 
   it("标题最多两行", () => {
-    expect(src).toMatch(
-      /<ThemedText type="title" style=\{styles\.title\} numberOfLines=\{2\}>\s*\{helmetNameOf\(/,
+    // 属性可以换行、顺序不限（10-19 加了字体放大上限后拆成多行）；要的是设备名那个标题带 numberOfLines={2}
+    const title = /<ThemedText\s+type="title"([^>]*)>\s*\{helmetNameOf\(/.exec(
+      src,
     );
+    expect(title).not.toBeNull();
+    expect(title![1]).toMatch(/numberOfLines=\{2\}/);
   });
 
   it("详情回来之前不显示改名按钮（否则预填空串，一点保存就清掉原名）", () => {
