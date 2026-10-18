@@ -17,6 +17,7 @@ import { Alert } from "react-native";
 import { act } from "react-test-renderer";
 import { mockRouter } from "@/__tests__/helpers/native-mocks";
 import {
+  flat,
   makeQueryClient,
   render,
   waitFor,
@@ -24,6 +25,7 @@ import {
 } from "@/__tests__/helpers/render";
 import { ApiRequestError } from "@/api/client";
 import { contactsApi } from "@/api/contacts";
+import { toUserMessage } from "@/api/error-messages";
 import { relayApi } from "@/api/relay";
 import { sosApi } from "@/api/sos";
 import { Tappable } from "@/components/tappable";
@@ -354,6 +356,32 @@ describe("最近一条 SOS 与入口", () => {
     );
   });
 
+  it("最近一条是摔倒触发的（不是手动求救）：类型写「疑似摔倒」", async () => {
+    m(sosApi.accidents).mockImplementation(() =>
+      Promise.resolve({
+        items: [
+          {
+            sosId: "a",
+            createdAt: "2026-10-12T01:00:00.000Z",
+            triggerType: "possible_fall",
+            status: "cancelled",
+          } as AccidentListItem,
+        ],
+        total: 1,
+      }),
+    );
+    const r = mount();
+    await waitFor(() =>
+      expect(r.allText()).toContain(
+        tr("safety.recordsLatest", {
+          date: shortDate("2026-10-12T01:00:00.000Z", "zh-CN"),
+          type: tr("safety.risk.fall"),
+          status: tr("safety.status.cancelled"),
+        }),
+      ),
+    );
+  });
+
   it("右上角设置；没打开过演练的显示演练入口", () => {
     mockSafety.drill = { unseen: true, open: jest.fn() };
     const r = mount();
@@ -467,6 +495,60 @@ describe("长按求救", () => {
     expect(body).toContain(translate("safety.sosHelmetGone"));
     expect(body).not.toContain(translate("error.deviceNotFound"));
     expect(notifyCriticalAccepted).not.toHaveBeenCalled();
+  });
+
+  it("服务端判请求体不合格（400，如头盔编号格式不对）：同样不进持久队列，第一行写服务端给的原因（不是「头盔已不在账号下」），明说没发出", async () => {
+    const err = new ApiRequestError(400, {
+      code: "VALIDATION_FAILED",
+      message: "deviceId 格式不正确",
+    });
+    m(relayApi.push).mockImplementation(() => Promise.reject(err));
+    const r = mount();
+    await act(async () => {
+      sosButton(r).props.onLongPress();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(alert).toHaveBeenCalled());
+    expect(enqueueRelayEvent).not.toHaveBeenCalled();
+    expect(alert).toHaveBeenLastCalledWith(
+      translate("safety.sosSendFailed"),
+      `${toUserMessage(err)}\n${translate("safety.sosNotSent")}`,
+      NOTICE_OK,
+    );
+    expect(notifyCriticalAccepted).not.toHaveBeenCalled();
+  });
+
+  it("设备不支持震动（触觉接口直接拒绝）：吞掉，长按照样发出求救", async () => {
+    m(Haptics.impactAsync).mockImplementationOnce(() =>
+      Promise.reject(new Error("vibrator unavailable")),
+    );
+    m(Haptics.notificationAsync).mockImplementationOnce(() =>
+      Promise.reject(new Error("vibrator unavailable")),
+    );
+    m(relayApi.push).mockImplementation(() => Promise.resolve({ accepted: 1 }));
+    const r = mount();
+    const btn = sosButton(r);
+    act(() => btn.props.onPressIn());
+    await act(async () => {
+      btn.props.onLongPress();
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(notifyCriticalAccepted).toHaveBeenCalledWith("h1"),
+    );
+    expect(Haptics.impactAsync).toHaveBeenCalledWith("heavy");
+    expect(Haptics.notificationAsync).toHaveBeenCalledWith("warning");
+  });
+
+  it("浅色外观下按钮的红色光晕调淡（0.18）；深色外观 0.45", () => {
+    useThemeStore.setState({ mode: "light" });
+    let r = mount();
+    expect(flat(sosButton(r).props.style).shadowOpacity).toBe(0.18);
+    r.unmount();
+    useThemeStore.setState({ mode: "dark" });
+    r = mount();
+    expect(flat(sosButton(r).props.style).shadowOpacity).toBe(0.45);
   });
 
   it("两次长按是两个不同的 eventId（服务端按它幂等，不能复用）", async () => {
