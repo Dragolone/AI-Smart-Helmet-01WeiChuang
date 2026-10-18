@@ -2,11 +2,13 @@ package com.lingyiweichuang.linkservice
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.net.wifi.WifiManager
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Log
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
@@ -58,6 +60,24 @@ class HelmetLinkServiceModule : Module() {
 
     Function("isRunning") { -> HelmetLinkService.running }
 
+    /**
+     * 打开系统的「应用启动管理」（华为 / 荣耀）。华为上从多任务划掉 App = 系统强停、之后求救推送到不了，
+     * 只有把本应用设成手动管理、三项全开才不会（10-18 华为 P30 Pro 实测，REGRESSION 4.8）。
+     * 能直接开那一页就开（老系统）；新系统那两页要 com.huawei.permission.external_app_settings.USE_COMPONENT、
+     * 第三方拿不到，就开本应用的应用信息页（P30 Pro 上再点「耗电详情」→「启动管理」；耗电详情页
+     * DetailOfSoftConsumptionActivity 也要同一权限，不能直接开，10-18 adb 实测）。返回打开的是哪一种（launch / details / none）
+     */
+    Function("openAppLaunchSettings") { ->
+      val direct = launchManagerIntent()
+      if (direct != null && tryStart(direct)) {
+        "launch"
+      } else if (tryStart(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))) {
+        "details"
+      } else {
+        "none"
+      }
+    }
+
     /** 是否已加入省电白名单（华为/小米等激进杀后台的机型未加入时链路随时可能被杀） */
     Function("isIgnoringBatteryOptimizations") { ->
       if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
@@ -73,6 +93,40 @@ class HelmetLinkServiceModule : Module() {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) openBatterySettings()
     }
   }
+
+  /**
+   * 找一个本应用有权直接打开的「应用启动管理」页。隐式 action 在华为上匹配到两页，resolveActivity 会给系统选择器、
+   * 选了也会因权限打不开，所以逐个看匹配到的页面：要求的权限拿不到就跳过；一个都不行返回 null
+   */
+  private fun launchManagerIntent(): Intent? {
+    val pm = context.packageManager
+    val candidates = listOf(
+      Intent("huawei.intent.action.HSM_STARTUPAPP_MANAGER"),
+      Intent("huawei.intent.action.HSM_BOOTAPP_MANAGER"),
+      Intent().setClassName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"),
+      Intent().setClassName("com.huawei.systemmanager", "com.huawei.systemmanager.appcontrol.activity.StartupAppControlActivity"),
+      Intent().setClassName("com.hihonor.systemmanager", "com.hihonor.systemmanager.startupmgr.ui.StartupNormalAppListActivity"),
+    )
+    for (intent in candidates) {
+      for (match in pm.queryIntentActivities(intent, 0)) {
+        val info = match.activityInfo ?: continue
+        if (!info.exported) continue
+        val permission = info.permission
+        if (permission != null && context.checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) continue
+        return Intent(intent).setClassName(info.packageName, info.name)
+      }
+    }
+    return null
+  }
+
+  private fun tryStart(intent: Intent): Boolean =
+    try {
+      context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+      true
+    } catch (e: Exception) {
+      Log.w("HelmetLinkService", "start failed: ${intent.component ?: intent.action}", e)
+      false
+    }
 
   private fun openBatterySettings() {
       val direct = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)

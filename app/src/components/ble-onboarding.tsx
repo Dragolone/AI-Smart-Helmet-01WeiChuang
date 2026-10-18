@@ -1,4 +1,4 @@
-// 首次连接引导（决策 #41 落地后的第一屏）：开蓝牙 → 允许权限 → 加省电白名单（Android）。
+// 首次连接引导（决策 #41 落地后的第一屏）：开蓝牙 → 允许权限 → 加省电白名单（Android）→ 应用启动管理（华为 / 荣耀）。
 // 每步带「去设置」。蓝牙版头盔所有事件都靠这条链路，新用户不知道要开蓝牙/给权限就等于没戴头盔。
 // 这里有三样：三步的状态与入口（useBleOnboardingSteps，设备详情状态卡、安全设置页也用）、
 // 设备详情页第一次进入时弹一次的引导面板（BleFirstConnectGuide）、设备首页的硬阻塞横幅（BleBlockerBanner）。
@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as SecureStore from "expo-secure-store";
 import { useEffect, useState } from "react";
 import {
+  Alert,
   AppState,
   Linking,
   Modal,
@@ -23,15 +24,17 @@ import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
 import { Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
-import { useT } from "@/i18n";
+import { translate, useT } from "@/i18n";
 import { bleNeedsLocationPermission } from "@/services/ble-platform";
+import { isHuaweiFamily } from "@/services/phone-vendor";
 import { SECURE_KEYS } from "@/services/secure-keys";
 import { useBleStore } from "@/stores/ble-store";
+import { useLaunchSettingsStore } from "@/stores/launch-settings-store";
 
 const DISMISS_KEY = SECURE_KEYS.bleOnboardingDismissed;
 
 type Step = {
-  key: "bluetooth" | "permission" | "whitelist";
+  key: "bluetooth" | "permission" | "whitelist" | "launch";
   done: boolean;
   blocking: boolean;
   action: () => void;
@@ -55,18 +58,51 @@ function stepCopyOf(key: Step["key"]): Step["key"] | "permissionLocation" {
     : key;
 }
 
+/**
+ * 华为「应用启动管理」：跳系统设置之前先把要点哪几下说清楚——跳过去以后 App 里的说明就看不到了。
+ * 新系统上第三方打不开启动管理页（原生里查过权限），打开的是本应用的应用信息页，
+ * 华为 P30 Pro 上还得点「耗电详情」→「启动管理」（10-18 实测；那一页同样要华为私有权限，不能直接开）
+ */
+function confirmOpenLaunchSettings(): void {
+  Alert.alert(
+    translate("ble.launchGuide.title"),
+    translate("ble.launchGuide.body"),
+    [
+      { text: translate("common.cancel"), style: "cancel" },
+      {
+        text: translate("ble.onboarding.go"),
+        onPress: () => {
+          if (HelmetLinkService.openAppLaunchSettings() !== "none")
+            useLaunchSettingsStore.getState().markPending();
+        },
+      },
+    ],
+  );
+}
+
 /** 引导步骤的当前状态；Android 白名单状态在回到前台时重查 */
 export function useBleOnboardingSteps(): Step[] {
   const adapter = useBleStore((s) => s.adapter);
   const [whitelisted, setWhitelisted] = useState(() =>
     HelmetLinkService.isIgnoringBatteryOptimizations(),
   );
+  // 华为 / 荣耀：从多任务划掉 App = 系统强停，之后求救推送到不了；只有在「应用启动管理」里设成手动管理、
+  // 三项全开才不会（10-18 实测）。系统不给查这项设置，「做过」记在 stores/launch-settings-store
+  const needsLaunch =
+    Platform.OS === "android" &&
+    HelmetLinkService.available &&
+    isHuaweiFamily();
+  const launchAcked = useLaunchSettingsStore((s) => s.acked);
+  useEffect(() => {
+    if (needsLaunch) void useLaunchSettingsStore.getState().hydrate();
+  }, [needsLaunch]);
   // 用户去系统设置改完白名单回来时重查一次（回前台事件），不用每 2 s 轮询原生
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state !== "active") return;
       const now = HelmetLinkService.isIgnoringBatteryOptimizations();
       setWhitelisted((prev) => (prev === now ? prev : now));
+      useLaunchSettingsStore.getState().onForeground();
     });
     return () => sub.remove();
   }, []);
@@ -90,6 +126,14 @@ export function useBleOnboardingSteps(): Step[] {
       done: whitelisted,
       blocking: false,
       action: () => HelmetLinkService.requestIgnoreBatteryOptimizations(),
+    });
+  }
+  if (needsLaunch) {
+    steps.push({
+      key: "launch",
+      done: launchAcked !== false,
+      blocking: false,
+      action: confirmOpenLaunchSettings,
     });
   }
   return steps;

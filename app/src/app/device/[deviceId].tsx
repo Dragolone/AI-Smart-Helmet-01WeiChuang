@@ -145,6 +145,7 @@ export default function DeviceDetailScreen() {
   // 开蓝牙 / 给权限 / Android 省电白名单（决策 #41）：与首次连接引导、安全设置页是同一组状态和入口
   const linkSteps = useBleOnboardingSteps();
   const whitelist = linkSteps.find((step) => step.key === "whitelist");
+  const launch = linkSteps.find((step) => step.key === "launch");
   const bleAction =
     bleRow.action === "retry"
       ? { label: t("device.status.retry"), run: () => retryBleLink(deviceId) }
@@ -549,6 +550,16 @@ export default function DeviceDetailScreen() {
                   title={t("device.status.backgroundLimited")}
                   actionLabel={t("ble.onboarding.go")}
                   onAction={whitelist.action}
+                />
+              )}
+              {launch && !launch.done && (
+                <StatusRow
+                  icon="rocket-outline"
+                  tone="warn"
+                  title={t("device.status.launchLimited")}
+                  detail={t("device.status.launchLimitedDetail")}
+                  actionLabel={t("ble.onboarding.go")}
+                  onAction={launch.action}
                 />
               )}
             </View>
