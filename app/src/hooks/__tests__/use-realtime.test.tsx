@@ -659,34 +659,33 @@ describe("蓝牙链路目标", () => {
     expect(nameOf("h9")).toBeNull();
   });
 
-  it("疑似缺陷（A11 修复遗漏）：设备列表到了 / 刷新时交给链路和存盘的是服务端原序，没把当前头盔排前面——绑了 20 顶以上时当前那顶会被链路截掉", async () => {
+  it("设备列表到了 / 刷新时，交给链路和存盘的目标也把当前头盔排第一（绑 20 顶以上时链路只盯前 20 顶，10-16 A11）", async () => {
     const ids = Array.from(
       { length: 22 },
       (_, i) => `h${String(i + 1).padStart(2, "0")}`,
     );
+    const ordered = ["h22", ...ids.filter((id) => id !== "h22")];
     const permission = deferred<void>();
     jest.mocked(ensureSosAlertPermission).mockReturnValue(permission.promise);
     jest.mocked(devicesApi.list).mockResolvedValue(ids.map((id) => dev(id)));
     useCurrentHelmetStore.setState({ chosen: { u1: "h22" } });
     await mountBridge();
-    // 现状：列表到达时原样交出去，当前那顶排第 22（ble-link 只盯前 20 顶）；存盘的也是这个顺序（存盘只留前 20 个）
-    expect(setBleTargets).toHaveBeenLastCalledWith(ids);
-    expect(saveCachedTargets).toHaveBeenLastCalledWith("u1", ids);
+    // 列表到达：当前那顶（服务端排第 22）挪到最前再交给链路、存盘（存盘只留前 20 个）
+    expect(setBleTargets).toHaveBeenLastCalledWith(ordered);
+    expect(saveCachedTargets).toHaveBeenLastCalledWith("u1", ordered);
 
-    // 对照：起链路走 bleTargetsOf，当前那顶在最前
+    // 起链路走 bleTargetsOf，同样在最前
     await run(() => permission.resolve());
     expect(jest.mocked(startBleLink).mock.calls[0][0][0]).toBe("h22");
 
-    // 之后列表一刷新（回前台、绑定 / 解绑），目标又回到原序
+    // 之后列表一刷新（回前台、绑定 / 解绑），目标仍是当前那顶在最前
     await run(() =>
       qc.setQueryData(
         ["devices"],
         ids.map((id) => dev(id)),
       ),
     );
-    expect(jest.mocked(setBleTargets).mock.lastCall?.[0].indexOf("h22")).toBe(
-      21,
-    );
+    expect(jest.mocked(setBleTargets).mock.lastCall?.[0]).toEqual(ordered);
   });
 });
 

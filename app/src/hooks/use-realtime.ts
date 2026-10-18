@@ -276,8 +276,11 @@ export function useRealtimeUpdates(): void {
         const live = liveTargets(queryClient);
         if (live === null) return;
         known = live;
-        setBleTargets(live);
-        void saveCachedTargets(useAuthStore.getState().user?.id, live);
+        // 当前头盔排第一（同 bleTargetsOf，10-16 A11）：原来列表一到 / 一刷新就按服务端原序交给链路和存盘，
+        // 绑 20 顶以上时当前那顶会被链路截掉（10-19 夜测 #275 测出）
+        const ordered = prioritizeCurrent(queryClient, live);
+        setBleTargets(ordered);
+        void saveCachedTargets(useAuthStore.getState().user?.id, ordered);
         if (
           live.length > 0 &&
           coldResumeHadTargets === false &&
