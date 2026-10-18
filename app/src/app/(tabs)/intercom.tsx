@@ -239,7 +239,7 @@ export default function IntercomScreen() {
   const dark = useColorScheme() === "dark";
   const t = useT();
   const insets = useSafeAreaInsets();
-  const { fontScale } = useWindowDimensions();
+  const { fontScale, width: windowWidth } = useWindowDimensions();
   const focused = useIsFocused();
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
@@ -1366,7 +1366,9 @@ export default function IntercomScreen() {
                     <View
                       style={[
                         styles.chanMain,
-                        { flexBasis: channelMainBasis(fontScale) },
+                        {
+                          minWidth: channelMainMinWidth(fontScale, windowWidth),
+                        },
                       ]}
                     >
                       <View
@@ -1840,19 +1842,26 @@ export default function IntercomScreen() {
 }
 
 /**
- * 频道列表一行里，图标 + 名字那一块要多宽才和「更多」「进入」同排：名字至少留 CHANNEL_NAME_MIN_CHARS 个字
- * （随系统字体放大）。夜测 N8：系统「显示大小」调到最大（约 600dpi，1080 像素宽的屏只剩约 288dp），
- * 图标、「更多」、定宽的「进入」把名字挤得只剩 1 个字。不够时「更多」「进入」整组换到下一行（chanCard 可换行），
- * 名字独占第一行。用 flexBasis 不用 minWidth：屏比这还窄（288dp + 2 倍字体）时这一块照样收进卡片里，不撑出去
+ * 频道列表一行里，图标 + 名字那一块最少多宽：名字至少留 CHANNEL_NAME_MIN_CHARS 个字（随系统字体放大）再省略。
+ * 夜测 N8：系统「显示大小」调到最大（约 600dpi，1080 像素宽的屏只剩约 288dp），图标、「更多」、定宽的「进入」
+ * 把名字挤得只剩 1 个字。比这窄时「更多」「进入」整组换到下一行（chanCard 可换行），名字独占第一行。
+ * 用 minWidth：flexBasis 在安卓 16 上不参与换行判断，名字块照样被挤到 92dp（Wesley 10-18 模拟器实测）。
+ * 封顶到卡片内宽：屏比这还窄（288dp + 2 倍字体）时不撑出卡片。
+ * 5 个字：360dp 宽（华为 P30 Pro 默认）+ 1.15 倍字体时仍和按钮同排，6 个字就要换行了
  */
-const CHANNEL_NAME_MIN_CHARS = 6;
+const CHANNEL_NAME_MIN_CHARS = 5;
 const CHANNEL_NAME_FONT_SIZE = 16;
 const CHANNEL_TILE_SIZE = 44;
 const CHANNEL_TILE_GAP = 12;
-const channelMainBasis = (fontScale: number) =>
-  CHANNEL_TILE_SIZE +
-  CHANNEL_TILE_GAP +
-  CHANNEL_NAME_MIN_CHARS * CHANNEL_NAME_FONT_SIZE * fontScale;
+/** 页面左右留白（container 20 × 2）+ 卡片左右内边距（14 + 12）+ 边框（1 × 2） */
+const CHANNEL_ROW_INSET = 20 * 2 + 14 + 12 + 1 * 2;
+const channelMainMinWidth = (fontScale: number, windowWidth: number) =>
+  Math.min(
+    CHANNEL_TILE_SIZE +
+      CHANNEL_TILE_GAP +
+      CHANNEL_NAME_MIN_CHARS * CHANNEL_NAME_FONT_SIZE * fontScale,
+    windowWidth - CHANNEL_ROW_INSET,
+  );
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
@@ -1915,7 +1924,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  // 要多宽见 channelMainBasis；同排时多出来的宽度都给名字
+  // 最少多宽见 channelMainMinWidth；同排时多出来的宽度都给名字
   chanMain: {
     flexGrow: 1,
     flexShrink: 1,

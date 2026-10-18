@@ -1646,10 +1646,13 @@ describe("会话已失效（正被送回登录页）：不再单独提示，登�
 
 // 夜测 N8（2026-10-16）：系统「显示大小」调到最大（约 600dpi，1080 像素宽的屏只剩约 288dp）时，
 // 一行里图标、「更多」、定宽的「进入」把名字挤得只剩 1 个字，「进入」也被切。名字要先留够几个字，
-// 放不下时「更多」「进入」整组换到下一行靠右，「进入」按字的大小撑开
+// 放不下时「更多」「进入」整组换到下一行靠右，「进入」按字的大小撑开。
+// 第一版用 flexBasis，安卓 16 上不参与换行判断（Wesley 10-18 模拟器实测仍挤成「周…」），改成 minWidth
 describe("频道行：窄屏 / 大字体下名字不被挤没（夜测 N8）", () => {
-  const NAME_MIN_CHARS = 6;
+  const NAME_MIN_CHARS = 5;
   const NAME_FONT_SIZE = 16;
+  /** 288dp 宽时卡片里能用的宽度：页面左右留白 20 × 2、卡片内边距 14 + 12、边框 1 × 2 */
+  const CARD_INNER = 288 - 20 * 2 - 14 - 12 - 2;
   let dims: { mockRestore: () => void } | null = null;
   const at = (fontScale: number) => {
     // 同 edge-large-font：react-native 的导出是 getter，换原模块上的 getter 本身
@@ -1691,7 +1694,7 @@ describe("频道行：窄屏 / 大字体下名字不被挤没（夜测 N8）", (
   };
 
   it.each([1, 1.3, 2])(
-    "字体 %s 倍：名字那一块要够 6 个字宽才和「更多」「进入」同排；只占一行、放不下省略",
+    "字体 %s 倍：名字那一块最少留 5 个字宽（不够就把「更多」「进入」挤到下一行）；只占一行、放不下省略",
     async (fontScale) => {
       at(fontScale);
       const r = mount();
@@ -1699,16 +1702,24 @@ describe("频道行：窄屏 / 大字体下名字不被挤没（夜测 N8）", (
       const { name, slotOf } = rowParts(r);
       expect(name.props.numberOfLines).toBe(1);
       const style = flat(slotOf(name).props.style);
-      // 换不换行按这一块的 flexBasis 算：不够就把「更多」「进入」挤到下一行，而不是把名字挤窄
-      expect(style.flexBasis).toBeGreaterThanOrEqual(
+      expect(style.minWidth).toBeGreaterThanOrEqual(
         NAME_MIN_CHARS * NAME_FONT_SIZE * fontScale,
       );
+      expect(style.minWidth).toBeLessThanOrEqual(CARD_INNER);
+      // 同排时多出来的宽度都给名字
       expect(style.flexGrow).toBe(1);
-      // 屏比这还窄（288dp + 2 倍字体）时收进卡片里，不撑出去
-      expect(style.flexShrink).toBe(1);
-      expect(style.minWidth).toBeUndefined();
+      // flexBasis 在安卓上不参与换行判断，不靠它
+      expect(style.flexBasis).toBeUndefined();
     },
   );
+
+  it("字体再大（iOS 辅助功能最大档约 3.1 倍）：名字那一块封顶到卡片内宽，不撑出卡片", async () => {
+    at(3.1);
+    const r = mount();
+    await waitFor(() => expect(r.texts()).toContain(C1.name));
+    const { name, slotOf } = rowParts(r);
+    expect(flat(slotOf(name).props.style).minWidth).toBe(CARD_INNER);
+  });
 
   it("放不下时「更多」「进入」整组换到下一行、靠右，不和名字抢一行", async () => {
     at(1);
