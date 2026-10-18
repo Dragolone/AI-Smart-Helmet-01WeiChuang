@@ -4,6 +4,7 @@
 import type { DevicePublic } from "@helmet/shared";
 
 import type { MessageKey } from "@/i18n";
+import { bleNeedsLocationPermission } from "@/services/ble-platform";
 import type { BleAdapterState, BleLinkPhase } from "@/stores/ble-store";
 
 /**
@@ -90,9 +91,11 @@ export function helmetLinkOf(
   return "offline";
 }
 
-/** 连接结论对应的一句话（安全页状态卡的标题） */
+/** 连接结论对应的一句话（安全页状态卡的标题）。安卓 12 以下没权限时说的是位置信息（见 services/ble-platform） */
 export const linkLabelKey = (link: HelmetLink): MessageKey =>
-  `safety.link.${link}`;
+  link === "bluetoothDenied" && bleNeedsLocationPermission()
+    ? "safety.link.locationDenied"
+    : `safety.link.${link}`;
 
 export function linkLevelOf(link: HelmetLink): LinkLevel {
   if (link === "connected" || link === "online") return "ok";

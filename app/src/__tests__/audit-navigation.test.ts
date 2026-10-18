@@ -32,8 +32,9 @@ describe("打开页面的写法", () => {
   it("拉起求救倒计时页仍然是 push", () => {
     const src = readFileSync(join(SRC, "hooks/use-realtime.ts"), "utf8");
     expect(src).toMatch(
-      // 页面已在屏上时不再叠一页（10-16 N10：多单共用一张页，页内按胶囊切换）
-      /openCountdown: \(sosId, deviceId\) => \{\s*(\/\/[^\n]*\n\s*)*if \(sosScreen\.mounted\) return;\s*router\.push\(sosActiveHref\(sosId, deviceId\)\);/,
+      // 页面已在屏上时不再叠一页（10-16 N10：多单共用一张页，页内按胶囊切换）；
+      // 界面被拆了（划掉 App、仍登录）时也不跳——导航器没挂着（10-18）
+      /openCountdown: \(sosId, deviceId\) => \{\s*(\/\/[^\n]*\n\s*)*if \(sosScreen\.mounted \|\| !bridgeUi\.attached\) return;\s*router\.push\(sosActiveHref\(sosId, deviceId\)\);/,
     );
   });
 

@@ -38,8 +38,9 @@ describe('事件查询 + WS 事件推送 (e2e)', () => {
   let ingest: IngestService;
 
   const deviceId = `e2e_evt_${Date.now()}`;
-  // 固定基准时间：排序与时间窗断言不依赖运行时刻
-  const base = new Date('2026-08-16T01:00:00Z').getTime();
+  // 基准时间取 1 小时前（整秒）：排序与时间窗断言不依赖运行时刻。不能用固定的旧日期——比收到时早 72 小时以上的设备时间
+  // 按时钟错乱处理、业务时间取收到时间（决策 #59），按设备时间写的时间窗就查不到了
+  const base = Math.floor((Date.now() - 3_600_000) / 1000) * 1000;
   let ownerToken: string;
   let otherToken: string;
   const userIds: string[] = [];

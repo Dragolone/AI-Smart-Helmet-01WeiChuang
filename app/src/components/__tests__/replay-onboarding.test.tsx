@@ -576,4 +576,28 @@ describe("首次连接引导", () => {
     setAdapter("on");
     expect(r.tree.toJSON()).toBeNull();
   });
+
+  it("硬阻塞横幅：安卓 12 以下没权限时说位置信息（系统设置里没有单独的蓝牙权限）", () => {
+    const os = Platform.OS;
+    const version = Platform.Version;
+    Object.defineProperty(Platform, "OS", {
+      value: "android",
+      configurable: true,
+    });
+    Object.defineProperty(Platform, "Version", {
+      value: 29,
+      configurable: true,
+    });
+    try {
+      setAdapter("unauthorized");
+      const r = render(<BleBlockerBanner onPress={jest.fn()} />);
+      expect(r.texts()).toEqual([tr("ble.banner.unauthorizedLocation")]);
+    } finally {
+      Object.defineProperty(Platform, "OS", { value: os, configurable: true });
+      Object.defineProperty(Platform, "Version", {
+        value: version,
+        configurable: true,
+      });
+    }
+  });
 });

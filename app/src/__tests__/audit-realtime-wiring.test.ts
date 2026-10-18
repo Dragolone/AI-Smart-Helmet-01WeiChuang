@@ -25,29 +25,73 @@ describe("实时通道 / BLE 中转 / 推送与登录态同生命周期，不随
     expect(read("app/(tabs)/_layout.tsx")).not.toContain("useRealtimeUpdates(");
   });
 
-  it("界面重建时旧根的清理不拆共享连接：按启动序号判断，只有最新那次才停 WS / BLE / 队列、解绑推送别名（2026-10-15 华为改字体实测）", () => {
-    const hook = read("hooks/use-realtime.ts");
-    expect(hook).toContain("const generation = ++bridgeGeneration;");
-    const cleanup = hook.slice(hook.lastIndexOf("return () => {"));
-    const guard = cleanup.indexOf("if (generation !== bridgeGeneration)");
-    expect(guard).toBeGreaterThan(0);
-    // 共享服务的停止都在判断之后；各自的订阅在判断之前照常清掉
-    for (const shared of [
-      "realtimeClient.stop()",
-      "stopBleLink()",
-      "stopRelayUplink()",
-      "stopPush()",
-    ]) {
-      expect(cleanup.indexOf(shared)).toBeGreaterThan(guard);
-    }
+  // 清理分三种情况（10-18 起）：界面重建 → 只拆自己的订阅；界面被拆而人还登录着 → 什么都不停、交给孤儿机制
+  //（services/bridge-lifecycle，有单测）；真的退出登录 → 拆订阅 + 停全部共享连接
+  const hook = read("hooks/use-realtime.ts");
+  const body = (name: string) => {
+    const at = hook.indexOf(`const ${name} = () => {`);
+    expect(at).toBeGreaterThan(0);
+    return hook.slice(at, hook.indexOf("\n    };", at));
+  };
+  const cleanup = hook.slice(hook.lastIndexOf("return () => {"));
+
+  it("自己的订阅和共享连接分开收：detach 只拆订阅，stopShared 停 WS / BLE / 队列、撤求救提醒、解绑推送别名", () => {
+    const detach = body("detach");
     for (const own of [
       "unsubscribe();",
+      "unsubscribeState();",
+      "unsubscribeUser();",
       "appState.remove();",
       "unsubscribeCache();",
+    ])
+      expect(detach).toContain(own);
+    const shared = body("stopShared");
+    for (const s of [
+      "realtimeClient.stop();",
+      "stopRelayUplink();",
+      "stopBleLink();",
+      "presentedSos.current.clear();",
+      "resetSosAlerts();",
+      "stopPush();",
     ]) {
-      expect(cleanup.indexOf(own)).toBeGreaterThan(0);
-      expect(cleanup.indexOf(own)).toBeLessThan(guard);
+      expect(shared).toContain(s);
+      expect(detach).not.toContain(s);
     }
+  });
+
+  it("界面重建时旧根的清理不拆共享连接：按启动序号判断，只拆自己的订阅（2026-10-15 华为改字体实测）", () => {
+    expect(hook).toContain("const generation = ++bridgeGeneration;");
+    const guard = cleanup.indexOf("if (generation !== bridgeGeneration) {");
+    expect(guard).toBeGreaterThan(0);
+    const branch = cleanup.slice(guard, cleanup.indexOf("return;", guard));
+    expect(branch).toContain("detach();");
+    expect(branch).not.toContain("stopShared();");
+  });
+
+  it("界面被拆而人还登录着（安卓从多任务划掉 App，进程还活着）：订阅和连接都留着交给孤儿机制，只有真的登出才停（10-18）", () => {
+    const loggedIn = cleanup.indexOf(
+      "if (useAuthStore.getState().tokens !== null) {",
+    );
+    expect(loggedIn).toBeGreaterThan(cleanup.indexOf("bridgeGeneration"));
+    const branch = cleanup.slice(
+      loggedIn,
+      cleanup.indexOf("return;", loggedIn),
+    );
+    expect(branch).toContain("orphanBridge({ detach, stopShared }");
+    expect(branch).not.toContain("detach();");
+    expect(branch).not.toContain("stopShared();");
+    // 停共享连接只在两个判断都过了之后（真的退出登录），全清理函数里只有这一处
+    expect(cleanup.split("stopShared();").length - 1).toBe(1);
+    expect(cleanup.lastIndexOf("stopShared();")).toBeGreaterThan(loggedIn);
+  });
+
+  it("界面起来先接手孤儿并清掉「拉起过」的登记；界面不在时不跳页（导航器没挂着会抛错，锁屏提醒也跟着弹不出）", () => {
+    expect(hook).toMatch(
+      /if \(attachBridgeUi\(\)\) presentedSos\.current\.clear\(\);/,
+    );
+    expect(hook).toMatch(
+      /if \(sosScreen\.mounted \|\| !bridgeUi\.attached\) return;\s*router\.push\(/,
+    );
   });
 
   it("全仓只有一处调用", () => {
@@ -138,10 +182,13 @@ describe("use-realtime 的启动顺序", () => {
     expect(set).toBeGreaterThan(guard);
   });
 
-  it("effect 清理后不再启动链路、不再重试拉列表", () => {
+  it("effect 清理后不再启动链路、不再重试拉列表：detach 里收掉；界面重建和退出登录都走 detach（界面被拆而仍登录时由孤儿机制在接手 / 登出时再 detach，10-18）", () => {
+    const at = src.indexOf("const detach = () => {");
+    const detach = src.slice(at, src.indexOf("\n    };", at));
+    expect(detach).toContain("cancelled = true;");
+    expect(detach).toContain("devicesLoad.cancel();");
     const cleanup = src.slice(src.lastIndexOf("return () => {"));
-    expect(cleanup).toContain("cancelled = true;");
-    expect(cleanup).toContain("devicesLoad.cancel();");
+    expect(cleanup.split("detach();").length - 1).toBe(2);
   });
 });
 

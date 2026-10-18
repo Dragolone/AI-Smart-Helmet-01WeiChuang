@@ -28,30 +28,49 @@ const mockRouterPush = jest.fn();
 const mockActive = jest.fn(async (_deviceId: string) => ({
   sos: null as unknown,
 }));
+const mockActiveForAccount = jest.fn(async () => ({
+  items: [] as { sosId: string; deviceId: string; deadline: string }[],
+}));
 const mockSecure = new Map<string, string>();
 
+/** 原生模块没打进包（Expo Go / 旧 dev-client）：置真后 push.ts 取 default 就抛，同 require 失败 */
+let mockNativeMissing = false;
+/** getRegistrationID 回给 JS 的值：首次启动还没注册上时极光给空串 */
+let mockRegistrationId = "rid";
+let connectListener: ((r: { connectEnable: boolean }) => void) | null = null;
 jest.mock("jpush-react-native", () => ({
   __esModule: true,
-  default: {
-    init: (p: unknown) => mockInit(p),
-    setAlias: (p: unknown) => mockSetAlias(p),
-    deleteAlias: (p: unknown) => mockDeleteAlias(p),
-    addNotificationListener: (cb: Listener) => mockAddNotificationListener(cb),
-    addConnectEventListener: () => undefined,
-    addTagAliasListener: (cb: (r: AliasResult) => void) => {
-      aliasListener = cb;
-    },
-    queryAlias: (p: { sequence: number }) => mockQueryAlias(p),
-    setLoggerEnable: () => undefined,
-    getRegistrationID: (cb: (r: { registerID: string }) => void) =>
-      cb({ registerID: "rid" }),
+  get default() {
+    if (mockNativeMissing) throw new Error("JPushModule is null");
+    return {
+      init: (p: unknown) => mockInit(p),
+      setAlias: (p: unknown) => mockSetAlias(p),
+      deleteAlias: (p: unknown) => mockDeleteAlias(p),
+      addNotificationListener: (cb: Listener) =>
+        mockAddNotificationListener(cb),
+      addConnectEventListener: (
+        cb: (r: { connectEnable: boolean }) => void,
+      ) => {
+        connectListener = cb;
+      },
+      addTagAliasListener: (cb: (r: AliasResult) => void) => {
+        aliasListener = cb;
+      },
+      queryAlias: (p: { sequence: number }) => mockQueryAlias(p),
+      setLoggerEnable: () => undefined,
+      getRegistrationID: (cb: (r: { registerID: string }) => void) =>
+        cb({ registerID: mockRegistrationId }),
+    };
   },
 }));
 jest.mock("expo-router", () => ({
   router: { navigate: (h: string) => mockRouterPush(h) },
 }));
 jest.mock("@/api/sos", () => ({
-  sosApi: { active: (d: string) => mockActive(d) },
+  sosApi: {
+    active: (d: string) => mockActive(d),
+    activeForAccount: () => mockActiveForAccount(),
+  },
 }));
 jest.mock("@/services/dev-log", () => ({ devLog: jest.fn() }));
 const mockLastResponse = jest.fn((): unknown => null);
@@ -70,6 +89,7 @@ jest.mock("expo-secure-store", () => ({
   },
 }));
 
+import { devLog } from "@/services/dev-log";
 import { presentedSos } from "@/services/sos-sync";
 import { useConsentStore } from "@/stores/consent-store";
 
@@ -94,6 +114,7 @@ beforeEach(() => {
   useConsentStore.setState({ privacyAccepted: false, hydrated: true });
   mockSecure.clear();
   presentedSos.current.clear();
+  connectListener = null;
 });
 afterEach(() => {
   jest.clearAllMocks();
@@ -169,6 +190,66 @@ describe("推送初始化门控", () => {
     startPush("u1", null);
     expect(mockInit).not.toHaveBeenCalled();
   });
+
+  it("冷启动时同意标记还没从存储读出来：先挂起，日志写「在等读取」而不是「未同意」；读出来是未同意就接着等，勾选那一刻才初始化", () => {
+    useConsentStore.setState({ privacyAccepted: false, hydrated: false });
+    startPush("u1");
+    expect(devLog).toHaveBeenCalledWith(
+      "PUSH",
+      "等同意标记读取完再决定是否初始化",
+    );
+    expect(devLog).not.toHaveBeenCalledWith(
+      "PUSH",
+      "未同意隐私政策，推送 SDK 暂不初始化",
+    );
+    useConsentStore.setState({ hydrated: true }); // 读出来了：这台设备上没同意过
+    expect(mockInit).not.toHaveBeenCalled();
+    useConsentStore.setState({ privacyAccepted: true });
+    expect(mockInit).toHaveBeenCalledTimes(1);
+    expect(mockSetAlias).toHaveBeenCalledWith(
+      expect.objectContaining({ alias: "u1" }),
+    );
+  });
+
+  it("极光原生模块没打进包（Expo Go / 旧 dev-client，加载就抛）：登录照常不抛，不 init、不挂监听、不设别名；登出也不碰 SDK", () => {
+    mockNativeMissing = true;
+    try {
+      useConsentStore.setState({ privacyAccepted: true });
+      expect(() => startPush("u1")).not.toThrow();
+      expect(devLog).toHaveBeenCalledWith(
+        "PUSH",
+        "极光原生模块不可用（需要重建原生包）",
+        expect.any(Error),
+      );
+      expect(mockAddNotificationListener).not.toHaveBeenCalled();
+      expect(mockInit).not.toHaveBeenCalled();
+      expect(mockSetAlias).not.toHaveBeenCalled();
+      expect(() => stopPush()).not.toThrow();
+      expect(mockDeleteAlias).not.toHaveBeenCalled();
+    } finally {
+      mockNativeMissing = false;
+    }
+  });
+
+  it("还没拿到 registrationID、极光连接断开 / 恢复：只记日志（真机排查靠它），不影响初始化和别名", () => {
+    mockRegistrationId = "";
+    try {
+      useConsentStore.setState({ privacyAccepted: true });
+      startPush("u1");
+      expect(devLog).toHaveBeenCalledWith(
+        "PUSH",
+        "registrationID （尚未注册）",
+      );
+      connectListener?.({ connectEnable: false });
+      expect(devLog).toHaveBeenCalledWith("PUSH", "极光连接 断");
+      connectListener?.({ connectEnable: true });
+      expect(devLog).toHaveBeenCalledWith("PUSH", "极光连接 上");
+      expect(mockInit).toHaveBeenCalledTimes(1);
+      expect(mockSetAlias).toHaveBeenCalledTimes(1);
+    } finally {
+      mockRegistrationId = "rid";
+    }
+  });
 });
 
 describe("点通知落地", () => {
@@ -183,16 +264,46 @@ describe("点通知落地", () => {
     expect(presentedSos.current.has("s1")).toBe(true);
   });
 
-  it("SOS 已结束（或进行中的是另一单）→ 事故详情", async () => {
+  it("SOS 已结束、这顶头盔也没有别的单在倒数 → 事故详情", async () => {
+    mockActive.mockResolvedValueOnce({ sos: null });
+    expect(await landFromPush({ sosId: "s2", deviceId: "d1" })).toBe(
+      "/accident/s2",
+    );
+    expect(presentedSos.current.has("s2")).toBe(false);
+  });
+
+  it("点的是旧单留下的推送、同一顶头盔有更新的一单在倒数 → 去那一单的倒计时，不把旧单的记录页压在倒计时上（4.27 加测，10-17 华为实测）", async () => {
     mockActive.mockResolvedValueOnce({
       sos: { sosId: "other", deviceId: "d1", status: "pending" },
     });
     expect(await landFromPush({ sosId: "s1", deviceId: "d1" })).toBe(
-      "/accident/s1",
+      "/sos-active?sosId=other&deviceId=d1",
     );
+    // 登记的是正在倒数的那一单（随后的 WS 推送 / 补拉不再为它再拉一页）
+    expect(presentedSos.current.has("other")).toBe(true);
+    expect(presentedSos.current.has("s1")).toBe(false);
+  });
+
+  it("这顶头盔没有在倒数的单、账号下别的头盔有：去先到期的那一单的倒计时，不把这单的记录页压上去（10-17）", async () => {
     mockActive.mockResolvedValueOnce({ sos: null });
-    expect(await landFromPush({ sosId: "s2", deviceId: "d1" })).toBe(
-      "/accident/s2",
+    mockActiveForAccount.mockResolvedValueOnce({
+      items: [
+        { sosId: "b2", deviceId: "d3", deadline: "2026-10-17T10:00:40.000Z" },
+        { sosId: "b1", deviceId: "d2", deadline: "2026-10-17T10:00:20.000Z" },
+      ],
+    });
+    expect(await landFromPush({ sosId: "a1", deviceId: "d1" })).toBe(
+      "/sos-active?sosId=b1&deviceId=d2",
+    );
+    expect(presentedSos.current.has("b1")).toBe(true);
+    expect(presentedSos.current.has("a1")).toBe(false);
+  });
+
+  it("账号级查询失败：照旧进这单的事故详情（兜底不能把人带错页）", async () => {
+    mockActive.mockResolvedValueOnce({ sos: null });
+    mockActiveForAccount.mockRejectedValueOnce(new Error("offline"));
+    expect(await landFromPush({ sosId: "a2", deviceId: "d1" })).toBe(
+      "/accident/a2",
     );
   });
 
@@ -420,6 +531,32 @@ describe("别名确认与重试（10-05 iPhone：别名丢了，被杀后推送�
       jest.advanceTimersByTime(60_000);
     }
     expect(mockSetAlias).toHaveBeenCalledTimes(5);
+  });
+
+  it("校验时服务端给回的别名缺省（iOS 桥接层可能拿到 nil）：当作没设上，3 s 后重设", () => {
+    boot();
+    aliasListener?.({ code: 0, sequence: lastSetSeq(), alias: "u1" });
+    jest.advanceTimersByTime(2_000);
+    aliasListener?.({ code: 0, sequence: lastQuerySeq() });
+    jest.advanceTimersByTime(3_000);
+    expect(mockSetAlias).toHaveBeenCalledTimes(2);
+    expect(mockSetAlias).toHaveBeenLastCalledWith(
+      expect.objectContaining({ alias: "u1" }),
+    );
+  });
+
+  it("换账号后旧账号的设置结果才迟到（失败）：不替旧账号重设，也不冲掉新账号排好的校验", () => {
+    boot();
+    const oldSeq = lastSetSeq();
+    startPush("u2");
+    aliasListener?.({ code: 0, sequence: lastSetSeq(), alias: "u2" }); // 排了 2 s 后的校验
+    aliasListener?.({ code: 6022, sequence: oldSeq }); // u1 那次迟到的失败
+    jest.advanceTimersByTime(2_000);
+    expect(mockQueryAlias).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(120_000);
+    expect(
+      mockSetAlias.mock.calls.map((c) => (c[0] as { alias: string }).alias),
+    ).toEqual(["u1", "u2"]);
   });
 });
 

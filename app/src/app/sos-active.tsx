@@ -82,7 +82,10 @@ import {
   enqueueRelayEvent,
   notifyCriticalAccepted,
 } from "@/services/ble-relay-uplink";
-import { isUnrecoverableRelayError } from "@/services/relay-errors";
+import {
+  isHelmetGoneError,
+  isUnrecoverableRelayError,
+} from "@/services/relay-errors";
 import { msToNextSecond, shownSeconds } from "@/services/countdown";
 import { lateEventNote } from "@/services/sos-age";
 import {
@@ -346,16 +349,29 @@ function SosActiveContent() {
   }
 
   // 同一顶头盔来了新单，而屏上这单本机还是倒计时：服务端每顶头盔至多一单在倒计时，屏上这单其实已结束、只是终态没收到
-  //（WS 断着、10 秒轮询还没跑，或是点了它留在锁屏上的旧通知进来）。立刻拉一次它的权威状态，结束了就照常切到新单
+  //（WS 断着、10 秒轮询还没跑，或是点了它留在锁屏上的旧通知进来）。直接切到新单，不等旧单的权威状态——原来先拉一次
+  // 旧单再切，中间约 2 秒顶上多出新单的胶囊、「全部取消」和「也在倒计时」，数字还是旧单的（10-17 华为 4.27）
   const supersededBy =
     !isDrill && sos?.status === "pending"
       ? queue.find((q) => q.deviceId === sos.deviceId && q.sosId !== sos.sosId)
           ?.sosId
       : undefined;
+  const [superseded, setSuperseded] = useState<readonly string[]>([]);
+  if (supersededBy) {
+    setSuperseded([...superseded, sosId]);
+    setSelected(supersededBy);
+  }
+  // 被顶掉的旧单：撤掉它的锁屏提醒（「处理过的单」里它已被新单顶掉，下面按处理过的单撤提醒的那条走不到它，
+  // 留着的话它在后台排好的「还剩 30 / 10 秒」照样会响），再拉一次它的权威状态写进缓存，之后迟到的 pending 翻不回来
+  const supersededSettled = useRef(new Set<string>());
   useEffect(() => {
-    if (!supersededBy) return;
-    void queryClient.refetchQueries({ queryKey: ["sos", sosId], exact: true });
-  }, [supersededBy, sosId, queryClient]);
+    for (const id of superseded) {
+      if (supersededSettled.current.has(id)) continue;
+      supersededSettled.current.add(id);
+      void clearSosAlert(id);
+      void queryClient.refetchQueries({ queryKey: ["sos", id], exact: true });
+    }
+  }, [superseded, queryClient]);
 
   // 推进"当前时刻"，渲染期据此重算剩余秒数（仅展示用途，超时判定在服务端）。
   // 对着「数字该换的那一刻」去读时钟（services/countdown），不是固定每秒一次：固定间隔时定时器每次晚几毫秒，
@@ -411,18 +427,20 @@ function SosActiveContent() {
       .then(safePlay);
     // 每秒重播警报段(0.9s 素材)+ 振动;不用 player.loop——
     // React Compiler 禁止修改 hook 返回对象的属性
-    // 最后 10 秒震动改成连着两下（设计规范：警示震感每秒一次，最后 10 秒双击）
+    // 震感按设计规范：每秒一下，最后 10 秒连着两下。原来每秒用的是 Warning，它本身就是两下短震
+    //（iOS 的 warning 反馈；安卓 expo-haptics 是 40ms + 间隔 120ms + 60ms 的波形），平时已经两下、
+    // 最后 10 秒变成四下（10-17 华为系统震动记录）。改用单下的 Heavy
     let second: ReturnType<typeof setTimeout> | undefined;
-    const warn = () =>
-      void Haptics.notificationAsync(
-        Haptics.NotificationFeedbackType.Warning,
-      ).catch(() => {});
+    const pulse = () =>
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(
+        () => {},
+      );
     const t = setInterval(() => {
       alarm.seekTo(0).catch(() => {});
       safePlay();
-      warn();
+      pulse();
       if (deadline && secondsLeft(deadline, serverNow()) <= URGENT_SECONDS) {
-        second = setTimeout(warn, 160);
+        second = setTimeout(pulse, 160);
       }
     }, 1000);
     return () => {
@@ -468,6 +486,9 @@ function SosActiveContent() {
 
   // 页内一句话提示（当前单结束已切到下一单 / 又一顶开始倒计时），4 秒自己消失
   const [toast, setToast] = useState<string | null>(null);
+  // 顶上有头盔胶囊时提示放在胶囊区下面：原来贴着顶，第二单到达的那 4 秒正好把胶囊和「全部」按钮盖住（10-18 模拟器）
+  const multiRef = useRef<View>(null);
+  const [multiBottom, setMultiBottom] = useState(0);
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(null), 4_000);
@@ -689,7 +710,7 @@ function SosActiveContent() {
         if (isUnrecoverableRelayError(e)) {
           showNotice(
             t("safety.sosSendFailed"),
-            `${toUserMessage(e)}\n${t("safety.sosNotSent")}`,
+            `${isHelmetGoneError(e) ? t("safety.sosHelmetGone") : toUserMessage(e)}\n${t("safety.sosNotSent")}`,
           );
           return;
         }
@@ -913,7 +934,10 @@ function SosActiveContent() {
           style={[
             styles.toast,
             {
-              top: insets.top + 8,
+              top:
+                others.length > 0 && multiBottom > 0
+                  ? multiBottom + 8
+                  : insets.top + 8,
               backgroundColor: theme.backgroundElement,
               borderColor: theme.border,
             },
@@ -942,7 +966,15 @@ function SosActiveContent() {
             >
               <View style={styles.grow} />
               {others.length > 0 ? (
-                <View style={styles.multi}>
+                <View
+                  ref={multiRef}
+                  style={styles.multi}
+                  onLayout={() =>
+                    multiRef.current?.measureInWindow((_x, y, _w, h) =>
+                      setMultiBottom(y + h),
+                    )
+                  }
+                >
                   <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}

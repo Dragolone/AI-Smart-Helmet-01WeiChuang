@@ -28,6 +28,7 @@ import { useDeviceSettings } from "../use-device-settings";
 import {
   useCurrentHelmetChoice,
   useHelmetLinks,
+  useHelmets,
   useNotifyPermission,
   usePendingSos,
   useSosDrill,
@@ -67,6 +68,7 @@ jest.mock("expo-secure-store", () => ({
 type AnyMock = jest.Mock<(...args: any[]) => any>;
 const settingsMock = devicesApi.settings as unknown as AnyMock;
 const putMock = devicesApi.putSettings as unknown as AnyMock;
+const listMock = devicesApi.list as unknown as AnyMock;
 const smsMock = authApi.sendSmsCode as unknown as AnyMock;
 const activeMock = sosApi.active as unknown as AnyMock;
 const accountMock = sosApi.activeForAccount as unknown as AnyMock;
@@ -132,6 +134,7 @@ beforeEach(() => {
   for (const m of [
     settingsMock,
     putMock,
+    listMock,
     smsMock,
     activeMock,
     accountMock,
@@ -259,9 +262,7 @@ describe("useSmsCode：发验证码与重发读秒", () => {
   it("请求在途时按钮禁用（防连点重复发码）", async () => {
     let resolve!: () => void;
     smsMock.mockImplementation(() => new Promise<void>((r) => (resolve = r)));
-    const r = await renderHook(() =>
-      useSmsCode("change_phone", "13900000042"),
-    );
+    const r = await renderHook(() => useSmsCode("change_phone", "13900000042"));
     let pending!: Promise<void>;
     await act(async () => {
       pending = r.current.send("13900000042");
@@ -278,9 +279,7 @@ describe("useSmsCode：发验证码与重发读秒", () => {
     jest.useFakeTimers({ now: Date.UTC(2026, 9, 16, 1, 0, 0) });
     try {
       smsMock.mockResolvedValue(undefined);
-      const r = await renderHook(() =>
-        useSmsCode("register", "13900000042"),
-      );
+      const r = await renderHook(() => useSmsCode("register", "13900000042"));
       await act(async () => {
         await r.current.send("13900000042");
       });
@@ -342,9 +341,7 @@ describe("useDeviceSettings：轮询节奏与下发", () => {
       lastCommand: null,
     });
     let resolvePut!: (cmd: unknown) => void;
-    putMock.mockImplementation(
-      () => new Promise((r) => (resolvePut = r)),
-    );
+    putMock.mockImplementation(() => new Promise((r) => (resolvePut = r)));
     const r = await renderHook(() => useDeviceSettings("h3"));
     await settle(() => r.current.values !== undefined);
     const before = settingsMock.mock.calls.length;
@@ -405,6 +402,35 @@ describe("useDeviceSettings：轮询节奏与下发", () => {
     await settle(() => !r.current.sending);
     expect(alert).not.toHaveBeenCalled();
     alert.mockRestore();
+  });
+});
+
+describe("useHelmets：绑定的头盔（安全页 / 安全记录页共用）", () => {
+  it("列表还没拉到：list 为空但 known 为假（≠ 一台都没绑）；拉到后 known 为真；chosenId 是设备页「设为当前」的那一顶", async () => {
+    let resolve!: (v: DevicePublic[]) => void;
+    listMock.mockImplementation(() => new Promise((r) => (resolve = r)));
+    signIn("u5");
+    useCurrentHelmetStore.setState({ chosen: { u5: "b" } });
+    const r = await renderHook(() => useHelmets());
+    expect(r.current).toMatchObject({
+      list: [],
+      known: false,
+      stale: false,
+      chosenId: "b",
+    });
+    await act(async () => resolve([dev("a", true), dev("b", false)]));
+    await settle(() => r.current.known);
+    expect(r.current.list.map((d) => d.deviceId)).toEqual(["a", "b"]);
+    expect(r.current.stale).toBe(false);
+  });
+
+  it("拉取失败：stale 为真并带上错误，known 仍为假（安全页写「加载失败」可重试，不说成没绑头盔）", async () => {
+    const err = new TypeError("Network request failed");
+    listMock.mockRejectedValue(err);
+    const r = await renderHook(() => useHelmets());
+    await settle(() => r.current.stale);
+    expect(r.current).toMatchObject({ list: [], known: false, stale: true });
+    expect(r.current.error).toBe(err);
   });
 });
 
@@ -607,6 +633,27 @@ describe("useNotifyPermission", () => {
     await act(async () => listeners.forEach((cb) => cb("active")));
     await settle(() => r.current === "granted");
     expect(r.current).toBe("granted");
+  });
+
+  it("查到之前就离开了页面：迟到的结果直接丢掉，回前台的监听也一并撤掉", async () => {
+    const listeners: ((s: string) => void)[] = [];
+    jest.spyOn(RN.AppState, "addEventListener").mockImplementation(((
+      _: string,
+      cb: (s: string) => void,
+    ) => {
+      listeners.push(cb);
+      return { remove: () => listeners.splice(listeners.indexOf(cb), 1) };
+    }) as never);
+    let resolve!: (p: string) => void;
+    permMock.mockImplementation(() => new Promise((r) => (resolve = r)));
+    const r = await renderHook(() => useNotifyPermission());
+    expect(listeners).toHaveLength(1);
+    await act(async () => {
+      for (const x of renderers.splice(0)) x.unmount();
+    });
+    expect(listeners).toHaveLength(0);
+    await act(async () => resolve("denied"));
+    expect(r.current).toBeNull();
   });
 });
 

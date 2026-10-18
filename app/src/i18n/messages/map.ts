@@ -264,7 +264,7 @@ export const map = {
     "map.rides.calendarTitle": "Pick a date",
     "map.rides.prevMonth": "Previous month",
     "map.rides.nextMonth": "Next month",
-    "map.rides.monthSum": "This month · Rides {n} · {km} km",
+    "map.rides.monthSum": "Rides: {n} · {km} km",
     "map.rides.monthNone": "No rides this month",
     "map.rides.monthAll": "Whole month",
     "map.rides.monthAllA11y": "Show all rides in {month}",

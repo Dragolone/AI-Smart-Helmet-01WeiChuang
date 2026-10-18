@@ -44,6 +44,7 @@ describe('toWireEventItem / toWireEventDetail', () => {
     eventType: 'obstacle_risk',
     timestamp: new Date('2026-10-16T00:00:00Z'),
     receivedAt: new Date('2026-10-16T00:00:01Z'),
+    businessTime: new Date('2026-10-16T00:00:00Z'),
     payload: { riskLevel: 'medium' },
   } as unknown as RawEvent;
 
@@ -53,8 +54,21 @@ describe('toWireEventItem / toWireEventDetail', () => {
       deviceId: 'helmet_001',
       eventType: 'obstacle_risk',
       timestamp: '2026-10-16T00:00:00.000Z',
+      deviceTimestamp: '2026-10-16T00:00:00.000Z',
       receivedAt: '2026-10-16T00:00:01.000Z',
       summary: '障碍物风险 medium',
+    });
+  });
+
+  it('头盔时钟错乱：timestamp 给业务时间（决策 #59），设备原值放 deviceTimestamp', () => {
+    const skewed = {
+      ...row,
+      timestamp: new Date('1970-01-01T00:00:10Z'),
+      businessTime: new Date('2026-10-16T00:00:01Z'),
+    };
+    expect(toWireEventItem(skewed)).toMatchObject({
+      timestamp: '2026-10-16T00:00:01.000Z',
+      deviceTimestamp: '1970-01-01T00:00:10.000Z',
     });
   });
 

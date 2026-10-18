@@ -58,6 +58,16 @@ describe("数字是 1 时英文读得通", () => {
     );
   });
 
+  it("月历底部的月份小结同样是「Rides: n」，且不再写「This month ·」：月份就在上面的标题里，原来在 360dp 宽里把里程挤成「2326…」（10-17 华为）", () => {
+    expect(translate("map.rides.monthSum", { n: 9, km: 2326.4 }, "en")).toBe(
+      "Rides: 9 · 2326.4 km",
+    );
+  });
+
+  it("摔倒求救的英文标题和「Manual SOS」一样不带「· SOS」：在求救记录列表里放不下，原来截成「Possible fall ·…」（10-17 华为）", () => {
+    expect(translate("records.sos.fall", {}, "en")).toBe("Possible fall");
+  });
+
   it("中文写法不变", () => {
     expect(translate("profile.devicesCount", { n: 1 }, "zh-CN")).toBe(
       "1 台设备",

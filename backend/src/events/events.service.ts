@@ -59,7 +59,8 @@ export class EventsService {
       // 未知版本「只留档不进业务流程」，列出来会出现一条「疑似摔倒」却没有求救单（边界测试 B5）。Admin 排查查询不受影响
       eventType: { in: types ?? [...EVENT_TYPES] },
       schemaVersion: { in: [...SUPPORTED_SCHEMA_VERSIONS] },
-      ...(timeRange ? { timestamp: timeRange } : {}),
+      // 按业务时间（决策 #59）：头盔时钟错乱时设备时间可能是 1970 / 2099，按它过滤行程时间窗查不到、按它排序最新的会沉底
+      ...(timeRange ? { businessTime: timeRange } : {}),
       AND: [this.scope.scopeWhere('receivedAt', intervals)],
     };
     const [total, events] = await this.prisma.$transaction([
@@ -67,7 +68,7 @@ export class EventsService {
       this.prisma.rawEvent.findMany({
         where,
         // 同一时间戳可能有多条（头盔时间戳只到秒、补传整批到达）：加唯一次序键，翻页才不重不漏（同 DBOPS-01）
-        orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
+        orderBy: [{ businessTime: 'desc' }, { id: 'desc' }],
         skip: (opts.page - 1) * opts.pageSize,
         take: opts.pageSize,
       }),

@@ -142,7 +142,7 @@ describe("BatteryChart", () => {
     expect(bars(r)).toHaveLength(0);
   });
 
-  it("按小时归桶：同一小时取最后一个，窗口外的丢掉；充电中黄；与首页同一套三档（≤10 红、≤20 黄）、其余品牌色；最低画 3%", () => {
+  it("按小时归桶：同一小时取最后一个，窗口外的丢掉；充电中绿（10-17 负责人：原来与低电量同为黄色分不出）；与首页同一套三档（≤10 红、≤20 黄）、其余品牌色；最低画 3%", () => {
     const points: BatteryHistoryPoint[] = [
       { timestamp: at(23.5), battery: 90, charging: false },
       { timestamp: at(10.6), battery: 50, charging: false },
@@ -165,7 +165,7 @@ describe("BatteryChart", () => {
     expect(b.map((s) => s.height)).toEqual(["90%", "48%", "15%", "3%"]);
     expect(b.map((s) => s.backgroundColor)).toEqual([
       dark.brand,
-      dark.warning,
+      dark.success,
       dark.warning,
       dark.danger,
     ]);
@@ -568,6 +568,13 @@ describe("HelmetPicker", () => {
     expect(r.texts()).toContain("h2");
     // 没起名字的：名字就是编号，第二行不再把编号重复一遍（10-17 模拟器）
     expect(r.texts().filter((x) => x === "h2")).toHaveLength(1);
+    // 名字截中间：旁边有「当前头盔」标签时放不下，编号后几位得留住（10-17 华为英文下截成「helmet_…」）
+    const names = r.root.findAll(
+      (n) => n.props.ellipsizeMode === "middle" && n.props.numberOfLines === 1,
+    );
+    expect(names.map((n) => n.props.children)).toEqual(
+      expect.arrayContaining(["通勤", "h2"]),
+    );
     const rows = r.root.findAll(
       (n) =>
         n.type === Tappable &&

@@ -60,6 +60,7 @@ import { useDeviceSettings } from "@/hooks/use-device-settings";
 import { useTheme } from "@/hooks/use-theme";
 import { useLocale, useT, type MessageKey } from "@/i18n";
 import { relativeTime } from "@/i18n/format";
+import { bleNeedsLocationPermission } from "@/services/ble-platform";
 import { retryBleLink } from "@/services/ble-link";
 import {
   bleRowOf,
@@ -144,6 +145,7 @@ export default function DeviceDetailScreen() {
   // 开蓝牙 / 给权限 / Android 省电白名单（决策 #41）：与首次连接引导、安全设置页是同一组状态和入口
   const linkSteps = useBleOnboardingSteps();
   const whitelist = linkSteps.find((step) => step.key === "whitelist");
+  const launch = linkSteps.find((step) => step.key === "launch");
   const bleAction =
     bleRow.action === "retry"
       ? { label: t("device.status.retry"), run: () => retryBleLink(deviceId) }
@@ -357,7 +359,10 @@ export default function DeviceDetailScreen() {
   };
 
   const s = status.data;
-  const online = s?.online ?? false;
+  // 最近一次刷新失败（多半是手机断网）：缓存里的「在线」已经过时，和设备页首页一样写「状态待确认」，
+  // 电量、设置按离线处理（10-19 华为断网实测：首页已是「状态待确认」，这里还写「设备在线 · 3 分钟前」）
+  const stale = status.isError;
+  const online = !stale && (s?.online ?? false);
   // 充着电就不催充电了
   const lowBattery = !!s && isBatteryLow(s.battery) && !s.charging;
 
@@ -505,18 +510,31 @@ export default function DeviceDetailScreen() {
                     : "device.status.bleNotConnected",
                 )}
                 detail={
-                  BLE_DETAIL[bleRow.state]
-                    ? t(BLE_DETAIL[bleRow.state]!)
-                    : undefined
+                  bleRow.state === "unauthorized" &&
+                  bleNeedsLocationPermission()
+                    ? t("device.ble.unauthorizedLocation")
+                    : BLE_DETAIL[bleRow.state]
+                      ? t(BLE_DETAIL[bleRow.state]!)
+                      : undefined
                 }
                 actionLabel={bleAction?.label}
                 onAction={bleAction?.run}
               />
               <StatusRow
-                icon={online ? "cloud-outline" : "cloud-offline-outline"}
-                tone={online ? "ok" : "warn"}
+                icon={
+                  stale
+                    ? "help-circle-outline"
+                    : online
+                      ? "cloud-outline"
+                      : "cloud-offline-outline"
+                }
+                tone={stale ? "neutral" : online ? "ok" : "warn"}
                 title={t(
-                  online ? "device.status.online" : "device.status.offline",
+                  stale
+                    ? "devices.link.unknown"
+                    : online
+                      ? "device.status.online"
+                      : "device.status.offline",
                 )}
                 trailing={
                   s.lastSeenAt
@@ -545,6 +563,16 @@ export default function DeviceDetailScreen() {
                   title={t("device.status.backgroundLimited")}
                   actionLabel={t("ble.onboarding.go")}
                   onAction={whitelist.action}
+                />
+              )}
+              {launch && !launch.done && (
+                <StatusRow
+                  icon="rocket-outline"
+                  tone="warn"
+                  title={t("device.status.launchLimited")}
+                  detail={t("device.status.launchLimitedDetail")}
+                  actionLabel={t("ble.onboarding.go")}
+                  onAction={launch.action}
                 />
               )}
             </View>
@@ -578,7 +606,9 @@ export default function DeviceDetailScreen() {
             <VolumeSlider
               value={optimisticVolume ?? confirmedVolume ?? VOLUME_DEFAULT}
               pending={volumePending}
-              unconfirmed={optimisticVolume === null && confirmedVolume === null}
+              unconfirmed={
+                optimisticVolume === null && confirmedVolume === null
+              }
               onStep={onVolumeStep}
               onRelease={sendVolume}
               onDraggingChange={onVolumeDragging}

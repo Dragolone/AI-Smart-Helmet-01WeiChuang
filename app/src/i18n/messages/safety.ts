@@ -17,6 +17,7 @@ export const safety = {
     "safety.link.searching": "头盔未连接，正在搜索",
     "safety.link.bluetoothOff": "手机蓝牙已关闭",
     "safety.link.bluetoothDenied": "未允许蓝牙权限",
+    "safety.link.locationDenied": "未允许位置信息权限",
     "safety.link.disconnected": "头盔连接已断开",
     "safety.link.mismatch": "头盔身份不匹配",
     "safety.link.offline": "头盔未连接",
@@ -75,6 +76,7 @@ export const safety = {
     "safety.sosQueued": "求救请求已暂存，网络恢复后将自动发送。",
     "safety.sosNotSent":
       "求救没有发出，也不会自动重发。需要帮助请直接拨打电话。",
+    "safety.sosHelmetGone": "这顶头盔已不在你的账号下。",
     "safety.manualSos": "手动求救",
     "safety.status.pending": "进行中",
     "safety.status.notified": "通知已启动",
@@ -150,6 +152,7 @@ export const safety = {
     "safety.link.searching": "頭盔未連接，正在搜尋",
     "safety.link.bluetoothOff": "手機藍牙已關閉",
     "safety.link.bluetoothDenied": "未允許藍牙權限",
+    "safety.link.locationDenied": "未允許位置資訊權限",
     "safety.link.disconnected": "頭盔連接已中斷",
     "safety.link.mismatch": "頭盔身分不符",
     "safety.link.offline": "頭盔未連接",
@@ -208,6 +211,7 @@ export const safety = {
     "safety.sosQueued": "求救請求已暫存，網路恢復後將自動傳送。",
     "safety.sosNotSent":
       "求救沒有送出，也不會自動重發。需要協助請直接撥打電話。",
+    "safety.sosHelmetGone": "這頂安全帽已不在你的帳號下。",
     "safety.manualSos": "手動求救",
     "safety.status.pending": "進行中",
     "safety.status.notified": "通知已啟動",
@@ -283,6 +287,7 @@ export const safety = {
     "safety.link.searching": "Helmet not connected, searching",
     "safety.link.bluetoothOff": "Phone Bluetooth is off",
     "safety.link.bluetoothDenied": "Bluetooth permission not granted",
+    "safety.link.locationDenied": "Location permission not allowed",
     "safety.link.disconnected": "Helmet disconnected",
     "safety.link.mismatch": "Helmet identity mismatch",
     "safety.link.offline": "Helmet not connected",
@@ -350,6 +355,7 @@ export const safety = {
       "SOS request saved. It will be sent automatically when the connection returns.",
     "safety.sosNotSent":
       "Your SOS was not sent and won't be retried. If you need help, call directly.",
+    "safety.sosHelmetGone": "This helmet is no longer on your account.",
     "safety.manualSos": "Manual SOS",
     "safety.status.pending": "Active",
     "safety.status.notified": "Alerts started",
@@ -381,7 +387,7 @@ export const safety = {
     "records.noHelmetBody":
       "Add a helmet to view its risk alerts and SOS records.",
     "records.pending": "{device} has an active SOS",
-    "records.sos.fall": "Possible fall · SOS",
+    "records.sos.fall": "Possible fall",
     "records.sos.manual": "Manual SOS",
     "records.detail.time": "Time",
     "records.detail.helmet": "Helmet",

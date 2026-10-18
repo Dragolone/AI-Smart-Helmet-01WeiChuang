@@ -129,7 +129,7 @@ export class DeviceSnapshotService {
   /**
    * 这台设备是否已经收到过业务时间更晚的状态类事件（不含本条）。只看最近 10 分钟到达的：
    * 本条不是补传（业务时间在 5 分钟内），比它新的那条业务时间也在 5 分钟内，最多超前收到时间 5 分钟就会被兜底成收到时间。
-   * 业务时间同 businessTime（与电量曲线同一个 CASE）。查询失败按「没有」处理，不影响快照刷新。
+   * 业务时间按 business_time 列（决策 #59，规则同 businessTime）。查询失败按「没有」处理，不影响快照刷新。
    */
   private async newerStatusApplied(
     e: ValidEnvelope,
@@ -146,12 +146,7 @@ export class DeviceSnapshotService {
           AND event_type IN ('device_status', 'sleep_entered', 'sleep_exited')
           AND event_id <> ${e.eventId}
           AND received_at > ${since}::timestamp
-          AND CASE
-                WHEN "timestamp" > received_at + interval '5 minutes'
-                  OR "timestamp" < received_at - interval '72 hours'
-                THEN received_at
-                ELSE "timestamp"
-              END > ${at}::timestamp
+          AND business_time > ${at}::timestamp
         LIMIT 1`;
       return rows.length > 0;
     } catch (err) {

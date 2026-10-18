@@ -9,3 +9,10 @@ export const isUnrecoverableRelayError = (e: unknown): boolean => {
   const status = (e as { status?: unknown })?.status;
   return status === 404 || status === 403 || status === 400;
 };
+
+/**
+ * 服务端说这顶头盔不在当前账号下（404）。求救发不出去时第一行就这么说：通用文案「未找到该头盔，请核对设备编号」
+ * 是给手动输入编号绑定的人看的，求救这里用户并没输过编号（10-18 模拟器：倒数中被解绑后点「我还是需要帮助」）
+ */
+export const isHelmetGoneError = (e: unknown): boolean =>
+  (e as { status?: unknown })?.status === 404;

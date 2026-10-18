@@ -163,7 +163,13 @@ export function HelmetPicker({
                   </View>
                   <View style={styles.body}>
                     <View style={styles.nameRow}>
-                      <ThemedText numberOfLines={1} style={styles.name}>
+                      {/* 截中间：旁边有「当前头盔」标签时名字放不下，默认名都是「helmet_」开头、后几位才分得出是哪一顶
+                          （第二行已不再重复编号，10-17 华为英文下截成「helmet_…」就认不出了） */}
+                      <ThemedText
+                        numberOfLines={1}
+                        ellipsizeMode="middle"
+                        style={styles.name}
+                      >
                         {helmetNameOf(d)}
                       </ThemedText>
                       {d.deviceId === currentId && (

@@ -25,6 +25,13 @@ const ACTION_CANCEL = "cancel";
 const ACTION_OPEN = "open";
 /** 剩余多少秒时再静默刷新一次通知正文（同一 identifier 原位替换，不再响铃） */
 const REFRESH_AT = [30, 10] as const;
+/** 一单的本地通知编号：首条与第一次刷新共用（同 id 原位更新），之后的刷新各用一个 */
+const refreshIdOf = (sosId: string, at: (typeof REFRESH_AT)[number]): string =>
+  at === REFRESH_AT[0] ? `sos-${sosId}` : `sos-${sosId}-${at}`;
+/** 这一单可能排过的全部本地通知编号（撤的时候按它撤，不依赖进程里的登记表） */
+const alertIdsOf = (sosId: string): string[] => [
+  ...new Set(REFRESH_AT.map((at) => refreshIdOf(sosId, at))),
+];
 
 /** 初始化只做一次；并发 / 重复调用拿到同一个 Promise（调用方要等它结束再去要别的权限） */
 let permissionReady: Promise<void> | null = null;
@@ -429,7 +436,7 @@ export async function showSosAlertIfBackground(
     return false;
   };
   try {
-    const baseId = `sos-${sosId}`;
+    const baseId = alertIdsOf(sosId)[0];
     // 同一单的远程推送「倒计时已开始」没有按钮，和本地通知叠成一摞时用户长按到的常常是它
     // （2026-10-06 iPhone 实测）。本地这条内容更全、带按钮，弹出后把那条远程的撤掉；
     // 远程推送可能晚到，JS 醒着的话隔几秒再扫两遍
@@ -455,7 +462,7 @@ export async function showSosAlertIfBackground(
       const delay = total - at;
       if (delay < 3) continue;
       // 第二次用另一个 id：同 id 的待触发请求会互相覆盖
-      const id = at === REFRESH_AT[0] ? baseId : `${baseId}-${at}`;
+      const id = refreshIdOf(sosId, at);
       if (
         !(await schedule(id, {
           identifier: id,
@@ -512,10 +519,14 @@ async function removeNotification(id: string): Promise<void> {
 /** SOS 不再 pending（取消/确认/已通知）→ 撤掉已投的通知、取消还没到点的刷新 */
 export async function clearSosAlert(sosId: string): Promise<void> {
   const entry = alerts.get(sosId);
-  if (!entry) return;
   alerts.delete(sosId); // 先摘表：还在排通知的 show 循环看到后会自己停下并撤回
-  for (const t of entry.timers) clearTimeout(t);
-  for (const id of [...entry.ids]) await removeNotification(id);
+  if (entry) for (const t of entry.timers) clearTimeout(t);
+  // 表里没有这单时也按固定的编号撤一遍：进程被杀后点通知按钮取消、冷启动的这个进程表是空的，
+  // 通知和预排的「还剩 N 秒」是上一个进程排的。不撤的话已取消的单一直挂在通知栏，App 退到后台后
+  // 「还剩 10 秒」照样会弹（10-17 夜模拟器实测）
+  const ids = [...(entry?.ids ?? [])];
+  for (const id of alertIdsOf(sosId)) if (!ids.includes(id)) ids.push(id);
+  for (const id of ids) await removeNotification(id);
 }
 
 /** 登出：上一个账号的 SOS 提醒不该留在这台手机上（留着也取消不了——没有 token，重试只会静默用尽） */
