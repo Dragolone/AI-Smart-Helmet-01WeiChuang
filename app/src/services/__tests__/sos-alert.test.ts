@@ -426,6 +426,18 @@ describe("sos-alert", () => {
       expect(m.sosPresentation(undefined, "background").show).toBe(true);
       expect(m.sosPresentation("device", "active").show).toBe(false);
     });
+
+    it("策略装不上（setNotificationHandler 抛错，原生模块缺失等）：初始化不抛，通知动作、权限、冷启动那次点击照常", async () => {
+      mockSetHandler.mockImplementationOnce(() => {
+        throw new Error("NotificationsHandlerModule is null");
+      });
+      const m = load();
+      await expect(m.ensureSosAlertPermission()).resolves.toBeUndefined();
+      expect(responseHandler).not.toBeNull();
+      expect(mockGetLastResponse).toHaveBeenCalled();
+      expect(mockSetCategory).toHaveBeenCalledTimes(1);
+      expect(mockGetPerms).toHaveBeenCalled();
+    });
   });
 
   describe("isSosAlertPermissionDenied（8.2：权限被拒要有提示）", () => {
@@ -492,6 +504,30 @@ describe("sos-alert", () => {
       mockSchedule.mockClear();
       await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
       expect(mockSchedule).toHaveBeenCalled();
+    });
+
+    it("立即弹的那条已排上、排 30 秒那条静默刷新时这单被取消：10 秒那条不再排，卡住的那条排完就撤回", async () => {
+      const m = load();
+      mockSchedule.mockClear();
+      let release!: () => void;
+      mockSchedule
+        .mockImplementationOnce(async () => "id")
+        .mockImplementationOnce(
+          () => new Promise<string>((r) => (release = () => r("id"))),
+        );
+      const showing = m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
+      for (let i = 0; i < 20 && mockSchedule.mock.calls.length < 2; i++)
+        await Promise.resolve();
+      expect(mockSchedule).toHaveBeenCalledTimes(2);
+      await m.clearSosAlert("s1"); // 用户在这个瞬间取消了
+      mockCancelScheduled.mockClear();
+      release();
+      await showing;
+      // 30 秒那条与首条同编号（原位更新）；10 秒那条（sos-s1-10）没有排
+      expect(reqs().map((r) => r.identifier)).toEqual(["sos-s1", "sos-s1"]);
+      expect(mockCancelScheduled.mock.calls.map((c) => c[0])).toEqual([
+        "sos-s1",
+      ]);
     });
   });
 
@@ -739,6 +775,22 @@ describe("sos-alert", () => {
       responseHandler?.(launch("cancel")); // 回放，跳过
       responseHandler?.(launch("cancel")); // 用户真的又点了一次
       expect(mockCancel).toHaveBeenCalledTimes(2);
+    });
+
+    it("监听过了 5 秒才送来同一条（不是回放，多半是用户在锁屏上又点了一次「取消」）：照常再发一次取消", async () => {
+      const t0 = Date.UTC(2026, 9, 18, 2, 0, 0);
+      const clock = jest.spyOn(Date, "now").mockReturnValue(t0);
+      try {
+        mockGetLastResponse.mockReturnValue(launch("cancel"));
+        const m = load();
+        await m.ensureSosAlertPermission();
+        expect(mockCancel).toHaveBeenCalledTimes(1);
+        clock.mockReturnValue(t0 + 6_000);
+        responseHandler?.(launch("cancel"));
+        expect(mockCancel).toHaveBeenCalledTimes(2);
+      } finally {
+        clock.mockRestore();
+      }
     });
 
     it("远程推送的启动点击（content.data 里没有 sosId）不碰、不清——留给 push.ts 落地", async () => {

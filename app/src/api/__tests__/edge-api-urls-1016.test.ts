@@ -160,6 +160,18 @@ describe("查询参数编码", () => {
     expect(q.get("page")).toBe("0");
     expect(q.get("pageSize")).toBe("0");
   });
+
+  it("账号级进行中求救：页码 / 条数缺省 1 / 100（多于 100 单时调用方靠 total 知道列表不全）；传了就照传", async () => {
+    await sosApi.activeForAccount();
+    expect(pathOf(lastUrl())).toBe("/api/v1/users/me/sos/active");
+    let q = queryOf(lastUrl());
+    expect(q.get("page")).toBe("1");
+    expect(q.get("pageSize")).toBe("100");
+    await sosApi.activeForAccount(2, 50);
+    q = queryOf(lastUrl());
+    expect(q.get("page")).toBe("2");
+    expect(q.get("pageSize")).toBe("50");
+  });
 });
 
 describe(".env 里接口地址的写法", () => {

@@ -33,21 +33,34 @@ const mockActiveForAccount = jest.fn(async () => ({
 }));
 const mockSecure = new Map<string, string>();
 
+/** 原生模块没打进包（Expo Go / 旧 dev-client）：置真后 push.ts 取 default 就抛，同 require 失败 */
+let mockNativeMissing = false;
+/** getRegistrationID 回给 JS 的值：首次启动还没注册上时极光给空串 */
+let mockRegistrationId = "rid";
+let connectListener: ((r: { connectEnable: boolean }) => void) | null = null;
 jest.mock("jpush-react-native", () => ({
   __esModule: true,
-  default: {
-    init: (p: unknown) => mockInit(p),
-    setAlias: (p: unknown) => mockSetAlias(p),
-    deleteAlias: (p: unknown) => mockDeleteAlias(p),
-    addNotificationListener: (cb: Listener) => mockAddNotificationListener(cb),
-    addConnectEventListener: () => undefined,
-    addTagAliasListener: (cb: (r: AliasResult) => void) => {
-      aliasListener = cb;
-    },
-    queryAlias: (p: { sequence: number }) => mockQueryAlias(p),
-    setLoggerEnable: () => undefined,
-    getRegistrationID: (cb: (r: { registerID: string }) => void) =>
-      cb({ registerID: "rid" }),
+  get default() {
+    if (mockNativeMissing) throw new Error("JPushModule is null");
+    return {
+      init: (p: unknown) => mockInit(p),
+      setAlias: (p: unknown) => mockSetAlias(p),
+      deleteAlias: (p: unknown) => mockDeleteAlias(p),
+      addNotificationListener: (cb: Listener) =>
+        mockAddNotificationListener(cb),
+      addConnectEventListener: (
+        cb: (r: { connectEnable: boolean }) => void,
+      ) => {
+        connectListener = cb;
+      },
+      addTagAliasListener: (cb: (r: AliasResult) => void) => {
+        aliasListener = cb;
+      },
+      queryAlias: (p: { sequence: number }) => mockQueryAlias(p),
+      setLoggerEnable: () => undefined,
+      getRegistrationID: (cb: (r: { registerID: string }) => void) =>
+        cb({ registerID: mockRegistrationId }),
+    };
   },
 }));
 jest.mock("expo-router", () => ({
@@ -76,6 +89,7 @@ jest.mock("expo-secure-store", () => ({
   },
 }));
 
+import { devLog } from "@/services/dev-log";
 import { presentedSos } from "@/services/sos-sync";
 import { useConsentStore } from "@/stores/consent-store";
 
@@ -100,6 +114,7 @@ beforeEach(() => {
   useConsentStore.setState({ privacyAccepted: false, hydrated: true });
   mockSecure.clear();
   presentedSos.current.clear();
+  connectListener = null;
 });
 afterEach(() => {
   jest.clearAllMocks();
@@ -174,6 +189,66 @@ describe("推送初始化门控", () => {
     useConsentStore.setState({ privacyAccepted: true });
     startPush("u1", null);
     expect(mockInit).not.toHaveBeenCalled();
+  });
+
+  it("冷启动时同意标记还没从存储读出来：先挂起，日志写「在等读取」而不是「未同意」；读出来是未同意就接着等，勾选那一刻才初始化", () => {
+    useConsentStore.setState({ privacyAccepted: false, hydrated: false });
+    startPush("u1");
+    expect(devLog).toHaveBeenCalledWith(
+      "PUSH",
+      "等同意标记读取完再决定是否初始化",
+    );
+    expect(devLog).not.toHaveBeenCalledWith(
+      "PUSH",
+      "未同意隐私政策，推送 SDK 暂不初始化",
+    );
+    useConsentStore.setState({ hydrated: true }); // 读出来了：这台设备上没同意过
+    expect(mockInit).not.toHaveBeenCalled();
+    useConsentStore.setState({ privacyAccepted: true });
+    expect(mockInit).toHaveBeenCalledTimes(1);
+    expect(mockSetAlias).toHaveBeenCalledWith(
+      expect.objectContaining({ alias: "u1" }),
+    );
+  });
+
+  it("极光原生模块没打进包（Expo Go / 旧 dev-client，加载就抛）：登录照常不抛，不 init、不挂监听、不设别名；登出也不碰 SDK", () => {
+    mockNativeMissing = true;
+    try {
+      useConsentStore.setState({ privacyAccepted: true });
+      expect(() => startPush("u1")).not.toThrow();
+      expect(devLog).toHaveBeenCalledWith(
+        "PUSH",
+        "极光原生模块不可用（需要重建原生包）",
+        expect.any(Error),
+      );
+      expect(mockAddNotificationListener).not.toHaveBeenCalled();
+      expect(mockInit).not.toHaveBeenCalled();
+      expect(mockSetAlias).not.toHaveBeenCalled();
+      expect(() => stopPush()).not.toThrow();
+      expect(mockDeleteAlias).not.toHaveBeenCalled();
+    } finally {
+      mockNativeMissing = false;
+    }
+  });
+
+  it("还没拿到 registrationID、极光连接断开 / 恢复：只记日志（真机排查靠它），不影响初始化和别名", () => {
+    mockRegistrationId = "";
+    try {
+      useConsentStore.setState({ privacyAccepted: true });
+      startPush("u1");
+      expect(devLog).toHaveBeenCalledWith(
+        "PUSH",
+        "registrationID （尚未注册）",
+      );
+      connectListener?.({ connectEnable: false });
+      expect(devLog).toHaveBeenCalledWith("PUSH", "极光连接 断");
+      connectListener?.({ connectEnable: true });
+      expect(devLog).toHaveBeenCalledWith("PUSH", "极光连接 上");
+      expect(mockInit).toHaveBeenCalledTimes(1);
+      expect(mockSetAlias).toHaveBeenCalledTimes(1);
+    } finally {
+      mockRegistrationId = "rid";
+    }
   });
 });
 
@@ -456,6 +531,32 @@ describe("别名确认与重试（10-05 iPhone：别名丢了，被杀后推送�
       jest.advanceTimersByTime(60_000);
     }
     expect(mockSetAlias).toHaveBeenCalledTimes(5);
+  });
+
+  it("校验时服务端给回的别名缺省（iOS 桥接层可能拿到 nil）：当作没设上，3 s 后重设", () => {
+    boot();
+    aliasListener?.({ code: 0, sequence: lastSetSeq(), alias: "u1" });
+    jest.advanceTimersByTime(2_000);
+    aliasListener?.({ code: 0, sequence: lastQuerySeq() });
+    jest.advanceTimersByTime(3_000);
+    expect(mockSetAlias).toHaveBeenCalledTimes(2);
+    expect(mockSetAlias).toHaveBeenLastCalledWith(
+      expect.objectContaining({ alias: "u1" }),
+    );
+  });
+
+  it("换账号后旧账号的设置结果才迟到（失败）：不替旧账号重设，也不冲掉新账号排好的校验", () => {
+    boot();
+    const oldSeq = lastSetSeq();
+    startPush("u2");
+    aliasListener?.({ code: 0, sequence: lastSetSeq(), alias: "u2" }); // 排了 2 s 后的校验
+    aliasListener?.({ code: 6022, sequence: oldSeq }); // u1 那次迟到的失败
+    jest.advanceTimersByTime(2_000);
+    expect(mockQueryAlias).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(120_000);
+    expect(
+      mockSetAlias.mock.calls.map((c) => (c[0] as { alias: string }).alias),
+    ).toEqual(["u1", "u2"]);
   });
 });
 
