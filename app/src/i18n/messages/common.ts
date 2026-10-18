@@ -17,6 +17,12 @@ export const common = {
     "ble.onboarding.permissionHint": "之前拒绝过，需要到系统设置里重新允许",
     "ble.onboarding.whitelist": "允许后台运行",
     "ble.onboarding.whitelistHint": "关闭省电限制，减少后台连接中断",
+    "ble.onboarding.launch": "华为手机：设为手动管理",
+    "ble.onboarding.launchHint":
+      "不设的话，从多任务划掉 App 后系统会强行停止它，收不到求救通知",
+    "ble.launchGuide.title": "设为手动管理",
+    "ble.launchGuide.body":
+      "接下来会打开系统设置：\n1. 若看到的是「应用信息」，先点「电池」，再点「应用启动管理」\n2. 关闭零一智行的「自动管理」\n3. 在弹出的框里打开「允许自启动」「允许关联启动」「允许后台活动」三项，点「确定」\n\n三项默认是关着的，全部打开才不会在划掉 App 后被系统强行停止。",
     "ble.onboarding.go": "去设置",
     "ble.banner.off": "手机蓝牙已关闭，头盔无法连接",
     "ble.banner.unauthorized": "未允许蓝牙权限，头盔无法连接",
@@ -24,7 +30,7 @@ export const common = {
     "keepalive.body":
       "使用头盔时，请保持 App 运行，并确保手机蓝牙和网络可用。锁屏或切换应用后，App 可在后台运行；强制关闭 App 可能导致摔倒和求救通知延迟或无法发送。",
     "keepalive.androidTip":
-      "部分 Android 手机支持在最近任务中锁定应用，可减少一键清理导致的意外关闭。",
+      "部分 Android 手机支持在最近任务中锁定应用，可减少一键清理导致的意外关闭。华为手机还要在「应用启动管理」里把本应用设为手动管理并打开三项，否则划掉 App 后系统会强行停止它。",
     "keepalive.ok": "知道了",
     "empty.contactsTitle": "尚未添加紧急联系人",
     "empty.contactsBody": "请添加至少一位可在紧急情况下联系的人。",
@@ -115,6 +121,12 @@ export const common = {
     "ble.onboarding.permissionHint": "之前拒絕過，需要到系統設定裡重新允許",
     "ble.onboarding.whitelist": "允許背景執行",
     "ble.onboarding.whitelistHint": "關閉省電限制，減少背景連線中斷",
+    "ble.onboarding.launch": "華為手機：設為手動管理",
+    "ble.onboarding.launchHint":
+      "不設的話，從多工列滑掉 App 後系統會強制停止它，收不到求救通知",
+    "ble.launchGuide.title": "設為手動管理",
+    "ble.launchGuide.body":
+      "接下來會打開系統設定：\n1. 若看到的是「應用程式資訊」，先點「電池」，再點「應用程式啟動管理」\n2. 關閉零一智行的「自動管理」\n3. 在彈出的框裡打開「允許自啟動」「允許關聯啟動」「允許背景活動」三項，點「確定」\n\n三項預設是關著的，全部打開才不會在滑掉 App 後被系統強制停止。",
     "ble.onboarding.go": "去設定",
     "ble.banner.off": "手機藍牙已關閉，頭盔無法連線",
     "ble.banner.unauthorized": "未允許藍牙權限，頭盔無法連線",
@@ -122,7 +134,7 @@ export const common = {
     "keepalive.body":
       "使用頭盔時，請保持 App 執行，並確保手機藍牙和網路可用。鎖定螢幕或切換應用程式後，App 可在背景執行；強制關閉 App 可能導致跌倒和求救通知延遲或無法傳送。",
     "keepalive.androidTip":
-      "部分 Android 手機支援在最近使用的應用程式中鎖定 App，可減少一鍵清理造成的意外關閉。",
+      "部分 Android 手機支援在最近使用的應用程式中鎖定 App，可減少一鍵清理造成的意外關閉。華為手機還要在「應用程式啟動管理」裡把本 App 設為手動管理並打開三項，否則滑掉 App 後系統會強制停止它。",
     "keepalive.ok": "知道了",
     "empty.contactsTitle": "尚未新增緊急聯絡人",
     "empty.contactsBody": "請新增至少一位可在緊急情況下聯絡的人。",
@@ -215,6 +227,12 @@ export const common = {
     "ble.onboarding.whitelist": "Allow background activity",
     "ble.onboarding.whitelistHint":
       "Disable battery restrictions to reduce interruptions in the background",
+    "ble.onboarding.launch": "Huawei phones: manage launch manually",
+    "ble.onboarding.launchHint":
+      "Otherwise the system force-stops the app when you swipe it away, and SOS alerts won't arrive.",
+    "ble.launchGuide.title": "Set App launch to manual",
+    "ble.launchGuide.body":
+      "System settings will open next:\n1. If you see App info, tap Battery, then App launch\n2. Turn off Manage automatically for this app\n3. In the dialog, turn on Auto-launch, Secondary launch and Run in background, then tap OK\n\nAll three are off by default. Turn them all on so the system doesn't force-stop the app when you swipe it away.",
     "ble.onboarding.go": "Settings",
     "ble.banner.off": "Bluetooth is off, the helmet can't connect",
     "ble.banner.unauthorized":
@@ -223,7 +241,7 @@ export const common = {
     "keepalive.body":
       "Keep the app running while using your helmet, with Bluetooth and internet available. The app can run in the background when you lock the screen or switch apps. Force-closing it may delay or prevent fall and SOS alerts.",
     "keepalive.androidTip":
-      "Some Android phones let you lock an app in recent apps to prevent it from being closed when clearing apps.",
+      "Some Android phones let you lock an app in recent apps to prevent it from being closed when clearing apps. On Huawei phones, also set this app to manual management in App launch and enable all three options, or the system will force-stop it when you swipe it away.",
     "keepalive.ok": "Got it",
     "empty.contactsTitle": "No emergency contacts added",
     "empty.contactsBody":
