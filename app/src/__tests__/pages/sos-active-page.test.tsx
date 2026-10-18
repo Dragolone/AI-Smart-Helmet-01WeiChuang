@@ -1515,7 +1515,9 @@ describe("多顶头盔同时求救（10-16 N10：一张页 + 顶部胶囊点切�
     expect(notifyCriticalAccepted).toHaveBeenCalledWith("h2");
   });
 
-  it("疑似缺陷：另一顶的单在倒数中途从进行中消失（WS 断着、账号级轮询写成「没有」，本机不知道它怎么结束的），屏上这单处理完后结果页仍把它写成「正在通知紧急联系人」，也不去拉它的权威状态", async () => {
+  // 另一顶的单在倒数中途从进行中消失（WS 断着、安全页账号级轮询写成「没有」），本机不知道它怎么结束的；
+  // 屏上这单处理完进结果页时，要先补拉它的权威状态再写结论（10-19 夜测 D2，原来一律写「正在通知紧急联系人」）
+  const vanishThenFinish = async (s2: () => Promise<Sos | null>) => {
     twoHelmets();
     m(sosApi.cancel).mockImplementation(() =>
       Promise.resolve(sosOf({ status: "cancelled" })),
@@ -1528,17 +1530,59 @@ describe("多顶头盔同时求救（10-16 N10：一张页 + 顶部胶囊点切�
     });
     await tick(0);
     expect(r.allText()).not.toContain(tr("sos.allCancel"));
-    slideCancel(r);
-    for (let i = 0; i < 3; i++) await tick(0);
-    expect(r.allText()).toContain(tr("sos.multiDoneTitle", { n: 2 }));
-    expect(qc.getQueryData(["sos", "s2"])).toBeUndefined();
-    // 只有「滑雪」那一行是徽标（「通勤」已取消，是「我还是需要帮助」按钮）
-    expect(r.root.findAllByType(Badge).map((b) => b.props.label)).toEqual([
-      tr("sos.notified.sending"),
-    ]);
-    expect(m(sosApi.snapshot).mock.calls.some((c) => c[0] === "s2")).toBe(
-      false,
+    m(sosApi.snapshot).mockImplementation((id: unknown) =>
+      id === "s2" ? s2() : Promise.resolve(sosOf()),
     );
+    slideCancel(r);
+    for (let i = 0; i < 6; i++) await tick(0);
+    expect(r.allText()).toContain(tr("sos.multiDoneTitle", { n: 2 }));
+    expect(m(sosApi.snapshot).mock.calls).toContainEqual(["s2", "h2"]);
+    return r;
+  };
+
+  it("另一顶的单没拿到终态就离开了进行中：结果页补拉它的权威状态；在别处已取消就写已取消（可「我还是需要帮助」），不说正在通知", async () => {
+    const r = await vanishThenFinish(() =>
+      Promise.resolve({ ...second(), status: "cancelled" }),
+    );
+    // 两行都是「已取消」：没有徽标，各有一个「我还是需要帮助」
+    expect(r.root.findAllByType(Badge)).toHaveLength(0);
+    expect(r.texts().filter((x) => x === tr("sos.needHelp"))).toHaveLength(2);
+    expect(r.allText()).not.toContain(tr("sos.notified.sending"));
+    expect(sosApi.accidentDetail).not.toHaveBeenCalledWith("s2");
+  });
+
+  it("补拉到已通知：再去读它的发送结果，按结果写（短信已发出）", async () => {
+    m(sosApi.accidentDetail).mockImplementation(() =>
+      Promise.resolve({
+        notifications: [
+          {
+            id: "n1",
+            channel: "sms",
+            target: "138****0001",
+            contactName: "妈妈",
+            status: "sent",
+          },
+        ],
+      }),
+    );
+    const r = await vanishThenFinish(() =>
+      Promise.resolve({ ...second(), status: "notified" }),
+    );
+    for (let i = 0; i < 3; i++) await tick(0);
+    expect(sosApi.accidentDetail).toHaveBeenCalledWith("s2");
+    expect(r.root.findAllByType(Badge).map((b) => b.props.label)).toEqual([
+      tr("sos.notified.sent"),
+    ]);
+  });
+
+  it("补拉失败（离线）：那一行写「状态待确认」，不说成正在通知紧急联系人", async () => {
+    const r = await vanishThenFinish(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    expect(r.root.findAllByType(Badge).map((b) => b.props.label)).toEqual([
+      tr("sos.multiStatusUnknown"),
+    ]);
+    expect(r.allText()).not.toContain(tr("sos.notified.sending"));
     expect(sosApi.accidentDetail).not.toHaveBeenCalledWith("s2");
   });
 });

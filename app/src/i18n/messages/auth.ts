@@ -91,6 +91,7 @@ export const auth = {
       "通知流程已启动，发送结果请查看通知记录。请保持手机畅通；若无人回应，请直接拨打电话求助。",
     "sos.notified.sent": "求救短信已发出",
     "sos.notified.sending": "正在通知紧急联系人",
+    "sos.multiStatusUnknown": "状态待确认，可在安全记录里查看",
     "sos.notified.none": "未发送联系人通知",
     "sos.notified.failed": "求救短信发送失败",
     "sos.notified.body":
@@ -222,6 +223,7 @@ export const auth = {
       "通知流程已啟動，傳送結果請查看通知紀錄。請保持手機暢通；若無人回應，請直接撥打電話求助。",
     "sos.notified.sent": "求救簡訊已發出",
     "sos.notified.sending": "正在通知緊急聯絡人",
+    "sos.multiStatusUnknown": "狀態待確認，可在安全記錄裡查看",
     "sos.notified.none": "未傳送聯絡人通知",
     "sos.notified.failed": "求救簡訊傳送失敗",
     "sos.notified.body":
@@ -312,7 +314,8 @@ export const auth = {
     "auth.invalidPhone": "Enter a valid 11-digit phone number first",
     "auth.invalidCode": "Enter the 6-digit SMS code",
     "auth.passwordMismatch": "Passwords do not match",
-    "auth.passwordSameAsOld": "The new password must be different from the current one",
+    "auth.passwordSameAsOld":
+      "The new password must be different from the current one",
     "auth.passwordTooShort": "Password must be at least 8 characters",
     "auth.resetTitle": "Reset password",
     "auth.resetLead":
@@ -362,6 +365,7 @@ export const auth = {
       "The notification process has started. Check the notification records for sending results. Keep your phone available; if no one responds, call for help.",
     "sos.notified.sent": "SOS text alert sent",
     "sos.notified.sending": "Notifying emergency contacts",
+    "sos.multiStatusUnknown": "Status unconfirmed. Check Safety records.",
     "sos.notified.none": "No contact alerts sent",
     "sos.notified.failed": "SOS text alerts failed",
     "sos.notified.body":
