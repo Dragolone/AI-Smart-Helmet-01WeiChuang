@@ -1838,13 +1838,14 @@ describe("档案还没回来", () => {
     );
   });
 
-  it("疑似缺陷：通话中档案才回来（user 从空变成有），监听器重注册的清理把正在进行的通话退掉了", async () => {
+  it("通话中档案才回来（user 从空变成有）：不注销监听、不退房，通话照常；本端音量记到刚拿到的自己名下（10-19 夜测）", async () => {
     useAuthStore.setState({ user: null });
     m(channelsApi.list).mockImplementation(() => Promise.resolve([C1]));
     const r = mount();
     await waitFor(() => expect(r.texts()).toContain(C1.name));
     await enter(r);
     const exits = mockCloud.exitRoom.mock.calls.length;
+    const unregisters = mockCloud.unRegisterListener.mock.calls.length;
     act(() => {
       useAuthStore.setState({
         user: {
@@ -1855,13 +1856,11 @@ describe("档案还没回来", () => {
         } as never,
       });
     });
-    // 现状：myId 在监听器 effect 的依赖里，档案一到就跑清理：注销监听、退房
-    expect(mockCloud.unRegisterListener).toHaveBeenCalledTimes(1);
-    expect(mockCloud.exitRoom.mock.calls.length).toBe(exits + 1);
-    // TRTC 随后回调「自己退的」：一声不响回到列表
-    const toasts = m(showToast).mock.calls.length;
-    fire("onExitRoom", { reason: 0 });
-    expect(r.texts()).toContain(tr("intercom.enter"));
-    expect(m(showToast).mock.calls.length).toBe(toasts);
+    expect(mockCloud.unRegisterListener.mock.calls.length).toBe(unregisters);
+    expect(mockCloud.exitRoom.mock.calls.length).toBe(exits);
+    expect(r.texts()).not.toContain(tr("intercom.enter"));
+    // 本端（userId 空串）在说话：标在自己的格子上
+    fire("onUserVoiceVolume", { userVolumes: [{ userId: "", volume: 40 }] });
+    expect(count(r, tr("intercom.speaking"))).toBe(1);
   });
 });
