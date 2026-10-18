@@ -232,6 +232,18 @@ describe("头盔已不在本账号下", () => {
 });
 
 describe("状态卡", () => {
+  it("设备名标题跟随系统字体最多放大 1.3 倍（1.45 倍时 helmet_f8b262 会断成两行）", async () => {
+    const r = mount();
+    await waitFor(() => expect(r.allText()).toContain("通勤头盔"));
+    const title = r.root.find(
+      (n) =>
+        typeof n.type !== "string" &&
+        n.props.children === "通勤头盔" &&
+        n.props.numberOfLines === 2,
+    );
+    expect(title.props.maxFontSizeMultiplier).toBe(1.3);
+  });
+
   it("名字 + 编号；在线、电量；蓝牙已连接；最近上报时间", async () => {
     const r = mount();
     await waitFor(() => expect(r.allText()).toContain("通勤头盔"));

@@ -219,6 +219,20 @@ describe("状态卡", () => {
     expect(r.texts()).toContain(tr("safety.check.notify"));
   });
 
+  it("状态标题跟随系统字体最多放大 1.3 倍（1.45 倍时会在词中间断行）", async () => {
+    const r = mount();
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("safety.state.ready")),
+    );
+    const title = r.root.find(
+      (n) =>
+        typeof n.type !== "string" &&
+        n.props.children === tr("safety.state.ready") &&
+        n.props.maxFontSizeMultiplier !== undefined,
+    );
+    expect(title.props.maxFontSizeMultiplier).toBe(1.3);
+  });
+
   it("头盔列表还没拿到：骨架；拿不到：失败卡可重试（不能说成没绑头盔）", () => {
     Object.assign(mockSafety, { known: false, stale: false });
     let r = mount();

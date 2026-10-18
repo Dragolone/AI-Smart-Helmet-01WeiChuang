@@ -125,7 +125,12 @@ function StatusCard({
           <CrossfadeIcon name={icon} size={24} color={theme[tone]} pop />
         </Animated.View>
         <View style={styles.statusText}>
-          <ThemedText type="smallBold" style={styles.statusTitle}>
+          {/* 状态标题字号本来就大：系统字体超过 1.3 倍时不再跟着放大，免得在词中间断行（华为「超大」档 1.45 倍实测） */}
+          <ThemedText
+            type="smallBold"
+            maxFontSizeMultiplier={TITLE_FONT_CAP}
+            style={styles.statusTitle}
+          >
             {title}
           </ThemedText>
           {body !== undefined && (
@@ -550,7 +555,11 @@ export default function SafetyScreen() {
                       bg={theme.dangerBg}
                     />
                     <View style={styles.statusText}>
-                      <ThemedText type="smallBold" style={styles.statusTitle}>
+                      <ThemedText
+                        type="smallBold"
+                        maxFontSizeMultiplier={TITLE_FONT_CAP}
+                        style={styles.statusTitle}
+                      >
                         {t("safety.state.sos")}
                       </ThemedText>
                       <ThemedText
@@ -736,6 +745,9 @@ export default function SafetyScreen() {
     </ThemedView>
   );
 }
+
+/** 大标题跟随系统字体放大的上限（1.45 倍时词中间断行，1.3 倍正常） */
+const TITLE_FONT_CAP = 1.3;
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },

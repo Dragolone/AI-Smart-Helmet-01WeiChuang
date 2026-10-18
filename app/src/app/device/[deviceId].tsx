@@ -426,7 +426,13 @@ export default function DeviceDetailScreen() {
         <View style={styles.identity}>
           <View style={styles.titleRow}>
             {/* 数据回来之前标题是链接里的编号，可以任意长：最多两行 */}
-            <ThemedText type="title" style={styles.title} numberOfLines={2}>
+            {/* 28 号字的设备名在系统字体 1.45 倍时会断成「helmet_f8b26 / 2」：超过 1.3 倍不再放大 */}
+            <ThemedText
+              type="title"
+              style={styles.title}
+              numberOfLines={2}
+              maxFontSizeMultiplier={1.3}
+            >
               {helmetNameOf({ name: detail.data?.name ?? null, deviceId })}
             </ThemedText>
             {/* 详情回来之前不给改名：那时预填的是空串，一点保存就把原来的名字清掉了 */}
