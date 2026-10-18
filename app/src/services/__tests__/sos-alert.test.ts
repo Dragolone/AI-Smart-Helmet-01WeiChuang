@@ -36,6 +36,30 @@ const mockRequestPerms = jest.fn(async () => ({ granted: true }));
 const mockSetHandler = jest.fn((_h: unknown) => undefined);
 /** addNotificationResponseReceivedListener 拿到的回调，用来模拟用户点通知按钮 */
 let responseHandler: ((r: unknown) => void) | null = null;
+/**
+ * 上面每个替身定义时的实现：每条用例开头 mockReset 再装回去。只 mockClear 的话，上一条用例没用完的
+ * mockImplementationOnce、整条换掉的实现（mockRejectedValue、永不返回的 Promise）会带进下一条
+ */
+const defaultImpls = new Map(
+  (
+    [
+      mockCancel,
+      mockPush,
+      mockNavigate,
+      mockGetLastResponse,
+      mockPresented,
+      mockClearLastResponse,
+      mockSchedule,
+      mockCancelScheduled,
+      mockDismiss,
+      mockSetChannel,
+      mockSetCategory,
+      mockGetPerms,
+      mockRequestPerms,
+      mockSetHandler,
+    ] as unknown as Mock<(...args: unknown[]) => unknown>[]
+  ).map((m) => [m, m.getMockImplementation()] as const),
+);
 
 jest.mock("@/api/sos", () => ({
   sosApi: { cancel: (id: string) => mockCancel(id) },
@@ -79,6 +103,8 @@ jest.mock("expo-notifications", () => ({
 
 const originalOS = Platform.OS;
 const originalState = AppState.currentState;
+/** 几条用例把它换成自己的（抓回前台的监听）：用完换回，下一条用例不接着用上一条的 */
+const originalAddListener = AppState.addEventListener;
 const override = (obj: object, key: string, value: unknown): void => {
   Object.defineProperty(obj, key, {
     value,
@@ -127,35 +153,20 @@ const reqs = (): Req[] => mockSchedule.mock.calls.map((c) => c[0] as Req);
 describe("sos-alert", () => {
   beforeEach(() => {
     responseHandler = null;
-    for (const m of [
-      mockCancel,
-      mockPush,
-      mockNavigate,
-      mockClearLastResponse,
-      mockSchedule,
-      mockCancelScheduled,
-      mockDismiss,
-      mockSetChannel,
-      mockSetCategory,
-      mockGetPerms,
-      mockRequestPerms,
-    ]) {
-      (m as unknown as Mock<() => unknown>).mockClear();
+    for (const [m, impl] of defaultImpls) {
+      m.mockReset();
+      if (impl) m.mockImplementation(impl);
     }
-    mockGetPerms.mockResolvedValue({ granted: true });
-    mockGetLastResponse.mockReset();
-    mockGetLastResponse.mockReturnValue(null);
-    mockPresented.mockReset();
-    mockPresented.mockResolvedValue([]);
-    mockCancel.mockReset();
-    mockCancel.mockImplementation(async () => ({}) as never);
     override(Platform, "OS", "ios");
     override(AppState, "currentState", "background");
   });
   afterEach(async () => {
     for (const m of loaded.splice(0)) await m.resetSosAlerts();
+    // 假定时器统一在这里关：漏关一条，之后靠真定时器等一拍（setTimeout 0）的用例就一直等到超时
+    jest.useRealTimers();
     override(Platform, "OS", originalOS);
     override(AppState, "currentState", originalState);
+    override(AppState, "addEventListener", originalAddListener);
   });
 
   describe("showSosAlertIfBackground", () => {
@@ -333,8 +344,6 @@ describe("sos-alert", () => {
       const m = load();
       await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
       await expect(m.clearSosAlert("s1")).resolves.toBeUndefined();
-      mockCancelScheduled.mockResolvedValue(undefined);
-      mockDismiss.mockResolvedValue(undefined);
     });
 
     it("清完之后同一单可以再次弹（服务端又建了单）", async () => {
@@ -408,7 +417,6 @@ describe("sos-alert", () => {
 
   describe("前台展示策略（SOS-11：锁屏瞬间 inactive 到达的通知不能被吞）", () => {
     it("初始化时安装策略；App 不在前台时所有通知都弹横幅+响，active 不弹", async () => {
-      mockSetHandler.mockClear(); // 不在 beforeEach 的清零列表里，手动清
       const m = load();
       await m.ensureSosAlertPermission();
       expect(mockSetHandler).toHaveBeenCalledTimes(1);
@@ -606,7 +614,6 @@ describe("sos-alert", () => {
       expect(confirmed).toEqual(["s1"]);
       await jest.advanceTimersByTimeAsync(20_000);
       expect(mockCancel).toHaveBeenCalledTimes(3); // 成功后不再重试
-      jest.useRealTimers();
     });
 
     it("取消失败时 App 回到前台立刻重试（不等定时器）", async () => {
@@ -667,7 +674,6 @@ describe("sos-alert", () => {
       ).toEqual({});
       expect(mockNavigate).not.toHaveBeenCalled();
       await jest.advanceTimersByTimeAsync(60_000);
-      jest.useRealTimers();
     });
 
     it("边界：这单已在别处结束（另一台先取消 / 最后一秒到期）→ SOS_ALREADY_FINALIZED 视为成功，不重试", async () => {
@@ -719,7 +725,6 @@ describe("sos-alert", () => {
         expect(notice).toHaveBeenCalledTimes(1);
       } finally {
         notice.mockRestore();
-        jest.useRealTimers();
       }
     });
 
@@ -792,7 +797,6 @@ describe("sos-alert", () => {
       const m = load();
       void m.ensureSosAlertPermission(); // 不 await：模拟同一个 effect 里紧接着的同步代码
       expect(mockCancel).toHaveBeenCalledWith("s1");
-      mockSetCategory.mockImplementation(async () => undefined);
     });
 
     it("点的是横幅 / 「打开 App」：进倒计时页", async () => {
@@ -875,6 +879,7 @@ describe("sos-alert", () => {
         store = require("@/stores/sos-cancel-store");
         mod = require("../sos-alert") as SosAlert;
       });
+      loaded.push(mod);
       return { m: mod, store: store.useSosCancelStore };
     };
 
@@ -889,7 +894,6 @@ describe("sos-alert", () => {
       expect(store.getState().inFlight.s9).toBe(true);
       await m.resetSosAlerts();
       expect(store.getState().inFlight.s9).toBeUndefined();
-      jest.useRealTimers();
     });
 
     it("请求发出即标记在途，服务端确认后清掉", async () => {
@@ -919,7 +923,6 @@ describe("sos-alert", () => {
       await jest.advanceTimersByTimeAsync(5_000);
       await jest.advanceTimersByTimeAsync(10_000);
       expect(store.getState().inFlight.s1).toBeUndefined();
-      jest.useRealTimers();
     });
   });
 
@@ -942,7 +945,6 @@ describe("sos-alert", () => {
       mockCancel.mockClear();
       await jest.advanceTimersByTimeAsync(30_000);
       expect(mockCancel).not.toHaveBeenCalled(); // 重试已停
-      jest.useRealTimers();
     });
   });
 
@@ -994,7 +996,6 @@ describe("sos-alert", () => {
       mockPresented.mockClear();
       await jest.advanceTimersByTimeAsync(20_000);
       expect(mockPresented).not.toHaveBeenCalled();
-      jest.useRealTimers();
     });
 
     it("「取消」被服务端确认后，同一单的远程推送也撤掉（被杀状态下它是通知中心里唯一的一条，留着用户会再去长按，10-07 实测）；别的单的不动", async () => {

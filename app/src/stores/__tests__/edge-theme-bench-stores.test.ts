@@ -1,7 +1,6 @@
 // 外观设置（跟随系统 / 深色 / 浅色）和蓝牙工程模式的展示状态。
 // 外观这里只留 stores/__tests__/edge-theme-locale-1016.test.ts 没覆盖到的几条：存过的合法值读回来用、
 // 改外观先同步原生和内存再落盘、旧版 RN 没有 setColorScheme 也能切。默认深色、乱值 / 读失败、落盘失败不抛那几条在那边。
-// 注意：theme-store 记着「读盘前用户已经选过」（模块级），所以这个文件里读盘的用例要排在 setMode 的用例前面。
 import {
   afterEach,
   beforeEach,
@@ -13,7 +12,9 @@ import {
 import { Appearance } from "react-native";
 
 import { BENCH_LOG_LIMIT, useBleBenchStore } from "../ble-bench-store";
-import { THEME_MODES, useThemeStore } from "../theme-store";
+import { THEME_MODES } from "../theme-store";
+
+type ThemeStore = typeof import("../theme-store");
 
 const mockKv = new Map<string, string>();
 const mockFail = { get: false, set: false };
@@ -28,12 +29,20 @@ jest.mock("expo-secure-store", () => ({
   },
 }));
 
+let useThemeStore: ThemeStore["useThemeStore"];
 let native: ReturnType<typeof jest.spyOn>;
 beforeEach(() => {
   mockKv.clear();
   mockFail.get = false;
   mockFail.set = false;
-  useThemeStore.setState({ mode: "dark", hydrated: false });
+  // theme-store 用模块级变量记「读盘前用户已经选过」，setState 复位不了：同一份模块里先跑过 setMode，
+  // 之后的 hydrate 就不再用盘里的值。每条用例换一份新载入的模块，结果才不看用例先后。
+  // 下面 spy 的仍是顶层这份 Appearance：theme-store 到调用时才经 react-native 的懒加载 getter 去取，
+  // 那时已经出了隔离区，取到的就是这一份
+  jest.isolateModules(() => {
+    useThemeStore =
+      jest.requireActual<ThemeStore>("../theme-store").useThemeStore;
+  });
   native = jest
     .spyOn(Appearance, "setColorScheme")
     .mockImplementation(() => undefined);

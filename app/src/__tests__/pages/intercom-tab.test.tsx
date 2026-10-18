@@ -1612,8 +1612,14 @@ describe("房间里", () => {
     expect(r.texts()).toContain(tr("intercom.caption.hold"));
     // 上一次的离开已经结束：这次还能再离开
     m(playCue).mockClear();
+    // 这次的延时退房也在用例里走完：留着真定时器的话 260 ms 后才响，那时已经在跑后面的用例，
+    // 会给那一条多记一次 exitRoom
+    jest.useFakeTimers();
+    const exitsBefore = mockCloud.exitRoom.mock.calls.length;
     await tap(r, tr("intercom.leaveRoom"));
     expect(cues()).toEqual(["leave"]);
+    await advance(260);
+    expect(mockCloud.exitRoom.mock.calls.length).toBe(exitsBefore + 1);
   });
 
   it("多个频道：点频道名打开切换面板（当前那个标出来）；选同一个只收面板，选另一个提示已结束并切过去；面板里还能去创建或加入", async () => {
