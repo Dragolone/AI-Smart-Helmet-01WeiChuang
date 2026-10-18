@@ -258,6 +258,33 @@ describe("状态卡", () => {
     expect(r.allText()).toContain(tr("device.neverReported"));
   });
 
+  it("安卓 12 以下没权限：蓝牙那一行说要位置信息（系统设置里没有单独的蓝牙权限可开）", async () => {
+    const os = Platform.OS;
+    const version = Platform.Version;
+    Object.defineProperty(Platform, "OS", {
+      value: "android",
+      configurable: true,
+    });
+    Object.defineProperty(Platform, "Version", {
+      value: 29,
+      configurable: true,
+    });
+    try {
+      act(() => useBleStore.setState({ adapter: "unauthorized" }));
+      const r = mount();
+      await waitFor(() =>
+        expect(r.allText()).toContain(tr("device.ble.unauthorizedLocation")),
+      );
+      expect(r.allText()).not.toContain(tr("device.ble.unauthorized") + "，");
+    } finally {
+      Object.defineProperty(Platform, "OS", { value: os, configurable: true });
+      Object.defineProperty(Platform, "Version", {
+        value: version,
+        configurable: true,
+      });
+    }
+  });
+
   it("拿到过在线、之后刷新失败（手机断网）：不再写「设备在线」，改写状态待确认、上次上报，和首页一致", async () => {
     const qc = makeQueryClient();
     const r = mount(qc);

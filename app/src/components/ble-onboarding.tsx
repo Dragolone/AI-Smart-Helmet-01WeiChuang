@@ -25,6 +25,7 @@ import { ThemedText } from "@/components/themed-text";
 import { Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { translate, useT } from "@/i18n";
+import { bleNeedsLocationPermission } from "@/services/ble-platform";
 import { isHuaweiFamily } from "@/services/phone-vendor";
 import { SECURE_KEYS } from "@/services/secure-keys";
 import { useBleStore } from "@/stores/ble-store";
@@ -48,6 +49,13 @@ async function openBluetoothSettings(): Promise<void> {
   }
   // iOS 不允许直接跳蓝牙面板（私有 URL 会被拒审），只能到本 App 设置页并提示走控制中心
   await Linking.openSettings();
+}
+
+/** 步骤文案用哪一套：安卓 12 以下「允许使用蓝牙」那一步实际要开的是位置信息（见 services/ble-platform） */
+function stepCopyOf(key: Step["key"]): Step["key"] | "permissionLocation" {
+  return key === "permission" && bleNeedsLocationPermission()
+    ? "permissionLocation"
+    : key;
 }
 
 /**
@@ -250,12 +258,12 @@ export function BleFirstConnectGuide() {
               </View>
               <View style={styles.rowText}>
                 <ThemedText type="smallBold">
-                  {t(`ble.onboarding.${step.key}`)}
+                  {t(`ble.onboarding.${stepCopyOf(step.key)}`)}
                 </ThemedText>
                 {/* 说明是整句话：不用全大写的 label 样式（英文下一整句大写读起来费劲，2026-10-15） */}
                 {!step.done && (
                   <ThemedText type="small" themeColor="textSecondary">
-                    {t(`ble.onboarding.${step.key}Hint`)}
+                    {t(`ble.onboarding.${stepCopyOf(step.key)}Hint`)}
                   </ThemedText>
                 )}
               </View>
@@ -307,7 +315,13 @@ export function BleBlockerBanner({ onPress }: { onPress: () => void }) {
           type="small"
           style={[styles.bannerText, { color: theme.danger }]}
         >
-          {t(adapter === "off" ? "ble.banner.off" : "ble.banner.unauthorized")}
+          {t(
+            adapter === "off"
+              ? "ble.banner.off"
+              : bleNeedsLocationPermission()
+                ? "ble.banner.unauthorizedLocation"
+                : "ble.banner.unauthorized",
+          )}
         </ThemedText>
         <Ionicons name="chevron-forward" size={16} color={theme.danger} />
       </Tappable>

@@ -21,6 +21,9 @@ export const guide = {
     "guide.helmet.btOffAction": "去打开蓝牙",
     "guide.helmet.btDeniedTitle": "允许使用蓝牙",
     "guide.helmet.btDeniedBody": "需要在系统设置里允许 App 使用蓝牙",
+    "guide.helmet.locDeniedTitle": "允许使用位置信息",
+    "guide.helmet.locDeniedBody":
+      "这台手机搜索蓝牙头盔要用位置信息权限，请在系统设置里允许",
     "guide.helmet.btDeniedAction": "去设置里允许",
     "guide.helmet.searchTitle": "打开头盔电源",
     "guide.helmet.searchBody": "放在手机旁边，会自动连上",
@@ -73,6 +76,9 @@ export const guide = {
     "guide.helmet.btOffAction": "去開啟藍牙",
     "guide.helmet.btDeniedTitle": "允許使用藍牙",
     "guide.helmet.btDeniedBody": "需要在系統設定裡允許 App 使用藍牙",
+    "guide.helmet.locDeniedTitle": "允許使用位置資訊",
+    "guide.helmet.locDeniedBody":
+      "這支手機搜尋藍牙頭盔要用位置資訊權限，請在系統設定裡允許",
     "guide.helmet.btDeniedAction": "去設定裡允許",
     "guide.helmet.searchTitle": "開啟頭盔電源",
     "guide.helmet.searchBody": "放在手機旁邊，會自動連上",
@@ -127,6 +133,9 @@ export const guide = {
     "guide.helmet.btDeniedTitle": "Allow Bluetooth",
     "guide.helmet.btDeniedBody":
       "Allow Bluetooth for this app in system settings",
+    "guide.helmet.locDeniedTitle": "Allow location",
+    "guide.helmet.locDeniedBody":
+      "This phone needs location permission to find Bluetooth helmets. Allow it in system settings.",
     "guide.helmet.btDeniedAction": "Open settings",
     "guide.helmet.searchTitle": "Switch the helmet on",
     "guide.helmet.searchBody":

@@ -2,6 +2,7 @@
 import type { DevicePublic } from "@helmet/shared";
 
 import type { MessageKey } from "@/i18n";
+import { bleNeedsLocationPermission } from "@/services/ble-platform";
 import {
   linkLevelOf,
   type HelmetLink,
@@ -63,7 +64,12 @@ export function safetyTileOf(
       if (link === "bluetoothOff")
         return { text: "safety.link.bluetoothOff", tone: "warn" };
       if (link === "bluetoothDenied")
-        return { text: "safety.link.bluetoothDenied", tone: "warn" };
+        return {
+          text: bleNeedsLocationPermission()
+            ? "safety.link.locationDenied"
+            : "safety.link.bluetoothDenied",
+          tone: "warn",
+        };
       return { text: "devices.safety.linkDown", tone: "warn" };
     case "notifyOff":
       return { text: "safety.state.notifyOff", tone: "warn" };
