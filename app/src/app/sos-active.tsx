@@ -541,6 +541,23 @@ function SosActiveContent() {
     queryClient.getQueryData<Sos>(["sos", h.sosId])?.status ?? h.status;
   // 当前这单的发送结果由下面的 detail 查询管，这里只查其余的（同一个 key 挂两个观察者会互相干扰）
   const otherHandled = handledList.filter((h) => h.sosId !== sosId);
+  // 结果页上本机仍是「倒计时中」的其余单：多半在别处结束了、本机没收到终态（WS 断着，或安全页账号级轮询只把它
+  // 从进行中拿掉、没写 ["sos", 单号]）。补拉一次权威状态再写结论；拉到之前（或离线拉不到）写「状态待确认」，
+  // 不说成「正在通知紧急联系人」（10-19 夜测 D2）
+  useQueries({
+    queries: otherHandled.map((h) => ({
+      queryKey: ["sos", h.sosId],
+      queryFn: async () =>
+        settleSnapshot(
+          queryClient,
+          h.sosId,
+          await sosApi.snapshot(h.sosId, h.deviceId),
+        ),
+      enabled: multiDone && handledStatus(h) === "pending",
+      refetchInterval: (q: Query<Sos | null>) =>
+        countdownPollInterval(q.state.data),
+    })),
+  });
   const handledDetails = useQueries({
     queries: otherHandled.map((h) => ({
       queryKey: ["accident", h.sosId],
@@ -1321,7 +1338,9 @@ function SosActiveContent() {
                   const outcome =
                     status === "cancelled"
                       ? t("sos.cancelledTitle")
-                      : notifiedTitleOf(d);
+                      : status === "pending"
+                        ? t("sos.multiStatusUnknown")
+                        : notifiedTitleOf(d);
                   return (
                     <View
                       key={h.sosId}
