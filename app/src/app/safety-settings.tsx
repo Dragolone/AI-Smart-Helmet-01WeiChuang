@@ -39,7 +39,10 @@ export default function SafetySettingsScreen() {
   const notify = useNotifyPermission();
   const drill = useSosDrill();
   // Android 省电白名单（决策 #41）：与首次连接引导、设备详情页读的是同一个状态
-  const whitelist = useBleOnboardingSteps().find((s) => s.key === "whitelist");
+  const linkSteps = useBleOnboardingSteps();
+  const whitelist = linkSteps.find((s) => s.key === "whitelist");
+  // 华为 / 荣耀的「应用启动管理」：不设手动管理，划掉 App 后收不到求救通知（10-18 实测）
+  const launch = linkSteps.find((s) => s.key === "launch");
 
   return (
     <ThemedView style={styles.flex}>
@@ -82,7 +85,7 @@ export default function SafetySettingsScreen() {
             // 还没查到、系统没问过、查询失败，都如实写出来，不显示成已开启
             subtitle={t(`safetySettings.notify.${notify ?? "unknown"}`)}
             onPress={() => void openNotificationSettings()}
-            last={!whitelist}
+            last={!whitelist && !launch}
           />
           {whitelist && (
             <ListRow
@@ -98,6 +101,19 @@ export default function SafetySettingsScreen() {
                   : "device.batteryOpt.limited",
               )}
               onPress={whitelist.done ? undefined : whitelist.action}
+              last={!launch}
+            />
+          )}
+          {launch && (
+            <ListRow
+              icon={launch.done ? "rocket-outline" : "alert-circle-outline"}
+              title={t("device.launchMgmt")}
+              subtitle={t(
+                launch.done
+                  ? "device.launchMgmt.ok"
+                  : "device.launchMgmt.limited",
+              )}
+              onPress={launch.action}
               last
             />
           )}
