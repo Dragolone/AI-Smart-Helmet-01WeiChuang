@@ -177,7 +177,8 @@ describe("use-realtime 的启动顺序", () => {
   it("设备列表没有数据时不动链路目标（拉取失败 ≠ 一台都没绑）", () => {
     const sub = src.slice(src.indexOf("getQueryCache().subscribe"));
     const guard = sub.indexOf("if (live === null) return;");
-    const set = sub.indexOf("setBleTargets(live)");
+    // 交给链路的是列表本身或把当前头盔挪到最前的那份（10-19：列表一到 / 一刷新也排当前头盔第一）
+    const set = sub.search(/setBleTargets\((live|ordered)\)/);
     expect(guard).toBeGreaterThan(0);
     expect(set).toBeGreaterThan(guard);
   });
