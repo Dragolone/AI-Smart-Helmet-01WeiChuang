@@ -192,9 +192,13 @@ describe("2026-10-19 补分支：截短的下行帧、充电中、清除全部�
     expect(describeOutbound(h("0A 09"))).toBe("RESET seq=9");
   });
 
-  it("疑似缺陷：RESEND DATA 缺参数时照样写成「偏移 0 条数 0」，不像别的指令那样标「参数不足」（测头盔 ERR_LENGTH 时会误导）", () => {
-    expect(describeOutbound(h("08 07"))).toBe("RESEND DATA 偏移 0 条数 0");
-    expect(describeOutbound(h("08 07 05"))).toBe("RESEND DATA 偏移 5 条数 0");
+  it("RESEND DATA 缺参数（不足 3 字节）：和 READ / 对时一样标「参数不足」，不写成「偏移 0 条数 0」（测头盔 ERR_LENGTH 时不误导）", () => {
+    expect(describeOutbound(h("08 07"))).toBe(
+      "RESEND DATA seq=7（参数不足 3 字节）",
+    );
+    expect(describeOutbound(h("08 07 05"))).toBe(
+      "RESEND DATA seq=7（参数不足 3 字节）",
+    );
   });
 
   it("READ 0x10 读到正在充电：写「充电中」", () => {
