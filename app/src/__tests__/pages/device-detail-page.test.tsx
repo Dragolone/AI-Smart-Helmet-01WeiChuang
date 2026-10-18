@@ -285,6 +285,40 @@ describe("状态卡", () => {
     }
   });
 
+  it("拿到过在线、之后刷新失败（手机断网）：不再写「设备在线」，改写状态待确认、上次上报，和首页一致", async () => {
+    const qc = makeQueryClient();
+    const r = mount(qc);
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("device.status.online")),
+    );
+    m(devicesApi.status).mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    await act(async () => {
+      await qc
+        .refetchQueries({ queryKey: ["device-status", "h1"] })
+        .catch(() => undefined);
+    });
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("devices.link.unknown")),
+    );
+    const text = r.allText();
+    expect(text).not.toContain(tr("device.status.online"));
+    expect(text).toContain(tr("device.status.lastBattery"));
+    expect(text).toContain(
+      tr("device.status.lastReportOffline", { ago: "" }).replace(/\s*$/, ""),
+    );
+    // 恢复联网、刷新成功：回到在线
+    m(devicesApi.status).mockImplementation(() => Promise.resolve(STATUS));
+    await act(async () => {
+      await qc.refetchQueries({ queryKey: ["device-status", "h1"] });
+    });
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("device.status.online")),
+    );
+    expect(r.allText()).not.toContain(tr("devices.link.unknown"));
+  });
+
   it("电量低且没在充电：提醒充电；在充电就不催", async () => {
     m(devicesApi.status).mockImplementation(() =>
       Promise.resolve({ ...STATUS, battery: 15 }),

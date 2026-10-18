@@ -359,7 +359,10 @@ export default function DeviceDetailScreen() {
   };
 
   const s = status.data;
-  const online = s?.online ?? false;
+  // 最近一次刷新失败（多半是手机断网）：缓存里的「在线」已经过时，和设备页首页一样写「状态待确认」，
+  // 电量、设置按离线处理（10-19 华为断网实测：首页已是「状态待确认」，这里还写「设备在线 · 3 分钟前」）
+  const stale = status.isError;
+  const online = !stale && (s?.online ?? false);
   // 充着电就不催充电了
   const lowBattery = !!s && isBatteryLow(s.battery) && !s.charging;
 
@@ -518,10 +521,20 @@ export default function DeviceDetailScreen() {
                 onAction={bleAction?.run}
               />
               <StatusRow
-                icon={online ? "cloud-outline" : "cloud-offline-outline"}
-                tone={online ? "ok" : "warn"}
+                icon={
+                  stale
+                    ? "help-circle-outline"
+                    : online
+                      ? "cloud-outline"
+                      : "cloud-offline-outline"
+                }
+                tone={stale ? "neutral" : online ? "ok" : "warn"}
                 title={t(
-                  online ? "device.status.online" : "device.status.offline",
+                  stale
+                    ? "devices.link.unknown"
+                    : online
+                      ? "device.status.online"
+                      : "device.status.offline",
                 )}
                 trailing={
                   s.lastSeenAt
