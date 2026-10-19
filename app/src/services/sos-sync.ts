@@ -106,6 +106,7 @@ export async function resumePendingSos(
   presented: PresentedRef,
   deps: SosSyncDeps,
   reason = "冷启动",
+  retryDelaysMs: readonly number[] = [],
 ): Promise<string[]> {
   const found: string[] = [];
   const take = (deviceId: string, sos: Sos | null) => {
@@ -127,11 +128,23 @@ export async function resumePendingSos(
   // 账号级接口一次拿全：绑了多少顶都只发一个请求（原来逐台查，1 万顶时冷启动 / 重连要串行一万个请求，10-16 F10）；
   // 头盔已解绑、单还是本人的也在里面。deviceIds 只在退回逐台查时用
   if (deps.fetchAccountActive) {
-    let account: { items: Sos[] } | null;
-    try {
-      account = await deps.fetchAccountActive();
-    } catch {
-      return found; // 网络失败不阻塞（离线时不该再退成 N 个注定失败的请求）；安全页仍会按常规查询展示
+    let account: { items: Sos[] } | null = null;
+    // 远程推送到达那次补拉是前台 + WS 没连上时唯一能把倒计时页拉起来的路径：弱网下这一个请求失败就再也没有下一次
+    //（10-20 模拟器 30% 丢包实测：通知到了、页面整单没弹到到期）。调用方给了 retryDelaysMs 就按它有限重试几次；
+    // 冷启动 / 重连等本来就有后续机会的调用不传，行为不变
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        account = await deps.fetchAccountActive();
+        break;
+      } catch {
+        if (attempt >= retryDelaysMs.length) {
+          return found; // 网络失败不阻塞（离线时不该再退成 N 个注定失败的请求）；安全页仍会按常规查询展示
+        }
+        deps.log?.(
+          `${reason}失败，${retryDelaysMs[attempt]} ms 后重试（第 ${attempt + 1} 次）`,
+        );
+        await new Promise((r) => setTimeout(r, retryDelaysMs[attempt]));
+      }
     }
     if (account) {
       for (const sos of account.items) take(sos.deviceId, sos);

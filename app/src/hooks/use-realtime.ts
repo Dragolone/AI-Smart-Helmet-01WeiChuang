@@ -75,6 +75,9 @@ import {
 import { useAuthStore } from "@/stores/auth-store";
 import { useCurrentHelmetStore } from "@/stores/current-helmet-store";
 
+/** 远程推送到达那次补拉失败后的重试间隔：弱网下 2 s、5 s 再各试一次（60 s 倒计时内够用，又不会无限打服务端） */
+const PUSH_ARRIVAL_RETRY_DELAYS_MS = [2_000, 5_000] as const;
+
 /**
  * 每次启动拿一个号；清理时只有自己仍是最新的那次，才拆掉共享的连接 / 链路 / 推送别名。
  * Android 改系统字体、系统语言等会重建 Activity：新的根先挂上（这时各项启动都因「已在跑」直接返回），
@@ -261,6 +264,7 @@ export function useRealtimeUpdates(): void {
         presentedSos,
         sosDeps,
         "远程推送到达，补拉",
+        PUSH_ARRIVAL_RETRY_DELAYS_MS,
       );
     });
     // 锁屏通知「取消」被服务端确认（含重试成功）→ 倒计时页与安全页立刻拉权威状态，不等 WS / 10 s 轮询
