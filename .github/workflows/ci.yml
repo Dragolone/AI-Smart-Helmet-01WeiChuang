@@ -1,6 +1,6 @@
 name: CI
 
-# 私有仓库按分钟计费（免费额度 2,000 分钟/月，2026-10 半个月就用完），下面三处都是为了省分钟：
+# 私有仓库按分钟计费（免费额度 2,000 分钟/月，2026-10 半个月就用完），下面四处都是为了省分钟：
 # ① 只动文档 / 计划 / 设计稿的提交不跑——这些路径没有被代码或测试读取（测试只往 docs/testing 写证据）
 on:
   push:
@@ -25,6 +25,9 @@ concurrency:
 
 jobs:
   ci:
+    # ④ PR squash 合进 main 的那次 push 不再跑：同一份代码在 PR 上刚跑过，而 10 月前 19 天 main 上的 195 次 push 里有 158 次是它。
+    #    判据是 committer：GitHub 代为合并的提交 committer 固定为 noreply@github.com；本人直推 main 的提交 committer 是自己，照跑。
+    if: github.event_name != 'push' || github.event.head_commit.committer.email != 'noreply@github.com'
     runs-on: ubuntu-latest
     # ③ 正常一次约 10–15 分钟；卡死时默认要等 360 分钟才被杀，这里提前止损
     timeout-minutes: 30
