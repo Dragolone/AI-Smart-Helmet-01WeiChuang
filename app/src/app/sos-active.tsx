@@ -46,7 +46,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { devLog } from "@/services/dev-log";
-import { serverNow } from "@/services/server-clock";
+import { onWallClockForwardJump, serverNow } from "@/services/server-clock";
 import {
   countdownPollInterval,
   presentedSos,
@@ -607,6 +607,15 @@ function SosActiveContent() {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => true);
     return () => sub.remove();
   }, [counting]);
+
+  // 墙钟往前跳了 30 s 以上（时间被拨快，或手机睡醒）：立刻补拉一次权威状态，不等 10 s 轮询——
+  // 拨快时下一个响应的 Date 头就把偏移纠正，秒数只错一个来回；睡醒时顺手拿到最新状态
+  useEffect(() => {
+    if (isDrill) return;
+    return onWallClockForwardJump(() => {
+      void queryClient.invalidateQueries({ queryKey: ["sos", sosId] });
+    });
+  }, [isDrill, sosId, queryClient]);
 
   // 本页取消 / 确认成功后立刻撤掉锁屏提醒和预排的「还剩 30 / 10 秒」，不等 WS 推终态
   //（WS 没连上时那两条照样会响，10-06 并发评审 F6）
