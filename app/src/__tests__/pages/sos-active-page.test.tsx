@@ -752,6 +752,18 @@ describe("这一单的状态拿不到 / 不存在", () => {
     expect(mockRouter.navigate).toHaveBeenCalledWith("/");
   });
 
+  it("单号是乱码（服务端 400 VALIDATION_FAILED，带控制字符的假链接）：同 404，不画倒计时、不当成状态未知", async () => {
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.reject(
+        new ApiRequestError(400, { code: "VALIDATION_FAILED", message: "x" }),
+      ),
+    );
+    const r = await mount();
+    expect(r.allText()).toContain(tr("sos.gone.title"));
+    expect(r.allText()).not.toContain("—");
+    expect(sosApi.snapshot).toHaveBeenCalledTimes(1);
+  });
+
   it("没有这一单、栈里有上一页（从别的页面点进来的）：关闭就是返回上一页", async () => {
     m(sosApi.snapshot).mockImplementation(() =>
       Promise.reject(new ApiRequestError(404, { code: "NOT_FOUND" })),
