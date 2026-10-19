@@ -137,7 +137,7 @@ describe("三步指引：卡片上写什么", () => {
     expect(ask.primary?.action).toBe("askNotify");
     expect(ask.link?.action).toBe("skip");
     const [, denied] = guideCards(facts({ notify: "denied" }));
-    expect(denied.primary?.action).toBe("openAppSettings");
+    expect(denied.primary?.action).toBe("openNotifySettings");
     expect(denied.chip.tone).toBe("amber");
     const [, on] = guideCards(facts({ notify: "granted" }));
     expect(on.primary).toBeUndefined();

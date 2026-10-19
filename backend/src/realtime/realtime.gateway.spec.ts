@@ -6,6 +6,7 @@ import type { IncomingMessage } from 'node:http';
 import { WebSocket } from 'ws';
 import type { PrismaService } from '../prisma/prisma.service';
 import {
+  CLOSE_INTERNAL_ERROR,
   CLOSE_UNAUTHORIZED,
   RealtimeGateway,
   WS_MAX_BUFFERED_BYTES,
@@ -83,6 +84,34 @@ describe('RealtimeGateway', () => {
         CLOSE_UNAUTHORIZED,
         '访问令牌无效或已过期',
       );
+    });
+
+    it('用户密钥签的 typ=admin token：4401，不查库', async () => {
+      verifyAsync.mockResolvedValue({ sub: 'a1', typ: 'admin' });
+      const ws = fakeWs();
+      await connect(ws);
+      expect(ws.close).toHaveBeenCalledWith(
+        CLOSE_UNAUTHORIZED,
+        '访问令牌无效或已过期',
+      );
+      expect(findUnique).not.toHaveBeenCalled();
+    });
+
+    it('查注销状态时数据库出错：1011 而不是 4401（4401 会让 App 以为登录失效去刷新 token），warn 日志不带 token，不登记', async () => {
+      findUnique.mockRejectedValue(new Error('connection terminated'));
+      const ws = fakeWs();
+      await connect(ws, '/ws?token=tok-secret-123');
+      expect(ws.close).toHaveBeenCalledTimes(1);
+      expect(ws.close).toHaveBeenCalledWith(
+        CLOSE_INTERNAL_ERROR,
+        expect.any(String),
+      );
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const logged = String(warnSpy.mock.calls[0][0]);
+      expect(logged).toContain('connection terminated');
+      expect(logged).not.toContain('tok-secret-123');
+      gw.pushToUser('u1', msg);
+      expect(ws.send).not.toHaveBeenCalled();
     });
 
     it('账号已注销：4401「账号已注销」，不登记', async () => {

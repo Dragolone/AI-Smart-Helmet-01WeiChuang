@@ -465,7 +465,7 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 
 > **📣 给 A 线的通知（2026-09-23 晚，B 线）——Apple 公司账号下来了，iOS 全线解锁；这是你手上全部可做项，按顺序**
 >
-> **账号现状**：公司 Apple Developer 组织账号已生效（Shenzhen Lingyi Weichuang Technology Co., Ltd.，至 2027-09-23）。已用你的 Apple ID `18926982623@163.com` 邀请你进 App Store Connect，角色 App Manager + 证书权限 + 建 App 权限。**去邮箱接受邀请**（用这个 Apple ID 登录；未开双重认证苹果会要求开）。密钥类东西（APNs .p8、极光 Master Secret、腾讯云密钥、keystore 口令）由负责人保管，你不需要也拿不到；其余全部你做。
+> **账号现状**：公司 Apple Developer 组织账号已生效（Shenzhen Lingyi Weichuang Technology Co., Ltd.，至 2027-09-23）。已用你的 Apple ID（你的 163 邮箱）邀请你进 App Store Connect，角色 App Manager + 证书权限 + 建 App 权限。**去邮箱接受邀请**（用这个 Apple ID 登录；未开双重认证苹果会要求开）。密钥类东西（APNs .p8、极光 Master Secret、腾讯云密钥、keystore 口令）由负责人保管，你不需要也拿不到；其余全部你做。
 >
 > **一、接受邀请后立刻做（半小时）**
 > 1. Xcode → Settings → Accounts 登录你的 Apple ID，团队列表里会出现公司团队；**Team ID 在这里就能看到**（也在 developer.apple.com → Membership），把 `app/app.json` 的 `ios.appleTeamId` 从个人团队 `LZ3H94F5LC` 换成公司的，`npx expo prebuild --platform ios --clean`。

@@ -205,8 +205,14 @@ export default function SosActiveScreen() {
 }
 
 /** 服务端明确说没有这一单（404） */
+/**
+ * 服务端明确说没有这一单：404（单号瞎编 / 不是你的头盔）、400（单号是乱码，校验都过不了）、403（不是你的单）。
+ * 这些都不是「状态未知」，页面要收掉——原来只认 404，`lingyizhixing://sos-active?sosId=%00%ff` 这种带控制字符的
+ * 假链接拿到 400 后被当成未知，页面永远停在「—」秒、返回键还被拦着（2026-10-19 华为深链扫描）
+ */
 const isNotFound = (e: unknown) =>
-  e instanceof ApiRequestError && e.status === 404;
+  e instanceof ApiRequestError &&
+  (e.status === 404 || e.status === 400 || e.status === 403);
 
 function SosActiveContent() {
   const {
@@ -282,9 +288,9 @@ function SosActiveContent() {
           await sosApi.snapshot(sosId, own),
         );
       } catch (e) {
-        // 服务端明确说没有这一单（404：单号是瞎编的 / 不是你的头盔）——不是「状态未知」，交给页面收掉。
+        // 服务端明确说没有这一单（404 / 400 / 403，见 isNotFound）——不是「状态未知」，交给页面收掉。
         // 原来一律当未知，一个假链接 lingyizhixing://sos-active?sosId=xxx 就能打开一张永远停在「—」秒的倒计时页（2026-10-15）
-        if (e instanceof ApiRequestError && e.status === 404) throw e;
+        if (isNotFound(e)) throw e;
         // 两条 REST 都失败（离线）才信缓存；有网时缓存可能是迟到的 pending（2026-09-24 实测卡死）
         return (
           (queryClient.getQueryData(["sos", sosId]) as Sos | undefined) ?? null

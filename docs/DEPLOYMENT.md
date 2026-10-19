@@ -49,7 +49,7 @@ HTTPS 证书由 Caddy 自动申请、自动续期(Let's Encrypt),不需要手动
 | 1883 | TCP | **限硬件团队与开发者出口 IP** | MQTT 明文,联调期临时口径 |
 | 18083 | — | **不开**(容器只绑 127.0.0.1) | EMQX Dashboard 走 SSH 隧道 |
 
-## 3. 首次部署(约 20 分钟;**development 已于 2026-09-06 按本节部署完成**:helmet-dev 111.230.157.151,广州,2C4G/90GB/6Mbps,到期 2027-09-06;**2026-09-18 更新到 main 365fbad:排空/网关拦截/日志轮转/备份 cron 全部生效,§4 #8/#9 已验收**)
+## 3. 首次部署(约 20 分钟;**development 已于 2026-09-06 按本节部署完成**:helmet-dev(公网 IP 见负责人本机 `01/07_仓库移出的敏感信息`),广州,2C4G/90GB/6Mbps,到期 2027-09-06;**2026-09-18 更新到 main 365fbad:排空/网关拦截/日志轮转/备份 cron 全部生效,§4 #8/#9 已验收**)
 
 ```bash
 # ① 装 Docker(镜像自带则跳过;验证:docker compose version 有输出)
@@ -237,13 +237,13 @@ docker compose -f docker-compose.prod.yml exec -T postgres pg_restore -U helmet 
 
 ### 8.1 定案:现有服务器 helmet-dev 直接转正(负责人 2026-10-02)
 
-初期用户量小,**不另购服务器**:helmet-dev(111.230.157.151)转为 production,上面的「新服务器」清单暂不执行;用户量上来后再按上表另购、用 §5 备份迁移。代价:之后没有独立的联调环境——A 线测试用专门的测试账号连同一套环境,或连本机后端。
+初期用户量小,**不另购服务器**:helmet-dev(IP 见 01/07)转为 production,上面的「新服务器」清单暂不执行;用户量上来后再按上表另购、用 §5 备份迁移。代价:之后没有独立的联调环境——A 线测试用专门的测试账号连同一套环境,或连本机后端。
 
 **零代码改动**:`API_DOMAIN` / `ADMIN_DOMAIN` 可以一次填多个域名(Caddy 在解析前展开环境变量,2026-10-02 用 `caddy adapt` 验证:两个域名进同一站点),新旧域名同时可用,已经发出去的包(硬件手里的 APK、A 线开发包、极光后台登记的隐私协议地址)切换当天不会断。
 
 | # | 步骤 | 谁 | 说明 |
 |---|------|----|------|
-| 1 | ✅ DNS 加三条 A 记录 `api` / `admin` / `mqtt.01weichuang.com` → 111.230.157.151(2026-10-12 已加并核对生效) | 负责人 | **现在就能加,不影响现网**;`dev-` 三条保留。App 备案填服务域名 `api.01weichuang.com` 也以此为准 |
+| 1 | ✅ DNS 加三条 A 记录 `api` / `admin` / `mqtt.01weichuang.com` → helmet-dev 公网 IP(见 01/07;2026-10-12 已加并核对生效) | 负责人 | **现在就能加,不影响现网**;`dev-` 三条保留。App 备案填服务域名 `api.01weichuang.com` 也以此为准 |
 | 2 | 定切换日 | 负责人 | 建议在 A 线回归完成之后、首次提交商店审核之前 |
 | 3 | 切换前手动备份一次 | B 线 | `sh backup.sh`,确认 COS `backups/` 有新对象(§4 #9) |
 | 4 | 清空测试数据 | B 线 | 当前库里全是测试账号与 Mock 轨迹,正式用户不该看到。`docker compose -f docker-compose.prod.yml stop backend mock` → `exec postgres dropdb -U helmet helmet` → `exec postgres createdb -U helmet helmet` → `up -d`(backend 启动时自动 `prisma migrate deploy` 建表)。**只删库不删卷**,EMQX / Caddy 证书不受影响 |

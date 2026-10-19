@@ -26,7 +26,8 @@ import { useLocale, useT } from "@/i18n";
 import { fullDateTime, shortTime } from "@/i18n/format";
 
 const isNotFound = (e: unknown) =>
-  e instanceof ApiRequestError && e.status === 404;
+  e instanceof ApiRequestError &&
+  (e.status === 404 || e.status === 400 || e.status === 403); // 400：记录号是乱码（深链），同样当找不到
 
 function Row({ label, value }: { label: string; value: string }) {
   const theme = useTheme();

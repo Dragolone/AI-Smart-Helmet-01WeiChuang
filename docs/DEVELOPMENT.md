@@ -75,6 +75,7 @@ cd backend && npx prisma migrate dev   # 建表（要求 docker 里的 postgres 
 | 启动 Mock 头盔模拟器 | 先用下行命令开通拿到凭证，再 `DEVICE_ID=<id> DEVICE_SECRET=<密钥> npm run start -w mock-device`。**EMQX 已开启认证**：无凭证/错密钥会被 Broker 拒绝（Connection refused: Not authorized） |
 | 启动 Mock 头盔（**中转模式**，模拟蓝牙版=MVP 唯一真机链路） | `TRANSPORT=app-relay API_BASE_URL=http://localhost:3000 RELAY_PHONE=<账号> RELAY_PASSWORD=<密码> DEVICE_ID=<id> npm run start -w mock-device`。不连 MQTT，改用 HTTP 批量提交 `/ingest/app-relay`（决策 #35）。**设备必须已绑定到该账号**，否则返回 404。可选：`RELAY_FLUSH_INTERVAL_MS`（批量间隔，默认 5000）、`RELAY_MAX_BATCH`（默认 20，Contract 上限 100）、`RELAY_OFFLINE_CYCLE=3`（每 3 次提交模拟断网一次，验证缓存与按原 eventId 补传）、`RELAY_SEND_OUT_OF_SCOPE=1`（把范围外事件也发出去，验证服务端留档告警）。**下行命令**（决策 #36）：自动经 WS 收 `device_command` 并按 `MOCK_CMD_RESULT=success\|failed\|silent` 回执 relay-ack（silent 演示超时 offline），与 MQTT 模式三态一致 |
 | 启动 **BLE 头盔仿真器**（Mac 扮演头盔 GATT Server，按 v0.6 手册实现，硬件到货前自测 App BLE 中转全链路） | `python3 tools/ble-helmet-sim/helmet_sim.py --device-id helmet_94173f`（依赖 `pip install bless`；Mac 蓝牙需开启，可 `brew install blueutil && blueutil -p 1`）。deviceId 必须是当前账号**已绑定**的设备（云端常驻 `helmet_94173f`）。真机 App 登录后自动扫描 `Helmet-<后6位>` → 握手（读 deviceId/固件 → 对时 → 补传）→ Metro 日志出现 `[BLE] helmet_94173f 已连接`。交互命令（stdin）：`fall` / `sos` / `collision` / `obstacle` / `clear` / `loc` / `hb` 立即推一条对应事件（高危会等 App ACK，1.5 s 重发 ×3）；`offline N` 模拟离线期间产生 N 条跌倒事件压入 Flash，App 下次重连时走 0x07/0x08 补传并逐条 ACK 擦除；`disconnect` 模拟断连；`quit` 退出。设置下发（设备页音量/大灯）会真的写到仿真器内存表并按错误码回执（越界 → `ERR_PARAM_VALUE`）。**限制**：模拟器无 CoreBluetooth，只能真机测；bless 没有订阅回调，仿真器以「收到首个下行帧」视为已订阅 |
+  - **macOS 上手机扫不到仿真器的名字时加 `--name-only`**（2026-10-19）：macOS 把服务 UUID 塞进广播包后本地名发不出去，手机只看到电脑的缓存名；`--name-only` 让广播只带名字、不带 FEE0（App 20 秒一轮的全量扫描按名字能找到），代价是 iOS 后台按服务 UUID 的过滤扫描扫不到，后台相关的行别用它。
 | 启动**无硬件视频测试流**（电脑模拟头盔 RTSP，与真机同约定 `:8554/ch0` H.264 720p30 TCP，A 线 RTSP Spike / 预览页开发用） | `tools/rtsp-mock/start_rtsp.sh`（依赖 `brew install ffmpeg mediamtx`；脚本打印本机 IP 与完整 URL，VLC 与 App 可同时拉；Windows 用同目录 `start_rtsp.ps1`，硬件原版）。真机换主机为 `192.168.176.1`（DEVICE_PROTOCOL §1.3），其余不变 |
 | **蓝牙工程模式**（硬件联调：不登录、不上云，按钮逐条发指令、每帧 hex 与解释都显示、日志可分享） | App 登录页**长按「零一智行」3 秒**进入，或设备详情 → 设备信息 → 蓝牙工程模式。测试清单与期望应答见 `docs/BLE_BENCH.md`（编号与按钮一致）。进入时暂停生产 BLE 链路，退出恢复。代码：`services/ble-bench.ts` + `services/ble/describe.ts` + `app/ble-bench.tsx` |
 | 开通一台设备（生成 deviceId/密钥/绑定码） | `npm run provision:device -w backend`（可选参数指定 deviceId：`-- helmet_mock_002`；deviceSecret 只显示一次） |
@@ -91,6 +92,16 @@ cd backend && npx prisma migrate dev   # 建表（要求 docker 里的 postgres 
 | 全部测试 | `npm test --workspaces --if-present` |
 
 原生构建（`expo run:ios/android`）只在首次和新增原生模块后需要；日常改代码保存即热更新（Fast Refresh）。
+
+## CI 什么时候跑、跑哪几步（`.github/workflows/ci.yml`）
+
+私有仓的 Actions 每月只有 2,000 分钟（2026-10 半个月就用完），所以 CI 不是每次都全跑：
+
+- **只改 `**/*.md`、`docs/**`、`plan/**`、`design/**` 的 push / PR 不触发**；同一个 PR 连续推送时取消上一次没跑完的；job 限时 30 分钟（#166）。
+- **Typecheck / Lint / Test 每次都对全部 workspace 跑**，不门控。
+- **「Migrations on empty DB」「Build backend」「Backend e2e」三步按改动路径门控**：改动文件全部落在 `app/`、`mock-device/`、`tools/`、`design/`、`docs/`、`plan/`、`*.md` 里就跳过（Actions 里显示 skipped，不是失败）；碰到 `backend/` 就跑；`admin/` 只跑「Build admin」；`packages/shared`、根 `package.json` / `package-lock.json` / `.nvmrc`、`.github/` 以及**任何没列出来的路径都按全跑处理**。算不出改动范围（diff 失败、push 的 before 为全 0）也全跑——宁可多跑不可漏跑。只改 App 的 PR 约从 13 分钟降到 7 分钟（Backend e2e 一步就是 5–6 分钟）。
+- 这次到底判成了什么，看该次运行页顶部的 annotation `CI scope: backend=… admin=…`；步骤日志里有改动文件清单。
+- 以后新加会被后端 build / migration / e2e 读到的目录，不用改规则——不认识的路径默认全跑；只有确认与后端无关的新目录才加进上面的「跳过」名单。
 
 ## 真机调试
 
