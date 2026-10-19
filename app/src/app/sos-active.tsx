@@ -19,9 +19,9 @@ import {
 } from "@tanstack/react-query";
 import { setAudioModeAsync, useAudioPlayer } from "expo-audio";
 import * as Haptics from "expo-haptics";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   Alert,
@@ -281,6 +281,18 @@ function SosActiveContent() {
     deadline: new Date(serverNow() + 60_000).toISOString(),
     status: "pending",
   }));
+  // 演练中来了真单：真单页 push 到演练页上面，而演练页自己还在每秒播警报 + 震动，两路叠在一起、最后 10 秒双倍震
+  //（10-20 模拟器实测）。演练页一失焦就结束演练（按「已取消」收尾），警报随 counting 一起停；真单页不受影响
+  useFocusEffect(
+    useCallback(() => {
+      if (!isDrill) return undefined;
+      return () => {
+        setDrillState((s) =>
+          s.status === "pending" ? { ...s, status: "cancelled" } : s,
+        );
+      };
+    }, [isDrill]),
+  );
 
   // WS 推送直写 ['sos', sosId] 缓存；进页面时再以 REST 兜底拉一次权威状态
   const sosQuery = useQuery({

@@ -1624,6 +1624,28 @@ describe("演练（drill=1）", () => {
     expect(presentedSos.current.size).toBe(0);
   });
 
+  it("演练中被真单页盖住（失焦）：演练立刻结束、警报停，不会和真单两路警报叠在一起", async () => {
+    const r = await mount();
+    expect(number(r)).toBe("60");
+    await tick(2000);
+    expect(mockAlarm.play).toHaveBeenCalled();
+    routerState.focused = false;
+    await act(async () => {
+      r.rerender(
+        <QueryClientProvider client={qc}>
+          <SosActiveScreen />
+        </QueryClientProvider>,
+      );
+    });
+    await tick(0);
+    expect(r.allText()).toContain(tr("sos.drillDoneTitle"));
+    expect(mockAlarm.pause).toHaveBeenCalled();
+    const plays = mockAlarm.play.mock.calls.length;
+    await tick(3000);
+    expect(mockAlarm.play.mock.calls.length).toBe(plays);
+    expect(sosApi.cancel).not.toHaveBeenCalled();
+  });
+
   it("取消 / 立即求救只改本地状态；倒数走完在本地变成「已通知」的演练结束页；不撤锁屏提醒", async () => {
     let r = await mount();
     act(() =>
