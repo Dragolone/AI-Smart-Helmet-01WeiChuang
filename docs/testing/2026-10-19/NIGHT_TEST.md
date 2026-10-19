@@ -84,7 +84,8 @@
 - **新验到的**：蓝牙关着时卡片换成「打开手机蓝牙 / 去打开蓝牙」（进系统蓝牙设置页，开回来卡片恢复）——此前模拟器和 iPhone 都没验过；通知总开关关着时第二件是「已关闭 / 通知被关了…」；指引进行中按系统返回键 = 退到桌面（安卓首页标签的默认行为），再打开还停在原来那一件。
 - **华为测法上的坑（下次省时间）**：`svc bluetooth disable` 无效，要在控制中心点图标；`appops … POST_NOTIFICATION ignore` App 不认，要在系统设置关总开关，而且 `pm clear` 会把它重置成开；搜狗一旦切到中文模式，adb 逐字 keyevent 的数字会被当成选词吞掉（密码少两位），临时 `ime disable` 搜狗让按键直达输入框最稳（测完 `ime enable` + `ime set` 还原）；没有输入法时按返回键会直接退出 App。
 - **D8（测试顺序依赖）**：全量 jest `--randomize --seed 4197` 下 sos-alert（SOS_ALREADY_FINALIZED 那条）、edge-theme-bench-stores（外观 ×3）、route-scene-draw（holdMark）三个套件共 5 条失败，单跑全过，和 #298 无关；还没修。
-- **19:10–19:40 又补两行**：4.29（华为通知栏的推送 adb 点不开，改走推送同一条深链：页面停在 B 的倒计时、顶部提示「helmet_b45925：已取消，已切到下一单」）；1.6（系统语言 English / 繁體 / 简体各 `pm clear` 首开一次，登录页都跟随系统）。**D8 已修 = #300**（sos-alert afterEach 回真计时器、route-scene 每用例新建场景 + holdMark 先画成形帧、theme-store 的「读盘前已选过」挪进 store 状态），全量 `--randomize --seed 4197` 2937/2937。
+- **19:10–19:40 又补两行**：4.29（华为通知栏的推送 adb 点不开，改走推送同一条深链：页面停在 B 的倒计时、顶部提示「helmet_b45925：已取消，已切到下一单」）；1.6（系统语言 English / 繁體 / 简体各 `pm clear` 首开一次，登录页都跟随系统）。**D8 其实昨夜就修过了**：sos-alert / 外观设置 / relay-envelope / 对讲页在 #289，route-scene-draw holdMark / route-scene-view 在 #290——两个 PR 卡在 Actions 账单没合，今天换种子又冒出来、重修了一遍（#300），核对后关掉，保留 #289 / #290。
+- **19:30–19:50 补**：打了 main + #295 + #298 的正式包（9a316f9，`~/.helmet/builds/2026-10-19/`）装华为 → **#298 真机复验 ✅**（直达通知设置页）；2.9.3 第三种（没给位置权限）✅；十个随机种子跑全量又抓到 relay-envelope / route-scene-view 两处顺序依赖，核对后也都在 #289 / #290 里；对讲页那条在全量并行下偶发（单跑全过）= #289 修的那个。**华为现装 9a316f9**。
 
 ## 没改、请负责人 / Draven 定
 - **GitHub Actions 从 10-19 03:56 起不来**：「recent account payments have failed or your spending limit needs to be increased」，任务没启动。今晚 20 多次 CI 约 5 小时，可能把额度用到头了。要仓库所有者处理 Billing；之后合 #289 / #290、审 #291。
