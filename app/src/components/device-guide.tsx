@@ -75,6 +75,7 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
 import { mixHex, withAlpha } from "@/services/color";
+import { openNotificationSettings } from "@/services/notification-settings";
 import {
   FINISH_MS,
   SEARCH_SLOW_MS,
@@ -1100,6 +1101,8 @@ export function DeviceGuide({
     else if (a === "openBluetooth")
       ble.find((s) => s.key === "bluetooth")?.action();
     else if (a === "openAppSettings") void Linking.openSettings();
+    // 通知那一件直接进本 App 的通知页（和安全页一致），不是应用信息页再找「通知管理」
+    else if (a === "openNotifySettings") void openNotificationSettings();
     else if (a === "addContact") router.navigate("/add-contact");
     else if (a === "askNotify")
       void Notifications.requestPermissionsAsync()
