@@ -86,6 +86,7 @@
 - **D8（测试顺序依赖）**：全量 jest `--randomize --seed 4197` 下 sos-alert（SOS_ALREADY_FINALIZED 那条）、edge-theme-bench-stores（外观 ×3）、route-scene-draw（holdMark）三个套件共 5 条失败，单跑全过，和 #298 无关；还没修。
 - **19:10–19:40 又补两行**：4.29（华为通知栏的推送 adb 点不开，改走推送同一条深链：页面停在 B 的倒计时、顶部提示「helmet_b45925：已取消，已切到下一单」）；1.6（系统语言 English / 繁體 / 简体各 `pm clear` 首开一次，登录页都跟随系统）。**D8 其实昨夜就修过了**：sos-alert / 外观设置 / relay-envelope / 对讲页在 #289，route-scene-draw holdMark / route-scene-view 在 #290——两个 PR 卡在 Actions 账单没合，今天换种子又冒出来、重修了一遍（#300），核对后关掉，保留 #289 / #290。
 - **19:30–19:50 补**：打了 main + #295 + #298 的正式包（9a316f9，`~/.helmet/builds/2026-10-19/`）装华为 → **#298 真机复验 ✅**（直达通知设置页）；2.9.3 第三种（没给位置权限）✅；十个随机种子跑全量又抓到 relay-envelope / route-scene-view 两处顺序依赖，核对后也都在 #289 / #290 里；对讲页那条在全量并行下偶发（单跑全过）= #289 修的那个。**华为现装 9a316f9**。
+- **19:55–20:10 补**：按 #262 分支打包装华为，单机先验两条（在房 5 分钟整续钥匙 `CallExperimentalApi [api:updatePrivateMapKey]`；麦克风前台服务退后台仍在），已评论到 #262，两台手机的部分等负责人。顺带发现 **F8**：华为上通知总开关关着时建的通道会被记成关闭、再开总开关通道仍关，App 只看 `getPermissionsAsync` 会写「通知已开启」而锁屏提醒一条都出不来 → **#304**（Android 多查 sos 通道 importance），带它的包 6986777 真机复验通过（REGRESSION 4.32、DEVELOPMENT 平台限制清单）。**华为现装 6986777 = main + #295 + #298 + #304。**
 
 ## 没改、请负责人 / Draven 定
 - **GitHub Actions 从 10-19 03:56 起不来**：「recent account payments have failed or your spending limit needs to be increased」，任务没启动。今晚 20 多次 CI 约 5 小时，可能把额度用到头了。要仓库所有者处理 Billing；之后合 #289 / #290、审 #291。
