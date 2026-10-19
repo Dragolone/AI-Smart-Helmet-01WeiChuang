@@ -92,6 +92,15 @@
 - **21:10–21:40 Actions 停着，本地把 CI 补齐**：把六个待合 PR（#289 #290 #291 #295 #298 #304）合成一个临时分支跑全部门控——App tsc / eslint 过、全量 jest 两个随机种子 2993/2993、后端 1295/1295、三处 tsc 过；#304 与 #289 在 `sos-alert.test.ts` 冲突，已把 #289 rebase 到 main、#304 改成基于 #289（**先合 #289 再合 #304**）。后端 jest 五个随机种子：只有 seed 777 挂一条（接入服务 Logger 监视没还原）= #291 修的那个（在 #291 分支上同种子全过）。`npm run lint --workspaces` 0 错（961 条既有警告）、shared / backend / admin build 过。`npm audit --omit=dev`：81 条（2 critical：`proxy-addr` IP 伪造、`shell-quote` 命令注入，都有不破坏的修法；63 high 多在 expo / react-native / jest / prisma 这些直接依赖的传递链里），`npm audit fix` 另开 chore PR。正式包上补了 3.16（地图页 + 在骑头盔常亮）。
 - **21:35–21:45 仿真头盔在 iPhone 上也通了**：根因是 macOS 把服务 UUID 塞进广播包后本地名发不出去，手机只看到电脑的缓存名（改电脑名也刷不掉）。给 `tools/ble-helmet-sim/helmet_sim.py` 加了 `--name-only`（广播只带名字、不带 FEE0，App 全量扫描按名字能找到；代价是 iOS 后台按服务 UUID 的过滤扫描扫不到，只能前台测）。用它补了 **6.9 iOS ✅**。
 
+## 22:40–00:10 边界第二轮（按「状态 × 外部干扰」枚举，不按清单）
+
+- ① **升级安装**（REGRESSION 1.7）：10-15 旧正式包 → 6986777，登录态 / 主题 / 开关 / 通道 / 极光别名都保留 ✅。
+- ② **「不保留活动」**（8.14）：四个页面退桌面再回都在原页、倒计时接着数 ✅。
+- ③ **免打扰**（4.33）：锁屏提醒和通知栏两条照出 ✅。**O6**：安卓警报音走媒体流，媒体音量 0 时无声（iOS 已设 playsInSilentMode），交负责人定是否改走闹钟流。
+- ④ **深链畸形值 16 条**（10.9）：不崩；**F9** 带控制字符的 sosId（服务端 400）停在「—」秒的假倒计时页、返回键被拦 → `fix/sos-link-bad-id`（400 / 403 也当没有这一单）。
+- 没做成的：没有 Android 11+ 和 TestFlight 包，⑤–⑧（时钟跳变、高延迟、磁盘满、同秒并发）要模拟器，留到下次。
+- 教训：登录脚本停了搜狗要立刻恢复——他半夜要打字发现「输入法没了」。
+
 ## 没改、请负责人 / Draven 定
 - **GitHub Actions 从 10-19 03:56 起不来**：「recent account payments have failed or your spending limit needs to be increased」，任务没启动。今晚 20 多次 CI 约 5 小时，可能把额度用到头了。要仓库所有者处理 Billing；之后合 #289 / #290、审 #291。
 - 中转上行队列：`startRelayUplink` 之后、本地积压还没读进内存时就 `stopRelayUplink`，会用空队列盖掉该账号的积压文件。现有调用路径基本到不了；冷启动时登录过期被强制登出、且早于文件读完时理论上可能。正经修要处理几种落盘先后的竞争，没在夜里改。
