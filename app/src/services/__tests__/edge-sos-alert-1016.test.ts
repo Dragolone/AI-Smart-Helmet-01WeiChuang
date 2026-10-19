@@ -62,6 +62,26 @@ const load = (): SosAlert => {
   });
   return mod;
 };
+/** 连同同一份隔离注册表里的在途标记、「已拉起」登记一起载入（顶层 import 的不是同一个实例） */
+const loadWithState = () => {
+  let mod!: SosAlert;
+  let store!: typeof import("@/stores/sos-cancel-store");
+  let sync!: typeof import("@/services/sos-sync");
+  jest.isolateModules(() => {
+    store = jest.requireActual<typeof import("@/stores/sos-cancel-store")>(
+      "@/stores/sos-cancel-store",
+    );
+    sync = jest.requireActual<typeof import("@/services/sos-sync")>(
+      "@/services/sos-sync",
+    );
+    mod = jest.requireActual<SosAlert>("../sos-alert");
+  });
+  return {
+    m: mod,
+    inFlight: () => store.useSosCancelStore.getState().inFlight,
+    presented: sync.presentedSos.current,
+  };
+};
 type Req = {
   identifier: string;
   content: { title: string; body: string; data: unknown };
@@ -221,6 +241,39 @@ describe("通知按钮「取消」遇到不可重试的错误", () => {
     for (const ms of [2_000, 5_000, 10_000])
       await jest.advanceTimersByTimeAsync(ms);
     expect(mockCancel).toHaveBeenCalledTimes(1 + 4);
+    await m.resetSosAlerts();
+  });
+
+  it("404 / 403：这单在本机排下的提醒和「还剩 N 秒」一并撤掉，在途标记清掉（倒计时页的按钮恢复可点、警报不再被压着）", async () => {
+    jest.useFakeTimers({ now: NOW });
+    jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
+    mockCancel.mockRejectedValue(
+      Object.assign(new Error("404"), { code: "NOT_FOUND", status: 404 }),
+    );
+    const { m, inFlight } = loadWithState();
+    await m.showSosAlertIfBackground("s404", "d1", deadlineIn(60));
+    mockCancelScheduled.mockClear();
+    expect(await m.cancelFromNotification("s404", 0, "d1")).toBe(false);
+    await jest.advanceTimersByTimeAsync(0);
+    const removed = mockCancelScheduled.mock.calls.map((c) => c[0]);
+    expect(removed).toContain("sos-s404");
+    expect(removed).toContain("sos-s404-10");
+    expect(inFlight().s404).toBeUndefined();
+    await m.resetSosAlerts();
+  });
+
+  it("重试用尽、把人带到倒计时页时登记为已拉起：随后的 WS 推送 / 补拉不再为这单另叠一页", async () => {
+    jest.useFakeTimers({ now: NOW });
+    jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
+    mockCancel.mockRejectedValue(new Error("offline"));
+    const { m, presented } = loadWithState();
+    await m.cancelFromNotification("s1", 0, "d1");
+    for (const ms of [2_000, 5_000, 10_000])
+      await jest.advanceTimersByTimeAsync(ms);
+    expect(mockNavigate).toHaveBeenCalledWith(
+      "/sos-active?sosId=s1&deviceId=d1",
+    );
+    expect(presented.has("s1")).toBe(true);
     await m.resetSosAlerts();
   });
 

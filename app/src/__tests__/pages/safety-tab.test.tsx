@@ -15,7 +15,7 @@ import type { AccidentListItem, DevicePublic } from "@helmet/shared";
 import * as Haptics from "expo-haptics";
 import { Alert } from "react-native";
 import { act } from "react-test-renderer";
-import { mockRouter } from "@/__tests__/helpers/native-mocks";
+import { mockRouter, routerState } from "@/__tests__/helpers/native-mocks";
 import {
   flat,
   makeQueryClient,
@@ -231,6 +231,44 @@ describe("状态卡", () => {
         n.props.maxFontSizeMultiplier !== undefined,
     );
     expect(title.props.maxFontSizeMultiplier).toBe(1.3);
+  });
+
+  it("切回安全标签时重拉联系人（别的设备上改过；App 没离开前台，根布局那条前台刷新不会跑）；2 秒内刚拉过不拉", async () => {
+    const qc = makeQueryClient();
+    const el = () => (
+      <QueryClientProvider client={qc}>
+        <SafetyScreen />
+      </QueryClientProvider>
+    );
+    const r = render(el());
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("safety.check.contacts", { n: 2 })),
+    );
+    expect(contactsApi.list).toHaveBeenCalledTimes(1);
+    // 刚拉过：切走再回来不拉
+    routerState.focused = false;
+    r.rerender(el());
+    routerState.focused = true;
+    r.rerender(el());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(contactsApi.list).toHaveBeenCalledTimes(1);
+    // 另一台手机把联系人删光了；上次拉取已是 5 秒前：回来就拉，页面改口
+    m(contactsApi.list).mockImplementation(() => Promise.resolve([]));
+    act(() => {
+      qc.getQueryCache()
+        .find({ queryKey: ["contacts"] })!
+        .setState({ dataUpdatedAt: Date.now() - 5_000 });
+    });
+    routerState.focused = false;
+    r.rerender(el());
+    routerState.focused = true;
+    r.rerender(el());
+    await waitFor(() => expect(contactsApi.list).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("safety.state.noContacts")),
+    );
   });
 
   it("头盔列表还没拿到：骨架；拿不到：失败卡可重试（不能说成没绑头盔）", () => {

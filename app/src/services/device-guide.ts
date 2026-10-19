@@ -35,6 +35,7 @@ export type GuideAction =
   | "manual"
   | "openBluetooth"
   | "openAppSettings"
+  | "openNotifySettings"
   | "askNotify"
   | "addContact"
   | "skip";
@@ -227,7 +228,7 @@ function notifyCard(f: GuideFacts): GuideCard {
       primary: {
         label: "guide.notify.openSettings",
         icon: "bell",
-        action: "openAppSettings",
+        action: "openNotifySettings",
       },
       link: later,
     };

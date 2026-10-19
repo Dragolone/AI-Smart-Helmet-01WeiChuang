@@ -1,7 +1,9 @@
-// 设备详情页：头盔已不在本账号下的空态、状态卡（蓝牙行各状态与入口 / 在线行 / 低电量 / 后台受限）、
-// 常用控制（前照灯 + 蜂鸣音量：拖动中节流即时下发并封顶、超过高音量线松手要确认、取消要把拖动前的值还回去；
-// 乐观值只认自己那条命令的回执、没发出去 / 35 秒兜底回落；头盔没确认过音量时按「待确认的默认值」显示）、
-// 设置分类入口与摘要、重命名、解除绑定。
+// 设备详情页：头盔已不在本账号下的空态、状态卡（蓝牙行各状态与入口 / 在线行 / 低电量 / 后台受限 /
+// 华为系应用启动管理 / 电量历史拉不到）、
+// 常用控制（前照灯 + 蜂鸣音量：拖动中节流即时下发并封顶、中间值失败不打扰、离开页面不再补发、
+// 超过高音量线松手要确认、取消要把拖动前的值还回去；乐观值只认自己那条命令的回执、旧请求晚回来不动新的乐观值、
+// 没发出去 / 35 秒兜底回落；头盔没确认过音量时按「待确认的默认值」显示）、
+// 设置分类入口与摘要、重命名（弹层怎么关）、解除绑定。
 import {
   afterEach,
   beforeEach,
@@ -37,12 +39,14 @@ import {
 } from "@/__tests__/helpers/render";
 import { ApiRequestError } from "@/api/client";
 import { devicesApi } from "@/api/devices";
+import { StatusRow } from "@/components/status-row";
 import { Tappable } from "@/components/tappable";
 import { Colors } from "@/constants/theme";
 import { useDeviceSettings } from "@/hooks/use-device-settings";
 import { translate, useLocaleStore, type MessageKey } from "@/i18n";
 import { retryBleLink } from "@/services/ble-link";
 import { useBleStore } from "@/stores/ble-store";
+import { useLaunchSettingsStore } from "@/stores/launch-settings-store";
 import { useThemeStore } from "@/stores/theme-store";
 import DeviceDetailScreen from "@/app/device/[deviceId]";
 
@@ -116,6 +120,10 @@ jest.mock("helmet-link-service", () => ({
   },
 }));
 jest.mock("@/services/ble-link", () => ({ retryBleLink: jest.fn() }));
+const mockVendor = { huawei: false };
+jest.mock("@/services/phone-vendor", () => ({
+  isHuaweiFamily: () => mockVendor.huawei,
+}));
 jest.mock("@/services/dev-log", () => ({ devLog: jest.fn() }));
 jest.mock("@/api/devices", () => ({
   devicesApi: {
@@ -389,6 +397,75 @@ describe("状态卡", () => {
     Object.defineProperty(Platform, "OS", { value: os, configurable: true });
   });
 
+  it("24 小时电量历史拉不到：状态卡照常显示，柱状图写暂无数据（不整块消失）", async () => {
+    m(devicesApi.batteryHistory).mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    const r = mount();
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("device.status.online")),
+    );
+    expect(r.allText()).toContain(tr("devices.battery"));
+    expect(r.allText()).toContain(tr("device.batteryEmpty"));
+  });
+
+  it("蓝牙链路出错：那一行图标标红、写原因；本机还没连过这顶 / 手机不支持蓝牙：只用次要色，不当成警告", async () => {
+    const bleIconColor = (r: Rendered) =>
+      r.root
+        .find(
+          (n) =>
+            n.type === StatusRow &&
+            n.props.title === tr("device.status.bleNotConnected"),
+        )
+        .findAll((n) => isHost(n, "Ionicons"))[0].props.color;
+    useBleStore.setState({
+      adapter: "on",
+      links: { h1: { phase: "error", eventsReceived: 0, resent: 0 } },
+    });
+    let r = mount();
+    await waitFor(() => expect(r.allText()).toContain(tr("device.ble.error")));
+    expect(bleIconColor(r)).toBe(Colors.dark.danger);
+    act(() => useBleStore.setState({ links: {} }));
+    r = mount();
+    await waitFor(() => expect(r.allText()).toContain(tr("device.ble.idle")));
+    expect(bleIconColor(r)).toBe(Colors.dark.textSecondary);
+    act(() => useBleStore.setState({ adapter: "unsupported" }));
+    r = mount();
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("device.ble.unsupported")),
+    );
+    expect(bleIconColor(r)).toBe(Colors.dark.textSecondary);
+  });
+
+  it("华为 / 荣耀没设过「应用启动管理」：多一行后台启动受限并写原因，点了先说明要点哪几下", async () => {
+    const os = Platform.OS;
+    Object.defineProperty(Platform, "OS", {
+      value: "android",
+      configurable: true,
+    });
+    mockVendor.huawei = true;
+    useLaunchSettingsStore.setState({ acked: false });
+    try {
+      const r = mount();
+      await waitFor(() =>
+        expect(r.allText()).toContain(tr("device.status.launchLimited")),
+      );
+      expect(r.allText()).toContain(tr("device.status.launchLimitedDetail"));
+      r.press(tr("device.status.launchLimited"));
+      expect(alert).toHaveBeenCalledWith(
+        tr("ble.launchGuide.title"),
+        tr("ble.launchGuide.body"),
+        expect.any(Array),
+      );
+    } finally {
+      Object.defineProperty(Platform, "OS", { value: os, configurable: true });
+      mockVendor.huawei = false;
+      act(() =>
+        useLaunchSettingsStore.setState({ acked: null, pending: false }),
+      );
+    }
+  });
+
   it("状态拉不到（非 404）：写原因，不画骨架", async () => {
     m(devicesApi.status).mockImplementation(() =>
       Promise.reject(new TypeError("Network request failed")),
@@ -460,6 +537,60 @@ describe("常用控制：蜂鸣音量", () => {
       await jest.advanceTimersByTimeAsync(1000);
     });
     expect(devicesApi.putSettings).toHaveBeenCalledTimes(2);
+  });
+
+  it("拖到一半离开页面：还没发出去的中间值不再发", async () => {
+    jest.useFakeTimers();
+    const r = mount();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10);
+    });
+    const [pan] = volumeGesture(r);
+    const hit = r.root.find(
+      (n) =>
+        typeof n.type === "string" &&
+        typeof n.props.onLayout === "function" &&
+        n.props.style?.height === 40,
+    );
+    act(() => hit.props.onLayout({ nativeEvent: { layout: { width: 100 } } }));
+    act(() => pan.handlers.onStart({ x: 60 }));
+    act(() => pan.handlers.onUpdate({ x: 70 }));
+    r.unmount();
+    act(() => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(devicesApi.putSettings).not.toHaveBeenCalled();
+  });
+
+  it("拖动中即时下发的中间值失败了：不打扰（不弹窗），松手那条照常走设置命令", async () => {
+    jest.useFakeTimers();
+    m(devicesApi.putSettings).mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    const r = mount();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10);
+    });
+    const [pan] = volumeGesture(r);
+    const hit = r.root.find(
+      (n) =>
+        typeof n.type === "string" &&
+        typeof n.props.onLayout === "function" &&
+        n.props.style?.height === 40,
+    );
+    act(() => hit.props.onLayout({ nativeEvent: { layout: { width: 100 } } }));
+    act(() => pan.handlers.onStart({ x: 60 }));
+    act(() => pan.handlers.onUpdate({ x: 70 }));
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(200);
+    });
+    expect(devicesApi.putSettings).toHaveBeenCalledTimes(1);
+    act(() => pan.handlers.onFinalize({}, true));
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10);
+    });
+    expect(alert).not.toHaveBeenCalled();
+    expect(settings.send).toHaveBeenCalledWith("volume", 70);
   });
 
   it("超过高音量线松手：先确认；确认才下发", async () => {
@@ -609,6 +740,72 @@ describe("常用控制：音量乐观值只认自己那条命令", () => {
     await waitFor(() => expect(r.allText()).toContain(tr("device.volume")));
     drag(r, [60, 40]);
     await flush();
+    expect(volumeText(r)).toBe("60%");
+  });
+
+  it("连着松手两次、前一条晚回来说没发出去：不撤后一条的乐观值", async () => {
+    let first!: (cmd: CommandPublic | null) => void;
+    settings.send = jest
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((res) => {
+            first = res;
+          }),
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve(command({ commandId: "v2", params: { volume: 30 } })),
+      ) as jest.Mock;
+    const r = mount();
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("device.status.online")),
+    );
+    drag(r, [60, 40]);
+    drag(r, [40, 30]);
+    await flush();
+    expect(settings.send).toHaveBeenLastCalledWith("volume", 30);
+    expect(volumeText(r)).toBe(`30% · ${tr("device.applying")}`);
+    await act(async () => {
+      first(null);
+    });
+    expect(volumeText(r)).toBe(`30% · ${tr("device.applying")}`);
+  });
+
+  it("前一条晚回来、带回了它的命令号：乐观值仍只认后一条的回执", async () => {
+    let first!: (cmd: CommandPublic | null) => void;
+    settings.send = jest
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((res) => {
+            first = res;
+          }),
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve(command({ commandId: "v2", params: { volume: 30 } })),
+      ) as jest.Mock;
+    const qc = makeQueryClient();
+    const r = mount(qc);
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("device.status.online")),
+    );
+    drag(r, [60, 40]);
+    drag(r, [40, 30]);
+    await flush();
+    await act(async () => {
+      first(command({ commandId: "v1", params: { volume: 40 } }));
+    });
+    // 前一条判了失败：和现在显示的 30 无关
+    settings.lastCommand = command({ commandId: "v1", status: "failed" });
+    again(r, qc);
+    expect(volumeText(r)).toBe(`30% · ${tr("device.applying")}`);
+    // 后一条判了离线：这才回落到头盔确认过的 60
+    settings.lastCommand = command({
+      commandId: "v2",
+      params: { volume: 30 },
+      status: "offline",
+    });
+    again(r, qc);
     expect(volumeText(r)).toBe("60%");
   });
 
@@ -845,6 +1042,48 @@ describe("重命名与解除绑定", () => {
             !x.props.statusBarTranslucent,
         ),
     ).toBe(false);
+  });
+
+  it("改名弹层：点卡片本身不关；点空白处、按安卓返回键都关", async () => {
+    const r = mount();
+    await waitFor(() => expect(r.allText()).toContain("通勤头盔"));
+    const open = () =>
+      act(() =>
+        r.root
+          .find(
+            (n) =>
+              n.type === Tappable &&
+              n.props.accessibilityLabel === tr("device.renameTitle"),
+          )
+          .props.onPress(),
+      );
+    // 改名弹层是页面上最后一个 Modal（首次连接引导的那个在它前面，也是透明、淡入）
+    const sheet = () => r.root.findAllByType(Modal).at(-1)!;
+    /** 弹层里自己不当读屏焦点、只管「点了关不关」的那两块 */
+    const pressable = (match: (st: Record<string, unknown>) => boolean) =>
+      r.root.findAll(
+        (x) =>
+          typeof x.type !== "string" &&
+          x.props.accessible === false &&
+          typeof x.props.onPress === "function" &&
+          match(flat(x.props.style)),
+      )[0];
+    open();
+    expect(sheet().props.visible).toBe(true);
+    // 卡片本身（带描边的那块）
+    act(() => pressable((st) => st.borderWidth === 1).props.onPress());
+    expect(sheet().props.visible).toBe(true);
+    // 卡片外面压暗的空白处
+    act(() =>
+      pressable(
+        (st) => st.backgroundColor === "rgba(0,0,0,0.55)",
+      ).props.onPress(),
+    );
+    expect(sheet().props.visible).toBe(false);
+    open();
+    expect(sheet().props.visible).toBe(true);
+    act(() => sheet().props.onRequestClose());
+    expect(sheet().props.visible).toBe(false);
   });
 
   it("重命名失败：弹窗说明原因", async () => {

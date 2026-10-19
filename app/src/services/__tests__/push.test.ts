@@ -174,6 +174,27 @@ describe("推送初始化门控", () => {
     expect(mockDeleteAlias).toHaveBeenCalledTimes(1);
   });
 
+  it("APNs 环境跟着 __DEV__ 走：调试包连 development，正式包（Release / TestFlight）连 production（标反了 iPhone 收不到远程推送）", () => {
+    const g = globalThis as unknown as { __DEV__: boolean };
+    const dev = g.__DEV__;
+    try {
+      useConsentStore.setState({ privacyAccepted: true });
+      g.__DEV__ = true;
+      startPush("u1");
+      expect(mockInit).toHaveBeenLastCalledWith(
+        expect.objectContaining({ production: false }),
+      );
+      __resetPushForTests();
+      g.__DEV__ = false;
+      startPush("u1");
+      expect(mockInit).toHaveBeenLastCalledWith(
+        expect.objectContaining({ production: true }),
+      );
+    } finally {
+      g.__DEV__ = dev;
+    }
+  });
+
   it("AppKey 直接来自 app.json extra.jpush（与原生插件同一份）", () => {
     expect(readPushConfig()).toEqual(
       expect.objectContaining({
@@ -372,6 +393,22 @@ describe("远程推送到达（不是被点开）→ 触发一次补拉（前台
     expect(arrived).not.toHaveBeenCalled();
   });
 
+  it("通知被划掉（安卓极光把 notificationDismissed 也发到同一个监听）：不跳页，也不当成「到达」去补拉", async () => {
+    const arrived = jest.fn();
+    setPushArrivalHandler(arrived);
+    const cb = boot() as unknown as (r: {
+      notificationEventType: string;
+      extras?: Record<string, string>;
+    }) => void;
+    cb({
+      notificationEventType: "notificationDismissed",
+      extras: { sosId: "s1", deviceId: "d1" },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mockRouterPush).not.toHaveBeenCalled();
+    expect(arrived).not.toHaveBeenCalled();
+  });
+
   it("回调抛错不带崩监听；注销后不再回调", () => {
     setPushArrivalHandler(() => {
       throw new Error("boom");
@@ -545,6 +582,35 @@ describe("别名确认与重试（10-05 iPhone：别名丢了，被杀后推送�
     );
   });
 
+  it("校验时服务端的别名是别人的（上一个账号的设置后发先至）：当没设上，3 s 后重设自己的", () => {
+    boot();
+    aliasListener?.({ code: 0, sequence: lastSetSeq(), alias: "u1" });
+    jest.advanceTimersByTime(2_000);
+    aliasListener?.({ code: 0, sequence: lastQuerySeq(), alias: "u0" });
+    jest.advanceTimersByTime(3_000);
+    expect(mockSetAlias).toHaveBeenCalledTimes(2);
+    expect(mockSetAlias).toHaveBeenLastCalledWith(
+      expect.objectContaining({ alias: "u1" }),
+    );
+  });
+
+  it("上一个账号把重试次数用光了：换账号登录后，新账号的别名照样有完整的一轮重试", () => {
+    boot();
+    for (let i = 0; i < 5; i++) {
+      aliasListener?.({ code: 6022, sequence: lastSetSeq() });
+      jest.advanceTimersByTime(60_000);
+    }
+    expect(mockSetAlias).toHaveBeenCalledTimes(5);
+    startPush("u2");
+    expect(mockSetAlias).toHaveBeenCalledTimes(6);
+    aliasListener?.({ code: 6022, sequence: lastSetSeq() });
+    jest.advanceTimersByTime(3_000);
+    expect(mockSetAlias).toHaveBeenCalledTimes(7);
+    expect(mockSetAlias).toHaveBeenLastCalledWith(
+      expect.objectContaining({ alias: "u2" }),
+    );
+  });
+
   it("换账号后旧账号的设置结果才迟到（失败）：不替旧账号重设，也不冲掉新账号排好的校验", () => {
     boot();
     const oldSeq = lastSetSeq();
@@ -629,6 +695,21 @@ describe("登出解绑别名也要等结果（断网登出 / 刚设完就被动�
     expect(mockQueryAlias).toHaveBeenCalledTimes(1);
     jest.advanceTimersByTime(120_000);
     expect(mockDeleteAlias).toHaveBeenCalledTimes(1);
+  });
+
+  it("上一次登出把解绑重试用光了：再登录、再登出时，解绑照样有完整的一轮重试", () => {
+    bootAndSignOut();
+    for (let i = 0; i < 5; i++) {
+      aliasListener?.({ code: 6002, sequence: lastDeleteSeq() });
+      jest.advanceTimersByTime(60_000);
+    }
+    expect(mockDeleteAlias).toHaveBeenCalledTimes(5);
+    startPush("u2");
+    stopPush();
+    expect(mockDeleteAlias).toHaveBeenCalledTimes(6);
+    aliasListener?.({ code: 6002, sequence: lastDeleteSeq() });
+    jest.advanceTimersByTime(3_000);
+    expect(mockDeleteAlias).toHaveBeenCalledTimes(7);
   });
 
   it("解绑成功后不去 queryAlias 校验（别名不存在时 iOS 桥接层可能拿到 nil）", () => {

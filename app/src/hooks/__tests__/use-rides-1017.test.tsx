@@ -13,8 +13,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 
 import { devicesApi } from "@/api/devices";
+import { currentRideWindow, type MonthCursor } from "@/services/rides";
 import {
   previousIfSameDevice,
+  useRecentRides,
+  useRideMonth,
   useRidePages,
   useRideTrack,
 } from "../use-rides";
@@ -197,5 +200,166 @@ describe("useRideTrack：换范围时留着上一份，只限同一顶头盔", (
     expect(previousIfSameDevice(prev, of("h2"), "h1")).toBeUndefined();
     expect(previousIfSameDevice(prev, undefined, "h1")).toBeUndefined();
     expect(previousIfSameDevice(undefined, of("h1"), "h1")).toBeUndefined();
+  });
+});
+
+// —— 2026-10-19 补分支：某一个月的行程（按日期找）与「现在这一趟」的轮询 ——
+describe("useRideMonth：某一个月的全部行程", () => {
+  type Args = { id?: string; month: MonthCursor | null; enabled: boolean };
+  const useMonth = ({ id, month, enabled }: Args) =>
+    useRideMonth(id, month, enabled);
+  const SEP: MonthCursor = { year: 2026, month: 8 };
+  const OCT: MonthCursor = { year: 2026, month: 9 };
+
+  it("按那个月本地 1 日零点到下月 1 日零点去取，交出行程列表", async () => {
+    fakeNow(new Date(2026, 9, 17, 12));
+    const rides = [{ startAt: "2026-09-03T01:00:00.000Z" }];
+    ridesMock.mockResolvedValue({ rides });
+    const r = await renderHook(useMonth, {
+      id: "h1",
+      month: SEP,
+      enabled: true,
+    });
+    await settle(() => r.current.isSuccess);
+    expect(ridesMock).toHaveBeenCalledWith(
+      "h1",
+      new Date(2026, 8, 1).toISOString(),
+      new Date(2026, 9, 1).toISOString(),
+    );
+    expect(r.current.data).toEqual(rides);
+  });
+
+  it("没选月份、没有设备号、没启用：都不取（查询压根不跑，不是跑了报错）", async () => {
+    ridesMock.mockResolvedValue({ rides: [] });
+    const all = [
+      await renderHook(useMonth, { id: "h1", month: null, enabled: true }),
+      await renderHook(useMonth, { id: undefined, month: SEP, enabled: true }),
+      await renderHook(useMonth, { id: "h1", month: SEP, enabled: false }),
+    ];
+    await settle(() => false, 5);
+    expect(ridesMock).not.toHaveBeenCalled();
+    for (const r of all) {
+      expect(r.current.status).toBe("pending");
+      expect(r.current.fetchStatus).toBe("idle");
+    }
+  });
+
+  it("这个月的过了半分钟再打开就重拉；过完的月取到就一直用", async () => {
+    fakeNow(new Date(2026, 9, 17, 12));
+    ridesMock.mockResolvedValue({ rides: [] });
+    const open = async () => {
+      const cur = await renderHook(useMonth, {
+        id: "h1",
+        month: OCT,
+        enabled: true,
+      });
+      const past = await renderHook(useMonth, {
+        id: "h1",
+        month: SEP,
+        enabled: true,
+      });
+      await settle(() => cur.current.isSuccess && past.current.isSuccess);
+      await settle(() => false, 5);
+      await unmountAll();
+    };
+    await open();
+    expect(ridesMock).toHaveBeenCalledTimes(2);
+
+    ridesMock.mockClear();
+    jest.setSystemTime(new Date(2026, 9, 17, 12, 0, 20));
+    await open();
+    expect(ridesMock).not.toHaveBeenCalled();
+
+    jest.setSystemTime(new Date(2026, 9, 17, 12, 0, 31));
+    await open();
+    expect(ridesMock).toHaveBeenCalledTimes(1);
+    expect(ridesMock.mock.calls[0][1]).toBe(new Date(2026, 9, 1).toISOString());
+
+    ridesMock.mockClear();
+    jest.setSystemTime(new Date(2026, 9, 25));
+    await open();
+    expect(ridesMock).toHaveBeenCalledTimes(1);
+    expect(ridesMock.mock.calls[0][1]).toBe(new Date(2026, 9, 1).toISOString());
+  });
+});
+
+describe("useRecentRides：昨天零点以来的行程（现在这一趟）", () => {
+  type Args = { id?: string; enabled: boolean; poll: boolean };
+  const useRecent = ({ id, enabled, poll }: Args) =>
+    useRecentRides(id, { enabled, poll });
+
+  it("从昨天零点（和月查询同一网格）取到此刻之后一分钟", async () => {
+    const now = new Date(2026, 9, 17, 12);
+    fakeNow(now);
+    const rides = [{ startAt: "2026-10-17T03:00:00.000Z", ongoing: true }];
+    ridesMock.mockResolvedValue({ rides });
+    const r = await renderHook(useRecent, {
+      id: "h1",
+      enabled: true,
+      poll: false,
+    });
+    await settle(() => r.current.isSuccess);
+    const { from, to } = currentRideWindow(now);
+    expect(ridesMock).toHaveBeenCalledWith(
+      "h1",
+      from.toISOString(),
+      to.toISOString(),
+    );
+    expect(r.current.data).toEqual(rides);
+  });
+
+  it("没启用、没有设备号：不取", async () => {
+    ridesMock.mockResolvedValue({ rides: [] });
+    await renderHook(useRecent, { id: "h1", enabled: false, poll: true });
+    await renderHook(useRecent, { id: undefined, enabled: true, poll: true });
+    await settle(() => false, 5);
+    expect(ridesMock).not.toHaveBeenCalled();
+  });
+
+  it("要轮询就每 30 秒重拉一次；改成不轮询就停", async () => {
+    // 只假装时间和 setInterval（轮询用它）；setTimeout 照常走，查询库和 settle 要靠它
+    jest.useFakeTimers({
+      now: new Date(2026, 9, 17, 12),
+      doNotFake: [
+        "hrtime",
+        "nextTick",
+        "performance",
+        "queueMicrotask",
+        "requestAnimationFrame",
+        "cancelAnimationFrame",
+        "requestIdleCallback",
+        "cancelIdleCallback",
+        "setImmediate",
+        "clearImmediate",
+        "setTimeout",
+        "clearTimeout",
+      ],
+    });
+    ridesMock.mockResolvedValue({ rides: [] });
+    const r = await renderHook(useRecent, {
+      id: "h1",
+      enabled: true,
+      poll: true,
+    });
+    await settle(() => r.current.isSuccess);
+    expect(ridesMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      jest.advanceTimersByTime(29_000);
+    });
+    await settle(() => false, 5);
+    expect(ridesMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      jest.advanceTimersByTime(1_000);
+    });
+    await settle(() => ridesMock.mock.calls.length >= 2);
+    expect(ridesMock).toHaveBeenCalledTimes(2);
+
+    await r.rerender({ id: "h1", enabled: true, poll: false });
+    await act(async () => {
+      jest.advanceTimersByTime(120_000);
+    });
+    await settle(() => false, 5);
+    expect(ridesMock).toHaveBeenCalledTimes(2);
   });
 });

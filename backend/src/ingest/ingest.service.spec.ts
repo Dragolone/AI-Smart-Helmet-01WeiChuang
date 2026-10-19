@@ -278,6 +278,12 @@ describe('IngestService', () => {
     service = moduleRef.get(IngestService);
   });
 
+  // Logger 上的监视用完都要还原：没还原时下一条再 spyOn 拿到的是同一个监视，带着上一条的调用记录
+  //（打乱用例顺序时「同 eventId 内容相同 → 不报错」会因前一条另存用例的日志失败，10-19 夜测）
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it('合法事件落库 → stored', async () => {
     create.mockResolvedValue({});
     await expect(
@@ -478,12 +484,15 @@ describe('IngestService', () => {
         eventType: 'possible_fall',
         payload: { confidence: 0.9 },
       });
-    jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const errorSpy = jest
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
     await expect(
       service.ingestRaw(fallMessage(), 'helmet_001', 'mqtt'),
     ).resolves.toBe('duplicate');
     expect(create).toHaveBeenCalledTimes(2);
     expect(handleTrigger).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 
   it('撞号后查库对比失败：抛出（入口回 5xx 让 App 重传），不当重复吞掉', async () => {
