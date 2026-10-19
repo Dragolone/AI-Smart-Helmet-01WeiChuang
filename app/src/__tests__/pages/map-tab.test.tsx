@@ -1,6 +1,6 @@
 // 地图标签页：实时位置（在线 / 离线 / 没位置 / (0,0) 占位）、骑行中屏幕常亮、分享与导航、跟随与回中、
-// 地图异常重新加载、多顶头盔切换、行程列表 → 一趟 → 回放、按日期找、Android 返回键一层层退、
-// 从设备页 / 安全记录带参数进来。行程数据的钩子替换成可控的值，地图组件替换成记录命令的替身。
+// 地图异常重新加载、多顶头盔切换、行程列表 → 一趟 → 回放、按日期找、Android 返回键一层层退与布局、
+// 从设备页 / 安全记录 / 外部链接带参数进来。行程数据的钩子替换成可控的值，地图组件替换成记录命令的替身。
 import {
   afterEach,
   beforeEach,
@@ -9,13 +9,14 @@ import {
   it,
   jest,
 } from "@jest/globals";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import type { DevicePublic, LocationPoint, RideSummary } from "@helmet/shared";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import {
   Animated as RNAnimated,
   AppState,
   BackHandler,
+  Platform,
   Share,
 } from "react-native";
 import { act, type ReactTestInstance } from "react-test-renderer";
@@ -33,10 +34,15 @@ import {
   type Rendered,
 } from "@/__tests__/helpers/render";
 import { devicesApi } from "@/api/devices";
+import { HelmetPicker } from "@/components/map/helmet-picker";
 import { openAmapNavigation } from "@/components/map/nav-links";
+import { RideCalendar } from "@/components/map/ride-calendar";
+import { RideList } from "@/components/map/ride-list";
 import { RideReplay } from "@/components/map/ride-replay";
 import { Tappable } from "@/components/tappable";
 import { translate, useLocaleStore, type MessageKey } from "@/i18n";
+import { formatKm, monthTitle } from "@/i18n/format";
+import { dayKeyOf } from "@/services/rides";
 import { useAuthStore } from "@/stores/auth-store";
 import { useThemeStore } from "@/stores/theme-store";
 import MapScreen from "@/app/(tabs)/map";
@@ -150,63 +156,99 @@ jest.mock("@/api/devices", () => ({
   devicesApi: { list: jest.fn(), latestLocation: jest.fn() },
 }));
 const mockRides = {
-  recent: [] as RideSummary[],
+  /** undefined = 最近的行程还没拉到 */
+  recent: [] as RideSummary[] | undefined,
   pages: [] as RideSummary[],
+  /** 行程列表第一页没拉到 */
+  pagesError: false,
+  /** 最后一页说还有更早的（翻到哪个月） */
+  pagesNext: null as { year: number; month: number } | null,
   track: [] as LocationPoint[],
+  /** 轨迹还在拉 */
+  trackLoading: false,
+  /** 轨迹接口用全部点算的统计（只知道一个时刻、又不在任何一趟里时用来写小结） */
+  trackSummary: null as {
+    distanceMeters: number;
+    movingSeconds: number;
+    maxSpeed: number | null;
+    pointCount: number;
+    firstAt: string | null;
+    lastAt: string | null;
+  } | null,
   events: [] as { eventId: string; eventType: string; timestamp: string }[],
   /** 事件接口报的总数（比拿回来的多 = 还有没列出来的）；null = 和拿回来的一样多 */
   eventsTotal: null as number | null,
   trackError: false,
+  /** 事件一次都没拉到（data 没有、isError 为 true） */
   eventsError: false,
-  month: [] as RideSummary[],
+  /** undefined = 这个月的行程还在拉 */
+  month: [] as RideSummary[] | undefined,
+  monthError: false,
   at: null as RideSummary | null,
   /** 查「那一刻落在哪一趟」失败了 */
   atError: false,
+  /** 还在查「那一刻落在哪一趟」 */
+  atLoading: false,
   /** 轨迹拉到过、之后后台刷新失败（data 还在、isError 也是 true） */
   trackRefetchError: false,
 };
-const mockRefetch = { track: jest.fn(), events: jest.fn(), at: jest.fn() };
+const mockRefetch = {
+  track: jest.fn(),
+  events: jest.fn(),
+  at: jest.fn(),
+  pages: jest.fn(),
+  older: jest.fn(),
+  month: jest.fn(),
+};
 jest.mock("@/hooks/use-rides", () => ({
-  useRecentRides: () => ({ data: mockRides.recent }),
+  useRecentRides: () => ({
+    data: mockRides.recent,
+    isSuccess: mockRides.recent !== undefined,
+  }),
   useRidePages: (_d: unknown, _s: unknown, enabled: boolean) => ({
-    data: enabled
-      ? { pages: [{ rides: mockRides.pages, next: null }] }
-      : undefined,
-    isError: false,
-    refetch: jest.fn(),
-    fetchNextPage: jest.fn(),
+    data:
+      enabled && !mockRides.pagesError
+        ? { pages: [{ rides: mockRides.pages, next: mockRides.pagesNext }] }
+        : undefined,
+    isError: enabled && mockRides.pagesError,
+    refetch: mockRefetch.pages,
+    fetchNextPage: mockRefetch.older,
     isFetchingNextPage: false,
     isFetchNextPageError: false,
   }),
   useRideTrack: (_d: unknown, window: unknown) => ({
     data:
-      window && !mockRides.trackError
-        ? { points: mockRides.track, summary: null }
+      window && !mockRides.trackError && !mockRides.trackLoading
+        ? { points: mockRides.track, summary: mockRides.trackSummary }
         : undefined,
     isError: mockRides.trackError || mockRides.trackRefetchError,
-    isPending: !window,
+    isPending: !window || mockRides.trackLoading,
     refetch: mockRefetch.track,
   }),
   useRideEvents: (_d: unknown, window: unknown) => ({
-    data: window
-      ? {
-          items: mockRides.events,
-          total: mockRides.eventsTotal ?? mockRides.events.length,
-        }
-      : undefined,
+    data:
+      window && !mockRides.eventsError
+        ? {
+            items: mockRides.events,
+            total: mockRides.eventsTotal ?? mockRides.events.length,
+          }
+        : undefined,
     isError: mockRides.eventsError,
     refetch: mockRefetch.events,
   }),
   useRideMonth: () => ({
-    data: mockRides.month,
-    isError: false,
-    refetch: jest.fn(),
+    data: mockRides.monthError ? undefined : mockRides.month,
+    isError: mockRides.monthError,
+    refetch: mockRefetch.month,
   }),
   useRideAt: (_d: unknown, atMs: number | null) => ({
-    data: atMs === null || mockRides.atError ? undefined : mockRides.at,
-    isPending: atMs === null,
+    data:
+      atMs === null || mockRides.atError || mockRides.atLoading
+        ? undefined
+        : mockRides.at,
+    isPending: atMs === null || mockRides.atLoading,
     isError: atMs !== null && mockRides.atError,
-    isFetching: false,
+    isFetching: atMs !== null && mockRides.atLoading,
     refetch: mockRefetch.at,
   }),
 }));
@@ -270,6 +312,48 @@ const round = (r: Rendered, label: string) =>
   r.root.find(
     (n) => n.type === Tappable && n.props.accessibilityLabel === label,
   );
+/** 抽屉里一格数据（名字为 label 的那一格）的值和单位 */
+const statOf = (r: Rendered, label: string) =>
+  r.root.find(
+    (n) =>
+      typeof n.type !== "string" &&
+      n.props.label === label &&
+      "unit" in n.props,
+  ).props as { value: string; unit: string };
+const replayOf = (r: Rendered) => r.root.findByType(RideReplay).props;
+/** 重渲染用：每次给新元素，同一个元素对象 React 会直接跳过 */
+const screenOf = (client: QueryClient) => (
+  <QueryClientProvider client={client}>
+    <MapScreen />
+  </QueryClientProvider>
+);
+/** 打开行程列表，点第一趟 */
+const openFirstRide = (r: Rendered) => {
+  r.press(tr("map.rides.title"));
+  const row = r.root.findAll(
+    (n) =>
+      n.type === Tappable &&
+      String(n.props.accessibilityLabel ?? "").includes("公里"),
+  )[0];
+  act(() => {
+    row.props.onPress();
+  });
+};
+/** 上个月 10 号 9:00 开始的半小时 */
+const lastMonthRide = () => {
+  const d = new Date();
+  const start = new Date(d.getFullYear(), d.getMonth() - 1, 10, 9);
+  return ride(9, {
+    startAt: start.toISOString(),
+    endAt: new Date(start.getTime() + 30 * 60_000).toISOString(),
+  });
+};
+/** 上个月（月历的写法：月份从 0 起） */
+const lastMonth = () => {
+  const d = new Date();
+  const first = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+  return { year: first.getFullYear(), month: first.getMonth() };
+};
 let backHandler: (() => boolean) | null;
 let backSpy: ReturnType<typeof jest.spyOn>;
 let appSpy: ReturnType<typeof jest.spyOn>;
@@ -285,14 +369,20 @@ beforeEach(() => {
   Object.assign(mockRides, {
     recent: [],
     pages: [],
+    pagesError: false,
+    pagesNext: null,
     track: [],
+    trackLoading: false,
+    trackSummary: null,
     events: [],
     eventsTotal: null,
     trackError: false,
     eventsError: false,
     month: [],
+    monthError: false,
     at: null,
     atError: false,
+    atLoading: false,
     trackRefetchError: false,
   });
   Object.assign(mockSafety, { chosenId: null, links: { h1: "connected" } });
@@ -474,6 +564,114 @@ describe("实时位置", () => {
     });
     expect(mockMap.setMarks).toHaveBeenCalledWith([]);
   });
+
+  it("Android：内容区不含标签条，抽屉底边距只留 18、浮层底部不让玻璃标签条（iOS 才让）", async () => {
+    const card = (r: Rendered) =>
+      r.root.findAll(
+        (n) =>
+          typeof n.type === "string" &&
+          flat(n.props.style).maxHeight !== undefined,
+      )[0];
+    const overlay = (r: Rendered) =>
+      r.root.findAll(
+        (n) => typeof n.type === "string" && flat(n.props.style).zIndex === 10,
+      )[0];
+    const os = Platform.OS;
+    Object.defineProperty(Platform, "OS", { value: "ios", configurable: true });
+    try {
+      let r = await mount();
+      await waitFor(() => expect(r.allText()).toContain(tr("map.still")));
+      expect(flat(card(r).props.style).paddingBottom).toBe(18 + 34);
+      expect(flat(overlay(r).props.style).paddingBottom).toBe(34 + 62);
+      r.unmount();
+      Object.defineProperty(Platform, "OS", {
+        value: "android",
+        configurable: true,
+      });
+      r = await mount();
+      await waitFor(() => expect(r.allText()).toContain(tr("map.still")));
+      expect(flat(card(r).props.style).paddingBottom).toBe(18);
+      expect(flat(overlay(r).props.style).paddingBottom).toBeUndefined();
+    } finally {
+      Object.defineProperty(Platform, "OS", { value: os, configurable: true });
+    }
+  });
+
+  it("地图异常时只是切到后台：不重载，回到前台才重来", async () => {
+    const r = await mount();
+    act(() => {
+      (mockMapProps.current.onError as (m: string) => void)("脚本加载失败");
+    });
+    act(() => {
+      appListener!("background");
+    });
+    expect(mockMap.reload).not.toHaveBeenCalled();
+    expect(r.allText()).toContain(tr("map.error", { msg: "脚本加载失败" }));
+    act(() => {
+      appListener!("active");
+    });
+    expect(mockMap.reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("点第一行（状态和更新时间那一行）也能收起 / 展开抽屉", async () => {
+    const r = await mount();
+    await waitFor(() => expect(r.allText()).toContain(tr("map.still")));
+    const grabber = () =>
+      r.root.findAll(
+        (c) =>
+          typeof c.type !== "string" &&
+          c.props.hitSlop !== undefined &&
+          typeof c.props.onPress === "function",
+      )[0];
+    r.press(tr("map.still"));
+    expect(grabber().props.accessibilityState).toEqual({ expanded: false });
+    r.press(tr("map.still"));
+    expect(grabber().props.accessibilityState).toEqual({ expanded: true });
+  });
+
+  it("本趟里程：今天还没骑写 0.0，最近的行程还没拉到写 —；头盔没报过电量写 —", async () => {
+    m(devicesApi.list).mockImplementation(() =>
+      Promise.resolve([dev("h1", { name: "通勤", battery: null })]),
+    );
+    const qc = makeQueryClient();
+    const r = await mount(qc);
+    await waitFor(() => expect(r.allText()).toContain(tr("map.still")));
+    expect(statOf(r, tr("map.rideDistance")).value).toBe("0.0");
+    expect(statOf(r, tr("map.battery")).value).toBe("—");
+    mockRides.recent = undefined;
+    r.rerender(screenOf(qc));
+    expect(statOf(r, tr("map.rideDistance")).value).toBe("—");
+  });
+
+  it("骑行中地图重新就绪：把实时那条线也重推（不收视野）", async () => {
+    mockRides.recent = [ride(10, { ongoing: true })];
+    mockRides.track = [loc({ latitude: 22.54 }), loc({ latitude: 22.541 })];
+    const r = await mount();
+    await waitFor(() => expect(r.allText()).toContain(tr("map.riding")));
+    jest.clearAllMocks();
+    act(() => (mockMapProps.current.onReady as () => void)());
+    expect(mockMap.setTrack).toHaveBeenCalledTimes(1);
+    expect(mockMap.setTrack).toHaveBeenCalledWith(expect.any(Array), {
+      fit: false,
+    });
+    // 两个轨迹点 + 接在末尾的此刻位置
+    expect(m(mockMap.setTrack).mock.calls[0][0]).toHaveLength(3);
+  });
+
+  it("骑行中开 / 关屏幕常亮本身报错：吞掉，照常显示骑行中", async () => {
+    m(activateKeepAwakeAsync).mockImplementationOnce(() =>
+      Promise.reject(new Error("no activity")),
+    );
+    m(deactivateKeepAwake).mockImplementationOnce(() =>
+      Promise.reject(new Error("no activity")),
+    );
+    mockRides.recent = [ride(10, { ongoing: true })];
+    const r = await mount();
+    await waitFor(() => expect(r.allText()).toContain(tr("map.riding")));
+    expect(activateKeepAwakeAsync).toHaveBeenCalledTimes(1);
+    r.unmount();
+    expect(deactivateKeepAwake).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("多顶头盔", () => {
@@ -515,6 +713,42 @@ describe("多顶头盔", () => {
     ).toBeTruthy();
     expect(r.allText()).not.toContain(tr("map.pill.current"));
   });
+
+  it("看一趟时换头盔：退回这一顶的行程列表；换回当前那顶，药丸又标「当前」；面板能关", async () => {
+    m(devicesApi.list).mockImplementation(() =>
+      Promise.resolve([
+        dev("h1", { name: "通勤" }),
+        dev("h2", { name: "滑雪" }),
+      ]),
+    );
+    mockSafety.links = { h1: "connected", h2: "connected" };
+    mockRides.pages = [ride(9)];
+    mockRides.track = [
+      loc({ latitude: 22.5 }),
+      loc({ latitude: 22.51 }),
+      loc({ latitude: 22.52 }),
+    ];
+    const r = await mount();
+    await waitFor(() => expect(r.allText()).toContain(tr("map.pill.switch")));
+    openFirstRide(r);
+    expect(r.allText()).toContain(tr("map.ride.duration"));
+    const picker = () => r.root.findByType(HelmetPicker).props;
+    act(() => round(r, tr("map.pill.a11y", { name: "通勤" })).props.onPress());
+    r.press("滑雪");
+    expect(picker().visible).toBe(false);
+    expect(r.allText()).toContain(tr("map.rides.pickDate"));
+    expect(r.allText()).not.toContain(tr("map.ride.duration"));
+    expect(r.allText()).not.toContain(tr("map.pill.current"));
+
+    act(() => round(r, tr("map.pill.a11y", { name: "滑雪" })).props.onPress());
+    r.press("通勤");
+    expect(r.allText()).toContain(tr("map.pill.current"));
+
+    act(() => round(r, tr("map.pill.a11y", { name: "通勤" })).props.onPress());
+    expect(picker().visible).toBe(true);
+    act(() => round(r, tr("common.close")).props.onPress());
+    expect(picker().visible).toBe(false);
+  });
 });
 
 describe("行程", () => {
@@ -546,8 +780,7 @@ describe("行程", () => {
     expect(
       r.root.findAll(
         (n) =>
-          n.props.accessibilityRole === "header" &&
-          n.props.numberOfLines === 2,
+          n.props.accessibilityRole === "header" && n.props.numberOfLines === 2,
       ).length,
     ).toBeGreaterThan(0);
     expect(mockMap.setTrack).toHaveBeenLastCalledWith(
@@ -665,6 +898,195 @@ describe("行程", () => {
     });
     expect(r.allText()).not.toContain(tr("map.rides.pickDate"));
   });
+
+  it("按日期找：翻到上个月选一天；再打开月历停在那个月、那一天标着选中；月历的返回键收起月历", async () => {
+    m(devicesApi.list).mockImplementation(() =>
+      Promise.resolve([
+        dev("h1", { name: "通勤", createdAt: "2020-01-01T00:00:00.000Z" }),
+      ]),
+    );
+    const old = lastMonthRide();
+    mockRides.pages = [old];
+    mockRides.month = [old];
+    const r = await mount();
+    r.press(tr("map.rides.title"));
+    act(() => round(r, tr("map.rides.pickDateA11y")).props.onPress());
+    const calendar = () => r.root.findByType(RideCalendar).props;
+    const now = new Date();
+    expect(calendar().month).toEqual({
+      year: now.getFullYear(),
+      month: now.getMonth(),
+    });
+    expect(calendar().selectedDayKey).toBeNull();
+    act(() => round(r, tr("map.rides.prevMonth")).props.onPress());
+    expect(calendar().month).toEqual(lastMonth());
+    const day = r.root.find(
+      (n) =>
+        n.type === Tappable && n.props.accessibilityState?.selected === false,
+    );
+    act(() => day.props.onPress());
+    expect(r.root.findAllByType(RideCalendar)).toHaveLength(0);
+
+    // 日期按钮写着正在看哪一天，再点打开月历
+    const prefix = tr("map.rides.filteredA11y", { label: "@" }).split("@")[0];
+    act(() =>
+      r.root
+        .find(
+          (n) =>
+            n.type === Tappable &&
+            String(n.props.accessibilityLabel ?? "").startsWith(prefix),
+        )
+        .props.onPress(),
+    );
+    expect(calendar().month).toEqual(lastMonth());
+    expect(calendar().selectedDayKey).toBe(dayKeyOf(old.startAt));
+    act(() => round(r, tr("map.ride.back")).props.onPress());
+    expect(r.root.findAllByType(RideCalendar)).toHaveLength(0);
+    expect(r.allText()).toContain(tr("map.rides.showAll"));
+  });
+
+  it("按日期找：选整月，列表只看那个月，日期按钮写着月份", async () => {
+    m(devicesApi.list).mockImplementation(() =>
+      Promise.resolve([
+        dev("h1", { name: "通勤", createdAt: "2020-01-01T00:00:00.000Z" }),
+      ]),
+    );
+    const old = lastMonthRide();
+    mockRides.pages = [old];
+    mockRides.month = [old];
+    const r = await mount();
+    r.press(tr("map.rides.title"));
+    act(() => round(r, tr("map.rides.pickDateA11y")).props.onPress());
+    act(() => round(r, tr("map.rides.prevMonth")).props.onPress());
+    const { year, month } = lastMonth();
+    const title = monthTitle(year, month, "zh-CN");
+    act(() =>
+      round(r, tr("map.rides.monthAllA11y", { month: title })).props.onPress(),
+    );
+    expect(r.root.findAllByType(RideCalendar)).toHaveLength(0);
+    expect(r.texts()).toContain(title);
+    const list = r.root.findByType(RideList).props;
+    expect(list.status).toBe("ready");
+    expect(list.onShowAll).toBeDefined();
+  });
+
+  it("月历里这个月的行程还在拉 / 没拉到：写加载中 / 加载失败，点重试重拉这个月", async () => {
+    mockRides.month = undefined;
+    const qc = makeQueryClient();
+    const r = await mount(qc);
+    r.press(tr("map.rides.title"));
+    act(() => round(r, tr("map.rides.pickDateA11y")).props.onPress());
+    expect(r.root.findByType(RideCalendar).props.status).toBe("loading");
+    mockRides.monthError = true;
+    r.rerender(screenOf(qc));
+    expect(r.root.findByType(RideCalendar).props.status).toBe("error");
+    r.press(tr("map.retry"));
+    expect(mockRefetch.month).toHaveBeenCalledTimes(1);
+  });
+
+  it("按天看时这个月的行程不在手上（还在拉 / 没拉到）：列表写加载中 / 加载失败，重试重拉这个月", async () => {
+    const d = new Date();
+    const today = ride(8, {
+      startAt: new Date(
+        d.getFullYear(),
+        d.getMonth(),
+        d.getDate(),
+        8,
+      ).toISOString(),
+      endAt: new Date(
+        d.getFullYear(),
+        d.getMonth(),
+        d.getDate(),
+        8,
+        30,
+      ).toISOString(),
+    });
+    mockRides.pages = [today];
+    mockRides.month = [today];
+    const qc = makeQueryClient();
+    const r = await mount(qc);
+    r.press(tr("map.rides.title"));
+    act(() => round(r, tr("map.rides.pickDateA11y")).props.onPress());
+    act(() =>
+      r.root
+        .find(
+          (n) =>
+            n.type === Tappable &&
+            n.props.accessibilityState?.selected === false,
+        )
+        .props.onPress(),
+    );
+    expect(r.root.findByType(RideList).props.status).toBe("ready");
+    mockRides.month = undefined;
+    r.rerender(screenOf(qc));
+    expect(r.root.findByType(RideList).props.status).toBe("loading");
+    mockRides.monthError = true;
+    r.rerender(screenOf(qc));
+    expect(r.root.findByType(RideList).props.status).toBe("error");
+    r.press(tr("map.retry"));
+    expect(mockRefetch.month).toHaveBeenCalledTimes(1);
+    expect(mockRefetch.pages).not.toHaveBeenCalled();
+  });
+
+  it("行程列表第一页没拉到：写失败，点重试重拉；还有更早的可以接着往前加载", async () => {
+    mockRides.pagesError = true;
+    const qc = makeQueryClient();
+    const r = await mount(qc);
+    r.press(tr("map.rides.title"));
+    expect(r.root.findByType(RideList).props.status).toBe("error");
+    r.press(tr("map.retry"));
+    expect(mockRefetch.pages).toHaveBeenCalledTimes(1);
+    mockRides.pagesError = false;
+    mockRides.pages = [ride(9)];
+    mockRides.pagesNext = { year: 2026, month: 8 };
+    r.rerender(screenOf(qc));
+    expect(r.root.findByType(RideList).props.status).toBe("ready");
+    r.press(tr("map.rides.loadOlder"));
+    expect(mockRefetch.older).toHaveBeenCalledTimes(1);
+  });
+
+  it("一趟超过一小时：时长写「时:分」，单位是小时", async () => {
+    mockRides.pages = [
+      ride(9, { endAt: new Date(2026, 9, 15, 11, 15).toISOString() }),
+    ];
+    mockRides.track = [loc({ latitude: 22.5 }), loc({ latitude: 22.51 })];
+    const r = await mount();
+    openFirstRide(r);
+    expect(statOf(r, tr("map.ride.duration"))).toEqual(
+      expect.objectContaining({ value: "2:15", unit: tr("ride.hours") }),
+    );
+  });
+
+  it("轨迹还在拉：回放写加载中，点播放没反应", async () => {
+    mockRides.pages = [ride(9)];
+    mockRides.trackLoading = true;
+    const r = await mount();
+    openFirstRide(r);
+    expect(replayOf(r).status).toBe("loading");
+    act(() => replayOf(r).onTogglePlay());
+    expect(replayOf(r).playing).toBe(false);
+  });
+
+  it("轨迹到了、事件没拉到：照样能回放，地图上只标起点终点，提示事件没拉到", async () => {
+    mockRides.pages = [ride(9)];
+    mockRides.track = [
+      loc({ latitude: 22.5 }),
+      loc({ latitude: 22.51 }),
+      loc({ latitude: 22.52 }),
+    ];
+    mockRides.eventsError = true;
+    const r = await mount();
+    openFirstRide(r);
+    expect(replayOf(r).status).toBe("ready");
+    expect(replayOf(r).events).toEqual([]);
+    expect(replayOf(r).eventsFailed).toBe(true);
+    expect(mockMap.setMarks).toHaveBeenLastCalledWith([
+      expect.objectContaining({ kind: "start" }),
+      expect.objectContaining({ kind: "end" }),
+    ]);
+    act(() => replayOf(r).onTogglePlay());
+    expect(replayOf(r).playing).toBe(true);
+  });
 });
 
 describe("带参数进来", () => {
@@ -705,6 +1127,102 @@ describe("带参数进来", () => {
     routerState.params = { deviceId: "h1", at };
     r = await mount();
     await waitFor(() => expect(r.allText()).toContain(tr("map.moment.none")));
+  });
+
+  it("只带 deviceId（外部链接）：地图换看那一顶，停在实时位置", async () => {
+    m(devicesApi.list).mockImplementation(() =>
+      Promise.resolve([
+        dev("h1", { name: "通勤" }),
+        dev("h2", { name: "滑雪" }),
+      ]),
+    );
+    routerState.params = { deviceId: "h2" };
+    const r = await mount();
+    await waitFor(() =>
+      expect(round(r, tr("map.pill.a11y", { name: "滑雪" }))).toBeTruthy(),
+    );
+    expect(r.allText()).not.toContain(tr("map.pill.current"));
+    expect(r.allText()).not.toContain(tr("map.rides.pickDate"));
+    expect(mockRouter.setParams).toHaveBeenCalledWith({
+      deviceId: undefined,
+      at: undefined,
+      rides: undefined,
+    });
+  });
+
+  it("只带 rides=1（不指定哪一顶）：打开当前那顶的行程列表", async () => {
+    routerState.params = { rides: "1" };
+    const r = await mount();
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("map.rides.pickDate")),
+    );
+    expect(r.texts()).toContain("通勤");
+  });
+
+  it("at=某时刻、还在查它落在哪一趟：写「正在查找对应行程」，轨迹先不拉", async () => {
+    mockRides.atLoading = true;
+    routerState.params = {
+      deviceId: "h1",
+      at: new Date(2026, 9, 15, 9, 10).toISOString(),
+    };
+    const r = await mount();
+    await waitFor(() =>
+      expect(replayOf(r).note).toBe(tr("map.moment.finding")),
+    );
+    expect(replayOf(r).status).toBe("loading");
+    expect(replayOf(r).points).toHaveLength(0);
+  });
+
+  it("at=某时刻、它不在任何一趟里：小结用那前后半小时的轨迹统计", async () => {
+    const t = (min: number) => new Date(2026, 9, 15, 9, min).toISOString();
+    mockRides.at = null;
+    mockRides.track = [
+      loc({ timestamp: t(0) }),
+      loc({ timestamp: t(10), latitude: 22.55 }),
+      loc({ timestamp: t(20), latitude: 22.56 }),
+    ];
+    mockRides.trackSummary = {
+      distanceMeters: 3200,
+      movingSeconds: 1100,
+      maxSpeed: 6,
+      pointCount: 3,
+      firstAt: t(0),
+      lastAt: t(20),
+    };
+    routerState.params = { deviceId: "h1", at: t(10) };
+    const r = await mount();
+    await waitFor(() => expect(replayOf(r).status).toBe("ready"));
+    expect(statOf(r, tr("map.distance")).value).toBe(formatKm(3200));
+    expect(statOf(r, tr("map.ride.duration"))).toEqual(
+      expect.objectContaining({ value: "20", unit: tr("ride.minutes") }),
+    );
+    expect(statOf(r, tr("map.ride.max")).value).toBe("22");
+    // 平均时速只对一趟行程算
+    expect(statOf(r, tr("map.ride.avg")).value).toBe("—");
+  });
+
+  it("看一趟时外部链接只带 deviceId 换到另一顶：和面板里换头盔一样退回行程列表（不再停在上一顶那一趟）", async () => {
+    m(devicesApi.list).mockImplementation(() =>
+      Promise.resolve([
+        dev("h1", { name: "通勤" }),
+        dev("h2", { name: "滑雪" }),
+      ]),
+    );
+    mockRides.pages = [ride(9)];
+    mockRides.track = [loc({ latitude: 22.5 }), loc({ latitude: 22.51 })];
+    const qc = makeQueryClient();
+    const r = await mount(qc);
+    openFirstRide(r);
+    expect(r.allText()).toContain(tr("map.ride.duration"));
+    routerState.params = { deviceId: "h2" };
+    r.rerender(screenOf(qc));
+    await waitFor(() =>
+      expect(round(r, tr("map.pill.a11y", { name: "滑雪" }))).toBeTruthy(),
+    );
+    await waitFor(() =>
+      expect(r.allText()).not.toContain(tr("map.ride.duration")),
+    );
+    expect(r.allText()).toContain(tr("map.rides.pickDate"));
   });
 });
 
@@ -981,6 +1499,46 @@ describe("一趟里的回放、事件与抽屉", () => {
     // 收着时打开行程列表：抽屉自动展开
     r.press(tr("map.rides.title"));
     expect(enabled()).toEqual([false, true]);
+  });
+
+  it("刚进页面（抽屉自适应展开着）就往下拖：从内容的实际高度开始跟手，拖过一半松手收起", async () => {
+    const r = await mount();
+    await waitFor(() => expect(r.allText()).toContain(tr("map.still")));
+    const withLayout = (n: ReactTestInstance) =>
+      typeof n.type === "string" && typeof n.props.onLayout === "function";
+    const isGrabber = (c: ReactTestInstance) =>
+      typeof c.type !== "string" &&
+      c.props.hitSlop !== undefined &&
+      typeof c.props.onPress === "function";
+    const content = r.root.findAll(
+      (n) =>
+        withLayout(n) &&
+        n.findAll((c) => isHost(c, "GestureDetector")).length > 0,
+    )[0];
+    const header = r.root.findAll(
+      (n) =>
+        withLayout(n) &&
+        n.findAll((c) => isHost(c, "GestureDetector")).length === 0 &&
+        n.findAll(isGrabber).length > 0,
+    )[0];
+    act(() =>
+      content.props.onLayout({ nativeEvent: { layout: { height: 300 } } }),
+    );
+    act(() =>
+      header.props.onLayout({ nativeEvent: { layout: { height: 60 } } }),
+    );
+    const sheet = r.root
+      .findAll((n) => isHost(n, "GestureDetector"))
+      .map((n) => n.props.gesture as RecordedGesture)[1];
+    // 展开态的上限是个很大的数：要从内容实际高度起算，拖 150（过了一半）才收得起来
+    act(() => {
+      sheet.handlers.onStart();
+      sheet.handlers.onUpdate({ translationY: 150 });
+      sheet.handlers.onEnd({ velocityY: 0 });
+    });
+    expect(r.root.findAll(isGrabber)[0].props.accessibilityState).toEqual({
+      expanded: false,
+    });
   });
 });
 

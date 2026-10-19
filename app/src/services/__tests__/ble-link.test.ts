@@ -57,6 +57,8 @@ class FakeHelmet {
   /** 读 0x40（deviceId）时返回的错误码；非 0 时不带数据段 */
   idError = 0;
   cancelled = 0;
+  /** 设了就先交给它：返回 true = 这一帧它处理了（不应答 / 回别的），不再走下面的默认应答 */
+  override: ((frame: Uint8Array) => boolean) | null = null;
 
   reply(bytes: number[]): void {
     this.notify?.(null, { value: bytesToBase64(Uint8Array.from(bytes)) });
@@ -67,6 +69,7 @@ class FakeHelmet {
   }
 
   handle(frame: Uint8Array): void {
+    if (this.override?.(frame)) return;
     const [ins, seq] = frame;
     switch (ins) {
       case 0x02: {
@@ -133,9 +136,16 @@ class FakeHelmet {
 }
 
 const helmet = new FakeHelmet();
-let scanCb: ((e: null, d: unknown) => void) | null = null;
+type ScanCb = (e: { message: string } | null, d: unknown) => void;
+let scanCb: ScanCb | null = null;
 /** 每次 startDeviceScan 挂上的回调都留着（ble-plx 只叠监听不摘旧的） */
-const mockScanCbs: ((e: null, d: unknown) => void)[] = [];
+const mockScanCbs: ScanCb[] = [];
+/** 系统层已连着的外设（connectedDevices 的结果，可挂起 / 拒绝） */
+const mockConnected = jest.fn(
+  async (_uuids?: string[]): Promise<unknown[]> => [],
+);
+/** onStateChange 订阅时立即推的适配器状态；null = 状态事件还没到 */
+const mockAdapter: { initial: string | null } = { initial: "PoweredOn" };
 let stateCb: ((s: string) => void) | null = null;
 const destroyed = { count: 0 };
 /** 每次 startDeviceScan 的服务 UUID 过滤（null = 全量扫描） */
@@ -187,6 +197,11 @@ const fakeDevice = {
     return fakeDevice;
   }),
 };
+/** 两个写入假件的默认实现：有的用例换掉了没还原，后加的用例开头先装回来 */
+const defaultWrite =
+  fakeDevice.writeCharacteristicWithResponseForService.getMockImplementation()!;
+const defaultAck =
+  fakeDevice.writeCharacteristicWithoutResponseForService.getMockImplementation()!;
 
 jest.mock("react-native-ble-plx", () => ({
   State: {
@@ -200,15 +215,11 @@ jest.mock("react-native-ble-plx", () => ({
     state: () => mockState(),
     onStateChange: (cb: (s: string) => void, emit: boolean) => {
       stateCb = cb;
-      if (emit) cb("PoweredOn");
+      if (emit && mockAdapter.initial) cb(mockAdapter.initial);
       return { remove: () => undefined };
     },
-    connectedDevices: async () => [],
-    startDeviceScan: (
-      u: unknown,
-      _o: unknown,
-      cb: (e: null, d: unknown) => void,
-    ) => {
+    connectedDevices: (uuids: string[]) => mockConnected(uuids),
+    startDeviceScan: (u: unknown, _o: unknown, cb: ScanCb) => {
       mockScans.push(u as string[] | null);
       mockScanCbs.push(cb);
       scanCb = cb;
@@ -255,13 +266,14 @@ import {
   flushRelayQueue,
 } from "@/services/ble-relay-uplink";
 import { useBleStore } from "@/stores/ble-store";
-import { AppState, Platform } from "react-native";
+import { AppState, PermissionsAndroid, Platform } from "react-native";
 import { BleManager } from "react-native-ble-plx";
 import {
   __resetServerClockForTests,
   noteServerDate,
 } from "@/services/server-clock";
 import {
+  bleReady,
   bleStackReleased,
   currentBleTargets,
   isHelmetConnected,
@@ -316,6 +328,10 @@ beforeEach(() => {
   helmet.idError = 0;
   helmet.deviceId = "helmet_94173f";
   helmet.cancelled = 0;
+  helmet.override = null;
+  mockConnected.mockReset();
+  mockConnected.mockResolvedValue([]);
+  mockAdapter.initial = "PoweredOn";
   enqueueMock.mockClear();
   flushMock.mockClear();
   mockScans.length = 0;
@@ -1107,5 +1123,976 @@ describe("B 线 10-06 评审 F-3：头盔对时用服务端时钟", () => {
     expect(localSec - utc).toBeGreaterThanOrEqual(85);
     expect(localSec - utc).toBeLessThanOrEqual(95);
     __resetServerClockForTests();
+  });
+});
+
+// —— 2026-10-19 补分支：全量覆盖率里 ble-link 没走到的分支（权限、复用系统连接、兜底核身、退避、异常应答、收帧边角） ——
+describe("补分支（2026-10-19）", () => {
+  const ID = "helmet_94173f";
+  const FEE0_UUID = "0000fee0-0000-1000-8000-00805f9b34fb";
+  const { PERMISSIONS, RESULTS } = PermissionsAndroid;
+  const reportSettingsMock = devicesApi.reportSettings as unknown as Mock<
+    typeof devicesApi.reportSettings
+  >;
+  const devLogMock = () =>
+    jest.requireMock<{ devLog: Mock }>("@/services/dev-log").devLog;
+  /** 开发日志里有没有哪一行带这段字 */
+  const logged = (text: string) =>
+    devLogMock().mock.calls.some((c) =>
+      c.some((a) => String(a).includes(text)),
+    );
+  const managerCount = () =>
+    (BleManager as unknown as Mock<() => unknown>).mock.calls.length;
+  const until = async (cond: () => boolean, rounds = 60) => {
+    for (let i = 0; i < rounds && !cond(); i += 1) await tick();
+  };
+  const scanError = () =>
+    scanCb?.({ message: "Cannot start scanning operation" }, null);
+  /** 未处理的拒绝要到宏任务边界才报：用例结束前让一次，免得记到后面的用例头上 */
+  const flushMacrotask = () =>
+    new Promise<void>((r) => {
+      setImmediate(r);
+    });
+  const asAndroid = (version: number) => {
+    override(Platform, "OS", "android");
+    override(Platform, "Version", version);
+  };
+  /** 链路同一时刻只挂一个 AppState 监听（扫描用的，或权限被拒后等回前台的） */
+  const captureAppState = () => {
+    const holder: { cb: ((s: string) => void) | null } = { cb: null };
+    jest.spyOn(AppState, "addEventListener").mockImplementation(((
+      _: string,
+      cb: (s: string) => void,
+    ) => {
+      holder.cb = cb;
+      return { remove: () => undefined };
+    }) as never);
+    return holder;
+  };
+
+  beforeEach(() => {
+    fakeDevice.writeCharacteristicWithResponseForService.mockImplementation(
+      defaultWrite,
+    );
+    fakeDevice.writeCharacteristicWithoutResponseForService.mockImplementation(
+      defaultAck,
+    );
+    devLogMock().mockClear();
+    reportSettingsMock.mockClear();
+  });
+
+  describe("权限：Android 12+、申请抛错、等权限期间停链路", () => {
+    it("Android 12+：一次申请扫描 + 连接两项，都给了才启动并起前台服务", async () => {
+      asAndroid(31);
+      const multi = jest
+        .spyOn(PermissionsAndroid, "requestMultiple")
+        .mockResolvedValue({
+          [PERMISSIONS.BLUETOOTH_SCAN]: RESULTS.GRANTED,
+          [PERMISSIONS.BLUETOOTH_CONNECT]: RESULTS.GRANTED,
+        } as never);
+      await startBleLink([ID]);
+      await tick();
+      expect(multi).toHaveBeenCalledWith([
+        PERMISSIONS.BLUETOOTH_SCAN,
+        PERMISSIONS.BLUETOOTH_CONNECT,
+      ]);
+      expect(mockSvcStart).toHaveBeenCalledTimes(1);
+      expect(mockScans).toHaveLength(1);
+    });
+
+    it("Android 12+ 只给了扫描、没给连接：未授权、不起服务；去设置里补上后回前台只查这两项（不弹框），都给了才重启", async () => {
+      asAndroid(31);
+      const app = captureAppState();
+      const multi = jest
+        .spyOn(PermissionsAndroid, "requestMultiple")
+        .mockResolvedValue({
+          [PERMISSIONS.BLUETOOTH_SCAN]: RESULTS.GRANTED,
+          [PERMISSIONS.BLUETOOTH_CONNECT]: RESULTS.DENIED,
+        } as never);
+      const granted = new Set<string>([PERMISSIONS.BLUETOOTH_SCAN]);
+      const check = jest
+        .spyOn(PermissionsAndroid, "check")
+        .mockImplementation(async (p) => granted.has(p));
+      await startBleLink([ID]);
+      await tick();
+      expect(useBleStore.getState().adapter).toBe("unauthorized");
+      expect(mockSvcStart).not.toHaveBeenCalled();
+
+      app.cb?.("active");
+      await tick();
+      expect(check.mock.calls.map((c) => c[0])).toEqual([
+        PERMISSIONS.BLUETOOTH_SCAN,
+        PERMISSIONS.BLUETOOTH_CONNECT,
+      ]);
+      expect(multi).toHaveBeenCalledTimes(1);
+      expect(mockSvcStart).not.toHaveBeenCalled();
+
+      granted.add(PERMISSIONS.BLUETOOTH_CONNECT);
+      multi.mockResolvedValue({
+        [PERMISSIONS.BLUETOOTH_SCAN]: RESULTS.GRANTED,
+        [PERMISSIONS.BLUETOOTH_CONNECT]: RESULTS.GRANTED,
+      } as never);
+      app.cb?.("active");
+      await tick();
+      await tick();
+      expect(multi).toHaveBeenCalledTimes(2);
+      expect(mockSvcStart).toHaveBeenCalledTimes(1);
+    });
+
+    it("申请权限本身抛错（安卓界面还没挂上 Activity 时会抛）：按未授权处理；回前台查到已授权就重启", async () => {
+      asAndroid(29);
+      const app = captureAppState();
+      const request = jest
+        .spyOn(PermissionsAndroid, "request")
+        .mockRejectedValueOnce(
+          new Error(
+            "Tried to use permissions API while not attached to an Activity.",
+          ),
+        )
+        .mockResolvedValue(RESULTS.GRANTED);
+      jest.spyOn(PermissionsAndroid, "check").mockResolvedValue(true);
+      await startBleLink([ID]);
+      await tick();
+      expect(useBleStore.getState().adapter).toBe("unauthorized");
+      expect(mockSvcStart).not.toHaveBeenCalled();
+
+      app.cb?.("active");
+      await tick();
+      await tick();
+      expect(request).toHaveBeenCalledTimes(2);
+      expect(mockSvcStart).toHaveBeenCalledTimes(1);
+    });
+
+    it("回前台查权限时系统接口抛错：当成没授权，不重启、也不再弹框", async () => {
+      asAndroid(29);
+      const app = captureAppState();
+      const request = jest
+        .spyOn(PermissionsAndroid, "request")
+        .mockResolvedValue(RESULTS.DENIED);
+      jest
+        .spyOn(PermissionsAndroid, "check")
+        .mockRejectedValue(new Error("no activity"));
+      await startBleLink([ID]);
+      await tick();
+      app.cb?.("active");
+      await flushMacrotask();
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(mockSvcStart).not.toHaveBeenCalled();
+      expect(useBleStore.getState().adapter).toBe("unauthorized");
+    });
+
+    it("拒绝后切到后台（不是回到前台）：不去查权限", async () => {
+      asAndroid(29);
+      const app = captureAppState();
+      jest
+        .spyOn(PermissionsAndroid, "request")
+        .mockResolvedValue(RESULTS.DENIED);
+      const check = jest
+        .spyOn(PermissionsAndroid, "check")
+        .mockResolvedValue(true);
+      await startBleLink([ID]);
+      await tick();
+      app.cb?.("background");
+      await tick();
+      expect(check).not.toHaveBeenCalled();
+      expect(mockSvcStart).not.toHaveBeenCalled();
+    });
+
+    it("等权限框期间停了链路（登出 / 进工程模式）：授权回来不起服务、不建 BleManager；拒绝也不挂「回前台重启」的监听", async () => {
+      asAndroid(29);
+      const app = captureAppState();
+      let answer!: (r: string) => void;
+      jest
+        .spyOn(PermissionsAndroid, "request")
+        .mockImplementation(
+          () => new Promise<string>((r) => (answer = r)) as never,
+        );
+      const check = jest
+        .spyOn(PermissionsAndroid, "check")
+        .mockResolvedValue(true);
+      const before = managerCount();
+      let starting = startBleLink([ID]);
+      await tick();
+      stopBleLink();
+      answer(RESULTS.GRANTED);
+      await starting;
+      await tick();
+      expect(mockSvcStart).not.toHaveBeenCalled();
+      expect(managerCount()).toBe(before);
+      expect(mockScans).toHaveLength(0);
+
+      starting = startBleLink([ID]);
+      await tick();
+      stopBleLink();
+      answer(RESULTS.DENIED);
+      await starting;
+      expect(useBleStore.getState().adapter).toBe("unknown");
+      expect(app.cb).toBeNull();
+      app.cb?.("active");
+      await tick();
+      expect(check).not.toHaveBeenCalled();
+      expect(mockSvcStart).not.toHaveBeenCalled();
+    });
+
+    it("链路已在跑时再次启动（退出工程模式恢复）：只更新目标，不再申请权限、不重建 BleManager", async () => {
+      asAndroid(29);
+      const request = jest
+        .spyOn(PermissionsAndroid, "request")
+        .mockResolvedValue(RESULTS.GRANTED);
+      await startBleLink([ID]);
+      await tick();
+      const before = managerCount();
+      await startBleLink([ID, "helmet_aaaaaa"]);
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(managerCount()).toBe(before);
+      expect(currentBleTargets()).toEqual([ID, "helmet_aaaaaa"]);
+    });
+  });
+
+  describe("系统里已连着的头盔与 iOS 状态恢复", () => {
+    const managerOptions = () =>
+      (
+        BleManager as unknown as Mock<
+          (o: { restoreStateFunction: (r: unknown) => void }) => unknown
+        >
+      ).mock.calls.at(-1)![0];
+
+    it("系统还连着这顶头盔（上次 JS 会话 / 进程留下的连接）：不扫描，直接复用它握手；名字先看 localName，没有再看 name", async () => {
+      mockConnected.mockResolvedValue([
+        {
+          ...fakeDevice,
+          id: "periph-x",
+          localName: "Helmet-zzzzzz",
+          name: "Helmet-zzzzzz",
+        },
+        { ...fakeDevice, localName: null, name: "Helmet-94173f" },
+      ]);
+      await startBleLink([ID]);
+      await until(() => link()?.phase === "connected");
+      expect(link()?.phase).toBe("connected");
+      expect(mockConnected).toHaveBeenCalledWith([FEE0_UUID]);
+      expect(mockScans).toHaveLength(0);
+    });
+
+    it("查系统已连接外设失败：照常扫描", async () => {
+      mockConnected.mockRejectedValueOnce(
+        new Error("BluetoothManagerDestroyed"),
+      );
+      await startBleLink([ID]);
+      await tick();
+      expect(mockScans).toEqual([[FEE0_UUID]]);
+      expect(logged("查询已连接外设失败")).toBe(true);
+    });
+
+    it("查系统已连接外设期间停了链路：这一轮作废——查回来成功还是失败都不再连、不再扫", async () => {
+      let answer!: (v: unknown[]) => void;
+      mockConnected.mockImplementationOnce(
+        () => new Promise<unknown[]>((r) => (answer = r)),
+      );
+      await startBleLink([ID]);
+      await tick();
+      stopBleLink();
+      answer([{ ...fakeDevice }]);
+      await tick();
+      expect(fakeDevice.connect).not.toHaveBeenCalled();
+      expect(mockScans).toHaveLength(0);
+
+      await bleStackReleased();
+      let fail!: (e: Error) => void;
+      mockConnected.mockImplementationOnce(
+        () => new Promise<unknown[]>((_r, rej) => (fail = rej)),
+      );
+      await startBleLink([ID]);
+      await tick();
+      stopBleLink();
+      fail(new Error("BluetoothManagerDestroyed"));
+      await tick();
+      expect(mockScans).toHaveLength(0);
+      expect(logged("查询已连接外设失败")).toBe(false);
+    });
+
+    it("iOS 状态恢复回调（后台被回收后由外设事件拉起）：链路在跑就立即去接系统交还的头盔，不等适配器状态事件、不扫描", async () => {
+      mockAdapter.initial = null;
+      await startBleLink([ID]);
+      await tick();
+      expect(mockConnected).not.toHaveBeenCalled();
+      mockConnected.mockResolvedValue([{ ...fakeDevice }]);
+      managerOptions().restoreStateFunction({
+        connectedPeripherals: [
+          { localName: "Helmet-94173f", name: "iPhone" },
+          { localName: null, name: "Helmet-aaaaaa" },
+        ],
+      });
+      await until(() => link()?.phase === "connected");
+      expect(link()?.phase).toBe("connected");
+      expect(mockScans).toHaveLength(0);
+      expect(devLogMock()).toHaveBeenCalledWith(
+        "BLE",
+        "系统恢复 BLE 状态",
+        "Helmet-94173f,Helmet-aaaaaa",
+      );
+    });
+
+    it("链路停了之后迟到的恢复回调（没带外设）：只记一笔，不去找头盔", async () => {
+      mockAdapter.initial = null;
+      await startBleLink([ID]);
+      await tick();
+      const { restoreStateFunction } = managerOptions();
+      stopBleLink();
+      restoreStateFunction(null);
+      await tick();
+      expect(mockConnected).not.toHaveBeenCalled();
+      expect(mockScans).toHaveLength(0);
+      expect(devLogMock()).toHaveBeenCalledWith(
+        "BLE",
+        "系统恢复 BLE 状态",
+        "(无已连接外设)",
+      );
+    });
+  });
+
+  describe("扫描回调：广播名对不上时按 FEE0 兜底核身", () => {
+    const nameless = (id: string, uuids: string[] | null) => ({
+      ...fakeDevice,
+      id,
+      name: null,
+      localName: null,
+      serviceUUIDs: uuids,
+    });
+
+    it("广播包里没有 localName 也没带 FEE0（安卓全量扫描常见）：用系统给的设备名匹配", async () => {
+      await startBleLink([ID]);
+      await tick();
+      scanCb?.(null, { ...fakeDevice, localName: null, serviceUUIDs: null });
+      await until(() => link()?.phase === "connected");
+      expect(link()?.phase).toBe("connected");
+    });
+
+    it("没有名字但广播了 FEE0、且只盯一顶：连上去读 0x40 核身，是这顶就连上（UUID 报成大写也认）", async () => {
+      await startBleLink([ID]);
+      await tick();
+      scanCb?.(null, nameless("periph-9", [FEE0_UUID.toUpperCase()]));
+      await until(() => link()?.phase === "connected");
+      expect(link()?.phase).toBe("connected");
+      expect(helmet.writes[0]).toBe("02 01 40 10");
+    });
+
+    it("兜底核身发现是别人的头盔：只忽略这台外设、继续扫，不拉黑自己的设备；它再出现也不连", async () => {
+      helmet.deviceId = "helmet_other1";
+      await startBleLink([ID]);
+      await tick();
+      scanCb?.(null, nameless("periph-9", [FEE0_UUID]));
+      await until(() => mockScans.length >= 2);
+      expect(link()?.phase).toBe("scanning");
+      expect(link()?.errorCode).toBeUndefined();
+      expect(fakeDevice.connect).toHaveBeenCalledTimes(1);
+
+      scanCb?.(null, nameless("periph-9", [FEE0_UUID]));
+      await tick();
+      expect(fakeDevice.connect).toHaveBeenCalledTimes(1);
+
+      helmet.deviceId = ID;
+      scanCb?.(null, fakeDevice);
+      await until(() => link()?.phase === "connected");
+      expect(link()?.phase).toBe("connected");
+    });
+
+    it("没名字又不带 FEE0、或带 FEE0 但同时盯着两顶：都不去碰（定不了是哪一顶）", async () => {
+      await startBleLink([ID]);
+      await tick();
+      scanCb?.(null, nameless("periph-8", null));
+      await tick();
+      expect(fakeDevice.connect).not.toHaveBeenCalled();
+
+      setBleTargets([ID, "helmet_aaaaaa"]);
+      scanCb?.(null, nameless("periph-9", [FEE0_UUID]));
+      await tick();
+      expect(fakeDevice.connect).not.toHaveBeenCalled();
+    });
+
+    it("开发日志里同一个名字只记一次「发现」；广播里没带服务 UUID 也照记", async () => {
+      await startBleLink([ID]);
+      await tick();
+      const band = {
+        ...fakeDevice,
+        id: "periph-7",
+        localName: "Mi Band 8",
+        name: "Mi Band 8",
+        serviceUUIDs: null,
+      };
+      scanCb?.(null, band);
+      scanCb?.(null, band);
+      expect(devLogMock().mock.calls.filter((c) => c[1] === "发现")).toEqual([
+        ["BLE", "发现", "Mi Band 8", ""],
+      ]);
+      expect(fakeDevice.connect).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("扫描出错与掉线重连的退避", () => {
+    it("扫描出错：停掉这一轮，2 s 后重扫；连续出错按 2 → 4 → 8 → 16 → 30 s 退避，封顶 30 s", async () => {
+      jest.useFakeTimers();
+      await startBleLink([ID]);
+      await jest.advanceTimersByTimeAsync(0);
+      expect(mockScans).toHaveLength(1);
+      const waits = [2_000, 4_000, 8_000, 16_000, 30_000, 30_000];
+      for (const [i, wait] of waits.entries()) {
+        scanError();
+        await jest.advanceTimersByTimeAsync(wait - 1);
+        expect(mockScans).toHaveLength(i + 1);
+        await jest.advanceTimersByTimeAsync(1);
+        expect(mockScans).toHaveLength(i + 2);
+      }
+    });
+
+    it("外设掉线：2 s 后重新扫描并连上；连上即清掉退避，再掉线仍从 2 s 起", async () => {
+      jest.useFakeTimers();
+      await connectHelmet();
+      expect(link()?.phase).toBe("connected");
+      for (let round = 0; round < 2; round += 1) {
+        const n = mockScans.length;
+        helmet.disconnectCb?.(null, fakeDevice);
+        expect(link()?.phase).toBe("disconnected");
+        await jest.advanceTimersByTimeAsync(1_999);
+        expect(mockScans).toHaveLength(n);
+        await jest.advanceTimersByTimeAsync(1);
+        expect(mockScans).toHaveLength(n + 1);
+        scanCb?.(null, fakeDevice);
+        await until(() => link()?.phase === "connected");
+        expect(link()?.phase).toBe("connected");
+      }
+    });
+
+    it("扫描出错累起来的退避：扫描恢复、连上头盔后清零——掉线后再出一次错，2 s 就重扫（10-19 夜测）", async () => {
+      jest.useFakeTimers();
+      await startBleLink([ID]);
+      await jest.advanceTimersByTimeAsync(0);
+      for (const wait of [2_000, 4_000, 8_000]) {
+        scanError();
+        await jest.advanceTimersByTimeAsync(wait);
+      }
+      expect(mockScans).toHaveLength(4);
+      scanCb?.(null, fakeDevice);
+      await until(() => link()?.phase === "connected");
+      expect(link()?.phase).toBe("connected");
+
+      helmet.disconnectCb?.(null, fakeDevice);
+      await jest.advanceTimersByTimeAsync(2_000);
+      expect(mockScans).toHaveLength(5);
+      scanError();
+      await jest.advanceTimersByTimeAsync(1_999);
+      expect(mockScans).toHaveLength(5);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(mockScans).toHaveLength(6);
+    });
+
+    it("带设备号的重试（设备页「重试连接」）：扫描出错的退避也清零、立即重扫，之后再出错从 2 s 算", async () => {
+      jest.useFakeTimers();
+      await startBleLink([ID]);
+      await jest.advanceTimersByTimeAsync(0);
+      for (const wait of [2_000, 4_000]) {
+        scanError();
+        await jest.advanceTimersByTimeAsync(wait);
+      }
+      expect(mockScans).toHaveLength(3);
+      scanError(); // 不重试的话这次要等 8 s
+      retryBleLink(ID);
+      await jest.advanceTimersByTimeAsync(0);
+      expect(mockScans).toHaveLength(4);
+      scanError();
+      await jest.advanceTimersByTimeAsync(2_000);
+      expect(mockScans).toHaveLength(5);
+    });
+
+    it("不带设备号的重试（开发面板「全部重连」）：扫描出错累起来的退避清零、立即重扫，之后再出错从 2 s 算", async () => {
+      jest.useFakeTimers();
+      await startBleLink([ID]);
+      await jest.advanceTimersByTimeAsync(0);
+      for (const wait of [2_000, 4_000]) {
+        scanError();
+        await jest.advanceTimersByTimeAsync(wait);
+      }
+      expect(mockScans).toHaveLength(3);
+      scanError(); // 不重试的话这次要等 8 s
+      retryBleLink();
+      await jest.advanceTimersByTimeAsync(0);
+      expect(mockScans).toHaveLength(4);
+      scanError();
+      await jest.advanceTimersByTimeAsync(2_000);
+      expect(mockScans).toHaveLength(5);
+    });
+
+    it("不带设备号的重试：身份不符被拉黑的头盔也解除，马上重新扫描", async () => {
+      helmet.deviceId = "helmet_other1";
+      await connectHelmet();
+      expect(link()?.phase).toBe("error");
+      const n = mockScans.length;
+      helmet.deviceId = ID;
+      retryBleLink();
+      await tick();
+      expect(mockScans).toHaveLength(n + 1);
+      scanCb?.(null, fakeDevice);
+      await until(() => link()?.phase === "connected");
+      expect(link()?.phase).toBe("connected");
+    });
+  });
+
+  describe("握手的异常应答", () => {
+    it("指令 3 s 没有应答：握手失败、断开，回到扫描（不拉黑）", async () => {
+      jest.useFakeTimers();
+      helmet.override = (f) => f[0] === 0x02 && f[2] === 0x40;
+      await startBleLink([ID]);
+      await jest.advanceTimersByTimeAsync(0);
+      scanCb?.(null, fakeDevice);
+      await until(() => link()?.phase === "handshaking");
+      await jest.advanceTimersByTimeAsync(2_999);
+      expect(link()?.phase).toBe("handshaking");
+      await jest.advanceTimersByTimeAsync(1);
+      await until(() => link()?.phase === "scanning");
+      expect(helmet.cancelled).toBeGreaterThan(0);
+      expect(isHelmetConnected(ID)).toBe(false);
+      expect(link()?.phase).toBe("scanning");
+      expect(link()?.errorCode).toBeUndefined();
+      expect(logged("3000ms 无应答")).toBe(true);
+    });
+
+    it("写特征值失败（GATT 报错）：握手失败、断开，回到扫描；再发现时能正常连上", async () => {
+      fakeDevice.writeCharacteristicWithResponseForService.mockRejectedValueOnce(
+        new Error("GATT_ERROR 133"),
+      );
+      await startBleLink([ID]);
+      await tick();
+      scanCb?.(null, fakeDevice);
+      await until(() => mockScans.length >= 2);
+      expect(isHelmetConnected(ID)).toBe(false);
+      expect(helmet.cancelled).toBeGreaterThan(0);
+      expect(link()?.phase).toBe("scanning");
+
+      scanCb?.(null, fakeDevice);
+      await until(() => link()?.phase === "connected");
+      expect(link()?.phase).toBe("connected");
+    });
+
+    it("读 deviceId 回了手册之外的错误码：按普通握手失败处理（日志带原始错误码），不拉黑", async () => {
+      helmet.idError = 0x20;
+      await startBleLink([ID]);
+      await tick();
+      scanCb?.(null, fakeDevice);
+      await until(() => mockScans.length >= 2);
+      expect(link()?.phase).toBe("scanning");
+      expect(link()?.errorCode).toBeUndefined();
+      expect(logged("读 deviceId 失败：error=0x20")).toBe(true);
+    });
+
+    it("应答的指令码和发出去的对不上（Seq 对得上）：只记日志，照常当作这条指令的应答", async () => {
+      helmet.override = (f) => {
+        if (f[0] !== 0x04) return false;
+        helmet.reply([0x01, f[1], 0x00]);
+        return true;
+      };
+      await connectHelmet();
+      expect(link()?.phase).toBe("connected");
+      expect(logged("应答指令码不符：发 0x4 收 0x1")).toBe(true);
+    });
+
+    it("头盔读设置回错误（老固件不支持读 0x20–0x2D）：跳过上报，照常连上", async () => {
+      helmet.override = (f) => {
+        if (f[0] !== 0x02 || f[2] !== 0x20) return false;
+        helmet.reply([0x02, f[1], 0x03]);
+        return true;
+      };
+      await connectHelmet();
+      expect(link()?.phase).toBe("connected");
+      expect(reportSettingsMock).not.toHaveBeenCalled();
+    });
+
+    it("云端没采纳其中几项设置：日志逐项写出键和原因，链路照常", async () => {
+      reportSettingsMock.mockResolvedValueOnce({
+        settings: {},
+        applied: ["volume"],
+        skipped: [
+          { key: "light", reason: "recent_command", message: "30 s 内有命令" },
+          { key: "buzzer", reason: "invalid", message: "类型不符" },
+        ],
+      });
+      await connectHelmet();
+      expect(link()?.phase).toBe("connected");
+      expect(
+        logged("采纳 1 项，跳过 light(recent_command)、buzzer(invalid)"),
+      ).toBe(true);
+    });
+
+    it("Android：协商 MTU 失败不影响握手（短帧照样能用）", async () => {
+      asAndroid(29);
+      jest
+        .spyOn(PermissionsAndroid, "request")
+        .mockResolvedValue(RESULTS.GRANTED);
+      fakeDevice.requestMTU.mockClear();
+      fakeDevice.requestMTU.mockRejectedValueOnce(new Error("MTU 协商失败"));
+      await connectHelmet();
+      expect(fakeDevice.requestMTU).toHaveBeenCalledWith(247);
+      expect(link()?.phase).toBe("connected");
+    });
+
+    it("补传：头盔不认补传查询（回错误码，哪怕带了数据段）或查询应答不足 2 字节：不再拉取，照常连上", async () => {
+      for (const tail of [
+        [0x02, 0x05, 0x00],
+        [0x00, 0x01],
+      ]) {
+        helmet.override = (f) => {
+          if (f[0] !== 0x07) return false;
+          helmet.reply([0x07, f[1], ...tail]);
+          return true;
+        };
+        helmet.writes = [];
+        await connectHelmet();
+        expect(link()?.phase).toBe("connected");
+        expect(helmet.writes.some((w) => w.startsWith("08 "))).toBe(false);
+        stopBleLink();
+        await bleStackReleased();
+      }
+    });
+
+    it("补传：头盔说有离线事件、拉取却回 0 条：立即停下，不空转 50 轮", async () => {
+      helmet.override = (f) => {
+        if (f[0] === 0x07) helmet.reply([0x07, f[1], 0x00, 0x02, 0x00]);
+        else if (f[0] === 0x08) helmet.reply([0x08, f[1], 0x00]);
+        else return false;
+        return true;
+      };
+      await connectHelmet();
+      expect(link()?.phase).toBe("connected");
+      expect(helmet.writes.filter((w) => w.startsWith("08 "))).toHaveLength(1);
+      expect(link()?.resent).toBe(0);
+      expect(flushMock).not.toHaveBeenCalled();
+    });
+
+    it("断开落在握手收尾前后哪一刻，都不会把已断开的会话标成已连接（含 open() 刚返回、还没登记的那一瞬）", async () => {
+      let hitGap = false;
+      for (let depth = 0; depth <= 16; depth += 1) {
+        let fired = false;
+        // 设置上报是握手最后一步：从它返回起数 depth 个微任务再断开，扫过「握手中 → 刚握完 → 已登记」整段
+        reportSettingsMock.mockImplementationOnce(async () => {
+          let p: Promise<void> = Promise.resolve();
+          for (let i = 0; i < depth; i += 1) p = p.then(() => undefined);
+          void p.then(() => {
+            fired = true;
+            helmet.disconnectCb?.(null, fakeDevice);
+          });
+          return { settings: {}, applied: [], skipped: [] };
+        });
+        devLogMock().mockClear();
+        await startBleLink([ID]);
+        await tick();
+        scanCb?.(null, fakeDevice);
+        await until(() => fired, 200);
+        await tick(4);
+        expect(fired).toBe(true);
+        expect(isHelmetConnected(ID)).toBe(false);
+        expect(link()?.phase).not.toBe("connected");
+        if (logged("握手期间会话已关闭，不登记")) {
+          hitGap = true;
+          expect(logged("已连接，固件")).toBe(false);
+          expect(link()?.connectedAt).toBeUndefined();
+        }
+        stopBleLink();
+        await bleStackReleased();
+      }
+      expect(hitGap).toBe(true);
+    });
+  });
+
+  describe("通知通道与收帧", () => {
+    it("通知通道报错（如对端断开）：关闭会话、显示已断开，2 s 后重新扫描", async () => {
+      jest.useFakeTimers();
+      await connectHelmet();
+      const n = mockScans.length;
+      helmet.notify?.(
+        { errorCode: 201, message: "Device was disconnected" },
+        null,
+      );
+      expect(link()?.phase).toBe("disconnected");
+      expect(isHelmetConnected(ID)).toBe(false);
+      expect(helmet.cancelled).toBeGreaterThan(0);
+      await jest.advanceTimersByTimeAsync(2_000);
+      expect(mockScans).toHaveLength(n + 1);
+    });
+
+    it("「操作已取消」（订阅是自己摘的）、已关会话上迟到的报错：都不算通知中断", async () => {
+      await connectHelmet();
+      helmet.notify?.(
+        { errorCode: 2, message: "Operation was cancelled" },
+        null,
+      );
+      expect(isHelmetConnected(ID)).toBe(true);
+      const staleNotify = helmet.notify;
+      helmet.disconnectCb?.(null, fakeDevice);
+      staleNotify?.(
+        { errorCode: 201, message: "Device was disconnected" },
+        null,
+      );
+      expect(logged("notify 中断")).toBe(false);
+      expect(link()?.phase).toBe("disconnected");
+    });
+
+    it("空通知（0 字节）：不当一帧处理", async () => {
+      await connectHelmet();
+      useBleStore.getState().patchLink(ID, { lastFrameAt: 1 });
+      helmet.notify?.(null, { value: "" });
+      expect(link()?.lastFrameAt).toBe(1);
+      expect(logged("无法解析的帧")).toBe(false);
+    });
+
+    it("解析不了的帧（事件帧不足 10 字节）：丢掉，不入队、不 ACK，链路照常", async () => {
+      await connectHelmet();
+      enqueueMock.mockClear();
+      helmet.push(hexToBytes("05 01 66"));
+      await tick();
+      expect(enqueueMock).not.toHaveBeenCalled();
+      expect(helmet.acks).toHaveLength(0);
+      expect(link()?.eventsReceived).toBe(0);
+      expect(isHelmetConnected(ID)).toBe(true);
+      expect(logged("无法解析的帧")).toBe(true);
+    });
+
+    it("周期事件的重发帧（同一 Event_Seq）：不重复入队，也不 ACK", async () => {
+      await connectHelmet();
+      enqueueMock.mockClear();
+      const status = hexToBytes("05 07 70 00 00 00 00 00 00 00 55 00");
+      helmet.push(status);
+      helmet.push(status);
+      await tick();
+      expect(enqueueMock).toHaveBeenCalledTimes(1);
+      expect(helmet.acks).toHaveLength(0);
+      expect(link()?.eventsReceived).toBe(1);
+    });
+
+    it("去重只记最近 256 个 Event_Seq：更早的那条再来会再入队一次，但 eventId 不变（服务端按它幂等，不会重复建单）", async () => {
+      await connectHelmet();
+      enqueueMock.mockClear();
+      const status = (seq: number) =>
+        Uint8Array.from([
+          0x05,
+          0x07,
+          seq & 255,
+          seq >> 8,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0x55,
+          0x00,
+        ]);
+      for (let seq = 1; seq <= 257; seq += 1) helmet.push(status(seq));
+      helmet.push(status(257)); // 最近的仍认得
+      helmet.push(status(1)); // 最早的已被挤出去
+      await tick();
+      expect(enqueueMock).toHaveBeenCalledTimes(258);
+      const ids = enqueueMock.mock.calls.map((c) => c[0].eventId);
+      expect(ids[257]).toBe(ids[0]);
+    });
+
+    it("ACK 写入失败：事件照样入队并立即冲刷；头盔重发同一条时补一个 ACK，不重复入队", async () => {
+      await connectHelmet();
+      enqueueMock.mockClear();
+      flushMock.mockClear();
+      fakeDevice.writeCharacteristicWithoutResponseForService.mockRejectedValueOnce(
+        new Error("GATT busy"),
+      );
+      const sos = hexToBytes(
+        "05 02 65 00 00 00 00 00 00 00 01 FC 08 ED 4E CD 01 17 7C 29 07",
+      );
+      helmet.push(sos);
+      await tick();
+      expect(enqueueMock).toHaveBeenCalledTimes(1);
+      expect(flushMock).toHaveBeenCalledTimes(1);
+      expect(helmet.acks).toHaveLength(0);
+      expect(logged("ACK 写入失败")).toBe(true);
+
+      helmet.push(sos); // 头盔 1.5 s 没收到 ACK 的重发
+      await tick();
+      expect(enqueueMock).toHaveBeenCalledTimes(1);
+      expect(helmet.acks).toEqual(["06 02 65 00 00 00 00"]);
+    });
+  });
+
+  describe("断开、解绑与目标同步的收尾", () => {
+    // 下面两条里取消连接被拒若没被吞掉，就是一个未处理的拒绝，jest 会直接判用例失败
+    it("断开时取消连接被拒（外设早已断开）：吞掉，状态照常落到已断开", async () => {
+      await connectHelmet();
+      fakeDevice.cancelConnection.mockRejectedValueOnce(
+        new Error("Device is not connected"),
+      );
+      helmet.disconnectCb?.(null, fakeDevice);
+      await flushMacrotask();
+      expect(link()?.phase).toBe("disconnected");
+      expect(isHelmetConnected(ID)).toBe(false);
+    });
+
+    it("连接在途时解绑、随后取消连接又被拒：照样不建会话、不发指令，页面不留行", async () => {
+      let finishConnect!: (d: typeof fakeDevice) => void;
+      fakeDevice.connect.mockImplementationOnce(
+        () => new Promise<typeof fakeDevice>((r) => (finishConnect = r)),
+      );
+      fakeDevice.cancelConnection.mockRejectedValueOnce(
+        new Error("Device is not connected"),
+      );
+      await startBleLink([ID]);
+      await tick();
+      scanCb?.(null, fakeDevice);
+      await tick();
+      setBleTargets([]);
+      finishConnect(fakeDevice);
+      await tick(20);
+      await flushMacrotask();
+      expect(helmet.writes).toHaveLength(0);
+      expect(isHelmetConnected(ID)).toBe(false);
+      expect(useBleStore.getState().links[ID]).toBeUndefined();
+    });
+
+    it("停链路后（还没重启）设备列表又刷到这顶、旧的连接这时才失败：保留它那一行（未启动），不重连也不报错", async () => {
+      jest.useFakeTimers();
+      let failConnect!: (e: Error) => void;
+      fakeDevice.connect.mockImplementationOnce(
+        () => new Promise<typeof fakeDevice>((_r, rej) => (failConnect = rej)),
+      );
+      await startBleLink([ID]);
+      await jest.advanceTimersByTimeAsync(0);
+      scanCb?.(null, fakeDevice);
+      await tick();
+      expect(link()?.phase).toBe("connecting");
+      stopBleLink(); // 进工程模式
+      setBleTargets([ID]); // 链路停着时设备列表照常刷新
+      failConnect(new Error("Operation was cancelled"));
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect(link()?.phase).toBe("idle");
+      expect(link()?.errorCode).toBeUndefined();
+      expect(mockScans).toHaveLength(1);
+    });
+
+    it("没在扫描时切前后台（已连上、或掉线后等退避）：不动扫描，掉线的照退避到点才重扫", async () => {
+      jest.useFakeTimers();
+      const app = captureAppState();
+      await connectHelmet();
+      const n = mockScans.length;
+      app.cb?.("background");
+      app.cb?.("active");
+      await jest.advanceTimersByTimeAsync(0);
+      expect(mockScans).toHaveLength(n);
+      expect(link()?.phase).toBe("connected");
+
+      helmet.disconnectCb?.(null, fakeDevice);
+      await jest.advanceTimersByTimeAsync(500);
+      app.cb?.("background");
+      app.cb?.("active");
+      await jest.advanceTimersByTimeAsync(0);
+      expect(mockScans).toHaveLength(n);
+      await jest.advanceTimersByTimeAsync(1_500);
+      expect(mockScans).toHaveLength(n + 1);
+    });
+
+    it("设备列表轮询又拉到同一批目标：什么都不动（不重扫、不重发常驻通知）", async () => {
+      asAndroid(29);
+      jest
+        .spyOn(PermissionsAndroid, "request")
+        .mockResolvedValue(RESULTS.GRANTED);
+      await startBleLink([ID]);
+      await tick();
+      mockSvcStart.mockClear();
+      const n = mockScans.length;
+      setBleTargets([ID]);
+      await tick();
+      expect(mockSvcStart).not.toHaveBeenCalled();
+      expect(mockScans).toHaveLength(n);
+    });
+  });
+
+  describe("适配器状态", () => {
+    it("启动时蓝牙关着：目标显示已断开；这时点重试也不扫（查到适配器没开）；打开蓝牙后自动开始扫", async () => {
+      mockAdapter.initial = "PoweredOff";
+      mockState.mockResolvedValue("PoweredOff");
+      await startBleLink([ID]);
+      await tick();
+      expect(useBleStore.getState().adapter).toBe("off");
+      expect(link()?.phase).toBe("disconnected");
+      retryBleLink(ID);
+      await tick();
+      expect(mockScans).toHaveLength(0);
+
+      mockState.mockResolvedValue("PoweredOn");
+      stateCb?.("PoweredOn");
+      await tick();
+      expect(mockScans).toHaveLength(1);
+      expect(link()?.phase).toBe("scanning");
+    });
+
+    it("适配器报手册之外的状态（如 Resetting）：页面显示 unknown、停掉这一轮扫描；连着的那顶先不动（等系统断开回调），没连上的标已断开", async () => {
+      await startBleLink([ID, "helmet_aaaaaa"]);
+      await tick();
+      scanCb?.(null, fakeDevice);
+      await until(() => link()?.phase === "connected" && mockScans.length >= 2);
+      expect(mockScans).toHaveLength(2);
+      stateCb?.("Resetting");
+      expect(useBleStore.getState().adapter).toBe("unknown");
+      expect(link()?.phase).toBe("connected");
+      expect(useBleStore.getState().links["helmet_aaaaaa"]?.phase).toBe(
+        "disconnected",
+      );
+      fakeDevice.connect.mockClear();
+      scanCb?.(null, {
+        ...fakeDevice,
+        id: "periph-2",
+        localName: "Helmet-aaaaaa",
+      });
+      await tick();
+      expect(fakeDevice.connect).not.toHaveBeenCalled();
+    });
+
+    it("bleReady：适配器 PoweredOn 才算就绪", async () => {
+      mockState.mockResolvedValueOnce("PoweredOn");
+      await expect(bleReady()).resolves.toBe(true);
+      mockState.mockResolvedValueOnce("PoweredOff");
+      await expect(bleReady()).resolves.toBe(false);
+    });
+  });
+
+  describe("设置写入的边角", () => {
+    it("手册之外的错误码写成 ERR_0x..；写入抛错 / 3 s 无应答 → 未送达（绝不假装成功），会话不受影响", async () => {
+      jest.useFakeTimers();
+      await connectHelmet();
+      helmet.writeError = 0x20;
+      expect(await writeHelmetRegister(ID, 0x24, [70])).toEqual({
+        delivered: true,
+        executed: false,
+        errorCode: "ERR_0x20",
+      });
+      helmet.writeError = 0;
+
+      fakeDevice.writeCharacteristicWithResponseForService.mockRejectedValueOnce(
+        new Error("GATT write failed"),
+      );
+      expect(await writeHelmetRegister(ID, 0x24, [70])).toEqual({
+        delivered: false,
+      });
+
+      helmet.override = (f) => f[0] === 0x03; // 头盔收到了但不应答
+      const waiting = writeHelmetRegister(ID, 0x24, [70]);
+      await jest.advanceTimersByTimeAsync(3_000);
+      await expect(waiting).resolves.toEqual({ delivered: false });
+      expect(isHelmetConnected(ID)).toBe(true);
+
+      // 超时之后的迟到应答没人等了，不会错配给下一条
+      helmet.override = null;
+      devLogMock().mockClear();
+      helmet.reply([0x03, hexToBytes(helmet.writes.at(-1)!)[1], 0x00]);
+      expect(logged("无人等待的应答")).toBe(true);
+      expect(await writeHelmetRegister(ID, 0x24, [75])).toEqual({
+        delivered: true,
+        executed: true,
+      });
+      expect(helmet.mem.get(0x24)).toBe(75);
+    });
   });
 });

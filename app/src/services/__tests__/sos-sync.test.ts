@@ -294,6 +294,8 @@ describe("倒计时页自己的轮询（2026-10-05 评审）", () => {
     expect(countdownPollInterval(sos())).toBe(COUNTDOWN_POLL_MS);
     expect(countdownPollInterval(sos({ status: "cancelled" }))).toBe(false);
     expect(countdownPollInterval(sos({ status: "notified" }))).toBe(false);
+    // sos-queue、倒计时页、use-realtime 的注释都按「10 秒轮询」推算 WS 断着时多久能对上终态；改值要一并改
+    expect(COUNTDOWN_POLL_MS).toBe(10_000);
   });
 
   it("迟到的 pending 应答不把已取消盖回倒计时（用户刚点完「我没事」，轮询的旧应答才回来）", () => {
@@ -362,6 +364,14 @@ describe("resumePendingSos：账号级接口一次拿全（B 线第 12 项）", 
       "s2",
     ]);
     expect(deps.fetchActive).toHaveBeenCalledTimes(2);
+  });
+
+  it("账号级接口回空列表：就是一单都没有，不再退成逐台查（绑得多时那是 N 个白发的请求，10-16 F10）", async () => {
+    deps.fetchAccountActive.mockResolvedValue({ items: [], total: 0 });
+    expect(await resumePendingSos(qc, ["d1", "d2"], presented, deps)).toEqual(
+      [],
+    );
+    expect(deps.fetchActive).not.toHaveBeenCalled();
   });
 
   it("账号级请求失败（断网）：什么都不做，也不退成 N 个注定失败的逐台请求", async () => {

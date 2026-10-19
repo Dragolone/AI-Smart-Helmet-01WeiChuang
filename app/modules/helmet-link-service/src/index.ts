@@ -13,6 +13,7 @@ interface NativeLinkService {
   holdNetwork(ms: number): void;
   releaseNetwork(): void;
   setMicrophone(on: boolean, title: string, text: string): boolean;
+  openAppLaunchSettings(): string;
 }
 
 const native =
@@ -54,5 +55,15 @@ export const HelmetLinkService = {
   setMicrophone(on: boolean, title = "", text = ""): boolean {
     if (typeof native?.setMicrophone !== "function") return false;
     return native.setMicrophone(on, title, text);
+  },
+  /**
+   * 打开系统「应用启动管理」（华为 / 荣耀）：划掉 App 不被强停只有把本应用设成手动管理、三项全开这一条路
+   * （10-18 华为实测）。返回打开的是启动管理页（launch）、本应用的应用信息页（details，EMUI 里再点「电池」）
+   * 还是没打开（none：iOS / 原生包比 JS 旧）
+   */
+  openAppLaunchSettings(): "launch" | "details" | "none" {
+    if (typeof native?.openAppLaunchSettings !== "function") return "none";
+    const r = native.openAppLaunchSettings();
+    return r === "launch" || r === "details" ? r : "none";
   },
 };

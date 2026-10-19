@@ -1,6 +1,6 @@
 // App 自己发起的事件（长按求救 / 开发注入）：eventId 在构造时定死，同一次动作重试复用同一个 eventId
 //（服务端按它幂等；换了 eventId，倒计时中再来一条 manual_sos 会被当成实体键直接跳过 60 秒，10-06 评审 F-5）
-import { describe, expect, it, jest } from "@jest/globals";
+import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 
 import { buildRelayEnvelope, relayApi } from "../relay";
 
@@ -15,11 +15,15 @@ jest.mock("../client", () => ({
 }));
 
 describe("buildRelayEnvelope", () => {
+  // 断言按 mockApi.mock.calls 数这一条用例发出的请求：别的用例先跑留下的调用记录不能算进来
+  beforeEach(() => {
+    mockApi.mockClear();
+  });
+
   it("timestamp 用服务端时钟：手机慢 5 分钟时，刚按下的长按求救不能被写成 5 分钟前的事件", () => {
-    const { noteServerDate, __resetServerClockForTests } =
-      jest.requireActual<typeof import("@/services/server-clock")>(
-        "@/services/server-clock",
-      );
+    const { noteServerDate, __resetServerClockForTests } = jest.requireActual<
+      typeof import("@/services/server-clock")
+    >("@/services/server-clock");
     const phoneNow = Date.UTC(2026, 9, 14, 6, 0, 0);
     const spy = jest.spyOn(Date, "now").mockReturnValue(phoneNow);
     try {
@@ -62,8 +66,9 @@ describe("buildRelayEnvelope", () => {
   });
 
   it("pushEvent 仍用同一个构造器", async () => {
-    mockApi.mockClear();
-    await relayApi.pushEvent("helmet_002", "possible_fall", { confidence: 0.9 });
+    await relayApi.pushEvent("helmet_002", "possible_fall", {
+      confidence: 0.9,
+    });
     const body = (
       mockApi.mock.calls[0][1] as {
         body: { envelopes: Record<string, unknown>[] };

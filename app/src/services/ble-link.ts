@@ -556,10 +556,13 @@ async function ensureScanning(): Promise<void> {
         clearTimeout(fallbackTimer);
         log("扫描错误", error.message);
         scanning = false;
-        scheduleReconnect("scan-error");
+        scheduleReconnect(SCAN_ERROR_KEY);
         return;
       }
       if (!device) return;
+      // 扫描又能出结果了：扫描出错累起来的退避清零，之后再出错从 2 s 算（原来要等停链路才清，
+      // 恢复、连上头盔后掉线再偶发一次出错要等 16–30 s 才重扫；10-19 夜测 #282 测出）
+      reconnectDelay.delete(SCAN_ERROR_KEY);
       // 广播里的 localName 优先：iOS 的 device.name 是系统缓存的 GAP 名，可能是外设旧名/主机名（真机实测）
       const name = device.localName ?? device.name;
       if (__DEV__ && name && !seen.has(name)) {
@@ -695,9 +698,7 @@ function serviceNames(): string {
       ? `${chars.slice(0, SERVICE_NAME_CHARS).join("")}…`
       : name;
   });
-  return (
-    shown.join(", ") + (targets.length > SERVICE_NAMES_MAX ? ", …" : "")
-  );
+  return shown.join(", ") + (targets.length > SERVICE_NAMES_MAX ? ", …" : "");
 }
 
 /**
@@ -727,6 +728,9 @@ function syncForegroundService(): void {
     log("前台服务同步失败", (e as Error).message);
   }
 }
+
+/** 扫描出错的退避和各头盔的重连退避共用一张表，用这个键区分 */
+const SCAN_ERROR_KEY = "scan-error";
 
 function scheduleReconnect(key: string): void {
   if (!running || reconnectTimer) return;
@@ -872,6 +876,8 @@ export function stopBleLink(): void {
 export function retryBleLink(deviceId?: string): void {
   if (deviceId) {
     reconnectDelay.delete(deviceId);
+    // 用户点了「重试连接」就是要马上重扫：扫描出错的退避也一起清（原来只有不带设备号的重试才清）
+    reconnectDelay.delete(SCAN_ERROR_KEY);
     blocked.delete(deviceId);
   } else {
     reconnectDelay.clear();

@@ -7,6 +7,7 @@
 // 负责人 2026-10-08：「解绑了头盔又重新开始未绑定页，应该判定是否为新用户第一次打开」。
 // 「绑过没有」记在本机（stores/helmet-history-store）。
 import type { MessageKey, Params } from "@/i18n";
+import { bleNeedsLocationPermission } from "@/services/ble-platform";
 import type { HelmetLink, NotifyPermission } from "@/services/safety-status";
 import type { BleLinkPhase } from "@/stores/ble-store";
 
@@ -34,6 +35,7 @@ export type GuideAction =
   | "manual"
   | "openBluetooth"
   | "openAppSettings"
+  | "openNotifySettings"
   | "askNotify"
   | "addContact"
   | "skip";
@@ -152,12 +154,20 @@ function helmetCard(f: GuideFacts): GuideCard {
       },
       link: later,
     };
-  if (f.link === "bluetoothDenied")
+  if (f.link === "bluetoothDenied") {
+    // 安卓 12 以下搜索蓝牙靠位置信息权限：说蓝牙的话用户在系统设置里找不到要开的那一项
+    const location = bleNeedsLocationPermission();
     return {
       ...base,
       chip,
-      title: "guide.helmet.btDeniedTitle",
-      body: { key: "guide.helmet.btDeniedBody" },
+      title: location
+        ? "guide.helmet.locDeniedTitle"
+        : "guide.helmet.btDeniedTitle",
+      body: {
+        key: location
+          ? "guide.helmet.locDeniedBody"
+          : "guide.helmet.btDeniedBody",
+      },
       primary: {
         label: "guide.helmet.btDeniedAction",
         icon: "bluetooth",
@@ -165,6 +175,7 @@ function helmetCard(f: GuideFacts): GuideCard {
       },
       link: later,
     };
+  }
   return {
     ...base,
     chip,
@@ -217,7 +228,7 @@ function notifyCard(f: GuideFacts): GuideCard {
       primary: {
         label: "guide.notify.openSettings",
         icon: "bell",
-        action: "openAppSettings",
+        action: "openNotifySettings",
       },
       link: later,
     };

@@ -29,6 +29,8 @@ export const SECURE_KEYS = {
   keepaliveTipShown: "keepalive_tip_shown",
   /** 蓝牙首连引导关掉过没有（components/ble-onboarding） */
   bleOnboardingDismissed: "ble_onboarding_dismissed",
+  /** 华为「应用启动管理」那一步去过设置没有（components/ble-onboarding）：系统不给查，去过就算做过 */
+  launchSettingsAcked: "helmet.launchSettings.acked",
 } as const;
 
 /** 已绑头盔的缓存，冷启动先用它把蓝牙链路拉起来（services/ble-targets）。用户 id 里键不允许的字符换成 _ */

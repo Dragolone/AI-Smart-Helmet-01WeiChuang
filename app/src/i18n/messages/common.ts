@@ -15,16 +15,26 @@ export const common = {
       "iPhone 在控制中心打开；安卓在系统设置里打开",
     "ble.onboarding.permission": "允许「零一智行」使用蓝牙",
     "ble.onboarding.permissionHint": "之前拒绝过，需要到系统设置里重新允许",
+    "ble.onboarding.permissionLocation": "允许「零一智行」使用位置信息",
+    "ble.onboarding.permissionLocationHint":
+      "这台手机搜索蓝牙头盔要用位置信息权限，之前拒绝过，需要到系统设置里重新允许",
     "ble.onboarding.whitelist": "允许后台运行",
     "ble.onboarding.whitelistHint": "关闭省电限制，减少后台连接中断",
+    "ble.onboarding.launch": "华为手机：设为手动管理",
+    "ble.onboarding.launchHint":
+      "不设的话，从多任务划掉 App 后系统会强行停止它，收不到求救通知",
+    "ble.launchGuide.title": "设为手动管理",
+    "ble.launchGuide.body":
+      "接下来会打开系统设置：\n1. 若看到的是「应用信息」，点「耗电详情」（有的手机叫「电池」），再点「启动管理」\n2. 关闭零一智行的「自动管理」\n3. 把「允许自启动」「允许关联启动」「允许后台活动」三项都打开，点「确定」\n\n三项要全部打开，否则划掉 App 后系统仍会强行停止它。",
     "ble.onboarding.go": "去设置",
     "ble.banner.off": "手机蓝牙已关闭，头盔无法连接",
     "ble.banner.unauthorized": "未允许蓝牙权限，头盔无法连接",
+    "ble.banner.unauthorizedLocation": "未允许位置信息权限，搜索不到头盔",
     "keepalive.title": "保持 App 在后台运行",
     "keepalive.body":
       "使用头盔时，请保持 App 运行，并确保手机蓝牙和网络可用。锁屏或切换应用后，App 可在后台运行；强制关闭 App 可能导致摔倒和求救通知延迟或无法发送。",
     "keepalive.androidTip":
-      "部分 Android 手机支持在最近任务中锁定应用，可减少一键清理导致的意外关闭。",
+      "部分 Android 手机支持在最近任务中锁定应用，可减少一键清理导致的意外关闭。华为手机还要在「应用启动管理」里把本应用设为手动管理并打开三项，否则划掉 App 后系统会强行停止它。",
     "keepalive.ok": "知道了",
     "empty.contactsTitle": "尚未添加紧急联系人",
     "empty.contactsBody": "请添加至少一位可在紧急情况下联系的人。",
@@ -113,16 +123,26 @@ export const common = {
       "iPhone 在控制中心打開；Android 在系統設定裡打開",
     "ble.onboarding.permission": "允許「零一智行」使用藍牙",
     "ble.onboarding.permissionHint": "之前拒絕過，需要到系統設定裡重新允許",
+    "ble.onboarding.permissionLocation": "允許「零一智行」使用位置資訊",
+    "ble.onboarding.permissionLocationHint":
+      "這支手機搜尋藍牙頭盔要用位置資訊權限，之前拒絕過，需要到系統設定裡重新允許",
     "ble.onboarding.whitelist": "允許背景執行",
     "ble.onboarding.whitelistHint": "關閉省電限制，減少背景連線中斷",
+    "ble.onboarding.launch": "華為手機：設為手動管理",
+    "ble.onboarding.launchHint":
+      "不設的話，從多工列滑掉 App 後系統會強制停止它，收不到求救通知",
+    "ble.launchGuide.title": "設為手動管理",
+    "ble.launchGuide.body":
+      "接下來會打開系統設定：\n1. 若看到的是「應用程式資訊」，點「耗電詳情」（有的手機叫「電池」），再點「啟動管理」\n2. 關閉零一智行的「自動管理」\n3. 把「允許自啟動」「允許關聯啟動」「允許背景活動」三項都打開，點「確定」\n\n三項要全部打開，否則滑掉 App 後系統仍會強制停止它。",
     "ble.onboarding.go": "去設定",
     "ble.banner.off": "手機藍牙已關閉，頭盔無法連線",
     "ble.banner.unauthorized": "未允許藍牙權限，頭盔無法連線",
+    "ble.banner.unauthorizedLocation": "未允許位置資訊權限，搜尋不到頭盔",
     "keepalive.title": "保持 App 在背景執行",
     "keepalive.body":
       "使用頭盔時，請保持 App 執行，並確保手機藍牙和網路可用。鎖定螢幕或切換應用程式後，App 可在背景執行；強制關閉 App 可能導致跌倒和求救通知延遲或無法傳送。",
     "keepalive.androidTip":
-      "部分 Android 手機支援在最近使用的應用程式中鎖定 App，可減少一鍵清理造成的意外關閉。",
+      "部分 Android 手機支援在最近使用的應用程式中鎖定 App，可減少一鍵清理造成的意外關閉。華為手機還要在「應用程式啟動管理」裡把本 App 設為手動管理並打開三項，否則滑掉 App 後系統會強制停止它。",
     "keepalive.ok": "知道了",
     "empty.contactsTitle": "尚未新增緊急聯絡人",
     "empty.contactsBody": "請新增至少一位可在緊急情況下聯絡的人。",
@@ -212,18 +232,29 @@ export const common = {
     "ble.onboarding.permission": "Allow Bluetooth for this app",
     "ble.onboarding.permissionHint":
       "It was denied before; re-enable it in system settings",
+    "ble.onboarding.permissionLocation": "Allow location for this app",
+    "ble.onboarding.permissionLocationHint":
+      "This phone needs location permission to find Bluetooth helmets. You denied it before, so allow it in system settings.",
     "ble.onboarding.whitelist": "Allow background activity",
     "ble.onboarding.whitelistHint":
       "Disable battery restrictions to reduce interruptions in the background",
+    "ble.onboarding.launch": "Huawei phones: manage launch manually",
+    "ble.onboarding.launchHint":
+      "Otherwise the system force-stops the app when you swipe it away, and SOS alerts won't arrive.",
+    "ble.launchGuide.title": "Set App launch to manual",
+    "ble.launchGuide.body":
+      "System settings will open next:\n1. If you see App info, tap Power usage details (Battery on some phones), then App launch\n2. Turn off Manage automatically for this app\n3. Turn on Auto-launch, Secondary launch and Run in background, then tap OK\n\nAll three must be on, or the system will still force-stop the app when you swipe it away.",
     "ble.onboarding.go": "Settings",
     "ble.banner.off": "Bluetooth is off, the helmet can't connect",
     "ble.banner.unauthorized":
       "Bluetooth permission denied, the helmet can't connect",
+    "ble.banner.unauthorizedLocation":
+      "Location permission is off. The helmet can't be found.",
     "keepalive.title": "Keep the app running in the background",
     "keepalive.body":
       "Keep the app running while using your helmet, with Bluetooth and internet available. The app can run in the background when you lock the screen or switch apps. Force-closing it may delay or prevent fall and SOS alerts.",
     "keepalive.androidTip":
-      "Some Android phones let you lock an app in recent apps to prevent it from being closed when clearing apps.",
+      "Some Android phones let you lock an app in recent apps to prevent it from being closed when clearing apps. On Huawei phones, also set this app to manual management in App launch and enable all three options, or the system will force-stop it when you swipe it away.",
     "keepalive.ok": "Got it",
     "empty.contactsTitle": "No emergency contacts added",
     "empty.contactsBody":

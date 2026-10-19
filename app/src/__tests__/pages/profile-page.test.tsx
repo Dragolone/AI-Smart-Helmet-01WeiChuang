@@ -169,6 +169,9 @@ describe("账号卡", () => {
     expect(r.texts()).toContain("小李");
     expect(r.texts()).toContain("小");
     expect(r.allText()).toContain("13900000042");
+    // 手机号和设备数是两段文字（放不下时设备数整段换行，不在「2 台设 / 备」中间断开）
+    expect(r.texts()).toContain("13900000042 · ");
+    expect(r.texts()).toContain(tr("profile.devicesCount", { n: 2 }));
     expect(r.allText()).toContain(tr("profile.contactsValue", { n: 1 }));
   });
 

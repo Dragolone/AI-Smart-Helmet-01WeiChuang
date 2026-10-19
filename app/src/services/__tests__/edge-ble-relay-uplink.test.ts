@@ -172,6 +172,51 @@ describe("按账号分区：文件名层面的隔离", () => {
     expect([...mockFiles.keys()]).toEqual(["ble-relay-queue...%2Fa%2Fb.json"]);
   });
 
+  it("A 的积压还没从文件恢复完就退出、换 B 登录：A 的事件不并进 B 的会话", async () => {
+    mockFiles.set(
+      fileOf("user_A"),
+      JSON.stringify({
+        v: 2,
+        owner: "user_A",
+        events: [env("possible_fall", "helmet_of_A")],
+      }),
+    );
+    const { up, push } = load();
+    up.startRelayUplink("user_A");
+    up.stopRelayUplink();
+    up.startRelayUplink("user_B");
+    await tick();
+    await up.flushRelayQueue();
+    up.stopRelayUplink();
+    expect(push.mock.calls.map((c) => c[0].deviceId)).not.toContain(
+      "helmet_of_A",
+    );
+  });
+
+  it("认领（匿名 → 本人）途中就退出登录：从本人分区读出的积压不留在内存里，下一个登录的人带不走", async () => {
+    mockFiles.set(
+      fileOf("user_1"),
+      JSON.stringify({
+        v: 2,
+        owner: "user_1",
+        events: [env("location_update", "helmet_of_1")],
+      }),
+    );
+    const { up, push } = load();
+    up.startRelayUplink();
+    await tick();
+    up.adoptRelayUplinkOwner("user_1");
+    up.stopRelayUplink();
+    await tick();
+    up.startRelayUplink("user_2");
+    await tick();
+    await up.flushRelayQueue();
+    up.stopRelayUplink();
+    expect(push.mock.calls.map((c) => c[0].deviceId)).not.toContain(
+      "helmet_of_1",
+    );
+  });
+
   it("未登录（匿名分区）积压的事件不会被随后登录的真实账号带走", async () => {
     const { up, push } = load();
     push.mockRejectedValue(new Error("offline"));
@@ -542,6 +587,24 @@ describe("在途提交 × 换账号", () => {
     expect(sentIds(push).at(-1)).toEqual([b1.eventId]);
   });
 
+  it("A 的批次在途时退出登录：结果回来时归属已是匿名分区，不落盘——匿名分区里原有的积压不被一个空队列盖掉", async () => {
+    // 换成 B 时照写也只是把 B 自己的队列再写一遍，看不出差别；落回匿名时照写会拿空队列覆盖匿名文件
+    const anonFall = env("possible_fall", "helmet_x");
+    mockFiles.set(
+      fileOf("anonymous"),
+      JSON.stringify({ v: 2, owner: "anonymous", events: [anonFall] }),
+    );
+    const { up, push } = load();
+    const inflightPush = deferPush(push);
+    up.startRelayUplink("user_A");
+    up.enqueueRelayEvent(env("location_update", "helmet_of_A"));
+    const inflight = up.flushRelayQueue();
+    up.stopRelayUplink();
+    inflightPush.resolve({ accepted: 1, duplicate: 0, invalid: 0 });
+    await inflight;
+    expect(savedIds("anonymous")).toEqual([anonFall.eventId]);
+  });
+
   it("同一账号退出再登录时上一批还在途：文件恢复出的副本下轮按原 eventId 再发一次，不丢", async () => {
     const { up, push } = load();
     const inflightPush = deferPush(push);
@@ -631,6 +694,49 @@ describe("深睡持锁（Android holdNetwork / releaseNetwork）", () => {
     await tick();
     expect(push).toHaveBeenCalledTimes(1);
     expect(push.mock.calls[0][0].envelopes).toHaveLength(2);
+  });
+
+  it("摔倒到达时正有一批位置在途：入队当下就持 90 s 锁（在途期间入队不会再起上传，锁只能在这一刻拿）", async () => {
+    const { up, push } = load();
+    const inflight = deferPush(push);
+    up.enqueueRelayEvent(env("location_update"));
+    const flushing = up.flushRelayQueue();
+    mockHold.mockClear();
+    up.enqueueRelayEvent(env("possible_fall"));
+    expect(mockHold).toHaveBeenCalledWith(90_000);
+    inflight.resolve({ accepted: 1, duplicate: 0, invalid: 0 });
+    await flushing;
+    await tick();
+  });
+
+  it("定时 flush 时距上次成功上传已超过 5 分钟：先持 20 s 锁再送（深睡里定时器停着，醒来后的第一次 flush 要把上传窗口撑开）", async () => {
+    const now = jest.spyOn(Date, "now");
+    const t0 = 1_800_000_000_000;
+    now.mockReturnValue(t0);
+    const { up, push } = load();
+    up.enqueueRelayEvent(env("location_update"));
+    expect(mockHold).not.toHaveBeenCalled();
+    now.mockReturnValue(t0 + 6 * 60_000);
+    await up.flushRelayQueue();
+    expect(mockHold).toHaveBeenCalledWith(20_000);
+    expect(push).toHaveBeenCalledTimes(1);
+  });
+
+  it("成功上传后重新计时：紧接着（不到 5 分钟）的周期事件不再持锁抢发", async () => {
+    const now = jest.spyOn(Date, "now");
+    const t0 = 1_800_000_000_000;
+    now.mockReturnValue(t0);
+    const { up, push } = load();
+    now.mockReturnValue(t0 + 10 * 60_000);
+    up.enqueueRelayEvent(env("location_update"));
+    await tick();
+    expect(push).toHaveBeenCalledTimes(1);
+    mockHold.mockClear();
+    now.mockReturnValue(t0 + 11 * 60_000);
+    up.enqueueRelayEvent(env("location_update"));
+    await tick();
+    expect(mockHold).not.toHaveBeenCalled();
+    expect(push).toHaveBeenCalledTimes(1);
   });
 
   it("手机时钟被往回拨：周期补偿不触发也不抛，事件照常留在队里等定时 flush", async () => {

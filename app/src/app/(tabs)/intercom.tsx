@@ -300,8 +300,12 @@ export default function IntercomScreen() {
 
   // TRTC 监听器和蓝牙订阅里要读这几样的最新值，又不能因为它们变了就重注册——重注册的清理会退房
   const live = useRef({ inRoom, mode, micOn, talking, activeId, joining });
+  // 监听器里经 ref 读自己的 id：冷启动时档案可能在通话中才回来（myId 从空变有），放进监听 effect 的依赖会让它重跑、
+  // 清理里退房——通话被悄悄退掉（10-19 夜测 #281 测出）。退出登录时整个标签页卸载，照样退房
+  const myIdRef = useRef(myId);
   useEffect(() => {
     live.current = { inRoom, mode, micOn, talking, activeId, joining };
+    myIdRef.current = myId;
   });
 
   const openMicSeen = useIntercomStore((s) =>
@@ -549,7 +553,7 @@ export default function IntercomScreen() {
           // userId 为空串 = 本端；音量 0–100
           const next: Record<string, number> = {};
           for (const v of params.userVolumes ?? []) {
-            next[v.userId === "" ? myId : v.userId] = v.volume;
+            next[v.userId === "" ? myIdRef.current : v.userId] = v.volume;
           }
           // 音量数值每 300 ms 都在变，但指示环只看是否过阈值：没人开口或闭口就沿用旧状态，不重画
           setVolumes((prev) =>
@@ -629,7 +633,7 @@ export default function IntercomScreen() {
       cloud.unRegisterListener(listener);
       cloud.exitRoom();
     };
-  }, [myId, queryClient, pttScale]);
+  }, [queryClient, pttScale]);
 
   // 头盔的蓝牙在通话中断了：声音会改从手机出。一直开麦的话把麦克风关掉——
   // 用户以为还在用头盔说话，实际收声的是口袋里的手机

@@ -1,6 +1,6 @@
 name: CI
 
-# 私有仓库按分钟计费（免费额度 2,000 分钟/月，2026-10 半个月就用完），下面三处都是为了省分钟：
+# 私有仓库按分钟计费（免费额度 2,000 分钟/月，2026-10 半个月就用完），下面四处都是为了省分钟：
 # ① 只动文档 / 计划 / 设计稿的提交不跑——这些路径没有被代码或测试读取（测试只往 docs/testing 写证据）
 on:
   push:
@@ -25,6 +25,9 @@ concurrency:
 
 jobs:
   ci:
+    # ④ PR squash 合进 main 的那次 push 不再跑：同一份代码在 PR 上刚跑过，而 10 月前 19 天 main 上的 195 次 push 里有 158 次是它。
+    #    判据是 committer：GitHub 代为合并的提交 committer 固定为 noreply@github.com；本人直推 main 的提交 committer 是自己，照跑。
+    if: github.event_name != 'push' || github.event.head_commit.committer.email != 'noreply@github.com'
     runs-on: ubuntu-latest
     # ③ 正常一次约 10–15 分钟；卡死时默认要等 360 分钟才被杀，这里提前止损
     timeout-minutes: 30
@@ -45,6 +48,62 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ⑤ 算这次改了哪些路径，决定后面「空库 migration / Build / Backend e2e」要不要跑：A 线的 PR 绝大多数只改 app/，
+      #    却每次都跑后端 e2e（约 6 分钟，占一次 CI 的近一半）。改动文件逐个归类，没认出来的路径一律当成「影响后端」；
+      #    算不出来（diff 失败、push 的 before 全 0）就全跑——宁可多跑不可漏跑。Typecheck / Lint / Test 不受影响，仍对全部 workspace 跑。
+      - name: Detect changed scope
+        id: scope
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          files=""
+          ok=false
+          case "$EVENT_NAME" in
+            pull_request)
+              # checkout 出来的 HEAD 是 GitHub 预合并提交（base 当前 tip + 本 PR），与 base tip 两点 diff 就是本 PR 的净改动。
+              # 浅克隆里没有共同祖先，不能用三点语法；base 若在预合并之后又前进，这里会多算几个文件——只会多跑，不会漏跑。
+              if git fetch --no-tags --depth=1 origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}" \
+                && files="$(git diff --name-only "refs/remotes/origin/${BASE_REF}" HEAD)"; then
+                ok=true
+              fi
+              ;;
+            push)
+              # 直推 main：与上一次 tip 比。before 全 0（新建分支）或 force push 后取不到，都算「算不出来」
+              if [[ -n "$BEFORE_SHA" && ! "$BEFORE_SHA" =~ ^0+$ ]] \
+                && git fetch --no-tags --depth=1 origin "$BEFORE_SHA" \
+                && files="$(git diff --name-only "$BEFORE_SHA" HEAD)"; then
+                ok=true
+              fi
+              ;;
+          esac
+
+          backend=false
+          admin=false
+          if [[ "$ok" != true || -z "$files" ]]; then
+            backend=true
+            admin=true
+            echo "::notice title=CI scope::算不出改动范围（event=$EVENT_NAME），后端三步全跑"
+          else
+            while IFS= read -r f; do
+              case "$f" in
+                app/*|mock-device/*|tools/*|design/*|docs/*|plan/*|*.md) ;;  # 只影响 App / Mock / 文档：不碰后端三步
+                admin/*) admin=true ;;
+                backend/*) backend=true ;;
+                *) backend=true; admin=true ;;  # packages/shared、根 package.json / lock / .nvmrc、.github/ 以及任何没认出的路径：全跑
+              esac
+            done <<< "$files"
+            echo "改动文件："
+            echo "$files"
+            echo "::notice title=CI scope::backend=$backend admin=$admin（$(echo "$files" | wc -l | tr -d ' ') 个文件）"
+          fi
+          {
+            echo "backend=$backend"
+            echo "admin=$admin"
+          } >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
@@ -64,17 +123,24 @@ jobs:
 
       # CLAUDE.md Testing Rules：migration 必须能在空库从头跑通
       - name: Migrations on empty DB
+        if: steps.scope.outputs.backend == 'true'
         working-directory: backend
         env:
           DATABASE_URL: postgresql://helmet:helmet_ci@localhost:5432/helmet_ci
         run: npx prisma migrate deploy
 
       # Build 先于 e2e：audit-shutdown 用例起真实进程 node dist/main.js 验证 SIGTERM 排空
-      - name: Build
-        run: npm run build --workspace backend --if-present && npm run build --workspace admin --if-present
+      - name: Build backend
+        if: steps.scope.outputs.backend == 'true'
+        run: npm run build --workspace backend --if-present
+
+      - name: Build admin
+        if: steps.scope.outputs.admin == 'true'
+        run: npm run build --workspace admin --if-present
 
       # 关键 API 集成测试（注册/登录/刷新全链路，跑在上一步刚建好的库上）
       - name: Backend e2e
+        if: steps.scope.outputs.backend == 'true'
         working-directory: backend
         env:
           DATABASE_URL: postgresql://helmet:helmet_ci@localhost:5432/helmet_ci

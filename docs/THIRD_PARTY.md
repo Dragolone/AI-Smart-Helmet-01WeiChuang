@@ -1,6 +1,6 @@
 # THIRD_PARTY.md — 第三方账号与资质清单
 
-> 本文件是第三方账号/Key 的**唯一状态台账**，每周对表更新。申请主体统一为**深圳零一唯创科技有限公司**（91440300MAK7XEPD38）。
+> 本文件是第三方账号/Key 的**唯一状态台账**，每周对表更新。申请主体统一为**深圳零一唯创科技有限公司**（统一社会信用代码、地址、法人电话等见负责人本机 `~/Desktop/01/07_仓库移出的敏感信息/README.md`，下文简称「01/07」）。
 > 相关决策：#34（云厂商统一腾讯云 + 域名备案复用）、#22（TRTC 选型）、#24（双 Bundle ID）、#33（地图库定案）。
 > 最后更新：2026-10-15
 
@@ -34,7 +34,7 @@
 - **规格**：2C4G 起步（CLAUDE.md 口径：服务器配置不是架构依赖，不够就升配）
 - **跑什么**：Docker Compose 起 NestJS 后端 + PostgreSQL 16 + EMQX，即 `development` 环境
 - **为什么急**：B 线开发项已全部清零，代码全在本地。没有服务器就无法与硬件团队远程联调、A 线无法连非本机后端、Week 11–12 无演示环境
-- ✅ **2026-09-06 部署完成**：实例 helmet-dev（111.230.157.151，通用型 2核4G/90GB/6Mbps，Docker CE 镜像，1 年 816 元，到期 2027-09-06）；`dev-api` / `dev-admin` / `dev-mqtt` 三条 A 记录已解析，Caddy 自动签证书成功；验收清单 #1–#5 通过（health 200、Admin 可登录、Mock 经 1883 接入并在线、错密钥被拒）。App 端把 `EXPO_PUBLIC_API_URL` 指到 `https://dev-api.01weichuang.com/api/v1` 即可联调。防火墙 1883 当前全网放通，硬件方出口 IP 确定后收紧
+- ✅ **2026-09-06 部署完成**：实例 helmet-dev（公网 IP 见 01/07，通用型 2核4G/90GB/6Mbps，Docker CE 镜像，1 年 816 元，到期 2027-09-06）；`dev-api` / `dev-admin` / `dev-mqtt` 三条 A 记录已解析，Caddy 自动签证书成功；验收清单 #1–#5 通过（health 200、Admin 可登录、Mock 经 1883 接入并在线、错密钥被拒）。App 端把 `EXPO_PUBLIC_API_URL` 指到 `https://dev-api.01weichuang.com/api/v1` 即可联调。防火墙 1883 当前全网放通，硬件方出口 IP 确定后收紧
 
 ### 3. 对象存储 COS
 
@@ -72,13 +72,13 @@
 
 ### 5. Apple Developer 公司账号（Organization）
 
-- **现状**：公司专用 Apple ID 已建（凭证入密码库）、管理人实名通过，卡在 **D-U-N-S 邓白氏建档**：查询工具无记录、自助申请失败（新公司）。**2026-09-08 已向 Apple Developer Support 发工单**；**2026-09-09 苹果回复（案例 102956478091，支持人员 Lynette）**：回复该邮件补四项信息（本地企业名称、电话、工作电话、工作邮箱；**只能用罗马字母**），即授权 Apple 向 D&B 提交建档；D&B 可能致电工作电话核实，须备好营业执照；建档完成后 D&B 通知。**2026-09-11 邓白氏（海南邓白氏）来邮：订单 10212210956843，须 9-14 15:00 前在 dnbportal.cn 完成企业核验并申请编码；2026-09-12 10:01 已提交企业核验（待核验，联系人钟祺龙，邮箱 3840404902@qq.com，英文名 Shenzhen Lingyi Weichuang Technology Co., Ltd.）。企业核验 12:05 通过；**编码申请已提交（申请编号 d2026091210082070466041，待审核，5 个工作日通道）**。9-17 审核员退回简称格式（改为「零一唯创科技」/「Lingyi Weichuang Technology」）当日改完；**9-17 18:38 邓白氏编码审核通过、已交付：D-U-N-S = 576655751**（深圳零一唯创科技有限公司 / Shenzhen Lingyi Weichuang Technology Co., Ltd.）。下一步（2026-09-18 核对苹果官方口径后修正，原写的「同步 5–14 工作日」过于悲观）**：苹果帮助页明写「**拿到 D-U-N-S 编码后至多 2 个工作日** Apple 即可从 D&B 收到你的信息，之后就能以公司身份注册」（<https://developer.apple.com/help/account/membership/D-U-N-S/>）。编码 9-17（周四）18:38 交付 → **9-21（周一）即可开始在 developer.apple.com/enroll/duns-lookup 查询**（该页需登录公司 Apple ID，查询时必须填**完整法定名称** Shenzhen Lingyi Weichuang Technology Co., Ltd. + 注册地址，不能用简称/商号，否则会报「未列为法律实体」）；查到后 Apple Developer App 填 Organization Details → 付 ¥688 → Apple 审核（电话核实统一指向法人龙俊洁 15014036340）。**若两周后（约 10-01）仍查不到**：发邮件给 D&B <https://support.dnb.com/?CUST=APPLEDEV> 催同步
+- **现状**：公司专用 Apple ID 已建（凭证入密码库）、管理人实名通过，卡在 **D-U-N-S 邓白氏建档**：查询工具无记录、自助申请失败（新公司）。**2026-09-08 已向 Apple Developer Support 发工单**；**2026-09-09 苹果回复（案例 102956478091，支持人员 Lynette）**：回复该邮件补四项信息（本地企业名称、电话、工作电话、工作邮箱；**只能用罗马字母**），即授权 Apple 向 D&B 提交建档；D&B 可能致电工作电话核实，须备好营业执照；建档完成后 D&B 通知。**2026-09-11 邓白氏（海南邓白氏）来邮：订单 10212210956843，须 9-14 15:00 前在 dnbportal.cn 完成企业核验并申请编码；2026-09-12 10:01 已提交企业核验（待核验，联系人钟祺龙，邮箱为公司 Apple ID 邮箱（见 01/07），英文名 Shenzhen Lingyi Weichuang Technology Co., Ltd.）。企业核验 12:05 通过；**编码申请已提交（申请编号 d2026091210082070466041，待审核，5 个工作日通道）**。9-17 审核员退回简称格式（改为「零一唯创科技」/「Lingyi Weichuang Technology」）当日改完；**9-17 18:38 邓白氏编码审核通过、已交付：D-U-N-S 编码已交付，值见 01/07**（深圳零一唯创科技有限公司 / Shenzhen Lingyi Weichuang Technology Co., Ltd.）。下一步（2026-09-18 核对苹果官方口径后修正，原写的「同步 5–14 工作日」过于悲观）**：苹果帮助页明写「**拿到 D-U-N-S 编码后至多 2 个工作日** Apple 即可从 D&B 收到你的信息，之后就能以公司身份注册」（<https://developer.apple.com/help/account/membership/D-U-N-S/>）。编码 9-17（周四）18:38 交付 → **9-21（周一）即可开始在 developer.apple.com/enroll/duns-lookup 查询**（该页需登录公司 Apple ID，查询时必须填**完整法定名称** Shenzhen Lingyi Weichuang Technology Co., Ltd. + 注册地址，不能用简称/商号，否则会报「未列为法律实体」）；查到后 Apple Developer App 填 Organization Details → 付 ¥688 → Apple 审核（电话核实统一指向法人龙俊洁，手机见 01/07）。**若两周后（约 10-01）仍查不到**：发邮件给 D&B <https://support.dnb.com/?CUST=APPLEDEV> 催同步
 - **流程**：D-U-N-S 建档 1–7 工作日出编码 → 回 Apple Developer App 填 Organization Details → 付 ¥688 → Apple 审核（可能电话核实公司）
 - ✅ **2026-09-20 邓白氏已同步到 Apple**（比口径早一天），Enroll 页可查到机构。**邓白氏登记信息（以后填软著 / 商店 / 备案的英文名与地址照此抄）**：
-  - D-U-N-S：576655751
+  - D-U-N-S：已出编码，见 01/07
   - Legal Entity Name：Shenzhen Lingyi Weichuang Technology Co., Ltd.
   - Headquarters Address：Room 402, Building 3, Pingshan Craftsman Park, No. 33 Cuijing Road, Zhukeng Community, Longtian Sub-district, Pingshan District, Shenzhen, CN 518118
-  - **2026-09-20 Enroll 填表进度**：机构信息已填（网站 01weichuang.com、电话 15014036340、机构邮箱 zhongqilong@01weichuang.com 已 Verified）；Signing Authority 关闭，验证人 = 法人龙俊洁（Junjie Long / Legal Representative / 15014036340）。**两个坑**：① 验证人邮箱**必须是公司域名**（@01weichuang.com），QQ 邮箱报 Invalid Email Address / lgEmail 未完成——需先给法人开公司邮箱；② 反复 Back 重填触发 **Work email verification is blocked**，Apple 要求联系支持或等约 24 h。**已于 2026-09-20 通过 developer.apple.com/contact →「会员资格和帐户 → 计划注册」提交中英双语工单，案例 ID 102969682223**（内容：请求解除工作邮箱验证限制 + 确认验证人邮箱是否必须公司域名）。下次一次填完，别多点 Verify。
+  - **2026-09-20 Enroll 填表进度**：机构信息已填（网站 01weichuang.com、电话（法人手机，见 01/07）、机构邮箱 zhongqilong@01weichuang.com 已 Verified）；Signing Authority 关闭，验证人 = 法人龙俊洁（Junjie Long / Legal Representative / 手机同上）。**两个坑**：① 验证人邮箱**必须是公司域名**（@01weichuang.com），QQ 邮箱报 Invalid Email Address / lgEmail 未完成——需先给法人开公司邮箱；② 反复 Back 重填触发 **Work email verification is blocked**，Apple 要求联系支持或等约 24 h。**已于 2026-09-20 通过 developer.apple.com/contact →「会员资格和帐户 → 计划注册」提交中英双语工单，案例 ID 102969682223**（内容：请求解除工作邮箱验证限制 + 确认验证人邮箱是否必须公司域名）。下次一次填完，别多点 Verify。
   - ✅ **2026-09-22 工作邮箱验证已解封，注册表一次填完提交，进入审核（Enrollment ID `XD2C5LWH7J`）**。验证人邮箱用法人公司邮箱 `long@01weichuang.com`。
   - ✅ **2026-09-23 签名权限验证表已提交**：Apple 邮件 "Complete Verification Form for Apple Developer Program enrollment" 要求签名权限验证人（法人龙俊杰）填表，当日提交完成。填表要点留档：「法人实体名称」= **Shenzhen Lingyi Weichuang Technology Co., Ltd.**（Apple 账户页显示的登记名，Lingyi / Weichuang 分写；填人名会报「与待处理注册申请不匹配」）；注册 ID XD2C5LWH7J；6 位验证码在发给验证人的邮件正文里
   - ✅ **2026-09-23 审核通过、已付费，账号生效（Valid through Sep 23, 2027）**。
@@ -91,7 +91,7 @@
   6. ⬜ 申请 **Critical Alerts entitlement**（<https://developer.apple.com/contact/request/notifications-critical-alerts-entitlement/>，用途：摔倒/求救 60 s 倒计时提醒需穿透静音与勿扰）
   7. ⬜ 个人开发证书退役：A/B 两台 Mac 的真机包改公司 Team 签名后，7 天过期问题消失
 - ~~**阻塞**：iOS 真机现用个人开发证书（7 天过期需重装）；TestFlight 分发、APNs 远程推送、Bundle ID 统一都等它~~ → 2026-09-23 解除
-- **公司信息**：深圳零一唯创科技有限公司 / 91440300MAK7XEPD38 / 深圳市坪山区龙田街道竹坑社区翠景路33号3栋坪山工匠园402（以营业执照「住所」为准；开票资料省略了「龙田街道」）
+- **公司信息**：深圳零一唯创科技有限公司；统一社会信用代码与地址见 01/07（地址以营业执照「住所」为准；开票资料省略了「龙田街道」）
 - **后续动作**：账号下来后统一正式 Bundle ID（改 `app.json` → `npx expo prebuild --clean`），并同步更新高德 iOS Key 的 Bundle ID 绑定
 
 ### 6. 推送：极光 + APNs + 安卓厂商通道
@@ -174,7 +174,7 @@
 **App 正式命名（汤总 2026-09-10 拍板）**：上架名与显示名 **「零一唯创」**（品牌 App，不限定为头盔专用，后续公司其他产品可并入）；软著名「零一唯创App V1.0」；商标由公司自行注册（建议「零一唯创」文字 + 「01」图形分开注册，第 9/42/38 类）。**2026-09-11 更新**：公司先注册 **「零一」** 与 **「零一唯创」** 两个文字商标；骑行头盔 App 的最终显示名待定。**2026-10-15 定稿：App 名「零一智行」**（负责人告知）。公司名「深圳零一唯创科技有限公司」、短信签名「深圳零一唯创」、头盔产品名「零一唯创智能头盔」都不变，只换 App 名。随之要改的后台显示名：App Store Connect、极光应用名与华为通道 Default Title、华为 AGC、小米开放平台（见 LAUNCH_CHECKLIST 负责人第 21 项）。**软著名仍是「零一唯创App V1.0」**（10-15 已交代理，不改名），与 App 名不一致，安卓商店提审时在备注里说明——见 LAUNCH_CHECKLIST 汤总第 1 项。「零一智行」商标 10-15 已申请。
 
 - **软著**：中国版权保护中心 <https://register.ccopyright.com.cn/> 在线填表（照 `01/软著/软著申请表填写信息.md` 逐项抄）→ 上传源程序/说明书 PDF + 营业执照 → 打印申请表盖章。免费 30 个工作日；加急找代理 5–10 个工作日。证书是安卓各商店上架的硬性材料。
-- **App 备案**：腾讯云控制台「备案」→ 新增 App（安卓、iOS 各一条），填 App 名「零一智行」（2026-10-15 改；原「零一唯创」）、包名 / Bundle ID、服务域名 `api.01weichuang.com`、服务器 111.230.157.151。主体已备案，只做 App 新增，1–2 周。**前置**：A 线把 `app.json` 的 `name` 改为「零一唯创」、`android.package` / `ios.bundleIdentifier` 改为 `com.lingyiweichuang.app`（需 `npx expo prebuild --clean`，高德平台 Key 绑定同步更新）。
+- **App 备案**：腾讯云控制台「备案」→ 新增 App（安卓、iOS 各一条），填 App 名「零一智行」（2026-10-15 改；原「零一唯创」）、包名 / Bundle ID、服务域名 `api.01weichuang.com`、服务器填 helmet-dev 的公网 IP（见 01/07）。主体已备案，只做 App 新增，1–2 周。**前置**：A 线把 `app.json` 的 `name` 改为「零一唯创」、`android.package` / `ios.bundleIdentifier` 改为 `com.lingyiweichuang.app`（需 `npx expo prebuild --clean`，高德平台 Key 绑定同步更新）。
 - **上架其余材料**（交付前一周准备）：~~隐私政策 + 用户协议网页~~（✅ 见第 11 项）、各尺寸截图、审核演示账号（见 §12，**不需要改后端**）、安卓各商店企业开发者账号（营业执照 + 对公打款）。
 
 ## 11. 隐私政策与用户服务协议（2026-09-23 新增）
