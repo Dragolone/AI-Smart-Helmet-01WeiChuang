@@ -2,7 +2,14 @@
 // 画几帧，读像素断言——不替换画布，画法代码原样跑。
 // 断言的是画面上看得见的结论：底色、商标实心部分什么时候在、光什么时候收、脉冲环画在哪、
 // sceneIsEmpty 说「空了」的时候画面确实只剩底色。
-import { afterAll, beforeAll, describe, expect, it } from "@jest/globals";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "@jest/globals";
 import path from "node:path";
 import { TextDecoder as NodeTextDecoder } from "node:util";
 
@@ -56,6 +63,11 @@ beforeAll(async () => {
 
 afterAll(() => {
   (globalThis as { TextDecoder: unknown }).TextDecoder = savedDecoder;
+});
+
+// drawRouteScene 每画一帧都把 t / convT / front 写回场景状态，用例之间不能共用同一个 S（随机顺序下 holdMark 那条会读到别的 t 留下的状态）
+beforeEach(() => {
+  S = makeSceneState(Skia, tb, H);
 });
 
 const glowOf = (over: Partial<MarkGlow> = {}): MarkGlow => ({
@@ -157,6 +169,8 @@ describe("路线段逐帧（真的 Skia）", () => {
   });
 
   it("holdMark（录视频用）：换原图之后矢量实心也一直留着", () => {
+    // 「留着」的前提是成形阶段画过它（实心的图是成形中第一帧才建的）：先画一帧成形中的，再看换原图之后
+    frame(1500, glowOf());
     expect(
       solidGreen(frame(SCENE_T.raster[1] + 100, glowOf(), true, true)),
     ).toBeGreaterThan(200);

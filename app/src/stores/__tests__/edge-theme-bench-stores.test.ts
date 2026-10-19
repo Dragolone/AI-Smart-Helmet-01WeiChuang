@@ -1,7 +1,6 @@
 // 外观设置（跟随系统 / 深色 / 浅色）和蓝牙工程模式的展示状态。
 // 外观这里只留 stores/__tests__/edge-theme-locale-1016.test.ts 没覆盖到的几条：存过的合法值读回来用、
 // 改外观先同步原生和内存再落盘、旧版 RN 没有 setColorScheme 也能切。默认深色、乱值 / 读失败、落盘失败不抛那几条在那边。
-// 注意：theme-store 记着「读盘前用户已经选过」（模块级），所以这个文件里读盘的用例要排在 setMode 的用例前面。
 import {
   afterEach,
   beforeEach,
@@ -33,7 +32,11 @@ beforeEach(() => {
   mockKv.clear();
   mockFail.get = false;
   mockFail.set = false;
-  useThemeStore.setState({ mode: "dark", hydrated: false });
+  useThemeStore.setState({
+    mode: "dark",
+    hydrated: false,
+    chosenBeforeHydrate: false,
+  });
   native = jest
     .spyOn(Appearance, "setColorScheme")
     .mockImplementation(() => undefined);

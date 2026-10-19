@@ -153,6 +153,8 @@ describe("sos-alert", () => {
     override(AppState, "currentState", "background");
   });
   afterEach(async () => {
+    // 有的用例开了假计时器就结束（没走到 useRealTimers）：随机顺序下会让后面用真计时器等 setTimeout 的用例挂到超时
+    jest.useRealTimers();
     for (const m of loaded.splice(0)) await m.resetSosAlerts();
     override(Platform, "OS", originalOS);
     override(AppState, "currentState", originalState);

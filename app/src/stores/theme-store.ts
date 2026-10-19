@@ -30,17 +30,17 @@ const applyNative = (mode: ThemeMode) => {
 type ThemeState = {
   mode: ThemeMode;
   hydrated: boolean;
+  /** 读盘期间用户已经选过：迟到的旧值不把它盖回去（同 current-helmet-store 等的口径；放在状态里而不是模块变量，测试能复位） */
+  chosenBeforeHydrate: boolean;
   hydrate: () => Promise<void>;
   setMode: (mode: ThemeMode) => Promise<void>;
 };
-
-/** 读盘期间用户已经选过：迟到的旧值不把它盖回去（同 current-helmet-store 等的口径） */
-let chosenBeforeHydrate = false;
 
 export const useThemeStore = create<ThemeState>((set, get) => ({
   // 品牌默认深色（2026-08-16 风格迭代口径）；用户改过才跟随其选择
   mode: "dark",
   hydrated: false,
+  chosenBeforeHydrate: false,
   hydrate: async () => {
     let saved: string | null;
     try {
@@ -52,12 +52,12 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
       }
     } catch {
       // 读不出来（锁屏下被拉起）：先按当前值挂上界面，回到前台再读，不让默认深色定死整个进程
-      if (!chosenBeforeHydrate) applyNative(get().mode);
+      if (!get().chosenBeforeHydrate) applyNative(get().mode);
       set({ hydrated: true });
       retryWhenActive("theme", () => void get().hydrate());
       return;
     }
-    if (chosenBeforeHydrate) {
+    if (get().chosenBeforeHydrate) {
       set({ hydrated: true });
       return;
     }
@@ -66,9 +66,8 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     set({ mode, hydrated: true });
   },
   setMode: async (mode) => {
-    chosenBeforeHydrate = true;
     applyNative(mode);
-    set({ mode });
+    set({ mode, chosenBeforeHydrate: true });
     // 落盘失败不抛：本次运行照样生效（调用方是 `void setMode(m)`，抛出去就是一个没人接的 Promise 拒绝）
     try {
       await SecureStore.setItemAsync(KEY, mode, KEYCHAIN);
