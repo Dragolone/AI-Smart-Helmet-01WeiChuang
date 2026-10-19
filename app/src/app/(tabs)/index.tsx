@@ -6,7 +6,7 @@
 // 不在这一页的：速度和骑行状态（地图页）、最近上报与设备编号（详情页）。
 // 数据：GET /devices（30s 轮询兜底，WS 直写缓存）。
 import { Ionicons } from "@expo/vector-icons";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { router, useFocusEffect, useIsFocused } from "expo-router";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
@@ -75,6 +75,7 @@ import {
   useNotifyPermission,
 } from "@/hooks/use-safety";
 import { useTheme } from "@/hooks/use-theme";
+import { useRefetchOnFocus } from "@/hooks/use-refetch-on-focus";
 import { useLocale, useT } from "@/i18n";
 import { formatKm, relativeTime } from "@/i18n/format";
 import { mixHex, withAlpha } from "@/services/color";
@@ -657,9 +658,6 @@ function OtherRow({
   );
 }
 
-/** 回到设备页时重拉设备列表：2 秒内刚拉过就不再拉 */
-const FOCUS_REFETCH_GAP_MS = 2_000;
-
 export default function DevicesScreen() {
   const theme = useTheme();
   const t = useT();
@@ -679,26 +677,10 @@ export default function DevicesScreen() {
     }
   };
   // 回到设备页时重拉一次设备列表，不等下一次 30 秒轮询：在别处（另一台手机）刚绑上的头盔马上出来，
-  // 三步指引接着往下走。不按「过期」判断：地图页挂上时刚拉过、还在新鲜期里的那份可能正是绑定之前的。
-  // 只跳过「正在拉」和「2 秒内刚拉过」（来回切标签时别连发）。
-  // 10-16 iPhone：新账号登录后弹过「保存密码？」框、切到地图再回来，设备列表的轮询没再跑，
-  // 指引在第一件停了一两分钟、要下拉才动（根因没坐实，这里兜住回来那一下）
-  const queryClient = useQueryClient();
-  useFocusEffect(
-    useCallback(() => {
-      const q = queryClient.getQueryCache().find({ queryKey: ["devices"] });
-      if (
-        q &&
-        (q.state.fetchStatus === "fetching" ||
-          Date.now() - q.state.dataUpdatedAt < FOCUS_REFETCH_GAP_MS)
-      )
-        return;
-      void queryClient.refetchQueries(
-        { queryKey: ["devices"], type: "active" },
-        { cancelRefetch: false },
-      );
-    }, [queryClient]),
-  );
+  // 三步指引接着往下走。10-16 iPhone：新账号登录后弹过「保存密码？」框、切到地图再回来，设备列表的轮询没再跑，
+  // 指引在第一件停了一两分钟、要下拉才动（根因没坐实，这里兜住回来那一下）。联系人同理（10-19：别的设备改过）
+  useRefetchOnFocus(["devices"]);
+  useRefetchOnFocus(["contacts"]);
   const list = devices.data ?? [];
   const links = useHelmetLinks(list, !devices.isError);
   const choice = useCurrentHelmetChoice();

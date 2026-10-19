@@ -64,6 +64,7 @@ import {
   useSosDrill,
 } from "@/hooks/use-safety";
 import { useTheme } from "@/hooks/use-theme";
+import { useRefetchOnFocus } from "@/hooks/use-refetch-on-focus";
 import { translate, useLocale, useT } from "@/i18n";
 import { shortDate } from "@/i18n/format";
 import { whenForegroundSettled } from "@/services/foreground-settled";
@@ -269,6 +270,8 @@ export default function SafetyScreen() {
     // 还没拿到列表时每 30 秒再拉一次：否则失败一次后会一直停在「待确认」。拿到后不轮询
     refetchInterval: (q) => (q.state.data === undefined ? 30_000 : false),
   });
+  // 别的设备上改了联系人：切回这个标签时重新拉（只切标签时 App 没离开前台，根布局的前台刷新不会跑）
+  useRefetchOnFocus(["contacts"]);
   // 没拿到列表（加载中 / 失败）≠ 0 位联系人
   const contactCount = contacts.data ? contacts.data.length : null;
 
