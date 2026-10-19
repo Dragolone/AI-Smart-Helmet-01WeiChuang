@@ -2,6 +2,8 @@
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <!-- Android 14+：前台服务必须声明类型；连接外设（BLE 头盔）用 connectedDevice -->
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+  <!-- 对讲在房期间加上 microphone 类型：Android 11 起退到后台 / 锁屏后，没有这一类前台服务的 App 麦克风被系统静音 -->
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
   <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -9,6 +11,6 @@
     <service
       android:name="com.lingyiweichuang.linkservice.HelmetLinkService"
       android:exported="false"
-      android:foregroundServiceType="connectedDevice" />
+      android:foregroundServiceType="connectedDevice|microphone" />
   </application>
 </manifest>

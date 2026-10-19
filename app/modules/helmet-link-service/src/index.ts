@@ -1,5 +1,6 @@
-// Android 前台服务（决策 #41 低成本档）：让 BLE 头盔链路在退后台/锁屏后不被系统回收。
-// iOS 走 bluetooth-central 后台模式（真机实测通过），本模块在 iOS 上全部为空操作。
+// Android 前台服务（决策 #41 低成本档）：让 BLE 头盔链路在退后台/锁屏后不被系统回收；
+// 对讲在房期间再加上麦克风类型（Android 11 起锁屏后没有这一类的 App 麦克风被静音）。
+// iOS 走 bluetooth-central / 后台音频模式（真机实测通过），本模块在 iOS 上全部为空操作。
 import { Platform } from "react-native";
 import { requireOptionalNativeModule } from "expo-modules-core";
 
@@ -11,6 +12,7 @@ interface NativeLinkService {
   requestIgnoreBatteryOptimizations(): void;
   holdNetwork(ms: number): void;
   releaseNetwork(): void;
+  setMicrophone(on: boolean, title: string, text: string): boolean;
   openAppLaunchSettings(): string;
 }
 
@@ -45,6 +47,14 @@ export const HelmetLinkService = {
   },
   releaseNetwork(): void {
     if (typeof native?.releaseNetwork === "function") native.releaseNetwork();
+  },
+  /**
+   * 对讲在房：给前台服务加上 / 撤掉麦克风类型，通知写 title / text。加只能在 App 在前台、已有录音权限时
+   * （Android 14），否则返回 false；iOS、原生包比 JS 旧（还没有这个方法）时什么都不做
+   */
+  setMicrophone(on: boolean, title = "", text = ""): boolean {
+    if (typeof native?.setMicrophone !== "function") return false;
+    return native.setMicrophone(on, title, text);
   },
   /**
    * 打开系统「应用启动管理」（华为 / 荣耀）：划掉 App 不被强停只有把本应用设成手动管理、三项全开这一条路

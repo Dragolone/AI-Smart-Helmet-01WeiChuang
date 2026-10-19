@@ -8,6 +8,8 @@
 // - 提示音（services/intercom-cues）、掉线提示、头盔断开时一直开麦自动静音；
 // - 别的标签页上的「对讲中」小条看的是 stores/intercom-store 里的 session；
 // - 屏幕常亮只在「按住说话」且停在这一页时开（随时要按）；一直开麦可以锁屏。
+// 2026-10-17 对讲原生批次：在房期间每 5 分钟续一把房间钥匙（决策 #56 补充，services/intercom-room-key）、
+// 断线重连被拒时自动重新拿凭证进房、Android 进房期间给前台服务加麦克风类型（锁屏后对端不再只听到静音）。
 // 照原样保留的（负责人 2026-10-07 点名）：按住说话的按压回弹与震动、成员说话时的波纹和亮圈、
 // 邀请码走系统分享面板、点成员头像对我静音、退出频道前的确认、音频输出切换、新建频道 / 输入邀请码两个弹层。
 import { Ionicons } from "@expo/vector-icons";
@@ -41,6 +43,7 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from "react-native-reanimated";
+import { HelmetLinkService } from "helmet-link-service";
 import TRTCCloud, {
   TRTCCloudDef,
   TRTCCloudListener,
@@ -63,10 +66,18 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { showToast } from "@/components/toast";
 import { Fonts, Radius } from "@/constants/theme";
+import { useAppActive } from "@/hooks/use-app-active";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
 import { translate, useT } from "@/i18n";
 import { playCue, prepareCues } from "@/services/intercom-cues";
+import {
+  AUTO_REJOIN_GAP_MS,
+  RoomKeyRenewer,
+  isRejoinError,
+  isRejoinExit,
+  updatePrivateMapKeyJson,
+} from "@/services/intercom-room-key";
 import { useAuthStore } from "@/stores/auth-store";
 import { useBleStore } from "@/stores/ble-store";
 import { useIntercomStore } from "@/stores/intercom-store";
@@ -91,6 +102,8 @@ const abandonRoom = (cloud: TRTCCloud) => {
 };
 
 type TalkMode = "hold" | "open";
+/** 自动重进时带着的掉线前的说话方式 */
+type Resume = { mode: TalkMode; micOn: boolean };
 type Sheet =
   | { kind: "switch" }
   | { kind: "add" }
@@ -269,6 +282,8 @@ export default function IntercomScreen() {
   }));
   const [onlineIds, setOnlineIds] = useState<string[]>([]);
   const [joining, setJoining] = useState(false);
+  /** 断线重连被拒后正在自动重进：麦克风前台服务不能撤（锁着屏撤了就加不回来） */
+  const [resuming, setResuming] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [speakerOn, setSpeakerOn] = useState(true);
   const [volumes, setVolumes] = useState<Record<string, number>>({});
@@ -378,9 +393,48 @@ export default function IntercomScreen() {
   };
   /** 自己这次进房成功的时刻：之后一小段时间里房里已有的人补发的「进来了」不响提示音 */
   const enteredAt = useRef(0);
+  /** SDK 正在断线重连（掉线到恢复之间）：这期间被拒 / 被请出房间才自动重进 */
+  const reconnecting = useRef(false);
+  /** 这次进房是自动重进：进去后照掉线前的说话方式恢复 */
+  const resume = useRef<Resume | null>(null);
+  /** 上次自动重进的时刻：新钥匙也进不去时不能一直进进出出 */
+  const lastRejoinAt = useRef(0);
+  /** 自动重进要调最新的 join：监听器只注册一次，拿不到每次渲染的 join */
+  const rejoinRef = useRef<(from: Resume) => void>(() => {});
+  /** 正在结束通话（提示音响完才真退房） */
+  const leaving = useRef(false);
 
   useEffect(() => {
     const cloud = trtc.current;
+    const keys = new RoomKeyRenewer({
+      fetchKey: (id) => channelsApi.token(id).then((tk) => tk.privateMapKey),
+      applyKey: (key) => cloud.callExperimentalAPI(updatePrivateMapKeyJson(key)),
+      // 在另一台手机上退出了这个频道：钥匙续不上了。主动结束这次通话，不等手里那把过期、到重连时才被拒
+      onRemoved: () => {
+        joinSeq.current += 1;
+        awaitingEnter.current = 0;
+        abandonRoom(cloud);
+        playCue("lost");
+        Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Warning,
+        ).catch(() => {});
+        showToast(translate("intercom.exit.removed"));
+        void queryClient.invalidateQueries({ queryKey: ["voice-channels"] });
+      },
+    });
+    /**
+     * 断线重连被拒（多半是拿着过期的钥匙重新进房）：还在房间里、不是正在结束通话、一分钟内没自动重进过，
+     * 就重新拿凭证进同一个频道，原来只弹「对讲出错」，人留在一个再也连不上的房间里
+     */
+    const tryRejoin = (): boolean => {
+      if (!keys.channelId || leaving.current) return false;
+      if (Date.now() - lastRejoinAt.current < AUTO_REJOIN_GAP_MS) return false;
+      lastRejoinAt.current = Date.now();
+      keys.stop();
+      setResuming(true);
+      rejoinRef.current({ mode: live.current.mode, micOn: live.current.micOn });
+      return true;
+    };
     // 监听器内用 translate 而非 t：避免语言切换时重注册监听并触发 cleanup 的 exitRoom
     const listener = (type: TRTCCloudListener, params: any) => {
       switch (type) {
@@ -395,8 +449,12 @@ export default function IntercomScreen() {
           if (joinTimer.current) clearTimeout(joinTimer.current);
           joinTimer.current = null;
           const ok = params.result >= 0;
+          const resumed = resume.current;
+          resume.current = null;
+          reconnecting.current = false;
           setInRoom(ok);
           setJoining(false);
+          setResuming(false);
           setJoinError(
             ok
               ? null
@@ -404,19 +462,45 @@ export default function IntercomScreen() {
           );
           if (ok) {
             enteredAt.current = Date.now();
+            setNetDown(false);
+            const id = live.current.activeId;
+            if (id) keys.start(id);
             prepareCues();
-            playCue("enter");
-            Haptics.notificationAsync(
-              Haptics.NotificationFeedbackType.Success,
-            ).catch(() => {});
+            if (resumed) {
+              // 自动重进：照掉线前的说话方式接着来（麦克风在进房链里就没关过），只说一声连上了
+              if (resumed.mode === "open") {
+                setMode("open");
+                setMicOn(resumed.micOn);
+              }
+              playCue("back");
+              showToast(translate("intercom.reconnected"));
+            } else {
+              playCue("enter");
+              Haptics.notificationAsync(
+                Haptics.NotificationFeedbackType.Success,
+              ).catch(() => {});
+            }
           } else {
             // 进房链后面的开麦不再执行；已经开了的采集停掉
             joinSeq.current += 1;
             abandonRoom(cloud);
+            if (resumed) {
+              playCue("lost");
+              Haptics.notificationAsync(
+                Haptics.NotificationFeedbackType.Warning,
+              ).catch(() => {});
+            }
           }
           break;
         }
-        case TRTCCloudListener.onExitRoom:
+        case TRTCCloudListener.onExitRoom: {
+          const reason = params?.reason;
+          // 断线重连途中被请出房间：多半是重新进房时钥匙被拒，自动重新拿凭证进（已经在重进的不再提示）
+          const rejoined =
+            resume.current !== null ||
+            (isRejoinExit(reason, reconnecting.current) && tryRejoin());
+          keys.stop();
+          reconnecting.current = false;
           setInRoom(false);
           setOnlineIds([]);
           setVolumes({});
@@ -429,20 +513,19 @@ export default function IntercomScreen() {
           setHelmetDown(false);
           // 不是自己退的（1 = 被服务器移出，常见是同一账号在另一台手机进了对讲；2 = 房间被解散）：
           // 原来一声不响回到列表，骑行中根本不知道通话断了
-          if (typeof params?.reason === "number" && params.reason !== 0) {
+          if (!rejoined && typeof reason === "number" && reason !== 0) {
             playCue("lost");
             Haptics.notificationAsync(
               Haptics.NotificationFeedbackType.Warning,
             ).catch(() => {});
             showToast(
               translate(
-                params.reason === 2
-                  ? "intercom.exit.dismissed"
-                  : "intercom.exit.kicked",
+                reason === 2 ? "intercom.exit.dismissed" : "intercom.exit.kicked",
               ),
             );
           }
           break;
+        }
         case TRTCCloudListener.onRemoteUserEnterRoom: {
           const id: string = params.userId;
           setOnlineIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
@@ -479,6 +562,7 @@ export default function IntercomScreen() {
           break;
         }
         case TRTCCloudListener.onConnectionLost:
+          reconnecting.current = true;
           setNetDown(true);
           playCue("lost");
           Haptics.notificationAsync(
@@ -492,14 +576,33 @@ export default function IntercomScreen() {
           }
           break;
         case TRTCCloudListener.onTryToReconnect:
+          reconnecting.current = true;
           setNetDown(true);
           break;
         case TRTCCloudListener.onConnectionRecovery:
+          reconnecting.current = false;
           setNetDown(false);
           playCue("back");
           showToast(translate("intercom.reconnected"));
           break;
         case TRTCCloudListener.onError:
+          if (
+            (keys.channelId || resume.current) &&
+            isRejoinError(params?.errCode, reconnecting.current)
+          ) {
+            // 已经在自动重进 / 正在结束通话：不用管
+            if (resume.current || leaving.current || tryRejoin()) break;
+            // 刚自动重进过又被拒：这个房间进不去了，退出来说清楚，不留在一个连不上的房间里
+            abandonRoom(cloud);
+            playCue("lost");
+            Haptics.notificationAsync(
+              Haptics.NotificationFeedbackType.Warning,
+            ).catch(() => {});
+            showToast(
+              translate("intercom.exit.rejected", { code: params.errCode }),
+            );
+            break;
+          }
           // 采集失败（麦克风被别的 App 占着）等不可恢复的错误：原来没有处理，界面还写着在说话 / 麦克风开着，
           // 实际发不出声音。说出来，并把麦克风状态收回到关着（界面和实际一致）
           showToast(
@@ -512,6 +615,8 @@ export default function IntercomScreen() {
           pttScale.set(withSpring(1, { damping: 12, stiffness: 200 }));
           break;
       }
+      // 锁屏后 Android 上的 JS 定时器停摆，SDK 的回调照常来：每个回调都顺带看一眼钥匙该不该续
+      keys.tick();
     };
     cloud.registerListener(listener);
     return () => {
@@ -521,6 +626,10 @@ export default function IntercomScreen() {
       if (joinTimer.current) clearTimeout(joinTimer.current);
       joinTimer.current = null;
       setJoining(false);
+      setResuming(false);
+      resume.current = null;
+      // 退出登录时标签页整个卸掉，也走这里：停掉续期，续到一半回来的钥匙不再交给 SDK
+      keys.stop();
       cloud.unRegisterListener(listener);
       cloud.exitRoom();
     };
@@ -568,6 +677,27 @@ export default function IntercomScreen() {
   }, [inRoom, activeId, sessionName, micOpen, netDown]);
   useEffect(() => () => useIntercomStore.getState().setSession(null), []);
 
+  // Android 11+：退到后台 / 锁屏后，系统把没有「麦克风」类前台服务的 App 的麦克风静音，对端只听到静音。
+  // 从点进入到离开房间，给头盔连接服务加上麦克风类型。Android 14 起只许在前台、已有录音权限时加：
+  // 只在前台时加（进房前已经问过权限），回到前台再补一次（已经加着时是空操作）；
+  // 退到后台、自动重进期间都不撤——锁着屏撤了就加不回来。iOS 靠后台音频模式，这里是空操作
+  const holdMic = inRoom || joining || resuming;
+  const appActive = useAppActive();
+  useEffect(() => {
+    if (holdMic && appActive)
+      HelmetLinkService.setMicrophone(
+        true,
+        t("intercom.service.title"),
+        t("intercom.service.text", { name: sessionName ?? "" }),
+      );
+  }, [holdMic, appActive, sessionName, t]);
+  useEffect(() => {
+    if (!holdMic) return;
+    return () => {
+      HelmetLinkService.setMicrophone(false);
+    };
+  }, [holdMic]);
+
   // 按住说话时要随时够得着按钮：停在这一页就不让屏幕熄。一直开麦不需要看屏幕，可以锁屏
   const keepAwake = inRoom && mode === "hold" && focused;
   useEffect(() => {
@@ -578,10 +708,30 @@ export default function IntercomScreen() {
     };
   }, [keepAwake]);
 
-  const join = async (target: VoiceChannel) => {
+  /**
+   * 进房结束（成功之外的各种收场）。failed：没进去（不是自己结束 / 退出频道）——
+   * 自动重进没进去要响一声，锁着屏的人才知道通话断了
+   */
+  const stopJoining = (failed: boolean) => {
+    if (failed && resume.current) {
+      playCue("lost");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(
+        () => {},
+      );
+    }
+    resume.current = null;
+    setJoining(false);
+    setResuming(false);
+  };
+
+  /** resumeFrom：断线重连被拒后的自动重进，带着掉线前的说话方式 */
+  const join = async (target: VoiceChannel, resumeFrom?: Resume) => {
     if (joining) return;
     const seq = (joinSeq.current += 1);
     awaitingEnter.current = 0;
+    resume.current = resumeFrom ?? null;
+    // 一直开着麦的人自动重进后照样开着（多半锁着屏，不知道刚才断过）；其余照常先静音
+    const openMic = resumeFrom?.mode === "open" && resumeFrom.micOn;
     // 每个 await 之后都要问一句：这次进房还算不算数（超时 / 换了频道 / 离开了页面）
     const stale = () => seq !== joinSeq.current;
     // 拒了不能静默退回列表（2026-10-15）：说清为什么没进去、去哪开。iOS 原来不问，拒过的人进房后一声不出
@@ -599,6 +749,7 @@ export default function IntercomScreen() {
           : true;
     if (stale()) return;
     if (!micGranted) {
+      stopJoining(true);
       setJoinError(translate("intercom.micDenied"));
       return;
     }
@@ -618,7 +769,7 @@ export default function IntercomScreen() {
       if (stale()) return;
       cancelJoin();
       abandonRoom(trtc.current);
-      setJoining(false);
+      stopJoining(true);
       setJoinError(translate("intercom.joinTimeout"));
     }, 8000);
     try {
@@ -643,7 +794,7 @@ export default function IntercomScreen() {
         TRTCCloudDef.TRTC_AUDIO_QUALITY_SPEECH,
       );
       if (stale()) return;
-      await trtc.current.muteLocalAudio(true);
+      await trtc.current.muteLocalAudio(!openMic);
       if (stale()) return;
       // 发言指示环所需：每 300ms 回调一次成员音量
       await trtc.current.enableAudioVolumeEvaluation(300);
@@ -652,18 +803,25 @@ export default function IntercomScreen() {
       // 半路出错也不能留个开着采集、可能已进房的半截状态
       cancelJoin();
       abandonRoom(trtc.current);
-      setJoining(false);
+      stopJoining(true);
       setJoinError(toUserMessage(e));
     }
   };
 
-  const leaving = useRef(false);
+  // 断线重连被拒后自动重进同一个频道（监听器里调）
+  useEffect(() => {
+    rejoinRef.current = (from) => {
+      if (active) void join(active, from);
+      else setResuming(false);
+    };
+  });
+
   const leaveRoom = () => {
     if (leaving.current) return;
     leaving.current = true;
     // 换频道的进房还在半路时点了结束：那一次也作废，不然退完房它又进去了
     cancelJoin();
-    setJoining(false);
+    stopJoining(false);
     trtc.current.muteLocalAudio(true).catch(() => {});
     playCue("leave");
     // 留一点时间让提示音响完：退房会把 TRTC 的音频引擎一起停掉
@@ -698,7 +856,7 @@ export default function IntercomScreen() {
             const cur = live.current;
             if (cur.activeId === c.channelId && (cur.inRoom || cur.joining)) {
               cancelJoin();
-              setJoining(false);
+              stopJoining(false);
               abandonRoom(trtc.current);
             }
             channelsApi

@@ -1,11 +1,14 @@
 package com.lingyiweichuang.linkservice
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.net.wifi.WifiManager
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
@@ -15,6 +18,10 @@ import expo.modules.kotlin.modules.ModuleDefinition
 class HelmetLinkServiceModule : Module() {
   private val context: Context
     get() = appContext.reactContext ?: throw IllegalStateException("React context unavailable")
+
+  private companion object {
+    const val TAG = "HelmetLinkService"
+  }
 
   private var wakeLock: PowerManager.WakeLock? = null
   private var wifiLock: WifiManager.WifiLock? = null
@@ -55,7 +62,50 @@ class HelmetLinkServiceModule : Module() {
     }
 
     Function("stop") { ->
-      context.stopService(Intent(context, HelmetLinkService::class.java))
+      HelmetLinkService.linkOn = false
+      if (HelmetLinkService.micOn) {
+        // 对讲还在房里（比如锁屏通话中头盔断开）：只撤掉连接外设这一样，麦克风那一样不能跟着没了。
+        // 服务还没起来（刚发出的对讲 Intent 还没送到）时不 stopService：那边起来后按 micOn 只开对讲
+        HelmetLinkService.instance?.let { service -> onMain { service.applyForeground() } }
+      } else {
+        context.stopService(Intent(context, HelmetLinkService::class.java))
+      }
+    }
+
+    /**
+     * 对讲在房期间给前台服务加上 / 撤掉麦克风类型（Android 11 起锁屏后没有这一类的 App 麦克风被系统静音）。
+     * 加：Android 14 起只许在 App 在前台、已有录音权限时加（JS 只在前台时调）；没有权限、系统不许起服务时返回 false。
+     * 服务已经在跑也照样发一次 Intent：让系统按「此刻在前台」重新核定这个服务能不能用麦克风。
+     * 撤：直接在运行中的实例上重新声明类型（这时 App 可能已在后台，不能再起服务）
+     */
+    Function("setMicrophone") { on: Boolean, title: String, text: String ->
+      if (!on) {
+        if (HelmetLinkService.micOn) {
+          HelmetLinkService.micOn = false
+          HelmetLinkService.instance?.let { service -> onMain { service.applyForeground() } }
+        }
+        true
+      } else if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+        false
+      } else {
+        HelmetLinkService.micTitle = title
+        HelmetLinkService.micText = text
+        HelmetLinkService.micOn = true
+        try {
+          val intent = Intent(context, HelmetLinkService::class.java).setAction(HelmetLinkService.ACTION_MIC)
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(intent)
+          } else {
+            context.startService(intent)
+          }
+          true
+        } catch (e: Exception) {
+          // Android 12+ 在后台起前台服务会被拒（ForegroundServiceStartNotAllowedException）
+          Log.w(TAG, "microphone foreground service not started", e)
+          HelmetLinkService.micOn = false
+          false
+        }
+      }
     }
 
     Function("isRunning") { -> HelmetLinkService.running }
@@ -91,6 +141,17 @@ class HelmetLinkServiceModule : Module() {
     /** 拉起系统「忽略电池优化」对话框；机型不支持时退到电池优化设置页 */
     Function("requestIgnoreBatteryOptimizations") { ->
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) openBatterySettings()
+    }
+  }
+
+  /** 前台服务的类型变更放到主线程做（onStartCommand 也在主线程），出错只记日志：撤不掉不能把 App 带崩 */
+  private fun onMain(block: () -> Unit) {
+    Handler(Looper.getMainLooper()).post {
+      try {
+        block()
+      } catch (e: RuntimeException) {
+        Log.w(TAG, "foreground service update failed", e)
+      }
     }
   }
 

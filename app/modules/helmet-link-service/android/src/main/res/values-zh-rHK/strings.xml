@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
   <string name="helmet_link_channel_name">頭盔連線</string>
-  <string name="helmet_link_channel_description">退到背景或鎖定螢幕後保持與頭盔的藍牙連線</string>
+  <string name="helmet_link_channel_description">退到背景或鎖定螢幕後保持與頭盔的藍牙連線和對講</string>
 </resources>

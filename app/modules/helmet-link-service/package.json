@@ -2,7 +2,7 @@
   "name": "helmet-link-service",
   "version": "1.0.0",
   "private": true,
-  "description": "Android 前台服务：BLE 头盔链路后台常驻（决策 #41 低成本档）；iOS 由 bluetooth-central 后台模式承担，本模块为空实现",
+  "description": "Android 前台服务：BLE 头盔链路后台常驻（决策 #41 低成本档）+ 对讲在房的麦克风类型；iOS 由 bluetooth-central / 后台音频模式承担，本模块为空实现",
   "main": "src/index.ts",
   "types": "src/index.ts"
 }
