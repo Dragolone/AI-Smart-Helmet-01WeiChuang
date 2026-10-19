@@ -24,9 +24,6 @@ import { jsonResponse, renderWithProviders, textResponse } from '../test/render'
 import DeviceDetailPage from './DeviceDetailPage'
 import DevicesPage from './DevicesPage'
 
-// 展开 antd Select 下拉很慢：本机约 4 s，CI 慢 runner 上 6.6–6.8 s，超过 vitest 默认的 5 s
-const SELECT_TIMEOUT_MS = 15_000
-
 const PLACEHOLDER = '按设备 ID / 绑定手机号搜索'
 
 beforeAll(() => {
@@ -199,7 +196,7 @@ describe('DevicesPage：分页', () => {
     fireEvent.click(screen.getByTitle('2'))
     await waitFor(() => expect(apiStub.last().searchParams.get('page')).toBe('2'))
     expect(apiStub.last().searchParams.get('pageSize')).toBe('50')
-  }, SELECT_TIMEOUT_MS)
+  })
 })
 
 describe('DevicesPage：单元格', () => {
