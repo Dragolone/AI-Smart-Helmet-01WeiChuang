@@ -461,6 +461,43 @@ describe("长按求救", () => {
     expect(enqueueRelayEvent).not.toHaveBeenCalled();
   });
 
+  it("发送失败后再长按：复用同一个 eventId（服务端当重复事件，不会升级成立即求救）；成功后再按才是新 eventId", async () => {
+    m(relayApi.push).mockImplementation(() =>
+      Promise.reject(new ApiRequestError(503, { code: "INTERNAL_ERROR" })),
+    );
+    const r = mount();
+    const press = async () =>
+      act(async () => {
+        sosButton(r).props.onLongPress();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+    await press();
+    await press();
+    const ids = m(relayApi.push).mock.calls.map(
+      (c) =>
+        (c[0] as { envelopes: { eventId: string }[] }).envelopes[0].eventId,
+    );
+    expect(ids).toHaveLength(2);
+    expect(ids[1]).toBe(ids[0]);
+    await waitFor(() => expect(enqueueRelayEvent).toHaveBeenCalledTimes(2));
+    expect(m(enqueueRelayEvent).mock.calls[1][0]).toBe(
+      m(enqueueRelayEvent).mock.calls[0][0],
+    );
+    // 这次发成功了：再长按是新的一次求救
+    m(relayApi.push).mockImplementation(() => Promise.resolve({ accepted: 1 }));
+    await press();
+    await press();
+    const later = m(relayApi.push)
+      .mock.calls.slice(2)
+      .map(
+        (c) =>
+          (c[0] as { envelopes: { eventId: string }[] }).envelopes[0].eventId,
+      );
+    expect(later[0]).toBe(ids[0]);
+    expect(later[1]).not.toBe(ids[0]);
+  });
+
   it("发送失败：同一个 envelope（同一个 eventId）进持久队列重试，并说明已暂存", async () => {
     m(relayApi.push).mockImplementation(() =>
       Promise.reject(new ApiRequestError(503, { code: "INTERNAL_ERROR" })),
