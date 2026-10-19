@@ -92,6 +92,16 @@ cd backend && npx prisma migrate dev   # 建表（要求 docker 里的 postgres 
 
 原生构建（`expo run:ios/android`）只在首次和新增原生模块后需要；日常改代码保存即热更新（Fast Refresh）。
 
+## CI 什么时候跑、跑哪几步（`.github/workflows/ci.yml`）
+
+私有仓的 Actions 每月只有 2,000 分钟（2026-10 半个月就用完），所以 CI 不是每次都全跑：
+
+- **只改 `**/*.md`、`docs/**`、`plan/**`、`design/**` 的 push / PR 不触发**；同一个 PR 连续推送时取消上一次没跑完的；job 限时 30 分钟（#166）。
+- **Typecheck / Lint / Test 每次都对全部 workspace 跑**，不门控。
+- **「Migrations on empty DB」「Build backend」「Backend e2e」三步按改动路径门控**：改动文件全部落在 `app/`、`mock-device/`、`tools/`、`design/`、`docs/`、`plan/`、`*.md` 里就跳过（Actions 里显示 skipped，不是失败）；碰到 `backend/` 就跑；`admin/` 只跑「Build admin」；`packages/shared`、根 `package.json` / `package-lock.json` / `.nvmrc`、`.github/` 以及**任何没列出来的路径都按全跑处理**。算不出改动范围（diff 失败、push 的 before 为全 0）也全跑——宁可多跑不可漏跑。只改 App 的 PR 约从 13 分钟降到 7 分钟（Backend e2e 一步就是 5–6 分钟）。
+- 这次到底判成了什么，看该次运行页顶部的 annotation `CI scope: backend=… admin=…`；步骤日志里有改动文件清单。
+- 以后新加会被后端 build / migration / e2e 读到的目录，不用改规则——不认识的路径默认全跑；只有确认与后端无关的新目录才加进上面的「跳过」名单。
+
 ## 真机调试
 
 - **iPhone**：设置 → 隐私与安全性 → 开发者模式 → 打开并重启；用数据线连 Mac，首次需在手机上信任此电脑。
