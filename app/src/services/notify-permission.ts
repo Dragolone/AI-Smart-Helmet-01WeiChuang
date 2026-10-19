@@ -6,12 +6,16 @@
 import * as Notifications from "expo-notifications";
 
 import type { NotifyPermission } from "@/services/safety-status";
-import { ensureSosAlertPermission } from "@/services/sos-alert";
+import {
+  ensureSosAlertPermission,
+  isSosChannelBlocked,
+} from "@/services/sos-alert";
 
 export async function readNotifyPermission(): Promise<NotifyPermission> {
   try {
     const p = await Notifications.getPermissionsAsync();
-    if (p.granted) return "granted";
+    // 总开关开着但求救通道被单独关了（Android）也算未开启：锁屏提醒一条都出不来（华为 10-19 实测）
+    if (p.granted) return (await isSosChannelBlocked()) ? "denied" : "granted";
     return (p as { status?: string }).status === "undetermined"
       ? "undetermined"
       : "denied";

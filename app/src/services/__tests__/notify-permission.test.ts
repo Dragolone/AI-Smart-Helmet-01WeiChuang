@@ -7,8 +7,11 @@ jest.mock("expo-notifications", () => ({
 }));
 /** 登录后那一次系统通知授权申请（services/sos-alert.ts 的 ensureSosAlertPermission） */
 const mockEnsure = jest.fn<() => Promise<void>>();
+/** Android 上求救通道有没有被单独关掉（services/sos-alert.ts 的 isSosChannelBlocked） */
+const mockBlocked = jest.fn<() => Promise<boolean>>();
 jest.mock("@/services/sos-alert", () => ({
   ensureSosAlertPermission: () => mockEnsure(),
+  isSosChannelBlocked: () => mockBlocked(),
 }));
 
 import {
@@ -19,6 +22,8 @@ import {
 beforeEach(() => {
   mockGetPermissions.mockReset();
   mockEnsure.mockReset();
+  mockBlocked.mockReset();
+  mockBlocked.mockResolvedValue(false);
 });
 
 describe("readNotifyPermission", () => {
@@ -38,6 +43,12 @@ describe("readNotifyPermission", () => {
       status: "undetermined",
     });
     expect(await readNotifyPermission()).toBe("undetermined");
+  });
+
+  it("总开关开着但求救通道被单独关了（Android）：算未开启，锁屏提醒一条都出不来", async () => {
+    mockGetPermissions.mockResolvedValue({ granted: true, status: "granted" });
+    mockBlocked.mockResolvedValue(true);
+    expect(await readNotifyPermission()).toBe("denied");
   });
 
   it("查询本身失败：未知，不替用户下结论", async () => {
