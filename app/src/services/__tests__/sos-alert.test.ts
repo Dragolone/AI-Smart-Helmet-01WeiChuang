@@ -34,6 +34,7 @@ const mockGetPerms = jest.fn(
 );
 const mockRequestPerms = jest.fn(async () => ({ granted: true }));
 const mockSetHandler = jest.fn((_h: unknown) => undefined);
+const mockGetChannel = jest.fn(async (_id: string): Promise<unknown> => null);
 /** addNotificationResponseReceivedListener 拿到的回调，用来模拟用户点通知按钮 */
 let responseHandler: ((r: unknown) => void) | null = null;
 /**
@@ -57,6 +58,7 @@ const defaultImpls = new Map(
       mockGetPerms,
       mockRequestPerms,
       mockSetHandler,
+      mockGetChannel,
     ] as unknown as Mock<(...args: unknown[]) => unknown>[]
   ).map((m) => [m, m.getMockImplementation()] as const),
 );
@@ -84,6 +86,7 @@ jest.mock("expo-notifications", () => ({
   setNotificationCategoryAsync: (id: string, a: unknown) =>
     mockSetCategory(id, a),
   getPermissionsAsync: () => mockGetPerms(),
+  getNotificationChannelAsync: (id: string) => mockGetChannel(id),
   requestPermissionsAsync: () => mockRequestPerms(),
   addNotificationResponseReceivedListener: (cb: (r: unknown) => void) => {
     responseHandler = cb;
@@ -95,7 +98,7 @@ jest.mock("expo-notifications", () => ({
   getLastNotificationResponse: () => mockGetLastResponse(),
   getPresentedNotificationsAsync: () => mockPresented(),
   clearLastNotificationResponse: () => mockClearLastResponse(),
-  AndroidImportance: { MAX: 5 },
+  AndroidImportance: { MAX: 5, NONE: 0 },
   AndroidNotificationVisibility: { PUBLIC: 1 },
   AndroidNotificationPriority: { MAX: "max" },
   SchedulableTriggerInputTypes: { TIME_INTERVAL: "timeInterval" },
@@ -480,6 +483,35 @@ describe("sos-alert", () => {
       expect(await m.isSosAlertPermissionDenied()).toBe(false);
       mockGetPerms.mockResolvedValueOnce({ granted: false, status: "denied" });
       expect(await m.isSosAlertPermissionDenied()).toBe(true);
+    });
+  });
+
+  describe("isSosChannelBlocked / 总开关开着但求救通道被单独关了（华为 10-19 实测）", () => {
+    it("Android：通道 importance 为 NONE → 算被拒；通道正常 / 还没建 / 查不到 → 不算", async () => {
+      override(Platform, "OS", "android");
+      const m = load();
+      mockGetPerms.mockResolvedValue({ granted: true, status: "granted" });
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 0 });
+      expect(await m.isSosChannelBlocked()).toBe(true);
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 0 });
+      expect(await m.isSosAlertPermissionDenied()).toBe(true);
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 5 });
+      expect(await m.isSosAlertPermissionDenied()).toBe(false);
+      mockGetChannel.mockResolvedValueOnce(null);
+      expect(await m.isSosAlertPermissionDenied()).toBe(false);
+      mockGetChannel.mockRejectedValueOnce(new Error("x"));
+      expect(await m.isSosAlertPermissionDenied()).toBe(false);
+      expect(mockGetChannel).toHaveBeenCalledWith("sos");
+    });
+
+    it("iOS 没有通道这回事：不查、不算被拒", async () => {
+      override(Platform, "OS", "ios");
+      const m = load();
+      mockGetPerms.mockResolvedValue({ granted: true, status: "granted" });
+      mockGetChannel.mockResolvedValue({ id: "sos", importance: 0 });
+      expect(await m.isSosChannelBlocked()).toBe(false);
+      expect(await m.isSosAlertPermissionDenied()).toBe(false);
+      expect(mockGetChannel).not.toHaveBeenCalled();
     });
   });
 

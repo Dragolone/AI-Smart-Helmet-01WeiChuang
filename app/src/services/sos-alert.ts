@@ -19,7 +19,9 @@ import { presentedSos } from "@/services/sos-sync";
 import { useSosCancelStore } from "@/stores/sos-cancel-store";
 import { showNotice } from "@/services/notice";
 
-const CHANNEL_ID = "sos";
+/** 锁屏求救提醒走的 Android 通知通道；安全页判断「通知有没有开」也要看它有没有被单独关掉 */
+export const SOS_CHANNEL_ID = "sos";
+const CHANNEL_ID = SOS_CHANNEL_ID;
 const CATEGORY_ID = "sos";
 const ACTION_CANCEL = "cancel";
 const ACTION_OPEN = "open";
@@ -367,10 +369,28 @@ export async function cancelFromNotification(
 export async function isSosAlertPermissionDenied(): Promise<boolean> {
   try {
     const p = await Notifications.getPermissionsAsync();
-    if (p.granted) return false;
+    if (p.granted) return isSosChannelBlocked();
     return (p as { status?: string }).status !== "undetermined";
   } catch {
     return false; // 查不到权限状态时不吓唬用户
+  }
+}
+
+/**
+ * Android：App 的通知总开关开着，但求救那条通道被单独关了，锁屏提醒照样一条都出不来，
+ * 而 getPermissionsAsync 仍报 granted。华为 P30 实测（2026-10-19）：通知总开关关着的时候
+ * App 首次启动建的通道会被记成「关闭」，之后把总开关打开，通道还是关的——界面得把这种也算成未开启，
+ * 把人带到系统的通知设置页（通道开关就在那一页上）。通道还没建、查不到都按没关处理，不吓唬用户。
+ */
+export async function isSosChannelBlocked(): Promise<boolean> {
+  if (Platform.OS !== "android") return false;
+  try {
+    const ch = await Notifications.getNotificationChannelAsync(SOS_CHANNEL_ID);
+    return (
+      ch !== null && ch.importance === Notifications.AndroidImportance.NONE
+    );
+  } catch {
+    return false;
   }
 }
 
