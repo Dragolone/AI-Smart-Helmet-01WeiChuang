@@ -1634,3 +1634,20 @@ describe("演练（drill=1）", () => {
     expect(clearSosAlert).not.toHaveBeenCalled();
   });
 });
+
+describe("状态未知时关掉页面", () => {
+  it("快照一直不回（没网）时关掉页面：从「已拉起」里摘掉，之后推送 / 补拉还能再弹这单", async () => {
+    m(sosApi.snapshot).mockImplementation(() => new Promise(() => undefined));
+    const r = await mount();
+    expect(number(r)).toBe("—");
+    expect(presentedSos.current.has("s1")).toBe(true);
+    r.unmount();
+    expect(presentedSos.current.has("s1")).toBe(false);
+  });
+  it("拿到过状态（倒数中）再离开页面：仍登记为已拉起，不会被重复弹起", async () => {
+    const r = await mount();
+    expect(number(r)).toBe("45");
+    r.unmount();
+    expect(presentedSos.current.has("s1")).toBe(true);
+  });
+});

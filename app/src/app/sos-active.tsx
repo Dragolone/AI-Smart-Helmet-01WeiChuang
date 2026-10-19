@@ -239,8 +239,17 @@ function SosActiveContent() {
   // 从安全页 / 安全记录 / 事故详情用 navigate 打开的倒计时页没登记过：之后 WS 重连、推送到达、中转 duplicate 回调
   // 走 resumePendingSos 会判「没拉起过」再 push 同一单，expo-router 的 singular 逻辑把已有路由移除再以同 key 追加——
   // 倒计时中无谓改栈（10-15 复审 F-2）。真实单挂载即登记，三处入口自然覆盖
+  // 状态一直未知（接口不通，页面停在「—」）时用户按返回关掉了页面：要把这单从「已拉起」里摘掉，
+  // 不然之后 WS / 补拉都判「拉起过」不再弹页、也不弹锁屏提醒，一张正在倒数的单在前台静默到期
+  //（2026-10-20 飞行模式 + 深链实测）。拿到过状态的单照旧留着登记
+  const statusKnown = useRef(new Set<string>());
   useEffect(() => {
-    if (!isDrill && sosId) presentedSos.current.add(sosId);
+    if (isDrill || !sosId) return;
+    presentedSos.current.add(sosId);
+    const known = statusKnown.current;
+    return () => {
+      if (!known.has(sosId)) presentedSos.current.delete(sosId);
+    };
   }, [isDrill, sosId]);
   const theme = useTheme();
   const t = useT();
@@ -315,6 +324,9 @@ function SosActiveContent() {
       }
     : null;
   const sos = isDrill ? drillSos : (sosQuery.data ?? null);
+  useEffect(() => {
+    if (sos && !isDrill) statusKnown.current.add(sos.sosId);
+  }, [sos, isDrill]);
 
   // 进行中的队列从缓存推导（["sos-active", *] 由 WS 推送 / 补拉写入）；缓存一变就重算一次
   const [cacheTick, setCacheTick] = useState(0);
