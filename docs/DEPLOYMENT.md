@@ -198,6 +198,25 @@ docker compose -f docker-compose.prod.yml exec -T postgres pg_restore -U helmet 
   这两个 URL 是极光「隐私协议」字段、App 备案、双端应用商店上架的硬性材料;production 上线后同一路径换成 `api.01weichuang.com`,App 内链接同步改。
 - **production 环境**:按 §8 清单从本套复制——新服务器 + 新 `.env`(全部密钥重新生成)+ 域名去掉 `dev-` 前缀,步骤完全相同。
 
+### 5.1 development 更新记录（每次照 §5「发布更新」做完就补一行；回滚点 = 上一行的镜像 ID，`docker tag <旧ID> deploy-backend:latest` 后 `up -d --no-build backend` 即回）
+
+| 日期 | main 版本（前 → 后） | 改动要点 | 操作 | 验收 / 异常 |
+|------|---------------------|---------|------|------------|
+| 2026-09-18 | → 365fbad | 排空 / 网关拦截 / 日志轮转 / 备份 cron | 全量 `up -d --build` | §4 #8/#9 通过（见 §3 标题） |
+| 2026-10-03 | 27bccf4 → fee7767 | 第三轮测试修复 + 绑定限频 | `up -d --build` | 通过 |
+| 2026-10-16 | → 1f7cd25 | #169 邀请码 / #171 限频 / #194 推送头盔名 / #197 时钟错乱位置点 / 法律页 V1.3 | 只 `up -d --build backend` | 通过；后端自己的 MQTT 订阅被 EMQX 鉴权缓存拒约 60 s 后自动订上，不用重启 |
+| 2026-10-17 | → dfbae76 → 1ab9a28 → b12991b → 5ddf2d6 | #202/#205/#214；#215 账号级进行中求救；#239 EMQX 权限随认证下发（先 backend 后 `render-config.sh` + `up -d --force-recreate emqx`）；#252 raw_events 加 business_time（有 migration，先 `backup.sh` 手动备份） | `up -d --build backend gateway`，之后几次只 backend | 通过；迁移约 30 s，后端停机超 15 s 后 EMQX 认证回调要等健康检查，订阅晚约 16 s，已连设备不受影响 |
+| 2026-10-20 | 5ddf2d6 → 8762a6a | 10-20 合入 14 个 PR，服务端只有 #260（WS 握手查注销状态时数据库出错改 1011 断开，不再 4401）、#262 voice.service 注释、#316 admin 测试基建（devDep 连带 package-lock 改一行，两镜像 npm ci 层重跑）；无 migration、deploy/ 与 Caddyfile 无改动 | `git pull --ff-only` → `build backend gateway`（约 2 min，backend 3911d2d58e6b / gateway f42b4b2ad7e4；回滚点 ad03698ad257 / fc1383c125d3）→ `up -d --no-build backend gateway`（切换由负责人授权执行） | 通过，详见下 |
+
+2026-10-20 更新详情（服务器 UTC 2026-10-19 17:06:44 开始切换，17:07:04 两容器 Up；backend 17:07:07 起服务）：
+
+- backend：`No pending migrations to apply`、`SOS 扫描任务已启动`；MQTT 自举照例 `Not authorized` 约 16 s，17:07:23 `已订阅`；此后无 ERROR。EMQX 侧仅 backend_ingest 的 2 次认证失败（自举时序），6 顶 Mock 未断。
+- 对外：`/api/v1/health` 200（证书有效、HTTP/2）；`dev-admin` 200 且新产物 7 个 asset 全部 200；`/legal/privacy` 200；`/api/v1/devices` 401；公网 `POST /internal/emqx/authenticate` 404（§4 #8）；新容器日志轮转 `20m × 5`（§4 #10）。
+- WS `/ws?token=`（#260 口径）：用云端验证账号登录后带有效 token 握手 101 并保持连接；不带 token / 伪 token 握手 101 后收到 4401 关闭帧；后端日志无 4401 / 1011 行——4401 只在凭证本身无效时出现，正常连接不受影响。`GET /users/me/sos/active` 200。
+- Mock：切换后 90 s 内 6 顶（helmet_94173f / f8b262 / c0bfb0 / b3f8c2 / b638d2 / d1e1d8）都有新 raw_events，EMQX 在线客户端 = backend_ingest + 6 Mock，各 Mock 容器日志无失败 / 重连。
+- 异常：重启窗口内一台真机 App 轮询 `locations/latest` 收到 1 次 502（backend 尚未监听，预期）；其余无 5xx。排空 `503 draining` 这次没人拨测、未观测到。切换前基线里 10/19 已有 19 条「eventId 冲突」ERROR（helmet_94173f，Mock ski 剧本），与本次更新无关。
+- 未做：§4 #3 管理员实际登录——操作侧无管理员凭证，交负责人补做；`/admin/auth/login` 对错误凭证按契约返回 401。
+
 ## 6. 安全基线(部署时核对)
 
 - [ ] `.env` 每个密钥独立强随机;`deploy/.env` 与 `deploy/generated/` 确认未被 Git 跟踪(`git status` 查不到)
