@@ -9,9 +9,12 @@ import { TextDecoder as NodeTextDecoder } from "node:util";
 import {
   MARK_LIFT,
   SCENE_T,
+  SCENE_TUNING,
   SCENE_W,
   buildSceneTables,
   drawRouteScene,
+  easeOut,
+  lerp,
   makeSceneState,
   sceneIsEmpty,
   type MarkGlow,
@@ -68,16 +71,17 @@ const glowOf = (over: Partial<MarkGlow> = {}): MarkGlow => ({
   ...over,
 });
 
-/** 画一帧，读回 RGBA（预乘） */
+/** 画一帧，读回 RGBA（预乘）。state 不给就用公共的那份 */
 function frame(
   t: number,
   glow: MarkGlow,
   withBackground = true,
   holdMark = false,
+  state: SceneState = S,
 ): Uint8Array {
   const canvas = surface.getCanvas();
   canvas.clear(Skia.Color("transparent"));
-  drawRouteScene(Skia, canvas, S, tb, t, glow, withBackground, holdMark);
+  drawRouteScene(Skia, canvas, state, tb, t, glow, withBackground, holdMark);
   surface.flush();
   const img = surface.makeImageSnapshot();
   const px = img.readPixels(0, 0, {
@@ -157,8 +161,12 @@ describe("路线段逐帧（真的 Skia）", () => {
   });
 
   it("holdMark（录视频用）：换原图之后矢量实心也一直留着", () => {
+    // 线收掉之后（linesOff 起）不再投影路面，实心用的是最后一帧线还在时投影进 S 的那份——录视频是按顺序
+    // 一帧帧画的，所以没问题。这里用自己的 S 照这个顺序画，不靠别的用例碰巧在公共的 S 上画过哪一刻
+    const own = makeSceneState(Skia, tb, H);
+    frame(SCENE_T.linesOff - 1, glowOf(), true, true, own);
     expect(
-      solidGreen(frame(SCENE_T.raster[1] + 100, glowOf(), true, true)),
+      solidGreen(frame(SCENE_T.raster[1] + 100, glowOf(), true, true, own)),
     ).toBeGreaterThan(200);
   });
 
@@ -183,6 +191,61 @@ describe("路线段逐帧（真的 Skia）", () => {
     expect(at(ring, CX + r + 20, CY).slice(0, 3)).toEqual(BG);
     expect(notBg(frame(t, glowOf({ dock: 1, pulse: 1.3 })))).toBe(0);
     expect(notBg(frame(t, glowOf({ dock: 1, pulse: 0 })))).toBe(0);
+  });
+
+  it("脉冲的两圈错开出发：刚出发时只有第一圈；第一圈走完了只剩第二圈", () => {
+    const t = SCENE_T.raster[1] + 100;
+    const lit = (px: Uint8Array, r: number) =>
+      at(px, CX + r, CY)
+        .slice(0, 3)
+        .join() !== BG.join();
+    // 第二圈晚 0.22 出发：0.1 时它还没动
+    const early = frame(t, glowOf({ dock: 1, pulse: 0.1 }));
+    const r1 = lerp(84, 110, easeOut(0.1));
+    expect(lit(early, r1)).toBe(true);
+    for (let r = Math.ceil(r1) + 3; r <= 120; r++)
+      expect(lit(early, r)).toBe(false);
+    // 1.1 时第一圈已经走完（不画），第二圈快到头
+    const late = frame(t, glowOf({ dock: 1, pulse: 1.1 }));
+    const r2 = lerp(96, 118, easeOut(1.1 - 0.22));
+    expect(lit(late, r2)).toBe(true);
+    for (let r = 80; r <= Math.floor(r2) - 3; r++)
+      expect(lit(late, r)).toBe(false);
+  });
+
+  it("镜头贴着路面掠过（约 520–850ms）：跨到镜头后面的那几段路面不画，画面不会被拉出一整片色带", () => {
+    const own = makeSceneState(Skia, tb, H);
+    const before = frame(500, glowOf(), true, false, own);
+    const during = frame(600, glowOf(), true, false, own);
+    // 上沿两角离路线远：一直是底色
+    expect(at(during, 1, 1)).toEqual([...BG, 255]);
+    expect(at(during, SCENE_W - 2, 1)).toEqual([...BG, 255]);
+    // 亮度跟前一刻接得上（整屏糊上一层的话会一下子亮出三成多）
+    const ratio = lumaSum(during) / lumaSum(before);
+    expect(ratio).toBeGreaterThan(0.9);
+    expect(ratio).toBeLessThan(1.1);
+  });
+
+  it("调参把泛光关掉（录帧脚本可以临时把 bloom 设成空表）：线照样画，只是没有外面那圈泛光", () => {
+    const saved = SCENE_TUNING.bloom;
+    let plain: SceneState;
+    try {
+      SCENE_TUNING.bloom = [];
+      plain = makeSceneState(Skia, tb, H);
+    } finally {
+      SCENE_TUNING.bloom = saved;
+    }
+    const glowing = frame(
+      1200,
+      glowOf(),
+      true,
+      false,
+      makeSceneState(Skia, tb, H),
+    );
+    const bare = frame(1200, glowOf(), true, false, plain);
+    expect(notBg(bare)).toBeGreaterThan(0);
+    expect(notBg(bare)).toBeLessThan(notBg(glowing) * 0.6);
+    expect(lumaSum(bare)).toBeLessThan(lumaSum(glowing));
   });
 
   it("商标缩放、挪位置之后，光跟着挪", () => {
