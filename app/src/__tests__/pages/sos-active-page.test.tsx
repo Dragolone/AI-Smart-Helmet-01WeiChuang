@@ -670,6 +670,28 @@ describe("取消 / 立即求救", () => {
     expect(r.allText()).toContain(tr("sos.notified.none"));
   });
 
+  it("取消失败后补拉也挂住（坏网络）：最多等 3 秒就提示，不等补拉自己超时（倒计时一共 60 秒）", async () => {
+    m(sosApi.cancel).mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    const r = await mount();
+    m(sosApi.snapshot).mockImplementation(() => new Promise(() => undefined));
+    act(() =>
+      slideButton(r).props.onAccessibilityAction({
+        nativeEvent: { actionName: "activate" },
+      }),
+    );
+    await tick(0);
+    await tick(2_500);
+    expect(alert).not.toHaveBeenCalled();
+    await tick(600);
+    expect(alert).toHaveBeenCalledWith(
+      tr("common.failed"),
+      tr("error.network"),
+      NOTICE_OK,
+    );
+  });
+
   it("滑动取消请求超时但服务端已取消：不弹错，页面是已取消；补拉也失败时才按缓存判断（仍在倒数就弹）", async () => {
     m(sosApi.cancel).mockImplementation(() =>
       Promise.reject(new TypeError("Network request failed")),
