@@ -98,7 +98,17 @@ jest.mock("expo-notifications", () => ({
   getLastNotificationResponse: () => mockGetLastResponse(),
   getPresentedNotificationsAsync: () => mockPresented(),
   clearLastNotificationResponse: () => mockClearLastResponse(),
-  AndroidImportance: { MAX: 5, NONE: 0 },
+  // 和 expo-notifications 的取值一致（不是安卓原生的 0–5）
+  AndroidImportance: {
+    UNKNOWN: 0,
+    UNSPECIFIED: 1,
+    NONE: 2,
+    MIN: 3,
+    LOW: 4,
+    DEFAULT: 5,
+    HIGH: 6,
+    MAX: 7,
+  },
   AndroidNotificationVisibility: { PUBLIC: 1 },
   AndroidNotificationPriority: { MAX: "max" },
   SchedulableTriggerInputTypes: { TIME_INTERVAL: "timeInterval" },
@@ -491,12 +501,24 @@ describe("sos-alert", () => {
       override(Platform, "OS", "android");
       const m = load();
       mockGetPerms.mockResolvedValue({ granted: true, status: "granted" });
-      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 0 });
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 2 });
       expect(await m.isSosChannelBlocked()).toBe(true);
-      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 0 });
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 2 });
       expect(await m.isSosAlertPermissionDenied()).toBe(true);
-      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 5 });
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 7 });
       expect(await m.isSosAlertPermissionDenied()).toBe(false);
+      // 被调成「静默」（LOW / MIN）：不响不弹，算没开（O28，10-21 模拟器）；「默认」会响，不算
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 4 });
+      expect(await m.isSosChannelBlocked()).toBe(true);
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 3 });
+      expect(await m.isSosChannelBlocked()).toBe(true);
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 5 });
+      expect(await m.isSosChannelBlocked()).toBe(false);
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 6 });
+      expect(await m.isSosChannelBlocked()).toBe(false);
+      // 取不到等级（UNKNOWN / UNSPECIFIED）不吓唬用户
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 0 });
+      expect(await m.isSosChannelBlocked()).toBe(false);
       mockGetChannel.mockResolvedValueOnce(null);
       expect(await m.isSosAlertPermissionDenied()).toBe(false);
       mockGetChannel.mockRejectedValueOnce(new Error("x"));
@@ -508,7 +530,7 @@ describe("sos-alert", () => {
       override(Platform, "OS", "ios");
       const m = load();
       mockGetPerms.mockResolvedValue({ granted: true, status: "granted" });
-      mockGetChannel.mockResolvedValue({ id: "sos", importance: 0 });
+      mockGetChannel.mockResolvedValue({ id: "sos", importance: 2 });
       expect(await m.isSosChannelBlocked()).toBe(false);
       expect(await m.isSosAlertPermissionDenied()).toBe(false);
       expect(mockGetChannel).not.toHaveBeenCalled();

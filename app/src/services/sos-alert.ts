@@ -381,13 +381,17 @@ export async function isSosAlertPermissionDenied(): Promise<boolean> {
  * 而 getPermissionsAsync 仍报 granted。华为 P30 实测（2026-10-19）：通知总开关关着的时候
  * App 首次启动建的通道会被记成「关闭」，之后把总开关打开，通道还是关的——界面得把这种也算成未开启，
  * 把人带到系统的通知设置页（通道开关就在那一页上）。通道还没建、查不到都按没关处理，不吓唬用户。
+ * 被调成「静默」（LOW / MIN）同样算：通知只进通知栏，不响、不震、不弹横幅，求救倒计时等于没提醒，
+ * 原来照样写「已开启」（10-21 模拟器：通道改成 Silent 后来单，桌面上什么都没有）。「默认」（会响、不弹横幅）不算。
  */
 export async function isSosChannelBlocked(): Promise<boolean> {
   if (Platform.OS !== "android") return false;
   try {
     const ch = await Notifications.getNotificationChannelAsync(SOS_CHANNEL_ID);
     return (
-      ch !== null && ch.importance === Notifications.AndroidImportance.NONE
+      ch !== null &&
+      ch.importance >= Notifications.AndroidImportance.NONE &&
+      ch.importance <= Notifications.AndroidImportance.LOW
     );
   } catch {
     return false;
