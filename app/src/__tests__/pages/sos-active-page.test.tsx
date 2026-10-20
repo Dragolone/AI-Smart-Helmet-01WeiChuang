@@ -525,6 +525,22 @@ describe("倒数中", () => {
     expect(r.texts()).not.toContain("丁");
   });
 
+  it("倒数期间别处改了紧急联系人：每 10 秒跟着刷新，页面写的名单跟上（到点按终态化那一刻的名单发，O24）", async () => {
+    const r = await mount();
+    expect(r.allText()).toContain(tr("sos.willNotify", { n: 1 }));
+    m(contactsApi.list).mockImplementation(() =>
+      Promise.resolve([
+        { id: "c2", name: "爸爸" },
+        { id: "c3", name: "朋友" },
+      ]),
+    );
+    await tick(10_100);
+    await tick(0);
+    expect(r.allText()).toContain(tr("sos.willNotify", { n: 2 }));
+    expect(r.allText()).toContain("爸爸");
+    expect(r.allText()).not.toContain("妈妈");
+  });
+
   it("账号下两顶以上：写明是哪顶头盔发起的（两顶同时求救时分得清）", async () => {
     m(devicesApi.list).mockImplementation(() =>
       Promise.resolve([

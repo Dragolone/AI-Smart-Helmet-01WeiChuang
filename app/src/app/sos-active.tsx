@@ -48,6 +48,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { devLog } from "@/services/dev-log";
 import { onWallClockForwardJump, serverNow } from "@/services/server-clock";
 import {
+  COUNTDOWN_POLL_MS,
   countdownPollInterval,
   presentedSos,
   settleSnapshot,
@@ -706,6 +707,9 @@ function SosActiveContent() {
   const contacts = useQuery({
     queryKey: ["contacts"],
     queryFn: contactsApi.list,
+    // 倒数期间跟着状态轮询的节奏一起刷：别处（另一台手机）改了联系人，这里写的「将通知谁」要跟上——
+    // 到点服务端按终态化那一刻的名单发（10-20 模拟器：开始 3 位、中途全删再加 1 位，页面 60 s 内一直写原来 3 位，O24）
+    refetchInterval: counting ? COUNTDOWN_POLL_MS : false,
   });
   // 发出去之后每位联系人的结果：与事故详情页同一份缓存；还有在发的就隔几秒再看一次
   const detail = useQuery({
