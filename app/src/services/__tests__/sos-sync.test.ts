@@ -345,6 +345,52 @@ describe("resumePendingSos：账号级接口一次拿全（B 线第 12 项）", 
     expect(deps.showLockScreenAlert).toHaveBeenCalledTimes(2);
   });
 
+  it("给了重试间隔：账号级接口失败后按间隔再试，成功那次照常拉起；没给就只试一次（原行为）", async () => {
+    deps.fetchAccountActive
+      .mockRejectedValueOnce(new TypeError("Network request failed"))
+      .mockRejectedValueOnce(new TypeError("Network request failed"))
+      .mockResolvedValueOnce({
+        items: [sos({ sosId: "s1", deviceId: "d1" })],
+        total: 1,
+      });
+    const found = await resumePendingSos(
+      qc,
+      ["d1"],
+      presented,
+      deps,
+      "远程推送到达，补拉",
+      [1, 1],
+    );
+    expect(found).toEqual(["s1"]);
+    expect(deps.fetchAccountActive).toHaveBeenCalledTimes(3);
+    expect(deps.openCountdown).toHaveBeenCalledWith("s1", "d1");
+    expect(deps.log).toHaveBeenCalledWith(
+      expect.stringContaining("1 ms 后重试（第 1 次）"),
+    );
+    // 间隔用完仍失败：放弃，不拉起
+    deps.fetchAccountActive.mockReset();
+    deps.fetchAccountActive.mockRejectedValue(
+      new TypeError("Network request failed"),
+    );
+    deps.openCountdown.mockClear();
+    expect(
+      await resumePendingSos(
+        qc,
+        ["d1"],
+        presented,
+        deps,
+        "远程推送到达，补拉",
+        [1],
+      ),
+    ).toEqual([]);
+    expect(deps.fetchAccountActive).toHaveBeenCalledTimes(2);
+    expect(deps.openCountdown).not.toHaveBeenCalled();
+    // 没给间隔：只试一次
+    deps.fetchAccountActive.mockClear();
+    expect(await resumePendingSos(qc, ["d1"], presented, deps)).toEqual([]);
+    expect(deps.fetchAccountActive).toHaveBeenCalledTimes(1);
+  });
+
   it("本机已知结束的单（迟到的 pending）不拉起；已拉起过的不重复拉", async () => {
     qc.setQueryData(["sos", "s1"], sos({ status: "cancelled" }));
     presented.current.add("s2");
