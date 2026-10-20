@@ -889,6 +889,11 @@ function SosActiveContent() {
                         .catch(() => null),
                     ),
                   );
+                  // 拉到的状态写回缓存：WS 断着时页面也能马上按实际状态画（切到下一单 / 结果页），不等 10 秒轮询
+                  fresh.forEach((f, i) => {
+                    if (f)
+                      queryClient.setQueryData(["sos", failed[i].q.sosId], f);
+                  });
                   const stillPending = failed.find((f, i) => {
                     const c =
                       fresh[i] ??

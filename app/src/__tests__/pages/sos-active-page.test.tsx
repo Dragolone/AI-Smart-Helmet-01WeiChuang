@@ -1643,6 +1643,9 @@ describe("多顶头盔同时求救（10-16 N10：一张页 + 顶部胶囊点切�
       tr("error.network"),
       NOTICE_OK,
     );
+    // 补拉到的状态写回了缓存：屏上的通勤已通知，页面不等轮询就切到还在倒数的滑雪
+    await tick(1100);
+    expect(r.allText()).toContain(tr("sos.fromHelmet", { name: "滑雪" }));
   });
 
   it("结果页上每顶各自的「我还是需要帮助」：替那一行的头盔注入 manual_sos，两顶各用各的 eventId", async () => {
