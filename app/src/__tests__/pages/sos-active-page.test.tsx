@@ -768,6 +768,21 @@ describe("这一单的状态拿不到 / 不存在", () => {
     expect(sosApi.snapshot).toHaveBeenCalledTimes(1);
   });
 
+  // 2026-10-20 补分支：isNotFound 认 404 / 400 / 403 三种，原来只有前两种有用例。
+  // 403 是「这单 / 这顶头盔不归你」（头盔在倒数中被另一部手机解绑后重绑、点了别人转发的链接）：重试永远是同一个结果，
+  // 当成「状态未知」的话页面停在「—」秒、每 10 秒白拉一次、返回键还被拦着
+  it("不是你的单（服务端 403 FORBIDDEN）：同 404，不画倒计时、不重试也不轮询、不拦返回键", async () => {
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.reject(new ApiRequestError(403, { code: "FORBIDDEN" })),
+    );
+    const r = await mount();
+    expect(r.allText()).toContain(tr("sos.gone.title"));
+    expect(r.allText()).not.toContain("—");
+    await tick(30_000);
+    expect(sosApi.snapshot).toHaveBeenCalledTimes(1);
+    expect(back).toBeNull();
+  });
+
   it("没有这一单、栈里有上一页（从别的页面点进来的）：关闭就是返回上一页", async () => {
     m(sosApi.snapshot).mockImplementation(() =>
       Promise.reject(new ApiRequestError(404, { code: "NOT_FOUND" })),
@@ -1670,6 +1685,39 @@ describe("演练（drill=1）", () => {
     await tick(61_000);
     expect(r.allText()).toContain(tr("sos.drillDoneTitle"));
     expect(clearSosAlert).not.toHaveBeenCalled();
+  });
+
+  // 2026-10-20 补分支：失焦收尾只该结束「还在倒数」的演练（见页面 useFocusEffect 的注释），已经出了结果的不能改写
+  const blur = async (r: Rendered) => {
+    routerState.focused = false;
+    await act(async () => {
+      r.rerender(
+        <QueryClientProvider client={qc}>
+          <SosActiveScreen />
+        </QueryClientProvider>,
+      );
+    });
+    await tick(0);
+  };
+
+  it("演练里已按「立即求救」、之后页面被盖住（失焦）：结果页仍写「会尝试短信通知联系人」，不被改写成「已在倒计时内取消」", async () => {
+    const r = await mount();
+    r.press(tr("sos.sendNow"));
+    expect(r.allText()).toContain(tr("sos.drillNotifiedBody"));
+    await blur(r);
+    expect(r.allText()).toContain(tr("sos.drillNotifiedBody"));
+    expect(r.allText()).not.toContain(tr("sos.drillCancelledBody"));
+  });
+
+  // 演练倒数走完时「已通知」是渲染期按 deadline 推出来的，本地状态仍是 pending；失焦收尾原来只看本地状态，
+  // 把一场已经走完的演练改写成「已取消」——演练要教的恰好反了（10-20 补测查出，#319 带进来的）。现在只结束还在倒数的演练
+  it("演练倒数走完（显示已通知）后失焦：结果页仍是「已通知」，不被改写成「已在倒计时内取消」", async () => {
+    const r = await mount();
+    await tick(61_000);
+    expect(r.allText()).toContain(tr("sos.drillNotifiedBody"));
+    await blur(r);
+    expect(r.allText()).toContain(tr("sos.drillNotifiedBody"));
+    expect(r.allText()).not.toContain(tr("sos.drillCancelledBody"));
   });
 });
 

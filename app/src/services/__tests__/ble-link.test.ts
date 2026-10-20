@@ -2096,3 +2096,50 @@ describe("补分支（2026-10-19）", () => {
     });
   });
 });
+
+describe("补分支（2026-10-20）", () => {
+  const ID = "helmet_94173f";
+  const managers = () =>
+    BleManager as unknown as Mock<() => { destroy: () => unknown }>;
+
+  // 「destroy 抛错 / 拒绝」那条测的是异步拒绝；原生模块已经失效时 destroy() 会在调用当下同步抛。
+  // 这时 releasing 若没被重置成已就绪的 Promise，startBleLink 的 `await releasing` 会一直等一个永不回来的销毁——
+  // 登出重登 / 退出工程模式后链路再也起不来，摔倒事件只留在头盔 Flash 里
+  it("原生 destroy 同步抛错（原生模块已失效）：停链路不抛、销毁视为已完成，下一次启动照常新建 BleManager 并开始扫描", async () => {
+    await startBleLink([ID]);
+    await tick();
+    const results = managers().mock.results;
+    const current = results[results.length - 1].value as {
+      destroy: () => unknown;
+    };
+    current.destroy = () => {
+      throw new Error("native module gone");
+    };
+    expect(() => stopBleLink()).not.toThrow();
+    await expect(bleStackReleased()).resolves.toBeUndefined();
+    const built = managers().mock.calls.length;
+    const scans = mockScans.length;
+    await startBleLink([ID]);
+    await tick();
+    expect(managers().mock.calls.length).toBe(built + 1);
+    expect(mockScans.length).toBeGreaterThan(scans);
+    expect(link()?.phase).toBe("scanning");
+  });
+
+  // ble-plx 扫描回调的类型是 (error, device | null)：两样都空时不能当成命中去连 null.connect()（会抛进原生回调里），
+  // 也不能停掉这一轮——停了就得等 20 s 兜底才重扫，这期间上电的头盔连不上
+  it("扫描回调既没报错也没给设备（空回调）：不崩、不当命中、不重开一轮；随后真发现头盔照常连上", async () => {
+    await startBleLink([ID]);
+    await tick();
+    const scans = mockScans.length;
+    expect(() => scanCb?.(null, null)).not.toThrow();
+    await tick();
+    expect(fakeDevice.connect).not.toHaveBeenCalled();
+    expect(mockScans.length).toBe(scans);
+    expect(link()?.phase).toBe("scanning");
+    scanCb?.(null, fakeDevice);
+    for (let i = 0; i < 40 && link()?.phase !== "connected"; i += 1)
+      await tick();
+    expect(link()?.phase).toBe("connected");
+  });
+});

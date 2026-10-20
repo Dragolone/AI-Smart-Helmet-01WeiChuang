@@ -287,8 +287,13 @@ function SosActiveContent() {
     useCallback(() => {
       if (!isDrill) return undefined;
       return () => {
+        // 只结束「还在倒数」的演练：倒数走完时显示的「已通知」是渲染期按 deadline 推出来的，本地状态仍是 pending，
+        // 只看本地状态会把一场已经走完的演练改写成「已在倒计时内取消」，演练要教的正好说反（10-20 补测查出）
+        const now = serverNow();
         setDrillState((s) =>
-          s.status === "pending" ? { ...s, status: "cancelled" } : s,
+          s.status === "pending" && now < new Date(s.deadline).getTime()
+            ? { ...s, status: "cancelled" }
+            : s,
         );
       };
     }, [isDrill]),
