@@ -1709,18 +1709,15 @@ describe("演练（drill=1）", () => {
     expect(r.allText()).not.toContain(tr("sos.drillCancelledBody"));
   });
 
-  // 疑似缺陷，交负责人：演练倒数走完时「已通知」是渲染期按 deadline 推出来的，本地状态仍是 pending；
-  // 失焦收尾只看本地状态，于是把一场已经走完的演练改写成「已取消」——真单页盖上来再退回、或切到别的页再回来，
-  // 结果页从「真实求救时会尝试短信通知紧急联系人」变成「已在倒计时内取消……取消后不会发送联系人通知」，
-  // 演练要教的恰好反了。只影响演练文案（警报此时早已停），不碰真实求救。
-  // 这里断言的是当前行为；修好后应改成断言仍是 drillNotifiedBody
-  it("疑似缺陷，交负责人：演练倒数走完（显示已通知）后失焦，结果页被改写成「已在倒计时内取消」", async () => {
+  // 演练倒数走完时「已通知」是渲染期按 deadline 推出来的，本地状态仍是 pending；失焦收尾原来只看本地状态，
+  // 把一场已经走完的演练改写成「已取消」——演练要教的恰好反了（10-20 补测查出，#319 带进来的）。现在只结束还在倒数的演练
+  it("演练倒数走完（显示已通知）后失焦：结果页仍是「已通知」，不被改写成「已在倒计时内取消」", async () => {
     const r = await mount();
     await tick(61_000);
     expect(r.allText()).toContain(tr("sos.drillNotifiedBody"));
     await blur(r);
-    expect(r.allText()).toContain(tr("sos.drillCancelledBody"));
-    expect(r.allText()).not.toContain(tr("sos.drillNotifiedBody"));
+    expect(r.allText()).toContain(tr("sos.drillNotifiedBody"));
+    expect(r.allText()).not.toContain(tr("sos.drillCancelledBody"));
   });
 });
 
