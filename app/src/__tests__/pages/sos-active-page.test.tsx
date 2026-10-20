@@ -54,6 +54,10 @@ import {
 import { devLog } from "@/services/dev-log";
 import { clearSosAlert } from "@/services/sos-alert";
 import { sosScreen } from "@/services/sos-queue";
+import {
+  __resetServerClockForTests,
+  noteServerDate,
+} from "@/services/server-clock";
 import { presentedSos } from "@/services/sos-sync";
 import { useSosCancelStore } from "@/stores/sos-cancel-store";
 import { useThemeStore } from "@/stores/theme-store";
@@ -1666,6 +1670,23 @@ describe("演练（drill=1）", () => {
     await tick(61_000);
     expect(r.allText()).toContain(tr("sos.drillDoneTitle"));
     expect(clearSosAlert).not.toHaveBeenCalled();
+  });
+});
+
+describe("墙钟往前跳", () => {
+  it("倒数中手机时间被拨快 90 秒（或睡醒）：页面立刻再拉一次快照，不等 10 s 轮询；演练不拉", async () => {
+    // 先让时钟学到一个偏移（真机上每个响应的 Date 头都会喂；测试里 snapshot 是 mock，没有 HTTP）；
+    // 用完重置，不然模块级的锚会把后面用例的假时钟当成「往回拨」
+    __resetServerClockForTests();
+    noteServerDate(new Date(Date.now()).toUTCString(), Date.now());
+    const r = await mount();
+    expect(number(r)).toBe("45");
+    const before = m(sosApi.snapshot).mock.calls.length;
+    jest.setSystemTime(Date.now() + 90_000);
+    await tick(1100);
+    expect(m(sosApi.snapshot).mock.calls.length).toBe(before + 1);
+    r.unmount();
+    __resetServerClockForTests();
   });
 });
 
