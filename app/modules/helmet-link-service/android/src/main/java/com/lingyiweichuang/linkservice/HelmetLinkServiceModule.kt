@@ -4,12 +4,20 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
+import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
 import android.net.wifi.WifiManager
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.os.VibrationAttributes
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.provider.Settings
 import android.util.Log
 import expo.modules.kotlin.modules.Module
@@ -21,13 +29,57 @@ class HelmetLinkServiceModule : Module() {
 
   private companion object {
     const val TAG = "HelmetLinkService"
+    const val ALARM_START_VOLUME = 0.4f
+    const val ALARM_RAMP_STEP = 0.1f
+    const val ALARM_RAMP_INTERVAL_MS = 1_500L
   }
 
   private var wakeLock: PowerManager.WakeLock? = null
   private var wifiLock: WifiManager.WifiLock? = null
 
+  // —— 求救倒计时警报（F15，2026-10-20 华为实测）——
+  // expo-audio 把播放器写死成媒体用途（USAGE_MEDIA）：手机静音 / 媒体音量 0 时倒计时完全无声，只剩每秒 60 ms 的弱震动。
+  // 这里改用闹钟用途循环播放：走闹钟音量、不受铃声静音影响、勿扰模式下默认放行；音量从 40% 渐升到满，误报时不至于一上来就最响
+  private var alarmPlayer: MediaPlayer? = null
+  private var alarmFocus: AudioFocusRequest? = null
+  private var alarmVolume = ALARM_START_VOLUME
+  private val alarmHandler = Handler(Looper.getMainLooper())
+  private val alarmRamp = object : Runnable {
+    override fun run() {
+      val p = alarmPlayer ?: return
+      alarmVolume = (alarmVolume + ALARM_RAMP_STEP).coerceAtMost(1f)
+      try {
+        p.setVolume(alarmVolume, alarmVolume)
+      } catch (e: IllegalStateException) {
+        return
+      }
+      if (alarmVolume < 1f) alarmHandler.postDelayed(this, ALARM_RAMP_INTERVAL_MS)
+    }
+  }
+
   override fun definition() = ModuleDefinition {
     Name("HelmetLinkService")
+
+    /** 求救倒计时开始：闹钟用途循环播放警报 + 满幅震动（重复调用不叠加） */
+    Function("startSosAlarm") { ->
+      onMain { startAlarm() }
+    }
+
+    /** 倒计时结束 / 取消 / 页面离开：停声、停震、还音频焦点 */
+    Function("stopSosAlarm") { ->
+      onMain { stopAlarm() }
+    }
+
+    /** 最后 10 秒：震动换成每秒两下（声音不变） */
+    Function("setSosAlarmUrgent") { urgent: Boolean ->
+      onMain { if (alarmPlayer != null) vibrateAlarm(urgent) }
+    }
+
+    OnDestroy {
+      alarmHandler.removeCallbacks(alarmRamp)
+      releaseAlarmPlayer()
+      appContext.reactContext?.let { vibrator(it)?.cancel() }
+    }
 
     /**
      * 高危事件待上传期间短暂持锁：CPU 部分唤醒 + Wi-Fi 高性能锁，最多 ms 毫秒自动释放。
@@ -141,6 +193,90 @@ class HelmetLinkServiceModule : Module() {
     /** 拉起系统「忽略电池优化」对话框；机型不支持时退到电池优化设置页 */
     Function("requestIgnoreBatteryOptimizations") { ->
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) openBatterySettings()
+    }
+  }
+
+  private fun startAlarm() {
+    if (alarmPlayer != null) return
+    val ctx = appContext.reactContext ?: return
+    val attrs = AudioAttributes.Builder()
+      .setUsage(AudioAttributes.USAGE_ALARM)
+      .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+      .build()
+    try {
+      val p = MediaPlayer()
+      ctx.resources.openRawResourceFd(R.raw.sos_alarm).use { afd ->
+        p.setAudioAttributes(attrs)
+        p.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+      }
+      p.isLooping = true
+      alarmVolume = ALARM_START_VOLUME
+      p.setVolume(alarmVolume, alarmVolume)
+      p.prepare()
+      val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+      val focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+        .setAudioAttributes(attrs)
+        .build()
+      am.requestAudioFocus(focus)
+      alarmFocus = focus
+      p.start()
+      alarmPlayer = p
+      alarmHandler.postDelayed(alarmRamp, ALARM_RAMP_INTERVAL_MS)
+    } catch (e: Exception) {
+      // 放不出声也绝不能把倒计时页带崩：震动照常、页面照常
+      Log.w(TAG, "SOS alarm (alarm stream) failed to start", e)
+      releaseAlarmPlayer()
+    }
+    vibrateAlarm(false)
+  }
+
+  private fun stopAlarm() {
+    alarmHandler.removeCallbacks(alarmRamp)
+    releaseAlarmPlayer()
+    val ctx = appContext.reactContext ?: return
+    alarmFocus?.let { (ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager).abandonAudioFocusRequest(it) }
+    alarmFocus = null
+    vibrator(ctx)?.cancel()
+  }
+
+  private fun releaseAlarmPlayer() {
+    alarmPlayer?.let {
+      try {
+        if (it.isPlaying) it.stop()
+      } catch (e: IllegalStateException) {
+        // 已经停了
+      }
+      it.release()
+    }
+    alarmPlayer = null
+  }
+
+  private fun vibrator(ctx: Context): Vibrator? =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+      (ctx.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)?.defaultVibrator
+    } else {
+      @Suppress("DEPRECATION")
+      ctx.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+    }
+
+  /** 普通：每秒一下 400 ms；急促（最后 10 秒）：每秒两下 200 ms。满幅、闹钟用途（静音模式下照震） */
+  private fun vibrateAlarm(urgent: Boolean) {
+    val ctx = appContext.reactContext ?: return
+    val vib = vibrator(ctx) ?: return
+    if (!vib.hasVibrator()) return
+    val timings = if (urgent) longArrayOf(0, 200, 100, 200, 500) else longArrayOf(0, 400, 600)
+    val amplitudes = if (urgent) intArrayOf(0, 255, 0, 255, 0) else intArrayOf(0, 255, 0)
+    val effect = if (vib.hasAmplitudeControl()) {
+      VibrationEffect.createWaveform(timings, amplitudes, 0)
+    } else {
+      VibrationEffect.createWaveform(timings, 0)
+    }
+    vib.cancel()
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      vib.vibrate(effect, VibrationAttributes.createForUsage(VibrationAttributes.USAGE_ALARM))
+    } else {
+      @Suppress("DEPRECATION")
+      vib.vibrate(effect, AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).build())
     }
   }
 

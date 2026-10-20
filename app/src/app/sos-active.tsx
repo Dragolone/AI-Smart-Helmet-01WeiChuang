@@ -21,6 +21,7 @@ import { setAudioModeAsync, useAudioPlayer } from "expo-audio";
 import * as Haptics from "expo-haptics";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { HelmetLinkService } from "helmet-link-service";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
@@ -433,6 +434,28 @@ function SosActiveContent() {
   const deadline = sos?.deadline;
   useEffect(() => {
     if (!counting) return;
+    // 安卓走原生闹钟通道（F15，10-20 华为实测）：expo-audio 是媒体用途，手机静音 / 媒体音量 0 时整段倒计时没有一点声音，
+    // 震动也只有每秒 60 ms 的弱触感。原生侧循环播放、音量渐升、满幅闹钟震动；最后 10 秒换成每秒两下。
+    // 原生包比 JS 旧（还没有这些方法）或 iOS 时 sosAlarmAvailable 为 false，走下面原来的路径
+    if (HelmetLinkService.sosAlarmAvailable) {
+      devLog("SOS", "倒计时页开始警报（闹钟通道）", AppState.currentState);
+      HelmetLinkService.startSosAlarm();
+      let urgentOn = false;
+      const tick = setInterval(() => {
+        if (
+          !urgentOn &&
+          deadline &&
+          secondsLeft(deadline, serverNow()) <= URGENT_SECONDS
+        ) {
+          urgentOn = true;
+          HelmetLinkService.setSosAlarmUrgent(true);
+        }
+      }, 1000);
+      return () => {
+        clearInterval(tick);
+        HelmetLinkService.stopSosAlarm();
+      };
+    }
     // 警报音绝不能把页面打崩：锁屏/后台时 AVAudioSession 激活可能失败（expo-audio 同步抛
     // "Session activation failed"，Release 下未捕获即整 App 崩溃，2026-09-16 真机实证——
     // 摔倒时手机恰恰在口袋里）。播放失败只记日志，倒计时与取消按钮照常。
