@@ -64,7 +64,9 @@ class Helmet:
         self.device_id = device_id
         MEM[0x40:0x50] = device_id.encode("ascii").ljust(16, b"\x00")[:16]
         self.seq = 1000  # Event_Seq 开机预分配 +1000
-        MEM[0x34:0x38] = self.seq.to_bytes(4, "little")
+        # 落盘的是「已预留到哪」：开机从它起步再预留 1000，保证不会复用上次运行发过的序号（周期包也占序号，
+        # 原来只在存 / 擦高危帧时写盘，重启后读回旧值，重复使用发过的序号 → 服务端按 eventId 撞号另存，10-20 实测）
+        self.reserved = self.seq
         self.lat, self.lng = lat, lng
         self.battery = 85
         self.subscribed = False
@@ -73,6 +75,11 @@ class Helmet:
         # 高危离线保护队列（高危帧原样存）；落盘模拟 Flash 掉电保持，重启仿真器后仍可补传
         self.flash_file = os.path.expanduser(f"~/.helmet/ble-sim-flash.{device_id}.json")
         self.flash: List[bytes] = self._load_flash()
+        # 开机先整体跳过一个区段：旧格式的落盘值（只在存 / 擦高危帧时写）可能低于上次实际用到的序号
+        self.seq += 1000
+        self.reserved = self.seq + 1000
+        self.save_flash()
+        MEM[0x34:0x38] = self.seq.to_bytes(4, "little")
         self.rtc_offset = 0  # 对时后与本机时钟差
         self.synced = False
         self.log_prefix = f"[{device_id}]"
@@ -90,7 +97,7 @@ class Helmet:
     def save_flash(self) -> None:
         os.makedirs(os.path.dirname(self.flash_file), exist_ok=True)
         with open(self.flash_file, "w") as f:
-            json.dump({"seq": self.seq, "frames": [fr.hex() for fr in self.flash]}, f)
+            json.dump({"seq": max(self.seq, getattr(self, "reserved", self.seq)), "frames": [fr.hex() for fr in self.flash]}, f)
 
     # —— 工具 ——
     def now_utc(self) -> int:
@@ -98,6 +105,9 @@ class Helmet:
 
     def next_seq(self) -> int:
         self.seq += 1
+        if self.seq >= self.reserved:  # 预留用完再续 1000 并落盘（固件同样按段预分配，省 Flash 擦写）
+            self.reserved = self.seq + 1000
+            self.save_flash()
         return self.seq
 
     def log(self, msg: str) -> None:
