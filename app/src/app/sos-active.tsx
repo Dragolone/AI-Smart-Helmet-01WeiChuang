@@ -261,7 +261,25 @@ function SosActiveContent() {
   const t = useT();
   const locale = useLocale();
   const queryClient = useQueryClient();
-  const [busy, setBusy] = useState<"cancel" | "confirm" | null>(null);
+  // 在途的取消 / 立即求救按单记：慢网下取消 A 还没回来时切到 B（胶囊 / 同一顶新单顶替），
+  // B 的按钮不能被 A 的请求锁住（矩阵 Q9，10-20 模拟器 netem 6 s 实测锁了约 12 s）
+  const [busyById, setBusyById] = useState<
+    Record<string, "cancel" | "confirm">
+  >({});
+  const busy = busyById[sosId] ?? null;
+  const anyBusy = Object.keys(busyById).length > 0;
+  const markBusy = (ids: string[], kind: "cancel" | "confirm") =>
+    setBusyById((b) => {
+      const n = { ...b };
+      for (const id of ids) n[id] = kind;
+      return n;
+    });
+  const clearBusy = (ids: string[]) =>
+    setBusyById((b) => {
+      const n = { ...b };
+      for (const id of ids) delete n[id];
+      return n;
+    });
   // 通知按钮的取消还在路上（被杀状态下点「我没事，取消」拉起 App，页面要过启动动画才出来）：
   // 按钮显示「取消中…」、不响警报，别让用户对着一个还在倒数的页面以为刚才那一下没算数
   const cancellingFromNotification = useSosCancelStore(
@@ -497,10 +515,12 @@ function SosActiveContent() {
       }));
       return;
     }
-    setBusy(kind);
-    (kind === "cancel" ? sosApi.cancel(sosId) : sosApi.confirm(sosId))
+    // 请求发出时是哪一单就一直按哪一单收尾：中途切单后 sosId / sosQuery 已经指向别的单
+    const id = sosId;
+    markBusy([id], kind);
+    (kind === "cancel" ? sosApi.cancel(id) : sosApi.confirm(id))
       .then((updated) => {
-        queryClient.setQueryData(["sos", sosId], updated);
+        queryClient.setQueryData(["sos", id], updated);
       })
       .catch((e) => {
         // 这单已经在别处结束（锁屏通知按钮 / 另一台手机 / 到期）：不弹错，拉一次权威状态让页面自己切到结束态
@@ -508,24 +528,26 @@ function SosActiveContent() {
           e instanceof ApiRequestError &&
           e.code === "SOS_ALREADY_FINALIZED"
         ) {
-          void sosQuery.refetch();
+          void queryClient.invalidateQueries({
+            queryKey: ["sos", id],
+            exact: true,
+          });
           return;
         }
         // 请求本身失败（超时 / 断网）不等于没办成：服务端终态化时先经实时通道推新状态、再内联发短信，
         // 短信慢时「立即求救」的响应会晚于 App 的超时，页面已经切到「已发送」，再弹「出错了」就自相矛盾
         //（10-20 本地后端实测：3 位联系人、每条短信 9 s 时响应 18 s）。先拉一次权威状态，这单已不在倒数就不弹
-        return sosQuery
-          .refetch()
-          .then((r) => r.data ?? null)
-          .catch(() => null)
-          .then((fresh) => {
-            const current =
-              fresh ?? queryClient.getQueryData<Sos>(["sos", sosId]) ?? null;
+        // 补拉失败时缓存保持原样（仍在倒数）→ 照常弹；切走后这单没有观察者也要拉（type: "all"）
+        return queryClient
+          .refetchQueries({ queryKey: ["sos", id], exact: true, type: "all" })
+          .catch(() => undefined)
+          .then(() => {
+            const current = queryClient.getQueryData<Sos>(["sos", id]) ?? null;
             if (current && current.status !== "pending") return;
             showNotice(t("common.failed"), toUserMessage(e));
           });
       })
-      .finally(() => setBusy(null));
+      .finally(() => clearBusy([id]));
   };
 
   const left = sos ? secondsLeft(sos.deadline, now) : null;
@@ -816,8 +838,9 @@ function SosActiveContent() {
           text: t("common.confirm"),
           style: kind === "cancel" ? "destructive" : "default",
           onPress: () => {
-            setBulkIds(targets.map((q) => q.sosId));
-            setBusy(kind);
+            const ids = targets.map((q) => q.sosId);
+            setBulkIds(ids);
+            markBusy(ids, kind);
             void Promise.allSettled(
               targets.map((q) =>
                 (kind === "cancel"
@@ -853,7 +876,7 @@ function SosActiveContent() {
                 });
                 void refreshActiveSos(queryClient);
               })
-              .finally(() => setBusy(null));
+              .finally(() => clearBusy(ids));
           },
         },
       ],
@@ -1115,7 +1138,7 @@ function SosActiveContent() {
                     <Tappable
                       feedback="scale"
                       accessibilityRole="button"
-                      disabled={busy !== null}
+                      disabled={anyBusy}
                       onPress={() => actAll("confirm")}
                       style={[styles.batchBtn, { borderColor: P.sosBtn }]}
                     >
@@ -1128,7 +1151,7 @@ function SosActiveContent() {
                     <Tappable
                       feedback="scale"
                       accessibilityRole="button"
-                      disabled={busy !== null}
+                      disabled={anyBusy}
                       onPress={() => actAll("cancel")}
                       style={[styles.batchBtn, { borderColor: theme.border }]}
                     >
