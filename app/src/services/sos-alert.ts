@@ -8,6 +8,7 @@ import * as Notifications from "expo-notifications";
 import { AppState, Platform } from "react-native";
 
 import { sosActiveHref } from "@/services/sos-routes";
+import { REQUEST_TIMEOUT_MS } from "@/api/client";
 import { sosApi } from "@/api/sos";
 import { translate } from "@/i18n";
 import type { Sos } from "@helmet/shared";
@@ -296,7 +297,10 @@ export async function cancelFromNotification(
     return true;
   };
   try {
-    const sos = await sosApi.cancel(sosId);
+    // 超时显式用全局的 15 s，不跟倒计时页的 8 s（O7，10-20）：这条链路前三次重试没有人在看，
+    // 每一次都该给足时间——慢但通的网络（一次要 9–14 s）下 15 s 能一次成功，8 s 会四次全超时、
+    // 最后把人带到页面上说「取消没送达」。节奏（2 / 5 / 10 s）是 10-07 iPhone 实测调过的，O7 不动它
+    const sos = await sosApi.cancel(sosId, { timeoutMs: REQUEST_TIMEOUT_MS });
     return settled(sos);
   } catch (e) {
     const code = (e as { code?: string }).code;
