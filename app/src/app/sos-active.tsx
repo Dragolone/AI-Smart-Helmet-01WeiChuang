@@ -542,6 +542,25 @@ function SosActiveContent() {
           e instanceof ApiRequestError &&
           e.code === "SOS_ALREADY_FINALIZED"
         ) {
+          // 「立即求救」被拒是因为取消先落地了（通知上的「我没事，取消」还在路上时又点了立即求救，
+          // 10-21 模拟器实测）：页面会切到「已取消」，可人刚刚明确要求救——要说一声没发出去（O29）
+          if (kind === "confirm") {
+            return queryClient
+              .refetchQueries({
+                queryKey: ["sos", id],
+                exact: true,
+                type: "all",
+              })
+              .catch(() => undefined)
+              .then(() => {
+                const current = queryClient.getQueryData<Sos>(["sos", id]);
+                if (current?.status === "cancelled")
+                  showNotice(
+                    t("sos.sendNowLostTitle"),
+                    t("sos.sendNowLostBody"),
+                  );
+              });
+          }
           void queryClient.invalidateQueries({
             queryKey: ["sos", id],
             exact: true,

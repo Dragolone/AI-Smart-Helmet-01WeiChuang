@@ -651,6 +651,46 @@ describe("取消 / 立即求救", () => {
     expect(r.allText()).toContain(tr("sos.cancelledTitle"));
   });
 
+  it("立即求救被拒、因为取消先落地了（O29，10-21 模拟器）：明说没发出去，页面停在已取消", async () => {
+    m(sosApi.confirm).mockImplementation(() =>
+      Promise.reject(
+        new ApiRequestError(409, { code: "SOS_ALREADY_FINALIZED" }),
+      ),
+    );
+    const r = await mount();
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ status: "cancelled" })),
+    );
+    r.press(tr("sos.sendNow"));
+    await tick(0);
+    await tick(0);
+    expect(alert).toHaveBeenCalledWith(
+      tr("sos.sendNowLostTitle"),
+      tr("sos.sendNowLostBody"),
+      NOTICE_OK,
+    );
+    expect(r.allText()).toContain(tr("sos.cancelledTitle"));
+  });
+
+  it("立即求救被拒但这单其实已通知（别处先点了 / 到期）：不提示，页面切到已通知", async () => {
+    m(sosApi.confirm).mockImplementation(() =>
+      Promise.reject(
+        new ApiRequestError(409, { code: "SOS_ALREADY_FINALIZED" }),
+      ),
+    );
+    m(sosApi.accidentDetail).mockImplementation(() =>
+      Promise.resolve({ notifications: [] } as unknown as AccidentDetail),
+    );
+    const r = await mount();
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ status: "notified" })),
+    );
+    r.press(tr("sos.sendNow"));
+    await tick(0);
+    await tick(0);
+    expect(alert).not.toHaveBeenCalled();
+  });
+
   it("其它失败：弹窗说明，页面还在倒数", async () => {
     m(sosApi.confirm).mockImplementation(() =>
       Promise.reject(new TypeError("Network request failed")),

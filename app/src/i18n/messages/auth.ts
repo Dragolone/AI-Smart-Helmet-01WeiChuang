@@ -112,6 +112,9 @@ export const auth = {
     "sos.slideA11y": "我没事，取消本次求救",
     "sos.slideHint": "向右滑到底取消",
     "sos.sendNow": "立即求救",
+    "sos.sendNowLostTitle": "立即求救没有发出去",
+    "sos.sendNowLostBody":
+      "取消请求先到了，这一单已经取消，联系人没有收到通知。仍需要帮助，请点「我还是需要帮助」。",
     "sos.close": "关闭",
     "sos.fromHelmet": "来自 {name}",
     "sos.gone.title": "这条求救不存在",
@@ -244,6 +247,9 @@ export const auth = {
     "sos.slideA11y": "我沒事，取消本次求救",
     "sos.slideHint": "向右滑到底取消",
     "sos.sendNow": "立即求救",
+    "sos.sendNowLostTitle": "立即求救沒有發出去",
+    "sos.sendNowLostBody":
+      "取消請求先到了，這一單已經取消，聯絡人沒有收到通知。仍需要幫助，請點「我還是需要幫助」。",
     "sos.close": "關閉",
     "sos.fromHelmet": "來自 {name}",
     "sos.gone.title": "這則求救不存在",
@@ -390,6 +396,9 @@ export const auth = {
     "sos.slideA11y": "I'm OK, cancel this SOS",
     "sos.slideHint": "Slide all the way right to cancel",
     "sos.sendNow": "Send SOS now",
+    "sos.sendNowLostTitle": "SOS was not sent",
+    "sos.sendNowLostBody":
+      'Your cancel reached the server first, so this SOS was cancelled and no one was notified. If you still need help, tap "I do need help".',
     "sos.close": "Close",
     "sos.fromHelmet": "From {name}",
     "sos.gone.title": "This SOS doesn't exist",
