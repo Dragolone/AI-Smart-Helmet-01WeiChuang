@@ -11,6 +11,8 @@ import {
 } from "@jest/globals";
 import { AppState, type AppStateStatus } from "react-native";
 
+import { setSplashCovering } from "@/components/splash/covering";
+
 import {
   FOREGROUND_SETTLE_MS,
   whenForegroundSettled,
@@ -52,6 +54,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setSplashCovering(false);
   jest.useRealTimers();
   jest.restoreAllMocks();
   if (original) Object.defineProperty(AppState, "currentState", original);
@@ -136,6 +139,29 @@ describe("whenForegroundSettled", () => {
     appState("active");
     jest.advanceTimersByTime(FOREGROUND_SETTLE_MS);
     expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("冷启动开屏还盖着：不计时，开屏让开后才开始计（说明框弹在路线动画上，10-21 华为）", () => {
+    setSplashCovering(true);
+    const run = jest.fn();
+    whenForegroundSettled(run);
+    jest.advanceTimersByTime(FOREGROUND_SETTLE_MS * 5);
+    expect(run).not.toHaveBeenCalled();
+    setSplashCovering(false);
+    jest.advanceTimersByTime(FOREGROUND_SETTLE_MS - 1);
+    expect(run).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(1);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("开屏还盖着时取消：让开之后也不调用", () => {
+    setSplashCovering(true);
+    const run = jest.fn();
+    const cancel = whenForegroundSettled(run);
+    cancel();
+    setSplashCovering(false);
+    jest.advanceTimersByTime(FOREGROUND_SETTLE_MS * 3);
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("取消之后（权限状态变了、页面卸载）不再调用，也不留监听", () => {
