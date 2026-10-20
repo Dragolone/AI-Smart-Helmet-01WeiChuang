@@ -59,7 +59,7 @@ export class SosNotifierService {
    */
   async finalizeNotified(
     sosId: string,
-    options: { deliverInline?: boolean } = {},
+    options: { deliverInline?: boolean | 'background' } = {},
   ): Promise<boolean> {
     const finalized = await this.prisma.$transaction(async (tx) => {
       const won = await tx.sosCase.updateMany({
@@ -104,6 +104,17 @@ export class SosNotifierService {
     // 扫描任务传 deliverInline=false：到期终态化只写库、不在这里等第三方，投递由扫描的独立阶段负责。
     // 内联首投的异常不能外抛（审计 SOS-06）：终态化已提交即视为成功，投递问题由扫描按通知行续投；
     // 否则 confirm 会给 App 回 500，而服务端其实已 notified，用户再点一次只会得到 409。
+    // 'background'（App 的「立即求救」）：首投照样立刻开始，但不让 HTTP 响应等它——短信通道慢时
+    // 内联首投按联系人逐条发，3 位 × 每条 9 s 要 18 s 才回，晚于 App 的超时，App 会在「已发送」页上弹「出错了」
+    //（10-20 本地后端故障注入实测）。终态和通知行已在上面的事务里提交、WS 也已推出，响应不需要等投递
+    if (options.deliverInline === 'background') {
+      void this.deliverPending(sosId).catch((err: unknown) =>
+        this.logger.error(
+          `SOS ${sosId} 终态化后首轮投递异常（状态已 notified，由扫描续投）：${errorMessage(err)}`,
+        ),
+      );
+      return true;
+    }
     if (options.deliverInline !== false) {
       try {
         await this.deliverPending(sosId);
