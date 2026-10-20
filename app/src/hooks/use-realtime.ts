@@ -25,6 +25,7 @@ import { newerFix } from "@/components/map/coords";
 import {
   setBleTargetNameResolver,
   setBleTargets,
+  checkBlePermissions,
   startBleLink,
   stopBleLink,
 } from "@/services/ble-link";
@@ -55,6 +56,7 @@ import {
 import {
   clearSosAlert,
   ensureSosAlertPermission,
+  whenSosAlertPermissionAsked,
   holdPermissionPromptUntil,
   resetSosAlerts,
   setSosCancelConfirmedListener,
@@ -181,8 +183,16 @@ export function useRealtimeUpdates(): void {
     };
     onUserReady();
     const unsubscribeUser = useAuthStore.subscribe(onUserReady);
-    void Promise.all([permissionReady, cachedReady]).then(() => {
-      if (!cancelled) void startBleLink(bleTargetsOf());
+    void Promise.all([permissionReady, cachedReady]).then(async () => {
+      if (cancelled) return;
+      // 蓝牙权限还没给过时，起链路就会弹「附近设备」系统框，同样盖在倒计时页上（O10 草稿 10-20 模拟器复验：
+      // 通知框推迟之后换成这个框挡住滑动取消）。这种情况下等通知那次（倒计时在屏时被推迟到关页后）有结果再起链路：
+      // 蓝牙权限本来就没有，链路晚起不丢事件——头盔没收到 ACK 的高危事件留在 Flash，连上后补传
+      if (!(await checkBlePermissions().catch(() => true))) {
+        await whenSosAlertPermissionAsked();
+        if (cancelled) return;
+      }
+      void startBleLink(bleTargetsOf());
     });
     // SOS 同步的判断逻辑在 services/sos-sync.ts（纯函数 + 注入副作用，有单测）；这里只接线
     const sosDeps: SosSyncDeps = {
