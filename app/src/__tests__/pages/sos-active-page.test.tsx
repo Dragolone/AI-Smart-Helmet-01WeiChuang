@@ -1084,6 +1084,50 @@ describe("多顶头盔同时求救（10-16 N10：一张页 + 顶部胶囊点切�
     expect(sosScreen.mounted).toBe(false);
   });
 
+  it("慢网下取消 A 还没回来就切到 B：B 的按钮不被 A 的请求锁住，「立即求救」照常发给 B；A 的失败按 A 收尾（矩阵 Q9，10-20 模拟器）", async () => {
+    twoHelmets();
+    let rejectA: (e: unknown) => void = () => undefined;
+    m(sosApi.cancel).mockImplementation(
+      () =>
+        new Promise((_, reject) => {
+          rejectA = reject;
+        }),
+    );
+    m(sosApi.confirm).mockImplementation((id: unknown) =>
+      Promise.resolve(
+        id === "s2" ? { ...second(), status: "notified" } : sosOf(),
+      ),
+    );
+    const r = await mount();
+    arrive(second());
+    await tick(0);
+    slideCancel(r);
+    await tick(0);
+    expect(sosApi.cancel).toHaveBeenCalledWith("s1");
+    expect(r.allText()).toContain(tr("sos.cancelling"));
+    r.press(tr("sos.chipLeft", { n: 50 }));
+    for (let i = 0; i < 3; i++) await tick(0);
+    expect(number(r)).toBe("50");
+    // 切到 B：B 没有在途请求，滑条不是「取消中…」，「立即求救」可点
+    expect(r.allText()).not.toContain(tr("sos.cancelling"));
+    r.press(tr("sos.sendNow"));
+    await tick(0);
+    expect(sosApi.confirm).toHaveBeenCalledWith("s2");
+    // A 的取消这时才失败、而 A 仍在倒数：照常提示（按 A 的状态判断，不是按屏上 B 的）
+    m(sosApi.snapshot).mockImplementation((id: unknown) =>
+      Promise.resolve(
+        id === "s2" ? { ...second(), status: "notified" } : sosOf(),
+      ),
+    );
+    act(() => rejectA(new TypeError("Network request failed")));
+    for (let i = 0; i < 3; i++) await tick(0);
+    expect(alert).toHaveBeenCalledWith(
+      tr("common.failed"),
+      tr("error.network"),
+      NOTICE_OK,
+    );
+  });
+
   it("当前单取消后提示并自动切到下一单（页面仍在倒数）；两单都结束才进结果页，按头盔逐条列结论、已取消的各有「我还是需要帮助」", async () => {
     twoHelmets();
     m(sosApi.cancel).mockImplementation((id: unknown) =>
