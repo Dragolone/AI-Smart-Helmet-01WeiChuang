@@ -133,6 +133,19 @@ function secondsLeft(deadline: string, now: number): number {
 const TOTAL_SECONDS = 60;
 /** 最后这么多秒整页转红、震动改成连着两下 */
 const URGENT_SECONDS = 10;
+/**
+ * 取消 / 立即求救失败后补拉权威状态最多等多久就下结论：网络正常（只是短信慢、响应晚）时补拉不到 1 s 就回来，
+ * 这单已办成就不提示；网络真的坏时补拉本身也会挂到超时，不能让「没成功」的提示再晚 15 s——倒计时一共才 60 s。
+ * 补拉在后台继续，晚到的结果照样写回缓存、页面跟着切
+ */
+const FAILURE_RECHECK_MS = 3_000;
+const settleWithin = <T,>(p: Promise<T>, ms: number): Promise<T | undefined> =>
+  Promise.race([
+    p,
+    new Promise<undefined>((resolve) =>
+      setTimeout(() => resolve(undefined), ms),
+    ),
+  ]);
 /** 求救的红。白字压在上面对比度 4.8 : 1（设计规范），比主题里的 danger 深一档 */
 const SOS_RED = "#D92D25";
 const SOS_RED_BEAT = "#B8241D";
@@ -538,14 +551,17 @@ function SosActiveContent() {
         // 短信慢时「立即求救」的响应会晚于 App 的超时，页面已经切到「已发送」，再弹「出错了」就自相矛盾
         //（10-20 本地后端实测：3 位联系人、每条短信 9 s 时响应 18 s）。先拉一次权威状态，这单已不在倒数就不弹
         // 补拉失败时缓存保持原样（仍在倒数）→ 照常弹；切走后这单没有观察者也要拉（type: "all"）
-        return queryClient
-          .refetchQueries({ queryKey: ["sos", id], exact: true, type: "all" })
-          .catch(() => undefined)
-          .then(() => {
-            const current = queryClient.getQueryData<Sos>(["sos", id]) ?? null;
-            if (current && current.status !== "pending") return;
-            showNotice(t("common.failed"), toUserMessage(e));
-          });
+        // 补拉最多等 FAILURE_RECHECK_MS 就下结论（坏网络下补拉自己也会挂住）
+        return settleWithin(
+          queryClient
+            .refetchQueries({ queryKey: ["sos", id], exact: true, type: "all" })
+            .catch(() => undefined),
+          FAILURE_RECHECK_MS,
+        ).then(() => {
+          const current = queryClient.getQueryData<Sos>(["sos", id]) ?? null;
+          if (current && current.status !== "pending") return;
+          showNotice(t("common.failed"), toUserMessage(e));
+        });
       })
       .finally(() => clearBusy([id]));
   };
@@ -878,22 +894,32 @@ function SosActiveContent() {
                       ),
                   );
                 if (failed.length > 0) {
-                  // 没切到过的单在缓存里没有自己的详情查询，直接拉一次它的快照（带它自己的头盔号）
+                  // 没切到过的单在缓存里没有自己的详情查询，直接拉一次它的快照（带它自己的头盔号）。
+                  // 拉到的状态写回缓存（晚到的也写）：WS 断着时页面也能按实际状态画，不等 10 秒轮询；
+                  // 下结论最多等 FAILURE_RECHECK_MS（坏网络下快照自己也会挂住）
                   const fresh = await Promise.all(
                     failed.map((f) =>
-                      sosApi
-                        .snapshot(f.q.sosId, f.q.deviceId)
-                        .then((snap) =>
-                          settleSnapshot(queryClient, f.q.sosId, snap),
-                        )
-                        .catch(() => null),
+                      settleWithin(
+                        sosApi
+                          .snapshot(f.q.sosId, f.q.deviceId)
+                          .then((snap) => {
+                            const settled = settleSnapshot(
+                              queryClient,
+                              f.q.sosId,
+                              snap,
+                            );
+                            if (settled)
+                              queryClient.setQueryData(
+                                ["sos", f.q.sosId],
+                                settled,
+                              );
+                            return settled;
+                          })
+                          .catch(() => null),
+                        FAILURE_RECHECK_MS,
+                      ).then((x) => x ?? null),
                     ),
                   );
-                  // 拉到的状态写回缓存：WS 断着时页面也能马上按实际状态画（切到下一单 / 结果页），不等 10 秒轮询
-                  fresh.forEach((f, i) => {
-                    if (f)
-                      queryClient.setQueryData(["sos", failed[i].q.sosId], f);
-                  });
                   const stillPending = failed.find((f, i) => {
                     const c =
                       fresh[i] ??
