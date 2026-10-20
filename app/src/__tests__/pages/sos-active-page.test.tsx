@@ -649,6 +649,64 @@ describe("取消 / 立即求救", () => {
     );
     expect(number(r)).toBe("45");
   });
+
+  it("「立即求救」请求超时但服务端已通知（短信慢、响应晚于超时）：不弹「出错了」，页面停在已通知", async () => {
+    m(sosApi.confirm).mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    m(sosApi.accidentDetail).mockImplementation(() =>
+      Promise.resolve({ notifications: [] } as unknown as AccidentDetail),
+    );
+    const r = await mount();
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ status: "notified" })),
+    );
+    r.press(tr("sos.sendNow"));
+    await tick(0);
+    await tick(0);
+    expect(sosApi.confirm).toHaveBeenCalledWith("s1");
+    expect(alert).not.toHaveBeenCalled();
+    await tick(1100);
+    expect(r.allText()).toContain(tr("sos.notified.none"));
+  });
+
+  it("滑动取消请求超时但服务端已取消：不弹错，页面是已取消；补拉也失败时才按缓存判断（仍在倒数就弹）", async () => {
+    m(sosApi.cancel).mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    let r = await mount();
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ status: "cancelled" })),
+    );
+    act(() =>
+      slideButton(r).props.onAccessibilityAction({
+        nativeEvent: { actionName: "activate" },
+      }),
+    );
+    await tick(0);
+    await tick(0);
+    expect(alert).not.toHaveBeenCalled();
+    expect(r.allText()).toContain(tr("sos.cancelledTitle"));
+    r.unmount();
+
+    m(sosApi.snapshot).mockImplementation(() => Promise.resolve(sosOf()));
+    r = await mount();
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    act(() =>
+      slideButton(r).props.onAccessibilityAction({
+        nativeEvent: { actionName: "activate" },
+      }),
+    );
+    await tick(0);
+    await tick(0);
+    expect(alert).toHaveBeenCalledWith(
+      tr("common.failed"),
+      tr("error.network"),
+      NOTICE_OK,
+    );
+  });
 });
 
 describe("已通知页的标题", () => {

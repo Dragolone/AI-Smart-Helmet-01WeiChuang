@@ -511,7 +511,19 @@ function SosActiveContent() {
           void sosQuery.refetch();
           return;
         }
-        showNotice(t("common.failed"), toUserMessage(e));
+        // 请求本身失败（超时 / 断网）不等于没办成：服务端终态化时先经实时通道推新状态、再内联发短信，
+        // 短信慢时「立即求救」的响应会晚于 App 的超时，页面已经切到「已发送」，再弹「出错了」就自相矛盾
+        //（10-20 本地后端实测：3 位联系人、每条短信 9 s 时响应 18 s）。先拉一次权威状态，这单已不在倒数就不弹
+        return sosQuery
+          .refetch()
+          .then((r) => r.data ?? null)
+          .catch(() => null)
+          .then((fresh) => {
+            const current =
+              fresh ?? queryClient.getQueryData<Sos>(["sos", sosId]) ?? null;
+            if (current && current.status !== "pending") return;
+            showNotice(t("common.failed"), toUserMessage(e));
+          });
       })
       .finally(() => setBusy(null));
   };
