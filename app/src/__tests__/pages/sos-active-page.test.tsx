@@ -826,6 +826,26 @@ describe("取消 / 立即求救", () => {
     expect(r.allText()).toContain(tr("sos.notified.none"));
   });
 
+  it("取消失败后补拉也挂住（坏网络）：最多等 3 秒就提示，不等补拉自己超时（倒计时一共 60 秒）", async () => {
+    m(sosApi.cancel).mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    const r = await mount();
+    m(sosApi.snapshot).mockImplementation(() => new Promise(() => undefined));
+    act(() =>
+      slideButton(r).props.onAccessibilityAction({
+        nativeEvent: { actionName: "activate" },
+      }),
+    );
+    await tick(0);
+    await tick(2_500);
+    expect(r.allText()).not.toContain(tr("sos.failCancel"));
+    await tick(600);
+    // O7：不弹框，3 秒内挂出页内提示条
+    expect(alert).not.toHaveBeenCalled();
+    expect(r.allText()).toContain(tr("sos.failCancel"));
+  });
+
   it("滑动取消请求超时但服务端已取消：不弹错，页面是已取消；补拉也失败时才按缓存判断（仍在倒数就弹）", async () => {
     m(sosApi.cancel).mockImplementation(() =>
       Promise.reject(new TypeError("Network request failed")),
@@ -1857,10 +1877,11 @@ describe("多顶头盔同时求救（10-16 N10：一张页 + 顶部胶囊点切�
     buttons = alert.mock.calls[0][2] as { onPress?: () => void }[];
     act(() => buttons[1].onPress?.());
     for (let i = 0; i < 6; i++) await tick(0);
-    // O7：仍在倒数的那单不弹框，切过去挂页内提示条
+    // O7：仍在倒数的那单不弹框，切过去挂页内提示条；补拉到的状态写回了缓存，不等轮询就切到还在倒数的滑雪
     expect(alert).toHaveBeenCalledTimes(1);
     await tick(1100);
     expect(r.allText()).toContain(tr("sos.failSend"));
+    expect(r.allText()).toContain(tr("sos.fromHelmet", { name: "滑雪" }));
   });
 
   it("结果页上每顶各自的「我还是需要帮助」：替那一行的头盔注入 manual_sos，两顶各用各的 eventId", async () => {

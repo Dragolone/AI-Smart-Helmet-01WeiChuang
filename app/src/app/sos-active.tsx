@@ -148,6 +148,19 @@ const isFinalized = (e: unknown) =>
 const TOTAL_SECONDS = 60;
 /** 最后这么多秒整页转红、震动改成连着两下 */
 const URGENT_SECONDS = 10;
+/**
+ * 取消 / 立即求救失败后补拉权威状态最多等多久就下结论：网络正常（只是短信慢、响应晚）时补拉不到 1 s 就回来，
+ * 这单已办成就不提示；网络真的坏时补拉本身也会挂到超时，不能让「没成功」的提示再晚 15 s——倒计时一共才 60 s。
+ * 补拉在后台继续，晚到的结果照样写回缓存、页面跟着切
+ */
+const FAILURE_RECHECK_MS = 3_000;
+const settleWithin = <T,>(p: Promise<T>, ms: number): Promise<T | undefined> =>
+  Promise.race([
+    p,
+    new Promise<undefined>((resolve) =>
+      setTimeout(() => resolve(undefined), ms),
+    ),
+  ]);
 /** 求救的红。白字压在上面对比度 4.8 : 1（设计规范），比主题里的 danger 深一档 */
 const SOS_RED = "#D92D25";
 const SOS_RED_BEAT = "#B8241D";
@@ -580,30 +593,31 @@ function SosActiveContent() {
         // 短信慢时「立即求救」的响应会晚于 App 的超时，页面已经切到「已发送」，再提示失败就自相矛盾
         //（10-20 本地后端实测：3 位联系人、每条短信 9 s 时响应 18 s）。先拉一次权威状态，这单已不在倒数就不提示。
         // 补拉失败时缓存保持原样（仍在倒数）→ 照常提示；切走后这单没有观察者也要拉（type: "all"）
-        return queryClient
-          .refetchQueries({ queryKey: ["sos", id], exact: true, type: "all" })
-          .catch(() => undefined)
-          .then(() => {
-            const current = queryClient.getQueryData<Sos>(["sos", id]) ?? null;
-            if (current && current.status !== "pending") {
-              setActFail((f) => dropFail(f, [id]));
-              return;
-            }
-            // 文案里不写原因（超时 / 断网）：提示条要短，能做的只有重试；原因留日志
-            devLog(
-              "SOS",
-              `倒计时页${kind === "cancel" ? "取消" : "立即求救"}失败`,
-              e,
-            );
-            setActFail((f) => ({
-              kind,
-              ids:
-                f?.kind === kind
-                  ? [...f.ids.filter((x) => x !== id), id]
-                  : [id],
-            }));
-            announceFail(kind, due ? [due] : []);
-          });
+        // 补拉最多等 FAILURE_RECHECK_MS 就下结论（坏网络下补拉自己也会挂住，提示条不能再晚 15 s）
+        return settleWithin(
+          queryClient
+            .refetchQueries({ queryKey: ["sos", id], exact: true, type: "all" })
+            .catch(() => undefined),
+          FAILURE_RECHECK_MS,
+        ).then(() => {
+          const current = queryClient.getQueryData<Sos>(["sos", id]) ?? null;
+          if (current && current.status !== "pending") {
+            setActFail((f) => dropFail(f, [id]));
+            return;
+          }
+          // 文案里不写原因（超时 / 断网）：提示条要短，能做的只有重试；原因留日志
+          devLog(
+            "SOS",
+            `倒计时页${kind === "cancel" ? "取消" : "立即求救"}失败`,
+            e,
+          );
+          setActFail((f) => ({
+            kind,
+            ids:
+              f?.kind === kind ? [...f.ids.filter((x) => x !== id), id] : [id],
+          }));
+          announceFail(kind, due ? [due] : []);
+        });
       })
       .finally(() => clearBusy([id]));
   };
@@ -913,18 +927,23 @@ function SosActiveContent() {
             (x): x is { id: string; r: PromiseRejectedResult } =>
               x.r.status === "rejected" && !isFinalized(x.r.reason),
           );
+        // 拉到的状态写回缓存（晚到的也写）：WS 断着时页面也能按实际状态画，不等 10 秒轮询；
+        // 下结论最多等 FAILURE_RECHECK_MS（坏网络下快照自己也会挂住）
         const fresh = await Promise.all(
           rejected.map((x) =>
-            sosApi
-              .snapshot(x.id, byId.get(x.id)?.deviceId)
-              .then((snap) => settleSnapshot(queryClient, x.id, snap))
-              .catch(() => null),
+            settleWithin(
+              sosApi
+                .snapshot(x.id, byId.get(x.id)?.deviceId)
+                .then((snap) => {
+                  const settled = settleSnapshot(queryClient, x.id, snap);
+                  if (settled) queryClient.setQueryData(["sos", x.id], settled);
+                  return settled;
+                })
+                .catch(() => null),
+              FAILURE_RECHECK_MS,
+            ).then((v) => v ?? null),
           ),
         );
-        // 拉到的状态写回缓存：WS 断着时页面也能马上按实际状态画（切到下一单 / 结果页），不等 10 秒轮询
-        fresh.forEach((f, i) => {
-          if (f) queryClient.setQueryData(["sos", rejected[i].id], f);
-        });
         const failed = rejected.filter((x, i) => {
           const c = fresh[i] ?? queryClient.getQueryData<Sos>(["sos", x.id]);
           return !c || c.status === "pending";

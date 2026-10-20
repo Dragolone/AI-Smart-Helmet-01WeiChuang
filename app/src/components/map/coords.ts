@@ -118,6 +118,21 @@ function impliedMps(a: TimedFix, b: TimedFix): number | null {
 const MAX_SPIKE_RUN = 3;
 
 /**
+ * 同一时刻（或时间倒序）的两个点相距超过它就算可疑：速度没法算，但同一秒里正常不会跳这么远。
+ * 时间戳相同的飞点原来一律保留——服务端对同一时刻的点按入库先后排，后到的飞点排在真实点后面，
+ * 回放就从真实点直拉到 55 km 外再拉回来，地图也被缩到能装下它（10-20 iOS / 安卓模拟器实测）
+ */
+const SAME_INSTANT_MAX_M = 100;
+
+/** a → b 时间不前进（同一时刻 / 倒序）但距离远：这种跳不能用速度判断，交给后面的「飞出去又飞回来」检查 */
+function sameInstantJump(a: TimedFix, b: TimedFix): boolean {
+  const ta = Date.parse(a.timestamp);
+  const tb = Date.parse(b.timestamp);
+  if (Number.isNaN(ta) || Number.isNaN(tb) || tb > ta) return false;
+  return metersBetween(a, b) > SAME_INSTANT_MAX_M;
+}
+
+/**
  * 去掉轨迹里的 GPS 飞点：从上一个保留的点跳过去超过 GLITCH_MPS，而往后 MAX_SPIKE_RUN 个点之内
  * 又有一个点从上一个保留点「正常速度」就能到——中间这几个就是飞出去又飞回来的漂移。
  * 服务端算里程时已经跳过这种段，但轨迹接口把点原样返回，地图上会一根直线拉到 2000 km 外再拉回来
@@ -130,7 +145,9 @@ export function dropGpsSpikes<T extends TimedFix>(points: T[]): T[] {
   while (i < points.length) {
     const prev = kept[kept.length - 1];
     const v = impliedMps(prev, points[i]);
-    if (v === null || v <= GLITCH_MPS) {
+    const suspect =
+      v === null ? sameInstantJump(prev, points[i]) : v > GLITCH_MPS;
+    if (!suspect) {
       kept.push(points[i]);
       i += 1;
       continue;
