@@ -116,6 +116,7 @@ const mockMap = {
   setHelmet: jest.fn(),
   hideHelmet: jest.fn(),
   setTrack: jest.fn(),
+  setTrackTip: jest.fn(),
   clearTrack: jest.fn(),
   setCenter: jest.fn(),
   setHelmetOnline: jest.fn(),
@@ -520,9 +521,41 @@ describe("实时位置", () => {
       expect.arrayContaining([expect.any(Object)]),
       { fit: false },
     );
-    expect(m(mockMap.setTrack).mock.calls.pop()![0]).toHaveLength(3);
+    // 整条线只有服务端的点；头盔此刻的位置作为线头单独接上
+    expect(m(mockMap.setTrack).mock.calls.at(-1)![0]).toHaveLength(2);
+    expect(m(mockMap.setTrackTip).mock.calls.at(-1)![0]).toEqual(
+      expect.objectContaining({
+        latitude: expect.any(Number),
+        longitude: expect.any(Number),
+      }),
+    );
     r.unmount();
     expect(deactivateKeepAwake).toHaveBeenCalledWith("map-riding");
+  });
+
+  it("骑行中实时定位来了新点：只发线头，不把整条线重发一遍（长时间开着地图页内存一直涨，10-20）", async () => {
+    const qc = makeQueryClient();
+    mockRides.recent = [ride(10, { ongoing: true })];
+    mockRides.track = [loc({ latitude: 22.54 }), loc({ latitude: 22.541 })];
+    const r = await mount(qc);
+    await waitFor(() => expect(r.allText()).toContain(tr("map.riding")));
+    const tracks = m(mockMap.setTrack).mock.calls.length;
+    const tips = m(mockMap.setTrackTip).mock.calls.length;
+    for (const lat of [22.6, 22.601, 22.602])
+      await act(async () => {
+        qc.setQueryData(
+          ["device-location", "h1"],
+          loc({ latitude: lat, timestamp: new Date().toISOString() }),
+        );
+        await new Promise((res) => setTimeout(res, 0));
+      });
+    expect(m(mockMap.setTrack).mock.calls.length).toBe(tracks);
+    expect(m(mockMap.setTrackTip).mock.calls.length).toBeGreaterThanOrEqual(
+      tips + 3,
+    );
+    expect(m(mockMap.setTrackTip).mock.calls.at(-1)![0]).toEqual(
+      expect.objectContaining({ latitude: expect.any(Number) }),
+    );
   });
 
   it("加速通道断了：药丸下面写重连中", async () => {
@@ -654,8 +687,11 @@ describe("实时位置", () => {
     expect(mockMap.setTrack).toHaveBeenCalledWith(expect.any(Array), {
       fit: false,
     });
-    // 两个轨迹点 + 接在末尾的此刻位置
-    expect(m(mockMap.setTrack).mock.calls[0][0]).toHaveLength(3);
+    // 整条线是两个轨迹点；此刻位置作为线头一并重推
+    expect(m(mockMap.setTrack).mock.calls[0][0]).toHaveLength(2);
+    expect(mockMap.setTrackTip).toHaveBeenCalledWith(
+      expect.objectContaining({ latitude: expect.any(Number) }),
+    );
   });
 
   it("骑行中开 / 关屏幕常亮本身报错：吞掉，照常显示骑行中", async () => {
