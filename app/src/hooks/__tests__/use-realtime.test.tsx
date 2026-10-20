@@ -61,6 +61,7 @@ import { setPushArrivalHandler, startPush, stopPush } from "@/services/push";
 import {
   clearSosAlert,
   ensureSosAlertPermission,
+  holdPermissionPromptUntil,
   resetSosAlerts,
   setSosCancelConfirmedListener,
   showSosAlertIfBackground,
@@ -143,6 +144,7 @@ jest.mock("@/services/ble-targets", () => ({
 jest.mock("@/services/sos-alert", () => ({
   clearSosAlert: jest.fn(),
   ensureSosAlertPermission: jest.fn(),
+  holdPermissionPromptUntil: jest.fn(),
   resetSosAlerts: jest.fn(),
   setSosCancelConfirmedListener: jest.fn(),
   showSosAlertIfBackground: jest.fn(),
@@ -369,6 +371,7 @@ beforeEach(() => {
     jest.mocked(loadWithRetry),
     jest.mocked(clearSosAlert),
     jest.mocked(ensureSosAlertPermission),
+    jest.mocked(holdPermissionPromptUntil),
     jest.mocked(resetSosAlerts),
     jest.mocked(setSosCancelConfirmedListener),
     jest.mocked(showSosAlertIfBackground),
@@ -690,6 +693,40 @@ describe("蓝牙链路目标", () => {
 });
 
 describe("求救：拉起倒计时页与锁屏提醒", () => {
+  it("冷启动补拉回来之前拦住系统通知授权框（O10：进行中的单要等补拉才拉起倒计时页，授权框先弹会盖在页上）：闸在调 ensure 之前装上；补拉先拉起倒计时页、结束后才放行", async () => {
+    const active = deferred<{ sos: Sos | null }>();
+    jest.mocked(sosApi.active).mockReturnValueOnce(active.promise);
+    await mountBridge();
+    const hold = jest.mocked(holdPermissionPromptUntil);
+    expect(hold).toHaveBeenCalledTimes(1);
+    expect(hold.mock.invocationCallOrder[0]).toBeLessThan(
+      jest.mocked(ensureSosAlertPermission).mock.invocationCallOrder[0],
+    );
+    const released = jest.fn();
+    void hold.mock.calls[0][0].then(released);
+    await flush();
+    expect(sosApi.active).toHaveBeenCalledWith("h1");
+    expect(released).not.toHaveBeenCalled(); // 补拉还在路上
+
+    await run(() => active.resolve({ sos: sosOf() }));
+    expect(router.push).toHaveBeenCalledTimes(1);
+    expect(released).toHaveBeenCalledTimes(1);
+    // 先登记、拉起倒计时页，再放行：sos-alert 放行后看到 presentedSos 里有这单，就把申请推迟到页面关掉后
+    expect(jest.mocked(router.push).mock.invocationCallOrder[0]).toBeLessThan(
+      released.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("冷启动补拉失败（离线）也放行授权框：申请不能一直挂着", async () => {
+    jest.mocked(sosApi.active).mockRejectedValue(offline());
+    await mountBridge();
+    const released = jest.fn();
+    void jest.mocked(holdPermissionPromptUntil).mock.calls[0][0].then(released);
+    await flush();
+    expect(released).toHaveBeenCalledTimes(1);
+    expect(router.push).not.toHaveBeenCalled();
+  });
+
   it("第一次挂上（没有孤儿可接手）不清「拉起过」的登记：点通知冷启动进来的那单，冷启动补拉只补锁屏提醒、不再叠一页", async () => {
     presentedSos.current.add("s1");
     jest.mocked(sosApi.active).mockResolvedValue({ sos: sosOf() });

@@ -16,6 +16,7 @@ import { shownSeconds } from "@/services/countdown";
 import { serverNow } from "@/services/server-clock";
 import { lateEventNote } from "@/services/sos-age";
 import { presentedSos } from "@/services/sos-sync";
+import { sosScreen } from "@/services/sos-queue";
 import { useSosCancelStore } from "@/stores/sos-cancel-store";
 import { showNotice } from "@/services/notice";
 
@@ -37,6 +38,14 @@ const alertIdsOf = (sosId: string): string[] => [
 
 /** 初始化只做一次；并发 / 重复调用拿到同一个 Promise（调用方要等它结束再去要别的权限） */
 let permissionReady: Promise<void> | null = null;
+/** 被推迟到倒计时页关掉之后的那次系统授权申请（O10）；null = 没推迟（申请已做完或不用申请） */
+let deferredAsk: Promise<void> | null = null;
+/** 冷启动补拉结束才放行系统授权框（use-realtime 装上）；null = 没人拦，照原样立刻申请 */
+let promptGate: Promise<unknown> | null = null;
+/** 补拉迟迟不回（弱网）最多等这么久：之后照常申请，最坏退回改动前的样子（框可能盖在倒计时页上） */
+const PROMPT_GATE_MAX_MS = 5_000;
+/** 推迟期间多久看一眼倒计时页还在不在；第一眼也给刚 push、还没挂上的页面留出时间 */
+const DEFERRED_ASK_POLL_MS = 1_000;
 /**
  * 每一单各自的通知：sosId → 已投 / 待触发的通知 id。原来只有一个槽位，第二单会把第一单顶掉，
  * 第一单结束时 clear 找不到它，通知永远留在锁屏上（10-03 评审疑点 2）。
@@ -54,10 +63,28 @@ export function setSosCancelConfirmedListener(
   onCancelConfirmed = listener;
 }
 
-/** 登录后调用一次：申请通知权限、建 Android 高优先级通道、注册通知动作（拒绝也不阻塞链路） */
+/**
+ * 登录后调用一次：建 Android 高优先级通道、注册通知动作、申请通知权限（拒绝也不阻塞链路）。
+ * 兑现时机 = 系统授权框有了结果，或这次申请被推迟到倒计时页关掉之后（见 askPermission）——
+ * 不会因为推迟而一直挂着：蓝牙链路在等它。界面要读授权结果用 whenSosAlertPermissionAsked
+ */
 export function ensureSosAlertPermission(): Promise<void> {
   permissionReady ??= initSosAlert();
   return permissionReady;
+}
+
+/** 冷启动补拉结束前先别弹系统授权框：use-realtime 在调 ensure 之前装上，补拉结束（不论成败）时兑现 */
+export function holdPermissionPromptUntil(gate: Promise<unknown>): void {
+  promptGate = gate;
+}
+
+/**
+ * 系统授权框真正有了结果再兑现——包括被推迟到倒计时页关掉之后才弹的那次。
+ * 界面读权限状态前等它（services/notify-permission.ts）：推迟期间 Android 13+ 读到的是 denied，
+ * 不等的话关页后系统框会弹在已经画好的「通知未开启」上面（与 10-08 同一个坑）
+ */
+export function whenSosAlertPermissionAsked(): Promise<void> {
+  return ensureSosAlertPermission().then(() => deferredAsk ?? undefined);
 }
 
 async function initSosAlert(): Promise<void> {
@@ -96,9 +123,65 @@ async function initSosAlert(): Promise<void> {
       },
     ]);
     const current = await Notifications.getPermissionsAsync();
-    if (!current.granted) await Notifications.requestPermissionsAsync();
+    if (!current.granted) await askPermission(current.canAskAgain !== false);
   } catch (e) {
     devLog("SOS-ALERT", "通知权限/通道初始化失败", e as Error);
+  }
+}
+
+/**
+ * 申请通知权限，但不把系统授权框弹在求救倒计时页上（O10，2026-10-20 Android 16 模拟器 REGRESSION 4.41：
+ * 倒计时中撤回通知权限 → 系统杀进程 → 重新打开，「允许发送通知？」盖在倒计时页上，要先点掉才能滑动取消，
+ * 倒计时却在走）。通道 / 类别已在前面建好，这里只管「弹框」这一步。
+ * 冷启动时倒计时页要等补拉回来才拉起，比走到这里晚得多（只看 sosScreen.mounted 拦不住），所以先等补拉
+ * （promptGate，最多 5 s），再看：页面在屏或正要拉起（presentedSos 已登记，补拉 / 点通知拉起都会先登记）
+ * 就推迟到页面关掉再弹，这里立刻返回——ensure 照常兑现，蓝牙链路不被这一单拖住。
+ * 代价：这一单倒计时期间没有通知权限，锁屏提醒出不来；用户本来就在前台看着倒计时页。
+ * 系统根本不会弹框时（iOS 已答过、Android 已被永久拒绝：canAskAgain=false）不等也不推迟、照原样调一次，
+ * 免得这部分用户每次冷启动都晚起蓝牙链路。iOS 的授权框同样是模态、同样会盖住页面，两端同一套。
+ */
+async function askPermission(willPrompt: boolean): Promise<void> {
+  if (willPrompt && promptGate) {
+    await settledOrTimeout(promptGate, PROMPT_GATE_MAX_MS);
+  }
+  if (willPrompt && (sosScreen.mounted || presentedSos.current.size > 0)) {
+    devLog(
+      "SOS-ALERT",
+      "倒计时页在屏 / 正要拉起，系统通知授权框推迟到页面关掉后再弹",
+    );
+    deferredAsk = askAfterCountdown();
+    return;
+  }
+  await Notifications.requestPermissionsAsync();
+}
+
+/** 轮询而不是挂页面卸载回调：不用改倒计时页；同一次提交里先卸后挂（切单）的那一瞬间定时器插不进来 */
+async function askAfterCountdown(): Promise<void> {
+  do {
+    await new Promise((r) => setTimeout(r, DEFERRED_ASK_POLL_MS));
+  } while (sosScreen.mounted);
+  try {
+    await Notifications.requestPermissionsAsync();
+  } catch (e) {
+    devLog("SOS-ALERT", "推迟的通知权限申请失败", e as Error);
+  }
+}
+
+/** gate 兑现（成败都算）或超时，先到先走；定时器用完就撤，不留着拖住进程 */
+async function settledOrTimeout(
+  gate: Promise<unknown>,
+  ms: number,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      gate.catch(() => undefined),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 

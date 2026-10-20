@@ -55,6 +55,7 @@ import {
 import {
   clearSosAlert,
   ensureSosAlertPermission,
+  holdPermissionPromptUntil,
   resetSosAlerts,
   setSosCancelConfirmedListener,
   showSosAlertIfBackground,
@@ -122,8 +123,17 @@ export function useRealtimeUpdates(): void {
     let uplinkOwner = useAuthStore.getState().user?.id;
     startRelayUplink(uplinkOwner ?? undefined);
     let cancelled = false;
+    // 冷启动补拉结束前系统通知授权框先别弹（O10）：进行中的单要等补拉回来才拉起倒计时页，授权框先弹的话
+    // 会盖在倒计时页上、挡住滑动取消。补拉结束（不论成败）放行，sos-alert 那边另有 5 s 上限
+    let coldResumeSettled: () => void = () => undefined;
+    holdPermissionPromptUntil(
+      new Promise<void>((resolve) => {
+        coldResumeSettled = resolve;
+      }),
+    );
     // 通知权限的系统框要先有结果，再去要蓝牙权限：Android 一次只允许一个权限请求，两路并发时后到的
-    // 被立即取消，蓝牙权限框不出现、链路本次进程起不来（Android 13+ 全新安装首次登录，2026-10-05 评审）
+    // 被立即取消，蓝牙权限框不出现、链路本次进程起不来（Android 13+ 全新安装首次登录，2026-10-05 评审）。
+    // 系统根本不弹框时不等补拉；倒计时页在屏、申请被推迟时它立刻兑现，链路不被这一单拖住（sos-alert askPermission）
     const permissionReady = ensureSosAlertPermission();
     // BLE 近场链路：目标 = 已绑定设备；绑定/解绑后随 ['devices'] 缓存变化同步目标。
     // 列表还没拉到（或拉失败）时用上次存下的那份，见 services/ble-targets.ts
@@ -242,7 +252,9 @@ export function useRealtimeUpdates(): void {
       if (cancelled) return;
       const ids = bleTargetsOf();
       coldResumeHadTargets = ids.length > 0;
-      void resumePendingSos(queryClient, ids, presentedSos, sosDeps);
+      void resumePendingSos(queryClient, ids, presentedSos, sosDeps).finally(
+        coldResumeSettled,
+      );
     });
     // 自己把摔倒 / 求救送上云且服务端接受了 → 立刻核对进行中的 SOS 并拉起倒计时页，顺手让 WS 立即重连。
     // 手机深睡时 WS 早已断、极光长连接也被挂起，这是唯一不依赖它们的拉起路径（10-06 不变式评审 F-1）
