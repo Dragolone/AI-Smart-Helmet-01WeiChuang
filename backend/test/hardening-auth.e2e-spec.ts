@@ -235,36 +235,38 @@ describe('加固：认证与令牌 (e2e)', () => {
         .expect(200);
     });
 
-    it('复用已轮换的 token：补发窗口内补发一次（没送到的那张作废）；窗口外视为盗用，撤销全部会话（新 token 也失效）', async () => {
+    it('复用已轮换的 token：补发窗口内补发一次（替代者不作废——分不清手机拿到的是哪张）；正常轮换走的 token 窗口外再来视为盗用，撤销全部会话（新 token 也失效）', async () => {
       const u = await createUser(app, http);
       users.push(u);
       const r1 = await request(http)
         .post('/api/v1/auth/refresh')
         .send({ refreshToken: u.refreshToken })
         .expect(200);
-      // 一秒后旧 token 又来（应答被连接重置吞掉的快速重试）：补发，r1 那张从没用过的作废
+      // 一秒后旧 token 又来（应答被连接重置吞掉的快速重试）：补发
       //（并发竞态窗口只剩半秒：App 单飞刷新，同一台手机不会真的并发，10 s 一律 401 只会让骑手在隧道里被动登出）
       await new Promise((r) => setTimeout(r, 700));
       const reissued = await request(http)
         .post('/api/v1/auth/refresh')
         .send({ refreshToken: u.refreshToken })
         .expect(200);
+      // r1 那张不作废：重试先到、原请求晚到时手机上拿着的正是它（2026-10-21 模拟器复现：作废它 = 下次刷新被登出）
       await request(http)
         .post('/api/v1/auth/refresh')
         .send({ refreshToken: r1.body.refreshToken as string })
-        .expect(401);
+        .expect(200);
       const r2 = await request(http)
         .post('/api/v1/auth/refresh')
         .send({ refreshToken: reissued.body.refreshToken as string })
         .expect(200);
-      // 把旧 token 的撤销时间拨到 20 分钟前（出了 15 min 补发窗口）再复用：盗用信号，全部会话作废
+      // 把撤销时间拨到 20 分钟前（出了 15 min 补发窗口），复用一张正常轮换走的 token（reissued → r2）：
+      // 盗用信号，全部会话作废
       await prisma.refreshToken.updateMany({
         where: { userId: u.id, revokedAt: { not: null } },
         data: { revokedAt: new Date(Date.now() - 20 * 60_000) },
       });
       await request(http)
         .post('/api/v1/auth/refresh')
-        .send({ refreshToken: u.refreshToken })
+        .send({ refreshToken: reissued.body.refreshToken as string })
         .expect(401);
       await request(http)
         .post('/api/v1/auth/refresh')
@@ -272,7 +274,7 @@ describe('加固：认证与令牌 (e2e)', () => {
         .expect(401);
     });
 
-    it('刷新应答丢失（评审 R-05）：旧 token 在 10 s 后、15 min 内再来 → 补发一对新 token，没用过的那张作废；同一张旧 token 第二次再来 → 401；其他会话不受影响', async () => {
+    it('刷新应答丢失（评审 R-05）：旧 token 在 10 s 后、15 min 内再来 → 补发一对新 token，替代者不作废；同一张旧 token 第二次再来 → 401；其他会话不受影响', async () => {
       const u = await createUser(app, http);
       users.push(u);
       // 同一账号的另一台手机
@@ -294,11 +296,11 @@ describe('加固：认证与令牌 (e2e)', () => {
         .send({ refreshToken: u.refreshToken })
         .expect(200);
       expect(retry.body.refreshToken).not.toBe(r1.body.refreshToken);
-      // 没送到手机的那张作废
+      // 替代者不作废：服务端分不清手机拿到的是它还是补发的这张（重试先到、原请求晚到时手机拿的正是它）
       await request(http)
         .post('/api/v1/auth/refresh')
         .send({ refreshToken: r1.body.refreshToken as string })
-        .expect(401);
+        .expect(200);
       // 同一张旧 token 只补发一次
       await request(http)
         .post('/api/v1/auth/refresh')
@@ -312,6 +314,27 @@ describe('加固：认证与令牌 (e2e)', () => {
       await request(http)
         .post('/api/v1/auth/refresh')
         .send({ refreshToken: other.body.refreshToken as string })
+        .expect(200);
+    });
+
+    it('刷新请求乱序（2026-10-21 模拟器 + 延迟代理复现）：超时后的重试先到、手机拿到 r1，原请求晚到被当成应答丢失补发 → 手机上的 r1 仍能刷新，不被登出', async () => {
+      const u = await createUser(app, http);
+      users.push(u);
+      // 重试先到：手机拿到 r1 存下
+      const r1 = await request(http)
+        .post('/api/v1/auth/refresh')
+        .send({ refreshToken: u.refreshToken })
+        .expect(200);
+      // 被手机放弃的原请求过后才送达（出了半秒并发窗口）：服务端按应答丢失补发，这份应答没人收
+      await new Promise((r) => setTimeout(r, 700));
+      await request(http)
+        .post('/api/v1/auth/refresh')
+        .send({ refreshToken: u.refreshToken })
+        .expect(200);
+      // 手机下次用 r1 刷新：原来 401（被登出、蓝牙中转跟着停），现在照常轮换
+      await request(http)
+        .post('/api/v1/auth/refresh')
+        .send({ refreshToken: r1.body.refreshToken as string })
         .expect(200);
     });
 
