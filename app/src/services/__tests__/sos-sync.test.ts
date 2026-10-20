@@ -443,3 +443,35 @@ describe("alertPendingOnBackground：设备列表之外的头盔（B 线第 12 �
     );
   });
 });
+
+// 2026-10-20 补分支：fetchAccountActive 是可选依赖，上面的用例都给了它（返回 null 才退回逐台查）。
+// 「压根没给」是另一条分支：不能因为少了它就一单都不补拉，也不能把只给账号级接口用的重试间隔套到逐台查上
+describe("resumePendingSos：调用方没给账号级接口（可选依赖缺省）", () => {
+  it("直接逐台查：一台失败跳过、另一台找回的单照常写缓存 / 拉起 / 补锁屏提醒；给了重试间隔也不重试、不等待", async () => {
+    const legacy: SosSyncDeps = { ...deps, fetchAccountActive: undefined };
+    deps.fetchActive
+      .mockRejectedValueOnce(new TypeError("Network request failed"))
+      .mockResolvedValueOnce({ sos: sos({ sosId: "s2", deviceId: "d2" }) });
+    const found = await resumePendingSos(
+      qc,
+      ["d1", "d2"],
+      presented,
+      legacy,
+      "重连补拉",
+      // 重试间隔只作用于账号级那一个请求；逐台查本来就是「一台失败不影响下一台」。
+      // 真去等这 60 s 的话这条用例会超时
+      [60_000],
+    );
+    expect(found).toEqual(["s2"]);
+    expect(deps.fetchAccountActive).not.toHaveBeenCalled();
+    expect(deps.fetchActive.mock.calls).toEqual([["d1"], ["d2"]]);
+    expect(
+      qc.getQueryData<ActiveSosResponse>(["sos-active", "d2"])?.sos?.sosId,
+    ).toBe("s2");
+    expect(deps.openCountdown).toHaveBeenCalledWith("s2", "d2");
+    expect(deps.showLockScreenAlert).toHaveBeenCalledTimes(1);
+    expect(deps.log).not.toHaveBeenCalledWith(
+      expect.stringContaining("后重试"),
+    );
+  });
+});
