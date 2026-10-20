@@ -35,6 +35,7 @@ import { useSwitchReminderStore } from "@/stores/switch-reminder-store";
 import { useThemeStore } from "@/stores/theme-store";
 import AppTabs from "../app-tabs";
 import { ConnectionBanner } from "../connection-banner";
+import { setSplashCovering } from "../splash/covering";
 import { IntercomMiniBar } from "../intercom-mini-bar";
 import { KeepAliveTip } from "../keepalive-tip";
 import { PrivacyConsentModal } from "../privacy-consent-modal";
@@ -171,6 +172,7 @@ afterEach(() => {
   jest.clearAllMocks();
   jest.useRealTimers();
   act(() => {
+    setSplashCovering(false);
     useAuthStore.setState({ tokens: null, user: null });
     useIntercomStore.setState({ session: null });
     useBleStore.setState({ links: {} });
@@ -244,6 +246,23 @@ describe("ToastHost / showToast", () => {
     const r = render(<ToastHost />);
     r.unmount();
     expect(() => showToast("x")).not.toThrow();
+  });
+
+  it("冷启动开屏还盖着：先压着，开屏让开后再出、从那时起计 2 秒（安卓上会叠在开屏上，10-21）", () => {
+    jest.useFakeTimers();
+    const r = render(<ToastHost />);
+    act(() => setSplashCovering(true));
+    act(() => showToast("电量低"));
+    act(() => {
+      jest.advanceTimersByTime(3000);
+    });
+    expect(r.tree.toJSON()).toBeNull();
+    act(() => setSplashCovering(false));
+    expect(r.texts()).toEqual(["电量低"]);
+    act(() => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(r.tree.toJSON()).toBeNull();
   });
 });
 
@@ -484,6 +503,16 @@ describe("KeepAliveTip", () => {
     expect(r.allText()).toContain(tr("keepalive.title"));
   });
 
+  it("冷启动开屏还盖着时先不弹，开屏让开再弹（Modal 会压在开屏上）", async () => {
+    act(() => setSplashCovering(true));
+    const r = render(<KeepAliveTip />);
+    await flush();
+    connect();
+    expect(r.tree.toJSON()).toBeNull();
+    act(() => setSplashCovering(false));
+    expect(r.allText()).toContain(tr("keepalive.title"));
+  });
+
   it("头盔只在连接中（没连上）不弹", async () => {
     const r = render(<KeepAliveTip />);
     await flush();
@@ -544,6 +573,15 @@ describe("PrivacyConsentModal", () => {
     const r = render(<PrivacyConsentModal />);
     r.press(tr("consent.signOut"));
     expect(signOut).toHaveBeenCalled();
+  });
+
+  it("冷启动开屏还盖着时先不弹，开屏让开再弹", () => {
+    show();
+    act(() => setSplashCovering(true));
+    const r = render(<PrivacyConsentModal />);
+    expect(r.tree.toJSON()).toBeNull();
+    act(() => setSplashCovering(false));
+    expect(r.allText()).toContain(tr("consent.title"));
   });
 
   it("没登录 / 还没读完 / 已同意 / 在协议页或求救倒计时页：都不弹", () => {
