@@ -1598,6 +1598,53 @@ describe("多顶头盔同时求救（10-16 N10：一张页 + 顶部胶囊点切�
     );
   });
 
+  it("「全部立即求救」请求都超时但服务端都已通知（短信慢）：不弹「出错了」；补拉后仍有一单在倒数才弹（10-20 模拟器）", async () => {
+    twoHelmets();
+    m(sosApi.confirm).mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    m(sosApi.accidentDetail).mockImplementation(() =>
+      Promise.resolve({ notifications: [] } as unknown as AccidentDetail),
+    );
+    let r = await mount();
+    arrive(second());
+    await tick(0);
+    m(sosApi.snapshot).mockImplementation((id: unknown) =>
+      Promise.resolve(
+        id === "s2"
+          ? { ...second(), status: "notified" }
+          : sosOf({ status: "notified" }),
+      ),
+    );
+    r.press(tr("sos.allSendNow"));
+    let buttons = alert.mock.calls[0][2] as { onPress?: () => void }[];
+    act(() => buttons[1].onPress?.());
+    for (let i = 0; i < 6; i++) await tick(0);
+    expect(sosApi.confirm).toHaveBeenCalledTimes(2);
+    expect(alert).toHaveBeenCalledTimes(1);
+    r.unmount();
+
+    alert.mockClear();
+    m(sosApi.snapshot).mockImplementation((id: unknown) =>
+      Promise.resolve(id === "s2" ? second() : sosOf()),
+    );
+    r = await mount();
+    arrive(second());
+    await tick(0);
+    m(sosApi.snapshot).mockImplementation((id: unknown) =>
+      Promise.resolve(id === "s2" ? second() : sosOf({ status: "notified" })),
+    );
+    r.press(tr("sos.allSendNow"));
+    buttons = alert.mock.calls[0][2] as { onPress?: () => void }[];
+    act(() => buttons[1].onPress?.());
+    for (let i = 0; i < 6; i++) await tick(0);
+    expect(alert).toHaveBeenLastCalledWith(
+      tr("common.failed"),
+      tr("error.network"),
+      NOTICE_OK,
+    );
+  });
+
   it("结果页上每顶各自的「我还是需要帮助」：替那一行的头盔注入 manual_sos，两顶各用各的 eventId", async () => {
     twoHelmets();
     m(sosApi.cancel).mockImplementation((id: unknown) =>

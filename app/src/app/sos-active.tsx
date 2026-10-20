@@ -851,17 +851,7 @@ function SosActiveContent() {
                 ),
               ),
             )
-              .then((results) => {
-                const failed = results.find(
-                  (r): r is PromiseRejectedResult =>
-                    r.status === "rejected" &&
-                    !(
-                      r.reason instanceof ApiRequestError &&
-                      r.reason.code === "SOS_ALREADY_FINALIZED"
-                    ),
-                );
-                if (failed)
-                  showNotice(t("common.failed"), toUserMessage(failed.reason));
+              .then(async (results) => {
                 // 已在别处结束的单：和单条操作一样拉一次它的权威状态（屏上这单不然要等下一轮 10 秒轮询才切走）
                 results.forEach((r, i) => {
                   if (
@@ -874,6 +864,43 @@ function SosActiveContent() {
                       exact: true,
                     });
                 });
+                // 其余失败（超时 / 断网）和单条操作一样先补拉：短信慢时服务端终态化早于响应，页面已经是
+                // 「N 条求救已处理 · 短信已发出」，再弹「出错了」就自相矛盾（10-20 模拟器：三顶、每条短信 9 s）。
+                // 补拉后仍在倒数的才提示；补拉也失败时缓存保持原样，照常提示
+                const failed = results
+                  .map((r, i) => ({ r, q: targets[i] }))
+                  .filter(
+                    (x): x is { r: PromiseRejectedResult; q: Sos } =>
+                      x.r.status === "rejected" &&
+                      !(
+                        x.r.reason instanceof ApiRequestError &&
+                        x.r.reason.code === "SOS_ALREADY_FINALIZED"
+                      ),
+                  );
+                if (failed.length > 0) {
+                  // 没切到过的单在缓存里没有自己的详情查询，直接拉一次它的快照（带它自己的头盔号）
+                  const fresh = await Promise.all(
+                    failed.map((f) =>
+                      sosApi
+                        .snapshot(f.q.sosId, f.q.deviceId)
+                        .then((snap) =>
+                          settleSnapshot(queryClient, f.q.sosId, snap),
+                        )
+                        .catch(() => null),
+                    ),
+                  );
+                  const stillPending = failed.find((f, i) => {
+                    const c =
+                      fresh[i] ??
+                      queryClient.getQueryData<Sos>(["sos", f.q.sosId]);
+                    return !c || c.status === "pending";
+                  });
+                  if (stillPending)
+                    showNotice(
+                      t("common.failed"),
+                      toUserMessage(stillPending.r.reason),
+                    );
+                }
                 void refreshActiveSos(queryClient);
               })
               .finally(() => clearBusy(ids));
