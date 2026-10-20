@@ -18,3 +18,27 @@ export async function openNotificationSettings(): Promise<void> {
   }
   await Linking.openSettings();
 }
+
+/**
+ * Android：打开本 App 某一条通知通道的设置页（「允许打扰」开关就在这一页）。
+ * 打不开（个别 ROM 没有这一页）就退回本 App 的通知设置页，通道列表在那里；iOS 没有通道，同 openNotificationSettings。
+ */
+export async function openNotificationChannelSettings(
+  channelId: string,
+): Promise<void> {
+  if (Platform.OS === "android") {
+    try {
+      await Linking.sendIntent(
+        "android.settings.CHANNEL_NOTIFICATION_SETTINGS",
+        [
+          { key: "android.provider.extra.APP_PACKAGE", value: ANDROID_PACKAGE },
+          { key: "android.provider.extra.CHANNEL_ID", value: channelId },
+        ],
+      );
+      return;
+    } catch {
+      // 落到通知设置页
+    }
+  }
+  await openNotificationSettings();
+}

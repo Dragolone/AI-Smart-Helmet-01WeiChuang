@@ -515,6 +515,31 @@ describe("sos-alert", () => {
     });
   });
 
+  describe("sosChannelBypassesDnd / 勿扰模式下求救通道能否提醒（O28，10-21 模拟器实测会被拦下）", () => {
+    it("Android：通道 bypassDnd 为 true 才算允许；false / 没这个字段算不允许；通道还没建、查不到 → 不适用", async () => {
+      override(Platform, "OS", "android");
+      const m = load();
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", bypassDnd: true });
+      expect(await m.sosChannelBypassesDnd()).toBe(true);
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", bypassDnd: false });
+      expect(await m.sosChannelBypassesDnd()).toBe(false);
+      mockGetChannel.mockResolvedValueOnce({ id: "sos" });
+      expect(await m.sosChannelBypassesDnd()).toBe(false);
+      mockGetChannel.mockResolvedValueOnce(null);
+      expect(await m.sosChannelBypassesDnd()).toBeNull();
+      mockGetChannel.mockRejectedValueOnce(new Error("x"));
+      expect(await m.sosChannelBypassesDnd()).toBeNull();
+      expect(mockGetChannel).toHaveBeenCalledWith("sos");
+    });
+
+    it("iOS：不适用（求救通知是 time-sensitive），不查", async () => {
+      override(Platform, "OS", "ios");
+      const m = load();
+      expect(await m.sosChannelBypassesDnd()).toBeNull();
+      expect(mockGetChannel).not.toHaveBeenCalled();
+    });
+  });
+
   describe("10-03 评审疑点 2 / 4：多单槽位与排通知竞态", () => {
     it("两单各有各的通知：第二单不顶掉第一单，各自结束时各自清干净", async () => {
       const m = load();

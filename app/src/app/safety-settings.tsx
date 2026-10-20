@@ -13,11 +13,19 @@ import { useBleOnboardingSteps } from "@/components/ble-onboarding";
 import { Card, GroupTitle, ListRow } from "@/components/list";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
-import { useNotifyPermission, useSosDrill } from "@/hooks/use-safety";
+import {
+  useNotifyPermission,
+  useSosDndBypass,
+  useSosDrill,
+} from "@/hooks/use-safety";
 import { useSwitchReminderSetting } from "@/hooks/use-switch-reminder";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
-import { openNotificationSettings } from "@/services/notification-settings";
+import {
+  openNotificationChannelSettings,
+  openNotificationSettings,
+} from "@/services/notification-settings";
+import { SOS_CHANNEL_ID } from "@/services/sos-alert";
 
 const MAX_CONTACTS = 5; // API.md §3 定稿
 
@@ -37,6 +45,10 @@ export default function SafetySettingsScreen() {
   // 没拿到列表（加载中 / 失败）≠ 没有联系人
   const contactCount = contacts.data ? contacts.data.length : null;
   const notify = useNotifyPermission();
+  // Android：勿扰模式下求救提醒会被系统拦下，除非用户给求救通道开了「允许打扰」（10-21 模拟器实测）。
+  // 通知本身没开时这一项没意义（上一行已经在提示），不显示
+  const dndBypass = useSosDndBypass();
+  const showDnd = notify === "granted" && dndBypass !== null;
   const drill = useSosDrill();
   // Android 省电白名单（决策 #41）：与首次连接引导、设备详情页读的是同一个状态
   const linkSteps = useBleOnboardingSteps();
@@ -85,8 +97,21 @@ export default function SafetySettingsScreen() {
             // 还没查到、系统没问过、查询失败，都如实写出来，不显示成已开启
             subtitle={t(`safetySettings.notify.${notify ?? "unknown"}`)}
             onPress={() => void openNotificationSettings()}
-            last={!whitelist && !launch}
+            last={!showDnd && !whitelist && !launch}
           />
+          {showDnd && (
+            <ListRow
+              icon={dndBypass ? "moon-outline" : "alert-circle-outline"}
+              title={t("safetySettings.dnd")}
+              subtitle={t(
+                dndBypass ? "safetySettings.dnd.on" : "safetySettings.dnd.off",
+              )}
+              onPress={() =>
+                void openNotificationChannelSettings(SOS_CHANNEL_ID)
+              }
+              last={!whitelist && !launch}
+            />
+          )}
           {whitelist && (
             <ListRow
               icon={

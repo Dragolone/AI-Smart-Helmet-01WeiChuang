@@ -17,6 +17,7 @@ import { devicesApi } from "@/api/devices";
 import { authApi } from "@/api/auth";
 import { sosApi } from "@/api/sos";
 import { readNotifyPermissionAfterAsk } from "@/services/notify-permission";
+import { sosChannelBypassesDnd } from "@/services/sos-alert";
 import { STILL_MS } from "@/services/switch-reminder";
 import { useAuthStore } from "@/stores/auth-store";
 import { useBleStore } from "@/stores/ble-store";
@@ -30,6 +31,7 @@ import {
   useHelmets,
   useNotifyPermission,
   usePendingSos,
+  useSosDndBypass,
   useSosDrill,
 } from "../use-safety";
 import {
@@ -59,6 +61,9 @@ jest.mock("@/api/sos", () => ({
 jest.mock("@/services/notify-permission", () => ({
   readNotifyPermissionAfterAsk: jest.fn(),
 }));
+jest.mock("@/services/sos-alert", () => ({
+  sosChannelBypassesDnd: jest.fn(),
+}));
 jest.mock("expo-router", () => ({ router: { navigate: jest.fn() } }));
 jest.mock("expo-secure-store", () => ({
   AFTER_FIRST_UNLOCK: "AFTER_FIRST_UNLOCK",
@@ -75,6 +80,7 @@ const smsMock = authApi.sendSmsCode as unknown as AnyMock;
 const activeMock = sosApi.active as unknown as AnyMock;
 const accountMock = sosApi.activeForAccount as unknown as AnyMock;
 const permMock = readNotifyPermissionAfterAsk as unknown as AnyMock;
+const dndMock = sosChannelBypassesDnd as unknown as AnyMock;
 
 let qc: QueryClient;
 const renderers: ReactTestRenderer[] = [];
@@ -592,6 +598,26 @@ describe("useCurrentHelmetChoice / useSosDrill", () => {
   it("演练入口：没登录时不显示（没有可读的记录）", async () => {
     const r = await renderHook(() => useSosDrill());
     expect(r.current.unseen).toBe(false);
+  });
+});
+
+describe("useSosDndBypass（O28）", () => {
+  it("没查到之前是 null；用户去系统设置打开「允许打扰」回到前台再查一次", async () => {
+    const listeners: ((s: string) => void)[] = [];
+    jest.spyOn(RN.AppState, "addEventListener").mockImplementation(((
+      _: string,
+      cb: (s: string) => void,
+    ) => {
+      listeners.push(cb);
+      return { remove: () => listeners.splice(listeners.indexOf(cb), 1) };
+    }) as never);
+    dndMock.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const r = await renderHook(() => useSosDndBypass());
+    await settle(() => r.current !== null);
+    expect(r.current).toBe(false);
+    await act(async () => listeners.forEach((cb) => cb("active")));
+    await settle(() => r.current === true);
+    expect(r.current).toBe(true);
   });
 });
 

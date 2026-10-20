@@ -13,6 +13,7 @@ import {
   SOS_ACTIVE_ACCOUNT_KEY,
 } from "@/services/sos-queue";
 import { readNotifyPermissionAfterAsk } from "@/services/notify-permission";
+import { sosChannelBypassesDnd } from "@/services/sos-alert";
 import {
   helmetLinkOf,
   type HelmetLink,
@@ -137,6 +138,30 @@ export function useNotifyPermission(): NotifyPermission | null {
     const check = () =>
       void readNotifyPermissionAfterAsk().then((p) => {
         if (alive) setState(p);
+      });
+    check();
+    const sub = AppState.addEventListener("change", (st) => {
+      if (st === "active") check();
+    });
+    return () => {
+      alive = false;
+      sub.remove();
+    };
+  }, []);
+  return state;
+}
+
+/**
+ * Android：求救通道是否允许在勿扰模式下提醒（见 services/sos-alert 的 sosChannelBypassesDnd）。
+ * 用户去系统设置改完回来时（回前台）重查一次。null = 不适用 / 查不到，不显示。
+ */
+export function useSosDndBypass(): boolean | null {
+  const [state, setState] = useState<boolean | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const check = () =>
+      void sosChannelBypassesDnd().then((v) => {
+        if (alive) setState(v);
       });
     check();
     const sub = AppState.addEventListener("change", (st) => {

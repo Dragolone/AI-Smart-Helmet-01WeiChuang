@@ -394,6 +394,24 @@ export async function isSosChannelBlocked(): Promise<boolean> {
   }
 }
 
+/**
+ * Android：求救通道在勿扰模式下能不能照常提醒。建通道时申请的 bypassDnd 系统不认（没有勿扰权限的 App
+ * 申请了也记成 false，模拟器 / 华为 dumpsys 都是 mBypassDnd=false），只有用户在这条通道的设置里打开
+ * 「允许打扰 / Override Do Not Disturb」才是 true。不是 true 时开着勿扰锁屏来单，通知被系统拦下：
+ * 没有横幅、没有声音和震动，误报也来不及取消（2026-10-21 模拟器 dumpsys mIntercept=true）。
+ * iOS（本地和远程求救通知都是 time-sensitive，专注模式默认放行）、通道还没建、查不到都返回 null，不显示这一项。
+ */
+export async function sosChannelBypassesDnd(): Promise<boolean | null> {
+  if (Platform.OS !== "android") return null;
+  try {
+    const ch = await Notifications.getNotificationChannelAsync(SOS_CHANNEL_ID);
+    if (ch === null) return null;
+    return ch.bypassDnd === true;
+  } catch {
+    return null;
+  }
+}
+
 /** deadline 认不出来（不是合法时间）时返回 null：提醒照弹，但不显示读秒、不排刷新 */
 function remainingSeconds(deadline: string): number | null {
   const at = Date.parse(deadline);
