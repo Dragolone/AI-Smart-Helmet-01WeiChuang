@@ -1574,4 +1574,108 @@ describe("sos-alert", () => {
       expect(mockClearLastResponse).not.toHaveBeenCalled();
     });
   });
+
+  describe("取消成功、App 没被拉到前台时补一条「已取消」（O34，负责人 10-22 定 B；华为默认不许后台弹页面）", () => {
+    const cancelled = {
+      sosId: "s1",
+      deviceId: "d1",
+      status: "cancelled",
+      deadline: deadlineIn(30),
+    };
+    /** 截下 App 前后台切换的监听 */
+    function catchAppState(): {
+      fire: (s: string) => void;
+      count: () => number;
+    } {
+      const listeners: ((s: string) => void)[] = [];
+      override(
+        AppState,
+        "addEventListener",
+        (_e: string, l: (s: string) => void) => {
+          listeners.push(l);
+          return {
+            remove: () => listeners.splice(listeners.indexOf(l), 1),
+          };
+        },
+      );
+      return {
+        fire: (s) => [...listeners].forEach((l) => l(s)),
+        count: () => listeners.length,
+      };
+    }
+
+    it("安卓、App 还在后台：立刻在安静的通道里补一条（不靠定时器：后台时 JS 定时器不走），点开进这一单的结果页；回到前台就撤掉", async () => {
+      override(Platform, "OS", "android");
+      const app = catchAppState();
+      mockCancel.mockResolvedValueOnce(cancelled as never);
+      const m = load();
+      expect(await m.cancelFromNotification("s1", 0, "d1")).toBe(true);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(mockSetChannel).toHaveBeenCalledWith(
+        "sos-result",
+        expect.objectContaining({ importance: 4 }),
+      );
+      const req = reqs().find((r) => r.identifier === "sos-cancelled-s1")!;
+      expect(req.content).toEqual({
+        title: "sosAlert.cancelledTitle",
+        body: "sos.cancelledBody",
+        data: { sosId: "s1", deviceId: "d1", kind: "sos-cancelled" },
+      });
+      expect(req.trigger).toEqual({ channelId: "sos-result" });
+      app.fire("inactive");
+      expect(mockDismiss).not.toHaveBeenCalledWith("sos-cancelled-s1");
+      app.fire("active");
+      expect(mockDismiss).toHaveBeenCalledWith("sos-cancelled-s1");
+      expect(app.count()).toBe(0);
+    });
+
+    it("App 已经在前台（安卓 12 起会拉起）：不补", async () => {
+      override(Platform, "OS", "android");
+      override(AppState, "currentState", "active");
+      mockCancel.mockResolvedValueOnce(cancelled as never);
+      const m = load();
+      await m.cancelFromNotification("s1", 0, "d1");
+      await Promise.resolve();
+      expect(reqs().some((r) => r.identifier === "sos-cancelled-s1")).toBe(
+        false,
+      );
+    });
+
+    it("iOS：点按钮一定拉起 App，不补", async () => {
+      mockCancel.mockResolvedValueOnce(cancelled as never);
+      const m = load();
+      await m.cancelFromNotification("s1", 0, "d1");
+      await Promise.resolve();
+      expect(reqs().some((r) => r.identifier === "sos-cancelled-s1")).toBe(
+        false,
+      );
+    });
+
+    it.each([
+      ["已在别处结束（可能已通知）", "finalized"],
+      ["应答看不懂（网关改写）", "garbage"],
+      ["应答说不是已取消", "notified"],
+    ])("%s：不说「已取消」", async (_label, kind) => {
+      override(Platform, "OS", "android");
+      if (kind === "finalized")
+        mockCancel.mockRejectedValueOnce(
+          Object.assign(new Error("409"), { code: "SOS_ALREADY_FINALIZED" }),
+        );
+      else if (kind === "garbage")
+        mockCancel.mockResolvedValueOnce("ok" as never);
+      else
+        mockCancel.mockResolvedValueOnce({
+          ...cancelled,
+          status: "notified",
+        } as never);
+      const m = load();
+      expect(await m.cancelFromNotification("s1", 0, "d1")).toBe(true);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(reqs().some((r) => r.identifier === "sos-cancelled-s1")).toBe(
+        false,
+      );
+    });
+  });
 });

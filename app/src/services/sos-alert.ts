@@ -378,6 +378,54 @@ function installResponseHandler(): void {
   consumeLaunchResponse();
 }
 
+/** O34：取消成功、App 却没被拉到前台时补的那条「已取消」通知 */
+const RESULT_CHANNEL_ID = "sos-result";
+const confirmIdOf = (sosId: string) => `sos-cancelled-${sosId}`;
+let resultChannelReady = false;
+
+async function ensureResultChannel(): Promise<void> {
+  if (resultChannelReady) return;
+  resultChannelReady = true;
+  // 安静的通道：取消是用户自己点的，结果只要看得到，不必再响一声、弹一次横幅
+  await Notifications.setNotificationChannelAsync(RESULT_CHANNEL_ID, {
+    name: translate("sosAlert.resultChannel"),
+    importance: Notifications.AndroidImportance.LOW,
+  }).catch(() => undefined);
+}
+
+/**
+ * 华为等手机默认不许 App 从后台弹页面：点通知上的「我没事，取消」后取消成功了，App 却没被拉到前台、通知栏也不收，
+ * 用户看不到「已取消」（10-22 华为实测）。这时补一条安静的通知说明结果，点开进这一单的结果页；App 回到前台
+ * （页面已经看得到）就撤掉（负责人 10-22 定 O34 = B）。不用定时器等：安卓上 App 在后台时 JS 定时器不走。
+ * iOS 点按钮一定会拉起 App，只做安卓
+ */
+function confirmCancelledIfHidden(sosId: string, deviceId?: string): void {
+  if (Platform.OS !== "android" || AppState.currentState === "active") return;
+  const id = confirmIdOf(sosId);
+  const sub = AppState.addEventListener("change", (state) => {
+    if (state !== "active") return;
+    sub.remove();
+    void Notifications.dismissNotificationAsync(id).catch(() => undefined);
+  });
+  void ensureResultChannel()
+    .then(() =>
+      Notifications.scheduleNotificationAsync({
+        identifier: id,
+        content: {
+          title: translate("sosAlert.cancelledTitle"),
+          body: translate("sos.cancelledBody"),
+          data: {
+            sosId,
+            ...(deviceId ? { deviceId } : {}),
+            kind: "sos-cancelled",
+          },
+        },
+        trigger: { channelId: RESULT_CHANNEL_ID },
+      }),
+    )
+    .catch((e: Error) => devLog("SOS-ALERT", "补发「已取消」通知失败", e));
+}
+
 /** 失败后的重试节奏：请求被挂起中断多半几秒内就能恢复，三次之后放弃（通知仍留在锁屏上） */
 const CANCEL_RETRY_DELAYS_MS = [2_000, 5_000, 10_000] as const;
 /** 按单分槽：两台头盔两单并存时，点第二单的「取消」不能把第一单的重试清掉（10-06 并发评审 F2） */
@@ -430,7 +478,10 @@ export async function cancelFromNotification(
     const sos = await sosApi.cancel(sosId, { timeoutMs: REQUEST_TIMEOUT_MS });
     // 应答不像这一单（网关改写过）：照样算取消成功（200 说明服务端收到了），但别把它交给页面写进缓存，
     // 页面拿不到就按「已在别处结束」拉一次权威状态（10-22 夜测）
-    return settled(isSosFor(sos, sosId) ? sos : undefined);
+    const ok = isSosFor(sos, sosId) ? sos : undefined;
+    // 只在确知是「已取消」时补确认通知：已在别处结束（可能已通知）、应答看不懂时都不说「已取消」
+    if (ok?.status === "cancelled") confirmCancelledIfHidden(sosId, deviceId);
+    return settled(ok);
   } catch (e) {
     const code = (e as { code?: string }).code;
     if (code === "SOS_ALREADY_FINALIZED") return settled();
