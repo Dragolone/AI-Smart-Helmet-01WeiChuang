@@ -4,6 +4,7 @@ import { create } from "zustand";
 import type { AuthResponse, AuthTokens, UserProfile } from "@helmet/shared";
 import { attachSession } from "@/api/client";
 import { authApi } from "@/api/auth";
+import { countdownHoldUntil } from "@/services/countdown-hold";
 import { SECURE_KEYS } from "@/services/secure-keys";
 
 const TOKEN_KEY = SECURE_KEYS.sessionTokens;
@@ -30,6 +31,15 @@ type AuthState = {
    * 只在内存里，重新登录即清。见 services/session-notice.ts。
    */
   sessionExpired: boolean;
+  /**
+   * 会话已被服务端否定，但倒计时页在屏、这单还在倒数，先不登出（O19-A）：到这一刻（本机时钟）再真正清会话。
+   * 期间接口在本地直接按「会话已结束」拒掉，不再去刷新；倒计时页据此把取消改成「重新登录后取消」
+   */
+  sessionDeadUntil: number | null;
+  /** 真正登出时倒计时已经走完（O19-A）：登录页多说一句「如果没在别处取消，紧急联系人已收到通知」 */
+  expiredDuringSos: boolean;
+  /** 倒计时页上点「重新登录后取消」：不等倒数结束，现在就回登录页 */
+  endDeadSession: () => Promise<void>;
   hydrate: () => Promise<void>;
   signIn: (auth: AuthResponse) => Promise<void>;
   signOut: () => Promise<void>;
@@ -48,6 +58,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   tokens: null,
   user: null,
   sessionExpired: false,
+  sessionDeadUntil: null,
+  expiredDuringSos: false,
+
+  endDeadSession: async () => {
+    if (get().sessionDeadUntil === null) return;
+    await clearLocalSession({ duringSos: false });
+  },
 
   hydrate: async () => {
     try {
@@ -89,7 +106,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       },
       user: auth.user,
       sessionExpired: false,
+      sessionDeadUntil: null,
+      expiredDuringSos: false,
     });
+    cancelDeadTimer();
     await Promise.all([
       SecureStore.setItemAsync(
         TOKEN_KEY,
@@ -122,7 +142,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   dropSession: async () => {
-    set({ tokens: null, user: null, sessionExpired: false });
+    cancelDeadTimer();
+    set({
+      tokens: null,
+      user: null,
+      sessionExpired: false,
+      sessionDeadUntil: null,
+      expiredDuringSos: false,
+    });
     await Promise.all([
       SecureStore.deleteItemAsync(TOKEN_KEY),
       SecureStore.deleteItemAsync(USER_KEY),
@@ -172,23 +199,54 @@ export function accountSwitched(
 }
 
 // api 层回调注入：token 读取、刷新轮换后的持久化、会话失效清理
+/** 倒数结束后再真正登出的定时器（O19-A） */
+let deadTimer: ReturnType<typeof setTimeout> | null = null;
+const cancelDeadTimer = (): void => {
+  if (deadTimer) clearTimeout(deadTimer);
+  deadTimer = null;
+};
+/** 倒数结束后多留几秒：服务端到点终态化、页面最后一次刷新都在这几秒里 */
+const DEAD_SESSION_GRACE_MS = 3_000;
+
+/** 真正清掉本地会话（被动登出）。duringSos：倒计时走完才清的，登录页多说一句 */
+async function clearLocalSession(opts: { duringSos: boolean }): Promise<void> {
+  cancelDeadTimer();
+  // 原本登录着才算「被动登出」；本来就没登录时收到的 401 不算
+  const wasSignedIn = useAuthStore.getState().tokens !== null;
+  useAuthStore.setState({
+    tokens: null,
+    user: null,
+    sessionDeadUntil: null,
+    expiredDuringSos: wasSignedIn && opts.duringSos,
+    ...(wasSignedIn ? { sessionExpired: true } : {}),
+  });
+  await Promise.all([
+    SecureStore.deleteItemAsync(TOKEN_KEY),
+    SecureStore.deleteItemAsync(USER_KEY),
+  ]);
+}
+
 attachSession({
   getTokens: () => useAuthStore.getState().tokens,
+  isDead: () => useAuthStore.getState().sessionDeadUntil !== null,
   setTokens: async (tokens) => {
     useAuthStore.setState({ tokens });
     await SecureStore.setItemAsync(TOKEN_KEY, JSON.stringify(tokens), KEYCHAIN);
   },
   clearSession: async () => {
-    // 原本登录着才算「被动登出」；本来就没登录时收到的 401 不算
-    const wasSignedIn = useAuthStore.getState().tokens !== null;
-    useAuthStore.setState({
-      tokens: null,
-      user: null,
-      ...(wasSignedIn ? { sessionExpired: true } : {}),
-    });
-    await Promise.all([
-      SecureStore.deleteItemAsync(TOKEN_KEY),
-      SecureStore.deleteItemAsync(USER_KEY),
-    ]);
+    const state = useAuthStore.getState();
+    // 倒计时页在屏、这单还在倒数：先不登出，倒数结束（多留几秒）再清（负责人 10-21 定，O19-A）。
+    // 已经在等的再来一次（实时通道、轮询各撞一次 401）：什么都不用做
+    if (state.sessionDeadUntil !== null) return;
+    const until = state.tokens !== null ? countdownHoldUntil() : null;
+    if (until !== null) {
+      useAuthStore.setState({ sessionDeadUntil: until });
+      deadTimer = setTimeout(
+        () => void clearLocalSession({ duringSos: true }),
+        until - Date.now() + DEAD_SESSION_GRACE_MS,
+      );
+      return;
+    }
+    await clearLocalSession({ duringSos: false });
   },
 });

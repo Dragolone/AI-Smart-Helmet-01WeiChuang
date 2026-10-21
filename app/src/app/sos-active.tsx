@@ -46,7 +46,13 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { devLog } from "@/services/dev-log";
-import { onWallClockForwardJump, serverNow } from "@/services/server-clock";
+import {
+  onWallClockForwardJump,
+  serverClockOffsetMs,
+  serverNow,
+} from "@/services/server-clock";
+import { setCountdownHold } from "@/services/countdown-hold";
+import { useAuthStore } from "@/stores/auth-store";
 import {
   COUNTDOWN_POLL_MS,
   countdownPollInterval,
@@ -415,6 +421,30 @@ function SosActiveContent() {
   }, [isDrill, queryClient]);
   const queue = isDrill ? [] : activeSosQueue(queryClient, sos);
   const others = queue.filter((q) => q.sosId !== sosId);
+  // 会话被服务端否定时先不登出，等倒数结束（O19-A，负责人 10-21 定）：把还在倒数的单里最晚的截止时刻
+  //（换成本机时钟）登记给 auth-store。演练不登记：它不会通知任何人，照常登出
+  const pendingDeadlines = (isDrill ? [] : [sos, ...queue])
+    .filter((x): x is Sos => x?.status === "pending")
+    .map((x) => new Date(x.deadline).getTime())
+    .filter(Number.isFinite);
+  const holdUntil =
+    pendingDeadlines.length > 0
+      ? Math.max(...pendingDeadlines) - serverClockOffsetMs()
+      : null;
+  useEffect(() => {
+    setCountdownHold(holdUntil);
+  }, [holdUntil]);
+  useEffect(() => () => setCountdownHold(null), []);
+  // 已被否定、只是还没登出：取消 / 立即求救都发不出去了，按钮换成「重新登录后取消」
+  const sessionDead =
+    useAuthStore((st) => st.sessionDeadUntil !== null) && !isDrill;
+  const endDeadSession = useAuthStore((st) => st.endDeadSession);
+  useEffect(() => {
+    if (sessionDead)
+      AccessibilityInfo.announceForAccessibility(
+        `${t("sos.sessionDeadTitle")}. ${t("sos.sessionDeadBody")}`,
+      );
+  }, [sessionDead, t]);
   // 这一页处理过的单（头盔号 → 单）：全部结束后按头盔逐条列结论。同一顶头盔新来一单（「我还是需要帮助」
   // 之后的那单）顶掉旧的那条
   const [handled, setHandled] = useState<Record<string, Sos>>({});
@@ -1099,7 +1129,7 @@ function SosActiveContent() {
   // 量出上半截实际溢出多少，就把环再缩多少（环是这里唯一能伸缩的东西）；环缩到 140 还放不下才收起顶上的图标，
   // 再放不下（字体放得很大）才靠滚动兜底。2026-10-15 华为 P30 Pro 英文、没有联系人时上半截能上下滑（负责人发现）
   // 量出来的结果连同当时的布局条件一起存：条件一变（转屏、改字体、换语言、联系人加载出来）就当作没量过，从估算重新来
-  const layoutKey = `${windowHeight}|${fontScale}|${locale}|${isDrill}|${sourceName ?? ""}|${lateNote ?? ""}|${contacts.data?.length ?? "?"}|${others.length > 0}|${fail !== null}|${connecting}`;
+  const layoutKey = `${windowHeight}|${fontScale}|${locale}|${isDrill}|${sourceName ?? ""}|${lateNote ?? ""}|${contacts.data?.length ?? "?"}|${others.length > 0}|${fail !== null}|${connecting}|${sessionDead}`;
   const [fitState, setFitState] = useState({
     key: layoutKey,
     shrink: 0,
@@ -1364,32 +1394,37 @@ function SosActiveContent() {
                       </View>
                     ) : null}
                   </ScrollView>
-                  <View style={styles.batchRow}>
-                    <Tappable
-                      feedback="scale"
-                      accessibilityRole="button"
-                      disabled={anyBusy}
-                      onPress={() => actAll("confirm")}
-                      style={[styles.batchBtn, { borderColor: P.sosBtn }]}
-                    >
-                      <ThemedText
-                        style={[styles.batchText, { color: P.sosBtn }]}
+                  {/* 会话已被否定（O19-A）：全部取消 / 全部立即求救也发不出去，不放 */}
+                  {!sessionDead && (
+                    <View style={styles.batchRow}>
+                      <Tappable
+                        feedback="scale"
+                        accessibilityRole="button"
+                        disabled={anyBusy}
+                        onPress={() => actAll("confirm")}
+                        style={[styles.batchBtn, { borderColor: P.sosBtn }]}
                       >
-                        {t("sos.allSendNow")}
-                      </ThemedText>
-                    </Tappable>
-                    <Tappable
-                      feedback="scale"
-                      accessibilityRole="button"
-                      disabled={anyBusy}
-                      onPress={() => actAll("cancel")}
-                      style={[styles.batchBtn, { borderColor: theme.border }]}
-                    >
-                      <ThemedText style={[styles.batchText, { color: P.text }]}>
-                        {t("sos.allCancel")}
-                      </ThemedText>
-                    </Tappable>
-                  </View>
+                        <ThemedText
+                          style={[styles.batchText, { color: P.sosBtn }]}
+                        >
+                          {t("sos.allSendNow")}
+                        </ThemedText>
+                      </Tappable>
+                      <Tappable
+                        feedback="scale"
+                        accessibilityRole="button"
+                        disabled={anyBusy}
+                        onPress={() => actAll("cancel")}
+                        style={[styles.batchBtn, { borderColor: theme.border }]}
+                      >
+                        <ThemedText
+                          style={[styles.batchText, { color: P.text }]}
+                        >
+                          {t("sos.allCancel")}
+                        </ThemedText>
+                      </Tappable>
+                    </View>
+                  )}
                 </View>
               ) : null}
               <View style={styles.head}>
@@ -1558,8 +1593,28 @@ function SosActiveContent() {
               <View style={styles.grow} />
             </ScrollView>
 
-            {/* 取消 / 立即求救没成功：在环和两个按钮之间，不盖住数字和按钮；秒数跟着倒计时走（O7） */}
-            {fail ? (
+            {/* 会话已被否定、倒数结束才登出（O19-A）：说清楚到点照常通知、要取消得先登录 */}
+            {sessionDead ? (
+              <Animated.View
+                entering={FadeIn.duration(200)}
+                accessibilityRole="alert"
+                style={[
+                  styles.actFail,
+                  { backgroundColor: P.alertBg, borderColor: P.alertBorder },
+                ]}
+              >
+                <Ionicons name="log-out-outline" size={18} color={P.alert} />
+                <View style={styles.actFailBody}>
+                  <ThemedText style={[styles.actFailTitle, { color: P.text }]}>
+                    {t("sos.sessionDeadTitle")}
+                  </ThemedText>
+                  <ThemedText style={[styles.actFailText, { color: P.text }]}>
+                    {t("sos.sessionDeadBody")}
+                  </ThemedText>
+                </View>
+              </Animated.View>
+            ) : /* 取消 / 立即求救没成功：在环和两个按钮之间，不盖住数字和按钮；秒数跟着倒计时走（O7） */
+            fail ? (
               <Animated.View
                 entering={FadeIn.duration(200)}
                 style={[
@@ -1604,35 +1659,59 @@ function SosActiveContent() {
               </Animated.View>
             ) : null}
 
-            <View style={styles.actions}>
-              <Tappable
-                feedback="scale"
-                accessibilityRole="button"
-                disabled={busy !== null}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(
-                    () => {},
-                  );
-                  act("confirm");
-                }}
-                style={[styles.send, { backgroundColor: P.sosBtn }]}
-              >
-                <Ionicons name="call" size={22} color={P.onSosBtn} />
-                <ThemedText style={[styles.sendText, { color: P.onSosBtn }]}>
-                  {busy === "confirm" ? t("auth.sending") : t("sos.sendNow")}
-                </ThemedText>
-              </Tappable>
-              <SlideToCancel
-                label={t("sos.slide")}
-                busyLabel={t("sos.cancelling")}
-                a11yLabel={t("sos.slideA11y")}
-                a11yHint={t("sos.slideHint")}
-                busy={cancelBusy}
-                disabled={busy === "confirm"}
-                colors={P.slide}
-                onCancel={() => act("cancel")}
-              />
-            </View>
+            {sessionDead ? (
+              <View style={styles.actions}>
+                <Tappable
+                  feedback="scale"
+                  accessibilityRole="button"
+                  accessibilityHint={t("sos.reloginToCancelHint")}
+                  onPress={() => void endDeadSession()}
+                  style={[
+                    styles.send,
+                    {
+                      backgroundColor: P.slide.track,
+                      borderWidth: 1,
+                      borderColor: P.slide.trackBorder,
+                    },
+                  ]}
+                >
+                  <Ionicons name="log-in-outline" size={22} color={P.text} />
+                  <ThemedText style={[styles.sendText, { color: P.text }]}>
+                    {t("sos.reloginToCancel")}
+                  </ThemedText>
+                </Tappable>
+              </View>
+            ) : (
+              <View style={styles.actions}>
+                <Tappable
+                  feedback="scale"
+                  accessibilityRole="button"
+                  disabled={busy !== null}
+                  onPress={() => {
+                    Haptics.impactAsync(
+                      Haptics.ImpactFeedbackStyle.Heavy,
+                    ).catch(() => {});
+                    act("confirm");
+                  }}
+                  style={[styles.send, { backgroundColor: P.sosBtn }]}
+                >
+                  <Ionicons name="call" size={22} color={P.onSosBtn} />
+                  <ThemedText style={[styles.sendText, { color: P.onSosBtn }]}>
+                    {busy === "confirm" ? t("auth.sending") : t("sos.sendNow")}
+                  </ThemedText>
+                </Tappable>
+                <SlideToCancel
+                  label={t("sos.slide")}
+                  busyLabel={t("sos.cancelling")}
+                  a11yLabel={t("sos.slideA11y")}
+                  a11yHint={t("sos.slideHint")}
+                  busy={cancelBusy}
+                  disabled={busy === "confirm"}
+                  colors={P.slide}
+                  onCancel={() => act("cancel")}
+                />
+              </View>
+            )}
           </>
         ) : multiDone ? (
           <>
