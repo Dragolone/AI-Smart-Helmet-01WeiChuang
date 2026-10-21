@@ -51,11 +51,16 @@ import TRTCCloud, {
   TRTCCloudListener,
   TRTCParams,
 } from "trtc-react-native";
-import type { VoiceChannel, VoiceChannelMemberPublic } from "@helmet/shared";
+import type {
+  VoiceChannel,
+  VoiceChannelMemberPublic,
+  WsVoiceTakenOverData,
+} from "@helmet/shared";
 
 import { channelsApi } from "@/api/channels";
 import { inviteCodeFrom } from "@/services/invite-code";
 import { ApiRequestError } from "@/api/client";
+import { realtimeClient } from "@/api/realtime";
 import { sameSpeakers } from "@/services/voice-volume";
 import { isSessionEnded, toUserMessage } from "@/api/error-messages";
 import { FormInput, PrimaryButton, SecondaryButton } from "@/components/form";
@@ -75,9 +80,11 @@ import { translate, useT } from "@/i18n";
 import { playCue, prepareCues } from "@/services/intercom-cues";
 import {
   AUTO_REJOIN_GAP_MS,
+  INTERCOM_CLIENT_ID,
   RoomKeyRenewer,
   isRejoinError,
   isRejoinExit,
+  isTakenOver,
   updatePrivateMapKeyJson,
 } from "@/services/intercom-room-key";
 import { useAuthStore } from "@/stores/auth-store";
@@ -104,6 +111,18 @@ const JOIN_CUE_QUIET_MS = 1000;
 const abandonRoom = (cloud: TRTCCloud) => {
   cloud.stopLocalAudio().catch(() => {});
   cloud.exitRoom().catch(() => {});
+};
+
+/**
+ * 这个账号在另一台手机上进了对讲，这台的通话结束了（决策 #62）：响一声、震一下、说清楚。
+ * 同一 TRTC userId 两台同时在房会轮流断线、互相挤掉，谁都没法说话（REGRESSION 6.14），所以后进的留下
+ */
+const announceTakenOver = () => {
+  playCue("lost");
+  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(
+    () => {},
+  );
+  showToast(translate("intercom.exit.takenOver"));
 };
 
 type TalkMode = "hold" | "open";
@@ -461,7 +480,10 @@ export default function IntercomScreen() {
   useEffect(() => {
     const cloud = trtc.current;
     const keys = new RoomKeyRenewer({
-      fetchKey: (id) => channelsApi.token(id).then((tk) => tk.privateMapKey),
+      fetchKey: (id) =>
+        channelsApi
+          .token(id, { clientId: INTERCOM_CLIENT_ID, purpose: "renew" })
+          .then((tk) => tk.privateMapKey),
       applyKey: (key) =>
         cloud.callExperimentalAPI(updatePrivateMapKeyJson(key)),
       // 在另一台手机上退出了这个频道：钥匙续不上了。主动结束这次通话，不等手里那把过期、到重连时才被拒
@@ -476,6 +498,29 @@ export default function IntercomScreen() {
         showToast(translate("intercom.exit.removed"));
         void queryClient.invalidateQueries({ queryKey: ["voice-channels"] });
       },
+      // WS 通知漏收时，续钥匙才发现已被另一台手机接管
+      onTakenOver: () => takenOver(),
+    });
+    /** 被同账号的另一台手机接管：退房、不自动重进（再进就把那台挤出去了），进房还在半路的也作废 */
+    const takenOver = () => {
+      joinSeq.current += 1;
+      awaitingEnter.current = 0;
+      if (joinTimer.current) clearTimeout(joinTimer.current);
+      joinTimer.current = null;
+      resume.current = null;
+      setJoining(false);
+      setResuming(false);
+      keys.stop();
+      abandonRoom(cloud);
+      announceTakenOver();
+    };
+    const unsubscribeTakeover = realtimeClient.subscribe((message) => {
+      if (message.type !== "voice_taken_over") return;
+      const { clientId } = message.data as WsVoiceTakenOverData;
+      // 自己发起的那条；或这台没在通话、也没拿到凭证正在进房（自己的凭证请求还在路上时也不理：那次进房会接管回来）
+      if (clientId === INTERCOM_CLIENT_ID) return;
+      if (!keys.channelId && !awaitingEnter.current) return;
+      takenOver();
     });
     /**
      * 断线重连被拒（多半是拿着过期的钥匙重新进房）：还在房间里、不是正在结束通话、一分钟内没自动重进过，
@@ -726,6 +771,7 @@ export default function IntercomScreen() {
       resume.current = null;
       // 退出登录时标签页整个卸掉，也走这里：停掉续期，续到一半回来的钥匙不再交给 SDK
       keys.stop();
+      unsubscribeTakeover();
       cloud.unRegisterListener(listener);
       cloud.exitRoom();
     };
@@ -876,8 +922,12 @@ export default function IntercomScreen() {
       setJoinError(translate("intercom.joinTimeout"));
     }, 8000);
     try {
-      // UserSig 服务端签发（决策 #27⑥）,App 端不再持有 TRTC SecretKey
-      const tk = await channelsApi.token(target.channelId);
+      // UserSig 服务端签发（决策 #27⑥）,App 端不再持有 TRTC SecretKey。
+      // 自己点进房是 enter（同账号别的手机退房）；断线后自动重进是接着原来的通话，按 renew 不抢回（决策 #62）
+      const tk = await channelsApi.token(target.channelId, {
+        clientId: INTERCOM_CLIENT_ID,
+        purpose: resumeFrom ? "renew" : "enter",
+      });
       if (stale()) return;
       const params = new TRTCParams({
         sdkAppId: tk.sdkAppId,
@@ -906,6 +956,13 @@ export default function IntercomScreen() {
       // 半路出错也不能留个开着采集、可能已进房的半截状态
       cancelJoin();
       abandonRoom(trtc.current);
+      if (isTakenOver(e)) {
+        // 自动重进时发现这个账号已在另一台手机上进了对讲：不抢回，说清楚（不再响「重进失败」那一声）
+        resume.current = null;
+        stopJoining(false);
+        announceTakenOver();
+        return;
+      }
       stopJoining(true);
       // 会话已失效：正被送回登录页，登录页自有说明
       if (!isSessionEnded(e)) setJoinError(toUserMessage(e));

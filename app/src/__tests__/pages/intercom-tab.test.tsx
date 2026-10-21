@@ -17,6 +17,8 @@ import type {
   VoiceChannel,
   VoiceChannelMemberPublic,
   VoiceTokenResponse,
+  WsMessage,
+  WsVoiceTakenOverData,
 } from "@helmet/shared";
 import * as Haptics from "expo-haptics";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
@@ -43,6 +45,7 @@ import {
 } from "@/__tests__/helpers/render";
 import { channelsApi } from "@/api/channels";
 import { ApiRequestError, SessionEndedError } from "@/api/client";
+import { realtimeClient } from "@/api/realtime";
 import { toUserMessage } from "@/api/error-messages";
 import { DotsLoader } from "@/components/motion";
 import { showToast } from "@/components/toast";
@@ -52,6 +55,7 @@ import { translate, useLocaleStore, type MessageKey } from "@/i18n";
 import { playCue, prepareCues } from "@/services/intercom-cues";
 import {
   AUTO_REJOIN_GAP_MS,
+  INTERCOM_CLIENT_ID,
   ROOM_KEY_RENEW_MS,
   ROOM_KEY_RETRY_MS,
 } from "@/services/intercom-room-key";
@@ -371,6 +375,9 @@ const enter = async (r: Rendered, name = C1.name) => {
 };
 const lastMute = () => mockCloud.muteLocalAudio.mock.calls.at(-1)?.[0];
 const cues = () => m(playCue).mock.calls.map((c) => c[0]);
+/** 进房凭证请求体（决策 #62）：自己点进房是 enter；续钥匙、断线后自动重进是 renew */
+const ENTER = { clientId: INTERCOM_CLIENT_ID, purpose: "enter" };
+const RENEW = { clientId: INTERCOM_CLIENT_ID, purpose: "renew" };
 /** 让「现在」往后挪 ms（进房后头一秒房里已有的人补发的进房事件不响提示音） */
 let nowSpy: ReturnType<typeof jest.spyOn> | null = null;
 const later = (ms: number) => {
@@ -747,7 +754,7 @@ describe("进房", () => {
     const r = mount();
     await waitFor(() => expect(r.texts()).toContain(C1.name));
     await tap(r, tr("intercom.enter.a11y", { name: C1.name }));
-    expect(channelsApi.token).toHaveBeenCalledWith("c1");
+    expect(channelsApi.token).toHaveBeenCalledWith("c1", ENTER);
     expect(mockCloud.exitRoom.mock.invocationCallOrder[0]).toBeLessThan(
       m(channelsApi.token).mock.invocationCallOrder[0],
     );
@@ -899,7 +906,9 @@ describe("进房", () => {
     expect(Linking.openSettings).toHaveBeenCalledTimes(1);
 
     await tap(r, tr("intercom.enter.a11y", { name: C1.name }));
-    await waitFor(() => expect(channelsApi.token).toHaveBeenCalledWith("c1"));
+    await waitFor(() =>
+      expect(channelsApi.token).toHaveBeenCalledWith("c1", ENTER),
+    );
     expect(r.allText()).not.toContain(tr("intercom.micDenied"));
     expect(r.allText()).not.toContain(tr("intercom.micOpenSettings"));
     ask.mockRestore();
@@ -918,7 +927,9 @@ describe("进房", () => {
     expect(channelsApi.token).not.toHaveBeenCalled();
 
     await tap(r, tr("intercom.enter.a11y", { name: C1.name }));
-    await waitFor(() => expect(channelsApi.token).toHaveBeenCalledWith("c1"));
+    await waitFor(() =>
+      expect(channelsApi.token).toHaveBeenCalledWith("c1", ENTER),
+    );
     expect(r.allText()).not.toContain(tr("intercom.micDenied"));
     expect(mockMic.ask).toHaveBeenCalledTimes(2);
     r.unmount();
@@ -928,7 +939,9 @@ describe("进房", () => {
     r = mount();
     await waitFor(() => expect(r.texts()).toContain(C1.name));
     await tap(r, tr("intercom.enter.a11y", { name: C1.name }));
-    await waitFor(() => expect(channelsApi.token).toHaveBeenCalledWith("c1"));
+    await waitFor(() =>
+      expect(channelsApi.token).toHaveBeenCalledWith("c1", ENTER),
+    );
   });
 
   it("进房途中离开页面（含退出登录）：凭证晚到不进房；已经在进房的，进房回来也不再开麦", async () => {
@@ -1679,7 +1692,7 @@ describe("房间里", () => {
       tr("intercom.leftRoom", { name: C1.name }),
     );
     await waitFor(() =>
-      expect(channelsApi.token).toHaveBeenLastCalledWith("c2"),
+      expect(channelsApi.token).toHaveBeenLastCalledWith("c2", ENTER),
     );
     expect(mockCloud.exitRoom.mock.calls.length).toBe(exits + 1);
   });
@@ -1699,7 +1712,7 @@ describe("房间里", () => {
     await press(r, C2.name);
     await advance(0);
     await waitFor(() =>
-      expect(channelsApi.token).toHaveBeenLastCalledWith("c2"),
+      expect(channelsApi.token).toHaveBeenLastCalledWith("c2", ENTER),
     );
     // 只有进 c2 前那一次退房；260 ms 到了也不再多退一次
     expect(mockCloud.exitRoom.mock.calls.length).toBe(exits + 1);
@@ -2062,7 +2075,7 @@ describe("房间钥匙在房续期（决策 #56 补充：钥匙有效期跟着�
     expect(tokens()).toBe(1);
     expect(mockCloud.callExperimentalAPI).not.toHaveBeenCalled();
     await advance(1);
-    expect(channelsApi.token).toHaveBeenLastCalledWith("c1");
+    expect(channelsApi.token).toHaveBeenLastCalledWith("c1", RENEW);
     expect(mockCloud.callExperimentalAPI).toHaveBeenLastCalledWith(
       keyUpdate("pmk-renew-1"),
     );
@@ -2184,6 +2197,8 @@ describe("重连被拒时自动重进", () => {
       tr("intercom.error", { code: -100006 }),
     );
     expect(tokens()).toBe(2);
+    // 接着自己原来的通话：按 renew，不抢同账号别的手机（决策 #62）
+    expect(channelsApi.token).toHaveBeenLastCalledWith("c1", RENEW);
     // 先退掉那个进不去的房，再拿新钥匙进
     expect(mockCloud.exitRoom.mock.calls.length).toBe(exits + 1);
     expect(mockCloud.enterRoom.mock.calls.length).toBe(enters + 1);
@@ -2627,5 +2642,117 @@ describe("对讲心跳 / 可能已掉线（O14，负责人 10-21 定）", () => 
     fire("onRemoteUserLeaveRoom", { userId: "u3" });
     await waitFor(() => expect(r.texts()).not.toContain("13800000003"));
     mockCloud.sendCustomCmdMsg.mockImplementation(() => Promise.resolve());
+  });
+});
+
+describe("同一账号只留一台在通话（决策 #62，REGRESSION 6.14）", () => {
+  const advance = async (ms: number) => {
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(ms);
+    });
+  };
+  const tokens = () => m(channelsApi.token).mock.calls.length;
+  const inRoomFake = async () => {
+    const r = mount();
+    await waitFor(() => expect(r.texts()).toContain(C1.name));
+    jest.useFakeTimers();
+    await tap(r, tr("intercom.enter.a11y", { name: C1.name }));
+    await advance(0);
+    fire("onEnterRoom", { result: 80 });
+    return r;
+  };
+  /** 实时通道推来一条 voice_taken_over（真的 realtimeClient，只是不连服务器、直接喊它的监听器） */
+  const takenOverBy = (clientId: string) => {
+    const { listeners } = realtimeClient as unknown as {
+      listeners: Set<(message: WsMessage) => void>;
+    };
+    const data: WsVoiceTakenOverData = { channelId: "c1", clientId };
+    act(() => {
+      for (const l of [...listeners])
+        l({ type: "voice_taken_over", data, sentAt: "2026-10-22T00:00:00Z" });
+    });
+  };
+  const takenOverToast = () => tr("intercom.exit.takenOver");
+
+  it("通话中另一台手机进了对讲：停采集退房、响掉线音、震动、说清是被接管；回到列表，不自动重进、不再续钥匙", async () => {
+    const r = await inRoomFake();
+    const exits = mockCloud.exitRoom.mock.calls.length;
+    const stops = mockCloud.stopLocalAudio.mock.calls.length;
+    m(playCue).mockClear();
+    takenOverBy("other-phone-1");
+    expect(mockCloud.stopLocalAudio.mock.calls.length).toBe(stops + 1);
+    expect(mockCloud.exitRoom.mock.calls.length).toBe(exits + 1);
+    expect(cues()).toEqual(["lost"]);
+    expect(Haptics.notificationAsync).toHaveBeenLastCalledWith("warning");
+    expect(showToast).toHaveBeenLastCalledWith(takenOverToast());
+    fire("onExitRoom", { reason: 0 });
+    expect(r.texts()).toContain(C2.name);
+    await advance(ROOM_KEY_RENEW_MS * 3);
+    expect(tokens()).toBe(1);
+    expect(mockCloud.enterRoom).toHaveBeenCalledTimes(1);
+  });
+
+  it("自己这台发起的那条：不理，照常在通话里、照常续钥匙", async () => {
+    await inRoomFake();
+    const exits = mockCloud.exitRoom.mock.calls.length;
+    takenOverBy(INTERCOM_CLIENT_ID);
+    expect(mockCloud.exitRoom.mock.calls.length).toBe(exits);
+    expect(showToast).not.toHaveBeenCalled();
+    await advance(ROOM_KEY_RENEW_MS);
+    expect(channelsApi.token).toHaveBeenLastCalledWith("c1", RENEW);
+  });
+
+  it("没在通话（列表页）时收到别的手机的：不理", async () => {
+    const r = mount();
+    await waitFor(() => expect(r.texts()).toContain(C1.name));
+    takenOverBy("other-phone-1");
+    expect(mockCloud.stopLocalAudio).not.toHaveBeenCalled();
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it("已拿到凭证、正等进房回调时收到：这次进房作废，回调晚到也不切进房间", async () => {
+    const r = mount();
+    await waitFor(() => expect(r.texts()).toContain(C1.name));
+    await tap(r, tr("intercom.enter.a11y", { name: C1.name }));
+    await waitFor(() => expect(mockCloud.enterRoom).toHaveBeenCalled());
+    takenOverBy("other-phone-1");
+    expect(showToast).toHaveBeenLastCalledWith(takenOverToast());
+    fire("onEnterRoom", { result: 80 });
+    expect(r.texts()).toContain(C2.name);
+    expect(useIntercomStore.getState().session).toBeNull();
+  });
+
+  it("WS 通知漏收：续钥匙时服务端回 409 VOICE_TAKEN_OVER，同样退房并说清是被接管，不当成被移出频道", async () => {
+    await inRoomFake();
+    m(channelsApi.token).mockImplementation(() =>
+      Promise.reject(new ApiRequestError(409, { code: "VOICE_TAKEN_OVER" })),
+    );
+    const stops = mockCloud.stopLocalAudio.mock.calls.length;
+    m(playCue).mockClear();
+    await advance(ROOM_KEY_RENEW_MS);
+    expect(channelsApi.token).toHaveBeenLastCalledWith("c1", RENEW);
+    expect(mockCloud.stopLocalAudio.mock.calls.length).toBe(stops + 1);
+    expect(cues()).toEqual(["lost"]);
+    expect(showToast).toHaveBeenLastCalledWith(takenOverToast());
+    expect(showToast).not.toHaveBeenCalledWith(tr("intercom.exit.removed"));
+    await advance(ROOM_KEY_RENEW_MS * 3);
+    expect(tokens()).toBe(2);
+  });
+
+  it("断线后自动重进时服务端说已被另一台接管（409）：不抢回、不写错误，说清是被接管", async () => {
+    const r = await inRoomFake();
+    fire("onConnectionLost");
+    m(channelsApi.token).mockImplementation(() =>
+      Promise.reject(new ApiRequestError(409, { code: "VOICE_TAKEN_OVER" })),
+    );
+    const enters = mockCloud.enterRoom.mock.calls.length;
+    m(playCue).mockClear();
+    fire("onError", { errCode: -100006 });
+    await advance(0);
+    expect(channelsApi.token).toHaveBeenLastCalledWith("c1", RENEW);
+    expect(mockCloud.enterRoom.mock.calls.length).toBe(enters);
+    expect(cues()).toEqual(["lost"]);
+    expect(showToast).toHaveBeenLastCalledWith(takenOverToast());
+    expect(r.allText()).not.toContain(tr("error.voiceTakenOver"));
   });
 });

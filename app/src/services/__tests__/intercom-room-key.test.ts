@@ -9,11 +9,13 @@ import {
 } from "@jest/globals";
 import { ApiRequestError } from "@/api/client";
 import {
+  INTERCOM_CLIENT_ID,
   ROOM_KEY_RENEW_MS,
   ROOM_KEY_RETRY_MS,
   RoomKeyRenewer,
   isRejoinError,
   isRejoinExit,
+  isTakenOver,
   updatePrivateMapKeyJson,
 } from "@/services/intercom-room-key";
 
@@ -24,6 +26,7 @@ const flush = async () => {
 let fetchKey: jest.Mock<(channelId: string) => Promise<string>>;
 let applyKey: jest.Mock<(key: string) => Promise<unknown>>;
 let onRemoved: jest.Mock<(channelId: string) => void>;
+let onTakenOver: jest.Mock<(channelId: string) => void>;
 let renewer: RoomKeyRenewer;
 beforeEach(() => {
   jest.useFakeTimers();
@@ -31,7 +34,8 @@ beforeEach(() => {
   fetchKey = jest.fn(() => Promise.resolve(`pmk-${++n}`));
   applyKey = jest.fn(() => Promise.resolve());
   onRemoved = jest.fn();
-  renewer = new RoomKeyRenewer({ fetchKey, applyKey, onRemoved });
+  onTakenOver = jest.fn();
+  renewer = new RoomKeyRenewer({ fetchKey, applyKey, onRemoved, onTakenOver });
 });
 afterEach(() => {
   renewer.stop();
@@ -93,6 +97,21 @@ describe("在房续期", () => {
     expect(applyKey).not.toHaveBeenCalled();
     expect(renewer.channelId).toBeNull();
     expect(jest.getTimerCount()).toBe(0);
+    await jest.advanceTimersByTimeAsync(ROOM_KEY_RENEW_MS * 3);
+    expect(fetchKey).toHaveBeenCalledTimes(1);
+  });
+
+  it("续的时候回 409 VOICE_TAKEN_OVER（账号已在另一台手机上进了对讲，决策 #62）：报给页面一次、停掉，不当成被移出", async () => {
+    fetchKey.mockImplementationOnce(() =>
+      Promise.reject(new ApiRequestError(409, { code: "VOICE_TAKEN_OVER" })),
+    );
+    renewer.start("c1");
+    await jest.advanceTimersByTimeAsync(ROOM_KEY_RENEW_MS);
+    expect(onTakenOver).toHaveBeenCalledTimes(1);
+    expect(onTakenOver).toHaveBeenCalledWith("c1");
+    expect(onRemoved).not.toHaveBeenCalled();
+    expect(applyKey).not.toHaveBeenCalled();
+    expect(renewer.channelId).toBeNull();
     await jest.advanceTimersByTimeAsync(ROOM_KEY_RENEW_MS * 3);
     expect(fetchKey).toHaveBeenCalledTimes(1);
   });
@@ -220,5 +239,24 @@ it("换钥匙走 SDK 的实验接口 updatePrivateMapKey", () => {
   expect(JSON.parse(updatePrivateMapKeyJson("abc"))).toEqual({
     api: "updatePrivateMapKey",
     params: { privateMapKey: "abc" },
+  });
+});
+
+describe("本机标识与「已被接管」的判断（决策 #62）", () => {
+  it("本机标识符合服务端要求的形状（8–64 位字母 / 数字 / _ / -）", () => {
+    expect(INTERCOM_CLIENT_ID).toMatch(/^[0-9A-Za-z_-]{8,64}$/);
+  });
+
+  it("只认 409 + VOICE_TAKEN_OVER", () => {
+    expect(
+      isTakenOver(new ApiRequestError(409, { code: "VOICE_TAKEN_OVER" })),
+    ).toBe(true);
+    expect(
+      isTakenOver(new ApiRequestError(409, { code: "CHANNEL_FULL" })),
+    ).toBe(false);
+    expect(
+      isTakenOver(new ApiRequestError(404, { code: "VOICE_TAKEN_OVER" })),
+    ).toBe(false);
+    expect(isTakenOver(new Error("VOICE_TAKEN_OVER"))).toBe(false);
   });
 });
