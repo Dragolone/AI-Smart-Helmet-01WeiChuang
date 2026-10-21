@@ -697,6 +697,14 @@ function SosActiveContent() {
     if (sessionDead && finished && holdUntil === null)
       void endDeadSession({ duringSos: finalStatus === "notified" });
   }, [sessionDead, finished, holdUntil, finalStatus, endDeadSession]);
+  // 还在倒数（含状态未知）时外来的链接不把这张页挤掉（app/+native-intent，10-21 夜测）；到了结果页就放行
+  useEffect(() => {
+    if (isDrill) return;
+    sosScreen.counting = !finished;
+    return () => {
+      sosScreen.counting = false;
+    };
+  }, [finished, isDrill]);
   const fail =
     !isDrill && !finished && actFail?.ids.includes(sosId) ? actFail : null;
 

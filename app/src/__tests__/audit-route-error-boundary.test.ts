@@ -11,7 +11,12 @@ function routes(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
     const full = join(dir, name);
     if (statSync(full).isDirectory()) return routes(full);
-    return /\.tsx$/.test(name) && !name.startsWith("_layout") ? [full] : [];
+    // _layout 是布局，+native-intent 是外部链接的改写钩子，都不是页面
+    return /\.tsx$/.test(name) &&
+      !name.startsWith("_layout") &&
+      !name.startsWith("+native-intent")
+      ? [full]
+      : [];
   });
 }
 

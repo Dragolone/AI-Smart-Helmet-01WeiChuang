@@ -656,6 +656,25 @@ describe("取消 / 立即求救", () => {
     expect(mockRouter.back).toHaveBeenCalled();
   });
 
+  it("倒数期间登记 sosScreen.counting（外来链接不把这页挤掉，app/+native-intent）；到了已取消页撤掉，卸载也撤掉（10-21 夜测）", async () => {
+    m(sosApi.cancel).mockImplementation(() =>
+      Promise.resolve(sosOf({ status: "cancelled" })),
+    );
+    const r = await mount();
+    expect(sosScreen.counting).toBe(true);
+    act(() =>
+      slideButton(r).props.onAccessibilityAction({
+        nativeEvent: { actionName: "activate" },
+      }),
+    );
+    await tick(0);
+    expect(r.allText()).toContain(tr("sos.cancelledTitle"));
+    expect(sosScreen.counting).toBe(false);
+    expect(sosScreen.mounted).toBe(true);
+    r.unmount();
+    expect(sosScreen.counting).toBe(false);
+  });
+
   it("立即求救：调确认接口 → 已通知页；短信全部发出时标题写已发出，列出每位联系人", async () => {
     m(sosApi.confirm).mockImplementation(() =>
       Promise.resolve(sosOf({ status: "notified" })),
