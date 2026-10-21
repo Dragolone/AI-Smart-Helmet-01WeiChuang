@@ -322,6 +322,12 @@ function dispatchResponse(response: Notifications.NotificationResponse): void {
     // 只有服务端确认取消才撤通知（cancelFromNotification 内部做，重试成功也算）；
     // 失败时通知留在锁屏上，用户能看到「还在倒计时」并再点一次
     void cancelFromNotification(sosId, 0, ref.deviceId);
+    // 按钮会拉起 App：落到这一单的页面（取消中 → 已取消，还能点「我还是需要帮助」）。进程活着时倒计时页本来就在栈上，
+    // navigate 不再叠一页；进程被杀后冷启动原来只落在设备页——看不到取消成没成，误点了也找不到「我还是需要帮助」（10-22 夜测）
+    if (ref.deviceId) {
+      presentedSos.current.add(sosId);
+      router.navigate(sosActiveHref(sosId, ref.deviceId) as never);
+    }
     return;
   }
   if (!ref.deviceId) return;

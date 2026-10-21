@@ -1140,6 +1140,23 @@ describe("sos-alert", () => {
       expect(presented.has("s1")).toBe(true);
     });
 
+    it("点「我没事，取消」：发取消，并落到这一单的页面（取消中 → 已取消）；登记为已拉起（10-22：进程被杀后冷启动原来只落在设备页）", async () => {
+      const { m, presented } = loadWithSync();
+      await m.ensureSosAlertPermission();
+      responseHandler?.({
+        actionIdentifier: "cancel",
+        notification: {
+          request: { content: { data: { sosId: "s1", deviceId: "d1" } } },
+        },
+      });
+      expect(mockCancel).toHaveBeenCalledWith("s1");
+      expect(mockNavigate).toHaveBeenCalledWith(
+        "/sos-active?sosId=s1&deviceId=d1",
+      );
+      expect(mockPush).not.toHaveBeenCalled();
+      expect(presented.has("s1")).toBe(true);
+    });
+
     it("通知里没有 deviceId：不跳转（不把 undefined 拼进路由）", async () => {
       const m = load();
       await m.ensureSosAlertPermission();
@@ -1181,7 +1198,10 @@ describe("sos-alert", () => {
       await m.ensureSosAlertPermission();
       expect(mockCancel).toHaveBeenCalledWith("s1");
       expect(mockClearLastResponse).toHaveBeenCalledTimes(1);
-      expect(mockNavigate).not.toHaveBeenCalled();
+      // 10-22 起落到这一单的页面（取消中 → 已取消）：原来停在设备页，看不到取消成没成
+      expect(mockNavigate).toHaveBeenCalledWith(
+        "/sos-active?sosId=s1&deviceId=d1",
+      );
     });
 
     it("通道 / 类别注册还挂着没返回时，启动点击已经同步读走：取消请求照样发出（根布局紧接着会同步跑 push.ts，它读的是同一条）", async () => {
