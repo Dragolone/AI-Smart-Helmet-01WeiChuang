@@ -16,6 +16,8 @@ import {
   isPasswordTooShort,
 } from "@/services/password-rules";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 export default function ChangePasswordScreen() {
   const t = useT();
   const [oldPassword, setOldPassword] = useState("");

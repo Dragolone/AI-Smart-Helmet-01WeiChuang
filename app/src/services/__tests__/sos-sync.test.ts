@@ -22,6 +22,7 @@ import {
   type PresentedRef,
   type SosSyncDeps,
 } from "../sos-sync";
+import { isSosFor } from "@/api/sos-shape";
 
 const sos = (over: Partial<Sos> = {}): Sos => ({
   sosId: "s1",
@@ -294,6 +295,8 @@ describe("倒计时页自己的轮询（2026-10-05 评审）", () => {
     expect(countdownPollInterval(sos())).toBe(COUNTDOWN_POLL_MS);
     expect(countdownPollInterval(sos({ status: "cancelled" }))).toBe(false);
     expect(countdownPollInterval(sos({ status: "notified" }))).toBe(false);
+    // sos-queue、倒计时页、use-realtime 的注释都按「10 秒轮询」推算 WS 断着时多久能对上终态；改值要一并改
+    expect(COUNTDOWN_POLL_MS).toBe(10_000);
   });
 
   it("迟到的 pending 应答不把已取消盖回倒计时（用户刚点完「我没事」，轮询的旧应答才回来）", () => {
@@ -343,6 +346,52 @@ describe("resumePendingSos：账号级接口一次拿全（B 线第 12 项）", 
     expect(deps.showLockScreenAlert).toHaveBeenCalledTimes(2);
   });
 
+  it("给了重试间隔：账号级接口失败后按间隔再试，成功那次照常拉起；没给就只试一次（原行为）", async () => {
+    deps.fetchAccountActive
+      .mockRejectedValueOnce(new TypeError("Network request failed"))
+      .mockRejectedValueOnce(new TypeError("Network request failed"))
+      .mockResolvedValueOnce({
+        items: [sos({ sosId: "s1", deviceId: "d1" })],
+        total: 1,
+      });
+    const found = await resumePendingSos(
+      qc,
+      ["d1"],
+      presented,
+      deps,
+      "远程推送到达，补拉",
+      [1, 1],
+    );
+    expect(found).toEqual(["s1"]);
+    expect(deps.fetchAccountActive).toHaveBeenCalledTimes(3);
+    expect(deps.openCountdown).toHaveBeenCalledWith("s1", "d1");
+    expect(deps.log).toHaveBeenCalledWith(
+      expect.stringContaining("1 ms 后重试（第 1 次）"),
+    );
+    // 间隔用完仍失败：放弃，不拉起
+    deps.fetchAccountActive.mockReset();
+    deps.fetchAccountActive.mockRejectedValue(
+      new TypeError("Network request failed"),
+    );
+    deps.openCountdown.mockClear();
+    expect(
+      await resumePendingSos(
+        qc,
+        ["d1"],
+        presented,
+        deps,
+        "远程推送到达，补拉",
+        [1],
+      ),
+    ).toEqual([]);
+    expect(deps.fetchAccountActive).toHaveBeenCalledTimes(2);
+    expect(deps.openCountdown).not.toHaveBeenCalled();
+    // 没给间隔：只试一次
+    deps.fetchAccountActive.mockClear();
+    expect(await resumePendingSos(qc, ["d1"], presented, deps)).toEqual([]);
+    expect(deps.fetchAccountActive).toHaveBeenCalledTimes(1);
+  });
+
   it("本机已知结束的单（迟到的 pending）不拉起；已拉起过的不重复拉", async () => {
     qc.setQueryData(["sos", "s1"], sos({ status: "cancelled" }));
     presented.current.add("s2");
@@ -362,6 +411,14 @@ describe("resumePendingSos：账号级接口一次拿全（B 线第 12 项）", 
       "s2",
     ]);
     expect(deps.fetchActive).toHaveBeenCalledTimes(2);
+  });
+
+  it("账号级接口回空列表：就是一单都没有，不再退成逐台查（绑得多时那是 N 个白发的请求，10-16 F10）", async () => {
+    deps.fetchAccountActive.mockResolvedValue({ items: [], total: 0 });
+    expect(await resumePendingSos(qc, ["d1", "d2"], presented, deps)).toEqual(
+      [],
+    );
+    expect(deps.fetchActive).not.toHaveBeenCalled();
   });
 
   it("账号级请求失败（断网）：什么都不做，也不退成 N 个注定失败的逐台请求", async () => {
@@ -385,5 +442,56 @@ describe("alertPendingOnBackground：设备列表之外的头盔（B 线第 12 �
       sos().deadline,
       undefined,
     );
+  });
+});
+
+// 2026-10-20 补分支：fetchAccountActive 是可选依赖，上面的用例都给了它（返回 null 才退回逐台查）。
+// 「压根没给」是另一条分支：不能因为少了它就一单都不补拉，也不能把只给账号级接口用的重试间隔套到逐台查上
+describe("resumePendingSos：调用方没给账号级接口（可选依赖缺省）", () => {
+  it("直接逐台查：一台失败跳过、另一台找回的单照常写缓存 / 拉起 / 补锁屏提醒；给了重试间隔也不重试、不等待", async () => {
+    const legacy: SosSyncDeps = { ...deps, fetchAccountActive: undefined };
+    deps.fetchActive
+      .mockRejectedValueOnce(new TypeError("Network request failed"))
+      .mockResolvedValueOnce({ sos: sos({ sosId: "s2", deviceId: "d2" }) });
+    const found = await resumePendingSos(
+      qc,
+      ["d1", "d2"],
+      presented,
+      legacy,
+      "重连补拉",
+      // 重试间隔只作用于账号级那一个请求；逐台查本来就是「一台失败不影响下一台」。
+      // 真去等这 60 s 的话这条用例会超时
+      [60_000],
+    );
+    expect(found).toEqual(["s2"]);
+    expect(deps.fetchAccountActive).not.toHaveBeenCalled();
+    expect(deps.fetchActive.mock.calls).toEqual([["d1"], ["d2"]]);
+    expect(
+      qc.getQueryData<ActiveSosResponse>(["sos-active", "d2"])?.sos?.sosId,
+    ).toBe("s2");
+    expect(deps.openCountdown).toHaveBeenCalledWith("s2", "d2");
+    expect(deps.showLockScreenAlert).toHaveBeenCalledTimes(1);
+    expect(deps.log).not.toHaveBeenCalledWith(
+      expect.stringContaining("后重试"),
+    );
+  });
+});
+
+describe("isSosFor（取消 / 立即求救的应答写缓存前把关，10-22 夜测）", () => {
+  it("是这一单的求救单才算；字符串 / {} / null / 别的单 / 缺状态都不算", () => {
+    expect(isSosFor(sos(), "s1")).toBe(true);
+    expect(isSosFor(sos({ status: "cancelled" }), "s1")).toBe(true);
+    for (const bad of [
+      "unexpected",
+      {},
+      null,
+      undefined,
+      42,
+      sos({ sosId: "s2" }),
+    ]) {
+      expect(isSosFor(bad, "s1")).toBe(false);
+    }
+    expect(isSosFor({ sosId: "s1", deadline: "x" }, "s1")).toBe(false);
+    expect(isSosFor({ sosId: "s1", status: "pending" }, "s1")).toBe(false);
   });
 });

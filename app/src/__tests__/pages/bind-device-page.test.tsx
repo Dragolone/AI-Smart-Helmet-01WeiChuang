@@ -1,6 +1,8 @@
-// 扫码绑定页：相机权限（问 / 去设置）、扫到带绑定码的码直接绑（找到 → 正在绑定 → 成功 / 没绑上）、
-// 只印了设备号的旧码转去手输、不是绑定码 / 刚绑过的提示、没绑上之后同一个码的处理（断网类可立刻重扫）、
-// 手动输入、Android 返回键、成功后「完成」用 dismissAll 回去（绝不 push 标签页）。
+// 扫码绑定页：相机权限（问 / 去设置 / 还没查到）、扫到带绑定码的码直接绑（找到 → 正在绑定 → 成功 / 没绑上）、
+// 相机在重画前连报几个码只处理第一个、没等结果就关了页面、只印了设备号的旧码转去手输、
+// 不是绑定码 / 刚绑过的提示（码留在镜头里时提示留着、不反复震）、没绑上之后同一个码的处理（断网类可立刻重扫）、
+// 震动调不起来不影响流程、手动输入（粘贴整条绑定链接）、面板进出场、Android 返回键、
+// 成功后「完成」用 dismissAll 回去（绝不 push 标签页）。
 import {
   afterEach,
   beforeEach,
@@ -11,6 +13,7 @@ import {
 } from "@jest/globals";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import type { DevicePublic } from "@helmet/shared";
+import * as Haptics from "expo-haptics";
 import { AccessibilityInfo, BackHandler, Linking } from "react-native";
 import { act } from "react-test-renderer";
 import { mockRouter, routerState } from "@/__tests__/helpers/native-mocks";
@@ -23,6 +26,7 @@ import {
 import { ApiRequestError, SessionEndedError } from "@/api/client";
 import { contactsApi } from "@/api/contacts";
 import { devicesApi } from "@/api/devices";
+import { showToast } from "@/components/toast";
 import { translate, useLocaleStore, type MessageKey } from "@/i18n";
 import { useThemeStore } from "@/stores/theme-store";
 import BindDeviceScreen from "@/app/bind-device";
@@ -113,6 +117,12 @@ jest.mock("@/hooks/use-safety", () => ({
 const mockAppActive = { value: true };
 jest.mock("@/hooks/use-app-active", () => ({
   useAppActive: () => mockAppActive.value,
+}));
+jest.mock("@/components/toast", () => ({
+  ...jest.requireActual<typeof import("@/components/toast")>(
+    "@/components/toast",
+  ),
+  showToast: jest.fn(),
 }));
 
 const tr = (key: MessageKey, params?: Record<string, string | number>) =>
@@ -209,6 +219,17 @@ describe("相机权限", () => {
     r.press(tr("scan.manual"));
     expect(r.texts()).toContain(tr("bind.manualTitle"));
     settings.mockRestore();
+  });
+
+  it("相机权限还没查到（刚进来那一下）：不开相机、也不先弹说明；手动输入照常可用", async () => {
+    mockCamera.perm = null;
+    const r = mount();
+    // 读屏开没开的查询在 act 里落地，免得测完才回来改状态
+    await flush();
+    expect(camera(r)).toBeUndefined();
+    expect(r.allText()).not.toContain(tr("scan.permissionTitle"));
+    r.press(tr("scan.manual"));
+    expect(r.texts()).toContain(tr("bind.manualTitle"));
   });
 
   it("相机只在本页在最上面、App 在前台时开：被求救倒计时这类全屏页盖住 / 退到后台就关掉，回来再开", () => {
@@ -379,6 +400,139 @@ describe("扫码绑定", () => {
     r.press(tr("scan.manual"));
     expect(camera(r).props.onBarcodeScanned).toBeUndefined();
   });
+
+  it("相机在页面重画之前把码连报几遍、镜头里还有另一个码：只处理第一个", async () => {
+    const r = mount();
+    const onScanned = camera(r).props.onBarcodeScanned as (e: {
+      data: string;
+    }) => void;
+    act(() => {
+      onScanned({ data: QR });
+      onScanned({ data: QR });
+      onScanned({ data: "helmet://bind?d=helmet_y&c=87654321" });
+    });
+    expect(devicesApi.bind).toHaveBeenCalledTimes(1);
+    expect(devicesApi.bind).toHaveBeenCalledWith({
+      deviceId: "helmet_x",
+      bindCode: "12345678",
+    });
+    await flush(900);
+    expect(r.allText()).toContain(tr("device.bindSuccess"));
+  });
+
+  it("列表缓存里已经有这一顶（别的手机上解绑过、这里的列表还是旧的）：绑上后不重复写进去", async () => {
+    qc.setQueryData(
+      ["devices"],
+      [{ deviceId: "helmet_x" }, { deviceId: "h0" }],
+    );
+    const r = mount();
+    scan(r, QR);
+    await flush(900);
+    expect(r.allText()).toContain(tr("device.bindSuccess"));
+    expect(qc.getQueryData(["devices"])).toEqual([
+      { deviceId: "helmet_x" },
+      { deviceId: "h0" },
+    ]);
+  });
+
+  it("扫到码后没等结果就关了页面：绑上了弹一句提示让人知道；没绑上不弹", async () => {
+    let r = mount();
+    scan(r, QR);
+    r.unmount();
+    await flush(900);
+    expect(showToast).toHaveBeenCalledWith(tr("device.bindSuccess"));
+    expect(announce).not.toHaveBeenCalled();
+    m(showToast).mockClear();
+    m(devicesApi.bind).mockImplementation(() =>
+      Promise.reject(new ApiRequestError(400, { code: "BIND_CODE_INVALID" })),
+    );
+    r = mount();
+    scan(r, QR);
+    r.unmount();
+    await flush(900);
+    expect(devicesApi.bind).toHaveBeenCalledTimes(2);
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it("只印了设备号的旧码：关掉面板后码还在镜头里，不立刻再弹面板；移开 1.5 秒以上再对上才再弹", async () => {
+    const r = mount();
+    scan(r, "helmet_old01");
+    expect(r.texts()).toContain(tr("bind.manualTitle"));
+    act(() => {
+      back!();
+    });
+    expect(r.texts()).not.toContain(tr("bind.manualTitle"));
+    scan(r, "helmet_old01");
+    expect(r.texts()).not.toContain(tr("bind.manualTitle"));
+    expect(r.allText()).toContain(tr("scan.hint"));
+    await flush(2000);
+    scan(r, "helmet_old01");
+    expect(r.texts()).toContain(tr("bind.manualTitle"));
+  });
+
+  it("刚才没绑上的码一直在镜头里：提示一直留着（每报一次重新计时），码离开 2.2 秒后才收起", async () => {
+    m(devicesApi.bind).mockImplementation(() =>
+      Promise.reject(new ApiRequestError(400, { code: "BIND_CODE_INVALID" })),
+    );
+    const r = mount();
+    scan(r, QR);
+    await flush(900);
+    r.press(tr("bind.rescan"));
+    scan(r, QR);
+    expect(r.allText()).toContain(tr("scan.justFailed"));
+    await flush(1000);
+    scan(r, QR);
+    await flush(1500);
+    // 第一次提示的 2.2 秒已经过了：码一直在镜头里，提示还留着
+    expect(r.allText()).toContain(tr("scan.justFailed"));
+    await flush(800);
+    expect(r.allText()).not.toContain(tr("scan.justFailed"));
+    expect(r.allText()).toContain(tr("scan.hint"));
+    expect(devicesApi.bind).toHaveBeenCalledTimes(1);
+  });
+
+  it("镜头里几个无关的码来回跳：提示留着，不跟着反复抖动和震动；最后一次报到之后 2.2 秒才收起", async () => {
+    const r = mount();
+    scan(r, "https://example.com/not-a-helmet?x=1");
+    expect(r.allText()).toContain(tr("scan.notBindCode"));
+    await flush(500);
+    scan(r, "just some text");
+    await flush(500);
+    scan(r, "https://example.com/not-a-helmet?x=1");
+    expect(
+      m(Haptics.notificationAsync).mock.calls.filter((c) => c[0] === "error"),
+    ).toHaveLength(1);
+    await flush(2000);
+    expect(r.allText()).toContain(tr("scan.notBindCode"));
+    await flush(300);
+    expect(r.allText()).toContain(tr("scan.hint"));
+  });
+
+  it("震动调不起来（设备不支持，震动接口报错）：提示、扫码绑定、手输都照常", async () => {
+    m(Haptics.notificationAsync).mockImplementation(() =>
+      Promise.reject(new Error("unsupported")),
+    );
+    try {
+      m(devicesApi.bind).mockImplementationOnce(() =>
+        Promise.reject(new ApiRequestError(400, { code: "BIND_CODE_INVALID" })),
+      );
+      const r = mount();
+      scan(r, "https://example.com/not-a-helmet?x=1");
+      expect(r.allText()).toContain(tr("scan.notBindCode"));
+      await flush(2300);
+      scan(r, QR);
+      await flush(900);
+      expect(r.allText()).toContain(tr("bind.failedTitle"));
+      r.press(tr("scan.typeInstead"));
+      r.press(tr("device.bindAction"));
+      await flush();
+      expect(r.allText()).toContain(tr("device.bindSuccess"));
+      // 无关码的震、识别到的震、没绑上的震、手输绑上的震
+      expect(Haptics.notificationAsync).toHaveBeenCalledTimes(4);
+    } finally {
+      m(Haptics.notificationAsync).mockImplementation(() => Promise.resolve());
+    }
+  });
 });
 
 describe("手动输入", () => {
@@ -410,6 +564,81 @@ describe("手动输入", () => {
     });
     expect(r.allText()).toContain(tr("device.bindSuccess"));
     expect(r.texts()).not.toContain(tr("bind.manualTitle"));
+  });
+
+  it("设备号一栏粘进整条绑定链接（微信扫码落到网页后复制的）：拆成设备号和绑定码；链接里没有绑定码就只填设备号", async () => {
+    routerState.params = { manual: "1" };
+    const r = mount();
+    // 读屏开没开的查询在 act 里落地，免得测完才回来改状态
+    await flush();
+    r.type(P.id, "https://01weichuang.com/bind?d=helmet_q&c=12345678");
+    expect(r.valueOf(P.id)).toBe("helmet_q");
+    expect(r.valueOf(P.code)).toBe("12345678");
+    r.type(P.code, "87654321");
+    r.type(P.id, "helmet://bind?d=helmet_r");
+    expect(r.valueOf(P.id)).toBe("helmet_r");
+    expect(r.valueOf(P.code)).toBe("87654321");
+  });
+
+  it("手输提交后没等结果就关了页面：绑上了弹一句提示；没绑上不弹", async () => {
+    routerState.params = { manual: "1" };
+    const submitThenClose = () => {
+      const r = mount();
+      r.type(P.id, "helmet_m");
+      r.type(P.code, "11112222");
+      r.press(tr("device.bindAction"));
+      r.unmount();
+    };
+    let ok!: (d: DevicePublic) => void;
+    m(devicesApi.bind).mockImplementationOnce(
+      () =>
+        new Promise((res) => {
+          ok = res;
+        }),
+    );
+    submitThenClose();
+    await act(async () => {
+      ok({ deviceId: "helmet_m" } as DevicePublic);
+    });
+    await flush();
+    expect(showToast).toHaveBeenCalledWith(tr("device.bindSuccess"));
+    m(showToast).mockClear();
+    let fail!: (e: unknown) => void;
+    m(devicesApi.bind).mockImplementationOnce(
+      () =>
+        new Promise((_res, rej) => {
+          fail = rej;
+        }),
+    );
+    submitThenClose();
+    await act(async () => {
+      fail(new ApiRequestError(404, { code: "DEVICE_NOT_FOUND" }));
+    });
+    await flush();
+    expect(devicesApi.bind).toHaveBeenCalledTimes(2);
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it("底部面板进出场：从屏幕下沿外（自身高度 + 24）上来、停在原位；退出时退回下沿外", () => {
+    routerState.params = { manual: "1" };
+    const r = mount();
+    type Anim = {
+      initialValues: { transform: { translateY: number }[] };
+      animations: { transform: { translateY: number }[] };
+    };
+    const { entering, exiting } = r.root.findAll(
+      (n) =>
+        typeof n.type !== "string" && typeof n.props.entering === "function",
+    )[0].props as {
+      entering: (v: unknown) => Anim;
+      exiting: (v: unknown) => Anim;
+    };
+    const enter = entering({ targetHeight: 300 });
+    expect(enter.initialValues.transform).toEqual([{ translateY: 324 }]);
+    expect(enter.animations.transform).toEqual([{ translateY: 0 }]);
+    const exit = exiting({ currentHeight: 300 });
+    expect(exit.initialValues.transform).toEqual([{ translateY: 0 }]);
+    expect(exit.animations.transform).toEqual([{ translateY: 324 }]);
   });
 
   it("面板往下拖过 90 收起，拖不够弹回", () => {

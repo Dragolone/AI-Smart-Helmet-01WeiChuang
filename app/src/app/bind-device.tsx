@@ -77,6 +77,8 @@ import {
 } from "@/services/bind-qr";
 import { withAlpha } from "@/services/color";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 const FRAME = 240;
 /** 扫描线上下走的总行程 */
 const SWEEP = 216;

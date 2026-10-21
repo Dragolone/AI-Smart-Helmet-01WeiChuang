@@ -37,6 +37,7 @@ import {
 import {
   setBleTargetNameResolver,
   setBleTargets,
+  checkBlePermissions,
   startBleLink,
   stopBleLink,
 } from "@/services/ble-link";
@@ -61,6 +62,9 @@ import { setPushArrivalHandler, startPush, stopPush } from "@/services/push";
 import {
   clearSosAlert,
   ensureSosAlertPermission,
+  whenCountdownClearForPrompt,
+  whenSosAlertPermissionAsked,
+  holdPermissionPromptUntil,
   resetSosAlerts,
   setSosCancelConfirmedListener,
   showSosAlertIfBackground,
@@ -111,6 +115,7 @@ jest.mock("@/api/sos", () => ({
 jest.mock("@/services/ble-link", () => ({
   setBleTargetNameResolver: jest.fn(),
   setBleTargets: jest.fn(),
+  checkBlePermissions: jest.fn(),
   startBleLink: jest.fn(),
   stopBleLink: jest.fn(),
 }));
@@ -143,6 +148,9 @@ jest.mock("@/services/ble-targets", () => ({
 jest.mock("@/services/sos-alert", () => ({
   clearSosAlert: jest.fn(),
   ensureSosAlertPermission: jest.fn(),
+  whenSosAlertPermissionAsked: jest.fn(),
+  whenCountdownClearForPrompt: jest.fn(),
+  holdPermissionPromptUntil: jest.fn(),
   resetSosAlerts: jest.fn(),
   setSosCancelConfirmedListener: jest.fn(),
   showSosAlertIfBackground: jest.fn(),
@@ -369,6 +377,7 @@ beforeEach(() => {
     jest.mocked(loadWithRetry),
     jest.mocked(clearSosAlert),
     jest.mocked(ensureSosAlertPermission),
+    jest.mocked(holdPermissionPromptUntil),
     jest.mocked(resetSosAlerts),
     jest.mocked(setSosCancelConfirmedListener),
     jest.mocked(showSosAlertIfBackground),
@@ -389,6 +398,9 @@ beforeEach(() => {
   jest.mocked(loadCachedTargets).mockResolvedValue([]);
   jest.mocked(saveCachedTargets).mockResolvedValue(undefined);
   jest.mocked(ensureSosAlertPermission).mockResolvedValue(undefined);
+  jest.mocked(whenSosAlertPermissionAsked).mockResolvedValue(undefined);
+  jest.mocked(whenCountdownClearForPrompt).mockResolvedValue(undefined);
+  jest.mocked(checkBlePermissions).mockResolvedValue(true);
   jest.mocked(startBleLink).mockResolvedValue(undefined);
   jest.mocked(adoptRelayUplinkOwner).mockReturnValue(true);
   jest.mocked(handleDeviceCommand).mockResolvedValue(true);
@@ -561,6 +573,62 @@ describe("蓝牙链路目标", () => {
     expect(startBleLink).toHaveBeenCalledWith(["h3", "h1", "h2"]);
   });
 
+  it("蓝牙权限还没给过（这次起链路会弹系统框）：等通知那次申请有结果（倒计时在屏时被推迟到关页后）再起链路，不让「附近设备」框盖住倒计时（O10）", async () => {
+    const asked = deferred<void>();
+    jest.mocked(checkBlePermissions).mockResolvedValue(false);
+    jest.mocked(whenSosAlertPermissionAsked).mockReturnValue(asked.promise);
+    jest.mocked(devicesApi.list).mockResolvedValue([dev("h1")]);
+    await mountBridge();
+    expect(startBleLink).not.toHaveBeenCalled();
+    await run(() => asked.resolve());
+    expect(startBleLink).toHaveBeenCalledTimes(1);
+  });
+
+  it("蓝牙权限没有、通知那次根本没弹框（早就授权 / 永久拒绝，立刻兑现）：倒计时页在屏时照样等它关掉再起链路（O10，10-21 代码审查）", async () => {
+    const clear = deferred<void>();
+    jest.mocked(checkBlePermissions).mockResolvedValue(false);
+    jest.mocked(whenSosAlertPermissionAsked).mockResolvedValue(undefined);
+    jest.mocked(whenCountdownClearForPrompt).mockReturnValue(clear.promise);
+    jest.mocked(devicesApi.list).mockResolvedValue([dev("h1")]);
+    await mountBridge();
+    await run(() => undefined);
+    expect(startBleLink).not.toHaveBeenCalled();
+    await run(() => clear.resolve());
+    expect(startBleLink).toHaveBeenCalledTimes(1);
+  });
+
+  it("会话被否定、倒计时还在走（O19-A）：停掉蓝牙链路，让头盔里的高危事件留着等重新登录后补传；这时界面重建也不再起链路（10-21 第二轮审查）", async () => {
+    jest.mocked(devicesApi.list).mockResolvedValue([dev("h1")]);
+    await mountBridge();
+    expect(startBleLink).toHaveBeenCalledTimes(1);
+    jest.mocked(stopBleLink).mockClear();
+    await setAuth({ sessionDeadUntil: Date.now() + 40_000 });
+    expect(stopBleLink).toHaveBeenCalledTimes(1);
+    // 同一失效期里再来一次变化不重复停
+    await setAuth({ sessionDeadUntil: Date.now() + 50_000 });
+    expect(stopBleLink).toHaveBeenCalledTimes(1);
+
+    jest.mocked(startBleLink).mockClear();
+    await mountBridge();
+    await run(() => undefined);
+    expect(startBleLink).not.toHaveBeenCalled();
+    await setAuth({ sessionDeadUntil: null });
+  });
+
+  it("蓝牙权限已经有了：不等通知那次申请（可能被推迟），通知权限一有结果就起链路", async () => {
+    jest.mocked(checkBlePermissions).mockResolvedValue(true);
+    jest
+      .mocked(whenSosAlertPermissionAsked)
+      .mockReturnValue(new Promise(() => undefined));
+    jest
+      .mocked(whenCountdownClearForPrompt)
+      .mockReturnValue(new Promise(() => undefined));
+    jest.mocked(devicesApi.list).mockResolvedValue([dev("h1")]);
+    await mountBridge();
+    await run(() => undefined);
+    expect(startBleLink).toHaveBeenCalledTimes(1);
+  });
+
   const orderCases: {
     when: string;
     user: UserProfile | null;
@@ -659,38 +727,71 @@ describe("蓝牙链路目标", () => {
     expect(nameOf("h9")).toBeNull();
   });
 
-  it("疑似缺陷（A11 修复遗漏）：设备列表到了 / 刷新时交给链路和存盘的是服务端原序，没把当前头盔排前面——绑了 20 顶以上时当前那顶会被链路截掉", async () => {
+  it("设备列表到了 / 刷新时，交给链路和存盘的目标也把当前头盔排第一（绑 20 顶以上时链路只盯前 20 顶，10-16 A11）", async () => {
     const ids = Array.from(
       { length: 22 },
       (_, i) => `h${String(i + 1).padStart(2, "0")}`,
     );
+    const ordered = ["h22", ...ids.filter((id) => id !== "h22")];
     const permission = deferred<void>();
     jest.mocked(ensureSosAlertPermission).mockReturnValue(permission.promise);
     jest.mocked(devicesApi.list).mockResolvedValue(ids.map((id) => dev(id)));
     useCurrentHelmetStore.setState({ chosen: { u1: "h22" } });
     await mountBridge();
-    // 现状：列表到达时原样交出去，当前那顶排第 22（ble-link 只盯前 20 顶）；存盘的也是这个顺序（存盘只留前 20 个）
-    expect(setBleTargets).toHaveBeenLastCalledWith(ids);
-    expect(saveCachedTargets).toHaveBeenLastCalledWith("u1", ids);
+    // 列表到达：当前那顶（服务端排第 22）挪到最前再交给链路、存盘（存盘只留前 20 个）
+    expect(setBleTargets).toHaveBeenLastCalledWith(ordered);
+    expect(saveCachedTargets).toHaveBeenLastCalledWith("u1", ordered);
 
-    // 对照：起链路走 bleTargetsOf，当前那顶在最前
+    // 起链路走 bleTargetsOf，同样在最前
     await run(() => permission.resolve());
     expect(jest.mocked(startBleLink).mock.calls[0][0][0]).toBe("h22");
 
-    // 之后列表一刷新（回前台、绑定 / 解绑），目标又回到原序
+    // 之后列表一刷新（回前台、绑定 / 解绑），目标仍是当前那顶在最前
     await run(() =>
       qc.setQueryData(
         ["devices"],
         ids.map((id) => dev(id)),
       ),
     );
-    expect(jest.mocked(setBleTargets).mock.lastCall?.[0].indexOf("h22")).toBe(
-      21,
-    );
+    expect(jest.mocked(setBleTargets).mock.lastCall?.[0]).toEqual(ordered);
   });
 });
 
 describe("求救：拉起倒计时页与锁屏提醒", () => {
+  it("冷启动补拉回来之前拦住系统通知授权框（O10：进行中的单要等补拉才拉起倒计时页，授权框先弹会盖在页上）：闸在调 ensure 之前装上；补拉先拉起倒计时页、结束后才放行", async () => {
+    const active = deferred<{ sos: Sos | null }>();
+    jest.mocked(sosApi.active).mockReturnValueOnce(active.promise);
+    await mountBridge();
+    const hold = jest.mocked(holdPermissionPromptUntil);
+    expect(hold).toHaveBeenCalledTimes(1);
+    expect(hold.mock.invocationCallOrder[0]).toBeLessThan(
+      jest.mocked(ensureSosAlertPermission).mock.invocationCallOrder[0],
+    );
+    const released = jest.fn();
+    void hold.mock.calls[0][0].then(released);
+    await flush();
+    expect(sosApi.active).toHaveBeenCalledWith("h1");
+    expect(released).not.toHaveBeenCalled(); // 补拉还在路上
+
+    await run(() => active.resolve({ sos: sosOf() }));
+    expect(router.push).toHaveBeenCalledTimes(1);
+    expect(released).toHaveBeenCalledTimes(1);
+    // 先登记、拉起倒计时页，再放行：sos-alert 放行后看到 presentedSos 里有这单，就把申请推迟到页面关掉后
+    expect(jest.mocked(router.push).mock.invocationCallOrder[0]).toBeLessThan(
+      released.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("冷启动补拉失败（离线）也放行授权框：申请不能一直挂着", async () => {
+    jest.mocked(sosApi.active).mockRejectedValue(offline());
+    await mountBridge();
+    const released = jest.fn();
+    void jest.mocked(holdPermissionPromptUntil).mock.calls[0][0].then(released);
+    await flush();
+    expect(released).toHaveBeenCalledTimes(1);
+    expect(router.push).not.toHaveBeenCalled();
+  });
+
   it("第一次挂上（没有孤儿可接手）不清「拉起过」的登记：点通知冷启动进来的那单，冷启动补拉只补锁屏提醒、不再叠一页", async () => {
     presentedSos.current.add("s1");
     jest.mocked(sosApi.active).mockResolvedValue({ sos: sosOf() });

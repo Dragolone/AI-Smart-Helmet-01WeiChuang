@@ -29,6 +29,8 @@ import { useT } from "@/i18n";
 import { SECURE_KEYS } from "@/services/secure-keys";
 import { useAuthStore } from "@/stores/auth-store";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 export default function ChangePhoneScreen() {
   const theme = useTheme();
   const t = useT();

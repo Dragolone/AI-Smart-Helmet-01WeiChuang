@@ -18,6 +18,7 @@ import { devicesApi } from "@/api/devices";
 import { authApi } from "@/api/auth";
 import { sosApi } from "@/api/sos";
 import { readNotifyPermissionAfterAsk } from "@/services/notify-permission";
+import { sosChannelBypassesDnd } from "@/services/sos-alert";
 import { STILL_MS } from "@/services/switch-reminder";
 import { useAuthStore } from "@/stores/auth-store";
 import { useBleStore } from "@/stores/ble-store";
@@ -31,6 +32,7 @@ import {
   useHelmets,
   useNotifyPermission,
   usePendingSos,
+  useSosDndBypass,
   useSosDrill,
 } from "../use-safety";
 import {
@@ -38,7 +40,10 @@ import {
   __resetSmsCooldownsForTests,
   useSmsCode,
 } from "../use-sms-code";
-import { useSwitchHelmetWatcher } from "../use-switch-reminder";
+import {
+  useSwitchHelmetWatcher,
+  useSwitchReminderSetting,
+} from "../use-switch-reminder";
 
 // App 源码解析到 app/node_modules/react，渲染器用根目录那份：让两边用同一份（见 edge-small-hooks-1016）
 jest.mock("react", () => jest.requireActual("../../../../node_modules/react"));
@@ -57,6 +62,9 @@ jest.mock("@/api/sos", () => ({
 jest.mock("@/services/notify-permission", () => ({
   readNotifyPermissionAfterAsk: jest.fn(),
 }));
+jest.mock("@/services/sos-alert", () => ({
+  sosChannelBypassesDnd: jest.fn(),
+}));
 jest.mock("expo-router", () => ({ router: { navigate: jest.fn() } }));
 jest.mock("expo-secure-store", () => ({
   AFTER_FIRST_UNLOCK: "AFTER_FIRST_UNLOCK",
@@ -73,6 +81,7 @@ const smsMock = authApi.sendSmsCode as unknown as AnyMock;
 const activeMock = sosApi.active as unknown as AnyMock;
 const accountMock = sosApi.activeForAccount as unknown as AnyMock;
 const permMock = readNotifyPermissionAfterAsk as unknown as AnyMock;
+const dndMock = sosChannelBypassesDnd as unknown as AnyMock;
 
 let qc: QueryClient;
 const renderers: ReactTestRenderer[] = [];
@@ -614,6 +623,26 @@ describe("useCurrentHelmetChoice / useSosDrill", () => {
   });
 });
 
+describe("useSosDndBypass（O28）", () => {
+  it("没查到之前是 null；用户去系统设置打开「允许打扰」回到前台再查一次", async () => {
+    const listeners: ((s: string) => void)[] = [];
+    jest.spyOn(RN.AppState, "addEventListener").mockImplementation(((
+      _: string,
+      cb: (s: string) => void,
+    ) => {
+      listeners.push(cb);
+      return { remove: () => listeners.splice(listeners.indexOf(cb), 1) };
+    }) as never);
+    dndMock.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const r = await renderHook(() => useSosDndBypass());
+    await settle(() => r.current !== null);
+    expect(r.current).toBe(false);
+    await act(async () => listeners.forEach((cb) => cb("active")));
+    await settle(() => r.current === true);
+    expect(r.current).toBe(true);
+  });
+});
+
 describe("useNotifyPermission", () => {
   it("没查到之前是 null；回到前台再查一次；卸载后迟到的结果不再写", async () => {
     const listeners: ((s: string) => void)[] = [];
@@ -742,5 +771,70 @@ describe("useSwitchHelmetWatcher：更换头盔提醒的接线", () => {
     now = T0 + STILL_MS + 5_000;
     await report("b", 5);
     expect(useSwitchReminderStore.getState().prompt).toBeNull();
+  });
+
+  it("已经在问的那一条：那台只是停了一下（条件暂时不成立）不收起；当前头盔换了才收起", async () => {
+    now = T0;
+    setup(true);
+    await renderHook(() => useSwitchHelmetWatcher());
+    await report("a", 0);
+    await report("b", 5);
+    now = T0 + STILL_MS + 5_000;
+    await report("b", 5);
+    const asked = { currentId: "a", otherId: "b" };
+    expect(useSwitchReminderStore.getState().prompt).toEqual(asked);
+    now += 2_000;
+    await report("b", 0);
+    expect(useSwitchReminderStore.getState().prompt).toEqual(asked);
+    await act(async () => {
+      useCurrentHelmetStore.setState({ chosen: { u3: "b" } });
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(useSwitchReminderStore.getState().prompt).toBeNull();
+  });
+
+  it("设备列表还没进缓存（设备页还没拉过）：当作没有头盔，不看定位、不问", async () => {
+    now = T0;
+    setup(true);
+    qc.removeQueries({ queryKey: ["devices"] });
+    await renderHook(() => useSwitchHelmetWatcher());
+    await report("a", 0);
+    await report("b", 5);
+    now = T0 + STILL_MS + 5_000;
+    await report("b", 5);
+    expect(useSwitchReminderStore.getState().prompt).toBeNull();
+    expect(listMock).not.toHaveBeenCalled();
+  });
+
+  it("没登录：开关是 null、拨了也不记；看着的那一路什么都不做", async () => {
+    jest.spyOn(Date, "now").mockImplementation(() => now);
+    qc.setQueryData(["devices"], [dev("a", true), dev("b", true)]);
+    const box = await renderHook(() => {
+      useSwitchHelmetWatcher();
+      return useSwitchReminderSetting();
+    });
+    expect(box.current.enabled).toBeNull();
+    act(() => box.current.setEnabled(false));
+    expect(useSwitchReminderStore.getState().enabled).toEqual({});
+    await report("b", 5);
+    expect(useSwitchReminderStore.getState().prompt).toBeNull();
+  });
+
+  it("登录后：读到之前是 null，读到（没存过）是开着；拨动写进这个账号的开关", async () => {
+    signIn("u3");
+    const seen: (boolean | null)[] = [];
+    const box = await renderHook(() => {
+      const setting = useSwitchReminderSetting();
+      seen.push(setting.enabled);
+      return setting;
+    });
+    await settle(() => box.current.enabled !== null);
+    expect(seen[0]).toBeNull();
+    expect(box.current.enabled).toBe(true);
+    await act(async () => {
+      box.current.setEnabled(false);
+    });
+    expect(useSwitchReminderStore.getState().enabled).toEqual({ u3: false });
+    expect(box.current.enabled).toBe(false);
   });
 });

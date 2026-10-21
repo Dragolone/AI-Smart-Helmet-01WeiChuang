@@ -25,6 +25,7 @@ import { newerFix } from "@/components/map/coords";
 import {
   setBleTargetNameResolver,
   setBleTargets,
+  checkBlePermissions,
   startBleLink,
   stopBleLink,
 } from "@/services/ble-link";
@@ -55,6 +56,9 @@ import {
 import {
   clearSosAlert,
   ensureSosAlertPermission,
+  whenCountdownClearForPrompt,
+  whenSosAlertPermissionAsked,
+  holdPermissionPromptUntil,
   resetSosAlerts,
   setSosCancelConfirmedListener,
   showSosAlertIfBackground,
@@ -74,6 +78,9 @@ import {
 } from "@/services/bridge-lifecycle";
 import { useAuthStore } from "@/stores/auth-store";
 import { useCurrentHelmetStore } from "@/stores/current-helmet-store";
+
+/** 远程推送到达那次补拉失败后的重试间隔：弱网下 2 s、5 s 再各试一次（60 s 倒计时内够用，又不会无限打服务端） */
+const PUSH_ARRIVAL_RETRY_DELAYS_MS = [2_000, 5_000] as const;
 
 /**
  * 每次启动拿一个号；清理时只有自己仍是最新的那次，才拆掉共享的连接 / 链路 / 推送别名。
@@ -119,8 +126,17 @@ export function useRealtimeUpdates(): void {
     let uplinkOwner = useAuthStore.getState().user?.id;
     startRelayUplink(uplinkOwner ?? undefined);
     let cancelled = false;
+    // 冷启动补拉结束前系统通知授权框先别弹（O10）：进行中的单要等补拉回来才拉起倒计时页，授权框先弹的话
+    // 会盖在倒计时页上、挡住滑动取消。补拉结束（不论成败）放行，sos-alert 那边另有 5 s 上限
+    let coldResumeSettled: () => void = () => undefined;
+    holdPermissionPromptUntil(
+      new Promise<void>((resolve) => {
+        coldResumeSettled = resolve;
+      }),
+    );
     // 通知权限的系统框要先有结果，再去要蓝牙权限：Android 一次只允许一个权限请求，两路并发时后到的
-    // 被立即取消，蓝牙权限框不出现、链路本次进程起不来（Android 13+ 全新安装首次登录，2026-10-05 评审）
+    // 被立即取消，蓝牙权限框不出现、链路本次进程起不来（Android 13+ 全新安装首次登录，2026-10-05 评审）。
+    // 系统根本不弹框时不等补拉；倒计时页在屏、申请被推迟时它立刻兑现，链路不被这一单拖住（sos-alert askPermission）
     const permissionReady = ensureSosAlertPermission();
     // BLE 近场链路：目标 = 已绑定设备；绑定/解绑后随 ['devices'] 缓存变化同步目标。
     // 列表还没拉到（或拉失败）时用上次存下的那份，见 services/ble-targets.ts
@@ -168,8 +184,21 @@ export function useRealtimeUpdates(): void {
     };
     onUserReady();
     const unsubscribeUser = useAuthStore.subscribe(onUserReady);
-    void Promise.all([permissionReady, cachedReady]).then(() => {
-      if (!cancelled) void startBleLink(bleTargetsOf());
+    void Promise.all([permissionReady, cachedReady]).then(async () => {
+      if (cancelled) return;
+      // 蓝牙权限还没给过时，起链路就会弹「附近设备」系统框，同样盖在倒计时页上（O10 草稿 10-20 模拟器复验：
+      // 通知框推迟之后换成这个框挡住滑动取消）。这种情况下等通知那次（倒计时在屏时被推迟到关页后）有结果再起链路：
+      // 蓝牙权限本来就没有，链路晚起不丢事件——头盔没收到 ACK 的高危事件留在 Flash，连上后补传
+      if (!(await checkBlePermissions().catch(() => true))) {
+        await whenSosAlertPermissionAsked();
+        if (cancelled) return;
+        // 通知那次根本没弹框（早就授权 / 永久拒绝）时上面立刻兑现：蓝牙这次也要自己避开倒计时页
+        await whenCountdownClearForPrompt();
+        if (cancelled) return;
+      }
+      // 会话已被否定、只是倒计时还在走（O19-A）：不起链路，理由见下面 unsubscribeDead
+      if (useAuthStore.getState().sessionDeadUntil !== null) return;
+      void startBleLink(bleTargetsOf());
     });
     // SOS 同步的判断逻辑在 services/sos-sync.ts（纯函数 + 注入副作用，有单测）；这里只接线
     const sosDeps: SosSyncDeps = {
@@ -239,7 +268,9 @@ export function useRealtimeUpdates(): void {
       if (cancelled) return;
       const ids = bleTargetsOf();
       coldResumeHadTargets = ids.length > 0;
-      void resumePendingSos(queryClient, ids, presentedSos, sosDeps);
+      void resumePendingSos(queryClient, ids, presentedSos, sosDeps).finally(
+        coldResumeSettled,
+      );
     });
     // 自己把摔倒 / 求救送上云且服务端接受了 → 立刻核对进行中的 SOS 并拉起倒计时页，顺手让 WS 立即重连。
     // 手机深睡时 WS 早已断、极光长连接也被挂起，这是唯一不依赖它们的拉起路径（10-06 不变式评审 F-1）
@@ -261,6 +292,7 @@ export function useRealtimeUpdates(): void {
         presentedSos,
         sosDeps,
         "远程推送到达，补拉",
+        PUSH_ARRIVAL_RETRY_DELAYS_MS,
       );
     });
     // 锁屏通知「取消」被服务端确认（含重试成功）→ 倒计时页与安全页立刻拉权威状态，不等 WS / 10 s 轮询
@@ -276,8 +308,11 @@ export function useRealtimeUpdates(): void {
         const live = liveTargets(queryClient);
         if (live === null) return;
         known = live;
-        setBleTargets(live);
-        void saveCachedTargets(useAuthStore.getState().user?.id, live);
+        // 当前头盔排第一（同 bleTargetsOf，10-16 A11）：原来列表一到 / 一刷新就按服务端原序交给链路和存盘，
+        // 绑 20 顶以上时当前那顶会被链路截掉（10-19 夜测 #275 测出）
+        const ordered = prioritizeCurrent(queryClient, live);
+        setBleTargets(ordered);
+        void saveCachedTargets(useAuthStore.getState().user?.id, ordered);
         if (
           live.length > 0 &&
           coldResumeHadTargets === false &&
@@ -376,9 +411,20 @@ export function useRealtimeUpdates(): void {
       alertPendingOnBackground(queryClient, state, bleTargetsOf(), sosDeps);
     });
 
+    // 会话被否定、只是倒计时还在走（O19-A）时停掉蓝牙链路：这段时间（最长约一分钟）头盔报的摔倒照常被回执、
+    // 头盔随即擦掉，App 却传不上去，只能等同一账号下次在这台手机登录才补传，换手机登录就丢了。停了之后事件留在
+    // 头盔里，重新登录（或在别的手机上登录）连上就补传（10-21 第二轮审查）。真正登出时下面整套照常拆
+    const unsubscribeDead = useAuthStore.subscribe((st, prev) => {
+      if (st.sessionDeadUntil !== null && prev.sessionDeadUntil === null) {
+        devLog("realtime", "会话已失效、倒计时还在走：停掉蓝牙链路");
+        stopBleLink();
+      }
+    });
+
     // 这一次挂上的订阅
     const detach = () => {
       cancelled = true;
+      unsubscribeDead();
       devicesLoad.cancel();
       unsubscribe();
       unsubscribeState();

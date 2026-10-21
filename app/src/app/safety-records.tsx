@@ -56,6 +56,8 @@ import {
 } from "@/services/safety-records";
 import { helmetNameOf, linkLevelOf } from "@/services/safety-status";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 type Translate = ReturnType<typeof useT>;
 
 /** 每页条数：风险提醒一页 50、SOS 记录一页 20（与以前首屏一样）；「加载更多」每点一次每顶头盔多取一页 */
@@ -327,7 +329,9 @@ export default function SafetyRecordsScreen() {
         .map((d) =>
           queryClient.invalidateQueries({
             queryKey:
-              tab === "alerts" ? alertPrefix(d.deviceId) : sosPrefix(d.deviceId),
+              tab === "alerts"
+                ? alertPrefix(d.deviceId)
+                : sosPrefix(d.deviceId),
           }),
         ),
     );

@@ -49,12 +49,12 @@ describe("detectLocale 的边", () => {
   });
 
   it.each([
-    // 「zh」只是前缀的别的语言代码（如 zha 壮语）不算中文地区规则，落到默认简体
-    ["zha-CN", "zh-CN"],
+    // 「zh」只是前缀的别的语言代码（如 zha 壮语）不算中文；中文以外的系统语言退回英文（负责人 10-21 定，O11）
+    ["zha-CN", "en"],
     ["zh-Latn-TW", "zh-TW"],
-    ["ja-JP", "zh-CN"],
-    ["ko-KR", "zh-CN"],
-    ["fr-TW", "zh-CN"],
+    ["ja-JP", "en"],
+    ["ko-KR", "en"],
+    ["fr-TW", "en"],
     ["en-HK", "en"],
     ["en-TW", "en"],
     ["", "zh-CN"],

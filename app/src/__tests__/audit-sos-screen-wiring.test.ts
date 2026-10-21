@@ -23,6 +23,21 @@ describe("倒计时页 app/sos-active.tsx", () => {
       'import { clearSosAlert } from "@/services/sos-alert";',
     );
   });
+
+  it("倒数中取消 / 立即求救没成功不弹系统提示框（会盖住还在走的倒计时），走页内提示条（O7，10-20）", () => {
+    expect(src).not.toContain('showNotice(t("common.failed")');
+    expect(src).toMatch(/AccessibilityInfo\.announceForAccessibility\(/);
+  });
+});
+
+describe("锁屏通知按钮的取消 services/sos-alert.ts", () => {
+  it("后台重试链路显式用全局超时，不跟倒计时页的 8 s（O7，10-20：前三次重试没人看着，每次都给足时间）", () => {
+    const src = read("services/sos-alert.ts");
+    expect(src).toContain(
+      "sosApi.cancel(sosId, { timeoutMs: REQUEST_TIMEOUT_MS })",
+    );
+    expect(src).toContain('import { REQUEST_TIMEOUT_MS } from "@/api/client";');
+  });
 });
 
 describe("安全页 app/(tabs)/safety.tsx", () => {

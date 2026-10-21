@@ -248,7 +248,7 @@ MVP 实用为主，全部只读 + 少量运维操作。
 
 ## 11. WebSocket（App 实时通道）
 
-- 端点：`/ws?token=<accessToken>`（✅ 定稿：**原生 ws**，决策 #25；token 走查询参数——RN/浏览器原生 WebSocket 无法可靠设置 header）；鉴权失败以关闭码 **4401** 断开（用户密钥签的 `typ=admin` token 同样 4401）；客户端上行单帧超过 64 KiB 以 **1009** 断开（App 不往上发消息，2026-10-17）；连接在 accessToken 的 `exp` 到期时也以 4401 断开（连接不比凭证活得久），App 刷新 token 后重连。
+- 端点：`/ws?token=<accessToken>`（✅ 定稿：**原生 ws**，决策 #25；token 走查询参数——RN/浏览器原生 WebSocket 无法可靠设置 header）；鉴权失败以关闭码 **4401** 断开（用户密钥签的 `typ=admin` token 同样 4401）；验签通过后查注销状态时数据库出错以 **1011** 断开（不是凭证问题，App 走普通退避重连、不刷新 token，2026-10-17）；客户端上行单帧超过 64 KiB 以 **1009** 断开（App 不往上发消息，2026-10-17）；连接在 accessToken 的 `exp` 到期时也以 4401 断开（连接不比凭证活得久），App 刷新 token 后重连。
 - 连接后服务端自动按“当前用户绑定的设备”推送，无需客户端订阅指令（MVP 简化）；data 内带 `deviceId` 区分多设备。
 - 消息统一格式（TS 类型见 `@helmet/shared` WsMessage）：
 
@@ -304,7 +304,7 @@ MVP 实用为主，全部只读 + 少量运维操作。
 | POST | /voice/channels/join | body：`{ inviteCode }`（6 位字母 / 数字，不区分大小写；形状不对 400）；邀请码错误 404；满员 409 `CHANNEL_FULL`；重复加入幂等返回频道；限频每账号每分钟 10 次、同一 IP 每分钟 60 次（决策 #57，超限 429 `RATE_LIMITED`） |
 | DELETE | /voice/channels/{channelId}/membership | 退出频道（非成员 404；频道保留，MVP 不做解散/回收） |
 | GET | /voice/channels/{channelId}/members | 成员列表（仅成员可见）：`{ userId, nickname, avatarUrl, phone, joinedAt }`（**手机号脱敏**；avatarUrl 同频道成员互相可见,2026-08-17；TS 类型 VoiceChannelMemberPublic） |
-| POST | /voice/channels/{channelId}/token | 进房凭证（仅成员）：`{ sdkAppId, userId, roomId, userSig, privateMapKey, expiresAt }`；`privateMapKey` 为**绑定该房间**的权限钥匙（TRTC PrivateMapKey，默认 10 分钟有效 `TRTC_ROOM_KEY_EXPIRE_SECONDS`，App 进房前现取，填 `TRTCParams.privateMapKey`；2026-10-14 决策 #56——TRTC 控制台开启「高级权限控制」后不带它进不了房）；TRTC 未配置时 503 `TRTC_NOT_CONFIGURED` |
+| POST | /voice/channels/{channelId}/token | 进房凭证（仅成员）：`{ sdkAppId, userId, roomId, userSig, privateMapKey, expiresAt }`；`privateMapKey` 为**绑定该房间**的权限钥匙（TRTC PrivateMapKey，默认 10 分钟有效 `TRTC_ROOM_KEY_EXPIRE_SECONDS`，App 进房前现取，填 `TRTCParams.privateMapKey`；在房期间每 5 分钟再取一次交给 SDK（决策 #60），离开房间后最多 10 分钟作废；2026-10-14 决策 #56——TRTC 控制台开启「高级权限控制」后不带它进不了房）；TRTC 未配置时 503 `TRTC_NOT_CONFIGURED` |
 
 `channel` 对象（TS 类型见 `@helmet/shared` VoiceChannel）：`{ channelId, name, roomId, inviteCode, ownerId, memberCount, createdAt }`。`roomId` 为服务端随机 10 位数（2026-10-14 决策 #56；原自增号可猜）；`inviteCode` 为服务端生成的 6 位大写字母 / 数字（决策 #57）。
 

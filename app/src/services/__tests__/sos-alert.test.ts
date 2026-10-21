@@ -11,7 +11,7 @@ import {
   jest,
 } from "@jest/globals";
 import type { Mock } from "jest-mock";
-import { AppState, Platform } from "react-native";
+import { Alert, AppState, Platform } from "react-native";
 
 type SosAlert = typeof import("../sos-alert");
 
@@ -28,14 +28,44 @@ const mockDismiss = jest.fn(async (_id: string) => undefined);
 const mockSetChannel = jest.fn(async (_id: string, _o: unknown) => undefined);
 const mockSetCategory = jest.fn(async (_id: string, _a: unknown) => undefined);
 const mockGetPerms = jest.fn(
-  async (): Promise<{ granted: boolean; status?: string }> => ({
+  async (): Promise<{
+    granted: boolean;
+    status?: string;
+    canAskAgain?: boolean;
+  }> => ({
     granted: true,
   }),
 );
 const mockRequestPerms = jest.fn(async () => ({ granted: true }));
 const mockSetHandler = jest.fn((_h: unknown) => undefined);
+const mockGetChannel = jest.fn(async (_id: string): Promise<unknown> => null);
 /** addNotificationResponseReceivedListener 拿到的回调，用来模拟用户点通知按钮 */
 let responseHandler: ((r: unknown) => void) | null = null;
+/**
+ * 上面每个替身定义时的实现：每条用例开头 mockReset 再装回去。只 mockClear 的话，上一条用例没用完的
+ * mockImplementationOnce、整条换掉的实现（mockRejectedValue、永不返回的 Promise）会带进下一条
+ */
+const defaultImpls = new Map(
+  (
+    [
+      mockCancel,
+      mockPush,
+      mockNavigate,
+      mockGetLastResponse,
+      mockPresented,
+      mockClearLastResponse,
+      mockSchedule,
+      mockCancelScheduled,
+      mockDismiss,
+      mockSetChannel,
+      mockSetCategory,
+      mockGetPerms,
+      mockRequestPerms,
+      mockSetHandler,
+      mockGetChannel,
+    ] as unknown as Mock<(...args: unknown[]) => unknown>[]
+  ).map((m) => [m, m.getMockImplementation()] as const),
+);
 
 jest.mock("@/api/sos", () => ({
   sosApi: { cancel: (id: string) => mockCancel(id) },
@@ -60,6 +90,7 @@ jest.mock("expo-notifications", () => ({
   setNotificationCategoryAsync: (id: string, a: unknown) =>
     mockSetCategory(id, a),
   getPermissionsAsync: () => mockGetPerms(),
+  getNotificationChannelAsync: (id: string) => mockGetChannel(id),
   requestPermissionsAsync: () => mockRequestPerms(),
   addNotificationResponseReceivedListener: (cb: (r: unknown) => void) => {
     responseHandler = cb;
@@ -71,7 +102,17 @@ jest.mock("expo-notifications", () => ({
   getLastNotificationResponse: () => mockGetLastResponse(),
   getPresentedNotificationsAsync: () => mockPresented(),
   clearLastNotificationResponse: () => mockClearLastResponse(),
-  AndroidImportance: { MAX: 5 },
+  // 和 expo-notifications 的取值一致（不是安卓原生的 0–5）
+  AndroidImportance: {
+    UNKNOWN: 0,
+    UNSPECIFIED: 1,
+    NONE: 2,
+    MIN: 3,
+    LOW: 4,
+    DEFAULT: 5,
+    HIGH: 6,
+    MAX: 7,
+  },
   AndroidNotificationVisibility: { PUBLIC: 1 },
   AndroidNotificationPriority: { MAX: "max" },
   SchedulableTriggerInputTypes: { TIME_INTERVAL: "timeInterval" },
@@ -79,6 +120,8 @@ jest.mock("expo-notifications", () => ({
 
 const originalOS = Platform.OS;
 const originalState = AppState.currentState;
+/** 几条用例把它换成自己的（抓回前台的监听）：用完换回，下一条用例不接着用上一条的 */
+const originalAddListener = AppState.addEventListener;
 const override = (obj: object, key: string, value: unknown): void => {
   Object.defineProperty(obj, key, {
     value,
@@ -104,6 +147,50 @@ const load = (): SosAlert => {
   loaded.push(mod);
   return mod;
 };
+/** 连同同一份隔离注册表里的 sos-sync 一起载入：跳倒计时页时登记的「已拉起」集合在它里面，顶层 import 的不是同一个实例 */
+const loadWithSync = (): { m: SosAlert; presented: Set<string> } => {
+  let mod!: SosAlert;
+  let sync!: typeof import("@/services/sos-sync");
+  jest.isolateModules(() => {
+    sync =
+      require("@/services/sos-sync") as typeof import("@/services/sos-sync");
+    mod = require("../sos-alert") as SosAlert;
+  });
+  loaded.push(mod);
+  return { m: mod, presented: sync.presentedSos.current };
+};
+
+/**
+ * 连同同一份隔离注册表里的 sos-queue / sos-sync 一起载入：倒计时页在屏标志（sosScreen）和「已拉起」集合
+ * 都在它们里面，顶层 import 的不是同一个实例（O10 推迟授权框的用例用）
+ */
+const loadWithScreen = (): {
+  m: SosAlert;
+  screen: { mounted: boolean };
+  presented: Set<string>;
+  splash: typeof import("@/components/splash/covering");
+} => {
+  let mod!: SosAlert;
+  let queue!: typeof import("@/services/sos-queue");
+  let sync!: typeof import("@/services/sos-sync");
+  let splash!: typeof import("@/components/splash/covering");
+  jest.isolateModules(() => {
+    splash =
+      require("@/components/splash/covering") as typeof import("@/components/splash/covering");
+    sync =
+      require("@/services/sos-sync") as typeof import("@/services/sos-sync");
+    queue =
+      require("@/services/sos-queue") as typeof import("@/services/sos-queue");
+    mod = require("../sos-alert") as SosAlert;
+  });
+  loaded.push(mod);
+  return {
+    m: mod,
+    screen: queue.sosScreen,
+    presented: sync.presentedSos.current,
+    splash,
+  };
+};
 
 type Req = {
   identifier: string;
@@ -115,35 +202,20 @@ const reqs = (): Req[] => mockSchedule.mock.calls.map((c) => c[0] as Req);
 describe("sos-alert", () => {
   beforeEach(() => {
     responseHandler = null;
-    for (const m of [
-      mockCancel,
-      mockPush,
-      mockNavigate,
-      mockClearLastResponse,
-      mockSchedule,
-      mockCancelScheduled,
-      mockDismiss,
-      mockSetChannel,
-      mockSetCategory,
-      mockGetPerms,
-      mockRequestPerms,
-    ]) {
-      (m as unknown as Mock<() => unknown>).mockClear();
+    for (const [m, impl] of defaultImpls) {
+      m.mockReset();
+      if (impl) m.mockImplementation(impl);
     }
-    mockGetPerms.mockResolvedValue({ granted: true });
-    mockGetLastResponse.mockReset();
-    mockGetLastResponse.mockReturnValue(null);
-    mockPresented.mockReset();
-    mockPresented.mockResolvedValue([]);
-    mockCancel.mockReset();
-    mockCancel.mockImplementation(async () => ({}) as never);
     override(Platform, "OS", "ios");
     override(AppState, "currentState", "background");
   });
   afterEach(async () => {
     for (const m of loaded.splice(0)) await m.resetSosAlerts();
+    // 假定时器统一在这里关：漏关一条，之后靠真定时器等一拍（setTimeout 0）的用例就一直等到超时
+    jest.useRealTimers();
     override(Platform, "OS", originalOS);
     override(AppState, "currentState", originalState);
+    override(AppState, "addEventListener", originalAddListener);
   });
 
   describe("showSosAlertIfBackground", () => {
@@ -321,8 +393,6 @@ describe("sos-alert", () => {
       const m = load();
       await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
       await expect(m.clearSosAlert("s1")).resolves.toBeUndefined();
-      mockCancelScheduled.mockResolvedValue(undefined);
-      mockDismiss.mockResolvedValue(undefined);
     });
 
     it("清完之后同一单可以再次弹（服务端又建了单）", async () => {
@@ -394,9 +464,273 @@ describe("sos-alert", () => {
     });
   });
 
+  describe("倒计时页在屏时推迟系统通知授权框（O10，2026-10-20 Android 16 模拟器 4.41：框盖在倒计时页上，要先点掉才能滑动取消）", () => {
+    /** 让 then 链走完（假定时器下不能靠 setTimeout 0 等一拍） */
+    const settle = async () => {
+      for (let i = 0; i < 20; i += 1) await Promise.resolve();
+    };
+    /** 系统会弹框的「未授权」：Android 13+ 被撤回 / 还没问过 */
+    const willPrompt = () =>
+      mockGetPerms.mockResolvedValue({
+        granted: false,
+        status: "denied",
+        canAskAgain: true,
+      });
+
+    it("页面在屏：不弹框，ensure 照样兑现（蓝牙链路在等它）；通道、通知动作照常立刻建好；页面一直在就一直不弹", async () => {
+      jest.useFakeTimers();
+      override(Platform, "OS", "android");
+      willPrompt();
+      const { m, screen } = loadWithScreen();
+      screen.mounted = true;
+      await m.ensureSosAlertPermission();
+      expect(mockSetChannel.mock.calls[0][0]).toBe("sos");
+      expect(mockSetCategory).toHaveBeenCalledTimes(1);
+      expect(mockRequestPerms).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(60_000);
+      await settle();
+      expect(mockRequestPerms).not.toHaveBeenCalled();
+    });
+
+    it("页面关掉后补弹一次（只一次）；界面读权限要等的是这次补弹有了结果，不是 ensure", async () => {
+      jest.useFakeTimers();
+      willPrompt();
+      let answer!: () => void;
+      mockRequestPerms.mockImplementationOnce(
+        () =>
+          new Promise<{ granted: boolean }>(
+            (r) => (answer = () => r({ granted: true })),
+          ),
+      );
+      const { m, screen } = loadWithScreen();
+      screen.mounted = true;
+      await m.ensureSosAlertPermission();
+      const asked = jest.fn();
+      void m.whenSosAlertPermissionAsked().then(asked);
+      await jest.advanceTimersByTimeAsync(5_000);
+      await settle();
+      expect(asked).not.toHaveBeenCalled(); // 推迟中：ensure 早兑现了，这个还不能
+
+      screen.mounted = false;
+      await jest.advanceTimersByTimeAsync(1_000);
+      await settle();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+      expect(asked).not.toHaveBeenCalled(); // 系统框开着，用户还没点
+      answer();
+      await settle();
+      expect(asked).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(10_000);
+      await settle();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+      await m.ensureSosAlertPermission();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+    });
+
+    it("页面不在屏、也没有正要拉起的单：立刻申请，和原来一样（ensure 等到框有结果）", async () => {
+      willPrompt();
+      const { m } = loadWithScreen();
+      await m.ensureSosAlertPermission();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+      await expect(m.whenSosAlertPermissionAsked()).resolves.toBeUndefined();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+    });
+
+    it("冷启动：补拉没回来之前不弹（通道照常先建）；补拉拉起了倒计时页（已登记、页面还没挂上）→ 推迟、ensure 兑现；页面挂上再关掉后才弹", async () => {
+      jest.useFakeTimers();
+      willPrompt();
+      const { m, screen, presented } = loadWithScreen();
+      let coldResumeDone!: () => void;
+      m.holdPermissionPromptUntil(
+        new Promise<void>((r) => (coldResumeDone = r)),
+      );
+      const ready = jest.fn();
+      void m.ensureSosAlertPermission().then(ready);
+      await settle();
+      expect(mockSetCategory).toHaveBeenCalledTimes(1);
+      expect(mockRequestPerms).not.toHaveBeenCalled();
+      expect(ready).not.toHaveBeenCalled(); // 系统框会弹的情况下，蓝牙仍排在这次申请（或推迟）之后
+
+      presented.add("s1"); // 补拉找到进行中的单、push 了倒计时页（页面下一拍才挂上）
+      coldResumeDone();
+      await settle();
+      expect(ready).toHaveBeenCalledTimes(1);
+      expect(mockRequestPerms).not.toHaveBeenCalled();
+
+      screen.mounted = true;
+      await jest.advanceTimersByTimeAsync(30_000);
+      await settle();
+      expect(mockRequestPerms).not.toHaveBeenCalled();
+      screen.mounted = false;
+      await jest.advanceTimersByTimeAsync(1_000);
+      await settle();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+    });
+
+    it("冷启动没有进行中的单：补拉一回来就弹", async () => {
+      willPrompt();
+      const { m } = loadWithScreen();
+      let coldResumeDone!: () => void;
+      m.holdPermissionPromptUntil(
+        new Promise<void>((r) => (coldResumeDone = r)),
+      );
+      const ready = m.ensureSosAlertPermission();
+      await settle();
+      expect(mockRequestPerms).not.toHaveBeenCalled();
+      coldResumeDone();
+      await ready;
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+    });
+
+    it("补拉迟迟不回（弱网）：最多等 5 s，之后照常弹；补拉失败（reject）也当作回来了", async () => {
+      jest.useFakeTimers();
+      willPrompt();
+      const { m } = loadWithScreen();
+      m.holdPermissionPromptUntil(new Promise<void>(() => undefined));
+      const ready = m.ensureSosAlertPermission();
+      await settle();
+      await jest.advanceTimersByTimeAsync(4_999);
+      await settle();
+      expect(mockRequestPerms).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(1);
+      await ready;
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+
+      mockRequestPerms.mockClear();
+      const second = loadWithScreen();
+      const failed = Promise.reject(new Error("offline"));
+      failed.catch(() => undefined); // 只为不让 Node 报未处理的拒绝；被测代码自己也接了
+      second.m.holdPermissionPromptUntil(failed);
+      await second.m.ensureSosAlertPermission();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+    });
+
+    it("页面一直没挂上（拉起失败）或已经关掉：推迟后第一眼看页面不在就补弹，不会永远不问", async () => {
+      jest.useFakeTimers();
+      willPrompt();
+      const { m, presented } = loadWithScreen();
+      presented.add("s1");
+      await m.ensureSosAlertPermission();
+      expect(mockRequestPerms).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(1_000);
+      await settle();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+    });
+
+    it("系统根本不会弹框（canAskAgain=false：iOS 已答过 / Android 已永久拒绝）：不等补拉、页面在屏也照原样调一次，ensure 立刻兑现", async () => {
+      mockGetPerms.mockResolvedValue({
+        granted: false,
+        status: "denied",
+        canAskAgain: false,
+      });
+      const { m, screen } = loadWithScreen();
+      screen.mounted = true;
+      m.holdPermissionPromptUntil(new Promise<void>(() => undefined));
+      await m.ensureSosAlertPermission();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+    });
+
+    it("开屏还在播（O27）：先不弹，开屏让开才弹；ensure 等到框有结果", async () => {
+      jest.useFakeTimers();
+      willPrompt();
+      const { m, splash } = loadWithScreen();
+      splash.setSplashCovering(true);
+      const ready = jest.fn();
+      void m.ensureSosAlertPermission().then(ready);
+      await jest.advanceTimersByTimeAsync(3_000);
+      await settle();
+      expect(mockSetCategory).toHaveBeenCalledTimes(1);
+      expect(mockRequestPerms).not.toHaveBeenCalled();
+      expect(ready).not.toHaveBeenCalled();
+      splash.setSplashCovering(false);
+      await settle();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+      expect(ready).toHaveBeenCalledTimes(1);
+    });
+
+    it("开屏迟迟不让开：最多等 5 s 就弹；和等补拉同时计时，两样都卡着也只等 5 s", async () => {
+      jest.useFakeTimers();
+      willPrompt();
+      const { m, splash } = loadWithScreen();
+      splash.setSplashCovering(true);
+      m.holdPermissionPromptUntil(new Promise<void>(() => undefined));
+      const ready = m.ensureSosAlertPermission();
+      await settle();
+      await jest.advanceTimersByTimeAsync(4_999);
+      await settle();
+      expect(mockRequestPerms).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(1);
+      await ready;
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+    });
+
+    it("系统根本不会弹框（canAskAgain=false）：开屏盖着也不等", async () => {
+      mockGetPerms.mockResolvedValue({
+        granted: false,
+        status: "denied",
+        canAskAgain: false,
+      });
+      const { m, splash } = loadWithScreen();
+      splash.setSplashCovering(true);
+      await m.ensureSosAlertPermission();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+    });
+
+    it("别的授权框（蓝牙）也走同一道门：页面不在屏立刻放行；在屏就等它关掉；登记了却没挂上的看一眼就放行；补拉没回来最多等 5 s（10-21 代码审查）", async () => {
+      jest.useFakeTimers();
+      const { m, screen, presented } = loadWithScreen();
+      const free = jest.fn();
+      void m.whenCountdownClearForPrompt().then(free);
+      await settle();
+      expect(free).toHaveBeenCalledTimes(1);
+
+      screen.mounted = true;
+      const waiting = jest.fn();
+      void m.whenCountdownClearForPrompt().then(waiting);
+      await jest.advanceTimersByTimeAsync(30_000);
+      await settle();
+      expect(waiting).not.toHaveBeenCalled();
+      screen.mounted = false;
+      await jest.advanceTimersByTimeAsync(1_000);
+      await settle();
+      expect(waiting).toHaveBeenCalledTimes(1);
+
+      presented.add("s1");
+      const once = jest.fn();
+      void m.whenCountdownClearForPrompt().then(once);
+      await jest.advanceTimersByTimeAsync(1_000);
+      await settle();
+      expect(once).toHaveBeenCalledTimes(1);
+      presented.clear();
+
+      m.holdPermissionPromptUntil(new Promise<void>(() => undefined));
+      const gated = jest.fn();
+      void m.whenCountdownClearForPrompt().then(gated);
+      await jest.advanceTimersByTimeAsync(4_999);
+      await settle();
+      expect(gated).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(1);
+      await settle();
+      expect(gated).toHaveBeenCalledTimes(1);
+    });
+
+    it("补弹那次申请出错：不抛（没有未处理的拒绝），界面照常往下读", async () => {
+      jest.useFakeTimers();
+      willPrompt();
+      mockRequestPerms.mockRejectedValueOnce(new Error("activity gone"));
+      const { m, screen } = loadWithScreen();
+      screen.mounted = true;
+      await m.ensureSosAlertPermission();
+      const asked = m.whenSosAlertPermissionAsked();
+      screen.mounted = false;
+      await jest.advanceTimersByTimeAsync(1_000);
+      await expect(asked).resolves.toBeUndefined();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe("前台展示策略（SOS-11：锁屏瞬间 inactive 到达的通知不能被吞）", () => {
     it("初始化时安装策略；App 不在前台时所有通知都弹横幅+响，active 不弹", async () => {
-      mockSetHandler.mockClear(); // 不在 beforeEach 的清零列表里，手动清
       const m = load();
       await m.ensureSosAlertPermission();
       expect(mockSetHandler).toHaveBeenCalledTimes(1);
@@ -460,6 +794,72 @@ describe("sos-alert", () => {
       expect(await m.isSosAlertPermissionDenied()).toBe(false);
       mockGetPerms.mockResolvedValueOnce({ granted: false, status: "denied" });
       expect(await m.isSosAlertPermissionDenied()).toBe(true);
+    });
+  });
+
+  describe("isSosChannelBlocked / 总开关开着但求救通道被单独关了（华为 10-19 实测）", () => {
+    it("Android：通道 importance 为 NONE → 算被拒；通道正常 / 还没建 / 查不到 → 不算", async () => {
+      override(Platform, "OS", "android");
+      const m = load();
+      mockGetPerms.mockResolvedValue({ granted: true, status: "granted" });
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 2 });
+      expect(await m.isSosChannelBlocked()).toBe(true);
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 2 });
+      expect(await m.isSosAlertPermissionDenied()).toBe(true);
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 7 });
+      expect(await m.isSosAlertPermissionDenied()).toBe(false);
+      // 被调成「静默」（LOW / MIN）：不响不弹，算没开（O28，10-21 模拟器）；「默认」会响，不算
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 4 });
+      expect(await m.isSosChannelBlocked()).toBe(true);
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 3 });
+      expect(await m.isSosChannelBlocked()).toBe(true);
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 5 });
+      expect(await m.isSosChannelBlocked()).toBe(false);
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 6 });
+      expect(await m.isSosChannelBlocked()).toBe(false);
+      // 取不到等级（UNKNOWN / UNSPECIFIED）不吓唬用户
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 0 });
+      expect(await m.isSosChannelBlocked()).toBe(false);
+      mockGetChannel.mockResolvedValueOnce(null);
+      expect(await m.isSosAlertPermissionDenied()).toBe(false);
+      mockGetChannel.mockRejectedValueOnce(new Error("x"));
+      expect(await m.isSosAlertPermissionDenied()).toBe(false);
+      expect(mockGetChannel).toHaveBeenCalledWith("sos");
+    });
+
+    it("iOS 没有通道这回事：不查、不算被拒", async () => {
+      override(Platform, "OS", "ios");
+      const m = load();
+      mockGetPerms.mockResolvedValue({ granted: true, status: "granted" });
+      mockGetChannel.mockResolvedValue({ id: "sos", importance: 2 });
+      expect(await m.isSosChannelBlocked()).toBe(false);
+      expect(await m.isSosAlertPermissionDenied()).toBe(false);
+      expect(mockGetChannel).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("sosChannelBypassesDnd / 勿扰模式下求救通道能否提醒（O28，10-21 模拟器实测会被拦下）", () => {
+    it("Android：通道 bypassDnd 为 true 才算允许；false / 没这个字段算不允许；通道还没建、查不到 → 不适用", async () => {
+      override(Platform, "OS", "android");
+      const m = load();
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", bypassDnd: true });
+      expect(await m.sosChannelBypassesDnd()).toBe(true);
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", bypassDnd: false });
+      expect(await m.sosChannelBypassesDnd()).toBe(false);
+      mockGetChannel.mockResolvedValueOnce({ id: "sos" });
+      expect(await m.sosChannelBypassesDnd()).toBe(false);
+      mockGetChannel.mockResolvedValueOnce(null);
+      expect(await m.sosChannelBypassesDnd()).toBeNull();
+      mockGetChannel.mockRejectedValueOnce(new Error("x"));
+      expect(await m.sosChannelBypassesDnd()).toBeNull();
+      expect(mockGetChannel).toHaveBeenCalledWith("sos");
+    });
+
+    it("iOS：不适用（求救通知是 time-sensitive），不查", async () => {
+      override(Platform, "OS", "ios");
+      const m = load();
+      expect(await m.sosChannelBypassesDnd()).toBeNull();
+      expect(mockGetChannel).not.toHaveBeenCalled();
     });
   });
 
@@ -594,7 +994,21 @@ describe("sos-alert", () => {
       expect(confirmed).toEqual(["s1"]);
       await jest.advanceTimersByTimeAsync(20_000);
       expect(mockCancel).toHaveBeenCalledTimes(3); // 成功后不再重试
-      jest.useRealTimers();
+    });
+
+    it("取消的应答不像这一单（网关改写成字符串）：照样算成功、撤通知，但不把它交给页面写缓存（10-22 夜测）", async () => {
+      mockCancel.mockResolvedValueOnce("unexpected" as never);
+      const m = load();
+      const got: [string, unknown][] = [];
+      m.setSosCancelConfirmedListener((id, s) => got.push([id, s]));
+      await m.ensureSosAlertPermission();
+      await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
+      responseHandler?.({
+        actionIdentifier: "cancel",
+        notification: { request: { content: { data: { sosId: "s1" } } } },
+      });
+      for (let i = 0; i < 4; i++) await Promise.resolve();
+      expect(got).toEqual([["s1", undefined]]);
     });
 
     it("取消失败时 App 回到前台立刻重试（不等定时器）", async () => {
@@ -655,7 +1069,6 @@ describe("sos-alert", () => {
       ).toEqual({});
       expect(mockNavigate).not.toHaveBeenCalled();
       await jest.advanceTimersByTimeAsync(60_000);
-      jest.useRealTimers();
     });
 
     it("边界：这单已在别处结束（另一台先取消 / 最后一秒到期）→ SOS_ALREADY_FINALIZED 视为成功，不重试", async () => {
@@ -680,8 +1093,38 @@ describe("sos-alert", () => {
       expect(await m.cancelFromNotification("s1")).toBe(true);
     });
 
+    it("通知上的「取消」一直发不出去：重试用尽后按通知里带的头盔号把人带到这一单的倒计时页（不变式 F-11）", async () => {
+      jest.useFakeTimers();
+      const notice = jest
+        .spyOn(Alert, "alert")
+        .mockImplementation(() => undefined);
+      try {
+        override(AppState, "addEventListener", () => ({
+          remove: () => undefined,
+        }));
+        mockCancel.mockRejectedValue(new Error("offline"));
+        const m = load();
+        await m.ensureSosAlertPermission();
+        responseHandler?.({
+          actionIdentifier: "cancel",
+          notification: {
+            request: { content: { data: { sosId: "s1", deviceId: "d1" } } },
+          },
+        });
+        for (const ms of [0, 2_000, 5_000, 10_000])
+          await jest.advanceTimersByTimeAsync(ms);
+        expect(mockCancel).toHaveBeenCalledTimes(4);
+        expect(mockNavigate).toHaveBeenCalledWith(
+          "/sos-active?sosId=s1&deviceId=d1",
+        );
+        expect(notice).toHaveBeenCalledTimes(1);
+      } finally {
+        notice.mockRestore();
+      }
+    });
+
     it("点横幅/「打开 App」进 SOS 页：用 navigate（页面多半已在栈上，push 会叠两页）并登记为已拉起", async () => {
-      const m = load();
+      const { m, presented } = loadWithSync();
       await m.ensureSosAlertPermission();
       responseHandler?.({
         actionIdentifier: "open",
@@ -693,6 +1136,8 @@ describe("sos-alert", () => {
         "/sos-active?sosId=s1&deviceId=d1",
       );
       expect(mockPush).not.toHaveBeenCalled();
+      // 不登记的话随后的 WS 推送 / 冷启动补拉会再 push 一页：两页倒计时、两路警报音
+      expect(presented.has("s1")).toBe(true);
     });
 
     it("通知里没有 deviceId：不跳转（不把 undefined 拼进路由）", async () => {
@@ -747,7 +1192,6 @@ describe("sos-alert", () => {
       const m = load();
       void m.ensureSosAlertPermission(); // 不 await：模拟同一个 effect 里紧接着的同步代码
       expect(mockCancel).toHaveBeenCalledWith("s1");
-      mockSetCategory.mockImplementation(async () => undefined);
     });
 
     it("点的是横幅 / 「打开 App」：进倒计时页", async () => {
@@ -830,6 +1274,7 @@ describe("sos-alert", () => {
         store = require("@/stores/sos-cancel-store");
         mod = require("../sos-alert") as SosAlert;
       });
+      loaded.push(mod);
       return { m: mod, store: store.useSosCancelStore };
     };
 
@@ -844,7 +1289,6 @@ describe("sos-alert", () => {
       expect(store.getState().inFlight.s9).toBe(true);
       await m.resetSosAlerts();
       expect(store.getState().inFlight.s9).toBeUndefined();
-      jest.useRealTimers();
     });
 
     it("请求发出即标记在途，服务端确认后清掉", async () => {
@@ -874,7 +1318,6 @@ describe("sos-alert", () => {
       await jest.advanceTimersByTimeAsync(5_000);
       await jest.advanceTimersByTimeAsync(10_000);
       expect(store.getState().inFlight.s1).toBeUndefined();
-      jest.useRealTimers();
     });
   });
 
@@ -897,7 +1340,6 @@ describe("sos-alert", () => {
       mockCancel.mockClear();
       await jest.advanceTimersByTimeAsync(30_000);
       expect(mockCancel).not.toHaveBeenCalled(); // 重试已停
-      jest.useRealTimers();
     });
   });
 
@@ -949,7 +1391,19 @@ describe("sos-alert", () => {
       mockPresented.mockClear();
       await jest.advanceTimersByTimeAsync(20_000);
       expect(mockPresented).not.toHaveBeenCalled();
-      jest.useRealTimers();
+    });
+
+    it("「取消」被服务端确认后，同一单的远程推送也撤掉（被杀状态下它是通知中心里唯一的一条，留着用户会再去长按，10-07 实测）；别的单的不动", async () => {
+      mockPresented.mockResolvedValue([
+        remote("apns-1", "s1"),
+        remote("apns-2", "s9"),
+      ]);
+      const m = load();
+      expect(await m.cancelFromNotification("s1")).toBe(true);
+      await new Promise((r) => setTimeout(r, 0));
+      const dismissed = mockDismiss.mock.calls.map((c) => c[0]);
+      expect(dismissed).toContain("apns-1");
+      expect(dismissed).not.toContain("apns-2");
     });
 
     it("查通知中心抛错不影响提醒本身", async () => {

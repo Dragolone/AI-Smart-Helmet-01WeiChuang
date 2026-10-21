@@ -37,6 +37,8 @@ import { SECURE_KEYS } from "@/services/secure-keys";
 import { useAuthStore } from "@/stores/auth-store";
 import { useConsentStore } from "@/stores/consent-store";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 export default function LoginScreen() {
   const t = useT();
   const theme = useTheme();
@@ -49,6 +51,8 @@ export default function LoginScreen() {
   const consentHydrated = useConsentStore((s) => s.hydrated);
   const acceptPrivacy = useConsentStore((s) => s.accept);
   const sessionExpired = useAuthStore((s) => s.sessionExpired);
+  // 倒计时页在屏时被否定、等倒数走完才登出的（O19-A）：多说一句联系人多半已收到通知
+  const expiredDuringSos = useAuthStore((s) => s.expiredDuringSos);
   // 标记还没从 SecureStore 读出来时也按「需要」处理：宁可多勾一次，不能让冷启动秒点登录绕过同意
   // （评审 2026-09-26）——读出来通常只要几十毫秒，勾选框最多闪一下
   const needConsent = !consentHydrated || !privacyAccepted;
@@ -175,21 +179,27 @@ export default function LoginScreen() {
               </ThemedText>
             </SplashArrive>
 
-            {/* 被动登出要说清楚后果：头盔事件靠这台手机中转，没登录就没有摔倒通知（2026-10-05 评审） */}
+            {/* 被动登出要说清楚后果：头盔事件靠这台手机中转，没登录就没有摔倒通知（2026-10-05 评审）。
+                也要跟着开屏依次进场：原来没包进来，冷启动时页面一涌上来它就先露出来，像是开屏播到一半冒出一条提示（10-20 负责人华为上看到） */}
             {sessionExpired && (
-              <View
-                accessibilityRole="alert"
-                style={[styles.expiredNotice, { borderColor: theme.danger }]}
-              >
-                <Ionicons
-                  name="warning-outline"
-                  size={18}
-                  color={theme.danger}
-                />
-                <ThemedText type="small" style={styles.consentText}>
-                  {t("auth.sessionExpiredNotice")}
-                </ThemedText>
-              </View>
+              <SplashArrive order={0.5}>
+                <View
+                  accessibilityRole="alert"
+                  style={[styles.expiredNotice, { borderColor: theme.danger }]}
+                >
+                  <Ionicons
+                    name="warning-outline"
+                    size={18}
+                    color={theme.danger}
+                  />
+                  <ThemedText type="small" style={styles.consentText}>
+                    {t("auth.sessionExpiredNotice")}
+                    {expiredDuringSos
+                      ? `\n\n${t("auth.expiredDuringSos")}`
+                      : ""}
+                  </ThemedText>
+                </View>
+              </SplashArrive>
             )}
 
             <SplashArrive order={1}>

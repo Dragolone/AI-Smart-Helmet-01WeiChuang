@@ -8,6 +8,8 @@ import { noteServerDate } from "@/services/server-clock";
 /** 会话操作由 auth-store 注入，避免 api 层与 store 层循环依赖 */
 type SessionHooks = {
   getTokens: () => AuthTokens | null;
+  /** 会话已被否定、只是倒计时还在走所以先不登出（O19-A）：这期间接口在本地直接拒掉，不再去刷新 */
+  isDead?: () => boolean;
   setTokens: (tokens: AuthTokens) => Promise<void>;
   clearSession: () => Promise<void>;
 };
@@ -79,11 +81,15 @@ export function parseRetryAfter(
 }
 
 /** 单次请求超时：后端挂起/黑洞网络时不能让页面永远转圈（审计 APP-03）；超时按网络错误呈现 */
-const REQUEST_TIMEOUT_MS = 15_000;
+export const REQUEST_TIMEOUT_MS = 15_000;
 
-function fetchWithTimeout(input: string, init: RequestInit): Promise<Response> {
+function fetchWithTimeout(
+  input: string,
+  init: RequestInit,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<Response> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   return fetch(input, { ...init, signal: controller.signal })
     .then((res) => {
       // 顺手学服务端时钟（倒计时与头盔对时都用它，见 services/server-clock）
@@ -136,6 +142,8 @@ export async function forceRefreshTokens(): Promise<
 }
 
 async function refreshTokens(): Promise<RefreshOutcome> {
+  // 已知会话被否定、只是倒计时还在走（O19-A）：不再拿同一把死掉的 refresh 去试
+  if (session?.isDead?.()) return "invalid";
   refreshing ??= (async (): Promise<RefreshOutcome> => {
     const tokens = session?.getTokens();
     if (!tokens) return "invalid";
@@ -199,6 +207,40 @@ async function parseError(
   }
 }
 
+/**
+ * 手机此刻的时区（IANA 名，如 Australia/Sydney），每个请求都带在 X-Client-Timezone 头里：服务器据此把推送正文里的
+ * 时间写成用户当地时间（负责人 10-21 定，O13；服务器半在上线清单 B 线 18，没接之前这个头没人读）。
+ * 每次现取：人带着手机跨时区时下一个请求就是新的。取不到（Intl 缺失、给了空串）就不带，服务器按「北京时间」写
+ */
+export function clientTimeZone(): string | null {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return typeof tz === "string" && /^[A-Za-z0-9_+\-/]{1,64}$/.test(tz)
+      ? tz
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 列表接口：应答必须是数组，不是就按服务端出错处理（INTERNAL_ERROR → 「服务暂时不可用」），页面走已有的出错状态（10-21 夜测）。
+ * 网关 / 防火墙偶尔回 200 + 一段别的 JSON（字符串、{ error: … }）：原样交出去时，开屏层对设备列表调 .find 直接抛错——
+ * 它在错误边界之外，App 每次一打开就闪退
+ */
+export async function apiList<T>(path: string): Promise<T[]> {
+  const v = await api<unknown>(path);
+  if (!Array.isArray(v)) {
+    throw new ApiRequestError(
+      200,
+      { code: "INTERNAL_ERROR", message: `${path}: not a list` },
+      undefined,
+      true,
+    );
+  }
+  return v as T[];
+}
+
 /** 此刻的 refresh token（请求体里要带它的接口用，配合函数形式的 body 在重试时重取） */
 export function currentRefreshToken(): string {
   return session?.getTokens()?.refreshToken ?? "";
@@ -207,6 +249,8 @@ export function currentRefreshToken(): string {
 /**
  * `body` 可以是函数：每次真正发请求时现算。请求体里带着 token 的接口必须这样传——
  * 401 静默刷新后的重试若原样重发提交时定死的 body，带出去的是已被轮换掉的旧 refresh token。
+ * `timeoutMs`：这一个请求的单次超时，不传是全局的 15 s。只管这个接口自己的那次（401 后重试的那次也按它），
+ * 中间的 refresh 照旧 15 s——刷新是全账号共用的一次，不能被某个急着要结果的接口提前掐掉
  */
 export async function api<T>(
   path: string,
@@ -214,25 +258,38 @@ export async function api<T>(
     method?: string;
     body?: unknown | (() => unknown);
     auth?: boolean;
+    timeoutMs?: number;
   } = {},
 ): Promise<T> {
-  const { method = "GET", body: bodyOrFn, auth = true } = options;
+  const { method = "GET", body: bodyOrFn, auth = true, timeoutMs } = options;
 
   const doFetch = async (): Promise<Response> => {
     const body =
       typeof bodyOrFn === "function" ? (bodyOrFn as () => unknown)() : bodyOrFn;
-    const headers: Record<string, string> = {};
+    // 不许底层网络库拿磁盘缓存应答（10-21 夜测）：安卓的 OkHttp 带 HTTP 缓存，后端回包只有 ETag、没写缓存策略。
+    // 手机时间往回拨过（手动改时间、开机时钟没校准再被网络校正）以后，此前存下的回包按「在未来收到」算成新鲜，
+    // GET 根本不上网、一直给旧数据——设备在线状态、进行中求救的兜底轮询都会停在旧值。接口应答都是动态数据，一律不缓存
+    const headers: Record<string, string> = { "Cache-Control": "no-store" };
     if (body !== undefined) headers["Content-Type"] = "application/json";
+    const tz = clientTimeZone();
+    if (tz) headers["X-Client-Timezone"] = tz;
     if (auth) {
       const tokens = session?.getTokens();
       if (tokens) headers.Authorization = `Bearer ${tokens.accessToken}`;
     }
-    return fetchWithTimeout(`${BASE_URL}${path}`, {
-      method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
+    return fetchWithTimeout(
+      `${BASE_URL}${path}`,
+      {
+        method,
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      },
+      timeoutMs,
+    );
   };
+
+  // 会话已被否定、倒计时还在走所以先没登出（O19-A）：不发请求，直接按会话已结束处理
+  if (auth && session?.isDead?.()) throw new SessionEndedError();
 
   let res = await doFetch();
 

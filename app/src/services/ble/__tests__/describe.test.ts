@@ -9,6 +9,7 @@ import {
   eventName,
   parseHexInput,
   regName,
+  settingRange,
 } from "../describe";
 
 const h = hexToBytes;
@@ -76,7 +77,9 @@ describe("describeInbound 应答帧", () => {
       h("02 01 00 68 65 6C 6D 65 74 5F 39 34 31 37 33 66 00 00 00"),
       h("02 01 40 10"),
     );
-    expect(id.text).toBe('应答 READ seq=1 · STATUS_OK · deviceId "helmet_94173f"');
+    expect(id.text).toBe(
+      '应答 READ seq=1 · STATUS_OK · deviceId "helmet_94173f"',
+    );
     const fw = describeInbound(h("02 02 00 01 00 03"), h("02 02 00 03"));
     expect(fw.text).toBe("应答 READ seq=2 · STATUS_OK · 固件 1.0.3");
   });
@@ -138,7 +141,9 @@ describe("describeInbound 事件帧（对照表示例）", () => {
 
   it("后方来车（collision_risk）", () => {
     const d = describeInbound(
-      h("05 03 66 00 00 00 88 79 A2 6A 03 01 02 7D 00 12 37 ED 4E CD 01 17 7C 29 07"),
+      h(
+        "05 03 66 00 00 00 88 79 A2 6A 03 01 02 7D 00 12 37 ED 4E CD 01 17 7C 29 07",
+      ),
     );
     expect(d.text).toBe(
       "事件 collision_risk seq=102 · 2026-09-10T09:34:00Z · high vehicle rear 距离 12.5 m TTC 1.8 s 逼近 55 km/h 位置 30.232301,120.159255",
@@ -161,7 +166,9 @@ describe("describeInbound 事件帧（对照表示例）", () => {
 
 describe("辅助", () => {
   it("parseHexInput 容忍空格 / 逗号 / 0x 前缀，拒绝奇数位与单字节", () => {
-    expect(Array.from(parseHexInput("03 07 24 32")!)).toEqual([3, 7, 0x24, 0x32]);
+    expect(Array.from(parseHexInput("03 07 24 32")!)).toEqual([
+      3, 7, 0x24, 0x32,
+    ]);
     expect(Array.from(parseHexInput("0x01,0x05")!)).toEqual([1, 5]);
     expect(parseHexInput("010")).toBeNull();
     expect(parseHexInput("01")).toBeNull();
@@ -173,5 +180,56 @@ describe("辅助", () => {
     expect(regName(0x40)).toBe("deviceId");
     expect(regName(0x77)).toBe("0x77");
     expect(eventName(2)).toBe("manual_sos");
+  });
+});
+
+describe("2026-10-19 补分支：截短的下行帧、充电中、清除全部风险、无海拔、取值范围", () => {
+  it("对时不足 4 字节、ACK 不足 7 字节、软重启不带参数：都给可读描述、不抛", () => {
+    expect(describeOutbound(h("04 05 88 79"))).toBe(
+      "TIME SYNC seq=5（参数不足 4 字节）",
+    );
+    expect(describeOutbound(h("06 01 65 00"))).toBe("ACK（帧长不足 7 字节）");
+    expect(describeOutbound(h("0A 09"))).toBe("RESET seq=9");
+  });
+
+  it("RESEND DATA 缺参数（不足 3 字节）：和 READ / 对时一样标「参数不足」，不写成「偏移 0 条数 0」（测头盔 ERR_LENGTH 时不误导）", () => {
+    expect(describeOutbound(h("08 07"))).toBe(
+      "RESEND DATA seq=7（参数不足 3 字节）",
+    );
+    expect(describeOutbound(h("08 07 05"))).toBe(
+      "RESEND DATA seq=7（参数不足 3 字节）",
+    );
+  });
+
+  it("READ 0x10 读到正在充电：写「充电中」", () => {
+    const d = describeInbound(
+      h("02 02 00 55 01 ED 4E CD 01 17 7C 29 07"),
+      h("02 02 10 0A"),
+    );
+    expect(d.text).toBe(
+      "应答 READ seq=2 · STATUS_OK · 电量 85% 充电中 纬度 30.232301 经度 120.159255",
+    );
+  });
+
+  it("风险解除带序号 0：写「清除全部风险」，非高危", () => {
+    const d = describeInbound(h("05 05 0B 00 00 00 00 00 00 00 00 00 00 00"));
+    expect(d).toMatchObject({ kind: "event", highRisk: false });
+    expect(d.text).toBe("事件 risk_cleared seq=11 · 未校时 · 清除全部风险");
+  });
+
+  it("位置包海拔是无效值 0x7FFF：不写海拔", () => {
+    const d = describeInbound(
+      h(
+        "05 06 0C 00 00 00 00 00 00 00 ED 4E CD 01 17 7C 29 07 32 00 84 03 05 FF 7F",
+      ),
+    );
+    expect(d.text).toBe(
+      "事件 location_update seq=12 · 未校时 · 30.232301,120.159255 速度 5 m/s 航向 90° 精度 5 m",
+    );
+  });
+
+  it("settingRange：开关给 0/1，数值给上下限", () => {
+    expect(settingRange("buzzer")).toBe("0/1");
+    expect(settingRange("volume")).toBe("1–100");
   });
 });

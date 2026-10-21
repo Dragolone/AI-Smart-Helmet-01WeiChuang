@@ -8,6 +8,7 @@ import * as Notifications from "expo-notifications";
 import { AppState, Platform } from "react-native";
 
 import { sosActiveHref } from "@/services/sos-routes";
+import { REQUEST_TIMEOUT_MS } from "@/api/client";
 import { sosApi } from "@/api/sos";
 import { translate } from "@/i18n";
 import type { Sos } from "@helmet/shared";
@@ -15,11 +16,19 @@ import { devLog } from "@/services/dev-log";
 import { shownSeconds } from "@/services/countdown";
 import { serverNow } from "@/services/server-clock";
 import { lateEventNote } from "@/services/sos-age";
+import { isSosFor } from "@/api/sos-shape";
 import { presentedSos } from "@/services/sos-sync";
+import { sosScreen } from "@/services/sos-queue";
 import { useSosCancelStore } from "@/stores/sos-cancel-store";
 import { showNotice } from "@/services/notice";
+import {
+  PROMPT_AFTER_SPLASH_MAX_MS,
+  splashGoneWithin,
+} from "@/components/splash/covering";
 
-const CHANNEL_ID = "sos";
+/** 锁屏求救提醒走的 Android 通知通道；安全页判断「通知有没有开」也要看它有没有被单独关掉 */
+export const SOS_CHANNEL_ID = "sos";
+const CHANNEL_ID = SOS_CHANNEL_ID;
 const CATEGORY_ID = "sos";
 const ACTION_CANCEL = "cancel";
 const ACTION_OPEN = "open";
@@ -35,6 +44,14 @@ const alertIdsOf = (sosId: string): string[] => [
 
 /** 初始化只做一次；并发 / 重复调用拿到同一个 Promise（调用方要等它结束再去要别的权限） */
 let permissionReady: Promise<void> | null = null;
+/** 被推迟到倒计时页关掉之后的那次系统授权申请（O10）；null = 没推迟（申请已做完或不用申请） */
+let deferredAsk: Promise<void> | null = null;
+/** 冷启动补拉结束才放行系统授权框（use-realtime 装上）；null = 没人拦，照原样立刻申请 */
+let promptGate: Promise<unknown> | null = null;
+/** 补拉迟迟不回（弱网）最多等这么久：之后照常申请，最坏退回改动前的样子（框可能盖在倒计时页上） */
+const PROMPT_GATE_MAX_MS = 5_000;
+/** 推迟期间多久看一眼倒计时页还在不在；第一眼也给刚 push、还没挂上的页面留出时间 */
+const DEFERRED_ASK_POLL_MS = 1_000;
 /**
  * 每一单各自的通知：sosId → 已投 / 待触发的通知 id。原来只有一个槽位，第二单会把第一单顶掉，
  * 第一单结束时 clear 找不到它，通知永远留在锁屏上（10-03 评审疑点 2）。
@@ -52,10 +69,28 @@ export function setSosCancelConfirmedListener(
   onCancelConfirmed = listener;
 }
 
-/** 登录后调用一次：申请通知权限、建 Android 高优先级通道、注册通知动作（拒绝也不阻塞链路） */
+/**
+ * 登录后调用一次：建 Android 高优先级通道、注册通知动作、申请通知权限（拒绝也不阻塞链路）。
+ * 兑现时机 = 系统授权框有了结果，或这次申请被推迟到倒计时页关掉之后（见 askPermission）——
+ * 不会因为推迟而一直挂着：蓝牙链路在等它。界面要读授权结果用 whenSosAlertPermissionAsked
+ */
 export function ensureSosAlertPermission(): Promise<void> {
   permissionReady ??= initSosAlert();
   return permissionReady;
+}
+
+/** 冷启动补拉结束前先别弹系统授权框：use-realtime 在调 ensure 之前装上，补拉结束（不论成败）时兑现 */
+export function holdPermissionPromptUntil(gate: Promise<unknown>): void {
+  promptGate = gate;
+}
+
+/**
+ * 系统授权框真正有了结果再兑现——包括被推迟到倒计时页关掉之后才弹的那次。
+ * 界面读权限状态前等它（services/notify-permission.ts）：推迟期间 Android 13+ 读到的是 denied，
+ * 不等的话关页后系统框会弹在已经画好的「通知未开启」上面（与 10-08 同一个坑）
+ */
+export function whenSosAlertPermissionAsked(): Promise<void> {
+  return ensureSosAlertPermission().then(() => deferredAsk ?? undefined);
 }
 
 async function initSosAlert(): Promise<void> {
@@ -94,9 +129,89 @@ async function initSosAlert(): Promise<void> {
       },
     ]);
     const current = await Notifications.getPermissionsAsync();
-    if (!current.granted) await Notifications.requestPermissionsAsync();
+    if (!current.granted) await askPermission(current.canAskAgain !== false);
   } catch (e) {
     devLog("SOS-ALERT", "通知权限/通道初始化失败", e as Error);
+  }
+}
+
+/**
+ * 申请通知权限，但不把系统授权框弹在求救倒计时页上（O10，2026-10-20 Android 16 模拟器 REGRESSION 4.41：
+ * 倒计时中撤回通知权限 → 系统杀进程 → 重新打开，「允许发送通知？」盖在倒计时页上，要先点掉才能滑动取消，
+ * 倒计时却在走）。通道 / 类别已在前面建好，这里只管「弹框」这一步。
+ * 冷启动时倒计时页要等补拉回来才拉起，比走到这里晚得多（只看 sosScreen.mounted 拦不住），所以先等补拉
+ * （promptGate，最多 5 s），再看：页面在屏或正要拉起（presentedSos 已登记，补拉 / 点通知拉起都会先登记）
+ * 就推迟到页面关掉再弹，这里立刻返回——ensure 照常兑现，蓝牙链路不被这一单拖住。
+ * 代价：这一单倒计时期间没有通知权限，锁屏提醒出不来；用户本来就在前台看着倒计时页。
+ * 系统根本不会弹框时（iOS 已答过、Android 已被永久拒绝：canAskAgain=false）不等也不推迟、照原样调一次，
+ * 免得这部分用户每次冷启动都晚起蓝牙链路。iOS 的授权框同样是模态、同样会盖住页面，两端同一套。
+ * 开屏还在播也先别弹（O27）：和等补拉同时计时，开屏让开或满 5 s 就往下走，两样加起来不会多等。
+ */
+async function askPermission(willPrompt: boolean): Promise<void> {
+  const splashGone = willPrompt
+    ? splashGoneWithin(PROMPT_AFTER_SPLASH_MAX_MS)
+    : undefined;
+  if (willPrompt && promptGate) {
+    await settledOrTimeout(promptGate, PROMPT_GATE_MAX_MS);
+  }
+  await splashGone;
+  if (willPrompt && (sosScreen.mounted || presentedSos.current.size > 0)) {
+    devLog(
+      "SOS-ALERT",
+      "倒计时页在屏 / 正要拉起，系统通知授权框推迟到页面关掉后再弹",
+    );
+    deferredAsk = askAfterCountdown();
+    return;
+  }
+  await Notifications.requestPermissionsAsync();
+}
+
+/** 轮询而不是挂页面卸载回调：不用改倒计时页；同一次提交里先卸后挂（切单）的那一瞬间定时器插不进来 */
+async function waitCountdownClosed(): Promise<void> {
+  do {
+    await new Promise((r) => setTimeout(r, DEFERRED_ASK_POLL_MS));
+  } while (sosScreen.mounted);
+}
+
+/**
+ * 别的系统授权框（蓝牙「附近设备」、安卓 11 及以下的定位）弹之前也过同一道门（O10，10-21 代码审查）：
+ * 等冷启动补拉（最多 5 s），倒计时页在屏或正要拉起就等它关掉。原来只有通知那次会推迟——通知早就授权了
+ * （安卓 12 及以下根本没有通知授权框，华为 P30 就是）或已被永久拒绝时，起蓝牙链路那一下的框照样盖在倒计时页上
+ */
+export async function whenCountdownClearForPrompt(): Promise<void> {
+  if (promptGate) await settledOrTimeout(promptGate, PROMPT_GATE_MAX_MS);
+  if (!sosScreen.mounted && presentedSos.current.size === 0) return;
+  devLog(
+    "SOS-ALERT",
+    "倒计时页在屏 / 正要拉起，系统授权框推迟到页面关掉后再弹",
+  );
+  await waitCountdownClosed();
+}
+
+async function askAfterCountdown(): Promise<void> {
+  await waitCountdownClosed();
+  try {
+    await Notifications.requestPermissionsAsync();
+  } catch (e) {
+    devLog("SOS-ALERT", "推迟的通知权限申请失败", e as Error);
+  }
+}
+
+/** gate 兑现（成败都算）或超时，先到先走；定时器用完就撤，不留着拖住进程 */
+async function settledOrTimeout(
+  gate: Promise<unknown>,
+  ms: number,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      gate.catch(() => undefined),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -294,8 +409,13 @@ export async function cancelFromNotification(
     return true;
   };
   try {
-    const sos = await sosApi.cancel(sosId);
-    return settled(sos);
+    // 超时显式用全局的 15 s，不跟倒计时页的 8 s（O7，10-20）：这条链路前三次重试没有人在看，
+    // 每一次都该给足时间——慢但通的网络（一次要 9–14 s）下 15 s 能一次成功，8 s 会四次全超时、
+    // 最后把人带到页面上说「取消没送达」。节奏（2 / 5 / 10 s）是 10-07 iPhone 实测调过的，O7 不动它
+    const sos = await sosApi.cancel(sosId, { timeoutMs: REQUEST_TIMEOUT_MS });
+    // 应答不像这一单（网关改写过）：照样算取消成功（200 说明服务端收到了），但别把它交给页面写进缓存，
+    // 页面拿不到就按「已在别处结束」拉一次权威状态（10-22 夜测）
+    return settled(isSosFor(sos, sosId) ? sos : undefined);
   } catch (e) {
     const code = (e as { code?: string }).code;
     if (code === "SOS_ALREADY_FINALIZED") return settled();
@@ -367,10 +487,50 @@ export async function cancelFromNotification(
 export async function isSosAlertPermissionDenied(): Promise<boolean> {
   try {
     const p = await Notifications.getPermissionsAsync();
-    if (p.granted) return false;
+    if (p.granted) return isSosChannelBlocked();
     return (p as { status?: string }).status !== "undetermined";
   } catch {
     return false; // 查不到权限状态时不吓唬用户
+  }
+}
+
+/**
+ * Android：App 的通知总开关开着，但求救那条通道被单独关了，锁屏提醒照样一条都出不来，
+ * 而 getPermissionsAsync 仍报 granted。华为 P30 实测（2026-10-19）：通知总开关关着的时候
+ * App 首次启动建的通道会被记成「关闭」，之后把总开关打开，通道还是关的——界面得把这种也算成未开启，
+ * 把人带到系统的通知设置页（通道开关就在那一页上）。通道还没建、查不到都按没关处理，不吓唬用户。
+ * 被调成「静默」（LOW / MIN）同样算：通知只进通知栏，不响、不震、不弹横幅，求救倒计时等于没提醒，
+ * 原来照样写「已开启」（10-21 模拟器：通道改成 Silent 后来单，桌面上什么都没有）。「默认」（会响、不弹横幅）不算。
+ */
+export async function isSosChannelBlocked(): Promise<boolean> {
+  if (Platform.OS !== "android") return false;
+  try {
+    const ch = await Notifications.getNotificationChannelAsync(SOS_CHANNEL_ID);
+    return (
+      ch !== null &&
+      ch.importance >= Notifications.AndroidImportance.NONE &&
+      ch.importance <= Notifications.AndroidImportance.LOW
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Android：求救通道在勿扰模式下能不能照常提醒。建通道时申请的 bypassDnd 系统不认（没有勿扰权限的 App
+ * 申请了也记成 false，模拟器 / 华为 dumpsys 都是 mBypassDnd=false），只有用户在这条通道的设置里打开
+ * 「允许打扰 / Override Do Not Disturb」才是 true。不是 true 时开着勿扰锁屏来单，通知被系统拦下：
+ * 没有横幅、没有声音和震动，误报也来不及取消（2026-10-21 模拟器 dumpsys mIntercept=true）。
+ * iOS（本地和远程求救通知都是 time-sensitive，专注模式默认放行）、通道还没建、查不到都返回 null，不显示这一项。
+ */
+export async function sosChannelBypassesDnd(): Promise<boolean | null> {
+  if (Platform.OS !== "android") return null;
+  try {
+    const ch = await Notifications.getNotificationChannelAsync(SOS_CHANNEL_ID);
+    if (ch === null) return null;
+    return ch.bypassDnd === true;
+  } catch {
+    return null;
   }
 }
 

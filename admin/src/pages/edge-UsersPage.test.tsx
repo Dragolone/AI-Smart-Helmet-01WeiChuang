@@ -19,9 +19,6 @@ import {
 import { jsonResponse, renderWithProviders } from '../test/render'
 import UsersPage from './UsersPage'
 
-// 展开 antd Select 下拉很慢：本机约 4 s，CI 慢 runner 上 6.6–6.8 s，超过 vitest 默认的 5 s
-const SELECT_TIMEOUT_MS = 15_000
-
 const PLACEHOLDER = '按手机号 / 昵称搜索'
 
 beforeAll(() => {
@@ -187,7 +184,7 @@ describe('UsersPage：分页与刷新', () => {
     await changePageSize('50 条/页')
     await waitFor(() => expect(apiStub.last().searchParams.get('pageSize')).toBe('50'))
     expect(apiStub.last().searchParams.get('page')).toBe('1')
-  }, SELECT_TIMEOUT_MS)
+  })
 
   it('用户列表不轮询：停留 60 秒不发第二次请求', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })

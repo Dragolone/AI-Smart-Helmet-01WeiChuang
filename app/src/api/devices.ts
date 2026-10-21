@@ -17,13 +17,13 @@ import type {
   TrackResponse,
   UpdateDeviceRequest,
 } from "@helmet/shared";
-import { api } from "./client";
+import { api, apiList } from "./client";
 
 export const devicesApi = {
   bind: (body: BindDeviceRequest) =>
     api<DevicePublic>("/devices/bind", { method: "POST", body }),
 
-  list: () => api<DevicePublic[]>("/devices"),
+  list: () => apiList<DevicePublic>("/devices"),
 
   detail: (deviceId: string) =>
     api<DevicePublic>(`/devices/${encodeURIComponent(deviceId)}`),

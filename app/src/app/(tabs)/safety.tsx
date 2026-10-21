@@ -64,6 +64,7 @@ import {
   useSosDrill,
 } from "@/hooks/use-safety";
 import { useTheme } from "@/hooks/use-theme";
+import { useRefetchOnFocus } from "@/hooks/use-refetch-on-focus";
 import { translate, useLocale, useT } from "@/i18n";
 import { shortDate } from "@/i18n/format";
 import { whenForegroundSettled } from "@/services/foreground-settled";
@@ -78,6 +79,24 @@ import {
   type HelmetLink,
 } from "@/services/safety-status";
 import { showFailure, showNotice } from "@/services/notice";
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
+/** 长按求救没成功后，多久之内再长按算同一次（复用 eventId） */
+const SOS_RETRY_WINDOW_MS = 60_000;
+type UnsentSos = {
+  deviceId: string;
+  envelope: ReturnType<typeof buildRelayEnvelope>;
+  at: number;
+};
+/** 上一次失败暂存的那条是不是同一顶头盔、还在重试窗口内（放组件外：React Compiler 不让渲染路径里直接碰 Date.now） */
+const isRecentUnsent = (
+  prev: UnsentSos | null,
+  deviceId: string,
+): prev is UnsentSos =>
+  prev !== null &&
+  prev.deviceId === deviceId &&
+  Date.now() - prev.at < SOS_RETRY_WINDOW_MS;
 
 type Tone = "success" | "warning" | "danger";
 
@@ -125,7 +144,12 @@ function StatusCard({
           <CrossfadeIcon name={icon} size={24} color={theme[tone]} pop />
         </Animated.View>
         <View style={styles.statusText}>
-          <ThemedText type="smallBold" style={styles.statusTitle}>
+          {/* 状态标题字号本来就大：系统字体超过 1.3 倍时不再跟着放大，免得在词中间断行（华为「超大」档 1.45 倍实测） */}
+          <ThemedText
+            type="smallBold"
+            maxFontSizeMultiplier={TITLE_FONT_CAP}
+            style={styles.statusTitle}
+          >
             {title}
           </ThemedText>
           {body !== undefined && (
@@ -264,6 +288,8 @@ export default function SafetyScreen() {
     // 还没拿到列表时每 30 秒再拉一次：否则失败一次后会一直停在「待确认」。拿到后不轮询
     refetchInterval: (q) => (q.state.data === undefined ? 30_000 : false),
   });
+  // 别的设备上改了联系人：切回这个标签时重新拉（只切标签时 App 没离开前台，根布局的前台刷新不会跑）
+  useRefetchOnFocus(["contacts"]);
   // 没拿到列表（加载中 / 失败）≠ 0 位联系人
   const contactCount = contacts.data ? contacts.data.length : null;
 
@@ -299,6 +325,10 @@ export default function SafetyScreen() {
   // 长按未满 2 s 就松手：按钮果冻抖一下，提示"要按住"（可用性提示，不是装饰）
   const jello = useJello();
   const sosFired = useRef(false);
+  // 上一次长按发送失败已暂存：60 s 内再长按复用同一个 eventId。没网时弹「发送失败」，
+  // 用户自然再按一次——两条不同 eventId 一批补传，第二条被服务端当「再按一次 = 立即求救」，60 秒取消窗口没了
+  //（10-20 模拟器实测）。同 eventId 服务端幂等（duplicate），只是重试；成功过之后再按才是新动作
+  const unsentSos = useRef<UnsentSos | null>(null);
   const fireSos = () => {
     if (!sosTargetId) return;
     sosFired.current = true;
@@ -307,13 +337,23 @@ export default function SafetyScreen() {
     );
     // 一次长按一个 eventId：失败后按原 eventId 进持久队列重试（服务端幂等，不会变成第二次求救）；
     // 成功后立刻核对进行中的 SOS 拉起倒计时页，不等 WS（10-06 不变式评审 F-5）
-    const envelope = buildRelayEnvelope(sosTargetId, "manual_sos", {});
+    // 只复用「失败已暂存」的那条；都在飞 / 都成功的两次长按仍是两个 eventId（第二次 = 立即求救，同实体键）
+    const prev = unsentSos.current;
+    const envelope = isRecentUnsent(prev, sosTargetId)
+      ? prev.envelope
+      : buildRelayEnvelope(sosTargetId, "manual_sos", {});
     relayApi
       .push({ deviceId: sosTargetId, envelopes: [envelope] })
+      .then(() => {
+        // 发成功了：这次动作结束，再长按是新的一次
+        if (unsentSos.current?.envelope === envelope) unsentSos.current = null;
+      })
       .then(() => notifyCriticalAccepted(sosTargetId))
       .catch((e) => {
         // 服务端明确拒绝（头盔已不在这个账号下 / 无权 / 坏体）：重发也没用，补发队列也会丢掉，不进队列、不说「已暂存」
         if (isUnrecoverableRelayError(e)) {
+          if (unsentSos.current?.envelope === envelope)
+            unsentSos.current = null;
           showNotice(
             translate("safety.sosSendFailed"),
             `${isHelmetGoneError(e) ? translate("safety.sosHelmetGone") : toUserMessage(e)}\n${translate("safety.sosNotSent")}`,
@@ -321,6 +361,7 @@ export default function SafetyScreen() {
           return;
         }
         enqueueRelayEvent(envelope as EventEnvelope<EventType>);
+        unsentSos.current = { deviceId: sosTargetId, envelope, at: Date.now() };
         showNotice(
           translate("safety.sosSendFailed"),
           `${toUserMessage(e)}\n${translate("safety.sosQueued")}`,
@@ -548,7 +589,11 @@ export default function SafetyScreen() {
                       bg={theme.dangerBg}
                     />
                     <View style={styles.statusText}>
-                      <ThemedText type="smallBold" style={styles.statusTitle}>
+                      <ThemedText
+                        type="smallBold"
+                        maxFontSizeMultiplier={TITLE_FONT_CAP}
+                        style={styles.statusTitle}
+                      >
                         {t("safety.state.sos")}
                       </ThemedText>
                       <ThemedText
@@ -734,6 +779,9 @@ export default function SafetyScreen() {
     </ThemedView>
   );
 }
+
+/** 大标题跟随系统字体放大的上限（1.45 倍时词中间断行，1.3 倍正常） */
+const TITLE_FONT_CAP = 1.3;
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },

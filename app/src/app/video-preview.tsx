@@ -40,6 +40,8 @@ import {
 } from "@/services/video-preview";
 import { HelmetWifi } from "helmet-wifi";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 interface VlcHandle {
   snapshot(path: string): void;
 }

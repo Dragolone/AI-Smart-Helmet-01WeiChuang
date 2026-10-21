@@ -339,4 +339,43 @@ describe("GuideHandover", () => {
     );
     expect(parts(r).emblem.opacity).toBe(0);
   });
+
+  it("表盘接手了徽标、但扫描还没开始：徽标照常显示，等扫描一开始才整个藏起来", () => {
+    mockHero.value = { track: "#123456", image: 1 };
+    act(() => useGuideStore.setState({ armed: true }));
+    const r = mount();
+    handOver();
+    act(() => anchorRect.hero.set(HERO));
+    const markTaken = r.root.find((n) => isHost(n, "DeviceLanding")).props
+      .markTaken as { set: (v: number) => void };
+    const rerender = () =>
+      r.rerender(
+        <QueryClientProvider client={makeQueryClient()}>
+          <GuideHandover />
+        </QueryClientProvider>,
+      );
+    // 扫描从故事 2060 开始
+    while (splashStory.get() < 1900) frame(16);
+    act(() => markTaken.set(1));
+    rerender();
+    expect(parts(r).emblem.opacity).toBe(1);
+    while (splashStory.get() < 2080) frame(16);
+    rerender();
+    expect(parts(r).emblem.opacity).toBe(0);
+  });
+
+  it("走满收场后、卸掉之前那两帧：又来的帧不再推故事时间；这时设备页被换掉也不再收第二次", async () => {
+    act(() => useGuideStore.setState({ armed: true }));
+    const r = mount();
+    handOver();
+    act(() => anchorRect.hero.set(HERO));
+    while (splashOn.get() === 1) frame(16);
+    const end = splashStory.get();
+    frame(16);
+    expect(splashStory.get()).toBe(end);
+    act(() => mockPath.set("/sos-active"));
+    await advance(50);
+    expect(releaseDeviceLanding).toHaveBeenCalledTimes(1);
+    expect(r.tree.toJSON()).toBeNull();
+  });
 });

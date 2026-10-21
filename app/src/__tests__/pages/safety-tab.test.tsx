@@ -15,7 +15,7 @@ import type { AccidentListItem, DevicePublic } from "@helmet/shared";
 import * as Haptics from "expo-haptics";
 import { Alert } from "react-native";
 import { act } from "react-test-renderer";
-import { mockRouter } from "@/__tests__/helpers/native-mocks";
+import { mockRouter, routerState } from "@/__tests__/helpers/native-mocks";
 import {
   flat,
   makeQueryClient,
@@ -217,6 +217,58 @@ describe("状态卡", () => {
     expect(r.allText()).toContain(tr("safety.state.ready"));
     expect(r.texts()).toContain("通勤");
     expect(r.texts()).toContain(tr("safety.check.notify"));
+  });
+
+  it("状态标题跟随系统字体最多放大 1.3 倍（1.45 倍时会在词中间断行）", async () => {
+    const r = mount();
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("safety.state.ready")),
+    );
+    const title = r.root.find(
+      (n) =>
+        typeof n.type !== "string" &&
+        n.props.children === tr("safety.state.ready") &&
+        n.props.maxFontSizeMultiplier !== undefined,
+    );
+    expect(title.props.maxFontSizeMultiplier).toBe(1.3);
+  });
+
+  it("切回安全标签时重拉联系人（别的设备上改过；App 没离开前台，根布局那条前台刷新不会跑）；2 秒内刚拉过不拉", async () => {
+    const qc = makeQueryClient();
+    const el = () => (
+      <QueryClientProvider client={qc}>
+        <SafetyScreen />
+      </QueryClientProvider>
+    );
+    const r = render(el());
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("safety.check.contacts", { n: 2 })),
+    );
+    expect(contactsApi.list).toHaveBeenCalledTimes(1);
+    // 刚拉过：切走再回来不拉
+    routerState.focused = false;
+    r.rerender(el());
+    routerState.focused = true;
+    r.rerender(el());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(contactsApi.list).toHaveBeenCalledTimes(1);
+    // 另一台手机把联系人删光了；上次拉取已是 5 秒前：回来就拉，页面改口
+    m(contactsApi.list).mockImplementation(() => Promise.resolve([]));
+    act(() => {
+      qc.getQueryCache()
+        .find({ queryKey: ["contacts"] })!
+        .setState({ dataUpdatedAt: Date.now() - 5_000 });
+    });
+    routerState.focused = false;
+    r.rerender(el());
+    routerState.focused = true;
+    r.rerender(el());
+    await waitFor(() => expect(contactsApi.list).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("safety.state.noContacts")),
+    );
   });
 
   it("头盔列表还没拿到：骨架；拿不到：失败卡可重试（不能说成没绑头盔）", () => {
@@ -445,6 +497,43 @@ describe("长按求救", () => {
       expect(notifyCriticalAccepted).toHaveBeenCalledWith("h1"),
     );
     expect(enqueueRelayEvent).not.toHaveBeenCalled();
+  });
+
+  it("发送失败后再长按：复用同一个 eventId（服务端当重复事件，不会升级成立即求救）；成功后再按才是新 eventId", async () => {
+    m(relayApi.push).mockImplementation(() =>
+      Promise.reject(new ApiRequestError(503, { code: "INTERNAL_ERROR" })),
+    );
+    const r = mount();
+    const press = async () =>
+      act(async () => {
+        sosButton(r).props.onLongPress();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+    await press();
+    await press();
+    const ids = m(relayApi.push).mock.calls.map(
+      (c) =>
+        (c[0] as { envelopes: { eventId: string }[] }).envelopes[0].eventId,
+    );
+    expect(ids).toHaveLength(2);
+    expect(ids[1]).toBe(ids[0]);
+    await waitFor(() => expect(enqueueRelayEvent).toHaveBeenCalledTimes(2));
+    expect(m(enqueueRelayEvent).mock.calls[1][0]).toBe(
+      m(enqueueRelayEvent).mock.calls[0][0],
+    );
+    // 这次发成功了：再长按是新的一次求救
+    m(relayApi.push).mockImplementation(() => Promise.resolve({ accepted: 1 }));
+    await press();
+    await press();
+    const later = m(relayApi.push)
+      .mock.calls.slice(2)
+      .map(
+        (c) =>
+          (c[0] as { envelopes: { eventId: string }[] }).envelopes[0].eventId,
+      );
+    expect(later[0]).toBe(ids[0]);
+    expect(later[1]).not.toBe(ids[0]);
   });
 
   it("发送失败：同一个 envelope（同一个 eventId）进持久队列重试，并说明已暂存", async () => {

@@ -429,6 +429,73 @@ describe("名字 / 连接状态出现的时刻、电量那一行", () => {
     expect(none.texts()).not.toContain("%");
   });
 
+  it("光点刚从电量处出发、还在环上走：画在环上；走完环才往连接状态那一粒落下去", () => {
+    anchorRect.hero.set({ x: 75, y: 100, w: 240, h: 240 });
+    const h = hero({ battery: 30 });
+    /** 画面上 y 在 [y0, y1) 之间、两张图不一样的像素有多少 */
+    const diffRows = (a: Uint8Array, b: Uint8Array, y0: number, y1: number) =>
+      diffCount(
+        a.subarray(y0 * W * 4, y1 * W * 4),
+        b.subarray(y0 * W * 4, y1 * W * 4),
+      );
+    const pair = (t: number) => {
+      anchorRect.heroPill.set(null);
+      const plain = draw({ t, hero: h });
+      anchorRect.heroPill.set({ x: 150, y: 700, w: 80, h: 26 });
+      return [plain, draw({ t, hero: h })] as const;
+    };
+    // 电量 30%：剩下的环很长，出发后 40ms 还在环上（表盘这时在屏幕中间，环的下沿在 y≈520）
+    const [p0, s0] = pair(DEVICE.spark + 40);
+    expect(diffRows(p0, s0, 0, 560)).toBeGreaterThan(0);
+    expect(diffRows(p0, s0, 560, H)).toBe(0);
+    // 快走完时已经离开环，落到环和那一粒之间
+    const [p1, s1] = pair(DEVICE.spark + 360);
+    expect(diffRows(p1, s1, 600, H)).toBeGreaterThan(0);
+  });
+
+  it("没连上的头盔扫描到一半：亮边用素白，不用环的颜色", () => {
+    const t = 2200;
+    const r = deviceWipe(t) * 104 * 1.14;
+    const u = SIZE0 / 240;
+    /** 扫描那一圈（半径 r±2，环自己的 240 画布）上各点「绿比红多多少」的平均 */
+    const greenOnEdge = (px: Uint8Array) => {
+      let sum = 0;
+      let n = 0;
+      for (let a = 0; a < 360; a += 3) {
+        for (const dr of [-2, -1, 0, 1, 2]) {
+          const rad = (r + dr) * u;
+          const p = at(
+            px,
+            CX + rad * Math.cos((a * Math.PI) / 180),
+            CY + rad * Math.sin((a * Math.PI) / 180),
+          );
+          sum += p[1] - p[0];
+          n++;
+        }
+      }
+      return sum / n;
+    };
+    // 环色都给绿的，只差连没连上：连着的亮边偏绿，没连上的是素白（红绿差不多）
+    const linked = greenOnEdge(draw({ t, hero: hero() }));
+    const waiting = greenOnEdge(draw({ t, hero: hero({ linked: false }) }));
+    expect(linked - waiting).toBeGreaterThan(8);
+  });
+
+  it("光点出发前（1680 之前）先在角上画一个几乎看不见的点，把两张图传到显卡上；还没读出来的那张不画", () => {
+    const corner = (o: Partial<Opts>) =>
+      at(draw({ t: DEVICE.line - 40, ...o }), 0, 0);
+    expect(corner({ mark: null, helmet: null })[3]).toBe(0);
+    // 只有商标图（红）
+    const markOnly = corner({ helmet: null });
+    expect(markOnly[3]).toBeGreaterThan(0);
+    expect(markOnly[0]).toBeGreaterThan(0);
+    expect(markOnly[2]).toBe(0);
+    // 头盔图（蓝）也到了
+    expect(corner({})[2]).toBeGreaterThan(0);
+    // 光点出发之后不再预热
+    expect(at(draw({ t: DEVICE.line + 40 }), 0, 0)[3]).toBe(0);
+  });
+
   it("releaseDeviceLanding 放掉 UI 线程上那份画具，下次重新建", () => {
     draw({ t: 2400 });
     const g = globalThis as unknown as { __splashDial?: unknown };

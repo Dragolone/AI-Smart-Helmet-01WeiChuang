@@ -35,10 +35,12 @@ export const intercom = {
     "intercom.joinTimeout": "通话连接超时，请重试",
     "intercom.micDenied":
       "没有麦克风权限，进不了频道。请在系统设置里允许「零一智行」使用麦克风",
+    "intercom.micOpenSettings": "去设置",
     "intercom.createFailed": "创建失败",
     "intercom.joinError": "加入失败",
     "intercom.inviteNotFound": "没有找到这个邀请码对应的频道，请核对后再试",
     "intercom.leaveFailed": "退出失败",
+    "intercom.maybeGone": "可能已掉线",
     "intercom.micOpen": "麦克风已开启",
     "intercom.reconnecting": "正在重连…",
     "intercom.reconnected": "连接已恢复",
@@ -84,8 +86,13 @@ export const intercom = {
     "intercom.mini.micOn": "麦克风已开启",
     "intercom.mini.micOff": "已静音",
     "intercom.mini.back": "返回",
-    "intercom.exit.kicked": "通话已被结束：你的账号可能在另一台手机上进入了对讲",
+    "intercom.exit.kicked":
+      "通话已被结束：你的账号可能在另一台手机上进入了对讲",
     "intercom.exit.dismissed": "频道的通话房间已关闭，通话已结束",
+    "intercom.exit.removed": "你已不在这个频道里，通话已结束",
+    "intercom.exit.rejected": "断线后没能回到通话（{code}），请重新进入",
+    "intercom.service.title": "对讲进行中",
+    "intercom.service.text": "正在「{name}」里通话",
     "intercom.error":
       "通话出错（{code}），已关闭麦克风。若反复出现，请结束通话后重新进入",
     "intercom.member.muteHint": "仅在本机静音这位成员",
@@ -127,10 +134,12 @@ export const intercom = {
     "intercom.joinTimeout": "通話連線逾時，請重試",
     "intercom.micDenied":
       "沒有麥克風權限，無法進入頻道。請在系統設定裡允許「零一智行」使用麥克風",
+    "intercom.micOpenSettings": "去設定",
     "intercom.createFailed": "建立失敗",
     "intercom.joinError": "加入失敗",
     "intercom.inviteNotFound": "沒有找到這個邀請碼對應的頻道，請核對後再試",
     "intercom.leaveFailed": "退出失敗",
+    "intercom.maybeGone": "可能已斷線",
     "intercom.micOpen": "麥克風已開啟",
     "intercom.reconnecting": "正在重新連線…",
     "intercom.reconnected": "連線已恢復",
@@ -176,8 +185,13 @@ export const intercom = {
     "intercom.mini.micOn": "麥克風已開啟",
     "intercom.mini.micOff": "已靜音",
     "intercom.mini.back": "返回",
-    "intercom.exit.kicked": "通話已被結束：你的帳號可能在另一支手機上進入了對講",
+    "intercom.exit.kicked":
+      "通話已被結束：你的帳號可能在另一支手機上進入了對講",
     "intercom.exit.dismissed": "頻道的通話房間已關閉，通話已結束",
+    "intercom.exit.removed": "你已不在這個頻道裡，通話已結束",
+    "intercom.exit.rejected": "斷線後沒能回到通話（{code}），請重新進入",
+    "intercom.service.title": "對講進行中",
+    "intercom.service.text": "正在「{name}」裡通話",
     "intercom.error":
       "通話出錯（{code}），已關閉麥克風。若反覆出現，請結束通話後重新進入",
     "intercom.member.muteHint": "僅在本機將這位成員靜音",
@@ -222,11 +236,13 @@ export const intercom = {
     "intercom.joinTimeout": "Call connection timed out. Try again.",
     "intercom.micDenied":
       "Microphone permission is required to join. Allow it for this app in system settings.",
+    "intercom.micOpenSettings": "Open Settings",
     "intercom.createFailed": "Could not create",
     "intercom.joinError": "Could not join",
     "intercom.inviteNotFound":
       "No channel matches this invite code. Check it and try again.",
     "intercom.leaveFailed": "Could not leave",
+    "intercom.maybeGone": "May have dropped",
     "intercom.micOpen": "Microphone on",
     "intercom.reconnecting": "Reconnecting…",
     "intercom.reconnected": "Connection restored",
@@ -278,7 +294,13 @@ export const intercom = {
     "intercom.mini.back": "Back",
     "intercom.exit.kicked":
       "Call ended: your account may have joined the intercom on another phone",
-    "intercom.exit.dismissed": "The channel's call room was closed. Call ended.",
+    "intercom.exit.dismissed":
+      "The channel's call room was closed. Call ended.",
+    "intercom.exit.removed": "You're no longer in this channel. Call ended.",
+    "intercom.exit.rejected":
+      "Couldn't get back into the call after the connection dropped ({code}). Please rejoin.",
+    "intercom.service.title": "Intercom on",
+    "intercom.service.text": "In a call in “{name}”",
     "intercom.error":
       "Call error ({code}). Microphone turned off. If this keeps happening, end the call and rejoin.",
     "intercom.member.muteHint": "Mutes this member for you only",

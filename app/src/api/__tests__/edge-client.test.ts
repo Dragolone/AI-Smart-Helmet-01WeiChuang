@@ -16,11 +16,15 @@ import { translate } from "@/i18n";
 import { authApi } from "../auth";
 import {
   ApiRequestError,
+  REQUEST_TIMEOUT_MS,
   api,
+  apiList,
   attachSession,
+  clientTimeZone,
   forceRefreshTokens,
 } from "../client";
 import { toUserMessage } from "../error-messages";
+import { sosApi } from "../sos";
 import {
   __resetServerClockForTests,
   serverClockOffsetMs,
@@ -415,18 +419,47 @@ describe("响应体形态", () => {
   it("请求体：未传 body 不带 Content-Type；0 / false / null / 空串是合法 JSON，照常序列化", async () => {
     fetchMock.mockImplementation(async () => res(200, {}));
     await api("/x", { auth: false });
-    expect(fetchMock.mock.calls[0][1]).toMatchObject({
-      method: "GET",
-      headers: {},
-    });
+    expect(fetchMock.mock.calls[0][1]?.method).toBe("GET");
+    expect(fetchMock.mock.calls[0][1]?.headers).not.toHaveProperty(
+      "Content-Type",
+    );
     expect(fetchMock.mock.calls[0][1]?.body).toBeUndefined();
     for (const body of [0, false, null, ""]) {
       fetchMock.mockClear();
       await api("/x", { method: "POST", body, auth: false });
       const init = fetchMock.mock.calls[0][1];
-      expect(init?.headers).toEqual({ "Content-Type": "application/json" });
+      expect(init?.headers).toMatchObject({
+        "Content-Type": "application/json",
+      });
       expect(init?.body).toBe(JSON.stringify(body));
     }
+  });
+});
+
+describe("列表接口应答不是数组（10-21 夜测：开屏层对设备列表调 .find，App 每次一开就闪退）", () => {
+  it("字符串 / 对象 / null 都按服务端出错（INTERNAL_ERROR）处理；数组照常返回", async () => {
+    for (const bad of ["unexpected", { error: "blocked" }, null, 42]) {
+      fetchMock.mockResolvedValueOnce(res(200, bad));
+      const e = await apiList("/devices").catch((x: unknown) => x);
+      expect(e).toBeInstanceOf(ApiRequestError);
+      expect((e as ApiRequestError).code).toBe("INTERNAL_ERROR");
+      expect(toUserMessage(e)).toBe(translate("error.internal"));
+    }
+    fetchMock.mockResolvedValueOnce(res(200, [{ deviceId: "d1" }]));
+    await expect(apiList("/devices")).resolves.toEqual([{ deviceId: "d1" }]);
+  });
+});
+
+describe("不用 HTTP 缓存（10-21 夜测：手机时间往回拨后 OkHttp 一直给旧应答）", () => {
+  it("每个请求都带 Cache-Control: no-store，登录前的、带会话的、带请求体的都一样", async () => {
+    fetchMock.mockImplementation(async () => res(200, {}));
+    await api("/x", { auth: false });
+    await api("/devices");
+    await api("/x", { method: "POST", body: { a: 1 } });
+    for (const call of fetchMock.mock.calls) {
+      expect(call[1]?.headers).toMatchObject({ "Cache-Control": "no-store" });
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });
 
@@ -475,6 +508,91 @@ describe("超时（15 s）", () => {
     expect(clearSession).not.toHaveBeenCalled();
     expect(tokens?.refreshToken).toBe("ref_0");
     await expect(api("/x")).resolves.toEqual({ ok: true });
+  });
+});
+
+describe("按调用传超时（timeoutMs，O7 10-20）", () => {
+  it("传 8 s：7.999 s 还在等、8 s 被中止，文案同样是「超时」；同时发出、没传的那个仍等到 15 s", async () => {
+    jest.useFakeTimers();
+    fetchMock.mockImplementation(hang);
+    let short: unknown = "pending";
+    let long: unknown = "pending";
+    const p1 = api("/x", { timeoutMs: 8_000 }).catch((e: unknown) => {
+      short = e;
+    });
+    const p2 = api("/y").catch((e: unknown) => {
+      long = e;
+    });
+    await jest.advanceTimersByTimeAsync(7_999);
+    expect(short).toBe("pending");
+    await jest.advanceTimersByTimeAsync(1);
+    await p1;
+    expect(short).toMatchObject({ name: "AbortError" });
+    expect(toUserMessage(short)).toBe(translate("error.timeout"));
+    expect(long).toBe("pending");
+    await jest.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS - 8_000);
+    await p2;
+    expect(long).toMatchObject({ name: "AbortError" });
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it("求救：倒计时页的取消 / 立即求救 8 s 就放弃；锁屏通知按钮那条显式传全局超时的取消、快照照旧 15 s", async () => {
+    jest.useFakeTimers();
+    fetchMock.mockImplementation(hang);
+    const gaveUp: string[] = [];
+    const track = (k: string, p: Promise<unknown>) =>
+      p.catch(() => {
+        gaveUp.push(k);
+      });
+    const all = Promise.all([
+      track("cancel", sosApi.cancel("s1")),
+      track("confirm", sosApi.confirm("s1")),
+      track("bg", sosApi.cancel("s1", { timeoutMs: REQUEST_TIMEOUT_MS })),
+      track("snapshot", sosApi.snapshot("s1")),
+    ]);
+    await jest.advanceTimersByTimeAsync(7_999);
+    expect(gaveUp).toEqual([]);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(gaveUp.sort()).toEqual(["cancel", "confirm"]);
+    await jest.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS - 8_000);
+    await all;
+    expect(gaveUp.sort()).toEqual(["bg", "cancel", "confirm", "snapshot"]);
+  });
+
+  it("401 后：中间的刷新照旧给 15 s（全账号共用的一次，不被急着要结果的接口掐掉）；刷新成功后重发的那次按调用的 8 s", async () => {
+    jest.useFakeTimers();
+    let refreshCalls = 0;
+    fetchMock.mockImplementation(async (url, init) => {
+      if (url.endsWith("/auth/refresh")) {
+        refreshCalls += 1;
+        return refreshCalls === 1
+          ? hang(url, init)
+          : res(200, { accessToken: "acc_1", refreshToken: "ref_1" });
+      }
+      return authOf(init) === "Bearer acc_1"
+        ? hang(url, init)
+        : res(401, { code: "UNAUTHORIZED" });
+    });
+    // 第一次：刷新挂起——8 s 时还在等，15 s 才按「暂时核对不了」交回
+    let first: unknown = "pending";
+    const p1 = api("/x", { timeoutMs: 8_000 }).catch((e: unknown) => {
+      first = e;
+    });
+    await jest.advanceTimersByTimeAsync(8_000);
+    expect(first).toBe("pending");
+    await jest.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS - 8_000);
+    await p1;
+    expect(first).toMatchObject({ code: "SESSION_CHECK_UNAVAILABLE" });
+    // 第二次：刷新立刻成功，换了 token 重发的那次挂起——8 s 被中止
+    let second: unknown = "pending";
+    const p2 = api("/x", { timeoutMs: 8_000 }).catch((e: unknown) => {
+      second = e;
+    });
+    await jest.advanceTimersByTimeAsync(7_999);
+    expect(second).toBe("pending");
+    await jest.advanceTimersByTimeAsync(1);
+    await p2;
+    expect(second).toMatchObject({ name: "AbortError" });
   });
 });
 
@@ -574,5 +692,46 @@ describe("服务端时钟（F-3）", () => {
     fetchMock.mockResolvedValue(res(200, { ok: true })); // 没有 headers
     await expect(api("/x")).resolves.toEqual({ ok: true });
     __resetServerClockForTests();
+  });
+});
+
+describe("时区头（O13，负责人 10-21 定：推送里的时间按用户时区写）", () => {
+  const realIntl = Intl.DateTimeFormat;
+  const withTz = (tz: unknown) => {
+    (Intl as { DateTimeFormat: unknown }).DateTimeFormat = (() => ({
+      resolvedOptions: () => ({ timeZone: tz }),
+    })) as unknown;
+  };
+  afterEach(() => {
+    (Intl as { DateTimeFormat: unknown }).DateTimeFormat = realIntl;
+  });
+
+  it("每个请求都带手机此刻的时区（IANA 名），登录前的接口也带；每次现取，跨时区后下一个请求就是新的", async () => {
+    fetchMock.mockImplementation(async () => res(200, {}));
+    withTz("Australia/Sydney");
+    await api("/x", { auth: false });
+    expect(fetchMock.mock.calls[0][1]?.headers).toMatchObject({
+      "X-Client-Timezone": "Australia/Sydney",
+    });
+    withTz("Asia/Shanghai");
+    await api("/x");
+    expect(fetchMock.mock.calls[1][1]?.headers).toMatchObject({
+      "X-Client-Timezone": "Asia/Shanghai",
+    });
+  });
+
+  it("取不到（Intl 抛错 / 空串 / 带怪字符）：不带这个头，请求照发", async () => {
+    fetchMock.mockImplementation(async () => res(200, {}));
+    for (const bad of ["", "Asia/Shang hai", "x\ny", undefined]) {
+      withTz(bad);
+      expect(clientTimeZone()).toBeNull();
+    }
+    (Intl as { DateTimeFormat: unknown }).DateTimeFormat = (() => {
+      throw new Error("no Intl");
+    }) as unknown;
+    await api("/x", { auth: false });
+    expect(fetchMock.mock.calls[0][1]?.headers).not.toHaveProperty(
+      "X-Client-Timezone",
+    );
   });
 });

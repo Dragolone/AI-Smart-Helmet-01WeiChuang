@@ -53,12 +53,46 @@ describe("dropGpsSpikes：去掉飞出去又飞回来的定位点（10-16 N15）
     expect(dropGpsSpikes(pts)).toHaveLength(10);
   });
 
-  it("时间相同或倒序的点不据速度判断，保留", () => {
+  it("和上一个点同一时刻却跳到北京、随后又回到原路：去掉（服务端对同一时刻按入库先后排，后到的飞点排在真实点后面；10-20 iOS / 安卓模拟器回放拉出一根 55 km 的线）", () => {
     const pts = ride(5);
     pts[2] = {
       ...fix(2, BEIJING.lat, BEIJING.lng),
       timestamp: pts[1].timestamp,
     };
+    expect(dropGpsSpikes(pts).map((p) => p.id)).toEqual([0, 1, 3, 4]);
+  });
+
+  it("时间倒序的远跳同样当可疑：随后回到原路就去掉", () => {
+    const pts = ride(6);
+    pts[3] = {
+      ...fix(3, BEIJING.lat, BEIJING.lng),
+      timestamp: pts[1].timestamp,
+    };
+    expect(dropGpsSpikes(pts).map((p) => p.id)).toEqual([0, 1, 2, 4, 5]);
+  });
+
+  it("同一时刻只差几十米（同一秒的两次定位抖动）：不算可疑，保留", () => {
+    const pts = ride(5);
+    pts[2] = {
+      ...fix(2, pts[1].latitude + 0.0003, pts[1].longitude),
+      timestamp: pts[1].timestamp,
+    };
+    expect(dropGpsSpikes(pts)).toHaveLength(5);
+  });
+
+  it("同一时刻远跳、之后几个点都没回来（可能真换了地方）：证明不了是漂移，保留", () => {
+    const pts = ride(6);
+    for (const i of [2, 3, 4, 5])
+      pts[i] = {
+        ...fix(i, BEIJING.lat + i * 0.0002, BEIJING.lng),
+        timestamp: i === 2 ? pts[1].timestamp : pts[i].timestamp,
+      };
+    expect(dropGpsSpikes(pts)).toHaveLength(6);
+  });
+
+  it("时间解析不了的点不据此判断，保留", () => {
+    const pts = ride(5);
+    pts[2] = { ...fix(2, BEIJING.lat, BEIJING.lng), timestamp: "garbage" };
     expect(dropGpsSpikes(pts)).toHaveLength(5);
   });
 

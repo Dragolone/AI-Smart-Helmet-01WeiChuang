@@ -60,10 +60,13 @@ RANGES = {0x24: (1, 100), 0x25: (0, 3), 0x26: (0, 3), 0x28: (1, 3), 0x2A: (5, 30
 
 class Helmet:
     def __init__(self, device_id: str, lat: float, lng: float):
+        self.name_only = False  # --name-only：广播不带服务 UUID
         self.device_id = device_id
         MEM[0x40:0x50] = device_id.encode("ascii").ljust(16, b"\x00")[:16]
         self.seq = 1000  # Event_Seq 开机预分配 +1000
-        MEM[0x34:0x38] = self.seq.to_bytes(4, "little")
+        # 落盘的是「已预留到哪」：开机从它起步再预留 1000，保证不会复用上次运行发过的序号（周期包也占序号，
+        # 原来只在存 / 擦高危帧时写盘，重启后读回旧值，重复使用发过的序号 → 服务端按 eventId 撞号另存，10-20 实测）
+        self.reserved = self.seq
         self.lat, self.lng = lat, lng
         self.battery = 85
         self.subscribed = False
@@ -72,6 +75,11 @@ class Helmet:
         # 高危离线保护队列（高危帧原样存）；落盘模拟 Flash 掉电保持，重启仿真器后仍可补传
         self.flash_file = os.path.expanduser(f"~/.helmet/ble-sim-flash.{device_id}.json")
         self.flash: List[bytes] = self._load_flash()
+        # 开机先整体跳过一个区段：旧格式的落盘值（只在存 / 擦高危帧时写）可能低于上次实际用到的序号
+        self.seq += 1000
+        self.reserved = self.seq + 1000
+        self.save_flash()
+        MEM[0x34:0x38] = self.seq.to_bytes(4, "little")
         self.rtc_offset = 0  # 对时后与本机时钟差
         self.synced = False
         self.log_prefix = f"[{device_id}]"
@@ -89,7 +97,7 @@ class Helmet:
     def save_flash(self) -> None:
         os.makedirs(os.path.dirname(self.flash_file), exist_ok=True)
         with open(self.flash_file, "w") as f:
-            json.dump({"seq": self.seq, "frames": [fr.hex() for fr in self.flash]}, f)
+            json.dump({"seq": max(self.seq, getattr(self, "reserved", self.seq)), "frames": [fr.hex() for fr in self.flash]}, f)
 
     # —— 工具 ——
     def now_utc(self) -> int:
@@ -97,6 +105,9 @@ class Helmet:
 
     def next_seq(self) -> int:
         self.seq += 1
+        if self.seq >= self.reserved:  # 预留用完再续 1000 并落盘（固件同样按段预分配，省 Flash 擦写）
+            self.reserved = self.seq + 1000
+            self.save_flash()
         return self.seq
 
     def log(self, msg: str) -> None:
@@ -179,7 +190,7 @@ class Helmet:
         if await self.server.is_advertising():
             return
         delegate = self.server.peripheral_manager_delegate
-        uuids = [svc.obj.UUID() for svc in self.server.services.values()]
+        uuids = [] if self.name_only else [svc.obj.UUID() for svc in self.server.services.values()]
         await delegate.start_advertising(
             {CBAdvertisementDataLocalNameKey: self.server.name, CBAdvertisementDataServiceUUIDsKey: uuids}
         )
@@ -296,9 +307,16 @@ async def main() -> None:
     ap.add_argument("--device-id", default="helmet_94173f")
     ap.add_argument("--lat", type=float, default=22.5431)
     ap.add_argument("--lng", type=float, default=114.0579)
+    ap.add_argument(
+        "--name-only",
+        action="store_true",
+        help="广播只带本地名、不带 FEE0 服务 UUID：macOS 把 UUID 塞进广播包后本地名发不出去（手机只看到电脑名），"
+        "App 20 秒一轮的全量扫描按名字能找到；代价是 iOS 后台按服务 UUID 的过滤扫描扫不到（2026-10-19）",
+    )
     args = ap.parse_args()
 
     helmet = Helmet(args.device_id, args.lat, args.lng)
+    helmet.name_only = args.name_only
     name = f"Helmet-{args.device_id[-6:]}"
     loop = asyncio.get_running_loop()
     server = BlessServer(name=name, loop=loop)
@@ -325,9 +343,13 @@ async def main() -> None:
         GATTCharacteristicProperties.write | GATTCharacteristicProperties.write_without_response,
         None, GATTAttributePermissions.writeable,
     )
-    # prioritize_local_name=False：广播包同时带 FEE0 服务 UUID（App 按服务 UUID 过滤扫描，iOS 后台扫描硬性要求）
-    await server.start(prioritize_local_name=False)
-    helmet.log(f"广播中：{name}（服务 FEE0）。命令：fall/sos/collision/obstacle/clear/loc/hb/offline N/quit；Flash 队列 {len(helmet.flash)} 条")
+    # 默认 prioritize_local_name=False：广播包同时带 FEE0 服务 UUID（App 按服务 UUID 过滤扫描，iOS 后台扫描硬性要求）；
+    # --name-only 时让 bless 丢掉 UUID（名字超过 10 字时才会丢），本地名才发得出去
+    await server.start(prioritize_local_name=args.name_only)
+    helmet.log(
+        f"广播中：{name}（{'只带名字、不带服务 UUID' if args.name_only else '服务 FEE0'}）。"
+        f"命令：fall/sos/collision/obstacle/clear/loc/hb/offline N/quit；Flash 队列 {len(helmet.flash)} 条"
+    )
 
     # bless 没有通用的「订阅状态」回调：把 CCCD 语义近似为「服务已启动且有中心连接」——
     # 首次收到任何 write（握手 Step 3 READ 在开 Notify 之后）即视为已订阅。

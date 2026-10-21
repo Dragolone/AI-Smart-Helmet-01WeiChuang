@@ -19,6 +19,8 @@ import { useLocale, useT } from "@/i18n";
 import { shortDate, shortTime } from "@/i18n/format";
 import { useBleStore } from "@/stores/ble-store";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 function InfoRow({
   label,
   value,

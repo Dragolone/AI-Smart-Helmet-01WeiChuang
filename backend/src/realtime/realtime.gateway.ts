@@ -13,6 +13,11 @@ import { PrismaService } from '../prisma/prisma.service';
 
 /** 应用自定义关闭码（4000–4999 区间）：鉴权失败。账号注销时 users.service 也用它断开连接，App 据此走重新登录 */
 export const CLOSE_UNAUTHORIZED = 4401;
+/**
+ * RFC 6455 1011（服务端内部错误）：查库失败等与凭证无关的故障。App 对非 4401 的关闭只走普通退避重连、
+ * 不刷新 token（app/src/api/realtime.ts）
+ */
+export const CLOSE_INTERNAL_ERROR = 1011;
 
 /**
  * App 实时通道（API.md §11，原生 ws，决策 #25）：
@@ -67,55 +72,67 @@ export class RealtimeGateway
       client.close(CLOSE_UNAUTHORIZED, '缺少访问令牌');
       return;
     }
+    let payload: { sub: string; exp?: number; typ?: string };
     try {
       // 默认密钥 = 用户 JWT；admin token（独立密钥）天然验签失败
-      const payload = await this.jwt.verifyAsync<{
-        sub: string;
-        exp?: number;
-        typ?: string;
-      }>(token);
-      // 与 HTTP 守卫同口径的 typ 双保险：两套密钥万一被误配成同值，admin token 也不能当用户连进来（观察项 13）
-      if (payload.typ === 'admin') throw new Error('not a user token');
-      const userId = payload.sub;
-      // 与 HTTP 守卫同口径：注销后的残留 token 不得再收推送
-      const found = await this.prisma.user.findUnique({
+      payload = await this.jwt.verifyAsync(token);
+    } catch {
+      client.close(CLOSE_UNAUTHORIZED, '访问令牌无效或已过期');
+      return;
+    }
+    // 与 HTTP 守卫同口径的 typ 双保险：两套密钥万一被误配成同值，admin token 也不能当用户连进来（观察项 13）
+    if (payload.typ === 'admin') {
+      client.close(CLOSE_UNAUTHORIZED, '访问令牌无效或已过期');
+      return;
+    }
+    const userId = payload.sub;
+    // 与 HTTP 守卫同口径：注销后的残留 token 不得再收推送。
+    // 查库本身失败不是令牌的问题，不按 4401 关：原来一并吞成 4401，数据库一抖，正在连的 App 全部以为
+    // 登录失效、一齐去刷新 token（10-17 前端评审）。1011 让 App 走普通退避重连
+    let found: { deletedAt: Date | null } | null;
+    try {
+      found = await this.prisma.user.findUnique({
         where: { id: userId },
         select: { deletedAt: true },
       });
-      if (found?.deletedAt) {
-        client.close(CLOSE_UNAUTHORIZED, '账号已注销');
-        return;
-      }
-      // 上面两次 await 期间客户端可能已经断开：handleDisconnect 早已跑过（当时还没登记、无事可做），
-      // 此时再登记就是一条永远不会被清理的死连接（连同到期定时器一起泄漏）
-      if (client.readyState !== WebSocket.OPEN) return;
-      if (typeof payload.exp === 'number') {
-        const ttl = Math.max(payload.exp * 1000 - Date.now(), 0);
-        const timer = setTimeout(
-          () => client.close(CLOSE_UNAUTHORIZED, '访问令牌已过期'),
-          ttl,
-        );
-        timer.unref();
-        this.expiryTimers.set(client, timer);
-      }
-      let conns = this.byUser.get(userId);
-      if (!conns) {
-        conns = new Set();
-        this.byUser.set(userId, conns);
-      }
-      conns.add(client);
-      this.clientUser.set(client, userId);
-      // 连接建立钩子（决策 #36）：补推 pending/delivered 命令等"连接时状态同步"挂在这里；
-      // 钩子失败不影响连接本身（加速通道哲学：推不到还有 REST 兜底）
-      if (this.onUserConnected) {
-        this.onUserConnected(userId, client).catch((err: unknown) =>
-          this.logger.warn(
-            `连接建立钩子失败（不影响连接）：${errorMessage(err)}`,
-          ),
-        );
-      }
-    } catch {
-      client.close(CLOSE_UNAUTHORIZED, '访问令牌无效或已过期');
+    } catch (err) {
+      this.logger.warn(
+        `WS 连接查注销状态失败，按 1011 断开（用户 ${userId}）：${errorMessage(err)}`,
+      );
+      client.close(CLOSE_INTERNAL_ERROR, '服务暂时不可用');
+      return;
+    }
+    if (found?.deletedAt) {
+      client.close(CLOSE_UNAUTHORIZED, '账号已注销');
+      return;
+    }
+    // 上面两次 await 期间客户端可能已经断开：handleDisconnect 早已跑过（当时还没登记、无事可做），
+    // 此时再登记就是一条永远不会被清理的死连接（连同到期定时器一起泄漏）
+    if (client.readyState !== WebSocket.OPEN) return;
+    if (typeof payload.exp === 'number') {
+      const ttl = Math.max(payload.exp * 1000 - Date.now(), 0);
+      const timer = setTimeout(
+        () => client.close(CLOSE_UNAUTHORIZED, '访问令牌已过期'),
+        ttl,
+      );
+      timer.unref();
+      this.expiryTimers.set(client, timer);
+    }
+    let conns = this.byUser.get(userId);
+    if (!conns) {
+      conns = new Set();
+      this.byUser.set(userId, conns);
+    }
+    conns.add(client);
+    this.clientUser.set(client, userId);
+    // 连接建立钩子（决策 #36）：补推 pending/delivered 命令等"连接时状态同步"挂在这里；
+    // 钩子失败不影响连接本身（加速通道哲学：推不到还有 REST 兜底）
+    if (this.onUserConnected) {
+      this.onUserConnected(userId, client).catch((err: unknown) =>
+        this.logger.warn(
+          `连接建立钩子失败（不影响连接）：${errorMessage(err)}`,
+        ),
+      );
     }
   }
 

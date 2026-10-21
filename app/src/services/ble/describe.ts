@@ -94,7 +94,9 @@ export function describeOutbound(bytes: Uint8Array): string {
     case Ins.RESEND_QUERY:
       return `RESEND QUERY seq=${seq}`;
     case Ins.RESEND_DATA:
-      return `RESEND DATA 偏移 ${readU16(p, 0)} 条数 ${p[2] ?? 0}`;
+      // [偏移 2B][条数 1B]：缺参数时和 READ / 对时一样标出来，测头盔 ERR_LENGTH 时不能写成「偏移 0 条数 0」
+      if (p.length < 3) return `RESEND DATA seq=${seq}（参数不足 3 字节）`;
+      return `RESEND DATA 偏移 ${readU16(p, 0)} 条数 ${p[2]}`;
     case Ins.RECOVERY:
       return `RECOVERY seq=${seq}（恢复出厂参数）`;
     case Ins.RESET:

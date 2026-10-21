@@ -44,6 +44,11 @@ import { devLog } from "@/services/dev-log";
 import { serverNow } from "@/services/server-clock";
 import { HelmetLinkService } from "helmet-link-service";
 import { useBleStore } from "@/stores/ble-store";
+import {
+  isSplashCovering,
+  PROMPT_AFTER_SPLASH_MAX_MS,
+  splashGoneWithin,
+} from "@/components/splash/covering";
 import type { BleDeviceLink } from "@/stores/ble-store";
 
 let manager: BleManager | null = null;
@@ -98,8 +103,9 @@ export async function requestBlePermissions(): Promise<boolean> {
   return r === PermissionsAndroid.RESULTS.GRANTED;
 }
 
-/** 只查不弹框：人去系统设置里授权回来时用（Android 授权不会重启进程，得自己再看一眼） */
-async function checkBlePermissions(): Promise<boolean> {
+/** 只查不弹框：人去系统设置里授权回来时用（Android 授权不会重启进程，得自己再看一眼）；
+ *  登录后起链路前也用它判断这次会不会弹系统授权框（use-realtime，O10） */
+export async function checkBlePermissions(): Promise<boolean> {
   if (Platform.OS !== "android") return true;
   const names =
     Platform.Version >= 31
@@ -556,10 +562,13 @@ async function ensureScanning(): Promise<void> {
         clearTimeout(fallbackTimer);
         log("扫描错误", error.message);
         scanning = false;
-        scheduleReconnect("scan-error");
+        scheduleReconnect(SCAN_ERROR_KEY);
         return;
       }
       if (!device) return;
+      // 扫描又能出结果了：扫描出错累起来的退避清零，之后再出错从 2 s 算（原来要等停链路才清，
+      // 恢复、连上头盔后掉线再偶发一次出错要等 16–30 s 才重扫；10-19 夜测 #282 测出）
+      reconnectDelay.delete(SCAN_ERROR_KEY);
       // 广播里的 localName 优先：iOS 的 device.name 是系统缓存的 GAP 名，可能是外设旧名/主机名（真机实测）
       const name = device.localName ?? device.name;
       if (__DEV__ && name && !seen.has(name)) {
@@ -695,9 +704,7 @@ function serviceNames(): string {
       ? `${chars.slice(0, SERVICE_NAME_CHARS).join("")}…`
       : name;
   });
-  return (
-    shown.join(", ") + (targets.length > SERVICE_NAMES_MAX ? ", …" : "")
-  );
+  return shown.join(", ") + (targets.length > SERVICE_NAMES_MAX ? ", …" : "");
 }
 
 /**
@@ -727,6 +734,9 @@ function syncForegroundService(): void {
     log("前台服务同步失败", (e as Error).message);
   }
 }
+
+/** 扫描出错的退避和各头盔的重连退避共用一张表，用这个键区分 */
+const SCAN_ERROR_KEY = "scan-error";
 
 function scheduleReconnect(key: string): void {
   if (!running || reconnectTimer) return;
@@ -770,6 +780,11 @@ export async function startBleLink(deviceIds: string[]): Promise<void> {
   if (running) return;
   running = true;
   log("链路启动，目标设备", deviceIds.join(",") || "(无)");
+  // 冷启动开屏还在播、这次又要弹系统授权框：先等开屏让开，最多 5 s（O27）。已经授过权的不弹框，不等
+  if (isSplashCovering() && !(await checkBlePermissions().catch(() => false))) {
+    await splashGoneWithin(PROMPT_AFTER_SPLASH_MAX_MS);
+    if (!running) return;
+  }
   const granted = await requestBlePermissions().catch(() => false);
   if (!running) return; // 等权限期间已 stop（登出 / 进工程模式）
   if (!granted) {
@@ -872,6 +887,8 @@ export function stopBleLink(): void {
 export function retryBleLink(deviceId?: string): void {
   if (deviceId) {
     reconnectDelay.delete(deviceId);
+    // 用户点了「重试连接」就是要马上重扫：扫描出错的退避也一起清（原来只有不带设备号的重试才清）
+    reconnectDelay.delete(SCAN_ERROR_KEY);
     blocked.delete(deviceId);
   } else {
     reconnectDelay.clear();

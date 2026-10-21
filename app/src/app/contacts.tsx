@@ -25,6 +25,8 @@ import {
   contactNameOf,
 } from "@/services/user-name";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 const MAX_CONTACTS = 5;
 
 function ContactRow({

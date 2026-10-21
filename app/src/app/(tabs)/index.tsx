@@ -6,7 +6,7 @@
 // 不在这一页的：速度和骑行状态（地图页）、最近上报与设备编号（详情页）。
 // 数据：GET /devices（30s 轮询兜底，WS 直写缓存）。
 import { Ionicons } from "@expo/vector-icons";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { router, useFocusEffect, useIsFocused } from "expo-router";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
@@ -36,7 +36,6 @@ import { isSessionEnded, toUserMessage } from "@/api/error-messages";
 import { BatteryArc } from "@/components/battery-arc";
 import { DeviceGuide } from "@/components/device-guide";
 import { EmptyState } from "@/components/empty-state";
-import { PrimaryButton } from "@/components/form";
 import { IntercomMiniBar } from "@/components/intercom-mini-bar";
 import { Card, type IconName } from "@/components/list";
 import {
@@ -75,6 +74,7 @@ import {
   useNotifyPermission,
 } from "@/hooks/use-safety";
 import { useTheme } from "@/hooks/use-theme";
+import { useRefetchOnFocus } from "@/hooks/use-refetch-on-focus";
 import { useLocale, useT } from "@/i18n";
 import { formatKm, relativeTime } from "@/i18n/format";
 import { mixHex, withAlpha } from "@/services/color";
@@ -101,6 +101,8 @@ import {
   hadHelmetBefore,
   useHelmetHistoryStore,
 } from "@/stores/helmet-history-store";
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
 
 /** 标题栏占的高度（含上边距）：算大图光晕能铺多大时要用 */
 const HEADER_HEIGHT = 48;
@@ -604,7 +606,10 @@ function OtherRow({
             accessible
             accessibilityLabel={
               device.charging
-                ? `${t("devices.charging")} ${battery ?? "—"}%`
+                ? // 电量没上报（越界值被后端丢掉、充电状态照留）时只读「充电中」：原来读成「充电中 —%」（10-19 夜测）
+                  battery !== null
+                  ? `${t("devices.charging")} ${battery}%`
+                  : t("devices.charging")
                 : undefined
             }
           >
@@ -654,9 +659,6 @@ function OtherRow({
   );
 }
 
-/** 回到设备页时重拉设备列表：2 秒内刚拉过就不再拉 */
-const FOCUS_REFETCH_GAP_MS = 2_000;
-
 export default function DevicesScreen() {
   const theme = useTheme();
   const t = useT();
@@ -665,6 +667,22 @@ export default function DevicesScreen() {
     queryFn: devicesApi.list,
     refetchInterval: 30_000,
   });
+  // 重拉途中查询把上一次的错误清掉了：红字按「最近一次失败」写，拿到列表才收（O26）
+  // 渲染时就地记下来（不绕一圈 effect）
+  const [lastListError, setLastListError] = useState<unknown>(null);
+  if (devices.error && devices.error !== lastListError)
+    setLastListError(devices.error);
+  else if (
+    !devices.error &&
+    devices.data !== undefined &&
+    lastListError !== null
+  )
+    setLastListError(null);
+  const listErrorShown: unknown = devices.isError
+    ? devices.error
+    : devices.data === undefined
+      ? lastListError
+      : null;
   // 只由手势驱动：若绑到 isRefetching，后台轮询/回到页面的自动刷新也会拉出转圈，且偶发停在下拉位置不复位
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = async () => {
@@ -676,26 +694,10 @@ export default function DevicesScreen() {
     }
   };
   // 回到设备页时重拉一次设备列表，不等下一次 30 秒轮询：在别处（另一台手机）刚绑上的头盔马上出来，
-  // 三步指引接着往下走。不按「过期」判断：地图页挂上时刚拉过、还在新鲜期里的那份可能正是绑定之前的。
-  // 只跳过「正在拉」和「2 秒内刚拉过」（来回切标签时别连发）。
-  // 10-16 iPhone：新账号登录后弹过「保存密码？」框、切到地图再回来，设备列表的轮询没再跑，
-  // 指引在第一件停了一两分钟、要下拉才动（根因没坐实，这里兜住回来那一下）
-  const queryClient = useQueryClient();
-  useFocusEffect(
-    useCallback(() => {
-      const q = queryClient.getQueryCache().find({ queryKey: ["devices"] });
-      if (
-        q &&
-        (q.state.fetchStatus === "fetching" ||
-          Date.now() - q.state.dataUpdatedAt < FOCUS_REFETCH_GAP_MS)
-      )
-        return;
-      void queryClient.refetchQueries(
-        { queryKey: ["devices"], type: "active" },
-        { cancelRefetch: false },
-      );
-    }, [queryClient]),
-  );
+  // 三步指引接着往下走。10-16 iPhone：新账号登录后弹过「保存密码？」框、切到地图再回来，设备列表的轮询没再跑，
+  // 指引在第一件停了一两分钟、要下拉才动（根因没坐实，这里兜住回来那一下）。联系人同理（10-19：别的设备改过）
+  useRefetchOnFocus(["devices"]);
+  useRefetchOnFocus(["contacts"]);
   const list = devices.data ?? [];
   const links = useHelmetLinks(list, !devices.isError);
   const choice = useCurrentHelmetChoice();
@@ -764,8 +766,10 @@ export default function DevicesScreen() {
   // 「设为当前」的选择还没从存储读出来时先不画大图：否则会先显示一台再跳到另一台。
   // 冷启动的开屏动画还在播路线那一段时也先画骨架，等它放行再搭（见 useSplashHold）
   const splashHold = useSplashHold();
+  // 列表失败过之后的重拉（每 30 秒、回前台……）：没有旧数据时查询会回到「加载中」，原来就闪回骨架、红字收起又冒出来
+  //（10-21 华为断网冷启动看到闪了一下，O26）。只有第一次加载画骨架；失败过就停在「没拉到」那一页，拿到了再换
   const loading =
-    devices.isLoading ||
+    (devices.isLoading && devices.errorUpdateCount === 0) ||
     viewport === 0 ||
     (list.length > 0 && !choice.ready) ||
     guidePending ||
@@ -813,9 +817,9 @@ export default function DevicesScreen() {
             </SplashArrive>
           </View>
 
-          {devices.isError && !isSessionEnded(devices.error) && (
+          {listErrorShown !== null && !isSessionEnded(listErrorShown) && (
             <ThemedText type="small" themeColor="danger">
-              {toUserMessage(devices.error)}
+              {toUserMessage(listErrorShown)}
             </ThemedText>
           )}
 
@@ -911,36 +915,20 @@ export default function DevicesScreen() {
               )}
               <View style={styles.spaceBelow} />
             </View>
-          ) : devices.data === undefined ? (
+          ) : (
             // 列表没拉到（断网冷启动）≠ 没绑头盔：原来这里也写「尚未绑定头盔」+ 绑定按钮，
-            // 绑着两顶的人断网开 App 会以为被解绑了（2026-10-15 模拟器正式包）
+            // 绑着两顶的人断网开 App 会以为被解绑了（2026-10-15 模拟器正式包）。
+            // 走到这里只剩这一种：拿到了列表却一顶都没有时，要么是三步指引、要么还在读「绑过没有」（画骨架）
             <EmptyState
               icon="cloud-offline-outline"
               title={t("devices.loadFailedTitle")}
               body={t("devices.loadFailedBody")}
-            />
-          ) : (
-            <EmptyState
-              icon="bicycle-outline"
-              title={t("empty.devicesTitle")}
-              body={t("devices.emptyBody")}
             />
           )}
         </ScrollView>
 
         {/* 人在对讲房间里时占一行（不在时不占位置）：滚动区变矮，大图跟着缩 */}
         <IntercomMiniBar style={styles.miniBar} />
-
-        {/* 一台都没有时，绑定是这一页的主操作：除了右上角的「+」，底部再放一个品牌色按钮 */}
-        {noHelmet && !guideOn && !guidePending && (
-          <View style={styles.bottomCta}>
-            <PrimaryButton
-              title={t("devices.bindNew")}
-              icon="add"
-              onPress={() => router.navigate("/bind-device")}
-            />
-          </View>
-        )}
       </SafeAreaView>
       <SwitchHelmetPrompt />
     </ThemedView>
@@ -1134,5 +1122,4 @@ const styles = StyleSheet.create({
   setCurrentText: { fontSize: 12, lineHeight: 16, fontWeight: 600 },
   skeletonName: { marginTop: 16, marginBottom: 10 },
   miniBar: { paddingHorizontal: 12, paddingBottom: 12 },
-  bottomCta: { paddingHorizontal: 20, paddingTop: 4, paddingBottom: 12 },
 });

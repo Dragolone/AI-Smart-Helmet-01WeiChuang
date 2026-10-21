@@ -77,13 +77,22 @@ jest.mock("react-native-worklets", () =>
     )
     .workletsMock(),
 );
-jest.mock("react-native-reanimated", () =>
-  jest
+/** sliding = true 时 withTiming 交回「还在路上」的标记而不是终值：看得出滑块是在滑还是被直接放到了位 */
+const mockAnim = { sliding: false };
+jest.mock("react-native-reanimated", () => {
+  const base = jest
     .requireActual<typeof import("@/__tests__/helpers/native-mocks")>(
       "@/__tests__/helpers/native-mocks",
     )
-    .reanimatedMock(),
-);
+    .reanimatedMock() as unknown as Record<string, unknown> & {
+    withTiming: (...a: unknown[]) => unknown;
+  };
+  return {
+    ...base,
+    withTiming: (to: unknown, ...rest: unknown[]) =>
+      mockAnim.sliding ? { slidingTo: to } : base.withTiming(to, ...rest),
+  };
+});
 jest.mock("@shopify/react-native-skia", () =>
   jest
     .requireActual<typeof import("@/__tests__/helpers/native-mocks")>(
@@ -671,6 +680,86 @@ describe("FluidSegmented", () => {
     expect(thumb(r)).toMatchObject({ left: 78, right: 142 });
   });
 
+  it("没有高亮（current 为 null）：量到布局、整条又报一次同样的宽度，都不放滑块", () => {
+    const r = render(
+      <FluidSegmented
+        options={options}
+        current={null}
+        palette={palette}
+        onSelect={() => undefined}
+      />,
+    );
+    measure(r);
+    const root = r.root.find(
+      (n) =>
+        typeof n.type === "string" &&
+        n.props.accessibilityRole === "radiogroup",
+    );
+    act(() => root.props.onLayout({ nativeEvent: { layout: { width: 300 } } }));
+    r.rerender(
+      <FluidSegmented
+        options={options}
+        current={null}
+        palette={palette}
+        onSelect={() => undefined}
+      />,
+    );
+    expect(thumb(r).opacity).toBe(0);
+  });
+
+  it("滑块正在滑：整条又报一次同样的宽度、当前那段又报一次同样的位置，都不打断它；那一段的 y / 宽 / 高真变了才直接对齐", () => {
+    const el = (current: number) => (
+      <FluidSegmented
+        options={options}
+        current={current}
+        palette={palette}
+        onSelect={() => undefined}
+      />
+    );
+    const r = render(el(0));
+    measure(r);
+    r.rerender(el(0));
+    expect(thumb(r)).toMatchObject({ left: 0, right: 200 });
+    const root = r.root.find(
+      (n) =>
+        typeof n.type === "string" &&
+        n.props.accessibilityRole === "radiogroup",
+    );
+    const layOut = (x: number, y: number, width: number, height: number) =>
+      act(() =>
+        segs(r)[2].props.onLayout({
+          nativeEvent: { layout: { x, y, width, height } },
+        }),
+      );
+    mockAnim.sliding = true;
+    try {
+      r.rerender(el(2));
+      r.rerender(el(2));
+      const sliding = { left: { slidingTo: 200 }, right: { slidingTo: 0 } };
+      expect(thumb(r)).toMatchObject(sliding);
+      act(() =>
+        root.props.onLayout({ nativeEvent: { layout: { width: 300 } } }),
+      );
+      layOut(200, 2, 100, 40);
+      r.rerender(el(2));
+      expect(thumb(r)).toMatchObject(sliding);
+      // 只有 y 变了
+      layOut(200, 6, 100, 40);
+      r.rerender(el(2));
+      expect(thumb(r)).toMatchObject({ left: 200, right: 0, top: 6 });
+      // 只有宽变了
+      layOut(200, 6, 90, 40);
+      r.rerender(el(2));
+      expect(thumb(r)).toMatchObject({ left: 200, right: 10, height: 40 });
+      // 只有高变了
+      layOut(200, 6, 90, 50);
+      r.rerender(el(2));
+      expect(thumb(r)).toMatchObject({ top: 6, height: 50 });
+    } finally {
+      mockAnim.sliding = false;
+    }
+  });
+
   it("待确认那段带读屏说明（给了 tentativeHint 时）", () => {
     const r = render(
       <FluidSegmented
@@ -987,6 +1076,10 @@ describe("设备设置项", () => {
   it("历史上存过 light: true（旧格式）按低亮档显示；类型不对的值当作没上报", () => {
     let { r } = list({ keys: ["light"], settings: { light: true } });
     expect(radios(rowsOf(r)[0])[1].props.accessibilityState.checked).toBe(true);
+    // 旧格式的 false 按「关」显示，标题右边也写「关」
+    ({ r } = list({ keys: ["light"], settings: { light: false } }));
+    expect(radios(rowsOf(r)[0])[0].props.accessibilityState.checked).toBe(true);
+    expect(r.texts()).toContain(tr("device.level.off"));
     ({ r } = list({
       keys: ["light", "radar"],
       settings: { light: "x", radar: 1 },
@@ -1089,7 +1182,10 @@ describe("设备设置项", () => {
     let say: ReturnType<typeof jest.spyOn>;
     const os = Platform.OS;
     beforeEach(() => {
-      Object.defineProperty(Platform, "OS", { value: "ios", configurable: true });
+      Object.defineProperty(Platform, "OS", {
+        value: "ios",
+        configurable: true,
+      });
       say = jest
         .spyOn(AccessibilityInfo, "announceForAccessibility")
         .mockImplementation(() => undefined);
@@ -1151,7 +1247,11 @@ describe("设备设置项", () => {
       expect(say).not.toHaveBeenCalled();
       r.rerender(
         <CommandFeedback
-          command={cmd({ commandId: "c3", status: "pending", params: { radar: true } })}
+          command={cmd({
+            commandId: "c3",
+            status: "pending",
+            params: { radar: true },
+          })}
           settingKey="light"
         />,
       );
@@ -1164,7 +1264,10 @@ describe("设备设置项", () => {
         configurable: true,
       });
       const r = render(
-        <CommandFeedback command={cmd({ commandId: "a" })} settingKey="light" />,
+        <CommandFeedback
+          command={cmd({ commandId: "a" })}
+          settingKey="light"
+        />,
       );
       r.rerender(
         <CommandFeedback
@@ -1205,9 +1308,7 @@ describe("设备设置项", () => {
       .find((t) => t.props.children === "20m")!;
     expect(num).toBeDefined();
     expect(flat(num.props.style).color).toBe(dark.textSecondary);
-    expect(num.props.accessibilityHint).toBe(
-      tr("device.a11y.awaitingHelmet"),
-    );
+    expect(num.props.accessibilityHint).toBe(tr("device.a11y.awaitingHelmet"));
     const plus = r.root.find(
       (n) => n.type === Tappable && n.props.accessibilityLabel === "+",
     );

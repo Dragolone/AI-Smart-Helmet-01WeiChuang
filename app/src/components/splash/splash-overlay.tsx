@@ -14,7 +14,16 @@ import { Image } from "expo-image";
 import { usePathname } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Component,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   AccessibilityInfo,
   StyleSheet,
@@ -33,6 +42,7 @@ import { scheduleOnRN, scheduleOnUI } from "react-native-worklets";
 import { devicesApi } from "@/api/devices";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useT } from "@/i18n";
+import { devLog } from "@/services/dev-log";
 import { clearIfFreshInstall } from "@/services/fresh-install";
 import { launchedByNotification } from "@/services/launch-intent";
 import { useAuthStore } from "@/stores/auth-store";
@@ -52,6 +62,7 @@ import {
   splashStory,
   whenPageReady,
 } from "./bus";
+import { setSplashCovering } from "./covering";
 import { useHeroSplash } from "./use-hero-splash";
 import { DeviceLanding, releaseDeviceLanding } from "./landing-device";
 import {
@@ -70,7 +81,7 @@ import {
   loginDock,
   loginReveal,
 } from "./landings";
-import { planLanding } from "./plan";
+import { planLanding, tooWideForSplash } from "./plan";
 import { loadRouteFrames } from "./route-frames";
 import {
   MARK_LIFT,
@@ -189,6 +200,42 @@ function whenJsQuiet(budget: number): Promise<void> {
 }
 
 export function SplashOverlay() {
+  return (
+    <SplashGuard>
+      <SplashLayers />
+    </SplashGuard>
+  );
+}
+
+/**
+ * 开屏只是一层过场，它出任何错都直接让开：放行页面、收掉原生启动图，不能连累 App（10-21 夜测：设备列表接口回了
+ * 不是数组的东西，这一层抛错，而它挂在根布局、在错误边界之外，App 每次一开就闪退）
+ */
+class SplashGuard extends Component<
+  { children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error) {
+    devLog("CRASH", `开屏：${error.message}`);
+    setSplashCovering(false);
+    releaseSplashHold();
+    releaseSplashPage();
+    endSplashStory();
+    SplashScreen.hide();
+  }
+
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+
+function SplashLayers() {
   const [done, setDone] = useState(false);
   const onDone = useCallback(() => setDone(true), []);
   return (
@@ -247,14 +294,24 @@ function SplashPlayer({ onDone }: { onDone: () => void }) {
   const warp = useMemo(() => buildWarp(), []);
   const real = useSharedValue(0);
 
+  // 这一层挂着的时候，App 自己的提示框 / Toast / Modal 先压着不出（见 covering.ts）。卸掉才算让开：
+  // 收场时页面先露出来、隔两帧这一层才卸
+  useLayoutEffect(() => {
+    setSplashCovering(true);
+    return () => setSplashCovering(false);
+  }, []);
+
   // 「由通知拉起」只在挂载时读一次：RealtimeBridge 稍后会把本地通知的启动响应清掉（sos-alert 的
   // consumeLaunchResponse），而 begin() 要等 onLayout 才跑——晚于那次清除就读成 false，锁屏按
   // 「我没事，取消」拉起的 App 又会播两三秒开屏（2026-10-14）。这一层排在 RealtimeBridge 前面挂载
   const [byNotification] = useState(launchedByNotification);
+  // 窗口放不下开屏（横着拿的展开折叠屏 / 平板等，见 plan.ts）也不播。只在挂载时看一次：播到一半转屏的极少，让它播完
+  const [tooWide] = useState(() => tooWideForSplash(width, height));
+  const skip = byNotification || tooWide;
 
   // ------------------------------------------------------------ 安卓：路线段的视频
-  // 由通知拉起时不播开屏，播放器也就不用建
-  const [videoOn, setVideoOn] = useState(() => ROUTE_VIDEO && !byNotification);
+  // 由通知拉起 / 窗口放不下时不播开屏，播放器也就不用建
+  const [videoOn, setVideoOn] = useState(() => ROUTE_VIDEO && !skip);
   // 这一层还指望着视频（没放完、也没放弃）
   const videoLive = useRef(videoOn);
   // 路线段最后是怎么播的（只为日志）
@@ -568,8 +625,8 @@ function SplashPlayer({ onDone }: { onDone: () => void }) {
   const begin = useCallback(() => {
     if (begun.current) return;
     begun.current = true;
-    // 由通知拉起（多半是求救 / 摔倒提醒）：不播，直接把页面露出来
-    if (byNotification) {
+    // 由通知拉起（多半是求救 / 摔倒提醒）、或窗口放不下：不播，直接把页面露出来
+    if (skip) {
       SplashScreen.hide();
       finish();
       return;
@@ -632,12 +689,12 @@ function SplashPlayer({ onDone }: { onDone: () => void }) {
       clock.setActive(true);
     });
   }, [
-    byNotification,
     clock,
     dropVideo,
     endVideo,
     finish,
     real,
+    skip,
     videoGate,
     videoMode,
     warp,

@@ -182,6 +182,13 @@ describe("头盔列表的三种状态", () => {
     expect(r.allText()).toContain(tr("safety.state.noHelmet"));
     expect(r.allText()).toContain(tr("records.noHelmetBody"));
   });
+
+  it("头盔列表还没拿到时，进行中的求救照样置顶，名字先用编号", () => {
+    Object.assign(mockHelmets, { known: false, stale: false, list: [] });
+    mockHelmets.pending = [{ sosId: "s9", deviceId: "h9" }];
+    const r = mount();
+    expect(r.allText()).toContain(tr("records.pending", { device: "h9" }));
+  });
 });
 
 describe("一顶头盔", () => {
@@ -350,14 +357,18 @@ describe("一顶头盔", () => {
   // 分页按偏移量取：第 1 页来了新记录，原来排在页尾的那条挤到第 2 页。原来轮询和下拉只重取第 1 页，
   // 被挤走的那条就从列表里消失了（10-17 评审）
   describe("分页之后的刷新", () => {
-    const pagedRoute = (total: () => number, pages: string[]) => (p: string) => {
-      if (!p.startsWith("/devices/h1/events")) return { items: [], total: 0 };
-      pages.push(p);
-      const page = Number(new URL(`http://x${p}`).searchParams.get("page"));
-      return page === 1
-        ? { items: [ev("e1", "collision_risk", today(9))], total: total() }
-        : { items: [ev("e2", "obstacle_risk", yesterday(9))], total: total() };
-    };
+    const pagedRoute =
+      (total: () => number, pages: string[]) => (p: string) => {
+        if (!p.startsWith("/devices/h1/events")) return { items: [], total: 0 };
+        pages.push(p);
+        const page = Number(new URL(`http://x${p}`).searchParams.get("page"));
+        return page === 1
+          ? { items: [ev("e1", "collision_risk", today(9))], total: total() }
+          : {
+              items: [ev("e2", "obstacle_risk", yesterday(9))],
+              total: total(),
+            };
+      };
     const page2 = (pages: string[]) =>
       pages.filter((p) => p.includes("page=2")).length;
 
@@ -418,6 +429,236 @@ describe("一顶头盔", () => {
     });
   });
 
+  it("认不出时间的记录：排在最后、单独一组，组标题和时间都写 —，不丢", async () => {
+    mockRoutes.fn = (p) =>
+      p.startsWith("/devices/h1/events")
+        ? {
+            items: [
+              ev("e2", "obstacle_risk", "not-a-time"),
+              ev("e1", "collision_risk", today(9)),
+            ],
+            total: 2,
+          }
+        : { items: [], total: 0 };
+    const r = mount();
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("events.type.obstacle_risk")),
+    );
+    const texts = r.texts();
+    expect(texts.filter((x) => x === "—")).toHaveLength(2);
+    expect(texts.indexOf(tr("events.type.obstacle_risk"))).toBeGreaterThan(
+      texts.indexOf(tr("events.type.collision_risk")),
+    );
+  });
+
+  it("更早的日子：今年的只写月日，往年的带上年份", async () => {
+    // 只钉住「现在」：查询和 waitFor 还要靠真的计时器往前走
+    jest.useFakeTimers({
+      now: new Date(2026, 5, 15, 12),
+      doNotFake: [
+        "hrtime",
+        "nextTick",
+        "performance",
+        "queueMicrotask",
+        "requestAnimationFrame",
+        "cancelAnimationFrame",
+        "requestIdleCallback",
+        "cancelIdleCallback",
+        "setImmediate",
+        "clearImmediate",
+        "setInterval",
+        "clearInterval",
+        "setTimeout",
+        "clearTimeout",
+      ],
+    });
+    try {
+      mockRoutes.fn = (p) =>
+        p.startsWith("/devices/h1/events")
+          ? {
+              items: [
+                ev(
+                  "e1",
+                  "collision_risk",
+                  new Date(2026, 5, 10, 9).toISOString(),
+                ),
+                ev(
+                  "e2",
+                  "obstacle_risk",
+                  new Date(2025, 11, 31, 9).toISOString(),
+                ),
+              ],
+              total: 2,
+            }
+          : { items: [], total: 0 };
+      const r = mount();
+      await waitFor(() =>
+        expect(r.allText()).toContain(tr("events.type.obstacle_risk")),
+      );
+      expect(r.texts()).toContain("6月10日");
+      expect(r.texts()).toContain("2025年12月31日");
+      expect(r.allText()).not.toContain(tr("common.today"));
+      expect(r.allText()).not.toContain(tr("common.yesterday"));
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("SOS 记录也能加载更多：按每页 20 条取第 2 页，接在后面", async () => {
+    routerState.params = { tab: "sos" };
+    const pages: string[] = [];
+    mockRoutes.fn = (p) => {
+      if (!p.startsWith("/devices/h1/accidents"))
+        return { items: [], total: 0 };
+      pages.push(p);
+      return p.includes("page=2")
+        ? {
+            items: [
+              acc("s2", { triggerType: "manual_sos", createdAt: yesterday(9) }),
+            ],
+            total: 25,
+          }
+        : { items: [acc("s1", { createdAt: today(9) })], total: 25 };
+    };
+    const r = mount();
+    await waitFor(() =>
+      expect(r.allText()).toContain(
+        tr("records.truncated", { n: 1, total: 25 }),
+      ),
+    );
+    expect(r.allText()).not.toContain(tr("records.sos.manual"));
+    r.press(tr("records.loadMore"));
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("records.sos.manual")),
+    );
+    expect(pages).toContain("/devices/h1/accidents?page=2&pageSize=20");
+  });
+
+  it("连点两次加载更多：第 2、3 页按页序接在后面", async () => {
+    const twoDaysAgo = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() - 2,
+      9,
+    ).toISOString();
+    mockRoutes.fn = (p) => {
+      if (!p.startsWith("/devices/h1/events")) return { items: [], total: 0 };
+      const page = Number(new URL(`http://x${p}`).searchParams.get("page"));
+      const items =
+        page === 1
+          ? [ev("e1", "collision_risk", today(9))]
+          : page === 2
+            ? [ev("e2", "obstacle_risk", yesterday(9))]
+            : [ev("e3", "risk_cleared", twoDaysAgo)];
+      return { items, total: 150 };
+    };
+    const r = mount();
+    await waitFor(() => expect(r.allText()).toContain(tr("records.loadMore")));
+    r.press(tr("records.loadMore"));
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("events.type.obstacle_risk")),
+    );
+    r.press(tr("records.loadMore"));
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("events.type.risk_cleared")),
+    );
+    const texts = r.texts();
+    expect(texts.indexOf(tr("events.type.obstacle_risk"))).toBeLessThan(
+      texts.indexOf(tr("events.type.risk_cleared")),
+    );
+  });
+
+  it("SOS 记录拉取失败：点重试按 SOS 的列表重取，拿到了就显示", async () => {
+    routerState.params = { tab: "sos" };
+    mockRoutes.fn = (p) =>
+      p.startsWith("/devices/h1/accidents")
+        ? new ApiRequestError(500, { code: "INTERNAL_ERROR" })
+        : { items: [], total: 0 };
+    const r = mount();
+    await waitFor(
+      () => expect(r.allText()).toContain(tr("records.loadFailed")),
+      200,
+    );
+    mockRoutes.fn = (p) =>
+      p.startsWith("/devices/h1/accidents")
+        ? { items: [acc("s1", { createdAt: today(9) })], total: 1 }
+        : { items: [], total: 0 };
+    r.press(tr("safety.action.retry"));
+    await waitFor(() => expect(r.allText()).toContain(tr("records.sos.fall")));
+    expect(r.allText()).not.toContain(tr("records.loadFailed"));
+  });
+
+  it("详情：不认识的类型标题直接写类型名，有视频片段时写几段，不加风险提醒那句说明", async () => {
+    mockRoutes.fn = (p) =>
+      p.startsWith("/devices/h1/events")
+        ? { items: [ev("e3", "weird_type", today(9))], total: 1 }
+        : p === "/events/e3"
+          ? {
+              eventId: "e3",
+              eventType: "weird_type",
+              deviceId: "h1",
+              timestamp: today(9),
+              payload: {},
+              media: [
+                { mediaId: "m1", status: "ready", duration: 12 },
+                { mediaId: "m2", status: "ready", duration: 8 },
+              ],
+            }
+          : { items: [], total: 0 };
+    const r = mount();
+    await waitFor(() => expect(r.allText()).toContain("weird_type"));
+    r.press("weird_type");
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("records.detail.time")),
+    );
+    expect(r.allText()).toContain(tr("events.mediaCount", { n: 2 }));
+    expect(r.allText()).not.toContain(tr("records.detail.note"));
+    // 列表里那一行和弹层标题各一处
+    expect(r.texts().filter((x) => x === "weird_type")).toHaveLength(2);
+  });
+
+  it("详情弹层：点卡片本身不关，点外面的遮罩才关", async () => {
+    mockRoutes.fn = (p) =>
+      p.startsWith("/devices/h1/events")
+        ? { items: [ev("e1", "collision_risk", today(9))], total: 1 }
+        : p === "/events/e1"
+          ? {
+              eventId: "e1",
+              eventType: "collision_risk",
+              deviceId: "h1",
+              timestamp: today(9),
+              payload: {},
+              media: [],
+            }
+          : { items: [], total: 0 };
+    const r = mount();
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("events.type.collision_risk")),
+    );
+    r.press(tr("events.type.collision_risk"));
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("records.detail.time")),
+    );
+    const modal = r.root.findByType(Modal);
+    const card = modal.findAll(
+      (n) =>
+        typeof n.type !== "string" &&
+        n.props.accessibilityViewIsModal === true &&
+        typeof n.props.onPress === "function",
+    )[0];
+    const mask = modal.findAll(
+      (n) =>
+        typeof n.type !== "string" &&
+        n.props.accessible === false &&
+        n.props.accessibilityViewIsModal !== true &&
+        typeof n.props.onPress === "function",
+    )[0];
+    act(() => card.props.onPress());
+    expect(r.root.findByType(Modal).props.visible).toBe(true);
+    act(() => mask.props.onPress());
+    expect(r.root.findByType(Modal).props.visible).toBe(false);
+  });
+
   it("下拉刷新：重新拉头盔列表和当前分类", async () => {
     const r = mount();
     await waitFor(() =>
@@ -472,6 +713,75 @@ describe("多顶头盔", () => {
     await waitFor(() =>
       expect(r.allText()).toContain(tr("events.type.collision_risk")),
     );
+  });
+
+  it("一顶拿到了是空的、另一顶失败：不说「暂无」，显示失败可重试；另一顶还在拉：先放骨架", async () => {
+    mockRoutes.fn = (p) =>
+      p.startsWith("/devices/h2/events")
+        ? new ApiRequestError(503, { code: "INTERNAL_ERROR" })
+        : { items: [], total: 0 };
+    let r = mount();
+    await waitFor(
+      () => expect(r.allText()).toContain(tr("records.loadFailed")),
+      200,
+    );
+    expect(r.allText()).not.toContain(tr("records.alertsEmptyAll"));
+    expect(r.allText()).toContain(tr("safety.action.retry"));
+    r.unmount();
+
+    mockRoutes.fn = (p) =>
+      p.startsWith("/devices/h2/events")
+        ? new Promise(() => undefined)
+        : { items: [], total: 0 };
+    const qc = makeQueryClient();
+    r = render(
+      <QueryClientProvider client={qc}>
+        <SafetyRecordsScreen />
+      </QueryClientProvider>,
+    );
+    // h1 那份（空的）已经到了，h2 还在路上
+    await waitFor(() =>
+      expect(
+        qc
+          .getQueriesData({ queryKey: ["events", "h1"] })
+          .some(([, data]) => data !== undefined),
+      ).toBe(true),
+    );
+    await act(async () => {
+      await new Promise((res) => setTimeout(res, 0));
+    });
+    expect(r.allText()).not.toContain(tr("records.alertsEmptyAll"));
+    expect(r.allText()).not.toContain(tr("records.loadFailed"));
+    expect(r.allText()).toContain(tr("records.allHelmets"));
+  });
+
+  it("两顶有同号事件、详情接口拿回的是另一顶那条：不显示别人的内容，标题写打不开并说明", async () => {
+    mockRoutes.fn = (p) =>
+      p.startsWith("/devices/h1/events")
+        ? { items: [ev("e1", "collision_risk", today(9))], total: 1 }
+        : p.startsWith("/devices/h2/events")
+          ? { items: [ev("e1", "obstacle_risk", today(8))], total: 1 }
+          : p === "/events/e1"
+            ? {
+                eventId: "e1",
+                eventType: "collision_risk",
+                deviceId: "h1",
+                timestamp: today(9),
+                payload: { riskLevel: "high" },
+                media: [],
+              }
+            : { items: [], total: 0 };
+    const r = mount();
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("events.type.obstacle_risk")),
+    );
+    r.press(tr("events.type.obstacle_risk"));
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("records.detail.mismatch")),
+    );
+    expect(r.allText()).toContain(tr("records.detail.failed"));
+    expect(r.allText()).not.toContain(tr("records.detail.time"));
+    expect(r.allText()).not.toContain(tr("safety.level.high"));
   });
 
   it("全部都空：写「暂无」不带「这顶头盔」", async () => {

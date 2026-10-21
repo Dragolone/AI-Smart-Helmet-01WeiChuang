@@ -15,11 +15,14 @@ import { mockRouter } from "@/__tests__/helpers/native-mocks";
 import {
   flat,
   isHost,
+  makeQueryClient,
   render,
   waitFor,
   type Rendered,
 } from "@/__tests__/helpers/render";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { authApi } from "@/api/auth";
+import { sosApi } from "@/api/sos";
 import { ApiRequestError, SessionEndedError } from "@/api/client";
 import { Colors } from "@/constants/theme";
 import { __resetSmsCooldownsForTests } from "@/hooks/use-sms-code";
@@ -27,6 +30,7 @@ import { translate, useLocaleStore, type MessageKey } from "@/i18n";
 import { useAuthStore } from "@/stores/auth-store";
 import { useConsentStore } from "@/stores/consent-store";
 import { useThemeStore } from "@/stores/theme-store";
+import { SplashArrive } from "@/components/splash/splash-arrive";
 import LoginScreen from "@/app/(auth)/login";
 import RegisterScreen from "@/app/(auth)/register";
 import ResetPasswordScreen from "@/app/(auth)/reset-password";
@@ -106,6 +110,9 @@ const mockDiscardRelayQueue = jest.fn();
 jest.mock("@/services/ble-relay-uplink", () => ({
   discardRelayQueue: (owner: string) => mockDiscardRelayQueue(owner),
 }));
+jest.mock("@/api/sos", () => ({
+  sosApi: { activeForAccount: jest.fn() },
+}));
 jest.mock("@/api/auth", () => ({
   ...jest.requireActual<typeof import("@/api/auth")>("@/api/auth"),
   authApi: {
@@ -123,6 +130,7 @@ const dark = Colors.dark;
 const tr = (key: MessageKey, params?: Record<string, string | number>) =>
   translate(key, params, "zh-CN");
 const api = authApi as unknown as Record<string, jest.Mock>;
+const sosMock = sosApi as unknown as Record<string, jest.Mock>;
 const apiError = (status: number, code: string) =>
   new ApiRequestError(status, { code, message: code });
 const AUTH = {
@@ -175,6 +183,22 @@ const inputProps = (r: Rendered, placeholder: string) =>
     .map((n) => n.props as Record<string, unknown>);
 /** 7 个表情：14 个 UTF-16 单元，服务端按码点数只有 7 位 */
 const SEVEN_EMOJI = "😀".repeat(7);
+/** 25 个汉字：25 位、但按 UTF-8 是 75 字节，超过服务端 72 字节的上限 */
+const LONG_ZH = "密".repeat(25);
+/** 「获取验证码」那颗按钮在按下 / 没按下时的不透明度 */
+const codeButtonOpacity = (r: Rendered, pressed: boolean) => {
+  const btn = r.root.find(
+    (n) =>
+      typeof n.type !== "string" &&
+      typeof n.props.style === "function" &&
+      n.findAll(
+        (c) => c.type === Text && c.props.children === tr("auth.getCode"),
+      ).length > 0,
+  );
+  return flat(
+    (btn.props.style as (s: { pressed: boolean }) => unknown)({ pressed }),
+  ).opacity;
+};
 
 let signIn: jest.Mock;
 let accept: jest.Mock;
@@ -284,11 +308,32 @@ describe("登录页", () => {
     expect(signIn).not.toHaveBeenCalled();
   });
 
+  it("倒计时走完才登出的（O19-A）：说明后面多一句联系人多半已收到通知；普通被动登出没有这句", async () => {
+    useAuthStore.setState({ sessionExpired: true, expiredDuringSos: true });
+    const r = render(<LoginScreen />);
+    expect(r.allText()).toContain(tr("auth.sessionExpiredNotice"));
+    expect(r.allText()).toContain(tr("auth.expiredDuringSos"));
+    r.unmount();
+    useAuthStore.setState({ expiredDuringSos: false });
+    const plain = render(<LoginScreen />);
+    expect(plain.allText()).not.toContain(tr("auth.expiredDuringSos"));
+    useAuthStore.setState({ sessionExpired: false });
+  });
+
   it("被动登出：说明原因；协议链接、注册 / 忘记密码链接、长按 App 名进工程模式", async () => {
     useAuthStore.setState({ sessionExpired: true });
     const r = render(<LoginScreen />);
     expect(r.allText()).toContain(tr("auth.sessionExpiredNotice"));
     expect(r.icons()).toContain("warning-outline");
+    // 跟着开屏依次进场：原来没包进来，冷启动时页面一涌上来它就先露出来，像是开屏播到一半冒出一条提示（10-20）
+    expect(
+      r.root
+        .findAllByType(SplashArrive)
+        .some(
+          (a) =>
+            a.findAll((n) => n.props.accessibilityRole === "alert").length > 0,
+        ),
+    ).toBe(true);
     r.press(tr("auth.consentTerms"));
     r.press(tr("auth.consentPrivacy"));
     expect(mockRouter.navigate.mock.calls.map((c) => c[0])).toEqual([
@@ -532,6 +577,39 @@ describe("注册页", () => {
     expect(mockRouter.navigate).toHaveBeenCalledWith("/legal/privacy");
     expect(dismiss).toHaveBeenCalled();
   });
+
+  it("服务条款链接先收键盘再打开条款页；点「已有账号」也先收键盘", () => {
+    const r = render(<RegisterScreen />);
+    r.press(tr("auth.consentTerms"));
+    expect(mockRouter.navigate).toHaveBeenCalledWith("/legal/terms");
+    expect(dismiss).toHaveBeenCalledTimes(1);
+    act(() => r.root.find((n) => isHost(n, "Link")).props.onPress());
+    expect(dismiss).toHaveBeenCalledTimes(2);
+  });
+
+  it("发验证码时断网（落不到具体字段）：页面级提示；按钮按下时变淡", async () => {
+    api.sendSmsCode.mockImplementationOnce(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    const r = render(<RegisterScreen />);
+    expect(codeButtonOpacity(r, true)).toBe(0.7);
+    expect(codeButtonOpacity(r, false)).toBe(1);
+    fill(r, { phone: "13900000042" });
+    r.press(tr("auth.getCode"));
+    await waitFor(() => expect(pageErrors(r)).toEqual([tr("error.network")]));
+    expect(fieldErrors(r)).toEqual([]);
+  });
+
+  it("密码长度上限按 UTF-8 字节算、与服务端同口径：25 个汉字（75 字节）落在密码框，不发请求", () => {
+    const r = render(<RegisterScreen />);
+    tick(r);
+    fill(r, { code: "123456", pwd: LONG_ZH, confirm: LONG_ZH });
+    r.press(tr("auth.registerAndLogin"));
+    expect(fieldErrors(r)).toEqual([
+      [tr("auth.password"), tr("auth.passwordTooLong")],
+    ]);
+    expect(api.register).not.toHaveBeenCalled();
+  });
 });
 
 describe("找回密码", () => {
@@ -604,6 +682,34 @@ describe("找回密码", () => {
       jest.advanceTimersByTime(1100);
     });
     expect(mockRouter.back).toHaveBeenCalled();
+  });
+
+  it("发验证码时就说号码没注册：落在手机号上；按钮按下时变淡", async () => {
+    api.sendSmsCode.mockImplementationOnce(() =>
+      Promise.reject(apiError(404, "PHONE_NOT_REGISTERED")),
+    );
+    const r = render(<ResetPasswordScreen />);
+    expect(codeButtonOpacity(r, true)).toBe(0.7);
+    r.type(P.phone, "13900000042");
+    r.press(tr("auth.getCode"));
+    await waitFor(() =>
+      expect(fieldErrors(r)).toEqual([
+        [tr("auth.phone"), tr("error.phoneNotRegistered")],
+      ]),
+    );
+    expect(pageErrors(r)).toEqual([]);
+  });
+
+  it("新密码超过 72 字节（25 个汉字）：落在密码框，不发请求", () => {
+    const r = render(<ResetPasswordScreen />);
+    r.type(P.code, "654321");
+    r.type(P.pwd, LONG_ZH);
+    r.type(P.confirm, LONG_ZH);
+    r.press(tr("auth.resetPassword"));
+    expect(fieldErrors(r)).toEqual([
+      [tr("auth.newPassword"), tr("auth.passwordTooLong")],
+    ]);
+    expect(api.resetPassword).not.toHaveBeenCalled();
   });
 
   it("失败：手机号没注册落到手机号、限频落页面级；「返回登录」收键盘再返回", async () => {
@@ -810,8 +916,26 @@ describe("注销账号", () => {
     alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
     dropSession = jest.fn(() => Promise.resolve());
     useAuthStore.setState({ dropSession } as never);
+    sosMock.activeForAccount.mockImplementation(() =>
+      Promise.resolve({ items: [], total: 0, page: 1, pageSize: 1 }),
+    );
   });
   afterEach(() => alert.mockRestore());
+  let qc: ReturnType<typeof makeQueryClient>;
+  const renderDelete = () => {
+    qc = makeQueryClient();
+    return render(
+      <QueryClientProvider client={qc}>
+        <DeleteAccountScreen />
+      </QueryClientProvider>,
+    );
+  };
+  /** 点「注销账号」：先查有没有进行中的求救（O15）再弹确认，要等这一下 */
+  const pressConfirm = async (r: Rendered) => {
+    await act(async () => {
+      confirmButton(r).props.onPress();
+    });
+  };
   const pwdBox = () => tr("auth.deletePasswordPlaceholder" as MessageKey);
   const confirmButton = (r: Rendered) =>
     r.root
@@ -823,20 +947,20 @@ describe("注销账号", () => {
       )
       .pop()!;
 
-  it("列出四条后果；密码不足 8 位不弹确认", () => {
-    const r = render(<DeleteAccountScreen />);
+  it("列出四条后果；密码不足 8 位不弹确认", async () => {
+    const r = renderDelete();
     for (const k of ["Devices", "Contacts", "Records", "Phone"])
       expect(r.allText()).toContain(
         tr(`auth.deleteConsequence${k}` as MessageKey),
       );
-    act(() => confirmButton(r).props.onPress());
+    await pressConfirm(r);
     expect(pageErrors(r)).toContain(tr("auth.passwordTooShort"));
     expect(alert).not.toHaveBeenCalled();
   });
 
   it("确认后注销：清掉预填手机号、只清本地会话；取消那一项什么都不做", async () => {
     api.deleteMe.mockImplementation(() => Promise.resolve());
-    const r = render(<DeleteAccountScreen />);
+    const r = renderDelete();
     const input = r.root.find(
       (n) =>
         typeof n.type !== "string" &&
@@ -844,7 +968,7 @@ describe("注销账号", () => {
         n.props.secureTextEntry !== undefined,
     );
     act(() => input.props.onChangeText("mypassword"));
-    act(() => confirmButton(r).props.onPress());
+    await pressConfirm(r);
     const [title, body, buttons] = alert.mock.calls[0] as [
       string,
       string,
@@ -865,7 +989,7 @@ describe("注销账号", () => {
   it("注销成功后清掉这个账号留在本机的东西：中转积压队列和按账号存的各条设置；放在清会话之后", async () => {
     useAuthStore.setState({ user: { id: "u1" } } as never);
     api.deleteMe.mockImplementation(() => Promise.resolve());
-    const r = render(<DeleteAccountScreen />);
+    const r = renderDelete();
     const input = r.root.find(
       (n) =>
         typeof n.type !== "string" &&
@@ -873,10 +997,12 @@ describe("注销账号", () => {
         n.props.secureTextEntry !== undefined,
     );
     act(() => input.props.onChangeText("mypassword"));
-    act(() => confirmButton(r).props.onPress());
+    await pressConfirm(r);
     const buttons = alert.mock.calls[0][2] as { onPress?: () => void }[];
     act(() => buttons[1].onPress!());
-    await waitFor(() => expect(mockDiscardRelayQueue).toHaveBeenCalledWith("u1"));
+    await waitFor(() =>
+      expect(mockDiscardRelayQueue).toHaveBeenCalledWith("u1"),
+    );
     await waitFor(() =>
       expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith(
         "helmet.switchReminder.u1",
@@ -905,7 +1031,7 @@ describe("注销账号", () => {
     api.deleteMe.mockImplementation(() =>
       Promise.reject(apiError(400, "PASSWORD_INCORRECT")),
     );
-    const r = render(<DeleteAccountScreen />);
+    const r = renderDelete();
     const input = r.root.find(
       (n) =>
         typeof n.type !== "string" &&
@@ -913,7 +1039,7 @@ describe("注销账号", () => {
         n.props.secureTextEntry !== undefined,
     );
     act(() => input.props.onChangeText("mypassword"));
-    act(() => confirmButton(r).props.onPress());
+    await pressConfirm(r);
     const buttons = alert.mock.calls[0][2] as { onPress?: () => void }[];
     act(() => buttons[1].onPress!());
     await waitFor(() =>
@@ -921,6 +1047,85 @@ describe("注销账号", () => {
     );
     expect(dropSession).not.toHaveBeenCalled();
     expect(mockDiscardRelayQueue).not.toHaveBeenCalled();
+  });
+  const typePassword = (r: Rendered) => {
+    const input = r.root.find(
+      (n) =>
+        typeof n.type !== "string" &&
+        typeof n.props.onChangeText === "function" &&
+        n.props.secureTextEntry !== undefined,
+    );
+    act(() => input.props.onChangeText("mypassword"));
+  };
+
+  it("有一单还在倒计时（O15，负责人 10-21 定）：不弹注销确认、不注销，说明原因并可直接去倒计时页", async () => {
+    sosMock.activeForAccount.mockImplementation(() =>
+      Promise.resolve({
+        items: [
+          {
+            sosId: "s9",
+            deviceId: "helmet_9",
+            status: "pending",
+            deviceName: null,
+          },
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 1,
+      }),
+    );
+    const r = renderDelete();
+    typePassword(r);
+    await pressConfirm(r);
+    expect(sosMock.activeForAccount).toHaveBeenCalledWith(1, 1);
+    const [title, body, buttons] = alert.mock.calls[0] as [
+      string,
+      string,
+      { text: string; style?: string; onPress?: () => void }[],
+    ];
+    expect(title).toBe(tr("auth.deleteBlockedSosTitle"));
+    expect(body).toBe(tr("auth.deleteBlockedSosBody"));
+    expect(buttons.map((b) => b.text)).toEqual([
+      tr("common.cancel"),
+      tr("auth.deleteBlockedSosOpen"),
+    ]);
+    act(() => buttons[1].onPress!());
+    expect(mockRouter.navigate).toHaveBeenCalledWith(
+      "/sos-active?sosId=s9&deviceId=helmet_9",
+    );
+    expect(api.deleteMe).not.toHaveBeenCalled();
+    expect(dropSession).not.toHaveBeenCalled();
+  });
+
+  it("服务端还没有账号级接口（404）：看本机缓存里各顶头盔的进行中单；有就拦，没有照常弹确认", async () => {
+    sosMock.activeForAccount.mockImplementation(() =>
+      Promise.reject(apiError(404, "NOT_FOUND")),
+    );
+    const r = renderDelete();
+    qc.setQueryData(["sos-active", "helmet_1"], { sos: null });
+    qc.setQueryData(["sos-active", "helmet_2"], {
+      sos: { sosId: "s2", deviceId: "helmet_2", status: "pending" },
+    });
+    typePassword(r);
+    await pressConfirm(r);
+    expect(alert.mock.calls[0][0]).toBe(tr("auth.deleteBlockedSosTitle"));
+
+    alert.mockClear();
+    qc.setQueryData(["sos-active", "helmet_2"], { sos: null });
+    await pressConfirm(r);
+    expect(alert.mock.calls[0][0]).toBe(tr("auth.deleteConfirmTitle"));
+  });
+
+  it("查不了（断网）：页面级提示，不弹确认、不注销", async () => {
+    sosMock.activeForAccount.mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    const r = renderDelete();
+    typePassword(r);
+    await pressConfirm(r);
+    expect(alert).not.toHaveBeenCalled();
+    expect(pageErrors(r)).toContain(tr("error.network"));
+    expect(api.deleteMe).not.toHaveBeenCalled();
   });
 });
 
@@ -960,13 +1165,13 @@ describe("账号与安全的三页：会话已失效（正被送回登录页）�
     expect(pageErrors(r)).toEqual([]);
   });
 
-  it("注销提交时会话已失效：页上不写「登录已失效」", async () => {
-    const alert = jest
-      .spyOn(Alert, "alert")
-      .mockImplementation(() => undefined);
-    useAuthStore.setState({ dropSession: jest.fn() } as never);
-    api.deleteMe.mockImplementation(ended);
-    const r = render(<DeleteAccountScreen />);
+  const renderDelete = () =>
+    render(
+      <QueryClientProvider client={makeQueryClient()}>
+        <DeleteAccountScreen />
+      </QueryClientProvider>,
+    );
+  const pressDelete = async (r: Rendered) => {
     const input = r.root.find(
       (n) =>
         typeof n.type !== "string" &&
@@ -982,12 +1187,43 @@ describe("账号与安全的三页：会话已失效（正被送回登录页）�
           typeof n.props.title === "string",
       )
       .pop()!;
-    act(() => confirm.props.onPress());
+    // 先查有没有进行中的求救（O15）再弹确认
+    await act(async () => {
+      confirm.props.onPress();
+    });
+  };
+
+  it("注销提交时会话已失效：页上不写「登录已失效」", async () => {
+    const alert = jest
+      .spyOn(Alert, "alert")
+      .mockImplementation(() => undefined);
+    useAuthStore.setState({ dropSession: jest.fn() } as never);
+    sosMock.activeForAccount.mockImplementation(() =>
+      Promise.resolve({ items: [], total: 0, page: 1, pageSize: 1 }),
+    );
+    api.deleteMe.mockImplementation(ended);
+    const r = renderDelete();
+    await pressDelete(r);
     const buttons = alert.mock.calls[0][2] as { onPress?: () => void }[];
     act(() => buttons[1].onPress!());
     await waitFor(() => expect(api.deleteMe).toHaveBeenCalled());
     await flush();
     expect(pageErrors(r)).toEqual([]);
+    alert.mockRestore();
+  });
+
+  it("注销前查进行中的求救时会话已失效：页上不写「登录已失效」，也不弹确认", async () => {
+    const alert = jest
+      .spyOn(Alert, "alert")
+      .mockImplementation(() => undefined);
+    sosMock.activeForAccount.mockImplementation(ended);
+    const r = renderDelete();
+    await pressDelete(r);
+    await flush();
+    expect(sosMock.activeForAccount).toHaveBeenCalled();
+    expect(pageErrors(r)).toEqual([]);
+    expect(alert).not.toHaveBeenCalled();
+    expect(api.deleteMe).not.toHaveBeenCalled();
     alert.mockRestore();
   });
 });

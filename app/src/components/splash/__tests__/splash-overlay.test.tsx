@@ -14,7 +14,7 @@ import {
 import { QueryClientProvider } from "@tanstack/react-query";
 import type { DevicePublic } from "@helmet/shared";
 import * as SplashScreen from "expo-splash-screen";
-import { AccessibilityInfo } from "react-native";
+import { AccessibilityInfo, Dimensions } from "react-native";
 import { act } from "react-test-renderer";
 import { frameClock, pumpReactions } from "@/__tests__/helpers/native-mocks";
 import {
@@ -27,11 +27,13 @@ import {
 import { devicesApi } from "@/api/devices";
 import { translate, useLocaleStore } from "@/i18n";
 import { launchedByNotification } from "@/services/launch-intent";
+import { SECURE_KEYS } from "@/services/secure-keys";
 import { useAuthStore } from "@/stores/auth-store";
 import { useLaunchMemoryStore } from "@/stores/launch-memory-store";
 import { useThemeStore } from "@/stores/theme-store";
 import {
   anchorOwned,
+  anchorRect,
   arriveFrom,
   guideFrom,
   headerFrom,
@@ -41,10 +43,19 @@ import {
   splashStory,
   whenPageReady,
 } from "../bus";
+import { isSplashCovering } from "../covering";
 import { releaseDeviceLanding } from "../landing-device";
 import { DEVICE, LOGIN, UNBOUND, loginReveal } from "../landings";
 import { loadRouteFrames } from "../route-frames";
-import { SCENE_BG, SCENE_T } from "../route-scene";
+import { LOGIN_BRAND } from "../login-brand";
+import {
+  MARK_LIFT,
+  MARK_SIZE,
+  SCENE_BG,
+  SCENE_T,
+  SCENE_W,
+  type MarkGlow,
+} from "../route-scene";
 import { releaseRouteScene } from "../route-scene-view";
 import { VIDEO_HANDOVER, VIDEO_PRE_MS } from "../route-video-format";
 import { SplashOverlay } from "../splash-overlay";
@@ -106,8 +117,13 @@ jest.mock("expo-status-bar", () => {
   };
 });
 const mockKv = new Map<string, string>();
+/** 钥匙串读得慢：wait 不为空时读要等它 */
+const mockKvGate: { wait: Promise<void> | null } = { wait: null };
 jest.mock("expo-secure-store", () => ({
-  getItemAsync: async (k: string) => mockKv.get(k) ?? null,
+  getItemAsync: async (k: string) => {
+    if (mockKvGate.wait) await mockKvGate.wait;
+    return mockKv.get(k) ?? null;
+  },
   setItemAsync: async (k: string, v: string) => {
     mockKv.set(k, v);
   },
@@ -124,9 +140,12 @@ jest.mock("@/api/devices", () => ({ devicesApi: { list: jest.fn() } }));
 jest.mock("@/services/launch-intent", () => ({
   launchedByNotification: jest.fn(() => false),
 }));
-const mockHero = { value: undefined as unknown };
+const mockHero = { value: undefined as unknown, boom: false };
 jest.mock("../use-hero-splash", () => ({
-  useHeroSplash: () => mockHero.value,
+  useHeroSplash: () => {
+    if (mockHero.boom) throw new Error("hero boom");
+    return mockHero.value;
+  },
 }));
 jest.mock("../landing-device", () => {
   const { createElement: h } =
@@ -262,6 +281,51 @@ const playToEnd = async () => {
 /** 这一层里写着的字（含此刻透明的：品牌名开头是淡入前的样子） */
 const words = (r: Rendered) =>
   r.root.findAll((n) => isHost(n, "Text")).map((n) => n.children.join(""));
+/**
+ * 挂上并留着同一个查询客户端。逐帧的样式在渲染时求值（替身里没有 UI 线程），
+ * 走完几帧之后 refresh() 再渲染一次，看到的就是这一刻的样子
+ */
+const mountKeep = () => {
+  const qc = makeQueryClient();
+  const el = () => (
+    <QueryClientProvider client={qc}>
+      <SplashOverlay />
+    </QueryClientProvider>
+  );
+  const r = render(el());
+  return { r, refresh: () => r.rerender(el()) };
+};
+/** 屏幕上的几个基准：k = 屏宽 / 282，商标中心 (cx, cy)，商标边长 size */
+const geometry = () => {
+  const { width, height } = Dimensions.get("window");
+  const k = width / SCENE_W;
+  return {
+    width,
+    k,
+    cx: width / 2,
+    cy: height / 2 - MARK_LIFT * k,
+    size: MARK_SIZE * k,
+  };
+};
+/** 商标那张原图所在的方块（宽 = 商标边长）的样式 */
+const markStyle = (r: Rendered) =>
+  flat(
+    r.root.find(
+      (n) =>
+        typeof n.type === "string" &&
+        flat(n.props.style).width === geometry().size &&
+        n.findAll((c) => isHost(c, "ExpoImage")).length > 0,
+    ).props.style,
+  );
+/** 写着 text 的那一行字的样式 */
+const textStyle = (r: Rendered, text: string) =>
+  flat(
+    r.root.find((n) => isHost(n, "Text") && n.children.join("") === text).props
+      .style,
+  );
+/** 画布这一刻拿到的光的位置（渲染时求的值） */
+const glowNow = (r: Rendered) =>
+  (hosts(r, "RouteSceneView")[0].props.glow as { get: () => MarkGlow }).get();
 
 let log: ReturnType<typeof jest.spyOn>;
 /** 开发包里打过一行这样的日志 */
@@ -278,11 +342,15 @@ beforeEach(() => {
   mockVideo.position = 0;
   mockHero.value = undefined;
   mockKv.clear();
+  mockKvGate.wait = null;
+  m(loadRouteFrames).mockImplementation(() => Promise.resolve(true));
   frameClock.cb = null;
   frameClock.active = false;
   // 上一个用例留下的公共值放回「不参与」
   jest.requireActual<typeof import("../bus")>("../bus").releaseSplashPage();
   splashStory.set(-1);
+  // 页面量到的位置也是公共的：每条用例从「还没量到」起
+  for (const a of Object.values(anchorRect)) a.set(null);
   useLocaleStore.setState({ locale: "zh-CN" });
   useThemeStore.setState({ mode: "dark", hydrated: true });
   useAuthStore.setState({
@@ -331,6 +399,64 @@ describe("不播 / 立刻让开", () => {
     expect(mockVideo.mounts).toBe(0);
     expect(loadRouteFrames).not.toHaveBeenCalled();
     expect(splashStory.get()).toBe(-1);
+    // 卸掉了，App 自己的提示框不用再等
+    expect(isSplashCovering()).toBe(false);
+  });
+
+  it("窗口放不下（横着拿的展开折叠屏 / 平板，O32）：和由通知拉起一样不播，不建视频播放器、直接收场", async () => {
+    mockVideo.on = true;
+    const real = Dimensions.get("window");
+    const dims = jest
+      .spyOn(Dimensions, "get")
+      .mockReturnValue({ ...real, width: 841, height: 701 });
+    try {
+      const r = mount();
+      expect(hosts(r, "RouteVideoLayer")).toHaveLength(0);
+      layout(r);
+      expect(SplashScreen.hide).toHaveBeenCalledTimes(1);
+      expect(releaseSplashPage).toHaveBeenCalled();
+      expect(frameClock.active).toBe(false);
+      await advance(50);
+      expect(shown(r)).toBe(false);
+      expect(loadRouteFrames).not.toHaveBeenCalled();
+      expect(splashStory.get()).toBe(-1);
+    } finally {
+      dims.mockRestore();
+    }
+  });
+
+  it("竖着拿的展开折叠屏（0.83）照播", async () => {
+    const real = Dimensions.get("window");
+    const dims = jest
+      .spyOn(Dimensions, "get")
+      .mockReturnValue({ ...real, width: 701, height: 841 });
+    try {
+      const r = mount();
+      await start(r);
+      expect(frameClock.active).toBe(true);
+      expect(shown(r)).toBe(true);
+    } finally {
+      dims.mockRestore();
+    }
+  });
+
+  it("开屏这一层自己抛错（10-21 夜测：设备列表回了不是数组的东西）：整层让开、放行页面、收掉原生启动图，不往上抛把 App 带崩", () => {
+    const err = jest
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    mockHero.boom = true;
+    try {
+      const r = mount();
+      expect(shown(r)).toBe(false);
+      expect(SplashScreen.hide).toHaveBeenCalled();
+      expect(releaseSplashHold).toHaveBeenCalled();
+      expect(releaseSplashPage).toHaveBeenCalled();
+      expect(isSplashCovering()).toBe(false);
+      expect(splashStory.get()).toBe(-1);
+    } finally {
+      mockHero.boom = false;
+      err.mockRestore();
+    }
   });
 
   it("以求救页冷启动（第一帧就在 /sos-active）：不等排版，收掉原生启动图并立刻卸掉", () => {
@@ -354,10 +480,12 @@ describe("不播 / 立刻让开", () => {
     const r = mount();
     await advance(8999);
     expect(shown(r)).toBe(true);
+    expect(isSplashCovering()).toBe(true);
     await advance(1);
     expect(releaseSplashHold).toHaveBeenCalled();
     await advance(50);
     expect(shown(r)).toBe(false);
+    expect(isSplashCovering()).toBe(false);
   });
 });
 
@@ -457,8 +585,11 @@ describe("没登录：落到登录页", () => {
     runUntil((s) => s >= STORY_TOTAL.login - 40);
     expect(shown(r)).toBe(true);
     expect(releaseSplashPage).not.toHaveBeenCalled();
+    // 盖着的整段里 App 自己的提示框 / Toast / Modal 都压着（splash/covering）；这一层卸掉才放
+    expect(isSplashCovering()).toBe(true);
     await playToEnd();
     expect(shown(r)).toBe(false);
+    expect(isSplashCovering()).toBe(false);
     expect(releaseSplashPage).toHaveBeenCalledTimes(1);
     expect(anchorOwned.loginMark.get()).toBe(0);
     expect(arriveFrom.get()).toBe(-1);
@@ -758,6 +889,293 @@ describe("安卓：路线段播视频", () => {
     expect(hosts(r, "RouteVideoLayer")).toHaveLength(0);
     expect(sceneVideoMode(r)).toBe(0);
     expect(splashStory.get()).toBe(MARK_DONE);
+  });
+
+  it("开播后、时钟还没来得及叫视频放就报错：不再去叫已经卸掉的播放器，退回逐帧画后时钟自己走", async () => {
+    mockVideo.on = true;
+    const r = mount();
+    layout(r);
+    act(() => mockVideo.props!.onReady());
+    await advance(300);
+    expect(frameClock.active).toBe(true);
+    // 起步前的三帧稳定帧
+    frame();
+    frame();
+    frame();
+    act(() => mockVideo.props!.onFail("decoder lost"));
+    expect(hosts(r, "RouteVideoLayer")).toHaveLength(0);
+    // 退回逐帧画要等预录帧读完（异步）；这之前来的那一帧还按视频模式走，轮到叫视频放时发现它已经没了
+    frame();
+    expect(mockVideo.play).not.toHaveBeenCalled();
+    expect(splashStory.get()).toBe(0);
+    await advance(0);
+    expect(sceneVideoMode(r)).toBe(0);
+    frame();
+    frame();
+    expect(splashStory.get()).toBeGreaterThan(0);
+    expect(mockVideo.play).not.toHaveBeenCalled();
+  });
+
+  it("叫视频放了、还没走起来就被带进求救页：不再盯着视频，事后也不会补报「视频没放成」", async () => {
+    mockVideo.on = true;
+    const r = mount();
+    layout(r);
+    act(() => mockVideo.props!.onReady());
+    await advance(300);
+    frame();
+    frame();
+    frame();
+    frame();
+    expect(mockVideo.play).toHaveBeenCalledTimes(1);
+    act(() => mockPath.set("/sos-active?sosId=s1"));
+    expect(shown(r)).toBe(false);
+    // 原来盯着视频的那一圈要盯满 0.7 秒才放弃
+    await advance(1000);
+    expect(logged(/视频没放成/)).toBe(false);
+    expect(logged(/视频起步/)).toBe(false);
+  });
+
+  it("视频在画布接手前一刻才报错：记为没放成，走过交接时刻也不会又记成放完", async () => {
+    mockVideo.on = true;
+    const r = mount();
+    layout(r);
+    act(() => mockVideo.props!.onReady());
+    await advance(300);
+    frame();
+    frame();
+    frame();
+    frame();
+    mockVideo.position = 400;
+    await advance(5);
+    frame(); // 对表
+    const handover = MARK_DONE + VIDEO_HANDOVER + 60;
+    runUntil((t) => t > handover - 40);
+    act(() => mockVideo.props!.onFail("late"));
+    // 预录帧还没读完（没让出过）、视频模式还没撤：这时走过交接时刻
+    runUntil((t) => t > handover + 1);
+    expect(sceneVideoMode(r)).toBe(1);
+    await playToEnd();
+    expect(shown(r)).toBe(false);
+    expect(logged(/视频没放成、路线段逐帧画/)).toBe(true);
+    expect(logged(/路线段播视频/)).toBe(false);
+  });
+});
+
+describe("时钟（补）", () => {
+  it("起步之后读不到帧间隔：这一帧按 16ms 算", async () => {
+    const r = mount();
+    await start(r);
+    frame(null);
+    expect(splashStory.get()).toBeCloseTo(storyAt(warp, 16));
+  });
+
+  it("收场之后、这一层卸掉之前的那两帧里又来的帧：时钟不再往前走", async () => {
+    const r = mount();
+    await start(r);
+    runUntil(() => m(releaseSplashPage).mock.calls.length > 0, 16, 600);
+    const end = splashStory.get();
+    frame(16);
+    frame(200);
+    expect(splashStory.get()).toBe(end);
+    expect(shown(r)).toBe(true);
+    await advance(50);
+    expect(shown(r)).toBe(false);
+  });
+
+  it("慢帧很多时：日志照数总数，但「出现在哪」只列前 16 个", async () => {
+    const r = mount();
+    await start(r);
+    for (let i = 0; i < 20; i++) frame(30);
+    await playToEnd();
+    expect(shown(r)).toBe(false);
+    const line = (log.mock.calls as unknown[][])
+      .map((c) => String(c[0]))
+      .find((l) => /^\[splash\] \d+ 帧/.test(l))!;
+    expect(line).toContain("超过 25 毫秒的 20 帧");
+    const where = line.split("出现在（故事时间:毫秒）")[1].split("；")[0];
+    expect(where.trim().split(" ")).toHaveLength(16);
+  });
+});
+
+describe("开播前（补）", () => {
+  it("预录帧读到了就先预热几帧；读不出来：一帧都不预热，照样按时开播（实时画）", async () => {
+    const warmOf = (r: Rendered) =>
+      (hosts(r, "RouteSceneView")[0].props.warm as { get: () => number }).get();
+    const ok = mount();
+    layout(ok);
+    await advance(0);
+    expect(warmOf(ok)).toBe(8);
+    ok.unmount();
+
+    m(loadRouteFrames).mockImplementation(() => Promise.resolve(false));
+    const r = mount();
+    layout(r);
+    for (const ms of [0, 20, 40, 100]) {
+      await advance(ms);
+      expect(warmOf(r)).toBe(-1);
+    }
+    await advance(1200);
+    expect(frameClock.active).toBe(true);
+    expect(splashStory.get()).toBe(0);
+  });
+
+  it("启动时 JS 线程还忙（两次回到定时器之间隔了 40ms 以上）：从忙完那一刻起再等够 160ms 的空闲才开播", async () => {
+    const r = mount();
+    const fakeNow = performance.now.bind(performance);
+    const from = Date.now();
+    // 第 60ms 起主线程被别的事占了 100ms：之后读到的时间整体晚 100ms
+    const busy = jest
+      .spyOn(performance, "now")
+      .mockImplementation(
+        () => fakeNow() + (Date.now() - from >= 60 ? 100 : 0),
+      );
+    try {
+      layout(r);
+      // 一直闲着的话 160ms 就开播了
+      await advance(200);
+      expect(frameClock.active).toBe(false);
+      await advance(100);
+      expect(frameClock.active).toBe(true);
+    } finally {
+      busy.mockRestore();
+    }
+  });
+});
+
+describe("本机记录（补）", () => {
+  it("挂上后马上卸掉（重装检查还没回来）：回来之后不再去读启动记录；留着的话会读", async () => {
+    const gone = mount();
+    gone.unmount();
+    await advance(0);
+    expect(useLaunchMemoryStore.getState().hydrated).toBe(false);
+    mount();
+    await advance(0);
+    expect(useLaunchMemoryStore.getState().hydrated).toBe(true);
+  });
+
+  it("已登录，设备列表没回来、本机记录也还没从钥匙串读出来：按没有记录处理——停在商标上，等满 1 秒直接淡出；之后读出来的记录也不改", async () => {
+    signIn();
+    mockKv.set(
+      SECURE_KEYS.launchMemory,
+      JSON.stringify({ userId: "u1", hasHelmet: true }),
+    );
+    let release!: () => void;
+    mockKvGate.wait = new Promise<void>((done) => {
+      release = done;
+    });
+    const r = mount();
+    await start(r);
+    runUntil((s) => s >= MARK_DONE);
+    frame();
+    expect(useLaunchMemoryStore.getState().hydrated).toBe(false);
+    expect(splashStory.get()).toBe(MARK_DONE);
+    await advance(1000);
+    frame();
+    frame();
+    expect(splashStory.get()).toBeGreaterThan(MARK_DONE);
+    release();
+    await advance(0);
+    expect(useLaunchMemoryStore.getState().record).toEqual({
+      userId: "u1",
+      hasHelmet: true,
+    });
+    runUntil((s) => s >= STORY_TOTAL.plain - 40);
+    expect(anchorOwned.hero.get()).toBe(0);
+    await playToEnd();
+    expect(shown(r)).toBe(false);
+  });
+});
+
+describe("收场只做一次", () => {
+  it("由通知拉起、收场的那两帧里又被带进求救页：页面只放回一次，这一层立刻卸掉", async () => {
+    m(launchedByNotification).mockReturnValue(true);
+    const r = mount();
+    layout(r);
+    expect(releaseSplashPage).toHaveBeenCalledTimes(1);
+    act(() => mockPath.set("/sos-active?sosId=s1"));
+    expect(shown(r)).toBe(false);
+    expect(releaseSplashPage).toHaveBeenCalledTimes(1);
+    expect(releaseSplashHold).toHaveBeenCalledTimes(1);
+    await advance(50);
+    expect(releaseRouteScene).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("落位：页面量到了位置", () => {
+  it("登录页：光和商标落到页面上那枚商标的位置（中心、大小照它），中文品牌名落到页面标题的中心", async () => {
+    const { width, k, cx, cy, size } = geometry();
+    const MARK = { x: 40, y: 120, w: 88, h: 88 };
+    const TITLE = { x: 0, y: 236, w: width, h: 40 };
+    const { r, refresh } = mountKeep();
+    act(() => {
+      anchorRect.loginMark.set(MARK);
+      anchorRect.loginTitle.set(TITLE);
+    });
+    await start(r);
+    runUntil((s) => s >= LOGIN.dockFrom + LOGIN.dockLen + 60);
+    refresh();
+    const glow = glowNow(r);
+    expect(glow.dock).toBe(1);
+    expect(glow.cx).toBeCloseTo((MARK.x + MARK.w / 2) / k);
+    expect(glow.cy).toBeCloseTo((MARK.y + MARK.h / 2) / k);
+    expect(glow.scale).toBeCloseTo(MARK.w / size);
+    const [tx, ty, , sc] = markStyle(r).transform as Record<string, number>[];
+    expect(tx.translateX).toBeCloseTo(MARK.x + MARK.w / 2 - cx);
+    expect(ty.translateY).toBeCloseTo(MARK.y + MARK.h / 2 - cy);
+    expect(sc.scale).toBeCloseTo(MARK.w / size);
+    const titleSize = LOGIN_BRAND.titleSize(width);
+    const [zy, zs] = textStyle(r, "零一智行").transform as Record<
+      string,
+      number
+    >[];
+    expect(zy.translateY).toBeCloseTo(TITLE.y + TITLE.h / 2 - titleSize * 0.65);
+    expect(zs.scale).toBe(1);
+  });
+
+  it("设备页：表盘那块画布接手了商标——扫描开始前商标照常显示，扫描一开始整个藏起来（由表盘去擦）", async () => {
+    signIn();
+    mockHero.value = { image: 1, battery: 80 };
+    m(devicesApi.list).mockImplementation(() => Promise.resolve([dev("h1")]));
+    const { r, refresh } = mountKeep();
+    await start(r);
+    runUntil((s) => s >= SCENE_T.raster[1]);
+    const markTaken = hosts(r, "DeviceLanding")[0].props.markTaken as {
+      set: (v: number) => void;
+    };
+    act(() => markTaken.set(1));
+    runUntil((s) => s >= DEVICE.scan[0] - 40);
+    refresh();
+    expect(markStyle(r).opacity).toBe(1);
+    runUntil((s) => s >= DEVICE.scan[0] + 40);
+    refresh();
+    expect(markStyle(r).opacity).toBe(0);
+  });
+
+  it("引导页：量到了卡片上那枚徽标的位置——商标沿一道弧（途中带一点转角）落到那里，大小变成徽标那么大", async () => {
+    const { cx, cy, size } = geometry();
+    const EMBLEM = { x: 30, y: 200, w: 36, h: 36 };
+    signIn();
+    useLaunchMemoryStore.setState({
+      hydrated: true,
+      record: { userId: "u1", hasHelmet: false },
+    });
+    const { r, refresh } = mountKeep();
+    act(() => anchorRect.guideEmblem.set(EMBLEM));
+    await start(r);
+    runUntil((s) => s >= UNBOUND.start + 400);
+    refresh();
+    const mid = markStyle(r).transform as Record<string, number | string>[];
+    expect(parseFloat(String(mid[2].rotate))).toBeLessThan(-1);
+    runUntil((s) => s >= UNBOUND.start + 70 + 760 + 20);
+    refresh();
+    const [tx, ty, rot, sc] = markStyle(r).transform as Record<
+      string,
+      number | string
+    >[];
+    expect(tx.translateX).toBeCloseTo(EMBLEM.x + EMBLEM.w / 2 - cx);
+    expect(ty.translateY).toBeCloseTo(EMBLEM.y + EMBLEM.h / 2 - cy);
+    expect(parseFloat(String(rot.rotate))).toBeCloseTo(0);
+    expect(sc.scale).toBeCloseTo(EMBLEM.w / size);
   });
 });
 
