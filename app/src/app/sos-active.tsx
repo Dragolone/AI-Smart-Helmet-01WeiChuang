@@ -167,6 +167,14 @@ const TOTAL_SECONDS = 60;
 /** 最后这么多秒整页转红、震动改成连着两下 */
 const URGENT_SECONDS = 10;
 /**
+ * 安卓原生警报最多响到截止时间之后多久（F15）。正常由页面在单子结束时叫停；App 在后台时安卓的 JS 定时器不跑、
+ * 实时通道断了也不重连，单子在别处结束页面收不到，原生到点自己停
+ */
+const NATIVE_ALARM_GRACE_MS = 30_000;
+/** 截止时间解析不出来时按满 60 秒算；离截止还远得离谱（服务端出错）时最多按 10 分钟算 */
+const NATIVE_ALARM_FALLBACK_MS = 60_000;
+const NATIVE_ALARM_MAX_LEFT_MS = 10 * 60_000;
+/**
  * 取消 / 立即求救失败后补拉权威状态最多等多久就下结论：网络正常（只是短信慢、响应晚）时补拉不到 1 s 就回来，
  * 这单已办成就不提示；网络真的坏时补拉本身也会挂到超时，不能让「没成功」的提示再晚 15 s——倒计时一共才 60 s。
  * 补拉在后台继续，晚到的结果照样写回缓存、页面跟着切
@@ -536,14 +544,16 @@ function SosActiveContent() {
     // 原生包比 JS 旧（还没有这些方法）或 iOS 时 sosAlarmAvailable 为 false，走下面原来的路径
     if (HelmetLinkService.sosAlarmAvailable) {
       devLog("SOS", "倒计时页开始警报（闹钟通道）", AppState.currentState);
-      HelmetLinkService.startSosAlarm();
+      const at = deadline ? new Date(deadline).getTime() : Number.NaN;
+      const left = Number.isFinite(at)
+        ? Math.min(Math.max(at - serverNow(), 0), NATIVE_ALARM_MAX_LEFT_MS)
+        : NATIVE_ALARM_FALLBACK_MS;
+      HelmetLinkService.startSosAlarm(left + NATIVE_ALARM_GRACE_MS);
       let urgentOn = false;
       const tick = setInterval(() => {
-        if (
-          !urgentOn &&
-          deadline &&
-          secondsLeft(deadline, serverNow()) <= URGENT_SECONDS
-        ) {
+        // 截止时间解析不出来时 secondsLeft 是 null，不能拿去比（null <= 10 为真，一开始就会切急促）
+        const s = deadline ? secondsLeft(deadline, serverNow()) : null;
+        if (!urgentOn && s !== null && s <= URGENT_SECONDS) {
           urgentOn = true;
           HelmetLinkService.setSosAlarmUrgent(true);
         }

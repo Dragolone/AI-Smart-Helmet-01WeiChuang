@@ -42,6 +42,10 @@ class HelmetLinkServiceModule : Module() {
   // 这里改用闹钟用途循环播放：走闹钟音量、不受铃声静音影响、勿扰模式下默认放行；音量从 40% 渐升到满，误报时不至于一上来就最响
   private var alarmPlayer: MediaPlayer? = null
   private var alarmFocus: AudioFocusRequest? = null
+  // 开始时记下应用级 Context：停的时候 reactContext 可能已经没了（JS 重载、页面销毁），焦点和震动照样要还
+  private var alarmCtx: Context? = null
+  // 播放器起不来时只剩震动，也算在响：最后 10 秒照样换急促
+  private var alarmOn = false
   private var alarmVolume = ALARM_START_VOLUME
   private val alarmHandler = Handler(Looper.getMainLooper())
   private val alarmRamp = object : Runnable {
@@ -56,13 +60,19 @@ class HelmetLinkServiceModule : Module() {
       if (alarmVolume < 1f) alarmHandler.postDelayed(this, ALARM_RAMP_INTERVAL_MS)
     }
   }
+  // 兜底：停警报靠 JS，而 App 在后台时安卓的 JS 定时器不跑、实时通道断了也不会重连——单子在别处结束了也收不到。
+  // 原生侧到点自己停，不会一直响下去（时长由 JS 按截止时间 + 余量给）
+  private val alarmWatchdog = Runnable {
+    Log.w(TAG, "SOS alarm stopped by watchdog")
+    stopAlarm()
+  }
 
   override fun definition() = ModuleDefinition {
     Name("HelmetLinkService")
 
-    /** 求救倒计时开始：闹钟用途循环播放警报 + 满幅震动（重复调用不叠加） */
-    Function("startSosAlarm") { ->
-      onMain { startAlarm() }
+    /** 求救倒计时开始：闹钟用途循环播放警报 + 满幅震动（重复调用不叠加）；maxMs 后没人叫停就自己停 */
+    Function("startSosAlarm") { maxMs: Int ->
+      onMain { startAlarm(maxMs.toLong()) }
     }
 
     /** 倒计时结束 / 取消 / 页面离开：停声、停震、还音频焦点 */
@@ -72,13 +82,11 @@ class HelmetLinkServiceModule : Module() {
 
     /** 最后 10 秒：震动换成每秒两下（声音不变） */
     Function("setSosAlarmUrgent") { urgent: Boolean ->
-      onMain { if (alarmPlayer != null) vibrateAlarm(urgent) }
+      onMain { alarmCtx?.let { if (alarmOn) vibrateAlarm(it, urgent) } }
     }
 
     OnDestroy {
-      alarmHandler.removeCallbacks(alarmRamp)
-      releaseAlarmPlayer()
-      appContext.reactContext?.let { vibrator(it)?.cancel() }
+      stopAlarm()
     }
 
     /**
@@ -196,9 +204,12 @@ class HelmetLinkServiceModule : Module() {
     }
   }
 
-  private fun startAlarm() {
-    if (alarmPlayer != null) return
-    val ctx = appContext.reactContext ?: return
+  private fun startAlarm(maxMs: Long) {
+    if (alarmOn) return
+    val ctx = appContext.reactContext?.applicationContext ?: return
+    alarmOn = true
+    alarmCtx = ctx
+    alarmHandler.postDelayed(alarmWatchdog, maxMs)
     val attrs = AudioAttributes.Builder()
       .setUsage(AudioAttributes.USAGE_ALARM)
       .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
@@ -227,13 +238,17 @@ class HelmetLinkServiceModule : Module() {
       Log.w(TAG, "SOS alarm (alarm stream) failed to start", e)
       releaseAlarmPlayer()
     }
-    vibrateAlarm(false)
+    vibrateAlarm(ctx, false)
   }
 
   private fun stopAlarm() {
     alarmHandler.removeCallbacks(alarmRamp)
+    alarmHandler.removeCallbacks(alarmWatchdog)
     releaseAlarmPlayer()
-    val ctx = appContext.reactContext ?: return
+    val ctx = alarmCtx ?: appContext.reactContext?.applicationContext
+    alarmOn = false
+    alarmCtx = null
+    if (ctx == null) return
     alarmFocus?.let { (ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager).abandonAudioFocusRequest(it) }
     alarmFocus = null
     vibrator(ctx)?.cancel()
@@ -260,8 +275,7 @@ class HelmetLinkServiceModule : Module() {
     }
 
   /** 普通：每秒一下 400 ms；急促（最后 10 秒）：每秒两下 200 ms。满幅、闹钟用途（静音模式下照震） */
-  private fun vibrateAlarm(urgent: Boolean) {
-    val ctx = appContext.reactContext ?: return
+  private fun vibrateAlarm(ctx: Context, urgent: Boolean) {
     val vib = vibrator(ctx) ?: return
     if (!vib.hasVibrator()) return
     val timings = if (urgent) longArrayOf(0, 200, 100, 200, 500) else longArrayOf(0, 400, 600)

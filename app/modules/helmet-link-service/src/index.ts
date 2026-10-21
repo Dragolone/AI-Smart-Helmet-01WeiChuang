@@ -14,7 +14,7 @@ interface NativeLinkService {
   releaseNetwork(): void;
   setMicrophone(on: boolean, title: string, text: string): boolean;
   openAppLaunchSettings(): string;
-  startSosAlarm(): void;
+  startSosAlarm(maxMs: number): void;
   stopSosAlarm(): void;
   setSosAlarmUrgent(urgent: boolean): void;
 }
@@ -71,8 +71,10 @@ export const HelmetLinkService = {
   get sosAlarmAvailable(): boolean {
     return typeof native?.startSosAlarm === "function";
   },
-  startSosAlarm(): void {
-    if (typeof native?.startSosAlarm === "function") native.startSosAlarm();
+  /** maxMs：没人叫停时原生最多响多久（App 在后台时 JS 可能停不了它） */
+  startSosAlarm(maxMs: number): void {
+    if (typeof native?.startSosAlarm === "function")
+      native.startSosAlarm(Math.round(maxMs));
   },
   stopSosAlarm(): void {
     if (typeof native?.stopSosAlarm === "function") native.stopSosAlarm();
