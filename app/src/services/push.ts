@@ -41,7 +41,7 @@ function loadJPush(): JPushStatic | null {
 }
 
 /** 服务端推送时塞进 extras 的键（sos-trigger / sos-notifier 两处都是这两个） */
-export type PushExtras = { sosId?: string; deviceId?: string };
+export type PushExtras = { sosId?: string; deviceId?: string; kind?: string };
 
 type PushConfig = { appKey: string; channel: string };
 
@@ -322,6 +322,7 @@ function installListener(sdk: JPushStatic): void {
           extras.sosId,
           result.title,
           (result as { notificationId?: unknown }).notificationId,
+          extras.kind,
         );
         try {
           arrivalHandler?.(extras);

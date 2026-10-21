@@ -404,6 +404,17 @@ describe("远程推送到达（不是被点开）→ 触发一次补拉（前台
     expect(mockClearById).toHaveBeenCalledWith({ notificationId: 501 });
   });
 
+  it("服务端 extras 带 kind: sos_started 时按 kind 认（标题改了也撤得掉）", () => {
+    boot()({
+      notificationEventType: "notificationArrived",
+      extras: { sosId: "s2", deviceId: "d1", kind: "sos_started" },
+      title: "求救倒计时开始了",
+      notificationId: 777,
+    });
+    clearSosStartPush("s2");
+    expect(mockClearById).toHaveBeenCalledWith({ notificationId: 777 });
+  });
+
   it("没有 sosId 的到达事件（别的推送）/ extras 缺失：不回调", () => {
     const arrived = jest.fn();
     setPushArrivalHandler(arrived);

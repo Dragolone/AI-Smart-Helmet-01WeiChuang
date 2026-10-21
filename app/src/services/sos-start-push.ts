@@ -5,6 +5,14 @@
 
 /** 服务器「倒计时已开始」推送的标题（backend sos-trigger.service），结果通知的标题不同 */
 export const SOS_START_PUSH_TITLE = "SOS 倒计时已开始";
+/** 服务器给这条推送 extras 带的 kind（API.md §7「推送 extras」，10-22 起）；结果通知不带 */
+export const SOS_START_PUSH_KIND = "sos_started";
+
+/** 是不是「倒计时已开始」那条：认 extras.kind；10-22 之前的服务端不带 kind，才退回认标题 */
+function isSosStartPush(title: unknown, kind: unknown): boolean {
+  if (kind !== undefined) return kind === SOS_START_PUSH_KIND;
+  return title === SOS_START_PUSH_TITLE;
+}
 
 const arrived = new Map<string, number[]>();
 let clearById: ((notificationId: number) => void) | null = null;
@@ -33,8 +41,9 @@ export function noteSosStartPush(
   sosId: string,
   title: unknown,
   notificationId: unknown,
+  kind?: unknown,
 ): void {
-  if (title !== SOS_START_PUSH_TITLE) return;
+  if (!isSosStartPush(title, kind)) return;
   if (typeof notificationId !== "number" || !Number.isInteger(notificationId))
     return;
   const ids = arrived.get(sosId) ?? [];

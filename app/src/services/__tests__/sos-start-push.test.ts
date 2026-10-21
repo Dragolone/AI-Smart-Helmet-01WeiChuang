@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it } from "@jest/globals";
 
 import {
+  SOS_START_PUSH_KIND,
   SOS_START_PUSH_TITLE,
   __resetSosStartPushForTests,
   clearSosStartPush,
@@ -27,6 +28,16 @@ describe("sos-start-push", () => {
     expect(cleared).toEqual([501, 502]);
     clearSosStartPush("s9");
     expect(cleared).toEqual([501, 502, 900]);
+  });
+
+  it("服务端带了 kind 就只认 kind（标题改了也认得出；kind 是别的值不记）；没带 kind 才认标题", () => {
+    const cleared: number[] = [];
+    setJPushNotificationClearer((id) => cleared.push(id));
+    noteSosStartPush("s1", "求救倒计时开始了", 601, SOS_START_PUSH_KIND);
+    noteSosStartPush("s1", SOS_START_PUSH_TITLE, 602, "sos_result");
+    noteSosStartPush("s1", SOS_START_PUSH_TITLE, 603);
+    clearSosStartPush("s1");
+    expect(cleared).toEqual([601, 603]);
   });
 
   it("没打补丁的旧原生包不带编号（undefined / 字符串 / 小数）：不记、不撤", () => {
