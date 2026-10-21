@@ -175,6 +175,7 @@
 - 位置：`sos.service.ts:116-127` `confirm` 等 `finalizeNotified(sosId)`，默认 `deliverInline` → `deliverPending` 串行发每位联系人短信 + 本人推送，每条 `withTimeout(notifyTimeoutMs()=10 s)`（`sos-notifier.service.ts:107-115, 201-209`）；App 请求超时 15 s（`api/client.ts:82`）。
 - 结果：短信通道卡住或联系人多时 App 弹「请求超时」，但 WS 早在投递前就推了 notified（`sos-notifier.service.ts:103`），页面其实已是「已通知」+ 一个错误弹窗；WS 也断的话要等 10 s 轮询。不会重复通知（409）。
 - 复现：云端 dev 不好复现（Mock 短信秒回）；本地后端把 SMS provider 的 `send` 加 `await sleep(9000)` 再配 2 位联系人即可。
+- **✅ 2026-10-22 已修（#339）**：confirm 终态化（连同通知行同一事务落库）后立即返回，首投放到后台，没发完的由扫描续投；关停排空也等后台首投；顺带堵上「占位提交到登记在飞之间另一路再占一次」的同一联系人两条短信。云端更新后可按上面的复现法复测。
 
 ### Q8 【低，已知】后台且 WS 不在时别的设备取消 → 预排的「还剩 30 / 10 秒」本地通知照样响；回前台后也不主动撤（S8 × E15）
 
