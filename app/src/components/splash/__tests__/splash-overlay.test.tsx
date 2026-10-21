@@ -140,9 +140,12 @@ jest.mock("@/api/devices", () => ({ devicesApi: { list: jest.fn() } }));
 jest.mock("@/services/launch-intent", () => ({
   launchedByNotification: jest.fn(() => false),
 }));
-const mockHero = { value: undefined as unknown };
+const mockHero = { value: undefined as unknown, boom: false };
 jest.mock("../use-hero-splash", () => ({
-  useHeroSplash: () => mockHero.value,
+  useHeroSplash: () => {
+    if (mockHero.boom) throw new Error("hero boom");
+    return mockHero.value;
+  },
 }));
 jest.mock("../landing-device", () => {
   const { createElement: h } =
@@ -434,6 +437,25 @@ describe("不播 / 立刻让开", () => {
       expect(shown(r)).toBe(true);
     } finally {
       dims.mockRestore();
+    }
+  });
+
+  it("开屏这一层自己抛错（10-21 夜测：设备列表回了不是数组的东西）：整层让开、放行页面、收掉原生启动图，不往上抛把 App 带崩", () => {
+    const err = jest
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    mockHero.boom = true;
+    try {
+      const r = mount();
+      expect(shown(r)).toBe(false);
+      expect(SplashScreen.hide).toHaveBeenCalled();
+      expect(releaseSplashHold).toHaveBeenCalled();
+      expect(releaseSplashPage).toHaveBeenCalled();
+      expect(isSplashCovering()).toBe(false);
+      expect(splashStory.get()).toBe(-1);
+    } finally {
+      mockHero.boom = false;
+      err.mockRestore();
     }
   });
 

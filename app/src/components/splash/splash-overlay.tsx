@@ -15,6 +15,8 @@ import { usePathname } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import {
+  Component,
+  type ReactNode,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -40,6 +42,7 @@ import { scheduleOnRN, scheduleOnUI } from "react-native-worklets";
 import { devicesApi } from "@/api/devices";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useT } from "@/i18n";
+import { devLog } from "@/services/dev-log";
 import { clearIfFreshInstall } from "@/services/fresh-install";
 import { launchedByNotification } from "@/services/launch-intent";
 import { useAuthStore } from "@/stores/auth-store";
@@ -197,6 +200,42 @@ function whenJsQuiet(budget: number): Promise<void> {
 }
 
 export function SplashOverlay() {
+  return (
+    <SplashGuard>
+      <SplashLayers />
+    </SplashGuard>
+  );
+}
+
+/**
+ * 开屏只是一层过场，它出任何错都直接让开：放行页面、收掉原生启动图，不能连累 App（10-21 夜测：设备列表接口回了
+ * 不是数组的东西，这一层抛错，而它挂在根布局、在错误边界之外，App 每次一开就闪退）
+ */
+class SplashGuard extends Component<
+  { children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error) {
+    devLog("CRASH", `开屏：${error.message}`);
+    setSplashCovering(false);
+    releaseSplashHold();
+    releaseSplashPage();
+    endSplashStory();
+    SplashScreen.hide();
+  }
+
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+
+function SplashLayers() {
   const [done, setDone] = useState(false);
   const onDone = useCallback(() => setDone(true), []);
   return (
