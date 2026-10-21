@@ -9,7 +9,15 @@ import {
   Req,
 } from '@nestjs/common';
 import { Transform } from 'class-transformer';
-import { IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import {
+  IsIn,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  MinLength,
+  ValidateIf,
+} from 'class-validator';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
 import { cleanName } from '../common/display-name';
 import { RateLimit } from '../common/rate-limit.guard';
@@ -27,6 +35,21 @@ class CreateChannelDto {
 class JoinChannelDto {
   @Matches(/^[0-9A-Za-z]{6}$/, { message: 'inviteCode 必须是 6 位字母或数字' })
   inviteCode!: string;
+}
+
+/** 整个可省略（旧包不带，行为同从前）；带了 purpose 就必须带 clientId（决策 #62） */
+class TokenDto {
+  @ValidateIf(
+    (o: TokenDto) => o.clientId !== undefined || o.purpose !== undefined,
+  )
+  @Matches(/^[0-9A-Za-z_-]{8,64}$/, {
+    message: 'clientId 必须是 8–64 位字母、数字、_ 或 -',
+  })
+  clientId?: string;
+
+  @IsOptional()
+  @IsIn(['enter', 'renew'])
+  purpose?: 'enter' | 'renew';
 }
 
 @Controller('voice/channels')
@@ -79,7 +102,8 @@ export class VoiceController {
   token(
     @Req() req: AuthenticatedRequest,
     @Param('channelId') channelId: string,
+    @Body() dto: TokenDto,
   ) {
-    return this.voice.token(req.user.userId, channelId);
+    return this.voice.token(req.user.userId, channelId, dto);
   }
 }

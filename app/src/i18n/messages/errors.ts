@@ -24,6 +24,7 @@ export const errors = {
     "error.contactLimitReached": "紧急联系人最多 5 位",
     "error.mediaNotReady": "这段画面还没上传完成，请稍后再试",
     "error.trtcNotConfigured": "对讲服务暂不可用，请稍后再试",
+    "error.voiceTakenOver": "你的账号已在另一台手机上进入对讲",
     "error.unknown": "操作失败（{code}）",
     "error.network": "网络连接失败，请检查网络后重试",
     "error.timeout": "请求超时，请检查网络后重试。",
@@ -54,6 +55,7 @@ export const errors = {
     "error.contactLimitReached": "緊急聯絡人最多 5 位",
     "error.mediaNotReady": "這段畫面還沒上傳完成，請稍後再試",
     "error.trtcNotConfigured": "對講服務暫不可用，請稍後再試",
+    "error.voiceTakenOver": "你的帳號已在另一支手機上進入對講",
     "error.unknown": "操作失敗（{code}）",
     "error.network": "網路連線失敗，請檢查網路後重試",
     "error.timeout": "請求逾時，請檢查網路後重試。",
@@ -89,6 +91,8 @@ export const errors = {
       "This clip has not finished uploading. Try again later.",
     "error.trtcNotConfigured":
       "Intercom is temporarily unavailable. Try again later.",
+    "error.voiceTakenOver":
+      "Your account has joined the intercom on another phone.",
     "error.unknown": "Something went wrong ({code})",
     "error.network": "Network error. Check your connection and try again.",
     "error.timeout": "Request timed out. Check your connection and try again.",

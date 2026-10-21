@@ -9,6 +9,7 @@ import { randomInt } from 'node:crypto';
 import type {
   VoiceChannel as WireChannel,
   VoiceChannelMemberPublic,
+  VoiceTokenRequest,
   VoiceTokenResponse,
 } from '@helmet/shared';
 import { envPositiveInt } from '../common/env';
@@ -17,6 +18,7 @@ import { Prisma } from '../generated/prisma/client';
 import { lockLiveUser } from '../common/live-user';
 import { PrismaService } from '../prisma/prisma.service';
 import { maskPhone } from '../providers/sms.provider';
+import { RealtimePushService } from '../realtime/realtime-push.service';
 import { generateInviteCode, normalizeInviteCode } from './invite-code';
 import { genPrivateMapKey, genUserSig } from './trtc-sig';
 
@@ -51,7 +53,16 @@ type ChannelWithCount = Prisma.VoiceChannelGetPayload<{
 export class VoiceService {
   private readonly logger = new Logger(VoiceService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  /**
+   * 本账号正在通话的那台手机（决策 #62）：userId → 最近一次 purpose=enter 的 clientId。
+   * 只放内存：它只是 WS 通知漏收时的兜底（续钥匙时认出已被接管），重启后丢了就退回只靠 WS 通知，进房本身不受影响
+   */
+  private readonly callHolder = new Map<string, string>();
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly push: RealtimePushService,
+  ) {}
 
   /** 建频道：创建者自动入频道；6 位字母 / 数字邀请码（决策 #57），撞码重试 */
   async create(userId: string, name: string): Promise<WireChannel> {
@@ -180,8 +191,16 @@ export class VoiceService {
     });
   }
 
-  /** 进房凭证（仅成员）：UserSig 服务端签发（决策 #27⑥） */
-  async token(userId: string, channelId: string): Promise<VoiceTokenResponse> {
+  /**
+   * 进房凭证（仅成员）：UserSig 服务端签发（决策 #27⑥）。
+   * 一个账号同一时间只留一台手机在通话（决策 #62）：同一 TRTC userId 两台同时在房时，TRTC 不移出先进的那台，
+   * 而是让两台轮流断线重连、互相挤掉（10-17 双真机 REGRESSION 6.14），所以由服务端通知先进的那台自己退房
+   */
+  async token(
+    userId: string,
+    channelId: string,
+    req: VoiceTokenRequest = {},
+  ): Promise<VoiceTokenResponse> {
     const channel = await this.ensureMember(userId, channelId);
 
     const sdkAppId = Number(process.env.TRTC_SDK_APP_ID);
@@ -193,6 +212,16 @@ export class VoiceService {
         message: 'TRTC 凭证未配置（TRTC_SDK_APP_ID / TRTC_SECRET_KEY）',
       });
     }
+    const { clientId, purpose } = req;
+    if (purpose === 'renew' && clientId) {
+      const holder = this.callHolder.get(userId);
+      if (holder !== undefined && holder !== clientId) {
+        throw new ConflictException({
+          code: 'VOICE_TAKEN_OVER',
+          message: '你的账号已在另一台手机上进入对讲',
+        });
+      }
+    }
     const expireSeconds = sigExpireSeconds();
     const userSig = genUserSig({ sdkAppId, secretKey, expireSeconds }, userId);
     // 绑定这一个房间：成员身份在这里校验过，钥匙只对这个房间号有效（决策 #56）
@@ -201,7 +230,13 @@ export class VoiceService {
       userId,
       channel.roomId,
     );
-    this.logger.log(`已签发进房凭证：user=${userId} room=${channel.roomId}`);
+    this.logger.log(
+      `已签发进房凭证：user=${userId} room=${channel.roomId}${purpose ? ` ${purpose}` : ''}`,
+    );
+    if (purpose === 'enter' && clientId) {
+      this.callHolder.set(userId, clientId);
+      this.push.pushVoiceTakenOver(userId, { channelId: channel.id, clientId });
+    }
     return {
       sdkAppId,
       userId,

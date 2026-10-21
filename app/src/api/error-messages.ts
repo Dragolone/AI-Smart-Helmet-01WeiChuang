@@ -29,6 +29,7 @@ const MESSAGE_KEYS: Record<string, MessageKey> = {
   EMERGENCY_CONTACT_LIMIT_REACHED: "error.contactLimitReached",
   MEDIA_NOT_READY: "error.mediaNotReady",
   TRTC_NOT_CONFIGURED: "error.trtcNotConfigured",
+  VOICE_TAKEN_OVER: "error.voiceTakenOver",
   INTERNAL_ERROR: "error.internal",
 };
 

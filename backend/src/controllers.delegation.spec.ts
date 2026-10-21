@@ -230,11 +230,14 @@ describe('控制器参数转交', () => {
     void vc.join(req, { inviteCode: 'ABC234' });
     await vc.leave(req, 'ch1');
     void vc.members(req, 'ch1');
-    void vc.token(req, 'ch1');
+    void vc.token(req, 'ch1', { clientId: 'phoneA-1', purpose: 'enter' });
     expect(voice.create).toHaveBeenCalledWith('u1', '车队');
     expect(voice.join).toHaveBeenCalledWith('u1', 'ABC234');
     expect(voice.leave).toHaveBeenCalledWith('u1', 'ch1');
-    expect(voice.token).toHaveBeenCalledWith('u1', 'ch1');
+    expect(voice.token).toHaveBeenCalledWith('u1', 'ch1', {
+      clientId: 'phoneA-1',
+      purpose: 'enter',
+    });
 
     const events = mockOf('list', 'detail');
     const ec = new EventsController(as(events));

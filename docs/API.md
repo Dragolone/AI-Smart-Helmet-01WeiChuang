@@ -265,6 +265,7 @@ MVP 实用为主，全部只读 + 少量运维操作。
 | risk_event | §6 event 详情对象 | collision_risk / obstacle_risk / risk_cleared |
 | device_event | §6 event 列表项 | 其余事件（sleep_*、bluetooth_lost、video_ready） |
 | device_command | `{ deviceId, commandId, type, params, issuedAt }` | ① 新命令创建（§8 下发）时实时推送；② **连接建立时补推**该用户绑定设备上**本人下发的**、`status ∈ {pending, delivered}` 的命令（BLE 下行通道，决策 #36；只推本人的：换绑后上一位主人没执行完的命令不由新主人的 App 写进头盔，2026-10-14） |
+| voice_taken_over | `{ channelId, clientId }`（TS 类型 WsVoiceTakenOverData） | 本账号在 `clientId` 那台手机上进了对讲（§13 `/token` 带 `purpose: "enter"`）；发给本账号的全部连接。`clientId` 不是自己、自己正在通话（或已拿到凭证正在进房）的 App 退房并提示「通话已被另一台手机接管」（决策 #62，2026-10-22） |
 
 - WebSocket 是加速通道不是可靠通道：App 重连后须用 REST 拉取兜底；SOS 兜底靠 Push（deadline 持久化在服务端）。
 - **服务端发送积压上限 4 MiB**（2026-10-17）：连接不读数据（脚本暂停读取、半开 TCP）导致服务端待发数据超过 4 MiB 时，服务端直接断开该连接（不发关闭帧，客户端看到 1006）。App 按普通断线重连并用 REST 补拉即可；正常读取的连接积压只有 KB 级，不会触发。
@@ -305,12 +306,17 @@ MVP 实用为主，全部只读 + 少量运维操作。
 | POST | /voice/channels/join | body：`{ inviteCode }`（6 位字母 / 数字，不区分大小写；形状不对 400）；邀请码错误 404；满员 409 `CHANNEL_FULL`；重复加入幂等返回频道；限频每账号每分钟 10 次、同一 IP 每分钟 60 次（决策 #57，超限 429 `RATE_LIMITED`） |
 | DELETE | /voice/channels/{channelId}/membership | 退出频道（非成员 404；频道保留，MVP 不做解散/回收） |
 | GET | /voice/channels/{channelId}/members | 成员列表（仅成员可见）：`{ userId, nickname, avatarUrl, phone, joinedAt }`（**手机号脱敏**；avatarUrl 同频道成员互相可见,2026-08-17；TS 类型 VoiceChannelMemberPublic） |
-| POST | /voice/channels/{channelId}/token | 进房凭证（仅成员）：`{ sdkAppId, userId, roomId, userSig, privateMapKey, expiresAt }`；`privateMapKey` 为**绑定该房间**的权限钥匙（TRTC PrivateMapKey，默认 10 分钟有效 `TRTC_ROOM_KEY_EXPIRE_SECONDS`，App 进房前现取，填 `TRTCParams.privateMapKey`；在房期间每 5 分钟再取一次交给 SDK（决策 #60），离开房间后最多 10 分钟作废；2026-10-14 决策 #56——TRTC 控制台开启「高级权限控制」后不带它进不了房）；TRTC 未配置时 503 `TRTC_NOT_CONFIGURED` |
+| POST | /voice/channels/{channelId}/token | 进房凭证（仅成员）：`{ sdkAppId, userId, roomId, userSig, privateMapKey, expiresAt }`；`privateMapKey` 为**绑定该房间**的权限钥匙（TRTC PrivateMapKey，默认 10 分钟有效 `TRTC_ROOM_KEY_EXPIRE_SECONDS`，App 进房前现取，填 `TRTCParams.privateMapKey`；在房期间每 5 分钟再取一次交给 SDK（决策 #60），离开房间后最多 10 分钟作废；2026-10-14 决策 #56——TRTC 控制台开启「高级权限控制」后不带它进不了房）；TRTC 未配置时 503 `TRTC_NOT_CONFIGURED`。**可选请求体 `{ clientId, purpose }`**（决策 #62，见下文「一个账号只留一台在通话」） |
 
 `channel` 对象（TS 类型见 `@helmet/shared` VoiceChannel）：`{ channelId, name, roomId, inviteCode, ownerId, memberCount, createdAt }`。`roomId` 为服务端随机 10 位数（2026-10-14 决策 #56；原自增号可猜）；`inviteCode` 为服务端生成的 6 位大写字母 / 数字（决策 #57）。
 
 - **UserSig 由服务端签发**（官方 TLS-Sig-API-v2 HMAC-SHA256 算法自实现，不引 SDK 依赖，决策 #27⑥）；`TRTC_SDK_APP_ID` / `TRTC_SECRET_KEY` 走 env（当前个人测试应用，公司资质就绪后换正式 Key 零代码改动）；有效期 `TRTC_SIG_EXPIRE_SECONDS`（默认 24h）。
 - App 端：拿 token 用 TRTC SDK 进房（roomId + privateMapKey）+ PTT 推流；蓝牙耳机路由等音频行为在 App 端处理（Week 2 Spike 已验证）。
+- **一个账号同一时间只留一台手机在通话**（决策 #62，2026-10-22；REGRESSION 6.14）：同一 TRTC userId 两台同时在房时，TRTC 不移出先进的那台，而是让两台轮流断线重连、互相挤掉，谁都没法说话。`POST /voice/channels/{channelId}/token` 因此多一个**可选**请求体（TS 类型 VoiceTokenRequest）：
+  - `clientId`：App 进程启动时随机生成的本机标识，8–64 位字母 / 数字 / `_` / `-`；只用来区分同一账号的几台手机，不落库。
+  - `purpose: "enter"`：用户主动进房。服务端记下这台为本账号当前通话的手机，并经 §11 `voice_taken_over` 通知本账号的全部连接；别的手机据此退房。TRTC 未配置（503）等签发失败时不记录、不通知。
+  - `purpose: "renew"`：在房续钥匙、断线后自动重进（决策 #60；都是接着这台原来的通话，不能抢别人的——否则通知漏收的那台一重连又把后进的挤掉）。本账号已被另一台手机 `enter` 过时返回 **409 `VOICE_TAKEN_OVER`**，App 按被接管退房——这是 WS 通知漏收时的兜底。「当前通话的手机」只记在服务端内存里，重启后清空、续钥匙照常放行（退回只靠 WS 通知）。
+  - 带 `purpose` 时 `clientId` 必填，形状不对 400 `VALIDATION_FAILED`；整个请求体省略（旧包）时行为同从前：照常签发、不记录、不通知、不会 409。
 - ✅ 本节已实现（2026-08-16）。
 
 ## 14. 待定稿清单汇总
