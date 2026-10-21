@@ -25,6 +25,7 @@ import {
   Alert,
   AppState,
   Animated as RNAnimated,
+  Linking,
   Modal,
   PermissionsAndroid,
   Platform,
@@ -892,10 +893,15 @@ describe("进房", () => {
     expect(mockMic.ask).not.toHaveBeenCalled();
     expect(mockCloud.exitRoom).not.toHaveBeenCalled();
     expect(channelsApi.token).not.toHaveBeenCalled();
+    // 拒了两次之后系统不再弹框：报错下面直接给「去设置」（10-21 边界审查）
+    m(Linking.openSettings).mockClear();
+    await press(r, tr("intercom.micOpenSettings"));
+    expect(Linking.openSettings).toHaveBeenCalledTimes(1);
 
     await tap(r, tr("intercom.enter.a11y", { name: C1.name }));
     await waitFor(() => expect(channelsApi.token).toHaveBeenCalledWith("c1"));
     expect(r.allText()).not.toContain(tr("intercom.micDenied"));
+    expect(r.allText()).not.toContain(tr("intercom.micOpenSettings"));
     ask.mockRestore();
   });
 
