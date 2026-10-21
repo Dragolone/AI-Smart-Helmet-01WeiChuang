@@ -49,8 +49,9 @@ describe("detectLocale 的边", () => {
   });
 
   it.each([
-    // 「zh」只是前缀的别的语言代码（如 zha 壮语）不算中文；中文以外的系统语言退回英文（负责人 10-21 定，O11）
-    ["zha-CN", "en"],
+    // 「zh」只是前缀的别的语言代码不算中文；中文以外的系统语言退回英文（负责人 10-21 定，O11）。
+    // zha（壮语）是国内少数民族语言，10-22 起按 O33 退回简体（见下一组）
+    ["zha-CN", "zh-CN"],
     ["zh-Latn-TW", "zh-TW"],
     ["ja-JP", "en"],
     ["ko-KR", "en"],
@@ -59,6 +60,32 @@ describe("detectLocale 的边", () => {
     ["en-TW", "en"],
     ["", "zh-CN"],
   ])("其它 %s → %s", (tag, expected) => {
+    expect(detectWith(tag)).toBe(expected);
+  });
+
+  // 国内少数民族语言退回简体（负责人 10-22 定，O33）；写了别国地区的不算；蒙古 / 哈萨克 / 柯尔克孜语只认中国地区或传统文字
+  it.each([
+    ["ug-CN", "zh-CN"],
+    ["ug", "zh-CN"],
+    ["ug-Arab-CN", "zh-CN"],
+    ["bo-CN", "zh-CN"],
+    ["bo-IN", "en"],
+    ["ug-KZ", "en"],
+    ["ii-CN", "zh-CN"],
+    ["za-CN", "zh-CN"],
+    ["mn-CN", "zh-CN"],
+    ["mn-Mong", "zh-CN"],
+    ["mn-Mong-CN", "zh-CN"],
+    ["mn-MN", "en"],
+    ["mn", "en"],
+    ["kk-CN", "zh-CN"],
+    ["kk-Arab", "zh-CN"],
+    ["kk-KZ", "en"],
+    ["ky-CN", "zh-CN"],
+    ["ky-KG", "en"],
+    ["ko-CN", "en"],
+    ["en-CN", "en"],
+  ])("少数民族语言 %s → %s", (tag, expected) => {
     expect(detectWith(tag)).toBe(expected);
   });
 });
