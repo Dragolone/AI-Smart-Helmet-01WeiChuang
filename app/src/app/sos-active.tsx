@@ -657,6 +657,8 @@ function SosActiveContent() {
   };
 
   const left = sos ? secondsLeft(sos.deadline, now) : null;
+  /** 拉过了、但两条 REST 都失败且缓存里也没有这单（null ≠ 还在拉的 undefined） */
+  const connecting = !isDrill && sosQuery.data === null;
   const finished = sos && sos.status !== "pending";
   const fail =
     !isDrill && !finished && actFail?.ids.includes(sosId) ? actFail : null;
@@ -1079,8 +1081,14 @@ function SosActiveContent() {
     (lateNote ? 26 : 0) -
     (others.length > 0 ? 44 + 26 + 30 : 0) -
     // 取消 / 立即求救没成功的提示条在环和按钮之间占的高度（360dp 宽时三行）
-    (fail ? 88 : 0);
+    (fail ? 88 : 0) -
+    // 拉不到这单状态时环下那行「正在连接服务器…」（360dp 宽时两行）
+    (connecting ? 44 : 0);
   const estimateCompact = room < 200;
+  // 分屏半屏 / 小窗这类矮窗口（O20，负责人 10-21 定）：收起图标后最小的 140 环也塞不下，原来环被裁掉、
+  // 秒数要上滑才看得到。这时不画环，只留大号秒数，字号随剩下的高度定（44–96）
+  const bare = room + 66 < 140;
+  const bareNumberSize = Math.round(Math.max(44, Math.min(96, room + 66 - 24)));
   const estimateRing = Math.round(
     Math.max(140, Math.min(252, room + (estimateCompact ? 66 : 0))),
   );
@@ -1088,7 +1096,7 @@ function SosActiveContent() {
   // 量出上半截实际溢出多少，就把环再缩多少（环是这里唯一能伸缩的东西）；环缩到 140 还放不下才收起顶上的图标，
   // 再放不下（字体放得很大）才靠滚动兜底。2026-10-15 华为 P30 Pro 英文、没有联系人时上半截能上下滑（负责人发现）
   // 量出来的结果连同当时的布局条件一起存：条件一变（转屏、改字体、换语言、联系人加载出来）就当作没量过，从估算重新来
-  const layoutKey = `${windowHeight}|${fontScale}|${locale}|${isDrill}|${sourceName ?? ""}|${lateNote ?? ""}|${contacts.data?.length ?? "?"}|${others.length > 0}|${fail !== null}`;
+  const layoutKey = `${windowHeight}|${fontScale}|${locale}|${isDrill}|${sourceName ?? ""}|${lateNote ?? ""}|${contacts.data?.length ?? "?"}|${others.length > 0}|${fail !== null}|${connecting}`;
   const [fitState, setFitState] = useState({
     key: layoutKey,
     shrink: 0,
@@ -1098,14 +1106,14 @@ function SosActiveContent() {
     fitState.key === layoutKey
       ? fitState
       : { key: layoutKey, shrink: 0, compact: false };
-  const compact = estimateCompact || fit.compact;
+  const compact = bare || estimateCompact || fit.compact;
   const ringSize = Math.max(140, estimateRing - fit.shrink);
-  const numberSize = Math.round((112 * ringSize) / 252);
+  const numberSize = bare ? bareNumberSize : Math.round((112 * ringSize) / 252);
   const topBox = useRef({ viewport: 0, content: 0 });
   const fitTop = () => {
     const { viewport, content } = topBox.current;
     const over = content - viewport;
-    if (!viewport || !content || over <= 1) return;
+    if (!viewport || !content || over <= 1 || bare) return;
     if (ringSize > 140) {
       setFitState({
         ...fit,
@@ -1117,6 +1125,39 @@ function SosActiveContent() {
   };
 
   const [failTitle, failBody] = fail ? failLines(fail.kind, left) : ["", ""];
+
+  // 环中间（矮窗口里没有环，就单独摆着）的秒数和单位。数字是一横时不写「秒」
+  const face = (
+    <>
+      <Animated.View style={tickStyle}>
+        <ThemedText
+          allowFontScaling={false}
+          style={[
+            styles.number,
+            {
+              color: P.num,
+              fontSize: numberSize,
+              lineHeight: numberSize,
+            },
+          ]}
+        >
+          {left ?? "—"}
+        </ThemedText>
+      </Animated.View>
+      {/* 环内只显示时间单位，完整说明在上方并跟随系统字号。 */}
+      {left !== null ? (
+        <ThemedText
+          allowFontScaling={false}
+          style={[
+            styles.suffix,
+            { color: P.sub, fontSize: ringSize >= 220 && !bare ? 14 : 12 },
+          ]}
+        >
+          {t("sos.autoSendSuffix")}
+        </ThemedText>
+      ) : null}
+    </>
+  );
 
   const notifiedTitleOf = (d: ReturnType<typeof deliveryStateOf>) =>
     d === "sent"
@@ -1400,39 +1441,25 @@ function SosActiveContent() {
                 ) : null}
               </View>
 
-              <View style={styles.ring}>
-                <CountdownRing
-                  size={ringSize}
-                  progress={ring}
-                  color={P.ring}
-                  track={P.ringTrack}
-                >
-                  <Animated.View style={tickStyle}>
-                    <ThemedText
-                      allowFontScaling={false}
-                      style={[
-                        styles.number,
-                        {
-                          color: P.num,
-                          fontSize: numberSize,
-                          lineHeight: numberSize,
-                        },
-                      ]}
-                    >
-                      {left ?? "—"}
-                    </ThemedText>
-                  </Animated.View>
-                  {/* 环内只显示时间单位，完整说明在上方并跟随系统字号。 */}
-                  <ThemedText
-                    allowFontScaling={false}
-                    style={[
-                      styles.suffix,
-                      { color: P.sub, fontSize: ringSize >= 220 ? 14 : 12 },
-                    ]}
+              <View style={[styles.ring, bare && styles.ringBare]}>
+                {bare ? (
+                  <View style={styles.bareFace}>{face}</View>
+                ) : (
+                  <CountdownRing
+                    size={ringSize}
+                    progress={ring}
+                    color={P.ring}
+                    track={P.ringTrack}
                   >
-                    {t("sos.autoSendSuffix")}
+                    {face}
+                  </CountdownRing>
+                )}
+                {/* 拉不到这单状态（离线、缓存也没有）时数字写一横：说一句在等什么（O18，负责人 10-21 定） */}
+                {connecting ? (
+                  <ThemedText style={[styles.connecting, { color: P.sub }]}>
+                    {t("sos.connecting")}
                   </ThemedText>
-                </CountdownRing>
+                ) : null}
               </View>
 
               <View style={styles.who}>
@@ -1891,7 +1918,16 @@ const styles = StyleSheet.create({
     fontWeight: 600,
     textAlign: "center",
   },
-  ring: { marginTop: 20 },
+  ring: { marginTop: 20, alignItems: "center" },
+  ringBare: { marginTop: 8 },
+  bareFace: { alignItems: "center" },
+  connecting: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 8,
+    textAlign: "center",
+    maxWidth: 280,
+  },
   number: {
     fontWeight: 800,
     fontVariant: ["tabular-nums"],

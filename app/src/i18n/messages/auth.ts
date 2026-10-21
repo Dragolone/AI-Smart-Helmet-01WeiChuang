@@ -138,6 +138,7 @@ export const auth = {
     "sos.failSend": "立即求救没有发出",
     "sos.failStillCounting": "倒计时仍在继续，约 {n} 秒后会通知紧急联系人",
     "sos.failDueNow": "倒计时即将结束，马上会通知紧急联系人",
+    "sos.connecting": "正在连接服务器…网络恢复后显示剩余时间",
     "sos.retry": "重试",
     "sos.retryCancelA11y": "重试取消本次求救",
     "sos.retrySendA11y": "重试立即求救",
@@ -278,6 +279,7 @@ export const auth = {
     "sos.failSend": "立即求救沒有送出",
     "sos.failStillCounting": "倒數仍在繼續，約 {n} 秒後會通知緊急聯絡人",
     "sos.failDueNow": "倒數即將結束，馬上會通知緊急聯絡人",
+    "sos.connecting": "正在連線伺服器…網路恢復後顯示剩餘時間",
     "sos.retry": "重試",
     "sos.retryCancelA11y": "重試取消本次求救",
     "sos.retrySendA11y": "重試立即求救",
@@ -438,6 +440,8 @@ export const auth = {
       "The countdown is still running. Emergency contacts will be notified in about {n}s.",
     "sos.failDueNow":
       "The countdown is about to end. Emergency contacts will be notified shortly.",
+    "sos.connecting":
+      "Connecting to the server… The time left will show once you're back online.",
     "sos.retry": "Retry",
     "sos.retryCancelA11y": "Retry cancelling this SOS",
     "sos.retrySendA11y": "Retry sending SOS now",

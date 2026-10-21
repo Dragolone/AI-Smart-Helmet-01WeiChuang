@@ -434,6 +434,34 @@ describe("倒数中", () => {
     }
   });
 
+  it("分屏半屏（360×440）：最小的环也塞不下 → 不画环，只留大号秒数（O20，负责人 10-21 定）；按钮照常", async () => {
+    const raw = require("react-native") as { useWindowDimensions: object };
+    const dims = jest
+      .spyOn(raw, "useWindowDimensions", "get")
+      .mockReturnValue(() => ({
+        width: 360,
+        height: 440,
+        scale: 2,
+        fontScale: 1,
+      }));
+    try {
+      const r = await mount();
+      expect(r.root.findAllByType(CountdownRing)).toHaveLength(0);
+      expect(number(r)).toBe("45");
+      expect(r.allText()).toContain(tr("sos.autoSendSuffix"));
+      const size = numberFontSize(r);
+      expect(size).toBeGreaterThanOrEqual(44);
+      expect(size).toBeLessThanOrEqual(96);
+      expect(r.icons()).not.toContain("warning-outline");
+      expect(r.root.findAllByType(SlideToCancel)).toHaveLength(1);
+      expect(r.allText()).toContain(tr("sos.sendNow"));
+      await tick(1050);
+      expect(number(r)).toBe("44");
+    } finally {
+      dims.mockRestore();
+    }
+  });
+
   it("浅色外观：大号数字用更深的红（#B93229）压住浅灰底；环的底轨、联系人头像底、滑块描边都换成浅色那套", async () => {
     useThemeStore.setState({ mode: "light" });
     const r = await mount();
@@ -1040,6 +1068,30 @@ describe("这一单的状态拿不到 / 不存在", () => {
     r.press(tr("sos.close"));
     expect(mockRouter.back).toHaveBeenCalled();
     expect(mockRouter.navigate).not.toHaveBeenCalled();
+  });
+
+  it("离线、缓存也没有：数字一横下面说一句在等什么，不写「秒」（O18，负责人 10-21 定）；网络回来拉到了就收起", async () => {
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    const r = await mount();
+    expect(number(r)).toBe("—");
+    expect(r.allText()).toContain(tr("sos.connecting"));
+    expect(r.texts()).not.toContain(tr("sos.autoSendSuffix"));
+
+    m(sosApi.snapshot).mockImplementation(() => Promise.resolve(sosOf()));
+    await act(async () => {
+      await qc.refetchQueries({ queryKey: ["sos", "s1"] });
+    });
+    expect(number(r)).toBe("45");
+    expect(r.allText()).not.toContain(tr("sos.connecting"));
+    expect(r.texts()).toContain(tr("sos.autoSendSuffix"));
+  });
+
+  it("还在拉（第一次请求没回来）：不说「正在连接」，免得一打开就闪一下", async () => {
+    m(sosApi.snapshot).mockImplementation(() => new Promise(() => undefined));
+    const r = await mount();
+    expect(r.allText()).not.toContain(tr("sos.connecting"));
   });
 
   it("离线（两条 REST 都失败）：才信缓存；缓存也没有时数字写一横、环是空的", async () => {
