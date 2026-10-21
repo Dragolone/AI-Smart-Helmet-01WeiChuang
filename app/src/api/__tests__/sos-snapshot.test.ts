@@ -13,8 +13,19 @@ jest.mock("../client", () => ({
 import { ApiRequestError } from "../client";
 import { sosApi } from "../sos";
 
-const pending = { sosId: "s1", deviceId: "d1", status: "pending" };
-const cancelled = { sosId: "s1", deviceId: "d1", status: "cancelled" };
+const DEADLINE = "2026-10-22T03:00:00.000Z";
+const pending = {
+  sosId: "s1",
+  deviceId: "d1",
+  status: "pending",
+  deadline: DEADLINE,
+};
+const cancelled = {
+  sosId: "s1",
+  deviceId: "d1",
+  status: "cancelled",
+  deadline: DEADLINE,
+};
 
 afterEach(() => {
   jest.clearAllMocks();
@@ -44,9 +55,9 @@ describe("sosApi.snapshot", () => {
   });
 
   it("没有 deviceId（推送 / 深链只带 sosId）→ 不查 /devices/undefined/sos/active，直接去事故记录（2026-10-16 C1）", async () => {
-    mockApi.mockResolvedValueOnce(cancelled);
+    mockApi.mockResolvedValueOnce(cancelled).mockResolvedValueOnce(cancelled);
     expect(await sosApi.snapshot("s1")).toEqual(cancelled);
-    expect(await sosApi.snapshot("s1", null).catch(() => "x")).not.toBe("x");
+    expect(await sosApi.snapshot("s1", null)).toEqual(cancelled);
     expect(mockApi.mock.calls.map((c) => c[0])).toEqual([
       "/accidents/s1",
       "/accidents/s1",
@@ -76,5 +87,26 @@ describe("sosApi.snapshot", () => {
   it("两条都失败 → 抛出，由页面决定是否信缓存", async () => {
     mockApi.mockRejectedValueOnce(new Error("offline"));
     await expect(sosApi.snapshot("s1", "d1")).rejects.toThrow("offline");
+  });
+
+  it("应答被网关改坏（字符串 / {} / null / 缺字段）→ 当这次没拉到抛出 INTERNAL_ERROR，不把它当成这一单交给页面（10-22 夜测：倒计时页曾因此直接变成结果页）", async () => {
+    for (const bad of ["unexpected", null, 42]) {
+      mockApi.mockResolvedValueOnce(bad);
+      const e = await sosApi.snapshot("s1", "d1").catch((x: unknown) => x);
+      expect(e).toBeInstanceOf(ApiRequestError);
+      expect((e as ApiRequestError).code).toBe("INTERNAL_ERROR");
+    }
+    // 进行中这一单缺了截止时间
+    mockApi.mockResolvedValueOnce({ sos: { sosId: "s1", status: "pending" } });
+    await expect(sosApi.snapshot("s1", "d1")).rejects.toBeInstanceOf(
+      ApiRequestError,
+    );
+    // 事故记录那一跳拿到 {} / 字符串
+    for (const bad of [{}, "unexpected"]) {
+      mockApi.mockResolvedValueOnce({ sos: null }).mockResolvedValueOnce(bad);
+      await expect(sosApi.snapshot("s1", "d1")).rejects.toBeInstanceOf(
+        ApiRequestError,
+      );
+    }
   });
 });

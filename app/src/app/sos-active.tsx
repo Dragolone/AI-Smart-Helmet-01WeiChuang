@@ -57,7 +57,6 @@ import {
   COUNTDOWN_POLL_MS,
   countdownPollInterval,
   isFinal,
-  isSosFor,
   presentedSos,
   settleSnapshot,
 } from "@/services/sos-sync";
@@ -76,6 +75,7 @@ import { clearSosAlert } from "@/services/sos-alert";
 import { toUserMessage } from "@/api/error-messages";
 import { buildRelayEnvelope, relayApi } from "@/api/relay";
 import { sosApi } from "@/api/sos";
+import { isSosFor } from "@/api/sos-shape";
 import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
 import { CountdownRing } from "@/components/countdown-ring";

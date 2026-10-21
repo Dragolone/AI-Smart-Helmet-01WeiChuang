@@ -16,13 +16,13 @@ import {
   applySosUpdate,
   COUNTDOWN_POLL_MS,
   countdownPollInterval,
-  isSosFor,
   onReconnect,
   resumePendingSos,
   settleSnapshot,
   type PresentedRef,
   type SosSyncDeps,
 } from "../sos-sync";
+import { isSosFor } from "@/api/sos-shape";
 
 const sos = (over: Partial<Sos> = {}): Sos => ({
   sosId: "s1",

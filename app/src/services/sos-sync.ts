@@ -41,22 +41,6 @@ export type PresentedRef = { current: Set<string> };
  */
 export const presentedSos: PresentedRef = { current: new Set<string>() };
 
-/**
- * 接口应答确实是这一单的求救单。取消 / 立即求救的应答写进缓存前过一下（10-22 夜测）：网关回 200 + 别的东西
- * （字符串、{}）时原样写进去，结果页会把它当成另一单——「2 条求救已处理」、一行里既「已取消」又「正在通知」。
- * 不是就别写，改为拉一次这一单的权威状态（服务端多半已经办成了）
- */
-export function isSosFor(v: unknown, sosId: string): v is Sos {
-  const s = v as Partial<Sos> | null | undefined;
-  return (
-    typeof s === "object" &&
-    s !== null &&
-    s.sosId === sosId &&
-    typeof s.status === "string" &&
-    typeof s.deadline === "string"
-  );
-}
-
 export const isFinal = (qc: QueryClient, sosId: string): boolean => {
   const cached = qc.getQueryData<Sos>(["sos", sosId]);
   return cached !== undefined && cached !== null && cached.status !== "pending";
