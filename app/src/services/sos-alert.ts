@@ -20,6 +20,10 @@ import { presentedSos } from "@/services/sos-sync";
 import { sosScreen } from "@/services/sos-queue";
 import { useSosCancelStore } from "@/stores/sos-cancel-store";
 import { showNotice } from "@/services/notice";
+import {
+  PROMPT_AFTER_SPLASH_MAX_MS,
+  splashGoneWithin,
+} from "@/components/splash/covering";
 
 /** 锁屏求救提醒走的 Android 通知通道；安全页判断「通知有没有开」也要看它有没有被单独关掉 */
 export const SOS_CHANNEL_ID = "sos";
@@ -140,11 +144,16 @@ async function initSosAlert(): Promise<void> {
  * 代价：这一单倒计时期间没有通知权限，锁屏提醒出不来；用户本来就在前台看着倒计时页。
  * 系统根本不会弹框时（iOS 已答过、Android 已被永久拒绝：canAskAgain=false）不等也不推迟、照原样调一次，
  * 免得这部分用户每次冷启动都晚起蓝牙链路。iOS 的授权框同样是模态、同样会盖住页面，两端同一套。
+ * 开屏还在播也先别弹（O27）：和等补拉同时计时，开屏让开或满 5 s 就往下走，两样加起来不会多等。
  */
 async function askPermission(willPrompt: boolean): Promise<void> {
+  const splashGone = willPrompt
+    ? splashGoneWithin(PROMPT_AFTER_SPLASH_MAX_MS)
+    : undefined;
   if (willPrompt && promptGate) {
     await settledOrTimeout(promptGate, PROMPT_GATE_MAX_MS);
   }
+  await splashGone;
   if (willPrompt && (sosScreen.mounted || presentedSos.current.size > 0)) {
     devLog(
       "SOS-ALERT",

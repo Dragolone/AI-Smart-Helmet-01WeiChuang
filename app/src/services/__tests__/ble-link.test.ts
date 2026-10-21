@@ -266,6 +266,7 @@ import {
   flushRelayQueue,
 } from "@/services/ble-relay-uplink";
 import { useBleStore } from "@/stores/ble-store";
+import { setSplashCovering } from "@/components/splash/covering";
 import { AppState, PermissionsAndroid, Platform } from "react-native";
 import { BleManager } from "react-native-ble-plx";
 import {
@@ -1332,6 +1333,65 @@ describe("补分支（2026-10-19）", () => {
       await tick();
       expect(check).not.toHaveBeenCalled();
       expect(mockSvcStart).not.toHaveBeenCalled();
+    });
+
+    it("开屏还在播、这次要弹授权框（O27）：等开屏让开再弹；已授过权的不等", async () => {
+      asAndroid(29);
+      const request = jest
+        .spyOn(PermissionsAndroid, "request")
+        .mockResolvedValue(RESULTS.GRANTED);
+      const check = jest
+        .spyOn(PermissionsAndroid, "check")
+        .mockResolvedValue(false);
+      setSplashCovering(true);
+      try {
+        const starting = startBleLink([ID]);
+        await tick();
+        expect(check).toHaveBeenCalled();
+        expect(request).not.toHaveBeenCalled();
+        setSplashCovering(false);
+        await starting;
+        expect(request).toHaveBeenCalledTimes(1);
+        expect(mockSvcStart).toHaveBeenCalledTimes(1);
+
+        stopBleLink();
+        await bleStackReleased();
+        check.mockResolvedValue(true);
+        setSplashCovering(true);
+        await startBleLink([ID]);
+        expect(request).toHaveBeenCalledTimes(2); // 授过权：requestMultiple / request 不会弹框，直接拿结果
+      } finally {
+        setSplashCovering(false);
+      }
+    });
+
+    it("开屏一直不让开：最多等 5 s 就弹；等的时候停了链路就不弹", async () => {
+      jest.useFakeTimers();
+      asAndroid(29);
+      const request = jest
+        .spyOn(PermissionsAndroid, "request")
+        .mockResolvedValue(RESULTS.GRANTED);
+      jest.spyOn(PermissionsAndroid, "check").mockResolvedValue(false);
+      setSplashCovering(true);
+      try {
+        const starting = startBleLink([ID]);
+        await jest.advanceTimersByTimeAsync(4_999);
+        expect(request).not.toHaveBeenCalled();
+        await jest.advanceTimersByTimeAsync(1);
+        await starting;
+        expect(request).toHaveBeenCalledTimes(1);
+
+        stopBleLink();
+        await bleStackReleased();
+        const again = startBleLink([ID]);
+        await jest.advanceTimersByTimeAsync(1_000);
+        stopBleLink();
+        await jest.advanceTimersByTimeAsync(5_000);
+        await again;
+        expect(request).toHaveBeenCalledTimes(1);
+      } finally {
+        setSplashCovering(false);
+      }
     });
 
     it("链路已在跑时再次启动（退出工程模式恢复）：只更新目标，不再申请权限、不重建 BleManager", async () => {

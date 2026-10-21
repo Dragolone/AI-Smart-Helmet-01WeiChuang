@@ -158,11 +158,15 @@ const loadWithScreen = (): {
   m: SosAlert;
   screen: { mounted: boolean };
   presented: Set<string>;
+  splash: typeof import("@/components/splash/covering");
 } => {
   let mod!: SosAlert;
   let queue!: typeof import("@/services/sos-queue");
   let sync!: typeof import("@/services/sos-sync");
+  let splash!: typeof import("@/components/splash/covering");
   jest.isolateModules(() => {
+    splash =
+      require("@/components/splash/covering") as typeof import("@/components/splash/covering");
     sync =
       require("@/services/sos-sync") as typeof import("@/services/sos-sync");
     queue =
@@ -174,6 +178,7 @@ const loadWithScreen = (): {
     m: mod,
     screen: queue.sosScreen,
     presented: sync.presentedSos.current,
+    splash,
   };
 };
 
@@ -611,6 +616,52 @@ describe("sos-alert", () => {
       const { m, screen } = loadWithScreen();
       screen.mounted = true;
       m.holdPermissionPromptUntil(new Promise<void>(() => undefined));
+      await m.ensureSosAlertPermission();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+    });
+
+    it("开屏还在播（O27）：先不弹，开屏让开才弹；ensure 等到框有结果", async () => {
+      jest.useFakeTimers();
+      willPrompt();
+      const { m, splash } = loadWithScreen();
+      splash.setSplashCovering(true);
+      const ready = jest.fn();
+      void m.ensureSosAlertPermission().then(ready);
+      await jest.advanceTimersByTimeAsync(3_000);
+      await settle();
+      expect(mockSetCategory).toHaveBeenCalledTimes(1);
+      expect(mockRequestPerms).not.toHaveBeenCalled();
+      expect(ready).not.toHaveBeenCalled();
+      splash.setSplashCovering(false);
+      await settle();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+      expect(ready).toHaveBeenCalledTimes(1);
+    });
+
+    it("开屏迟迟不让开：最多等 5 s 就弹；和等补拉同时计时，两样都卡着也只等 5 s", async () => {
+      jest.useFakeTimers();
+      willPrompt();
+      const { m, splash } = loadWithScreen();
+      splash.setSplashCovering(true);
+      m.holdPermissionPromptUntil(new Promise<void>(() => undefined));
+      const ready = m.ensureSosAlertPermission();
+      await settle();
+      await jest.advanceTimersByTimeAsync(4_999);
+      await settle();
+      expect(mockRequestPerms).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(1);
+      await ready;
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+    });
+
+    it("系统根本不会弹框（canAskAgain=false）：开屏盖着也不等", async () => {
+      mockGetPerms.mockResolvedValue({
+        granted: false,
+        status: "denied",
+        canAskAgain: false,
+      });
+      const { m, splash } = loadWithScreen();
+      splash.setSplashCovering(true);
       await m.ensureSosAlertPermission();
       expect(mockRequestPerms).toHaveBeenCalledTimes(1);
     });
