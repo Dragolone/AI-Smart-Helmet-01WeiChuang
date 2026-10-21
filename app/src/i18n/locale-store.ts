@@ -21,6 +21,11 @@ const KEYCHAIN = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK };
 const isLocale = (v: string | null): v is Locale =>
   v !== null && (LOCALES as readonly string[]).includes(v);
 
+/** 国内少数民族语言（维吾尔、藏、彝、壮；壮语有 za / zha 两种写法）：没写地区或地区是中国时按简体 */
+const CN_MINORITY = new Set(["ug", "bo", "ii", "za", "zha"]);
+/** 别的国家的主要语言（蒙古、哈萨克、柯尔克孜）：写明中国地区或传统 / 阿拉伯文字时才按简体 */
+const CN_MINORITY_IF_CN = new Set(["mn", "kk", "ky"]);
+
 /**
  * 系统语言 → 支持的三种之一（Hermes 的 Intl 能给出 BCP-47 标签，无需 expo-localization 原生依赖）。
  * iOS 上 Intl 跟的是 App 声明支持的语言：app.json 的 ios.infoPlist.CFBundleLocalizations 里没有中文时，
@@ -43,7 +48,19 @@ export function detectLocale(): Locale {
       return "zh-TW";
     return "zh-CN";
   }
-  // 中文以外的系统语言（日语、韩语、法语……）退回英文：系统语言不是中文的人多半看不懂中文
+  // 国内少数民族语言退回简体：系统设成维吾尔 / 藏 / 彝 / 壮文的人多半读简体比读英文顺（负责人 10-22 定，O33）。
+  // 写了别的国家的不算（如印度的藏语）；蒙古 / 哈萨克 / 柯尔克孜语在别国是主要语言（手机上的「蒙古语」多是蒙古国的
+  // 西里尔蒙古文），只认中国地区或传统文字
+  const [lang, ...rest] = lower.split(/[-_]/);
+  const region = rest.find((p) => /^([a-z]{2}|\d{3})$/.test(p));
+  if (CN_MINORITY.has(lang) && (region === undefined || region === "cn"))
+    return "zh-CN";
+  if (
+    CN_MINORITY_IF_CN.has(lang) &&
+    (region === "cn" || rest.includes("mong") || rest.includes("arab"))
+  )
+    return "zh-CN";
+  // 其它非中文的系统语言（日语、韩语、法语……）退回英文：系统语言不是中文的人多半看不懂中文
   //（负责人 10-21 定，O11；原来一律退回简体中文）
   return "en";
 }
