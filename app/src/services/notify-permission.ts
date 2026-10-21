@@ -7,8 +7,8 @@ import * as Notifications from "expo-notifications";
 
 import type { NotifyPermission } from "@/services/safety-status";
 import {
-  ensureSosAlertPermission,
   isSosChannelBlocked,
+  whenSosAlertPermissionAsked,
 } from "@/services/sos-alert";
 
 export async function readNotifyPermission(): Promise<NotifyPermission> {
@@ -30,9 +30,10 @@ export async function readNotifyPermission(): Promise<NotifyPermission> {
  * 还关着时一律报 denied（NotificationPermissionsModule 的 API 33+ 一支）。全新安装第一次登录，系统框还
  * 开着的时候安全页就去读，会在系统框下面先弹好「通知未开启」，用户点了「允许」它也还在
  *（2026-10-08 Android 16 模拟器重装登录看到；华为 P30 是 Android 10，没有这个授权框，一直测不到）。
+ * 求救倒计时页在屏时那次申请会推迟到页面关掉后（O10），这里等的是推迟后真正弹出的那次。
  * 申请本身出错不拦着读：那时读到什么就是什么。
  */
 export async function readNotifyPermissionAfterAsk(): Promise<NotifyPermission> {
-  await ensureSosAlertPermission().catch(() => undefined);
+  await whenSosAlertPermissionAsked().catch(() => undefined);
   return readNotifyPermission();
 }

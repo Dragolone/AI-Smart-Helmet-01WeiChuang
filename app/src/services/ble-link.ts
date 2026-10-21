@@ -98,8 +98,9 @@ export async function requestBlePermissions(): Promise<boolean> {
   return r === PermissionsAndroid.RESULTS.GRANTED;
 }
 
-/** 只查不弹框：人去系统设置里授权回来时用（Android 授权不会重启进程，得自己再看一眼） */
-async function checkBlePermissions(): Promise<boolean> {
+/** 只查不弹框：人去系统设置里授权回来时用（Android 授权不会重启进程，得自己再看一眼）；
+ *  登录后起链路前也用它判断这次会不会弹系统授权框（use-realtime，O10） */
+export async function checkBlePermissions(): Promise<boolean> {
   if (Platform.OS !== "android") return true;
   const names =
     Platform.Version >= 31
