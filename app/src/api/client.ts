@@ -207,6 +207,22 @@ async function parseError(
   }
 }
 
+/**
+ * 手机此刻的时区（IANA 名，如 Australia/Sydney），每个请求都带在 X-Client-Timezone 头里：服务器据此把推送正文里的
+ * 时间写成用户当地时间（负责人 10-21 定，O13；服务器半在上线清单 B 线 18，没接之前这个头没人读）。
+ * 每次现取：人带着手机跨时区时下一个请求就是新的。取不到（Intl 缺失、给了空串）就不带，服务器按「北京时间」写
+ */
+export function clientTimeZone(): string | null {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return typeof tz === "string" && /^[A-Za-z0-9_+\-/]{1,64}$/.test(tz)
+      ? tz
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 /** 此刻的 refresh token（请求体里要带它的接口用，配合函数形式的 body 在重试时重取） */
 export function currentRefreshToken(): string {
   return session?.getTokens()?.refreshToken ?? "";
@@ -234,6 +250,8 @@ export async function api<T>(
       typeof bodyOrFn === "function" ? (bodyOrFn as () => unknown)() : bodyOrFn;
     const headers: Record<string, string> = {};
     if (body !== undefined) headers["Content-Type"] = "application/json";
+    const tz = clientTimeZone();
+    if (tz) headers["X-Client-Timezone"] = tz;
     if (auth) {
       const tokens = session?.getTokens();
       if (tokens) headers.Authorization = `Bearer ${tokens.accessToken}`;

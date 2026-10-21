@@ -19,6 +19,7 @@ import {
   REQUEST_TIMEOUT_MS,
   api,
   attachSession,
+  clientTimeZone,
   forceRefreshTokens,
 } from "../client";
 import { toUserMessage } from "../error-messages";
@@ -417,16 +418,18 @@ describe("响应体形态", () => {
   it("请求体：未传 body 不带 Content-Type；0 / false / null / 空串是合法 JSON，照常序列化", async () => {
     fetchMock.mockImplementation(async () => res(200, {}));
     await api("/x", { auth: false });
-    expect(fetchMock.mock.calls[0][1]).toMatchObject({
-      method: "GET",
-      headers: {},
-    });
+    expect(fetchMock.mock.calls[0][1]?.method).toBe("GET");
+    expect(fetchMock.mock.calls[0][1]?.headers).not.toHaveProperty(
+      "Content-Type",
+    );
     expect(fetchMock.mock.calls[0][1]?.body).toBeUndefined();
     for (const body of [0, false, null, ""]) {
       fetchMock.mockClear();
       await api("/x", { method: "POST", body, auth: false });
       const init = fetchMock.mock.calls[0][1];
-      expect(init?.headers).toEqual({ "Content-Type": "application/json" });
+      expect(init?.headers).toMatchObject({
+        "Content-Type": "application/json",
+      });
       expect(init?.body).toBe(JSON.stringify(body));
     }
   });
@@ -661,5 +664,46 @@ describe("服务端时钟（F-3）", () => {
     fetchMock.mockResolvedValue(res(200, { ok: true })); // 没有 headers
     await expect(api("/x")).resolves.toEqual({ ok: true });
     __resetServerClockForTests();
+  });
+});
+
+describe("时区头（O13，负责人 10-21 定：推送里的时间按用户时区写）", () => {
+  const realIntl = Intl.DateTimeFormat;
+  const withTz = (tz: unknown) => {
+    (Intl as { DateTimeFormat: unknown }).DateTimeFormat = (() => ({
+      resolvedOptions: () => ({ timeZone: tz }),
+    })) as unknown;
+  };
+  afterEach(() => {
+    (Intl as { DateTimeFormat: unknown }).DateTimeFormat = realIntl;
+  });
+
+  it("每个请求都带手机此刻的时区（IANA 名），登录前的接口也带；每次现取，跨时区后下一个请求就是新的", async () => {
+    fetchMock.mockImplementation(async () => res(200, {}));
+    withTz("Australia/Sydney");
+    await api("/x", { auth: false });
+    expect(fetchMock.mock.calls[0][1]?.headers).toMatchObject({
+      "X-Client-Timezone": "Australia/Sydney",
+    });
+    withTz("Asia/Shanghai");
+    await api("/x");
+    expect(fetchMock.mock.calls[1][1]?.headers).toMatchObject({
+      "X-Client-Timezone": "Asia/Shanghai",
+    });
+  });
+
+  it("取不到（Intl 抛错 / 空串 / 带怪字符）：不带这个头，请求照发", async () => {
+    fetchMock.mockImplementation(async () => res(200, {}));
+    for (const bad of ["", "Asia/Shang hai", "x\ny", undefined]) {
+      withTz(bad);
+      expect(clientTimeZone()).toBeNull();
+    }
+    (Intl as { DateTimeFormat: unknown }).DateTimeFormat = (() => {
+      throw new Error("no Intl");
+    }) as unknown;
+    await api("/x", { auth: false });
+    expect(fetchMock.mock.calls[0][1]?.headers).not.toHaveProperty(
+      "X-Client-Timezone",
+    );
   });
 });

@@ -83,6 +83,10 @@ export const auth = {
     "auth.deleteAccount": "注销账号",
     "auth.deleteConfirmTitle": "确定注销账号？",
     "auth.deleteConfirmBody": "此操作不可撤销，账号数据将被清除。",
+    "auth.deleteBlockedSosTitle": "有一单求救还在倒计时",
+    "auth.deleteBlockedSosBody":
+      "注销会删掉紧急联系人，这单到点就一条短信也发不出去。请先在倒计时页取消，或等它结束，再注销账号。",
+    "auth.deleteBlockedSosOpen": "去倒计时页",
     "auth.deleteConfirmAction": "注销",
     "auth.deleteDone": "账号已注销",
     "sos.fall": "疑似摔倒",
@@ -232,6 +236,10 @@ export const auth = {
     "auth.deleteAccount": "註銷帳號",
     "auth.deleteConfirmTitle": "確定註銷帳號？",
     "auth.deleteConfirmBody": "此操作無法復原，帳號資料將被清除。",
+    "auth.deleteBlockedSosTitle": "有一單求救還在倒數",
+    "auth.deleteBlockedSosBody":
+      "註銷會刪掉緊急聯絡人，這單到點就一則簡訊也發不出去。請先在倒數頁取消，或等它結束，再註銷帳號。",
+    "auth.deleteBlockedSosOpen": "去倒數頁",
     "auth.deleteConfirmAction": "註銷",
     "auth.deleteDone": "帳號已註銷",
     "sos.fall": "疑似跌倒",
@@ -389,6 +397,10 @@ export const auth = {
     "auth.deleteConfirmTitle": "Delete this account?",
     "auth.deleteConfirmBody":
       "This cannot be undone. Your account data will be erased.",
+    "auth.deleteBlockedSosTitle": "An SOS is still counting down",
+    "auth.deleteBlockedSosBody":
+      "Deleting your account also deletes your emergency contacts, so no text could be sent when this SOS goes off. Cancel it on the countdown screen, or wait for it to end, then delete your account.",
+    "auth.deleteBlockedSosOpen": "Open countdown",
     "auth.deleteConfirmAction": "Delete",
     "auth.deleteDone": "Account deleted",
     "sos.fall": "Possible fall",
