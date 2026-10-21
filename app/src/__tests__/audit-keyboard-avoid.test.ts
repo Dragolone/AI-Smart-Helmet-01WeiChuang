@@ -40,4 +40,18 @@ describe("键盘让位", () => {
       "components/keyboard-avoid.tsx",
     ]);
   });
+
+  it("页面里有输入框的，都包了 KeyboardAvoid（10-21 夜测：添加紧急联系人页漏了，横着拿的大屏 / 小屏上保存按钮被键盘盖住）", () => {
+    const pages = sources(join(SRC, "app")).filter((f) => {
+      const src = readFileSync(f, "utf8");
+      return /<(FormInput|TextInput)\b/.test(src);
+    });
+    const missing = pages
+      .filter((f) => !readFileSync(f, "utf8").includes("<KeyboardAvoid"))
+      .map((f) => relative(SRC, f))
+      // 蓝牙工程模式是开发用的调试页；扫码绑定页直接用 RN 的 KeyboardAvoidingView（见上一条）
+      .filter((f) => f !== "app/ble-bench.tsx" && f !== "app/bind-device.tsx");
+    expect(pages.length).toBeGreaterThan(5);
+    expect(missing).toEqual([]);
+  });
 });
