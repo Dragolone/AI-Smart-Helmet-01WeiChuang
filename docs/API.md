@@ -155,7 +155,7 @@ SOS 状态机为服务端权威（DECISIONS #8/#26）：`pending → notified | 
 | GET | /devices/{deviceId}/sos/active | 当前进行中 SOS：`200 { "sos": <sos 对象> \| null }`（无进行中时为 null，**✅ 定稿**，与 §5 latest 同口径） |
 | GET | /users/me/sos/active?page=&pageSize= | **本账号所有进行中的 SOS**（2026-10-17，上线清单 B 线第 12 项；多顶头盔时 App 不必逐台查上一行）：§1 统一分页 `{ items, total, page, pageSize }`，按 deadline 升序（同时到期按 sosId）；item = sos 对象 + `deviceName`（TS 类型 ActiveSosItem）。按建单时固化的用户查：**头盔已解绑、单仍是本人的照样列出**（解绑不影响处置权，上一行此时 404），前主人的单不列，终态不列；已过 deadline 但扫描任务尚未处理的仍是 pending，照样列。`deviceName` 只在头盔仍绑在本人名下且起过名时给（整理后的名字），否则 null。没有时 `items: []`（不是 404）。App 传 `pageSize=100`，多于 100 单按 `total` 翻页。上一行逐台接口保留（旧版 App 用） |
 | POST | /sos/{sosId}/cancel | 取消（仅 pending 可取消；终态返回 409 `SOS_ALREADY_FINALIZED`） |
-| POST | /sos/{sosId}/confirm | “SOS Now”：跳过剩余倒计时立即通知 |
+| POST | /sos/{sosId}/confirm | “SOS Now”：跳过剩余倒计时立即通知。终态化（`notified`）与通知任务一起落库后立即返回，**不等短信 / 推送发完**（2026-10-22，SOS_MATRIX Q7：短信通道慢时响应原来会超过 App 的超时）；首轮投递在后台，没发完的由扫描续投，结果看事故详情 `notifications` |
 | GET | /devices/{deviceId}/accidents?page=&pageSize= | 事故记录列表（含已取消供留档，最新在前；TS 类型 AccidentListItem）。换绑后新主看不到旧主的事故（deviceId+userId 双过滤） |
 | GET | /accidents/{accidentId} | 事故详情（TS 类型 AccidentDetail）：sos 对象 + `location`（快照，source: event\|last_point）+ `triggerPayload`（触发事件原始 payload）+ `notifications`（通道/状态/重试次数/错误；**target 已脱敏**） |
 

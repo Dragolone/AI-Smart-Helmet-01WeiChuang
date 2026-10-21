@@ -85,10 +85,14 @@ export class SosSchedulerService implements OnModuleInit, OnModuleDestroy {
   async onModuleDestroy(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
     if (this.reconcileTimer) clearInterval(this.reconcileTimer);
-    // 在飞的那一轮投递让它写完结果再断库：短信已被服务商受理却没来得及记 sent，重启后会再发一条
-    if (this.deliveryInFlight) {
+    // 在飞的投递（扫描这一轮、「立即求救」放到后台的首投）让它写完结果再断库：短信已被服务商受理却没来得及记 sent，重启后会再发一条
+    const inFlight = [
+      this.deliveryInFlight,
+      this.notifier.backgroundDelivery(),
+    ].filter((p) => p !== null);
+    if (inFlight.length > 0) {
       await Promise.race([
-        this.deliveryInFlight,
+        Promise.all(inFlight),
         new Promise((resolve) =>
           setTimeout(resolve, timerMs(notifyTimeoutMs())).unref(),
         ),

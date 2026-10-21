@@ -22,6 +22,7 @@ import {
   type Http,
   type TestUser,
 } from './helpers/hardening';
+import { settleSosDelivery } from './helpers/audit-sos';
 
 jest.setTimeout(120_000);
 
@@ -97,6 +98,7 @@ describe('加固：SOS 并发与竞态 (e2e)', () => {
     pushMock.send.mockReset().mockResolvedValue(undefined);
   });
 
+  afterEach(() => settleSosDelivery(app));
   afterAll(async () => {
     await cleanupDevices(prisma, devices);
     await cleanupUsers(prisma, [owner, other]);
@@ -151,6 +153,7 @@ describe('加固：SOS 并发与竞态 (e2e)', () => {
       ),
     ];
     const results = await Promise.all(calls);
+    await settleSosDelivery(app);
     const h = histogram(results.map((r) => r.status));
     console.log('[cancel×5 + confirm×5]', h);
     expect(h['200']).toBe(1);
@@ -212,6 +215,7 @@ describe('加固：SOS 并发与竞态 (e2e)', () => {
       .post(`/api/v1/sos/${sos.id}/confirm`)
       .set(auth(owner.token))
       .expect(200);
+    await settleSosDelivery(app);
     await scheduler.tick();
     await scheduler.tick();
     await scheduler.tick();

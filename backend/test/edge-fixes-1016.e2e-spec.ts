@@ -28,6 +28,7 @@ import {
   makeProviderMocks,
   sosByEvent,
   sosSmsCalls,
+  settleSosDelivery,
 } from './helpers/audit-sos';
 
 jest.setTimeout(120_000);
@@ -65,6 +66,7 @@ describe('边界测试发现的修复 (e2e)', () => {
     ));
   });
 
+  afterEach(() => settleSosDelivery(app));
   afterAll(async () => {
     await cleanupDevices(prisma, devices);
     await cleanupUsers(prisma, users);
@@ -155,6 +157,7 @@ describe('边界测试发现的修复 (e2e)', () => {
     expect(c2.locationSource).toBeNull();
     mocks.sms.send.mockClear();
     await confirmSos(http, u.token, c2.id).expect(200);
+    await settleSosDelivery(app);
     expect(sosSmsCalls(mocks)[0][1]).toMatchObject({
       params: { locationText: '暂不可用' },
     });

@@ -26,6 +26,7 @@ import {
   resetMocks,
   sosByEvent,
   sosSmsCalls,
+  settleSosDelivery,
 } from './helpers/audit-sos';
 
 jest.setTimeout(60000);
@@ -59,6 +60,7 @@ describe('SOS 通知投递：内联与扫描并发 / 中断行收尾 (e2e)', () 
 
   beforeEach(() => resetMocks(mocks));
 
+  afterEach(() => settleSosDelivery(app));
   afterAll(async () => {
     await cleanupDevices(prisma, [devRace, devStuck]);
     await cleanupUsers(prisma, [owner]);
@@ -97,6 +99,7 @@ describe('SOS 通知投递：内联与扫描并发 / 中断行收尾 (e2e)', () 
     await relay(http, owner.token, devStuck, [e]).expect(202);
     const c = (await sosByEvent(prisma, e.eventId as string))!;
     await confirmSos(http, owner.token, c.id).expect(200);
+    await settleSosDelivery(app);
     // 直接写出「占位后进程倒下」留下的行：attempts = 上限（3），status 仍 pending
     const stuck = await prisma.sosNotification.create({
       data: {

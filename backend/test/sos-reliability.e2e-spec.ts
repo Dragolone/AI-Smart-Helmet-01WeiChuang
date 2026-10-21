@@ -16,6 +16,7 @@ import {
   resetMocks,
   sosByEvent,
   waitUntil,
+  settleSosDelivery,
 } from './helpers/audit-sos';
 import {
   bindDevice,
@@ -81,6 +82,7 @@ describe('SOS 可靠性：重试退避 / 周期对账 / 补传说明 (e2e)', () 
     }
   });
 
+  afterEach(() => settleSosDelivery(app));
   afterAll(async () => {
     await cleanupDevices(prisma, Object.values(devices));
     await cleanupUsers(prisma, [owner]);
@@ -101,6 +103,7 @@ describe('SOS 可靠性：重试退避 / 周期对账 / 补传说明 (e2e)', () 
     await relay(http, owner.token, deviceId, [fall]).expect(202);
     const sos = await sosByEvent(prisma, fall.eventId as string);
     await confirmSos(http, owner.token, sos!.id).expect(200);
+    await settleSosDelivery(app);
     const row = await prisma.sosNotification.findFirstOrThrow({
       where: { sosId: sos!.id, channel: 'sms' },
     });

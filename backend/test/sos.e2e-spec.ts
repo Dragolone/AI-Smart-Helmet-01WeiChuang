@@ -18,6 +18,7 @@ import { PUSH_PROVIDER } from '../src/providers/push.provider';
 import { SMS_PROVIDER, type SmsMessage } from '../src/providers/sms.provider';
 import { SosSchedulerService } from '../src/sos/sos-scheduler.service';
 import { waitFor } from './helpers/audit-ingest';
+import { settleSosDelivery } from './helpers/audit-sos';
 import { registerUser } from './helpers/register';
 
 jest.setTimeout(30000);
@@ -244,6 +245,7 @@ describe('SOS 状态机 (e2e)', () => {
     });
   });
 
+  afterEach(() => settleSosDelivery(app));
   afterAll(async () => {
     ownerWs?.close();
     await prisma.sosNotification
@@ -473,6 +475,7 @@ describe('SOS 状态机 (e2e)', () => {
       .post(`/api/v1/sos/${sosCase.id}/confirm`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .expect(200);
+    await settleSosDelivery(app);
     expect(res.body.status).toBe('notified');
 
     const rows = await prisma.sosNotification.count({
@@ -570,6 +573,7 @@ describe('SOS 状态机 (e2e)', () => {
       .post(`/api/v1/sos/${sosCase.id}/confirm`)
       .set('Authorization', `Bearer ${userBToken}`)
       .expect(200);
+    await settleSosDelivery(app);
 
     const afterFirst = await prisma.sosNotification.findFirstOrThrow({
       where: { sosId: sosCase.id, channel: 'sms' },
@@ -676,6 +680,7 @@ describe('SOS 状态机 (e2e)', () => {
       .post(`/api/v1/sos/${sosId}/confirm`)
       .set('Authorization', `Bearer ${userCToken}`)
       .expect(200);
+    await settleSosDelivery(app);
 
     const rows = await prisma.sosNotification.findMany({
       where: { sosId },

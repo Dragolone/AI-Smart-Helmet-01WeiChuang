@@ -12,6 +12,7 @@ import { UnifiedExceptionFilter } from '../src/common/http-exception.filter';
 import { requestIdMiddleware } from '../src/common/request-id.middleware';
 import { IngestService } from '../src/ingest/ingest.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { settleSosDelivery } from './helpers/audit-sos';
 import { registerUser } from './helpers/register';
 
 jest.setTimeout(30000);
@@ -140,6 +141,7 @@ describe('事故记录查询 (e2e)', () => {
       .post(`/api/v1/sos/${notifiedId}/confirm`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .expect(200);
+    await settleSosDelivery(app);
 
     const e3 = randomUUID();
     await ingest.ingestRaw(fallEnvelope(e3), deviceId, 'mqtt');
