@@ -1364,14 +1364,22 @@ function SosActiveContent() {
       ]}
     >
       {urgent && <StatusBar style="light" />}
-      <Animated.View
-        pointerEvents="none"
-        style={[styles.wash, { backgroundColor: SOS_RED }, washStyle]}
-      />
-      <Animated.View
-        pointerEvents="none"
-        style={[styles.wash, { backgroundColor: SOS_RED_BEAT }, beatStyle]}
-      />
+      {/* 红底只在最后 10 秒画，过了就整层卸掉（10-22 夜测）：原来两层常驻、靠透明度渐隐——最后几秒按了 Home、这单在后台
+          结束时，Reanimated 对这层的更新没落到画面上，回来后结果页和之后来的每一单都铺着红底，红色的圆环和「立即求救」
+          按钮与红底融成一片看不见，直到重开 App（回前台再设一次也没用：值已经是 0，不会再推）。卸载走 React 的提交，
+          后台发生也不丢；退出最后 10 秒时页面正切到结果页，红底直接撤掉、不渐隐 */}
+      {urgent && (
+        <>
+          <Animated.View
+            pointerEvents="none"
+            style={[styles.wash, { backgroundColor: SOS_RED }, washStyle]}
+          />
+          <Animated.View
+            pointerEvents="none"
+            style={[styles.wash, { backgroundColor: SOS_RED_BEAT }, beatStyle]}
+          />
+        </>
+      )}
       {toast ? (
         <Animated.View
           entering={FadeIn.duration(200)}
