@@ -95,7 +95,7 @@ describe('审计 §4 SOS 全链路与状态机 (e2e, 手动 tick)', () => {
   const ownerContacts = [
     { name: '妈妈', phone: '19100000001' },
     { name: '爸爸', phone: '19100000002' },
-    { name: '妈妈备用', phone: '19100000001' }, // 同号：通知去重
+    { name: '妈妈备用', phone: '19100000001' }, // 同号：通知去重（直接入库，见 beforeAll）
   ];
 
   const ingestFall = (deviceId: string, payload = {}, overrides = {}) => {
@@ -122,8 +122,12 @@ describe('审计 §4 SOS 全链路与状态机 (e2e, 手动 tick)', () => {
       await bindDevice(http, owner.token, d);
     await bindDevice(http, userC.token, devEmpty);
     await bindDevice(http, userD.token, devDelete);
-    for (const c of ownerContacts)
+    for (const c of ownerContacts.slice(0, 2))
       await addContact(http, owner.token, c.name, c.phone);
+    // 同号的第三个直接入库：接口 10-22 起拒绝同号（CONTACT_DUPLICATE，B 线 23），通知去重仍要覆盖此前已存在的数据
+    await prisma.emergencyContact.create({
+      data: { userId: owner.id, ...ownerContacts[2] },
+    });
     await addContact(http, userD.token, '家人', '19100000009');
     ownerWs = await WsCollector.connect(app, owner.token);
   });
@@ -725,11 +729,11 @@ describe('审计 §4 SOS 全链路与状态机 (e2e, 手动 tick)', () => {
       .delete(`/api/v1/users/me/emergency-contacts/${added.body.id as string}`)
       .set(auth(owner.token))
       .expect(204);
-    await request(http)
-      .patch(`/api/v1/users/me/emergency-contacts/${mom.id}`)
-      .set(auth(owner.token))
-      .send({ phone: '19100000001' })
-      .expect(200);
+    // 妈妈改回原号：与「妈妈备用」同号，接口会 409 CONTACT_DUPLICATE，直接改库复原
+    await prisma.emergencyContact.update({
+      where: { id: mom.id },
+      data: { phone: '19100000001' },
+    });
     await addContact(http, owner.token, '爸爸', '19100000002');
   });
 

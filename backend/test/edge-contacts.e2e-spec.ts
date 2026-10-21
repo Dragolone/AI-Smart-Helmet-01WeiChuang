@@ -104,25 +104,27 @@ describe('边界：紧急联系人 (e2e)', () => {
 
   it('姓名长度：trim 后 30 字通过、31 字 400；首尾空白不计入（先 trim 再验）；30 个 emoji 通过', async () => {
     const u = await newUser();
+    // 号码各不相同：接口 10-22 起拒绝同号（B 线 23）
     expect(
       (await create(u, { name: '名'.repeat(30), phone: '13800001114' })).status,
     ).toBe(201);
     expect(
-      (await create(u, { name: '名'.repeat(31), phone: '13800001114' })).status,
+      (await create(u, { name: '名'.repeat(31), phone: '13800001124' })).status,
     ).toBe(400);
     const padded = await create(u, {
       name: `   ${'名'.repeat(30)}   `,
-      phone: '13800001114',
+      phone: '13800001124',
     });
     expect(padded.status).toBe(201);
     expect(padded.body.name).toBe('名'.repeat(30));
     expect(
-      (await create(u, { name: '😀'.repeat(30), phone: '13800001114' })).status,
+      (await create(u, { name: '😀'.repeat(30), phone: '13800001134' })).status,
     ).toBe(201);
   });
 
   it('关系 relation：20 字通过、21 字 400；不 trim；空串原样；null / 缺省为 null；非字符串 400', async () => {
     const u = await newUser();
+    // 号码各不相同：接口 10-22 起拒绝同号（B 线 23）
     const r20 = await create(u, {
       name: 'a',
       phone: '13800001115',
@@ -133,48 +135,47 @@ describe('边界：紧急联系人 (e2e)', () => {
       (
         await create(u, {
           name: 'b',
-          phone: '13800001115',
+          phone: '13800001125',
           relation: '关'.repeat(21),
         })
       ).status,
     ).toBe(400);
     const spaced = await create(u, {
       name: 'c',
-      phone: '13800001115',
+      phone: '13800001125',
       relation: ' 父亲 ',
     });
     expect(spaced.body.relation).toBe(' 父亲 ');
     const empty = await create(u, {
       name: 'd',
-      phone: '13800001115',
+      phone: '13800001135',
       relation: '',
     });
     expect(empty.body.relation).toBe('');
     const nul = await create(u, {
       name: 'e',
-      phone: '13800001115',
+      phone: '13800001145',
       relation: null,
     });
     expect(nul.status).toBe(201);
     expect(nul.body.relation).toBeNull();
-    // 已经 5 个了，下面只验校验失败的路径（400 先于名额检查）
+    // 校验失败的路径（400 先于本人 / 同号 / 名额检查）
     expect(
-      (await create(u, { name: 'f', phone: '13800001115', relation: 42 }))
+      (await create(u, { name: 'f', phone: '13800001155', relation: 42 }))
         .status,
     ).toBe(400);
   });
 
-  it('同一号码可存多个联系人、也可填本人号码（文档未写，按现状；SOS 发送时同号去重已有用例）', async () => {
+  it('同一号码第二次 409 CONTACT_DUPLICATE、本人号码 400 CONTACT_IS_SELF（10-22 起，B 线 23；原来按现状都允许，靠 SOS 发送时同号去重兜底）', async () => {
     const u = await newUser();
     await create(u, { name: '甲', phone: '13800002222' }).expect(201);
-    await create(u, { name: '乙', phone: '13800002222' }).expect(201);
+    const dup = await create(u, { name: '乙', phone: '13800002222' });
+    expect(dup.status).toBe(409);
+    expect(dup.body.code).toBe('CONTACT_DUPLICATE');
     const self = await create(u, { name: '我自己', phone: u.phone });
-    expect(self.status).toBe(201);
-    expect((await list(u)).map((c) => c.phone)).toEqual([
-      '13800002222',
-      '13800002222',
-      u.phone,
-    ]);
+    expect(self.status).toBe(400);
+    expect(self.body.code).toBe('CONTACT_IS_SELF');
+    expect((await list(u)).map((c) => c.phone)).toEqual(['13800002222']);
   });
 
   it('PATCH：name / phone 传 null → 400（必填列）；relation: null → 清空；{} → 200 不变；全空白名 → 400', async () => {

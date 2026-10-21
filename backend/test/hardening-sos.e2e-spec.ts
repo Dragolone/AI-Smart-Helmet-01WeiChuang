@@ -79,11 +79,11 @@ describe('加固：SOS 并发与竞态 (e2e)', () => {
       await provisionDevice(prisma, d);
       await bindDevice(http, owner.token, d);
     }
-    // 3 个联系人，其中两个同号（通知需去重）
+    // 3 个联系人，其中两个同号（通知需去重）。同号的那个直接入库：接口 10-22 起拒绝同号（B 线 23），
+    // 去重仍要覆盖此前已存在的数据
     for (const c of [
       { name: '甲', phone: '13900000001' },
       { name: '乙', phone: '13900000002' },
-      { name: '丙', phone: '13900000001' },
     ]) {
       await request(http)
         .post('/api/v1/users/me/emergency-contacts')
@@ -91,6 +91,9 @@ describe('加固：SOS 并发与竞态 (e2e)', () => {
         .send(c)
         .expect(201);
     }
+    await prisma.emergencyContact.create({
+      data: { userId: owner.id, name: '丙', phone: '13900000001' },
+    });
   });
 
   beforeEach(() => {

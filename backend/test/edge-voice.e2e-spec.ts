@@ -58,10 +58,13 @@ describe('边界：对讲频道 (e2e)', () => {
   beforeAll(async () => {
     // 用产品默认值（20）；别的套件把它调小过，这里显式去掉
     delete process.env.VOICE_CHANNEL_MEMBER_LIMIT;
+    // 本套件一个账号要建 30 个频道验邀请码 / 房间号两两不同：把每账号频道数上限（默认 20，B 线 23）调高；上限本身在 server-checks-1022 里测
+    process.env.VOICE_CHANNELS_PER_USER_LIMIT = '100';
     ({ app, http, prisma } = await buildApp());
   });
 
   afterAll(async () => {
+    delete process.env.VOICE_CHANNELS_PER_USER_LIMIT;
     await cleanupUsers(prisma, users);
     await app.close();
   });
