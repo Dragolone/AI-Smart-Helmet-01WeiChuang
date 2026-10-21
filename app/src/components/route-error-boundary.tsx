@@ -2,12 +2,14 @@
 // 底部标签栏、别的页面和求救倒计时页照常能用；根上的 AppErrorBoundary 只剩兜布局层的错误。
 // 10-21 夜测：接口应答字段类型不对（后端契约漂移）时，地图 / 对讲 / 我的这几个常驻标签页一出错，根上的错误边界把整个 App
 // 换成「页面暂时无法显示」，标签栏都没了，来单时倒计时页也弹不出来。
+// 能退回上一页时多一个「返回」（10-22 夜测）：倒计时页、扫码绑定页这类全屏页没有标题栏，倒计时页还禁了手势返回——
+// 崩了只剩「重试」，重试又崩，iOS 上只能杀掉 App。标签页本身退无可退，不显示。
 import { Ionicons } from "@expo/vector-icons";
-import type { ErrorBoundaryProps } from "expo-router";
+import { router, type ErrorBoundaryProps } from "expo-router";
 import { useEffect } from "react";
 import { StyleSheet, View } from "react-native";
 
-import { PrimaryButton } from "@/components/form";
+import { PrimaryButton, SecondaryButton } from "@/components/form";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { useTheme } from "@/hooks/use-theme";
@@ -17,6 +19,7 @@ import { devLog } from "@/services/dev-log";
 export function RouteErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   const theme = useTheme();
   const t = useT();
+  const canBack = router.canGoBack();
   useEffect(() => {
     devLog("CRASH", `页面：${error.message}\n${error.stack ?? ""}`);
   }, [error]);
@@ -43,6 +46,14 @@ export function RouteErrorBoundary({ error, retry }: ErrorBoundaryProps) {
         onPress={() => void retry()}
         style={styles.btn}
       />
+      {canBack && (
+        <SecondaryButton
+          compact
+          title={t("nav.back")}
+          onPress={() => router.back()}
+          style={styles.btnBack}
+        />
+      )}
     </ThemedView>
   );
 }
@@ -65,4 +76,5 @@ const styles = StyleSheet.create({
   },
   center: { textAlign: "center" },
   btn: { marginTop: 8, alignSelf: "center" },
+  btnBack: { alignSelf: "center" },
 });

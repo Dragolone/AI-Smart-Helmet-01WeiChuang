@@ -7,7 +7,7 @@
 // 进行中的 SOS 不受头盔筛选影响：别的头盔上有一条正在倒计时，这一页顶部照样显示。
 import { Ionicons } from "@expo/vector-icons";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { router, useLocalSearchParams } from "expo-router";
+import { router } from "expo-router";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Modal,
@@ -20,6 +20,7 @@ import {
 import Animated, { FadeInDown } from "react-native-reanimated";
 import type { AccidentListItem, EventListItem } from "@helmet/shared";
 
+import { useRouteParams } from "@/hooks/use-route-params";
 import { accidentHref, sosActiveHref } from "@/services/sos-routes";
 import { isSessionEnded, toUserMessage } from "@/api/error-messages";
 import { eventsApi, eventsListPrefix, eventsListQuery } from "@/api/events";
@@ -191,7 +192,7 @@ export default function SafetyRecordsScreen() {
   const t = useT();
   const locale = useLocale();
   // 安全首页的「安全记录」带 tab=sos 进来（那一行写的是最近一条 SOS）；不带参数时落在「风险提醒」
-  const params = useLocalSearchParams<{ tab?: string }>();
+  const params = useRouteParams<{ tab?: string }>();
   const [tab, setTab] = useState<RecordTab>(
     params.tab === "sos" ? "sos" : "alerts",
   );

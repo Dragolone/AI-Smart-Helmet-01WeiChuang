@@ -19,7 +19,7 @@ import {
 } from "@tanstack/react-query";
 import { setAudioModeAsync, useAudioPlayer } from "expo-audio";
 import * as Haptics from "expo-haptics";
-import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { HelmetLinkService } from "helmet-link-service";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -86,6 +86,7 @@ import { ThemedText } from "@/components/themed-text";
 import { Radius } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useKeepAwakeSafe } from "@/hooks/use-keep-awake-safe";
+import { useRouteParams } from "@/hooks/use-route-params";
 import { useTheme } from "@/hooks/use-theme";
 import { useLocale, useT } from "@/i18n";
 import {
@@ -257,7 +258,7 @@ function paletteOf(
 // 真实的单共用一个实例（多顶同时求救时在页内切换，10-16 N10）；演练单独一个。
 // 「我还是需要帮助」的 eventId 按头盔号存，换单不会复用上一单的 eventId 被服务端当重复事件吞掉
 export default function SosActiveScreen() {
-  const { drill } = useLocalSearchParams<{ drill?: string }>();
+  const { drill } = useRouteParams<{ drill?: string }>();
   return <SosActiveContent key={drill === "1" ? "drill" : "sos"} />;
 }
 
@@ -276,7 +277,7 @@ function SosActiveContent() {
     sosId: routeSosId,
     deviceId,
     drill,
-  } = useLocalSearchParams<{
+  } = useRouteParams<{
     sosId: string;
     deviceId: string;
     drill?: string;

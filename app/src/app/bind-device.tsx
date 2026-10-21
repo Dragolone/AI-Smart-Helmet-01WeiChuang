@@ -11,12 +11,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
-import {
-  router,
-  useFocusEffect,
-  useIsFocused,
-  useLocalSearchParams,
-} from "expo-router";
+import { router, useFocusEffect, useIsFocused } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -65,6 +60,7 @@ import { showToast } from "@/components/toast";
 import { helmetImageFor } from "@/constants/helmet-images";
 import { Colors } from "@/constants/theme";
 import { useAppActive } from "@/hooks/use-app-active";
+import { useRouteParams } from "@/hooks/use-route-params";
 import { useNotifyPermission } from "@/hooks/use-safety";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
@@ -178,7 +174,7 @@ export default function BindDeviceScreen() {
   const queryClient = useQueryClient();
   // 带着设备号 / 绑定码打开时：填进手动输入，等用户自己点「绑定」，不替他提交。
   // manual=1：一进来就开着手动输入的面板（别的页面上的「手动输入设备编号」入口用）
-  const params = useLocalSearchParams<{
+  const params = useRouteParams<{
     deviceId?: string;
     bindCode?: string;
     manual?: string;
