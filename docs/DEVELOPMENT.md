@@ -130,6 +130,7 @@ Debug 包要先起 Metro（`npm run start -w app`），再执行 `xcrun simctl o
 - **`-destination` 要写具体的模拟器**：Debug 包配 `generic/platform=iOS Simulator` 时会把 arm64 和 x86_64 都编一遍，中间产物多出一倍。一次 Release 构建的 DerivedData 大约 7 GB，10-21 就因为磁盘写满中断过一次。
 - 包没签名（`CODE_SIGNING_ALLOWED=NO`）就用不了钥匙串：启动时 expo-notifications 报 `ERR_NOTIFICATIONS_KEYCHAIN_ACCESS`（开发包里是一条红色提示），登录状态也存不住。这些是预期行为，和代码无关。
 - 模拟器没有蓝牙和相机，设备、扫码、实时画面这几页只能看到「不支持」或「没连上」的状态。
+- 测权限被拒：`xcrun simctl privacy <UDID> revoke|reset microphone com.lingyiweichuang.app` 会把 App 进程杀掉，改完要重新打开。「去设置」（`Linking.openSettings()`）在模拟器上停在设置首页，iPhone 真机落在本 App 那一页（2026-10-16 实测），落哪页以真机为准（2026-10-22）。
 
 ## Android 正式签名包（2026-09-21 起）
 
