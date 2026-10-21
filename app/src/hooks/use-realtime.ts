@@ -196,6 +196,8 @@ export function useRealtimeUpdates(): void {
         await whenCountdownClearForPrompt();
         if (cancelled) return;
       }
+      // 会话已被否定、只是倒计时还在走（O19-A）：不起链路，理由见下面 unsubscribeDead
+      if (useAuthStore.getState().sessionDeadUntil !== null) return;
       void startBleLink(bleTargetsOf());
     });
     // SOS 同步的判断逻辑在 services/sos-sync.ts（纯函数 + 注入副作用，有单测）；这里只接线
@@ -409,9 +411,20 @@ export function useRealtimeUpdates(): void {
       alertPendingOnBackground(queryClient, state, bleTargetsOf(), sosDeps);
     });
 
+    // 会话被否定、只是倒计时还在走（O19-A）时停掉蓝牙链路：这段时间（最长约一分钟）头盔报的摔倒照常被回执、
+    // 头盔随即擦掉，App 却传不上去，只能等同一账号下次在这台手机登录才补传，换手机登录就丢了。停了之后事件留在
+    // 头盔里，重新登录（或在别的手机上登录）连上就补传（10-21 第二轮审查）。真正登出时下面整套照常拆
+    const unsubscribeDead = useAuthStore.subscribe((st, prev) => {
+      if (st.sessionDeadUntil !== null && prev.sessionDeadUntil === null) {
+        devLog("realtime", "会话已失效、倒计时还在走：停掉蓝牙链路");
+        stopBleLink();
+      }
+    });
+
     // 这一次挂上的订阅
     const detach = () => {
       cancelled = true;
+      unsubscribeDead();
       devicesLoad.cancel();
       unsubscribe();
       unsubscribeState();

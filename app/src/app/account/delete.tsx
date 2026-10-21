@@ -1,17 +1,15 @@
 // 注销账号（已登录）：DELETE /users/me 带密码；成功后只清本地会话（服务端账号已不存在，不再调 logout），
 // 登录门控翻转自动回到登录页。
 import { Ionicons } from "@expo/vector-icons";
-import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import { useState } from "react";
 import { Alert, ScrollView, StyleSheet, View } from "react-native";
 
-import type { ActiveSosResponse, Sos } from "@helmet/shared";
+import type { Sos } from "@helmet/shared";
 import { authApi } from "@/api/auth";
-import { ApiRequestError } from "@/api/client";
 import { toUserMessage } from "@/api/error-messages";
-import { sosApi } from "@/api/sos";
 import { FormError, FormInput, PrimaryButton } from "@/components/form";
 import { KeyboardAvoid } from "@/components/keyboard-avoid";
 import { Card } from "@/components/list";
@@ -22,6 +20,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { translate, useT, type MessageKey } from "@/i18n";
 import { discardRelayQueue } from "@/services/ble-relay-uplink";
 import { accountSecureKeysOf, SECURE_KEYS } from "@/services/secure-keys";
+import { firstActiveSos } from "@/services/active-sos";
 import { sosActiveHref } from "@/services/sos-routes";
 import { useAuthStore } from "@/stores/auth-store";
 
@@ -47,26 +46,6 @@ async function forgetAccountLocalData(userId: string): Promise<void> {
       SecureStore.deleteItemAsync(key).catch(() => undefined),
     ),
   );
-}
-
-/**
- * 本账号还在倒计时的一单（没有就 null）。有进行中的求救时不让注销（O15，负责人 10-21 定）：注销会连紧急联系人
- * 一起删掉，那一单到点照样变「已通知」，却一条短信都发不出去。服务器那头也会拦（上线清单 B 线 16），这里先拦住、说清楚。
- * 服务端还没有账号级接口（404）就看本机缓存里各顶头盔的进行中单；别的失败照抛——查不了也注销不了（同一个网）
- */
-async function activeSosOf(queryClient: QueryClient): Promise<Sos | null> {
-  try {
-    const page = await sosApi.activeForAccount(1, 1);
-    return page.items[0] ?? null;
-  } catch (e) {
-    if (!(e instanceof ApiRequestError && e.status === 404)) throw e;
-    for (const [, data] of queryClient.getQueriesData<ActiveSosResponse>({
-      queryKey: ["sos-active"],
-    })) {
-      if (data?.sos?.status === "pending") return data.sos;
-    }
-    return null;
-  }
 }
 
 export default function DeleteAccountScreen() {
@@ -106,10 +85,12 @@ export default function DeleteAccountScreen() {
       setError(t("auth.passwordTooShort"));
       return;
     }
+    // 有进行中的求救时不让注销（O15，负责人 10-21 定）：注销会连紧急联系人一起删掉，那一单到点照样变「已通知」，
+    // 却一条短信都发不出去。服务器那头也会拦（上线清单 B 线 16），这里先拦住、说清楚；查不了（断网）也注销不了
     setBusy(true);
     let active: Sos | null;
     try {
-      active = await activeSosOf(queryClient);
+      active = await firstActiveSos(queryClient);
     } catch (e) {
       setError(toUserMessage(e));
       return;
