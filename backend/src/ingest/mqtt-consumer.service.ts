@@ -37,6 +37,52 @@ const sanitize = (s: string): string => s.replace(/[\r\n]+/g, ' ');
 /** 关闭时最多等在飞的 QoS1 消息拿到 PUBACK 多久，之后强制断开（要小于 SHUTDOWN 的宽限期） */
 const MQTT_END_WAIT_MS = 3_000;
 
+/** 断线期间汇总日志的间隔：mqtt.js 每秒重连一次，逐次记日志会刷屏（O23） */
+const OUTAGE_LOG_INTERVAL_MS = 60_000;
+
+/**
+ * 日志里的 MQTT 错误：错误码一定写出来。连接失败时 Node 对一个主机名的多个地址（IPv4 / IPv6）都试过，
+ * 抛的是 AggregateError，message 为空，原因只在 code 和里面每一条上——原来只记 message，日志只剩「MQTT 错误：」（O23）
+ */
+export function describeMqttError(err: unknown): string {
+  // 按字段取，不用 instanceof：mqtt.js 传来的是 Node 核心建的错误对象，在别的 realm（如 jest 的沙箱）里 instanceof Error 不成立
+  if (typeof err !== 'object' || err === null) return sanitize(String(err));
+  const e = err as {
+    name?: unknown;
+    message?: unknown;
+    code?: unknown;
+    errors?: unknown;
+  };
+  const parts: string[] = [];
+  // net 错误是字符串（ECONNREFUSED），CONNACK 拒绝是数字原因码（5 = 未授权）
+  if (typeof e.code === 'string' || typeof e.code === 'number') {
+    parts.push(`code=${e.code}`);
+  }
+  if (typeof e.message === 'string' && e.message) parts.push(e.message);
+  if (Array.isArray(e.errors) && e.errors.length > 0) {
+    const inner = (e.errors as unknown[]).map((one) => {
+      const x = (one ?? {}) as {
+        message?: unknown;
+        code?: unknown;
+        address?: unknown;
+        port?: unknown;
+      };
+      if (typeof x.message === 'string' && x.message) return x.message;
+      return [
+        typeof x.code === 'string' ? x.code : '',
+        typeof x.address === 'string'
+          ? `${x.address}:${typeof x.port === 'number' ? x.port : ''}`
+          : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+    });
+    parts.push(`[${inner.join('; ')}]`);
+  }
+  if (parts.length > 0) return sanitize(parts.join(' '));
+  return typeof e.name === 'string' && e.name ? e.name : 'unknown error';
+}
+
 @Injectable()
 export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MqttConsumerService.name);
@@ -45,6 +91,16 @@ export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
   private subscribeFailures = 0;
   private shuttingDown = false;
   private cmdAckHandler: CmdAckHandler | null = null;
+  /** 连上过没有：断线日志写「连接断开」还是「连不上 Broker」 */
+  private everConnected = false;
+  /** 上次连上以来最近一个错误（断线日志写原因用） */
+  private lastError: string | null = null;
+  /** 正在断线：开始时间、重连次数、上次记日志的时间 */
+  private outage: {
+    since: number;
+    reconnects: number;
+    loggedAt: number;
+  } | null = null;
 
   constructor(private readonly ingest: IngestService) {}
 
@@ -112,6 +168,14 @@ export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
     };
 
     this.client.on('connect', (connack) => {
+      if (this.outage) {
+        this.logger.log(
+          `MQTT 已恢复：断线 ${this.outageSeconds()} 秒，重连 ${this.outage.reconnects} 次`,
+        );
+        this.outage = null;
+      }
+      this.everConnected = true;
+      this.lastError = null;
       // sessionPresent=false 表示 Broker 没有保留我们的持久会话（首连、过期或被顶替），订阅必须重建
       this.logger.log(
         `已连接 MQTT Broker：${url}（sessionPresent=${String(connack.sessionPresent)}）`,
@@ -119,10 +183,52 @@ export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
       this.subscribe();
     });
 
-    this.client.on('reconnect', () => this.logger.warn('MQTT 重连中…'));
-    this.client.on('error', (err) =>
-      this.logger.error(`MQTT 错误：${err.message}`),
+    // 断线日志节流（O23）：原来每次重连记一行「重连中」、每次失败记一行错误，EMQX 停机期间每秒两行。
+    // 现在断线时记一行（带原因），断线期间每分钟汇总一行，恢复时记一行；连着的时候出的错照常立刻记
+    this.client.on('close', () => this.beginOutage());
+    this.client.on('offline', () => this.beginOutage());
+    this.client.on('reconnect', () => {
+      if (!this.outage) return;
+      this.outage.reconnects += 1;
+      this.summarizeOutage();
+    });
+    this.client.on('error', (err) => {
+      this.lastError = describeMqttError(err);
+      if (this.outage) {
+        this.summarizeOutage();
+      } else if (this.client?.connected) {
+        this.logger.error(`MQTT 错误：${this.lastError}`);
+      } else {
+        // 还没连上就失败（启动时 Broker 不在）：错误先于 close 到，直接从这里开始算断线
+        this.beginOutage();
+      }
+    });
+  }
+
+  private beginOutage(): void {
+    if (this.outage || this.shuttingDown) return;
+    const now = Date.now();
+    this.outage = { since: now, reconnects: 0, loggedAt: now };
+    const what = this.everConnected ? 'MQTT 连接断开' : 'MQTT 连不上 Broker';
+    this.logger.error(
+      `${what}：${this.lastError ?? '没有错误信息（Broker 主动断开或网络中断）'}；每秒自动重连，断线期间每分钟汇总一行`,
     );
+  }
+
+  private summarizeOutage(): void {
+    const outage = this.outage;
+    if (!outage || Date.now() - outage.loggedAt < OUTAGE_LOG_INTERVAL_MS)
+      return;
+    outage.loggedAt = Date.now();
+    this.logger.error(
+      `MQTT 仍未连上：已断 ${this.outageSeconds()} 秒，重连 ${outage.reconnects} 次，最近错误：${this.lastError ?? '无'}`,
+    );
+  }
+
+  private outageSeconds(): number {
+    return this.outage
+      ? Math.round((Date.now() - this.outage.since) / 1000)
+      : 0;
   }
 
   /**
@@ -154,8 +260,10 @@ export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
       );
       this.subscribeTimer = setTimeout(() => {
         this.subscribeTimer = null;
+        if (this.shuttingDown) return;
         // 掐掉底层连接 = 模拟断网，mqtt.js 按 reconnectPeriod 自动重连并重新认证
-        if (!this.shuttingDown) this.client?.stream.destroy();
+        this.lastError = `订阅失败后主动断开重连（${reason}）`;
+        this.client?.stream.destroy();
       }, SUBSCRIBE_RETRY_DELAY_MS);
     });
   }

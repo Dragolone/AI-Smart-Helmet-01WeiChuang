@@ -7,7 +7,10 @@ jest.mock('mqtt', () => ({ connect: jest.fn() }));
 
 import { connect } from 'mqtt';
 import type { IngestService } from './ingest.service';
-import { MqttConsumerService } from './mqtt-consumer.service';
+import {
+  describeMqttError,
+  MqttConsumerService,
+} from './mqtt-consumer.service';
 
 type Done = (err?: Error) => void;
 type SubCb = (
@@ -124,12 +127,139 @@ describe('MqttConsumerService', () => {
       );
     });
 
-    it('reconnect / error 事件只记日志，不抛出', () => {
+    it('连着的时候出错：立刻记一行、带错误码，不抛出', () => {
       service.onModuleInit();
-      client.emit('reconnect');
-      client.emit('error', new Error('connect ECONNREFUSED'));
-      expect(warnSpy).toHaveBeenCalledWith('MQTT 重连中…');
-      expect(errorSpy).toHaveBeenCalledWith('MQTT 错误：connect ECONNREFUSED');
+      client.emit('connect', { sessionPresent: true });
+      client.emit(
+        'error',
+        Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }),
+      );
+      expect(errorSpy).toHaveBeenCalledWith(
+        'MQTT 错误：code=ECONNRESET read ECONNRESET',
+      );
+    });
+  });
+
+  describe('断线日志节流（O23）', () => {
+    /** Node 对一个主机名的 IPv4 / IPv6 都试过后抛的错：message 为空，原因在 code 和里面每一条上 */
+    const refused = () =>
+      Object.assign(
+        new AggregateError(
+          [
+            Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:1883'), {
+              code: 'ECONNREFUSED',
+            }),
+            { code: 'ECONNREFUSED', address: '::1', port: 1883 },
+          ],
+          '',
+        ),
+        { code: 'ECONNREFUSED' },
+      );
+    const REFUSED_TEXT =
+      'code=ECONNREFUSED [connect ECONNREFUSED 127.0.0.1:1883; ECONNREFUSED ::1:1883]';
+    const errorLines = () =>
+      errorSpy.mock.calls.map((c) => String((c as [unknown])[0]));
+
+    it('断线时记一行，断线期间每分钟汇总一行（带最近的错误码），恢复时记一行；不再每次重连都记', () => {
+      jest.useFakeTimers({ now: 0 });
+      service.onModuleInit();
+      client.emit('connect', { sessionPresent: true });
+      client.connected = false;
+      client.emit('close');
+      client.emit('offline');
+      expect(errorLines()).toEqual([
+        'MQTT 连接断开：没有错误信息（Broker 主动断开或网络中断）；每秒自动重连，断线期间每分钟汇总一行',
+      ]);
+      for (let i = 0; i < 150; i += 1) {
+        jest.advanceTimersByTime(1000);
+        client.emit('reconnect');
+        client.emit('error', refused());
+        client.emit('close');
+      }
+      expect(errorLines()).toHaveLength(3);
+      expect(errorLines()[1]).toBe(
+        `MQTT 仍未连上：已断 60 秒，重连 60 次，最近错误：${REFUSED_TEXT}`,
+      );
+      expect(errorLines()[2]).toBe(
+        `MQTT 仍未连上：已断 120 秒，重连 120 次，最近错误：${REFUSED_TEXT}`,
+      );
+      expect(warnSpy).not.toHaveBeenCalled();
+
+      client.connected = true;
+      client.emit('connect', { sessionPresent: true });
+      expect(logSpy).toHaveBeenCalledWith(
+        'MQTT 已恢复：断线 150 秒，重连 150 次',
+      );
+      // 恢复后再断：重新开始算，新的一行带这次的原因
+      client.emit(
+        'error',
+        Object.assign(new Error('Keepalive timeout'), { code: undefined }),
+      );
+      client.connected = false;
+      client.emit('close');
+      expect(errorLines().slice(3)).toEqual([
+        'MQTT 错误：Keepalive timeout',
+        'MQTT 连接断开：Keepalive timeout；每秒自动重连，断线期间每分钟汇总一行',
+      ]);
+    });
+
+    it('启动时就连不上（错误先于 close 到）：写「连不上 Broker」并带上错误码，只记一行', () => {
+      service.onModuleInit();
+      client.connected = false;
+      client.emit('error', refused());
+      client.emit('close');
+      client.emit('offline');
+      expect(errorLines()).toEqual([
+        `MQTT 连不上 Broker：${REFUSED_TEXT}；每秒自动重连，断线期间每分钟汇总一行`,
+      ]);
+    });
+
+    it('订阅失败后主动掐断重连：断线那一行写明是自己断的', () => {
+      jest.useFakeTimers();
+      service.onModuleInit();
+      client.emit('connect', { sessionPresent: true });
+      const cb = client.subscribe.mock.calls[0][2];
+      cb(new Error('Connection closed'));
+      jest.advanceTimersByTime(5_000);
+      client.connected = false;
+      client.emit('close');
+      expect(errorLines().at(-1)).toBe(
+        'MQTT 连接断开：订阅失败后主动断开重连（Connection closed）；每秒自动重连，断线期间每分钟汇总一行',
+      );
+    });
+
+    it('关停中断开：不算断线、不记日志', async () => {
+      service.onModuleInit();
+      client.emit('connect', { sessionPresent: true });
+      await service.onModuleDestroy();
+      client.connected = false;
+      client.emit('close');
+      client.emit('offline');
+      expect(errorSpy).not.toHaveBeenCalled();
+    });
+
+    it('describeMqttError：CONNACK 拒绝是数字原因码；非 Error 原样；换行压掉（防日志伪造）', () => {
+      expect(
+        describeMqttError(
+          Object.assign(new Error('Connection refused: Not authorized'), {
+            code: 5,
+          }),
+        ),
+      ).toBe('code=5 Connection refused: Not authorized');
+      expect(describeMqttError('boom')).toBe('boom');
+      // 别的 realm 建的错误对象（instanceof Error 不成立，e2e 的 jest 沙箱里就是这样）：照样按字段取
+      expect(
+        describeMqttError({
+          name: 'Error',
+          message: 'connect ECONNREFUSED 127.0.0.1:1883',
+          code: 'ECONNREFUSED',
+        }),
+      ).toBe('code=ECONNREFUSED connect ECONNREFUSED 127.0.0.1:1883');
+      expect(describeMqttError({})).toBe('unknown error');
+      expect(describeMqttError(new Error('a\nb'))).toBe('a b');
+      expect(describeMqttError(new AggregateError([], ''))).toBe(
+        'AggregateError',
+      );
     });
   });
 
