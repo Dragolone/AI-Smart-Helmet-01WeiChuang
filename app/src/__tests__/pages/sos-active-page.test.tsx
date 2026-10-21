@@ -324,6 +324,18 @@ describe("倒数中", () => {
     expect(number(r)).toBe("59");
   });
 
+  it("截止时间解析不出来（服务端出错）：大数字写「—」不写 NaN，按钮照常可用（10-21 夜测）", async () => {
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ deadline: "not-a-date" })),
+    );
+    const r = await mount();
+    expect(number(r)).toBe("—");
+    expect(r.allText()).not.toContain("NaN");
+    expect(r.allText()).toContain(tr("sos.sendNow"));
+    await tick(3000);
+    expect(r.allText()).not.toContain("NaN");
+  });
+
   it("警报：音频设成锁屏 / 静音键下也响，每秒重播 + 震一下；最后 10 秒每秒连震两下", async () => {
     m(sosApi.snapshot).mockImplementation(() =>
       Promise.resolve(
