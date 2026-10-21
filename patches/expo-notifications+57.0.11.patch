@@ -16,3 +16,19 @@ index 610d303..dc61fd4 100644
      builder.setAutoCancel(content.isAutoDismiss)
      builder.setOngoing(content.isSticky)
  
+diff --git a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/NotificationsService.kt b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/NotificationsService.kt
+index 74554be..e4246e5 100644
+--- a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/NotificationsService.kt
++++ b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/NotificationsService.kt
+@@ -475,7 +475,10 @@ open class NotificationsService : BroadcastReceiver() {
+       // [notification trampolines](https://developer.android.com/about/versions/12/behavior-changes-12#identify-notification-trampolines)
+       // are not allowed. If the notification wants to open foreground app,
+       // we should use the dedicated Activity pendingIntent.
+-      if (action.opensAppToForeground() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
++      // 零一智行补丁（10-22 华为实测）：安卓 12 以下原来走广播跳板（广播里再 startActivity），华为 / 小米等默认不许
++      // App 从后台弹页面，点求救提醒正文、「我没事，取消」都打不开 App（鸿蒙 2–4 报的都是安卓 10）。
++      // 一律用直接拉起 Activity 的 PendingIntent，跟安卓 12 起一样
++      if (action.opensAppToForeground()) {
+         return ExpoHandlingDelegate.createPendingIntentForOpeningApp(context, intent)
+       }
+ 
