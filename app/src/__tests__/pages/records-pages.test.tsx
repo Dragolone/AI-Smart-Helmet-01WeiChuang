@@ -118,12 +118,14 @@ jest.mock("@/components/map/nav-links", () => ({
 }));
 const mockSafety = {
   notify: null as string | null,
+  dnd: null as boolean | null,
   drillOpen: jest.fn(),
   reminder: { enabled: true as boolean | null, setEnabled: jest.fn() },
   steps: [] as { key: string; done: boolean; action?: () => void }[],
 };
 jest.mock("@/hooks/use-safety", () => ({
   useNotifyPermission: () => mockSafety.notify,
+  useSosDndBypass: () => mockSafety.dnd,
   useSosDrill: () => ({ open: mockSafety.drillOpen }),
 }));
 jest.mock("@/hooks/use-switch-reminder", () => ({
@@ -133,8 +135,11 @@ jest.mock("@/components/ble-onboarding", () => ({
   useBleOnboardingSteps: () => mockSafety.steps,
 }));
 const mockOpenSettings = jest.fn(() => Promise.resolve());
+const mockOpenChannel = jest.fn((_id: string) => Promise.resolve());
 jest.mock("@/services/notification-settings", () => ({
   openNotificationSettings: () => mockOpenSettings(),
+  openNotificationChannelSettings: (id: string) => mockOpenChannel(id),
+  openSosDndSettings: (id: string) => mockOpenChannel(id),
 }));
 
 const dark = Colors.dark;
@@ -479,6 +484,7 @@ describe("安全设置", () => {
   const original = Platform.OS;
   beforeEach(() => {
     mockSafety.notify = null;
+    mockSafety.dnd = null;
     mockSafety.reminder = { enabled: true, setEnabled: jest.fn() };
     mockSafety.steps = [];
     m(devicesApi.list).mockImplementation(() =>
@@ -524,6 +530,28 @@ describe("安全设置", () => {
     expect(r.icons()).toContain("notifications-off-outline");
     r.press(tr("safetySettings.notify"));
     expect(mockOpenSettings).toHaveBeenCalled();
+  });
+
+  it("勿扰模式下也提醒（O28，Android）：通知开着才显示；没允许时写后果、点了进求救通道的设置页；允许了只换图标和状态", () => {
+    m(contactsApi.list).mockImplementation(() => new Promise(() => undefined));
+    // 不适用（iOS / 通道没建）：不显示
+    mockSafety.notify = "granted";
+    let r = mount(<SafetySettingsScreen />);
+    expect(r.allText()).not.toContain(tr("safetySettings.dnd"));
+    // 通知没开：上一行已经在提示，不显示
+    mockSafety.notify = "denied";
+    mockSafety.dnd = false;
+    r = mount(<SafetySettingsScreen />);
+    expect(r.allText()).not.toContain(tr("safetySettings.dnd"));
+    mockSafety.notify = "granted";
+    r = mount(<SafetySettingsScreen />);
+    expect(r.allText()).toContain(tr("safetySettings.dnd.off"));
+    r.press(tr("safetySettings.dnd"));
+    expect(mockOpenChannel).toHaveBeenCalledWith("sos");
+    mockSafety.dnd = true;
+    r = mount(<SafetySettingsScreen />);
+    expect(r.allText()).toContain(tr("safetySettings.dnd.on"));
+    expect(r.icons()).toContain("moon-outline");
   });
 
   it("Android 省电白名单：没加入时可点去设置、加入了只显示状态；Android 多一句锁定最近任务", () => {

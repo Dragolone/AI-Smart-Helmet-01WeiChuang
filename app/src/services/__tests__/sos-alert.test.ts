@@ -106,7 +106,17 @@ jest.mock("expo-notifications", () => ({
   getLastNotificationResponse: () => mockGetLastResponse(),
   getPresentedNotificationsAsync: () => mockPresented(),
   clearLastNotificationResponse: () => mockClearLastResponse(),
-  AndroidImportance: { MAX: 5, NONE: 0 },
+  // 和 expo-notifications 的取值一致（不是安卓原生的 0–5）
+  AndroidImportance: {
+    UNKNOWN: 0,
+    UNSPECIFIED: 1,
+    NONE: 2,
+    MIN: 3,
+    LOW: 4,
+    DEFAULT: 5,
+    HIGH: 6,
+    MAX: 7,
+  },
   AndroidNotificationVisibility: { PUBLIC: 1 },
   AndroidNotificationPriority: { MAX: "max" },
   SchedulableTriggerInputTypes: { TIME_INTERVAL: "timeInterval" },
@@ -675,6 +685,44 @@ describe("sos-alert", () => {
       expect(mockRequestPerms).toHaveBeenCalledTimes(1);
     });
 
+    it("别的授权框（蓝牙）也走同一道门：页面不在屏立刻放行；在屏就等它关掉；登记了却没挂上的看一眼就放行；补拉没回来最多等 5 s（10-21 代码审查）", async () => {
+      jest.useFakeTimers();
+      const { m, screen, presented } = loadWithScreen();
+      const free = jest.fn();
+      void m.whenCountdownClearForPrompt().then(free);
+      await settle();
+      expect(free).toHaveBeenCalledTimes(1);
+
+      screen.mounted = true;
+      const waiting = jest.fn();
+      void m.whenCountdownClearForPrompt().then(waiting);
+      await jest.advanceTimersByTimeAsync(30_000);
+      await settle();
+      expect(waiting).not.toHaveBeenCalled();
+      screen.mounted = false;
+      await jest.advanceTimersByTimeAsync(1_000);
+      await settle();
+      expect(waiting).toHaveBeenCalledTimes(1);
+
+      presented.add("s1");
+      const once = jest.fn();
+      void m.whenCountdownClearForPrompt().then(once);
+      await jest.advanceTimersByTimeAsync(1_000);
+      await settle();
+      expect(once).toHaveBeenCalledTimes(1);
+      presented.clear();
+
+      m.holdPermissionPromptUntil(new Promise<void>(() => undefined));
+      const gated = jest.fn();
+      void m.whenCountdownClearForPrompt().then(gated);
+      await jest.advanceTimersByTimeAsync(4_999);
+      await settle();
+      expect(gated).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(1);
+      await settle();
+      expect(gated).toHaveBeenCalledTimes(1);
+    });
+
     it("补弹那次申请出错：不抛（没有未处理的拒绝），界面照常往下读", async () => {
       jest.useFakeTimers();
       willPrompt();
@@ -763,12 +811,24 @@ describe("sos-alert", () => {
       override(Platform, "OS", "android");
       const m = load();
       mockGetPerms.mockResolvedValue({ granted: true, status: "granted" });
-      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 0 });
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 2 });
       expect(await m.isSosChannelBlocked()).toBe(true);
-      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 0 });
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 2 });
       expect(await m.isSosAlertPermissionDenied()).toBe(true);
-      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 5 });
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 7 });
       expect(await m.isSosAlertPermissionDenied()).toBe(false);
+      // 被调成「静默」（LOW / MIN）：不响不弹，算没开（O28，10-21 模拟器）；「默认」会响，不算
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 4 });
+      expect(await m.isSosChannelBlocked()).toBe(true);
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 3 });
+      expect(await m.isSosChannelBlocked()).toBe(true);
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 5 });
+      expect(await m.isSosChannelBlocked()).toBe(false);
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 6 });
+      expect(await m.isSosChannelBlocked()).toBe(false);
+      // 取不到等级（UNKNOWN / UNSPECIFIED）不吓唬用户
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 0 });
+      expect(await m.isSosChannelBlocked()).toBe(false);
       mockGetChannel.mockResolvedValueOnce(null);
       expect(await m.isSosAlertPermissionDenied()).toBe(false);
       mockGetChannel.mockRejectedValueOnce(new Error("x"));
@@ -780,9 +840,34 @@ describe("sos-alert", () => {
       override(Platform, "OS", "ios");
       const m = load();
       mockGetPerms.mockResolvedValue({ granted: true, status: "granted" });
-      mockGetChannel.mockResolvedValue({ id: "sos", importance: 0 });
+      mockGetChannel.mockResolvedValue({ id: "sos", importance: 2 });
       expect(await m.isSosChannelBlocked()).toBe(false);
       expect(await m.isSosAlertPermissionDenied()).toBe(false);
+      expect(mockGetChannel).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("sosChannelBypassesDnd / 勿扰模式下求救通道能否提醒（O28，10-21 模拟器实测会被拦下）", () => {
+    it("Android：通道 bypassDnd 为 true 才算允许；false / 没这个字段算不允许；通道还没建、查不到 → 不适用", async () => {
+      override(Platform, "OS", "android");
+      const m = load();
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", bypassDnd: true });
+      expect(await m.sosChannelBypassesDnd()).toBe(true);
+      mockGetChannel.mockResolvedValueOnce({ id: "sos", bypassDnd: false });
+      expect(await m.sosChannelBypassesDnd()).toBe(false);
+      mockGetChannel.mockResolvedValueOnce({ id: "sos" });
+      expect(await m.sosChannelBypassesDnd()).toBe(false);
+      mockGetChannel.mockResolvedValueOnce(null);
+      expect(await m.sosChannelBypassesDnd()).toBeNull();
+      mockGetChannel.mockRejectedValueOnce(new Error("x"));
+      expect(await m.sosChannelBypassesDnd()).toBeNull();
+      expect(mockGetChannel).toHaveBeenCalledWith("sos");
+    });
+
+    it("iOS：不适用（求救通知是 time-sensitive），不查", async () => {
+      override(Platform, "OS", "ios");
+      const m = load();
+      expect(await m.sosChannelBypassesDnd()).toBeNull();
       expect(mockGetChannel).not.toHaveBeenCalled();
     });
   });
