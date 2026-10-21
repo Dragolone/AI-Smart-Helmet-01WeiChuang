@@ -24,6 +24,8 @@ import { firstActiveSos } from "@/services/active-sos";
 import { sosActiveHref } from "@/services/sos-routes";
 import { useAuthStore } from "@/stores/auth-store";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 const CONSEQUENCES: {
   icon: keyof typeof Ionicons.glyphMap;
   key: MessageKey;

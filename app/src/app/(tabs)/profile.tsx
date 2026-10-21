@@ -45,6 +45,8 @@ import {
   personNameOf,
 } from "@/services/user-name";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 /** 退出前最多花这么久把积压的头盔事件送出去（O21） */
 const SIGN_OUT_UPLOAD_MS = 5_000;
 

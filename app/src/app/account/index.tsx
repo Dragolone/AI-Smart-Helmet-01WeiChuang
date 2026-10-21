@@ -9,6 +9,8 @@ import { ThemedView } from "@/components/themed-view";
 import { useT } from "@/i18n";
 import { useAuthStore } from "@/stores/auth-store";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 export default function AccountScreen() {
   const t = useT();
   const user = useAuthStore((s) => s.user);

@@ -20,6 +20,8 @@ import { contactPhoneProblem } from "@/services/contact-phone";
 import { cleanNickname } from "@/services/user-name";
 import { useAuthStore } from "@/stores/auth-store";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 export default function AddContactScreen() {
   const queryClient = useQueryClient();
   const t = useT();

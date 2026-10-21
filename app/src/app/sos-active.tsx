@@ -113,6 +113,8 @@ import {
 import { contactNameOf } from "@/services/user-name";
 import { showNotice } from "@/services/notice";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 /** 读屏（VoiceOver / TalkBack）开没开 */
 function useScreenReader(): boolean {
   const [on, setOn] = useState(false);
