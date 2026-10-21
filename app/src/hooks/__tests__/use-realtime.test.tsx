@@ -894,7 +894,7 @@ describe("求救：拉起倒计时页与锁屏提醒", () => {
     ["服务端 500", new ApiRequestError(500, {})],
     ["断网", offline()],
   ])(
-    "账号级接口报别的错（%s）：不退回逐台查（离线时那只是 N 个注定失败的请求），这次补拉作罢、不抛",
+    "账号级接口报别的错（%s）：不退回逐台查（离线时那只是 N 个注定失败的请求），这次不拉起、不抛（稍后重试见下一条）",
     async (_label, error) => {
       jest.mocked(sosApi.activeForAccount).mockRejectedValue(error);
       await mountBridge();
@@ -903,6 +903,90 @@ describe("求救：拉起倒计时页与锁屏提醒", () => {
       expect(router.push).not.toHaveBeenCalled();
     },
   );
+
+  describe("冷启动补拉失败后重试（10-22 夜测：安卓划掉后进程和 WS 都活着，界面重挂时只有这一次补拉，弱网下没拉到就再没机会）", () => {
+    /** 截下重试用的定时器（2 s 起头、5 s 第二次），由用例自己触发；别的定时器照常 */
+    function catchRetryTimers(): (ms?: number) => (() => void) | null {
+      const real = global.setTimeout;
+      const caught = new Map<number, () => void>();
+      jest.spyOn(global, "setTimeout").mockImplementation(((
+        fn: () => void,
+        ms?: number,
+      ) => {
+        if (ms === 2_000 || ms === 5_000) {
+          caught.set(ms, fn);
+          return 0 as unknown as ReturnType<typeof setTimeout>;
+        }
+        return real(fn, ms);
+      }) as typeof setTimeout);
+      return (ms = 2_000) => caught.get(ms) ?? null;
+    }
+    const account = (sosId: string) => ({
+      items: [{ ...sosOf({ sosId, deviceId: "h1" }), deviceName: null }],
+      total: 1,
+      page: 1,
+      pageSize: 100,
+    });
+
+    it("2 s 后再补一次，补到了照样拉起倒计时页", async () => {
+      const retry = catchRetryTimers();
+      jest
+        .mocked(sosApi.activeForAccount)
+        .mockRejectedValueOnce(offline())
+        .mockResolvedValueOnce(account("s9"));
+      await mountBridge();
+      expect(router.push).not.toHaveBeenCalled();
+      expect(retry()).not.toBeNull();
+      await act(async () => retry()!());
+      await flush();
+      expect(sosApi.activeForAccount).toHaveBeenCalledTimes(2);
+      expect(router.push).toHaveBeenCalledWith(
+        "/sos-active?sosId=s9&deviceId=h1",
+      );
+      expect(devLog).toHaveBeenCalledWith(
+        "SOS",
+        "冷启动补拉失败后重试，发现进行中 SOS s9",
+      );
+    });
+
+    it("补拉成功（哪怕没有进行中的单）不重试", async () => {
+      const retry = catchRetryTimers();
+      jest
+        .mocked(sosApi.activeForAccount)
+        .mockResolvedValueOnce({ items: [], total: 0, page: 1, pageSize: 100 });
+      await mountBridge();
+      expect(retry()).toBeNull();
+    });
+
+    it("重试途中退出登录：后面几次不再发请求", async () => {
+      const retry = catchRetryTimers();
+      jest
+        .mocked(sosApi.activeForAccount)
+        .mockRejectedValueOnce(offline())
+        .mockRejectedValueOnce(offline());
+      await mountBridge();
+      await act(async () => retry()!());
+      await flush();
+      expect(sosApi.activeForAccount).toHaveBeenCalledTimes(2);
+      await logout();
+      jest.mocked(sosApi.activeForAccount).mockClear();
+      expect(retry(5_000)).not.toBeNull();
+      await act(async () => retry(5_000)!());
+      await flush();
+      expect(sosApi.activeForAccount).not.toHaveBeenCalled();
+    });
+
+    it("重试排上之后退出登录：到点不再补拉", async () => {
+      const retry = catchRetryTimers();
+      jest.mocked(sosApi.activeForAccount).mockRejectedValueOnce(offline());
+      await mountBridge();
+      await logout();
+      jest.mocked(sosApi.activeForAccount).mockClear();
+      await act(async () => retry()!());
+      await flush();
+      expect(sosApi.activeForAccount).not.toHaveBeenCalled();
+    });
+  });
 
   it("WS 由断转连才补拉（第一次连上算启动，冷启动补拉已经做过）", async () => {
     await mountBridge();
