@@ -35,6 +35,8 @@ export const PUSH_TITLE = {
   contactsNotified: 'SOS 已通知紧急联系人',
   contactsFailed: 'SOS 紧急联系人通知发送失败',
   noContacts: 'SOS 未设置紧急联系人',
+  /** 状态推送说了「全部失败」、之后短信重试成功时补的那一条（O17，负责人 10-21） */
+  retryNotified: 'SOS 已在重试后通知紧急联系人',
 } as const;
 
 /**
@@ -229,9 +231,10 @@ export class SosNotifierService {
    */
   private async deliverClaimed(row: SosNotification & { sos: SosCase }) {
     const thisAttempt = { id: row.id, attempts: row.attempts + 1 };
+    let pushTitle: string | null;
     try {
       // 挂起的第三方调用按失败记 lastError=…timeout，走既有重试，不占住扫描任务（审计 SOS-05）
-      await withTimeout(
+      pushTitle = await withTimeout(
         this.send(row, row.sos),
         notifyTimeoutMs(),
         `sos.notify(${row.channel})`,
@@ -249,15 +252,7 @@ export class SosNotifierService {
     }
     for (let i = 0; ; i += 1) {
       try {
-        await this.prisma.sosNotification.updateMany({
-          where: thisAttempt,
-          // 重试成功后清掉上一次的错误：详情页不能同时显示「已发送」和旧错误文本（审计 SOS-08）
-          data: {
-            status: NOTIFICATION_STATUS.sent,
-            sentAt: new Date(),
-            lastError: null,
-          },
-        });
+        await this.markSent(row, thisAttempt, pushTitle);
         return;
       } catch (err) {
         if (i >= SENT_WRITE_RETRIES) {
@@ -270,6 +265,88 @@ export class SosNotifierService {
         await sleep(SENT_WRITE_RETRY_MS);
       }
     }
+  }
+
+  /**
+   * 写「已发送」（只写到还是这次占位的那一行）。短信行、以「通知发送失败」发出的状态推送行，
+   * 要不要补推「已在重试后通知到」在同一事务里一起定（O17）：先锁住这张单，两条路径因此串行——
+   * 短信先写成功，推送写「已发送」时看得到；推送先写，短信写成功时看得到（推送文案生成之后、写库之前
+   * 恰好有短信成功，就是前一种）。补推行与「已发送」一起提交，进程在两者之间倒下也不会漏建
+   */
+  private async markSent(
+    row: SosNotification & { sos: SosCase },
+    thisAttempt: { id: string; attempts: number },
+    pushTitle: string | null,
+  ): Promise<void> {
+    const data = {
+      status: NOTIFICATION_STATUS.sent,
+      sentAt: new Date(),
+      // 重试成功后清掉上一次的错误：详情页不能同时显示「已发送」和旧错误文本（审计 SOS-08）
+      lastError: null,
+      ...(pushTitle !== null ? { pushTitle } : {}),
+    };
+    if (row.channel !== 'sms' && pushTitle !== PUSH_TITLE.contactsFailed) {
+      await this.prisma.sosNotification.updateMany({
+        where: thisAttempt,
+        data,
+      });
+      return;
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM sos_cases WHERE id = ${row.sosId} FOR NO KEY UPDATE`;
+      const { count } = await tx.sosNotification.updateMany({
+        where: thisAttempt,
+        data,
+      });
+      if (count > 0) await this.queueRetryPush(tx, row.sos);
+    });
+  }
+
+  /**
+   * 建「已在重试后通知到」补推行（O17，负责人 10-21）：只补给收到过「通知发送失败」的人——状态推送以那个标题发出、
+   * 之后至少一条短信成功；每单最多一条。调用方已锁住这张单。补推是一条普通的本人 push 行，
+   * 重试退避、次数上限、重启续投、留档都沿用通知行那一套；状态推送部分成功（「其余失败」）的不补
+   */
+  private async queueRetryPush(
+    tx: Prisma.TransactionClient,
+    sos: SosCase,
+  ): Promise<void> {
+    const pushes = await tx.sosNotification.findMany({
+      where: {
+        sosId: sos.id,
+        channel: 'push',
+        pushTitle: {
+          in: [PUSH_TITLE.contactsFailed, PUSH_TITLE.retryNotified],
+        },
+      },
+      select: { status: true, pushTitle: true },
+    });
+    const toldFailed = pushes.some(
+      (p) =>
+        p.pushTitle === PUSH_TITLE.contactsFailed &&
+        p.status === NOTIFICATION_STATUS.sent,
+    );
+    if (!toldFailed) return;
+    if (pushes.some((p) => p.pushTitle === PUSH_TITLE.retryNotified)) return;
+    const smsSent = await tx.sosNotification.count({
+      where: {
+        sosId: sos.id,
+        channel: 'sms',
+        status: NOTIFICATION_STATUS.sent,
+      },
+    });
+    if (smsSent === 0) return;
+    await tx.sosNotification.create({
+      data: {
+        sosId: sos.id,
+        channel: 'push',
+        target: `user:${sos.userId}`,
+        pushTitle: PUSH_TITLE.retryNotified,
+      },
+    });
+    this.logger.warn(
+      `SOS ${sos.id} 本人收到过「通知发送失败」，短信重试后已发出 ${smsSent} 条：补推一条`,
+    );
   }
 
   /**
@@ -296,14 +373,21 @@ export class SosNotifierService {
     return count;
   }
 
-  private async send(row: SosNotification, sosCase: SosCase): Promise<void> {
+  /** 发一次。本人推送返回实际用的标题（写进 push_title 留档、补推据此判断），短信返回 null */
+  private async send(
+    row: SosNotification,
+    sosCase: SosCase,
+  ): Promise<string | null> {
     if (row.channel === 'sms') {
       await this.sms.send(row.target, await this.smsMessage(sosCase));
-      return;
+      return null;
     }
-    // push target 形如 user:<id>。标题/正文按此刻联系人短信的真实结果生成：
+    // push target 形如 user:<id>。补推行建行时就写好了标题；其余是状态推送，标题/正文按此刻联系人短信的真实结果生成：
     // 通知行按 channel desc 排序投递（见扫描处 orderBy 的说明），短信行在本人 Push 之前，所以这里读到的是本轮投递后的状态
-    const { title, body } = await this.pushText(sosCase);
+    const { title, body } =
+      row.pushTitle === PUSH_TITLE.retryNotified
+        ? await this.retryPushText(sosCase)
+        : await this.pushText(sosCase);
     // 已到终态：不带 "sos" 类别（那上面的「取消」按钮对已通知的单没有意义），只要时效性穿透专注模式
     await this.push.send(
       row.target.replace(/^user:/, ''),
@@ -312,6 +396,7 @@ export class SosNotifierService {
       { sosId: sosCase.id, deviceId: sosCase.deviceId },
       { timeSensitive: true },
     );
+    return title;
   }
 
   /** 四层语义区分（审计 SOS-04）：任务已创建 ≠ Provider 已接收 ≠ 联系人已收到；文案只承诺前两者 */
@@ -322,18 +407,8 @@ export class SosNotifierService {
       where: { sosId: sosCase.id, channel: 'sms' },
       select: { status: true },
     });
-    // 头盔写用户起的名字、时间写北京时间 HH:mm（原来是编号 + toISOString 的 UTC 原文，负责人 10-15）。
-    // 名字只认这单主人起的：倒计时中解绑 / 换绑、或对账给前主人补建时，不能把新主人起的名字推给前主人（同 #215 activeForUser）
-    const device = await this.prisma.device
-      .findUnique({
-        where: { deviceId: sosCase.deviceId },
-        select: { name: true, bindUserId: true },
-      })
-      .catch(() => null);
-    const helmet = helmetLabel({
-      name: device?.bindUserId === sosCase.userId ? device.name : null,
-      deviceId: sosCase.deviceId,
-    });
+    // 时间写北京时间 HH:mm（原来是 toISOString 的 UTC 原文，负责人 10-15）
+    const helmet = await this.helmetOf(sosCase);
     const clock = pushClock(sosCase.finalizedAt);
     const at = clock ? `已于 ${clock} ` : '';
     if (sms.length === 0) {
@@ -355,6 +430,53 @@ export class SosNotifierService {
       title: PUSH_TITLE.contactsNotified,
       body: `头盔 ${helmet} 的求救${at}向 ${sent}/${sms.length} 位紧急联系人发出短信通知${sent < sms.length ? '（其余失败，系统会自动重试）' : ''}`,
     };
+  }
+
+  /** 补推正文：N 按此刻短信的结果现算（补推行建好到发出之间可能又有短信成功）；不带时间 */
+  private async retryPushText(
+    sosCase: SosCase,
+  ): Promise<{ title: string; body: string }> {
+    const sms = await this.prisma.sosNotification.findMany({
+      where: { sosId: sosCase.id, channel: 'sms' },
+      select: { status: true, attempts: true },
+    });
+    const sent = sms.filter(
+      (r) => r.status === NOTIFICATION_STATUS.sent,
+    ).length;
+    // 没发出的里还有能再试的（待发 / 在飞，或失败但次数没用完）才说「仍在重试」，都用完了就照实说失败
+    const retrying = sms.some(
+      (r) =>
+        r.status === NOTIFICATION_STATUS.pending ||
+        (r.status === NOTIFICATION_STATUS.failed &&
+          r.attempts < maxNotifyAttempts()),
+    );
+    const rest =
+      sent < sms.length
+        ? retrying
+          ? '（其余仍在重试）'
+          : '（其余发送失败）'
+        : '';
+    return {
+      title: PUSH_TITLE.retryNotified,
+      body: `头盔 ${await this.helmetOf(sosCase)} 的求救短信已在重试后发给 ${sent}/${sms.length} 位紧急联系人${rest}`,
+    };
+  }
+
+  /**
+   * 推送里怎么称呼这顶头盔：用户起的名字优先，没有才用编号；查不到 / 查询出错用编号，推送照发。
+   * 名字只认这单主人起的：倒计时中解绑 / 换绑、或对账给前主人补建时，不能把新主人起的名字推给前主人（同 #215 activeForUser）
+   */
+  private async helmetOf(sosCase: SosCase): Promise<string> {
+    const device = await this.prisma.device
+      .findUnique({
+        where: { deviceId: sosCase.deviceId },
+        select: { name: true, bindUserId: true },
+      })
+      .catch(() => null);
+    return helmetLabel({
+      name: device?.bindUserId === sosCase.userId ? device.name : null,
+      deviceId: sosCase.deviceId,
+    });
   }
 
   /**
