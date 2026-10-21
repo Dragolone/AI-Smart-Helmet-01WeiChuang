@@ -9,6 +9,7 @@ import type {
   Sos,
 } from "@helmet/shared";
 import { api, ApiRequestError } from "./client";
+import { isSosFor } from "./sos-shape";
 
 /**
  * 倒计时页「取消 / 立即求救」的单次超时，比全局的 15 s 短（O7，10-20 模拟器实测）：
@@ -18,6 +19,15 @@ import { api, ApiRequestError } from "./client";
  * WS 推送 / 轮询会把页面切到终态，再点重试拿到 SOS_ALREADY_FINALIZED 也按已结束处理
  */
 export const SOS_ACTION_TIMEOUT_MS = 8_000;
+
+/** 应答不像预期的结构：按服务端出错处理（INTERNAL_ERROR →「服务暂时不可用」），调用方当这次没拉到 */
+const badShape = (path: string) =>
+  new ApiRequestError(
+    200,
+    { code: "INTERNAL_ERROR", message: `${path}: unexpected shape` },
+    undefined,
+    true,
+  );
 
 export const sosApi = {
   /** 无进行中 SOS 时返回 { sos: null } */
@@ -71,16 +81,23 @@ export const sosApi = {
     // 还在倒数的求救当成「不存在」收掉（10-16 C1）
     if (deviceId) {
       try {
-        const { sos } = await api<ActiveSosResponse>(
-          `/devices/${encodeURIComponent(deviceId)}/sos/active`,
-        );
-        if (sos && sos.sosId === sosId) return sos;
+        const path = `/devices/${encodeURIComponent(deviceId)}/sos/active`;
+        const res = await api<ActiveSosResponse | null>(path);
+        if (typeof res !== "object" || res === null) throw badShape(path);
+        const { sos } = res;
+        if (sos && sos.sosId === sosId) {
+          if (!isSosFor(sos, sosId)) throw badShape(path);
+          return sos;
+        }
       } catch (e) {
         // 倒计时中头盔被解绑：设备接口 404，但这单的处置权还在本人（解绑不影响进行中的求救，事故记录按本人查）。
         // 原来 404 直接抛给页面：轮询停掉，数字停在 0、警报一直响、点取消 409 再拉还是 404（10-16 评审）
         if (!(e instanceof ApiRequestError && e.status === 404)) throw e;
       }
     }
-    return api<AccidentDetail>(`/accidents/${encodeURIComponent(sosId)}`);
+    const path = `/accidents/${encodeURIComponent(sosId)}`;
+    const detail = await api<AccidentDetail>(path);
+    if (!isSosFor(detail, sosId)) throw badShape(path);
+    return detail;
   },
 };

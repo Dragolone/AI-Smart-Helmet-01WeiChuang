@@ -18,6 +18,7 @@ import {
   ApiRequestError,
   REQUEST_TIMEOUT_MS,
   api,
+  apiList,
   attachSession,
   clientTimeZone,
   forceRefreshTokens,
@@ -432,6 +433,33 @@ describe("响应体形态", () => {
       });
       expect(init?.body).toBe(JSON.stringify(body));
     }
+  });
+});
+
+describe("列表接口应答不是数组（10-21 夜测：开屏层对设备列表调 .find，App 每次一开就闪退）", () => {
+  it("字符串 / 对象 / null 都按服务端出错（INTERNAL_ERROR）处理；数组照常返回", async () => {
+    for (const bad of ["unexpected", { error: "blocked" }, null, 42]) {
+      fetchMock.mockResolvedValueOnce(res(200, bad));
+      const e = await apiList("/devices").catch((x: unknown) => x);
+      expect(e).toBeInstanceOf(ApiRequestError);
+      expect((e as ApiRequestError).code).toBe("INTERNAL_ERROR");
+      expect(toUserMessage(e)).toBe(translate("error.internal"));
+    }
+    fetchMock.mockResolvedValueOnce(res(200, [{ deviceId: "d1" }]));
+    await expect(apiList("/devices")).resolves.toEqual([{ deviceId: "d1" }]);
+  });
+});
+
+describe("不用 HTTP 缓存（10-21 夜测：手机时间往回拨后 OkHttp 一直给旧应答）", () => {
+  it("每个请求都带 Cache-Control: no-store，登录前的、带会话的、带请求体的都一样", async () => {
+    fetchMock.mockImplementation(async () => res(200, {}));
+    await api("/x", { auth: false });
+    await api("/devices");
+    await api("/x", { method: "POST", body: { a: 1 } });
+    for (const call of fetchMock.mock.calls) {
+      expect(call[1]?.headers).toMatchObject({ "Cache-Control": "no-store" });
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });
 

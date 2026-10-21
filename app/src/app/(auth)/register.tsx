@@ -41,6 +41,8 @@ import { useT } from "@/i18n";
 import { useAuthStore } from "@/stores/auth-store";
 import { useConsentStore } from "@/stores/consent-store";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 export default function RegisterScreen() {
   const theme = useTheme();
   const t = useT();

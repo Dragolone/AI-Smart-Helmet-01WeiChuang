@@ -22,6 +22,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   type AccessibilityActionEvent,
   Alert,
+  Linking,
   Modal,
   PermissionsAndroid,
   Platform,
@@ -29,6 +30,7 @@ import {
   ScrollView,
   Share,
   StyleSheet,
+  useWindowDimensions,
   View,
 } from "react-native";
 import * as Haptics from "expo-haptics";
@@ -55,7 +57,7 @@ import { channelsApi } from "@/api/channels";
 import { inviteCodeFrom } from "@/services/invite-code";
 import { ApiRequestError } from "@/api/client";
 import { sameSpeakers } from "@/services/voice-volume";
-import { toUserMessage } from "@/api/error-messages";
+import { isSessionEnded, toUserMessage } from "@/api/error-messages";
 import { FormInput, PrimaryButton, SecondaryButton } from "@/components/form";
 import { DotsLoader } from "@/components/motion";
 import { PulseRing } from "@/components/pulse-ring";
@@ -82,13 +84,15 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useBleStore } from "@/stores/ble-store";
 import { useIntercomStore } from "@/stores/intercom-store";
 import { HEARTBEAT_CMD_ID, PeerLiveness } from "@/services/intercom-liveness";
-import { showNotice } from "@/services/notice";
+import { showFailure, showNotice } from "@/services/notice";
 import {
   avatarInitial,
   channelNameOf,
   cleanNickname,
   personNameOf,
 } from "@/services/user-name";
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
 
 const SPEAKING_THRESHOLD = 10; // onUserVoiceVolume 0–100
 /** 屏幕常亮的标记：只管对讲页自己开的这一份，不影响地图页开的 */
@@ -269,6 +273,7 @@ export default function IntercomScreen() {
   const dark = useColorScheme() === "dark";
   const t = useT();
   const insets = useSafeAreaInsets();
+  const { fontScale, width: windowWidth } = useWindowDimensions();
   const focused = useIsFocused();
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
@@ -306,6 +311,8 @@ export default function IntercomScreen() {
   /** 断线重连被拒后正在自动重进：麦克风前台服务不能撤（锁着屏撤了就加不回来） */
   const [resuming, setResuming] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
+  /** 这次进不了房是因为没给麦克风：报错下面给「去设置」。iOS 拒过一次就不再弹框，安卓拒两次也一样，只能去设置里开 */
+  const [micBlocked, setMicBlocked] = useState(false);
   const [speakerOn, setSpeakerOn] = useState(true);
   const [volumes, setVolumes] = useState<Record<string, number>>({});
   const [muted, setMuted] = useState<Record<string, boolean>>({});
@@ -843,6 +850,7 @@ export default function IntercomScreen() {
             )
           : true;
     if (stale()) return;
+    setMicBlocked(!micGranted);
     if (!micGranted) {
       stopJoining(true);
       setJoinError(translate("intercom.micDenied"));
@@ -899,7 +907,8 @@ export default function IntercomScreen() {
       cancelJoin();
       abandonRoom(trtc.current);
       stopJoining(true);
-      setJoinError(toUserMessage(e));
+      // 会话已失效：正被送回登录页，登录页自有说明
+      if (!isSessionEnded(e)) setJoinError(toUserMessage(e));
     }
   };
 
@@ -960,9 +969,7 @@ export default function IntercomScreen() {
               .then(() =>
                 queryClient.invalidateQueries({ queryKey: ["voice-channels"] }),
               )
-              .catch((e) =>
-                showNotice(t("intercom.leaveFailed"), toUserMessage(e)),
-              );
+              .catch((e) => showFailure(t("intercom.leaveFailed"), e));
           },
         },
       ],
@@ -990,7 +997,7 @@ export default function IntercomScreen() {
         setNameDraft("");
         return queryClient.invalidateQueries({ queryKey: ["voice-channels"] });
       })
-      .catch((e) => showNotice(t("intercom.createFailed"), toUserMessage(e)))
+      .catch((e) => showFailure(t("intercom.createFailed"), e))
       .finally(() => setSubmitting(false));
   };
 
@@ -1009,12 +1016,13 @@ export default function IntercomScreen() {
         return queryClient.invalidateQueries({ queryKey: ["voice-channels"] });
       })
       .catch((e) =>
-        showNotice(
+        showFailure(
           t("intercom.joinError"),
+          e,
           // 邀请码对不上任何频道时后端回通用 404，原来写「内容不存在或已删除」，看不出是码错了
           e instanceof ApiRequestError && e.status === 404
             ? t("intercom.inviteNotFound")
-            : toUserMessage(e),
+            : undefined,
         ),
       )
       .finally(() => setSubmitting(false));
@@ -1622,81 +1630,92 @@ export default function IntercomScreen() {
                   >
                     <View
                       style={[
-                        styles.channelTile,
-                        { backgroundColor: theme.backgroundSelected },
+                        styles.chanMain,
+                        {
+                          minWidth: channelMainMinWidth(fontScale, windowWidth),
+                        },
                       ]}
                     >
-                      <Ionicons
-                        name="radio-outline"
-                        size={22}
-                        color={theme.text}
-                      />
-                    </View>
-                    <View style={styles.channelBody}>
-                      <ThemedText numberOfLines={1} style={styles.chanName}>
-                        {channelNameOf(c.name)}
-                      </ThemedText>
-                      <ThemedText
-                        type="small"
-                        themeColor="textSecondary"
-                        numberOfLines={1}
-                        style={styles.caption}
+                      <View
+                        style={[
+                          styles.channelTile,
+                          { backgroundColor: theme.backgroundSelected },
+                        ]}
                       >
-                        {t("intercom.memberTotal", { n: c.memberCount })}
-                      </ThemedText>
-                    </View>
-                    <Tappable
-                      feedback="opacity"
-                      accessibilityRole="button"
-                      accessibilityLabel={t("intercom.more.a11y", {
-                        name: channelNameOf(c.name),
-                      })}
-                      onPress={() =>
-                        setSheet({ kind: "more", channelId: c.channelId })
-                      }
-                      style={styles.moreBtn}
-                    >
-                      <Ionicons
-                        name="ellipsis-horizontal"
-                        size={20}
-                        color={theme.textSecondary}
-                      />
-                    </Tappable>
-                    <Tappable
-                      feedback="scale"
-                      haptic
-                      accessibilityRole="button"
-                      accessibilityLabel={t("intercom.enter.a11y", {
-                        name: channelNameOf(c.name),
-                      })}
-                      disabled={joining && !busy}
-                      onPress={() => void join(c)}
-                      // 只有第一个是品牌色：一页一个主操作
-                      style={[
-                        styles.enterBtn,
-                        i === 0
-                          ? {
-                              backgroundColor: theme.brand,
-                              borderColor: theme.brand,
-                            }
-                          : { borderColor: theme.borderStrong },
-                      ]}
-                    >
-                      {busy ? (
-                        <DotsLoader
-                          color={i === 0 ? theme.onBrand : theme.text}
+                        <Ionicons
+                          name="radio-outline"
+                          size={22}
+                          color={theme.text}
                         />
-                      ) : (
-                        <ThemedText
-                          style={[
-                            styles.enterText,
-                            { color: i === 0 ? theme.onBrand : theme.text },
-                          ]}
-                        >
-                          {t("intercom.enter")}
+                      </View>
+                      <View style={styles.channelBody}>
+                        <ThemedText numberOfLines={1} style={styles.chanName}>
+                          {channelNameOf(c.name)}
                         </ThemedText>
-                      )}
-                    </Tappable>
+                        <ThemedText
+                          type="small"
+                          themeColor="textSecondary"
+                          numberOfLines={1}
+                          style={styles.caption}
+                        >
+                          {t("intercom.memberTotal", { n: c.memberCount })}
+                        </ThemedText>
+                      </View>
+                    </View>
+                    <View style={styles.chanActions}>
+                      <Tappable
+                        feedback="opacity"
+                        accessibilityRole="button"
+                        accessibilityLabel={t("intercom.more.a11y", {
+                          name: channelNameOf(c.name),
+                        })}
+                        onPress={() =>
+                          setSheet({ kind: "more", channelId: c.channelId })
+                        }
+                        style={styles.moreBtn}
+                      >
+                        <Ionicons
+                          name="ellipsis-horizontal"
+                          size={20}
+                          color={theme.textSecondary}
+                        />
+                      </Tappable>
+                      <Tappable
+                        feedback="scale"
+                        haptic
+                        accessibilityRole="button"
+                        accessibilityLabel={t("intercom.enter.a11y", {
+                          name: channelNameOf(c.name),
+                        })}
+                        disabled={joining && !busy}
+                        onPress={() => void join(c)}
+                        // 只有第一个是品牌色：一页一个主操作
+                        style={[
+                          styles.enterBtn,
+                          i === 0
+                            ? {
+                                backgroundColor: theme.brand,
+                                borderColor: theme.brand,
+                              }
+                            : { borderColor: theme.borderStrong },
+                        ]}
+                      >
+                        {busy ? (
+                          <DotsLoader
+                            color={i === 0 ? theme.onBrand : theme.text}
+                          />
+                        ) : (
+                          <ThemedText
+                            style={[
+                              styles.enterText,
+                              { color: i === 0 ? theme.onBrand : theme.text },
+                            ]}
+                          >
+                            {t("intercom.enter")}
+                          </ThemedText>
+                        )}
+                      </Tappable>
+                    </View>
                   </View>
                 );
               })}
@@ -1709,6 +1728,18 @@ export default function IntercomScreen() {
               >
                 {joinError}
               </ThemedText>
+            )}
+            {joinError && micBlocked && (
+              <Tappable
+                feedback="opacity"
+                accessibilityRole="button"
+                onPress={() => void Linking.openSettings()}
+                style={styles.joinErrorAction}
+              >
+                <ThemedText type="link" style={styles.centerText}>
+                  {t("intercom.micOpenSettings")}
+                </ThemedText>
+              </Tappable>
             )}
           </>
         )}
@@ -2087,6 +2118,28 @@ export default function IntercomScreen() {
   );
 }
 
+/**
+ * 频道列表一行里，图标 + 名字那一块最少多宽：名字至少留 CHANNEL_NAME_MIN_CHARS 个字（随系统字体放大）再省略。
+ * 夜测 N8：系统「显示大小」调到最大（约 600dpi，1080 像素宽的屏只剩约 288dp），图标、「更多」、定宽的「进入」
+ * 把名字挤得只剩 1 个字。比这窄时「更多」「进入」整组换到下一行（chanCard 可换行），名字独占第一行。
+ * 用 minWidth：flexBasis 在安卓 16 上不参与换行判断，名字块照样被挤到 92dp（Wesley 10-18 模拟器实测）。
+ * 封顶到卡片内宽：屏比这还窄（288dp + 2 倍字体）时不撑出卡片。
+ * 5 个字：360dp 宽（华为 P30 Pro 默认）+ 1.15 倍字体时仍和按钮同排，6 个字就要换行了
+ */
+const CHANNEL_NAME_MIN_CHARS = 5;
+const CHANNEL_NAME_FONT_SIZE = 16;
+const CHANNEL_TILE_SIZE = 44;
+const CHANNEL_TILE_GAP = 12;
+/** 页面左右留白（container 20 × 2）+ 卡片左右内边距（14 + 12）+ 边框（1 × 2） */
+const CHANNEL_ROW_INSET = 20 * 2 + 14 + 12 + 1 * 2;
+const channelMainMinWidth = (fontScale: number, windowWidth: number) =>
+  Math.min(
+    CHANNEL_TILE_SIZE +
+      CHANNEL_TILE_GAP +
+      CHANNEL_NAME_MIN_CHARS * CHANNEL_NAME_FONT_SIZE * fontScale,
+    windowWidth - CHANNEL_ROW_INSET,
+  );
+
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: { flex: 1, paddingHorizontal: 20 },
@@ -2131,6 +2184,7 @@ const styles = StyleSheet.create({
   lobbyList: { gap: 10, paddingTop: 14, paddingBottom: 8 },
   chanCard: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
     gap: 12,
     minHeight: 76,
@@ -2141,14 +2195,33 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   channelTile: {
-    width: 44,
-    height: 44,
+    width: CHANNEL_TILE_SIZE,
+    height: CHANNEL_TILE_SIZE,
     borderRadius: Radius.control,
     alignItems: "center",
     justifyContent: "center",
   },
+  // 最少多宽见 channelMainMinWidth；同排时多出来的宽度都给名字
+  chanMain: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: CHANNEL_TILE_GAP,
+  },
   channelBody: { flex: 1, gap: 2, minWidth: 0 },
-  chanName: { fontSize: 16, lineHeight: 22, fontWeight: 700 },
+  chanName: {
+    fontSize: CHANNEL_NAME_FONT_SIZE,
+    lineHeight: 22,
+    fontWeight: 700,
+  },
+  // 和名字一行放不下时整组换到下一行、靠右
+  chanActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginLeft: "auto",
+  },
   moreBtn: {
     width: 40,
     height: 44,
@@ -2156,9 +2229,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  // 不定宽高：大字体下按字撑开（原来定宽 76 × 高 44，「进入」被切）
   enterBtn: {
-    width: 76,
-    height: 44,
+    minWidth: 76,
+    minHeight: 44,
+    paddingHorizontal: 16,
     borderRadius: 22,
     borderWidth: 1,
     alignItems: "center",
@@ -2166,6 +2241,7 @@ const styles = StyleSheet.create({
   },
   enterText: { fontSize: 15, lineHeight: 20, fontWeight: 700 },
   joinError: { paddingBottom: 12 },
+  joinErrorAction: { alignSelf: "center", paddingBottom: 12 },
 
   // C. 房间里：头部
   roomHead: {

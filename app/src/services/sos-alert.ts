@@ -16,6 +16,7 @@ import { devLog } from "@/services/dev-log";
 import { shownSeconds } from "@/services/countdown";
 import { serverNow } from "@/services/server-clock";
 import { lateEventNote } from "@/services/sos-age";
+import { isSosFor } from "@/api/sos-shape";
 import { presentedSos } from "@/services/sos-sync";
 import { sosScreen } from "@/services/sos-queue";
 import { useSosCancelStore } from "@/stores/sos-cancel-store";
@@ -421,7 +422,9 @@ export async function cancelFromNotification(
     // 每一次都该给足时间——慢但通的网络（一次要 9–14 s）下 15 s 能一次成功，8 s 会四次全超时、
     // 最后把人带到页面上说「取消没送达」。节奏（2 / 5 / 10 s）是 10-07 iPhone 实测调过的，O7 不动它
     const sos = await sosApi.cancel(sosId, { timeoutMs: REQUEST_TIMEOUT_MS });
-    return settled(sos);
+    // 应答不像这一单（网关改写过）：照样算取消成功（200 说明服务端收到了），但别把它交给页面写进缓存，
+    // 页面拿不到就按「已在别处结束」拉一次权威状态（10-22 夜测）
+    return settled(isSosFor(sos, sosId) ? sos : undefined);
   } catch (e) {
     const code = (e as { code?: string }).code;
     if (code === "SOS_ALREADY_FINALIZED") return settled();

@@ -210,7 +210,9 @@ describe('SosService', () => {
       await expect(svc.confirm('u1', 's1')).resolves.toMatchObject({
         status: 'notified',
       });
-      expect(notifier.finalizeNotified).toHaveBeenCalledWith('s1');
+      expect(notifier.finalizeNotified).toHaveBeenCalledWith('s1', {
+        deliverInline: 'background',
+      });
     });
 
     it('通知器没抢到（被取消或到期扫描抢先）：409', async () => {

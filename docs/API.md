@@ -62,7 +62,7 @@
 | POST | /auth/register | 注册。body：`{ phone, code, password, nickname? }`——`code` 为上一步 `register` 用途的验证码；错误/过期/已用/超次统一 400 `SMS_CODE_INVALID`（不区分原因）。校验顺序：手机号已注册 409 → 验证码 400 → 建号并返回 `{ accessToken, refreshToken, user }` |
 | POST | /auth/reset-password | 找回密码。body：`{ phone, code, newPassword }`（`reset_password` 用途验证码）→ 204；成功后**该用户全部 refresh token 作废**，所有设备需重新登录。未注册 404 `PHONE_NOT_REGISTERED` |
 | POST | /auth/login | 登录。body：`{ phone, password }` → `{ accessToken, refreshToken, user }`。密码 8–72 字符且 ≤ 72 字节（bcrypt 上限，超出 400） |
-| POST | /auth/refresh | body：`{ refreshToken }` → 新 `{ accessToken, refreshToken }`（refresh 轮换，旧 refreshToken 作废；同一 token 并发刷新只有一方成功，其余 401。**已轮换的 token 再次出现**：0.5s 内（同一瞬间的并发竞态）401；0.5s–15min 内视为「上次应答没送到」——作废那张从没用过的新 token、补发一对新的，每张旧 token 只补发一次（2026-10-06，评审 R-05；同日并发评审 #2 把并发窗口从 10s 缩到 0.5s，App 单飞刷新，一秒后同 token 再现只可能是应答丢失）；超过 15min 才视为盗用、撤销全部会话。轮换的三步（作废旧、签发新、记替代）在一个事务里。登出 / 改密作废的 token 没有替代者，任何时候再出现都是 401） |
+| POST | /auth/refresh | body：`{ refreshToken }` → 新 `{ accessToken, refreshToken }`（refresh 轮换，旧 refreshToken 作废；同一 token 并发刷新只有一方成功，其余 401。**已轮换的 token 再次出现**：0.5s 内（同一瞬间的并发竞态）401；0.5s–15min 内视为「上次应答没送到」——补发一对新的，替代它的那张新 token 不作废（服务端分不清手机拿到的是哪张：超时后的重试先到、原请求晚到时手机拿的正是替代者，作废它等于把手机登出；2026-10-21 起），每张旧 token 只补发一次（补发后它不再有替代者，再出现一律 401）；替代者已经用过则不补发（2026-10-06，评审 R-05；同日并发评审 #2 把并发窗口从 10s 缩到 0.5s，App 单飞刷新，一秒后同 token 再现只可能是应答丢失）；超过 15min 才视为盗用、撤销全部会话。轮换的三步（作废旧、签发新、记替代）在一个事务里。登出 / 改密作废的 token 没有替代者，任何时候再出现都是 401） |
 
 限频（2026-09-10 加固，单实例内存滑动窗口，超限 429 `RATE_LIMITED` + `Retry-After`）：`/auth/login` 同 IP+手机号 10 次/分、同 IP 100 次/分；`/auth/sms-code` 同 IP 5 条/分、50 条/天（同号 60s/日限另计）；`/auth/register` 20 次/分；`/auth/reset-password` 同 IP+手机号 10 次/分；`/auth/refresh` 60 次/分；`/admin/auth/login` 10 次/分；`/devices/bind` 同 IP 10 次/分（2026-10-03：绑定码 8 位数字可被穷举，限的是尝试次数，窗口内猜中也返回 429）。
 | POST | /auth/logout | 作废当前 refreshToken。带来的若是轮换前的旧 token（refresh 应答丢了），沿替代关系把这台设备现役的那张一并作废，旧 token 也不能再补发（2026-10-17） |
@@ -76,7 +76,7 @@
 
 `user` 对象：`{ id, phone, nickname, avatarUrl?, createdAt }`。密码 bcrypt/argon2 存储，任何接口不回传。
 
-Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / refresh 30 天**；refresh 轮换制——每次刷新旧 token 作废；已作废 token 再出现：0.5s 内并发竞态只拒本次、15min 内按应答丢失补发一次、之后视为盗用撤销该用户全部会话（§2 refresh 行）。本节 register/login/refresh/logout 与 /users/me 均已实现；**短信验证码（sms-code / register.code / reset-password）2026-09-09 实现**；**账号与安全（change-password / change-phone / DELETE /users/me，✅ 2026-09-11 负责人拍板）已实现**，TS 类型见 `@helmet/shared` ChangePasswordRequest / ChangePhoneRequest / DeleteAccountRequest。本地与演示环境短信走 Console Mock，验证码打印在后端日志（`[MOCK SMS] … verify_code`），云端查看：`docker compose -f docker-compose.prod.yml logs backend | grep verify_code`；腾讯云通道配齐 `TENCENT_SMS_*` 六项环境变量即切换为真发（THIRD_PARTY.md §4）。
+Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / refresh 30 天**；refresh 轮换制——每次刷新旧 token 作废；已作废 token 再出现：0.5s 内并发竞态只拒本次、15min 内按应答丢失补发一次（替代者保留）、之后再出现的已轮换 token 视为盗用撤销该用户全部会话（补发过的那张旧 token 已没有替代者，只 401）（§2 refresh 行）。本节 register/login/refresh/logout 与 /users/me 均已实现；**短信验证码（sms-code / register.code / reset-password）2026-09-09 实现**；**账号与安全（change-password / change-phone / DELETE /users/me，✅ 2026-09-11 负责人拍板）已实现**，TS 类型见 `@helmet/shared` ChangePasswordRequest / ChangePhoneRequest / DeleteAccountRequest。本地与演示环境短信走 Console Mock，验证码打印在后端日志（`[MOCK SMS] … verify_code`），云端查看：`docker compose -f docker-compose.prod.yml logs backend | grep verify_code`；腾讯云通道配齐 `TENCENT_SMS_*` 六项环境变量即切换为真发（THIRD_PARTY.md §4）。
 
 ## 3. 紧急联系人
 
@@ -155,7 +155,7 @@ SOS 状态机为服务端权威（DECISIONS #8/#26）：`pending → notified | 
 | GET | /devices/{deviceId}/sos/active | 当前进行中 SOS：`200 { "sos": <sos 对象> \| null }`（无进行中时为 null，**✅ 定稿**，与 §5 latest 同口径） |
 | GET | /users/me/sos/active?page=&pageSize= | **本账号所有进行中的 SOS**（2026-10-17，上线清单 B 线第 12 项；多顶头盔时 App 不必逐台查上一行）：§1 统一分页 `{ items, total, page, pageSize }`，按 deadline 升序（同时到期按 sosId）；item = sos 对象 + `deviceName`（TS 类型 ActiveSosItem）。按建单时固化的用户查：**头盔已解绑、单仍是本人的照样列出**（解绑不影响处置权，上一行此时 404），前主人的单不列，终态不列；已过 deadline 但扫描任务尚未处理的仍是 pending，照样列。`deviceName` 只在头盔仍绑在本人名下且起过名时给（整理后的名字），否则 null。没有时 `items: []`（不是 404）。App 传 `pageSize=100`，多于 100 单按 `total` 翻页。上一行逐台接口保留（旧版 App 用） |
 | POST | /sos/{sosId}/cancel | 取消（仅 pending 可取消；终态返回 409 `SOS_ALREADY_FINALIZED`） |
-| POST | /sos/{sosId}/confirm | “SOS Now”：跳过剩余倒计时立即通知 |
+| POST | /sos/{sosId}/confirm | “SOS Now”：跳过剩余倒计时立即通知。终态化（`notified`）与通知任务一起落库后立即返回，**不等短信 / 推送发完**（2026-10-22，SOS_MATRIX Q7：短信通道慢时响应原来会超过 App 的超时）；首轮投递在后台，没发完的由扫描续投，结果看事故详情 `notifications` |
 | GET | /devices/{deviceId}/accidents?page=&pageSize= | 事故记录列表（含已取消供留档，最新在前；TS 类型 AccidentListItem）。换绑后新主看不到旧主的事故（deviceId+userId 双过滤） |
 | GET | /accidents/{accidentId} | 事故详情（TS 类型 AccidentDetail）：sos 对象 + `location`（快照，source: event\|last_point）+ `triggerPayload`（触发事件原始 payload）+ `notifications`（通道/状态/重试次数/错误；**target 已脱敏**） |
 

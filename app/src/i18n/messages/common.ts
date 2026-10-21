@@ -6,6 +6,7 @@ export const common = {
       "{name}，我已在「零一智行」智能头盔 App 中将你设为紧急联系人。触发求救后，如果倒计时结束前未取消，系统会尝试向你发送短信提醒。收到后请先联系我；若无法联系，请协助求助。谢谢！",
     "app.crashTitle": "页面暂时无法显示",
     "app.crashBody": "请重试或重新打开 App。",
+    "app.pageCrashBody": "其他页面照常可用。请重试，或稍后再进这一页。",
     "app.crashRetry": "重试",
     "common.close": "关闭",
     "ble.onboarding.title": "设置头盔连接",
@@ -13,6 +14,8 @@ export const common = {
     "ble.onboarding.bluetooth": "打开手机蓝牙",
     "ble.onboarding.bluetoothHint":
       "iPhone 在控制中心打开；安卓在系统设置里打开",
+    "ble.onboarding.bluetoothUnknownHint":
+      "完成下面这一步授权后，才能确认蓝牙开没开",
     "ble.onboarding.permission": "允许「零一智行」使用蓝牙",
     "ble.onboarding.permissionHint": "之前拒绝过，需要到系统设置里重新允许",
     "ble.onboarding.permissionLocation": "允许「零一智行」使用位置信息",
@@ -114,6 +117,7 @@ export const common = {
       "{name}，我已在「零一智行」智慧頭盔 App 中將你設為緊急聯絡人。觸發求救後，如果倒數結束前未取消，系統會嘗試向你傳送簡訊提醒。收到後請先聯絡我；若無法聯絡，請協助求助。謝謝！",
     "app.crashTitle": "頁面暫時無法顯示",
     "app.crashBody": "請重試或重新開啟 App。",
+    "app.pageCrashBody": "其他頁面照常可用。請重試，或稍後再進這一頁。",
     "app.crashRetry": "重試",
     "common.close": "關閉",
     "ble.onboarding.title": "設定頭盔連線",
@@ -121,6 +125,8 @@ export const common = {
     "ble.onboarding.bluetooth": "打開手機藍牙",
     "ble.onboarding.bluetoothHint":
       "iPhone 在控制中心打開；Android 在系統設定裡打開",
+    "ble.onboarding.bluetoothUnknownHint":
+      "完成下面這一步授權後，才能確認藍牙有沒有開",
     "ble.onboarding.permission": "允許「零一智行」使用藍牙",
     "ble.onboarding.permissionHint": "之前拒絕過，需要到系統設定裡重新允許",
     "ble.onboarding.permissionLocation": "允許「零一智行」使用位置資訊",
@@ -221,6 +227,8 @@ export const common = {
       "{name}, I have added you as an emergency contact in the Lingyi Weichuang helmet app. If an SOS countdown ends without being cancelled, the app will attempt to send you a text alert. Please contact me if you receive one. If you cannot reach me, please help me get assistance. Thank you.",
     "app.crashTitle": "Unable to display this page",
     "app.crashBody": "Try again or reopen the app.",
+    "app.pageCrashBody":
+      "The rest of the app still works. Try again, or come back to this page later.",
     "app.crashRetry": "Try again",
     "common.close": "Close",
     "ble.onboarding.title": "Set up helmet connection",
@@ -229,6 +237,8 @@ export const common = {
     "ble.onboarding.bluetooth": "Turn on Bluetooth",
     "ble.onboarding.bluetoothHint":
       "iPhone: Control Center; Android: system settings",
+    "ble.onboarding.bluetoothUnknownHint":
+      "We can check this after you allow the permission below",
     "ble.onboarding.permission": "Allow Bluetooth for this app",
     "ble.onboarding.permissionHint":
       "It was denied before; re-enable it in system settings",

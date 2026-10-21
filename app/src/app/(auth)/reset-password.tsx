@@ -39,6 +39,8 @@ import {
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 export default function ResetPasswordScreen() {
   const theme = useTheme();
   const t = useT();

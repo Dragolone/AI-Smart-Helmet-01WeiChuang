@@ -959,3 +959,56 @@ describe("求救记录详情", () => {
     expect(r.allText()).toContain(tr("accident.locationSource.track"));
   });
 });
+
+describe("会话已失效（正被送回登录页）：不再单独提示，登录页自有说明", () => {
+  const ended = () => Promise.reject(new SessionEndedError());
+  const settle = () =>
+    act(async () => {
+      await new Promise((res) => setTimeout(res, 0));
+    });
+
+  it("紧急联系人列表拉取时会话已失效：页上不写「登录已失效」", async () => {
+    m(contactsApi.list).mockImplementation(ended);
+    const r = mount(<ContactsScreen />);
+    await waitFor(() => expect(contactsApi.list).toHaveBeenCalled());
+    await settle();
+    expect(r.allText()).not.toContain(tr("error.sessionEnded"));
+  });
+
+  it("添加联系人保存时会话已失效：表单下不写「登录已失效」", async () => {
+    m(contactsApi.create).mockImplementation(ended);
+    const r = mount(<AddContactScreen />);
+    r.type(tr("contacts.namePlaceholder"), "爸爸");
+    r.type(tr("contacts.phonePlaceholder"), "13800000002");
+    r.press(tr("common.save"));
+    await waitFor(() => expect(contactsApi.create).toHaveBeenCalled());
+    await settle();
+    expect(r.allText()).not.toContain(tr("error.sessionEnded"));
+  });
+
+  it("关于这顶头盔：状态拉取时会话已失效，不写「登录已失效」", async () => {
+    routerState.params = { deviceId: "h1" };
+    m(devicesApi.detail).mockImplementation(() =>
+      Promise.resolve({ name: "通勤", bindCode: "AB12CD34" }),
+    );
+    m(devicesApi.status).mockImplementation(ended);
+    const r = mount(<DeviceAboutScreen />);
+    await waitFor(() => expect(devicesApi.status).toHaveBeenCalled());
+    await settle();
+    expect(r.allText()).not.toContain(tr("error.sessionEnded"));
+  });
+
+  it("求救记录详情拉取时会话已失效：不写「登录已失效」", async () => {
+    routerState.params = { accidentId: "s1" };
+    m(devicesApi.list).mockImplementation(() => Promise.resolve([]));
+    m(sosApi.accidentDetail).mockImplementation(ended);
+    jest.useFakeTimers();
+    const r = mount(<AccidentDetailScreen />);
+    // 和「其它错误」一样走完 react-query 的那一次重试
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3000);
+    });
+    expect(sosApi.accidentDetail).toHaveBeenCalled();
+    expect(r.allText()).not.toContain(tr("error.sessionEnded"));
+  });
+});

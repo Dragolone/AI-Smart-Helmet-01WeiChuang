@@ -4,7 +4,7 @@ import { useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 
 import { authApi } from "@/api/auth";
-import { toUserMessage } from "@/api/error-messages";
+import { isSessionEnded, toUserMessage } from "@/api/error-messages";
 import { FormError, FormInput, PrimaryButton } from "@/components/form";
 import { KeyboardAvoid } from "@/components/keyboard-avoid";
 import { ThemedText } from "@/components/themed-text";
@@ -15,6 +15,8 @@ import {
   isPasswordTooLong,
   isPasswordTooShort,
 } from "@/services/password-rules";
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
 
 export default function ChangePasswordScreen() {
   const t = useT();
@@ -57,6 +59,8 @@ export default function ChangePasswordScreen() {
       await authApi.changePassword({ oldPassword, newPassword: password });
       setDone(true);
     } catch (e) {
+      // 会话已失效：正被送回登录页，登录页自有说明
+      if (isSessionEnded(e)) return;
       setError(toUserMessage(e));
     } finally {
       setBusy(false);

@@ -159,6 +159,23 @@ describe('SosNotifierService', () => {
       await first;
     });
 
+    it('占位已提交、还没回到本进程时另一路查到这一行（attempts 已 +1、到了重试时刻）：不再占第二次、不多发', async () => {
+      let claimDone!: (v: { count: number }) => void;
+      prisma.sosNotification.updateMany.mockImplementationOnce(
+        () => new Promise((r) => (claimDone = r)),
+      );
+      queueRows([row('sms')]);
+      const first = svc.deliverPending('sos1');
+      await new Promise((r) => setImmediate(r));
+      prisma.sosNotification.findMany.mockReset();
+      queueRows([row('sms', { attempts: 1 })]);
+      await svc.deliverPending();
+      expect(prisma.sosNotification.updateMany).toHaveBeenCalledTimes(1);
+      claimDone({ count: 1 });
+      await first;
+      expect(sms.send).toHaveBeenCalledTimes(1);
+    });
+
     it('结果只写到这次占位的那一行（attempts 未被后来的重试改过）：迟到的旧结果不盖新的', async () => {
       queueRows([row('sms', { attempts: 2 })]);
       await svc.deliverPending();
@@ -387,6 +404,51 @@ describe('SosNotifierService', () => {
       expect(errorSpy).toHaveBeenCalledWith(
         'SOS sos1 终态化后首轮投递异常（状态已 notified，由扫描续投）：db flap',
       );
+    });
+    it("deliverInline='background'：不等首投就返回 true，首投在后台照常开始；首投异常只记 error（「立即求救」的响应不被慢短信拖过 App 超时）", async () => {
+      tx.emergencyContact.findMany.mockResolvedValue([]);
+      let release: (rows: unknown[]) => void = () => undefined;
+      prisma.sosNotification.findMany.mockReturnValue(
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+      );
+      await expect(
+        svc.finalizeNotified('sos1', { deliverInline: 'background' }),
+      ).resolves.toBe(true);
+      expect(prisma.sosNotification.findMany).toHaveBeenCalledTimes(1);
+      release([]);
+      await Promise.resolve();
+
+      prisma.sosNotification.findMany.mockRejectedValue(new Error('db flap'));
+      await expect(
+        svc.finalizeNotified('sos1', { deliverInline: 'background' }),
+      ).resolves.toBe(true);
+      await new Promise((r) => setImmediate(r));
+      expect(errorSpy).toHaveBeenCalledWith(
+        'SOS sos1 终态化后首轮投递异常（状态已 notified，由扫描续投）：db flap',
+      );
+    });
+
+    it('backgroundDelivery：没有后台首投时为 null；有就等它结束（出错也 resolve），结束后回到 null', async () => {
+      expect(svc.backgroundDelivery()).toBeNull();
+      tx.emergencyContact.findMany.mockResolvedValue([]);
+      let release!: (rows: unknown[]) => void;
+      prisma.sosNotification.findMany.mockReturnValueOnce(
+        new Promise((resolve) => (release = resolve)),
+      );
+      prisma.sosNotification.findMany.mockRejectedValueOnce(
+        new Error('db flap'),
+      );
+      await svc.finalizeNotified('sos1', { deliverInline: 'background' });
+      await svc.finalizeNotified('sos2', { deliverInline: 'background' });
+      let settled = false;
+      const all = svc.backgroundDelivery()!.then(() => (settled = true));
+      await new Promise((r) => setImmediate(r));
+      expect(settled).toBe(false);
+      release([]);
+      await all;
+      expect(svc.backgroundDelivery()).toBeNull();
     });
   });
 

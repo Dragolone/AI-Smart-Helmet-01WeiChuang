@@ -1010,6 +1010,21 @@ describe("sos-alert", () => {
       expect(mockCancel).toHaveBeenCalledTimes(3); // 成功后不再重试
     });
 
+    it("取消的应答不像这一单（网关改写成字符串）：照样算成功、撤通知，但不把它交给页面写缓存（10-22 夜测）", async () => {
+      mockCancel.mockResolvedValueOnce("unexpected" as never);
+      const m = load();
+      const got: [string, unknown][] = [];
+      m.setSosCancelConfirmedListener((id, s) => got.push([id, s]));
+      await m.ensureSosAlertPermission();
+      await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
+      responseHandler?.({
+        actionIdentifier: "cancel",
+        notification: { request: { content: { data: { sosId: "s1" } } } },
+      });
+      for (let i = 0; i < 4; i++) await Promise.resolve();
+      expect(got).toEqual([["s1", undefined]]);
+    });
+
     it("取消失败时 App 回到前台立刻重试（不等定时器）", async () => {
       jest.useFakeTimers();
       mockCancel

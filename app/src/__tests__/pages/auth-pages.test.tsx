@@ -23,7 +23,7 @@ import {
 import { QueryClientProvider } from "@tanstack/react-query";
 import { authApi } from "@/api/auth";
 import { sosApi } from "@/api/sos";
-import { ApiRequestError } from "@/api/client";
+import { ApiRequestError, SessionEndedError } from "@/api/client";
 import { Colors } from "@/constants/theme";
 import { __resetSmsCooldownsForTests } from "@/hooks/use-sms-code";
 import { translate, useLocaleStore, type MessageKey } from "@/i18n";
@@ -1126,5 +1126,104 @@ describe("注销账号", () => {
     expect(alert).not.toHaveBeenCalled();
     expect(pageErrors(r)).toContain(tr("error.network"));
     expect(api.deleteMe).not.toHaveBeenCalled();
+  });
+});
+
+describe("账号与安全的三页：会话已失效（正被送回登录页）不再单独提示，登录页自有说明", () => {
+  const ended = () => Promise.reject(new SessionEndedError());
+
+  it("修改密码提交时会话已失效：页上不写「登录已失效」", async () => {
+    api.changePassword.mockImplementation(ended);
+    const r = render(<ChangePasswordScreen />);
+    r.type(tr("auth.currentPasswordPlaceholder"), "oldpass12");
+    r.type(tr("auth.passwordPlaceholder"), "newpass12");
+    r.type(tr("auth.confirmPlaceholder"), "newpass12");
+    r.press(tr("common.save"));
+    await flush();
+    expect(api.changePassword).toHaveBeenCalled();
+    expect(pageErrors(r)).toEqual([]);
+  });
+
+  it("更换手机号发码、提交时会话已失效：页上不写「登录已失效」", async () => {
+    useAuthStore.setState({
+      user: { id: "u1", phone: "13900000042" },
+      setUser: jest.fn(() => Promise.resolve()),
+    } as never);
+    api.sendSmsCode.mockImplementation(ended);
+    api.changePhone.mockImplementation(ended);
+    const r = render(<ChangePhoneScreen />);
+    r.type(tr("auth.newPhonePlaceholder"), "13800000001");
+    r.press(tr("auth.getCode"));
+    await flush();
+    expect(api.sendSmsCode).toHaveBeenCalled();
+    expect(pageErrors(r)).toEqual([]);
+    r.type(tr("auth.smsCodePlaceholder"), "111222");
+    r.type(tr("auth.currentPasswordPlaceholder"), "mypassword");
+    r.press(tr("common.save"));
+    await flush();
+    expect(api.changePhone).toHaveBeenCalled();
+    expect(pageErrors(r)).toEqual([]);
+  });
+
+  const renderDelete = () =>
+    render(
+      <QueryClientProvider client={makeQueryClient()}>
+        <DeleteAccountScreen />
+      </QueryClientProvider>,
+    );
+  const pressDelete = async (r: Rendered) => {
+    const input = r.root.find(
+      (n) =>
+        typeof n.type !== "string" &&
+        typeof n.props.onChangeText === "function" &&
+        n.props.secureTextEntry !== undefined,
+    );
+    act(() => input.props.onChangeText("mypassword"));
+    const confirm = r.root
+      .findAll(
+        (n) =>
+          typeof n.type !== "string" &&
+          typeof n.props.onPress === "function" &&
+          typeof n.props.title === "string",
+      )
+      .pop()!;
+    // 先查有没有进行中的求救（O15）再弹确认
+    await act(async () => {
+      confirm.props.onPress();
+    });
+  };
+
+  it("注销提交时会话已失效：页上不写「登录已失效」", async () => {
+    const alert = jest
+      .spyOn(Alert, "alert")
+      .mockImplementation(() => undefined);
+    useAuthStore.setState({ dropSession: jest.fn() } as never);
+    sosMock.activeForAccount.mockImplementation(() =>
+      Promise.resolve({ items: [], total: 0, page: 1, pageSize: 1 }),
+    );
+    api.deleteMe.mockImplementation(ended);
+    const r = renderDelete();
+    await pressDelete(r);
+    const buttons = alert.mock.calls[0][2] as { onPress?: () => void }[];
+    act(() => buttons[1].onPress!());
+    await waitFor(() => expect(api.deleteMe).toHaveBeenCalled());
+    await flush();
+    expect(pageErrors(r)).toEqual([]);
+    alert.mockRestore();
+  });
+
+  it("注销前查进行中的求救时会话已失效：页上不写「登录已失效」，也不弹确认", async () => {
+    const alert = jest
+      .spyOn(Alert, "alert")
+      .mockImplementation(() => undefined);
+    sosMock.activeForAccount.mockImplementation(ended);
+    const r = renderDelete();
+    await pressDelete(r);
+    await flush();
+    expect(sosMock.activeForAccount).toHaveBeenCalled();
+    expect(pageErrors(r)).toEqual([]);
+    expect(alert).not.toHaveBeenCalled();
+    expect(api.deleteMe).not.toHaveBeenCalled();
+    alert.mockRestore();
   });
 });

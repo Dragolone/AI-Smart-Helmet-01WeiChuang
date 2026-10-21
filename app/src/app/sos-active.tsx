@@ -21,6 +21,7 @@ import { setAudioModeAsync, useAudioPlayer } from "expo-audio";
 import * as Haptics from "expo-haptics";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { HelmetLinkService } from "helmet-link-service";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
@@ -75,6 +76,7 @@ import { clearSosAlert } from "@/services/sos-alert";
 import { toUserMessage } from "@/api/error-messages";
 import { buildRelayEnvelope, relayApi } from "@/api/relay";
 import { sosApi } from "@/api/sos";
+import { isSosFor } from "@/api/sos-shape";
 import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
 import { CountdownRing } from "@/components/countdown-ring";
@@ -113,6 +115,8 @@ import {
 import { contactNameOf } from "@/services/user-name";
 import { showNotice } from "@/services/notice";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 /** 读屏（VoiceOver / TalkBack）开没开 */
 function useScreenReader(): boolean {
   const [on, setOn] = useState(false);
@@ -133,8 +137,11 @@ function useScreenReader(): boolean {
   return on;
 }
 
-function secondsLeft(deadline: string, now: number): number {
-  return shownSeconds(Math.ceil((new Date(deadline).getTime() - now) / 1000));
+/** 剩几秒；截止时间解析不出来（服务端出错）时返回 null，页面按「状态未知」写「—」，不写 NaN（10-21 夜测） */
+function secondsLeft(deadline: string, now: number): number | null {
+  const at = new Date(deadline).getTime();
+  if (!Number.isFinite(at)) return null;
+  return shownSeconds(Math.ceil((at - now) / 1000));
 }
 
 type ActKind = "cancel" | "confirm";
@@ -160,6 +167,14 @@ const isFinalized = (e: unknown) =>
 const TOTAL_SECONDS = 60;
 /** 最后这么多秒整页转红、震动改成连着两下 */
 const URGENT_SECONDS = 10;
+/**
+ * 安卓原生警报最多响到截止时间之后多久（F15）。正常由页面在单子结束时叫停；App 在后台时安卓的 JS 定时器不跑、
+ * 实时通道断了也不重连，单子在别处结束页面收不到，原生到点自己停
+ */
+const NATIVE_ALARM_GRACE_MS = 30_000;
+/** 截止时间解析不出来时按满 60 秒算；离截止还远得离谱（服务端出错）时最多按 10 分钟算 */
+const NATIVE_ALARM_FALLBACK_MS = 60_000;
+const NATIVE_ALARM_MAX_LEFT_MS = 10 * 60_000;
 /**
  * 取消 / 立即求救失败后补拉权威状态最多等多久就下结论：网络正常（只是短信慢、响应晚）时补拉不到 1 s 就回来，
  * 这单已办成就不提示；网络真的坏时补拉本身也会挂到超时，不能让「没成功」的提示再晚 15 s——倒计时一共才 60 s。
@@ -525,6 +540,30 @@ function SosActiveContent() {
   const deadline = sos?.deadline;
   useEffect(() => {
     if (!counting) return;
+    // 安卓走原生闹钟通道（F15，10-20 华为实测）：expo-audio 是媒体用途，手机静音 / 媒体音量 0 时整段倒计时没有一点声音，
+    // 震动也只有每秒 60 ms 的弱触感。原生侧循环播放、音量渐升、满幅闹钟震动；最后 10 秒换成每秒两下。
+    // 原生包比 JS 旧（还没有这些方法）或 iOS 时 sosAlarmAvailable 为 false，走下面原来的路径
+    if (HelmetLinkService.sosAlarmAvailable) {
+      devLog("SOS", "倒计时页开始警报（闹钟通道）", AppState.currentState);
+      const at = deadline ? new Date(deadline).getTime() : Number.NaN;
+      const left = Number.isFinite(at)
+        ? Math.min(Math.max(at - serverNow(), 0), NATIVE_ALARM_MAX_LEFT_MS)
+        : NATIVE_ALARM_FALLBACK_MS;
+      HelmetLinkService.startSosAlarm(left + NATIVE_ALARM_GRACE_MS);
+      let urgentOn = false;
+      const tick = setInterval(() => {
+        // 截止时间解析不出来时 secondsLeft 是 null，不能拿去比（null <= 10 为真，一开始就会切急促）
+        const s = deadline ? secondsLeft(deadline, serverNow()) : null;
+        if (!urgentOn && s !== null && s <= URGENT_SECONDS) {
+          urgentOn = true;
+          HelmetLinkService.setSosAlarmUrgent(true);
+        }
+      }, 1000);
+      return () => {
+        clearInterval(tick);
+        HelmetLinkService.stopSosAlarm();
+      };
+    }
     // 警报音绝不能把页面打崩：锁屏/后台时 AVAudioSession 激活可能失败（expo-audio 同步抛
     // "Session activation failed"，Release 下未捕获即整 App 崩溃，2026-09-16 真机实证——
     // 摔倒时手机恰恰在口袋里）。播放失败只记日志，倒计时与取消按钮照常。
@@ -561,7 +600,8 @@ function SosActiveContent() {
       alarm.seekTo(0).catch(() => {});
       safePlay();
       pulse();
-      if (deadline && secondsLeft(deadline, serverNow()) <= URGENT_SECONDS) {
+      const s = deadline ? secondsLeft(deadline, serverNow()) : null;
+      if (s !== null && s <= URGENT_SECONDS) {
         second = setTimeout(pulse, 160);
       }
     }, 1000);
@@ -589,10 +629,10 @@ function SosActiveContent() {
   // 读屏：提示条出现时念一遍（同绑定页失败的写法）。不给提示条挂 accessibilityLiveRegion——
   // 里面的秒数每秒在变，Android 会每秒重念一次。秒数按失败这一刻现算，别用发请求时的（最多晚 8 s）
   const announceFail = (kind: ActKind, deadlines: readonly string[]) => {
-    const n =
-      deadlines.length > 0
-        ? Math.min(...deadlines.map((d) => secondsLeft(d, serverNow())))
-        : null;
+    const known = deadlines
+      .map((d) => secondsLeft(d, serverNow()))
+      .filter((x): x is number => x !== null);
+    const n = known.length > 0 ? Math.min(...known) : null;
     const [title, body] = failLines(kind, n);
     AccessibilityInfo.announceForAccessibility(
       `${title}${t("common.a11ySep")}${body}`,
@@ -634,7 +674,13 @@ function SosActiveContent() {
     markBusy([id], kind);
     (kind === "cancel" ? sosApi.cancel(id) : sosApi.confirm(id))
       .then((updated) => {
-        queryClient.setQueryData(["sos", id], updated);
+        if (isSosFor(updated, id))
+          queryClient.setQueryData(["sos", id], updated);
+        else
+          void queryClient.invalidateQueries({
+            queryKey: ["sos", id],
+            exact: true,
+          });
         setActFail((f) => dropFail(f, [id]));
       })
       .catch((e) => {
@@ -695,6 +741,14 @@ function SosActiveContent() {
     if (sessionDead && finished && holdUntil === null)
       void endDeadSession({ duringSos: finalStatus === "notified" });
   }, [sessionDead, finished, holdUntil, finalStatus, endDeadSession]);
+  // 还在倒数（含状态未知）时外来的链接不把这张页挤掉（app/+native-intent，10-21 夜测）；到了结果页就放行
+  useEffect(() => {
+    if (isDrill) return;
+    sosScreen.counting = !finished;
+    return () => {
+      sosScreen.counting = false;
+    };
+  }, [finished, isDrill]);
   const fail =
     !isDrill && !finished && actFail?.ids.includes(sosId) ? actFail : null;
 
@@ -1022,7 +1076,13 @@ function SosActiveContent() {
     void Promise.allSettled(
       ids.map((id) =>
         (kind === "cancel" ? sosApi.cancel(id) : sosApi.confirm(id)).then(
-          (updated) => queryClient.setQueryData(["sos", id], updated),
+          (updated) =>
+            isSosFor(updated, id)
+              ? queryClient.setQueryData(["sos", id], updated)
+              : void queryClient.invalidateQueries({
+                  queryKey: ["sos", id],
+                  exact: true,
+                }),
         ),
       ),
     )
@@ -1368,7 +1428,7 @@ function SosActiveContent() {
                     {queue.slice(0, MAX_CHIPS).map((q) => {
                       const on = q.sosId === sosId;
                       const name = nameOf(q.deviceId);
-                      const n = secondsLeft(q.deadline, now);
+                      const n = secondsLeft(q.deadline, now) ?? "—";
                       return (
                         <Tappable
                           key={q.sosId}

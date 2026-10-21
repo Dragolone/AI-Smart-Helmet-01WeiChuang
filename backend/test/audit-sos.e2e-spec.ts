@@ -39,6 +39,7 @@ import {
   sosSmsCalls,
   waitForPushTitled,
   WsCollector,
+  settleSosDelivery,
 } from './helpers/audit-sos';
 
 jest.setTimeout(60000);
@@ -132,6 +133,7 @@ describe('审计 §4 SOS 全链路与状态机 (e2e, 手动 tick)', () => {
     setCountdown('600');
   });
 
+  afterEach(() => settleSosDelivery(app));
   afterAll(async () => {
     ownerWs?.close();
     await cleanupDevices(prisma, devices);
@@ -365,6 +367,7 @@ describe('审计 §4 SOS 全链路与状态机 (e2e, 手动 tick)', () => {
     ).toBe(c2.id);
     resetMocks(mocks);
     await confirmSos(http, owner.token, c2.id).expect(200);
+    await settleSosDelivery(app);
     expect(await notificationsOf(prisma, c1.id)).toHaveLength(3);
     expect(await notificationsOf(prisma, c2.id)).toHaveLength(3);
     expect(sosSmsCalls(mocks)).toHaveLength(2);
@@ -383,6 +386,7 @@ describe('审计 §4 SOS 全链路与状态机 (e2e, 手动 tick)', () => {
     );
     const c = (await sosByEvent(prisma, e.eventId as string))!;
     await confirmSos(http, userC.token, c.id).expect(200);
+    await settleSosDelivery(app);
     const rows = await notificationsOf(prisma, c.id);
     expect(rows.map((r) => r.channel)).toEqual(['push']);
     expect(sosSmsCalls(mocks)).toHaveLength(0);
@@ -400,6 +404,7 @@ describe('审计 §4 SOS 全链路与状态机 (e2e, 手动 tick)', () => {
     const { eventId } = await ingestFall(devPartial);
     const c = (await sosByEvent(prisma, eventId))!;
     await confirmSos(http, owner.token, c.id).expect(200);
+    await settleSosDelivery(app);
     const rows = await notificationsOf(prisma, c.id);
     expect(
       rows
@@ -427,6 +432,7 @@ describe('审计 §4 SOS 全链路与状态机 (e2e, 手动 tick)', () => {
     const { eventId } = await ingestFall(devPartial);
     const c = (await sosByEvent(prisma, eventId))!;
     await confirmSos(http, owner.token, c.id).expect(200);
+    await settleSosDelivery(app);
     const byTarget = async () =>
       Object.fromEntries(
         (await notificationsOf(prisma, c.id)).map((r) => [
@@ -484,6 +490,7 @@ describe('审计 §4 SOS 全链路与状态机 (e2e, 手动 tick)', () => {
     const { eventId } = await ingestFall(devPartial);
     const oc = (await sosByEvent(prisma, eventId))!;
     await confirmSos(http, owner.token, oc.id).expect(200);
+    await settleSosDelivery(app);
     const [, msg] = sosSmsCalls(mocks)[0];
     expect(msg.template).toBe('sos_alert');
     if (msg.template === 'sos_alert') {
@@ -508,6 +515,7 @@ describe('审计 §4 SOS 全链路与状态机 (e2e, 手动 tick)', () => {
       locationSource: null,
     });
     await confirmSos(http, owner.token, c0.id).expect(200);
+    await settleSosDelivery(app);
     expect(sosSmsCalls(mocks)[0][1]).toMatchObject({
       params: { locationText: '暂不可用' },
     });
@@ -586,6 +594,7 @@ describe('审计 §4 SOS 全链路与状态机 (e2e, 手动 tick)', () => {
       ...Array.from({ length: 3 }, () => confirmSos(http, owner.token, c.id)),
       ...Array.from({ length: 2 }, () => confirmSos(http, token2, c.id)),
     ]);
+    await settleSosDelivery(app);
     expect(histogram(results.map((r) => r.status))).toEqual({
       '200': 1,
       '409': 9,
@@ -653,6 +662,7 @@ describe('审计 §4 SOS 全链路与状态机 (e2e, 手动 tick)', () => {
         'notified',
       );
       await scheduler.tick();
+      await settleSosDelivery(app);
       const rows = await notificationsOf(prisma, c.id);
       expect(rows.map((r) => [r.status, r.attempts])).toEqual([
         ['sent', 1],
@@ -692,6 +702,7 @@ describe('审计 §4 SOS 全链路与状态机 (e2e, 手动 tick)', () => {
       .send({ phone: '19100000004' })
       .expect(200);
     await confirmSos(http, owner.token, c.id).expect(200);
+    await settleSosDelivery(app);
     const targets = (await notificationsOf(prisma, c.id))
       .filter((r) => r.channel === 'sms')
       .map((r) => r.target)

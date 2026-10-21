@@ -15,7 +15,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { authApi } from "@/api/auth";
 import { contactsApi } from "@/api/contacts";
 import { devicesApi } from "@/api/devices";
-import { toUserMessage } from "@/api/error-messages";
 import { FormInput, PrimaryButton } from "@/components/form";
 import { IntercomMiniBar } from "@/components/intercom-mini-bar";
 import { Card, GroupTitle, ListRow } from "@/components/list";
@@ -37,13 +36,15 @@ import { firstActiveSos } from "@/services/active-sos";
 import { drainRelayQueue } from "@/services/ble-relay-uplink";
 import { sosActiveHref } from "@/services/sos-routes";
 import { devLog } from "@/services/dev-log";
-import { showNotice } from "@/services/notice";
+import { showFailure, showNotice } from "@/services/notice";
 import { profilePatch } from "@/services/profile-patch";
 import {
   avatarInitial,
   cleanNickname,
   personNameOf,
 } from "@/services/user-name";
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
 
 /** 退出前最多花这么久把积压的头盔事件送出去（O21） */
 const SIGN_OUT_UPLOAD_MS = 5_000;
@@ -141,7 +142,7 @@ export default function ProfileScreen() {
       await setUser(updated);
       setSaved(true);
     } catch (e) {
-      showNotice(translate("profile.saveFailed"), toUserMessage(e));
+      showFailure(translate("profile.saveFailed"), e);
     } finally {
       setSaving(false);
     }

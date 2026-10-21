@@ -25,6 +25,7 @@ import {
   resetMocks,
   sosByEvent,
   waitForPushTitled,
+  settleSosDelivery,
 } from './helpers/audit-sos';
 
 jest.setTimeout(60_000);
@@ -52,6 +53,7 @@ describe('SOS 通知投递顺序（push 正文依赖短信结果）', () => {
     await addContact(http, owner.token, '家人', '19100000077');
   });
 
+  afterEach(() => settleSosDelivery(app));
   afterAll(async () => {
     await cleanupDevices(prisma, [deviceId]);
     await cleanupUsers(prisma, [owner]);
@@ -66,6 +68,7 @@ describe('SOS 通知投递顺序（push 正文依赖短信结果）', () => {
     // 建单后的「倒计时已开始」Push 是后台任务：等它发完再往下走，免得它落在下面 resetMocks 之后、被算进投递顺序的断言
     await waitForPushTitled(mocks, 'SOS 倒计时已开始');
     await confirmSos(http, owner.token, c.id);
+    await settleSosDelivery(app);
     const base = new Date();
     for (const channel of ['sms', 'push'] as const) {
       await prisma.sosNotification.updateMany({

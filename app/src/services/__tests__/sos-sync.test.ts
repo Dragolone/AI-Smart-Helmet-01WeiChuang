@@ -22,6 +22,7 @@ import {
   type PresentedRef,
   type SosSyncDeps,
 } from "../sos-sync";
+import { isSosFor } from "@/api/sos-shape";
 
 const sos = (over: Partial<Sos> = {}): Sos => ({
   sosId: "s1",
@@ -473,5 +474,24 @@ describe("resumePendingSos：调用方没给账号级接口（可选依赖缺省
     expect(deps.log).not.toHaveBeenCalledWith(
       expect.stringContaining("后重试"),
     );
+  });
+});
+
+describe("isSosFor（取消 / 立即求救的应答写缓存前把关，10-22 夜测）", () => {
+  it("是这一单的求救单才算；字符串 / {} / null / 别的单 / 缺状态都不算", () => {
+    expect(isSosFor(sos(), "s1")).toBe(true);
+    expect(isSosFor(sos({ status: "cancelled" }), "s1")).toBe(true);
+    for (const bad of [
+      "unexpected",
+      {},
+      null,
+      undefined,
+      42,
+      sos({ sosId: "s2" }),
+    ]) {
+      expect(isSosFor(bad, "s1")).toBe(false);
+    }
+    expect(isSosFor({ sosId: "s1", deadline: "x" }, "s1")).toBe(false);
+    expect(isSosFor({ sosId: "s1", status: "pending" }, "s1")).toBe(false);
   });
 });

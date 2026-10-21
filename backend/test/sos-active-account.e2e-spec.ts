@@ -25,6 +25,7 @@ import {
   manualEnvelope,
   sosByEvent,
   waitUntil,
+  settleSosDelivery,
 } from './helpers/audit-sos';
 
 jest.setTimeout(120_000);
@@ -87,6 +88,7 @@ describe('账号级进行中 SOS 列表 (e2e)', () => {
     ));
   });
 
+  afterEach(() => settleSosDelivery(app));
   afterAll(async () => {
     await cleanupDevices(prisma, devices);
     await cleanupUsers(prisma, users);
@@ -141,6 +143,7 @@ describe('账号级进行中 SOS 列表 (e2e)', () => {
       s2,
     ]);
     await confirmSos(http, u.token, s2).expect(200);
+    await settleSosDelivery(app);
     expect(body(await list(u).expect(200))).toMatchObject({
       items: [],
       total: 0,

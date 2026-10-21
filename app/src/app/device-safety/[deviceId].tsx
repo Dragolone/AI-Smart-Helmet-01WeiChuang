@@ -4,6 +4,8 @@ import { useLocalSearchParams } from "expo-router";
 
 import { DeviceSettingsPage } from "@/components/device-settings-page";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 export default function DeviceSafetySettingsScreen() {
   const { deviceId } = useLocalSearchParams<{ deviceId: string }>();
   return (

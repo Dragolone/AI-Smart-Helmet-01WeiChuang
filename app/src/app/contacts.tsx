@@ -18,12 +18,14 @@ import Animated from "react-native-reanimated";
 
 import { listEntering } from "@/components/motion";
 import { EmptyState } from "@/components/empty-state";
-import { showNotice } from "@/services/notice";
+import { showFailure } from "@/services/notice";
 import {
   avatarInitial,
   cleanNickname,
   contactNameOf,
 } from "@/services/user-name";
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
 
 const MAX_CONTACTS = 5;
 
@@ -130,11 +132,7 @@ export default function ContactsScreen() {
               .then(() =>
                 queryClient.invalidateQueries({ queryKey: ["contacts"] }),
               )
-              .catch((e) => {
-                // 会话已失效、正被送回登录页：登录页顶部有说明，不再弹
-                if (isSessionEnded(e)) return;
-                showNotice(translate("common.failed"), toUserMessage(e));
-              }),
+              .catch((e) => showFailure(translate("common.failed"), e)),
         },
       ],
     );
@@ -146,7 +144,7 @@ export default function ContactsScreen() {
         <ThemedText type="small" themeColor="textSecondary" style={styles.lead}>
           {t("contacts.lead", { max: MAX_CONTACTS })}
         </ThemedText>
-        {contacts.isError && (
+        {contacts.isError && !isSessionEnded(contacts.error) && (
           <ThemedText type="small" themeColor="danger">
             {toUserMessage(contacts.error)}
           </ThemedText>

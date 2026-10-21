@@ -8,6 +8,7 @@ import * as bcrypt from 'bcrypt';
 import type { AddressInfo } from 'node:net';
 import { WebSocket } from 'ws';
 import { PrismaService } from '../../src/prisma/prisma.service';
+import { SosNotifierService } from '../../src/sos/sos-notifier.service';
 import {
   PUSH_PROVIDER,
   type PushOptions,
@@ -139,6 +140,16 @@ export const confirmSos = (
   sosId: string,
 ): request.Test =>
   request(http).post(`/api/v1/sos/${sosId}/confirm`).set(auth(token));
+
+/**
+ * 「立即求救」的首投在后台跑（confirm 终态化后立即返回、不等短信发完）：断言投递结果之前先等它落定；
+ * 用例之间也要等，否则这单的短信会记到下一个用例重置过的 mock 上
+ */
+export const settleSosDelivery = async (
+  app: INestApplication,
+): Promise<void> => {
+  await app.get(SosNotifierService).backgroundDelivery();
+};
 
 export const sosByEvent = (prisma: PrismaService, eventId: string) =>
   prisma.sosCase.findFirst({ where: { triggerEventId: eventId } });

@@ -36,7 +36,7 @@ import {
   render,
   type Rendered,
 } from "@/__tests__/helpers/render";
-import { ApiRequestError } from "@/api/client";
+import { ApiRequestError, SessionEndedError } from "@/api/client";
 import { contactsApi } from "@/api/contacts";
 import { devicesApi } from "@/api/devices";
 import { toUserMessage } from "@/api/error-messages";
@@ -132,6 +132,25 @@ const mockAlarm = {
 jest.mock("expo-audio", () => ({
   setAudioModeAsync: jest.fn(() => Promise.resolve()),
   useAudioPlayer: () => mockAlarm,
+}));
+/** 安卓闹钟通道（F15）的替身：默认不可用（= iOS / 旧原生包），个别用例打开 */
+const mockLink = {
+  sosAlarmAvailable: false,
+  startSosAlarm: jest.fn(),
+  stopSosAlarm: jest.fn(),
+  setSosAlarmUrgent: jest.fn(),
+};
+jest.mock("helmet-link-service", () => ({
+  HelmetLinkService: {
+    get sosAlarmAvailable() {
+      return mockLink.sosAlarmAvailable;
+    },
+    startSosAlarm: (ms: number) => mockLink.startSosAlarm(ms),
+    stopSosAlarm: () => mockLink.stopSosAlarm(),
+    setSosAlarmUrgent: (u: boolean) => mockLink.setSosAlarmUrgent(u),
+    holdNetwork: jest.fn(),
+    releaseNetwork: jest.fn(),
+  },
 }));
 jest.mock("@/hooks/use-keep-awake-safe", () => ({
   useKeepAwakeSafe: jest.fn(),
@@ -322,6 +341,18 @@ describe("倒数中", () => {
     expect(number(r)).toBe("60");
     await tick(1000);
     expect(number(r)).toBe("59");
+  });
+
+  it("截止时间解析不出来（服务端出错）：大数字写「—」不写 NaN，按钮照常可用（10-21 夜测）", async () => {
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ deadline: "not-a-date" })),
+    );
+    const r = await mount();
+    expect(number(r)).toBe("—");
+    expect(r.allText()).not.toContain("NaN");
+    expect(r.allText()).toContain(tr("sos.sendNow"));
+    await tick(3000);
+    expect(r.allText()).not.toContain("NaN");
   });
 
   it("警报：音频设成锁屏 / 静音键下也响，每秒重播 + 震一下；最后 10 秒每秒连震两下", async () => {
@@ -656,6 +687,44 @@ describe("取消 / 立即求救", () => {
     expect(mockRouter.back).toHaveBeenCalled();
   });
 
+  it("倒数期间登记 sosScreen.counting（外来链接不把这页挤掉，app/+native-intent）；到了已取消页撤掉，卸载也撤掉（10-21 夜测）", async () => {
+    m(sosApi.cancel).mockImplementation(() =>
+      Promise.resolve(sosOf({ status: "cancelled" })),
+    );
+    const r = await mount();
+    expect(sosScreen.counting).toBe(true);
+    act(() =>
+      slideButton(r).props.onAccessibilityAction({
+        nativeEvent: { actionName: "activate" },
+      }),
+    );
+    await tick(0);
+    expect(r.allText()).toContain(tr("sos.cancelledTitle"));
+    expect(sosScreen.counting).toBe(false);
+    expect(sosScreen.mounted).toBe(true);
+    r.unmount();
+    expect(sosScreen.counting).toBe(false);
+  });
+
+  it("取消的应答不像这一单（网关改写成字符串 / {}）：不写进缓存、改拉权威状态，不冒出「2 条求救已处理」（10-22 夜测）", async () => {
+    m(sosApi.cancel).mockImplementation(() =>
+      Promise.resolve("unexpected" as never),
+    );
+    const r = await mount();
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ status: "cancelled" })),
+    );
+    act(() =>
+      slideButton(r).props.onAccessibilityAction({
+        nativeEvent: { actionName: "activate" },
+      }),
+    );
+    for (let i = 0; i < 4; i++) await tick(0);
+    expect(r.allText()).toContain(tr("sos.cancelledTitle"));
+    expect(r.allText()).not.toContain("unexpected");
+    expect(r.allText()).not.toMatch(/2 条/);
+  });
+
   it("立即求救：调确认接口 → 已通知页；短信全部发出时标题写已发出，列出每位联系人", async () => {
     m(sosApi.confirm).mockImplementation(() =>
       Promise.resolve(sosOf({ status: "notified" })),
@@ -930,6 +999,21 @@ describe("取消 / 立即求救", () => {
     // O7：仍在倒数时不弹框，走页内提示条
     expect(alert).not.toHaveBeenCalled();
     expect(r.allText()).toContain(tr("sos.failCancel"));
+  });
+
+  it("会话已失效：照样提示「没立即通知」——别的页这时不再提示，倒计时页是例外：没取消掉 / 没立即通知的结果，登录页的说明讲不出来", async () => {
+    m(sosApi.confirm).mockImplementation(() =>
+      Promise.reject(new SessionEndedError()),
+    );
+    const r = await mount();
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.reject(new SessionEndedError()),
+    );
+    r.press(tr("sos.sendNow"));
+    await tick(0);
+    await tick(0);
+    // O7：仍在倒数时走页内提示条，不弹框
+    expect(r.allText()).toContain(tr("sos.failSend"));
   });
 });
 
@@ -2420,6 +2504,58 @@ describe("演练（drill=1）", () => {
     await blur(r);
     expect(r.allText()).toContain(tr("sos.drillNotifiedBody"));
     expect(r.allText()).not.toContain(tr("sos.drillCancelledBody"));
+  });
+});
+
+describe("安卓闹钟通道（F15）", () => {
+  afterEach(() => {
+    mockLink.sosAlarmAvailable = false;
+  });
+  it("原生闹钟通道可用：倒数时只走原生（不再每秒播 expo-audio、不再触感），最后 10 秒切急促一次，结束时停", async () => {
+    mockLink.sosAlarmAvailable = true;
+    // 截止时间只算一次：服务端给的是固定时刻（每次拉快照都重算会让效果跟着重跑）
+    const fixed = sosOf({
+      deadline: new Date(Date.now() + 15_000).toISOString(),
+    });
+    m(sosApi.snapshot).mockImplementation(() => Promise.resolve(fixed));
+    const r = await mount();
+    expect(mockLink.startSosAlarm).toHaveBeenCalledTimes(1);
+    // 原生兜底时长 = 离截止还剩的（约 15 s）+ 30 s 余量：后台 JS 叫不停时原生自己到点停
+    const cap = mockLink.startSosAlarm.mock.calls[0][0] as number;
+    expect(cap).toBeGreaterThan(40_000);
+    expect(cap).toBeLessThanOrEqual(45_000);
+    await tick(3000);
+    expect(mockAlarm.play).not.toHaveBeenCalled();
+    expect(mockLink.setSosAlarmUrgent).not.toHaveBeenCalled();
+    await tick(4000);
+    expect(mockLink.setSosAlarmUrgent).toHaveBeenCalledTimes(1);
+    expect(mockLink.setSosAlarmUrgent).toHaveBeenCalledWith(true);
+    await tick(3000);
+    expect(mockLink.setSosAlarmUrgent).toHaveBeenCalledTimes(1);
+    r.unmount();
+    expect(mockLink.stopSosAlarm).toHaveBeenCalledTimes(1);
+  });
+
+  it("截止时间解析不出来：不切急促（null 不能当 0 秒比），兜底时长按满 60 秒 + 30 秒余量", async () => {
+    mockLink.sosAlarmAvailable = true;
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ deadline: "not-a-date" })),
+    );
+    const r = await mount();
+    expect(mockLink.startSosAlarm).toHaveBeenCalledWith(90_000);
+    await tick(3000);
+    expect(mockLink.setSosAlarmUrgent).not.toHaveBeenCalled();
+    r.unmount();
+    expect(mockLink.stopSosAlarm).toHaveBeenCalledTimes(1);
+  });
+
+  it("不可用（iOS / 原生包比 JS 旧）：照旧 expo-audio 每秒重播，不碰原生", async () => {
+    const r = await mount();
+    await tick(2000);
+    expect(mockAlarm.play).toHaveBeenCalled();
+    expect(mockLink.startSosAlarm).not.toHaveBeenCalled();
+    r.unmount();
+    expect(mockLink.stopSosAlarm).not.toHaveBeenCalled();
   });
 });
 

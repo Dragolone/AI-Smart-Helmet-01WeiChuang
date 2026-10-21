@@ -31,6 +31,7 @@ import {
   sosByEvent,
   sosSmsCalls,
   waitForPushTitled,
+  settleSosDelivery,
 } from './helpers/audit-sos';
 
 jest.setTimeout(60000);
@@ -88,6 +89,7 @@ describe('审计 §4 SOS 故障注入 (e2e, 手动 tick)', () => {
     setCountdown('600');
   });
 
+  afterEach(() => settleSosDelivery(app));
   afterAll(async () => {
     await cleanupDevices(prisma, devices);
     await cleanupUsers(prisma, [owner]);
@@ -210,6 +212,7 @@ describe('审计 §4 SOS 故障注入 (e2e, 手动 tick)', () => {
     let confirmRes: request.Response;
     try {
       confirmRes = await confirmSos(http, owner.token, c.id);
+      await settleSosDelivery(app);
     } finally {
       fault.restore();
     }
@@ -300,6 +303,7 @@ describe('审计 §4 SOS 故障注入 (e2e, 手动 tick)', () => {
     );
     try {
       await confirmSos(http, owner.token, c.id).expect(200);
+      await settleSosDelivery(app);
     } finally {
       fault.restore();
     }
@@ -336,6 +340,8 @@ describe('审计 §4 SOS 故障注入 (e2e, 手动 tick)', () => {
       ]);
       expect([200, 409]).toContain(res.status);
       await scheduler.tick();
+      // 首投在后台：与上面那轮、这一轮扫描都可能并行（同一联系人两条就是在这里抓到的），落定后再数
+      await settleSosDelivery(app);
       const rows = await notificationsOf(prisma, c.id);
       expect(rows.map((r) => [r.channel, r.status, r.attempts])).toEqual([
         ['sms', 'sent', 1],

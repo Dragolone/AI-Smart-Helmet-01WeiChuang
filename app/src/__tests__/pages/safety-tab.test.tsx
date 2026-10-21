@@ -23,7 +23,7 @@ import {
   waitFor,
   type Rendered,
 } from "@/__tests__/helpers/render";
-import { ApiRequestError } from "@/api/client";
+import { ApiRequestError, SessionEndedError } from "@/api/client";
 import { contactsApi } from "@/api/contacts";
 import { toUserMessage } from "@/api/error-messages";
 import { relayApi } from "@/api/relay";
@@ -584,6 +584,20 @@ describe("长按求救", () => {
     expect(body).toContain(translate("safety.sosHelmetGone"));
     expect(body).not.toContain(translate("error.deviceNotFound"));
     expect(notifyCriticalAccepted).not.toHaveBeenCalled();
+  });
+
+  it("发送时会话已失效：照样弹「求救发送失败」——别的页这时不再提示，求救是例外：登录页只说重新登录前摔倒不会通知，不会告诉他刚才这条没发出去", async () => {
+    m(relayApi.push).mockImplementation(() =>
+      Promise.reject(new SessionEndedError()),
+    );
+    const r = mount();
+    await act(async () => {
+      sosButton(r).props.onLongPress();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(alert).toHaveBeenCalled());
+    expect(alert.mock.calls.at(-1)![0]).toBe(translate("safety.sosSendFailed"));
   });
 
   it("服务端判请求体不合格（400，如头盔编号格式不对）：同样不进持久队列，第一行写服务端给的原因（不是「头盔已不在账号下」），明说没发出", async () => {

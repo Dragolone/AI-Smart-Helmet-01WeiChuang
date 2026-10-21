@@ -6,7 +6,10 @@ import * as SecureStore from "expo-secure-store";
 import { ScrollView, StyleSheet, View } from "react-native";
 
 import { authApi, maskPhone } from "@/api/auth";
-import { changePhoneErrorMessage } from "@/api/error-messages";
+import {
+  changePhoneErrorMessage,
+  isSessionEnded,
+} from "@/api/error-messages";
 import { FormError, FormInput, PrimaryButton } from "@/components/form";
 import { KeyboardAvoid } from "@/components/keyboard-avoid";
 import { Tappable } from "@/components/tappable";
@@ -25,6 +28,8 @@ import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
 import { SECURE_KEYS } from "@/services/secure-keys";
 import { useAuthStore } from "@/stores/auth-store";
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
 
 export default function ChangePhoneScreen() {
   const theme = useTheme();
@@ -60,6 +65,8 @@ export default function ChangePhoneScreen() {
     try {
       await sms.send(cleanPhone);
     } catch (e) {
+      // 会话已失效：正被送回登录页，登录页自有说明
+      if (isSessionEnded(e)) return;
       setError(changePhoneErrorMessage(e));
     }
   };
@@ -94,6 +101,8 @@ export default function ChangePhoneScreen() {
       );
       setDone(true);
     } catch (e) {
+      // 会话已失效：正被送回登录页，登录页自有说明
+      if (isSessionEnded(e)) return;
       setError(changePhoneErrorMessage(e));
     } finally {
       setBusy(false);

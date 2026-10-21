@@ -37,7 +37,7 @@ import {
   waitFor,
   type Rendered,
 } from "@/__tests__/helpers/render";
-import { ApiRequestError } from "@/api/client";
+import { ApiRequestError, SessionEndedError } from "@/api/client";
 import { devicesApi } from "@/api/devices";
 import { StatusRow } from "@/components/status-row";
 import { Tappable } from "@/components/tappable";
@@ -1157,5 +1157,53 @@ describe("重命名与解除绑定", () => {
       ),
     );
     expect(r.allText()).toContain(tr("device.unbind"));
+  });
+});
+
+describe("会话已失效（正被送回登录页）：不再单独提示，登录页自有说明", () => {
+  it("状态拉取时会话已失效：状态卡上不写「登录已失效」", async () => {
+    m(devicesApi.status).mockImplementation(() =>
+      Promise.reject(new SessionEndedError()),
+    );
+    const r = mount();
+    await waitFor(() => expect(devicesApi.status).toHaveBeenCalled());
+    await waitFor(() => expect(r.allText()).toContain("通勤头盔"));
+    expect(r.allText()).not.toContain(tr("error.sessionEnded"));
+  });
+
+  it("重命名、解除绑定遇到会话已失效：不弹失败提示", async () => {
+    m(devicesApi.rename).mockImplementation(() =>
+      Promise.reject(new SessionEndedError()),
+    );
+    m(devicesApi.unbind).mockImplementation(() =>
+      Promise.reject(new SessionEndedError()),
+    );
+    const r = mount();
+    await waitFor(() => expect(r.allText()).toContain("通勤头盔"));
+    act(() =>
+      r.root
+        .find(
+          (n) =>
+            n.type === Tappable &&
+            n.props.accessibilityLabel === tr("device.renameTitle"),
+        )
+        .props.onPress(),
+    );
+    r.press(tr("common.save"));
+    await waitFor(() => expect(devicesApi.rename).toHaveBeenCalled());
+
+    r.press(tr("device.unbind"));
+    const confirm = alert.mock.calls.find(
+      (c: unknown[]) => c[0] === tr("device.unbind"),
+    )!;
+    act(() => (confirm[2] as { onPress?: () => void }[])[1].onPress!());
+    await waitFor(() => expect(devicesApi.unbind).toHaveBeenCalled());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    // 只有解绑前的那个确认框
+    expect(alert.mock.calls.map((c: unknown[]) => c[0])).toEqual([
+      tr("device.unbind"),
+    ]);
   });
 });

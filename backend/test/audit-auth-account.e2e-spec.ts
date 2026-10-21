@@ -390,13 +390,13 @@ describe('审计 §6：账号全流程 / 验证码 / refresh / 撤销规则 (e2e
         .expect(200);
     });
 
-    it('窗口内复用：补发一次、没送到的那张作废；超过补发窗口（SQL 把 revokedAt 拨早 20 分钟）复用 → 撤销全部会话', async () => {
+    it('窗口内复用：补发一次、替代者不作废；超过补发窗口（SQL 把 revokedAt 拨早 20 分钟）复用正常轮换走的 token → 撤销全部会话', async () => {
       const u = await newUser();
       const r1 = await request(http)
         .post('/api/v1/auth/refresh')
         .send({ refreshToken: u.refreshToken })
         .expect(200);
-      // 半秒并发窗口之后复用旧 token：当作应答丢失补发一对，r1 那张作废
+      // 半秒并发窗口之后复用旧 token：当作应答丢失补发一对；r1 不作废（分不清手机拿到的是哪张，10-21）
       await new Promise((r) => setTimeout(r, 700));
       const reissued = await request(http)
         .post('/api/v1/auth/refresh')
@@ -405,7 +405,7 @@ describe('审计 §6：账号全流程 / 验证码 / refresh / 撤销规则 (e2e
       await request(http)
         .post('/api/v1/auth/refresh')
         .send({ refreshToken: r1.body.refreshToken })
-        .expect(401);
+        .expect(200);
       const r2 = await request(http)
         .post('/api/v1/auth/refresh')
         .send({ refreshToken: reissued.body.refreshToken })

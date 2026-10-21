@@ -13,6 +13,7 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import * as RN from "react-native";
 import type { DevicePublic, Sos } from "@helmet/shared";
 
+import { SessionEndedError } from "@/api/client";
 import { devicesApi } from "@/api/devices";
 import { authApi } from "@/api/auth";
 import { sosApi } from "@/api/sos";
@@ -389,6 +390,27 @@ describe("useDeviceSettings：轮询节奏与下发", () => {
     expect(alert).toHaveBeenCalledTimes(1);
     expect(r.current.sending).toBe(false);
     expect(r.current.values).toEqual({ volume: 50 });
+  });
+
+  it("下发时会话已失效（正被送回登录页）：不弹窗（登录页自有说明），照样交回 null、sending 复位", async () => {
+    settingsMock.mockResolvedValue({
+      settings: { volume: 50 },
+      lastCommand: null,
+    });
+    putMock.mockRejectedValue(new SessionEndedError());
+    const alert = jest
+      .spyOn(RN.Alert, "alert")
+      .mockImplementation(() => undefined);
+    const r = await renderHook(() => useDeviceSettings("h5"));
+    await settle(() => r.current.values !== undefined);
+    let sent!: Promise<unknown>;
+    await act(async () => {
+      sent = r.current.send("volume", 80);
+    });
+    await expect(sent).resolves.toBeNull();
+    await settle(() => !r.current.sending);
+    expect(alert).not.toHaveBeenCalled();
+    alert.mockRestore();
   });
 });
 

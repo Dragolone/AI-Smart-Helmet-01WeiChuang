@@ -117,7 +117,10 @@ export class SosService {
     const sosCase = await this.getOwned(userId, sosId);
     if (sosCase.status !== SOS_STATUS.pending) throw alreadyFinalized();
 
-    const won = await this.notifier.finalizeNotified(sosId);
+    // 首投放到后台：响应只等终态化，不等短信逐条发完（见 finalizeNotified 的 'background' 说明）
+    const won = await this.notifier.finalizeNotified(sosId, {
+      deliverInline: 'background',
+    });
     if (!won) throw alreadyFinalized();
 
     const notified = await this.prisma.sosCase.findUniqueOrThrow({

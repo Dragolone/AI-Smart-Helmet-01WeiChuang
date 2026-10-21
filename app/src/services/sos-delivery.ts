@@ -7,11 +7,30 @@ import { avatarInitial } from "./user-name";
 
 type Row = Pick<SosNotificationPublic, "channel" | "status">;
 
-/** 发给紧急联系人的那几条（短信） */
+/**
+ * 发给紧急联系人的那几条（短信）。记录的结构不对（不是数组、行不是对象、名字 / 号码不是字符串）时只留能显示的
+ * （10-22 夜测：服务端出错把类型写乱时，结果页对 .filter / 名字首字报错，整页「暂时无法显示」，人看不到短信发出去没有）
+ */
 export function smsRows<T extends Row>(
   notifications: readonly T[] | undefined,
 ): T[] {
-  return (notifications ?? []).filter((n) => n.channel === "sms");
+  if (!Array.isArray(notifications)) return [];
+  return notifications
+    .filter((n) => typeof n === "object" && n !== null && n.channel === "sms")
+    .map((n) => {
+      const r = n as T & { contactName?: unknown; target?: unknown };
+      const badName =
+        r.contactName !== undefined &&
+        r.contactName !== null &&
+        typeof r.contactName !== "string";
+      const badTarget = r.target !== undefined && typeof r.target !== "string";
+      if (!badName && !badTarget) return n;
+      return {
+        ...r,
+        ...(badName ? { contactName: null } : {}),
+        ...(badTarget ? { target: "" } : {}),
+      } as T;
+    });
 }
 
 /**
@@ -27,7 +46,8 @@ export type DeliveryState = "unknown" | "none" | "sent" | "sending" | "failed";
 export function deliveryStateOf(
   notifications: readonly Row[] | undefined,
 ): DeliveryState {
-  if (notifications === undefined) return "unknown";
+  // 没拿到（或结构不对）不下结论
+  if (!Array.isArray(notifications)) return "unknown";
   const sms = smsRows(notifications);
   if (sms.length === 0) return "none";
   if (sms.some((n) => n.status === "sent")) return "sent";
@@ -43,7 +63,7 @@ export function deliveryStateOf(
 export function deliveryPollInterval(
   notifications: readonly Row[] | undefined,
 ): number | false {
-  if (notifications === undefined) return 3_000;
+  if (!Array.isArray(notifications)) return 3_000;
   const sms = smsRows(notifications);
   if (sms.some((n) => n.status !== "sent" && n.status !== "failed"))
     return 3_000;

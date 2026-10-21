@@ -23,6 +23,7 @@ import {
   makeProviderMocks,
   sosByEvent,
   waitForPushTitled,
+  settleSosDelivery,
 } from './helpers/audit-sos';
 
 jest.setTimeout(60_000);
@@ -53,6 +54,7 @@ describe('事故详情通知记录次序稳定 (e2e)', () => {
     await addContact(http, owner.token, '乙', PHONE_B);
   });
 
+  afterEach(() => settleSosDelivery(app));
   afterAll(async () => {
     await cleanupDevices(prisma, [deviceId]);
     await cleanupUsers(prisma, [owner]);
@@ -78,6 +80,7 @@ describe('事故详情通知记录次序稳定 (e2e)', () => {
         return Promise.resolve();
       });
       await confirmSos(http, owner.token, c.id).expect(200);
+      await settleSosDelivery(app);
 
       const order = async () => {
         const res = await request(http)

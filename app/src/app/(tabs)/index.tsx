@@ -32,7 +32,7 @@ import type { DevicePublic } from "@helmet/shared";
 
 import { contactsApi } from "@/api/contacts";
 import { devicesApi } from "@/api/devices";
-import { toUserMessage } from "@/api/error-messages";
+import { isSessionEnded, toUserMessage } from "@/api/error-messages";
 import { BatteryArc } from "@/components/battery-arc";
 import { DeviceGuide } from "@/components/device-guide";
 import { EmptyState } from "@/components/empty-state";
@@ -101,6 +101,8 @@ import {
   hadHelmetBefore,
   useHelmetHistoryStore,
 } from "@/stores/helmet-history-store";
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
 
 /** 标题栏占的高度（含上边距）：算大图光晕能铺多大时要用 */
 const HEADER_HEIGHT = 48;
@@ -815,7 +817,7 @@ export default function DevicesScreen() {
             </SplashArrive>
           </View>
 
-          {listErrorShown !== null && (
+          {listErrorShown !== null && !isSessionEnded(listErrorShown) && (
             <ThemedText type="small" themeColor="danger">
               {toUserMessage(listErrorShown)}
             </ThemedText>

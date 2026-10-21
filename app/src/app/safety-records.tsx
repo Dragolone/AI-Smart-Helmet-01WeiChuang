@@ -21,7 +21,7 @@ import Animated, { FadeInDown } from "react-native-reanimated";
 import type { AccidentListItem, EventListItem } from "@helmet/shared";
 
 import { accidentHref, sosActiveHref } from "@/services/sos-routes";
-import { toUserMessage } from "@/api/error-messages";
+import { isSessionEnded, toUserMessage } from "@/api/error-messages";
 import { eventsApi, eventsListPrefix, eventsListQuery } from "@/api/events";
 import { sosApi } from "@/api/sos";
 import { Badge } from "@/components/badge";
@@ -55,6 +55,8 @@ import {
   type PageResult,
 } from "@/services/safety-records";
 import { helmetNameOf, linkLevelOf } from "@/services/safety-status";
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
 
 type Translate = ReturnType<typeof useT>;
 
@@ -163,6 +165,10 @@ function groupByDay<T>(
   }
   return groups;
 }
+
+/** 失败态下面那行原因；会话已失效时不写（正被送回登录页，登录页自有说明） */
+const reasonOf = (err: unknown): string | undefined =>
+  isSessionEnded(err) ? undefined : toUserMessage(err);
 
 function ListSkeleton() {
   return (
@@ -323,7 +329,9 @@ export default function SafetyRecordsScreen() {
         .map((d) =>
           queryClient.invalidateQueries({
             queryKey:
-              tab === "alerts" ? alertPrefix(d.deviceId) : sosPrefix(d.deviceId),
+              tab === "alerts"
+                ? alertPrefix(d.deviceId)
+                : sosPrefix(d.deviceId),
           }),
         ),
     );
@@ -537,7 +545,7 @@ export default function SafetyRecordsScreen() {
       <EmptyState
         icon="cloud-offline-outline"
         title={t("records.loadFailed")}
-        body={toUserMessage(merged.error)}
+        body={reasonOf(merged.error)}
         actionLabel={t("safety.action.retry")}
         onAction={() => void refetchRecords()}
       />
@@ -553,6 +561,7 @@ export default function SafetyRecordsScreen() {
     return (
       <>
         {merged.error != null &&
+          !isSessionEnded(merged.error) &&
           note(
             t("records.partialFailed", {
               reason: toUserMessage(merged.error),
@@ -604,7 +613,7 @@ export default function SafetyRecordsScreen() {
           <EmptyState
             icon="cloud-offline-outline"
             title={t("records.loadFailed")}
-            body={toUserMessage(helmets.error)}
+            body={reasonOf(helmets.error)}
             actionLabel={t("safety.action.retry")}
             onAction={() => void helmets.refetch()}
           />
@@ -879,7 +888,8 @@ export default function SafetyRecordsScreen() {
                   {t("records.detail.mismatch")}
                 </ThemedText>
               ) : (
-                detail.isError && (
+                detail.isError &&
+                !isSessionEnded(detail.error) && (
                   <ThemedText type="small" themeColor="textSecondary">
                     {toUserMessage(detail.error)}
                   </ThemedText>

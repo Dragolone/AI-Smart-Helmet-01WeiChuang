@@ -29,7 +29,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { devicesApi } from "@/api/devices";
 import { showToast } from "@/components/toast";
 import { ApiRequestError } from "@/api/client";
-import { toUserMessage } from "@/api/error-messages";
+import { isSessionEnded, toUserMessage } from "@/api/error-messages";
 import { devLog } from "@/services/dev-log";
 import { DEVICE_SETTINGS, type DevicePublic } from "@helmet/shared";
 import {
@@ -70,7 +70,9 @@ import {
 } from "@/services/device-view";
 import { cleanHelmetName, helmetNameOf } from "@/services/safety-status";
 import { useBleStore } from "@/stores/ble-store";
-import { showNotice } from "@/services/notice";
+import { showFailure } from "@/services/notice";
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
 
 /** 头盔没确认过音量时滑杆停在出厂默认（按「待确认」显示，不当成头盔上的值） */
 const VOLUME_DEFAULT = Number(DEVICE_SETTINGS.volume.default);
@@ -317,7 +319,7 @@ export default function DeviceDetailScreen() {
           queryClient.invalidateQueries({ queryKey: ["devices"] }),
         ]);
       })
-      .catch((e) => showNotice(t("device.renameFailed"), toUserMessage(e)))
+      .catch((e) => showFailure(t("device.renameFailed"), e))
       .finally(() => setRenaming(false));
   };
 
@@ -350,7 +352,7 @@ export default function DeviceDetailScreen() {
               })
               .catch((e) => {
                 setUnbinding(false);
-                showNotice(t("device.unbindFailed"), toUserMessage(e));
+                showFailure(t("device.unbindFailed"), e);
               });
           },
         },
@@ -460,7 +462,7 @@ export default function DeviceDetailScreen() {
           )}
         </View>
 
-        {status.isError && (
+        {status.isError && !isSessionEnded(status.error) && (
           <ThemedText type="small">{toUserMessage(status.error)}</ThemedText>
         )}
 

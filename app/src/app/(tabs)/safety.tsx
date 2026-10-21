@@ -78,7 +78,9 @@ import {
   sosTargetOf,
   type HelmetLink,
 } from "@/services/safety-status";
-import { showNotice } from "@/services/notice";
+import { showFailure, showNotice } from "@/services/notice";
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
 
 /** 长按求救没成功后，多久之内再长按算同一次（复用 eventId） */
 const SOS_RETRY_WINDOW_MS = 60_000;
@@ -377,9 +379,7 @@ export default function SafetyScreen() {
           ? { confidence: 0.95 }
           : { riskLevel: "high", direction: "rear" },
       )
-      .catch((e) =>
-        showNotice(translate("safety.dev.failed"), toUserMessage(e)),
-      );
+      .catch((e) => showFailure(translate("safety.dev.failed"), e));
 
   // 三项核对：正常时字尽量少（头盔只写名字、通知只写「通知」），不正常的那一项写明是什么问题
   const checks =

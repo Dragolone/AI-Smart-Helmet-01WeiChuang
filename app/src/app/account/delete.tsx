@@ -9,7 +9,7 @@ import { Alert, ScrollView, StyleSheet, View } from "react-native";
 
 import type { Sos } from "@helmet/shared";
 import { authApi } from "@/api/auth";
-import { toUserMessage } from "@/api/error-messages";
+import { isSessionEnded, toUserMessage } from "@/api/error-messages";
 import { FormError, FormInput, PrimaryButton } from "@/components/form";
 import { KeyboardAvoid } from "@/components/keyboard-avoid";
 import { Card } from "@/components/list";
@@ -23,6 +23,8 @@ import { accountSecureKeysOf, SECURE_KEYS } from "@/services/secure-keys";
 import { firstActiveSos } from "@/services/active-sos";
 import { sosActiveHref } from "@/services/sos-routes";
 import { useAuthStore } from "@/stores/auth-store";
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
 
 const CONSEQUENCES: {
   icon: keyof typeof Ionicons.glyphMap;
@@ -73,6 +75,8 @@ export default function DeleteAccountScreen() {
       // 放在清会话之后：链路停下来时不再替这个账号落盘，设备列表也不会再替它存一份
       if (userId) await forgetAccountLocalData(userId);
     } catch (e) {
+      // 会话已失效：正被送回登录页，登录页自有说明
+      if (isSessionEnded(e)) return;
       setError(toUserMessage(e));
     } finally {
       setBusy(false);
@@ -92,7 +96,7 @@ export default function DeleteAccountScreen() {
     try {
       active = await firstActiveSos(queryClient);
     } catch (e) {
-      setError(toUserMessage(e));
+      if (!isSessionEnded(e)) setError(toUserMessage(e));
       return;
     } finally {
       setBusy(false);
