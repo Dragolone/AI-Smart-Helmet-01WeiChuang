@@ -81,6 +81,14 @@ import { useCurrentHelmetStore } from "@/stores/current-helmet-store";
 
 /** 远程推送到达那次补拉失败后的重试间隔：弱网下 2 s、5 s 再各试一次（60 s 倒计时内够用，又不会无限打服务端） */
 const PUSH_ARRIVAL_RETRY_DELAYS_MS = [2_000, 5_000] as const;
+/**
+ * 冷启动补拉失败后的重试：先等 2 s，再按 5 / 10 / 20 / 30 s 补，前后约 67 s、盖住一整个 60 s 倒计时，每次一个请求。
+ * 原先认为冷启动之后还有 WS 重连补拉兜底，失败就作罢——
+ * 但安卓从多任务划掉后进程被推送服务撑着、WS 一直连着（bridge-lifecycle），再从桌面打开时界面重挂只做这一次补拉；
+ * 这一下没拉到（弱网），WS 不会重连，正在倒数的单直到到期都弹不出来，设备页也看不出有求救（10-22 夜测复现）
+ */
+const COLD_RESUME_RETRY_FIRST_MS = 2_000;
+const COLD_RESUME_RETRY_DELAYS_MS = [5_000, 10_000, 20_000, 30_000] as const;
 
 /**
  * 每次启动拿一个号；清理时只有自己仍是最新的那次，才拆掉共享的连接 / 链路 / 推送别名。
@@ -264,12 +272,48 @@ export function useRealtimeUpdates(): void {
     // 否则进行中的 SOS 要等 WS 重连或回前台才会被发现（B 线 10-06 评审 F-10）
     let coldResumeHadTargets: boolean | null = null;
     let resumedAfterListArrived = false;
+    let coldRetryTimer: ReturnType<typeof setTimeout> | null = null;
     void Promise.all([devicesLoad.firstAttempt, cachedReady]).then(() => {
       if (cancelled) return;
       const ids = bleTargetsOf();
       coldResumeHadTargets = ids.length > 0;
-      void resumePendingSos(queryClient, ids, presentedSos, sosDeps).finally(
-        coldResumeSettled,
+      // 授权框的闸照旧在第一次尝试后放行（失败也放，申请不能一直挂着）；失败了另起有限重试
+      let coldFailed = false;
+      const coldDeps: SosSyncDeps = {
+        ...sosDeps,
+        fetchAccountActive: async () => {
+          try {
+            return await sosDeps.fetchAccountActive!();
+          } catch (e) {
+            coldFailed = true;
+            throw e;
+          }
+        },
+      };
+      void resumePendingSos(queryClient, ids, presentedSos, coldDeps).finally(
+        () => {
+          coldResumeSettled();
+          if (!coldFailed || cancelled) return;
+          coldRetryTimer = setTimeout(() => {
+            coldRetryTimer = null;
+            if (cancelled) return;
+            void resumePendingSos(
+              queryClient,
+              bleTargetsOf(),
+              presentedSos,
+              // 重试途中退出登录 / 界面被新的一次接手：后面几次不再发请求
+              {
+                ...sosDeps,
+                fetchAccountActive: async () =>
+                  cancelled
+                    ? { items: [], total: 0 }
+                    : sosDeps.fetchAccountActive!(),
+              },
+              "冷启动补拉失败后重试，",
+              COLD_RESUME_RETRY_DELAYS_MS,
+            );
+          }, COLD_RESUME_RETRY_FIRST_MS);
+        },
       );
     });
     // 自己把摔倒 / 求救送上云且服务端接受了 → 立刻核对进行中的 SOS 并拉起倒计时页，顺手让 WS 立即重连。
@@ -424,6 +468,7 @@ export function useRealtimeUpdates(): void {
     // 这一次挂上的订阅
     const detach = () => {
       cancelled = true;
+      if (coldRetryTimer) clearTimeout(coldRetryTimer);
       unsubscribeDead();
       devicesLoad.cancel();
       unsubscribe();
