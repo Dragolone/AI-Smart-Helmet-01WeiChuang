@@ -88,7 +88,12 @@ describe('UsersService.deleteAccount', () => {
     )[0].data.deletedAt;
     expect(tx.user.update).toHaveBeenCalledWith({
       where: { id: 'u1' },
-      data: { deletedAt: now, phone: 'deleted:u1', avatarUrl: null },
+      data: {
+        deletedAt: now,
+        phone: 'deleted:u1',
+        avatarUrl: null,
+        timeZone: null,
+      },
     });
     // 进行中的求救按建单时固化的 userId 数（头盔已解绑的单也算），在锁住用户行之后数
     expect(tx.sosCase.count).toHaveBeenCalledWith({

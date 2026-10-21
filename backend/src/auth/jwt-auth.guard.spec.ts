@@ -1,5 +1,10 @@
-// 全局 JWT 守卫：@Public 跳过、Bearer 解析、验签失败 / admin token / 注销账号一律 401，通过后挂 req.user。
-import { UnauthorizedException, type ExecutionContext } from '@nestjs/common';
+// 全局 JWT 守卫：@Public 跳过、Bearer 解析、验签失败 / admin token / 注销账号一律 401，通过后挂 req.user；
+// 顺带按 X-Client-Timezone 记下手机时区（O13）。
+import {
+  Logger,
+  UnauthorizedException,
+  type ExecutionContext,
+} from '@nestjs/common';
 import type { Reflector } from '@nestjs/core';
 import type { JwtService } from '@nestjs/jwt';
 import type { PrismaService } from '../prisma/prisma.service';
@@ -16,16 +21,20 @@ describe('JwtAuthGuard', () => {
   let isPublic: boolean | undefined;
   const verifyAsync = jest.fn();
   const findUnique = jest.fn();
+  const updateMany = jest.fn();
   const guard = new JwtAuthGuard(
     { getAllAndOverride: () => isPublic } as unknown as Reflector,
     { verifyAsync } as unknown as JwtService,
-    { user: { findUnique } } as unknown as PrismaService,
+    { user: { findUnique, updateMany } } as unknown as PrismaService,
   );
 
   beforeEach(() => {
     isPublic = undefined;
     verifyAsync.mockReset().mockResolvedValue({ sub: 'u1' });
-    findUnique.mockReset().mockResolvedValue({ deletedAt: null });
+    findUnique
+      .mockReset()
+      .mockResolvedValue({ deletedAt: null, timeZone: null });
+    updateMany.mockReset().mockResolvedValue({ count: 1 });
   });
 
   const fail = async (req: Record<string, unknown>) => {
@@ -89,5 +98,62 @@ describe('JwtAuthGuard', () => {
       headers: { authorization: 'Bearer good' },
     };
     await expect(guard.canActivate(ctxFor(req2))).resolves.toBe(true);
+  });
+
+  describe('手机时区（X-Client-Timezone，O13）', () => {
+    const pass = (timeZone?: unknown) =>
+      guard.canActivate(
+        ctxFor({
+          headers: {
+            authorization: 'Bearer good',
+            ...(timeZone !== undefined
+              ? { 'x-client-timezone': timeZone }
+              : {}),
+          },
+        }),
+      );
+
+    it('和记下的不同：写一次（规范化后的名字，只写未注销的账号）', async () => {
+      await expect(pass('asia/shanghai')).resolves.toBe(true);
+      expect(findUnique).toHaveBeenCalledWith({
+        where: { id: 'u1' },
+        select: { deletedAt: true, timeZone: true },
+      });
+      expect(updateMany).toHaveBeenCalledWith({
+        where: { id: 'u1', deletedAt: null },
+        data: { timeZone: 'Asia/Shanghai' },
+      });
+    });
+
+    it('和记下的相同 / 没带 / 不合法 / 用户行不存在：不写', async () => {
+      findUnique.mockResolvedValue({
+        deletedAt: null,
+        timeZone: 'Asia/Shanghai',
+      });
+      await pass('Asia/Shanghai');
+      await pass();
+      findUnique.mockResolvedValue({ deletedAt: null, timeZone: null });
+      await pass('Mars/Base');
+      await pass(['Asia/Shanghai', 'Asia/Tokyo']);
+      findUnique.mockResolvedValue(null);
+      await pass('Asia/Tokyo');
+      expect(updateMany).not.toHaveBeenCalled();
+    });
+
+    it('已注销：照样 401，不写时区', async () => {
+      findUnique.mockResolvedValue({ deletedAt: new Date(), timeZone: null });
+      await expect(pass('Asia/Shanghai')).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+      expect(updateMany).not.toHaveBeenCalled();
+    });
+
+    it('写库失败：只记 warn，请求照常放行', async () => {
+      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+      updateMany.mockRejectedValue(new Error('db down'));
+      await expect(pass('Australia/Sydney')).resolves.toBe(true);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('db down'));
+      warn.mockRestore();
+    });
   });
 });

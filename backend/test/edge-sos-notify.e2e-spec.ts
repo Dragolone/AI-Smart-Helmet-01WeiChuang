@@ -120,14 +120,14 @@ describe('边界：SOS 通知内容 (e2e)', () => {
     await app.close();
   });
 
-  describe('时间按北京时间写', () => {
-    it('UTC 9 月 30 日 16:05 = 北京 10 月 1 日 00:05：短信参数「10-01 00:05」、推送「已于 00:05」（不是 24:05）', async () => {
+  describe('没报过手机时区：按北京时间写，推送里写明「北京时间」（O13）', () => {
+    it('UTC 9 月 30 日 16:05 = 北京 10 月 1 日 00:05：短信参数「10-01 00:05」、推送「已于北京时间 00:05」（不是 24:05）', async () => {
       const { u, d } = await setup();
       const r = await deliver(u, d, {
         finalizedAt: new Date('2026-09-30T16:05:00Z'),
       });
       expect(r.params.triggeredAt).toBe('10-01 00:05');
-      expect(r.pushBody).toContain('已于 00:05');
+      expect(r.pushBody).toContain('已于北京时间 00:05 ');
     });
 
     it('跨年：UTC 12 月 31 日 16:00 = 北京 1 月 1 日 00:00 → 「01-01 00:00」；北京中午 12:30 → 「12:30」', async () => {
@@ -136,11 +136,56 @@ describe('边界：SOS 通知内容 (e2e)', () => {
         finalizedAt: new Date('2026-12-31T16:00:00Z'),
       });
       expect(r1.params.triggeredAt).toBe('01-01 00:00');
-      expect(r1.pushBody).toContain('已于 00:00');
+      expect(r1.pushBody).toContain('已于北京时间 00:00 ');
       const r2 = await deliver(u, d, {
         finalizedAt: new Date('2026-10-15T04:30:59Z'),
       });
       expect(r2.params.triggeredAt).toBe('10-15 12:30');
+    });
+  });
+
+  describe('报过手机时区（X-Client-Timezone）：推送按当地时间写（O13）', () => {
+    const me = (u: TestUser, timeZone?: string) => {
+      const req = request(http).get('/api/v1/users/me').set(auth(u.token));
+      return (timeZone ? req.set('X-Client-Timezone', timeZone) : req).expect(
+        200,
+      );
+    };
+    const storedTimeZone = async (u: TestUser) =>
+      (await prisma.user.findUniqueOrThrow({ where: { id: u.id } })).timeZone;
+
+    it('任一需登录的请求带上就记下（规范化）；不合法 / 没带不清掉；换了就更新', async () => {
+      const { u } = await setup();
+      expect(await storedTimeZone(u)).toBeNull();
+      await me(u, 'australia/sydney');
+      expect(await storedTimeZone(u)).toBe('Australia/Sydney');
+      await me(u, 'Mars/Base');
+      await me(u);
+      expect(await storedTimeZone(u)).toBe('Australia/Sydney');
+      await me(u, 'Asia/Tokyo');
+      expect(await storedTimeZone(u)).toBe('Asia/Tokyo');
+    });
+
+    it('悉尼用户：推送写当地 02:05、不加「北京时间」；联系人短信参数仍按北京时间', async () => {
+      const { u, d } = await setup();
+      await me(u, 'Australia/Sydney');
+      const r = await deliver(u, d, {
+        finalizedAt: new Date('2026-09-30T16:05:00Z'),
+      });
+      expect(r.pushBody).toContain('已于 02:05 ');
+      expect(r.pushBody).not.toContain('北京时间');
+      expect(r.params.triggeredAt).toBe('10-01 00:05');
+    });
+
+    it('注销时清空', async () => {
+      const { u } = await setup();
+      await me(u, 'Asia/Tokyo');
+      await request(http)
+        .delete('/api/v1/users/me')
+        .set(auth(u.token))
+        .send({ password: u.password })
+        .expect(204);
+      expect(await storedTimeZone(u)).toBeNull();
     });
   });
 

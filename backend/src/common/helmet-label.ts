@@ -13,17 +13,45 @@ export function helmetLabel(device: {
   return name || device.deviceId;
 }
 
-const CLOCK = new Intl.DateTimeFormat('zh-CN', {
+const BEIJING_CLOCK = new Intl.DateTimeFormat('zh-CN', {
   timeZone: 'Asia/Shanghai',
   hour: '2-digit',
   minute: '2-digit',
   hourCycle: 'h23',
 });
 
+/** 按时区缓存的格式器：IANA 时区就几百个，上限有数 */
+const localClocks = new Map<string, Intl.DateTimeFormat>();
+
+function localClock(at: Date, timeZone: string): string | null {
+  try {
+    let format = localClocks.get(timeZone);
+    if (!format) {
+      format = new Intl.DateTimeFormat('zh-CN', {
+        timeZone,
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+      });
+      localClocks.set(timeZone, format);
+    }
+    return format.format(at);
+  } catch {
+    // 存进来时校验过（common/time-zone）；运行环境的时区库不认时退回北京时间
+    return null;
+  }
+}
+
 /**
- * 推送正文里的时刻：北京时间 HH:mm（中国大陆市场优先）。原来直接写 toISOString()，
- * 用户看到的是「2026-10-15T09:48:24.506Z」这样的 UTC 原文（同 10-07 A 线对建单推送的反馈）。
+ * 推送正文里「已于 HH:mm 」这一段（O13，负责人 10-21）：按用户手机上报的时区写当地时间；没报上来时按北京时间、
+ * 并写明「北京时间」——海外用户看到不加说明的北京时间会和自己的表对不上。原来一律北京时间、不标注（负责人 10-15；
+ * 更早是 toISOString 的 UTC 原文，10-07 A 线反馈）。没有时刻返回空串。
  */
-export function pushClock(at: Date | null | undefined): string {
-  return at ? CLOCK.format(at) : '';
+export function pushAtPhrase(
+  at: Date | null | undefined,
+  timeZone?: string | null,
+): string {
+  if (!at) return '';
+  const local = timeZone ? localClock(at, timeZone) : null;
+  return local ? `已于 ${local} ` : `已于北京时间 ${BEIJING_CLOCK.format(at)} `;
 }

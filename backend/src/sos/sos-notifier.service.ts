@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { errorMessage } from '../common/error-text';
 import { sleep } from '../common/sleep';
 import { withTimeout } from '../common/with-timeout';
-import { helmetLabel, pushClock } from '../common/helmet-label';
+import { helmetLabel, pushAtPhrase } from '../common/helmet-label';
 import { PrismaService } from '../prisma/prisma.service';
 import { PUSH_PROVIDER, type PushProvider } from '../providers/push.provider';
 import {
@@ -407,10 +407,12 @@ export class SosNotifierService {
       where: { sosId: sosCase.id, channel: 'sms' },
       select: { status: true },
     });
-    // 时间写北京时间 HH:mm（原来是 toISOString 的 UTC 原文，负责人 10-15）
     const helmet = await this.helmetOf(sosCase);
-    const clock = pushClock(sosCase.finalizedAt);
-    const at = clock ? `已于 ${clock} ` : '';
+    // 时间按用户手机时区写，没报上来时写明北京时间（O13）
+    const at = pushAtPhrase(
+      sosCase.finalizedAt,
+      await this.userTimeZone(sosCase.userId),
+    );
     if (sms.length === 0) {
       return {
         title: PUSH_TITLE.noContacts,
@@ -460,6 +462,14 @@ export class SosNotifierService {
       title: PUSH_TITLE.retryNotified,
       body: `头盔 ${await this.helmetOf(sosCase)} 的求救短信已在重试后发给 ${sent}/${sms.length} 位紧急联系人${rest}`,
     };
+  }
+
+  /** 用户手机时区（守卫按 X-Client-Timezone 记下的）；查不到 / 查询出错为 null，推送照发、写北京时间 */
+  private async userTimeZone(userId: string): Promise<string | null> {
+    const user = await this.prisma.user
+      .findUnique({ where: { id: userId }, select: { timeZone: true } })
+      .catch(() => null);
+    return user?.timeZone ?? null;
   }
 
   /**

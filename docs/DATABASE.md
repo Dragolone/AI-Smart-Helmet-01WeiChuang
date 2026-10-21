@@ -7,7 +7,7 @@
 
 | 表 | 关键决策 | 原因 |
 |----|----------|------|
-| users | 业务主键 cuid；phone 唯一；`deleted_at` 软删除（2026-09-11） | MVP 以手机号为注册凭据（见 API.md §2）；注销时 phone 改写为 `deleted:<id>` 释放号码（原号不保留），留档不物理删除 |
+| users | 业务主键 cuid；phone 唯一；`deleted_at` 软删除（2026-09-11）；`time_zone` 手机时区（2026-10-22，O13：IANA 名，可空；JWT 守卫按请求头 `X-Client-Timezone` 在值变化时写入，推送正文时间按它写，没有时写「北京时间」；只留最新一个，注销时清空） | MVP 以手机号为注册凭据（见 API.md §2）；注销时 phone 改写为 `deleted:<id>` 释放号码（原号不保留），留档不物理删除 |
 | devices | 主键直接用硬件 deviceId，不造代理键 | 设备全链路（MQTT Topic、事件、绑定）都以硬件 ID 为准，翻译层只会添乱 |
 | device_bindings | 每段绑定关系一行（device_id, user_id, bound_at, unbound_at）；不建外键；migration 回填现有绑定 | 决策 #39：事件/轨迹/媒体的用户可见范围 = 本人绑定区间（按服务端 receivedAt 判），换绑后前主数据对新主不可见、同一人解绑再绑回来历史仍在；raw_events/location_points 保持无 user 字段（留档原则不变） |
 | raw_events | `(device_id, event_id)` 复合唯一约束 = 幂等去重的兜底（**设备内唯一**，决策 #54，2026-10-14；原为 event_id 全局唯一）；**不建**到 devices 的外键 | 幂等必须由数据库保证（并发/重发场景应用层拦不住）；全局唯一时任何绑了头盔的用户都能用自己的设备抢先占用别人的 eventId，让对方之后的摔倒被当成重复、不建单；未注册设备/未知来源的事件也必须能原样落库（Ingest 规则） |

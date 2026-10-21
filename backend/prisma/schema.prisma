@@ -18,6 +18,9 @@ model User {
   createdAt         DateTime           @default(now()) @map("created_at")
   // 注销（App Store 要求应用内可注销）：软删除留档，phone 改写为 deleted:<id> 释放号码供再注册（原号不保留）
   deletedAt         DateTime?          @map("deleted_at")
+  // 手机时区（IANA 名，O13）：App 每个请求带 X-Client-Timezone，守卫在值变化时记下；推送正文的时间按它写，
+  // 没有时写「北京时间」。只留最新一个，注销时清空
+  timeZone          String?            @map("time_zone")
   devices           Device[]
   refreshTokens     RefreshToken[]
   emergencyContacts EmergencyContact[]

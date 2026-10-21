@@ -304,17 +304,37 @@ describe('SosNotifierService', () => {
         Record<string, unknown>,
       ];
 
-    it('没有联系人：标题「未设置紧急联系人」，头盔写用户起的名字，带北京时间', async () => {
+    it('没有联系人：标题「未设置紧急联系人」，头盔写用户起的名字；没报时区时写明北京时间（O13）', async () => {
       queueRows([row('push')], []);
       await svc.deliverPending();
       const [userId, title, body, data, opts] = pushed();
       expect(userId).toBe('u1');
       expect(title).toBe(PUSH_TITLE.noContacts);
       expect(body).toBe(
-        '头盔 通勤盔 的求救已于 09:01 确认，但你尚未设置紧急联系人，无人会收到短信，请直接拨打电话求助',
+        '头盔 通勤盔 的求救已于北京时间 09:01 确认，但你尚未设置紧急联系人，无人会收到短信，请直接拨打电话求助',
       );
       expect(data).toEqual({ sosId: 'sos1', deviceId: 'helmet_0000000001' });
       expect(opts).toEqual({ timeSensitive: true });
+    });
+
+    it('用户报过手机时区：时间按当地写、不加说明（O13）；查时区出错照发、写北京时间', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        timeZone: 'Australia/Sydney',
+      });
+      queueRows([row('push')], ['sent']);
+      await svc.deliverPending();
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { id: 'u1' },
+        select: { timeZone: true },
+      });
+      expect(pushed()[2]).toBe(
+        '头盔 通勤盔 的求救已于 12:01 向 1/1 位紧急联系人发出短信通知',
+      );
+      push.send.mockClear();
+      prisma.user.findUnique.mockRejectedValue(new Error('db'));
+      queueRows([row('push')], ['sent']);
+      await svc.deliverPending();
+      expect(pushed()[2]).toContain('已于北京时间 09:01 ');
     });
 
     it('头盔已转给别人（当前绑定的不是这单的主人）：写设备编号，不把新主人起的名字推给前主人', async () => {
@@ -340,13 +360,13 @@ describe('SosNotifierService', () => {
       await svc.deliverPending();
       expect(pushed()[1]).toBe(PUSH_TITLE.contactsNotified);
       expect(pushed()[2]).toBe(
-        '头盔 通勤盔 的求救已于 09:01 向 2/3 位紧急联系人发出短信通知（其余失败，系统会自动重试）',
+        '头盔 通勤盔 的求救已于北京时间 09:01 向 2/3 位紧急联系人发出短信通知（其余失败，系统会自动重试）',
       );
       push.send.mockClear();
       queueRows([row('push')], ['sent']);
       await svc.deliverPending();
       expect(pushed()[2]).toBe(
-        '头盔 通勤盔 的求救已于 09:01 向 1/1 位紧急联系人发出短信通知',
+        '头盔 通勤盔 的求救已于北京时间 09:01 向 1/1 位紧急联系人发出短信通知',
       );
     });
 
