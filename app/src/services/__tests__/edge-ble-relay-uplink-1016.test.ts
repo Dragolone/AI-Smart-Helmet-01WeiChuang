@@ -369,3 +369,103 @@ describe("档案晚到：先落匿名分区、user.id 到了再换（use-realtim
     expect(savedIds("user_2")).toEqual([]);
   });
 });
+
+describe("积压还没读进内存时的落盘（10-21 修：原来会用缺了积压的内存那份盖掉文件）", () => {
+  const seedUser1 = () =>
+    mockFiles.set(
+      queueFile("user_1"),
+      JSON.stringify({
+        v: 2,
+        owner: "user_1",
+        events: [env("possible_fall", "helmet_mine", "old-fall")],
+      }),
+    );
+
+  it("链路刚起、积压还没并进内存就停了（冷启动时登录过期被强制登出）：文件里的摔倒不被空队列盖掉，读完和内存合并写回", async () => {
+    seedUser1();
+    const { up, push } = load();
+    push.mockRejectedValue(new Error("offline"));
+    up.startRelayUplink("user_1");
+    up.enqueueRelayEvent(env("possible_fall", "helmet_mine", "new-fall"));
+    up.stopRelayUplink();
+    // 同一时刻：文件还是原来那份，没被写成只有新事件 / 空
+    expect(savedIds("user_1")).toEqual(["old-fall"]);
+    await tick();
+    expect(savedIds("user_1").sort()).toEqual(["new-fall", "old-fall"]);
+    // 再登录同一个账号：两条都在，按序补传
+    push.mockReset();
+    push.mockImplementation(async (body) => ({
+      accepted: body.envelopes.length,
+      duplicate: 0,
+      invalid: 0,
+    }));
+    up.startRelayUplink("user_1");
+    await tick();
+    await up.flushRelayQueue();
+    expect(
+      sent(push)
+        .flatMap((b) => b.ids)
+        .sort(),
+    ).toEqual(["new-fall", "old-fall"]);
+    up.stopRelayUplink();
+  });
+
+  it("积压还没并进内存时来了新事件：先不落盘，读完合并后一起落盘", async () => {
+    seedUser1();
+    const { up, push } = load();
+    push.mockRejectedValue(new Error("offline"));
+    up.startRelayUplink("user_1");
+    up.enqueueRelayEvent(env("location_update", "helmet_mine", "loc-1"));
+    expect(savedIds("user_1")).toEqual(["old-fall"]);
+    await tick();
+    expect(savedIds("user_1").sort()).toEqual(["loc-1", "old-fall"]);
+    up.stopRelayUplink();
+    expect(savedIds("user_1").sort()).toEqual(["loc-1", "old-fall"]);
+  });
+
+  it("没有积压文件时照常：停的时候内存里的照写", async () => {
+    const { up, push } = load();
+    push.mockRejectedValue(new Error("offline"));
+    up.startRelayUplink("user_2");
+    await tick();
+    up.enqueueRelayEvent(env("possible_fall", "helmet_mine", "f-2"));
+    up.stopRelayUplink();
+    expect(savedIds("user_2")).toEqual(["f-2"]);
+  });
+});
+
+describe("退出登录前尽力送完积压（O21）", () => {
+  it("relayBacklog：总数和其中摔倒 / 求救的条数", async () => {
+    const { up, push } = load();
+    push.mockRejectedValue(new Error("offline"));
+    up.startRelayUplink("user_1");
+    await tick();
+    up.enqueueRelayEvent(env("location_update", "helmet_mine", "l-1"));
+    up.enqueueRelayEvent(env("possible_fall", "helmet_mine", "f-1"));
+    expect(up.relayBacklog()).toEqual({ total: 2, sos: 1 });
+    up.stopRelayUplink();
+  });
+
+  it("网络好：一轮轮送完、返回 0；断网：一轮送不出去就停、返回剩下的，不空转到时限", async () => {
+    const { up, push } = load();
+    push.mockRejectedValue(new Error("offline"));
+    up.startRelayUplink("user_1");
+    await tick();
+    up.enqueueRelayEvent(env("possible_fall", "helmet_a", "f-a"));
+    up.enqueueRelayEvent(env("location_update", "helmet_b", "l-b"));
+    await tick();
+    const started = Date.now();
+    expect(await up.drainRelayQueue(5_000)).toEqual({ total: 2, sos: 1 });
+    expect(Date.now() - started).toBeLessThan(1_000);
+    push.mockReset();
+    push.mockImplementation(async (body) => ({
+      accepted: body.envelopes.length,
+      duplicate: 0,
+      invalid: 0,
+    }));
+    expect(await up.drainRelayQueue(5_000)).toEqual({ total: 0, sos: 0 });
+    // 两台头盔各一批
+    expect(push).toHaveBeenCalledTimes(2);
+    up.stopRelayUplink();
+  });
+});
