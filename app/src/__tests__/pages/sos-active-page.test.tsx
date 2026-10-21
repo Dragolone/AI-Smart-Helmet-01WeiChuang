@@ -687,6 +687,25 @@ describe("取消 / 立即求救", () => {
     expect(sosScreen.counting).toBe(false);
   });
 
+  it("取消的应答不像这一单（网关改写成字符串 / {}）：不写进缓存、改拉权威状态，不冒出「2 条求救已处理」（10-22 夜测）", async () => {
+    m(sosApi.cancel).mockImplementation(() =>
+      Promise.resolve("unexpected" as never),
+    );
+    const r = await mount();
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ status: "cancelled" })),
+    );
+    act(() =>
+      slideButton(r).props.onAccessibilityAction({
+        nativeEvent: { actionName: "activate" },
+      }),
+    );
+    for (let i = 0; i < 4; i++) await tick(0);
+    expect(r.allText()).toContain(tr("sos.cancelledTitle"));
+    expect(r.allText()).not.toContain("unexpected");
+    expect(r.allText()).not.toMatch(/2 条/);
+  });
+
   it("立即求救：调确认接口 → 已通知页；短信全部发出时标题写已发出，列出每位联系人", async () => {
     m(sosApi.confirm).mockImplementation(() =>
       Promise.resolve(sosOf({ status: "notified" })),

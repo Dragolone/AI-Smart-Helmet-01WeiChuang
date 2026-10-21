@@ -57,6 +57,7 @@ import {
   COUNTDOWN_POLL_MS,
   countdownPollInterval,
   isFinal,
+  isSosFor,
   presentedSos,
   settleSnapshot,
 } from "@/services/sos-sync";
@@ -640,7 +641,13 @@ function SosActiveContent() {
     markBusy([id], kind);
     (kind === "cancel" ? sosApi.cancel(id) : sosApi.confirm(id))
       .then((updated) => {
-        queryClient.setQueryData(["sos", id], updated);
+        if (isSosFor(updated, id))
+          queryClient.setQueryData(["sos", id], updated);
+        else
+          void queryClient.invalidateQueries({
+            queryKey: ["sos", id],
+            exact: true,
+          });
         setActFail((f) => dropFail(f, [id]));
       })
       .catch((e) => {
@@ -1036,7 +1043,13 @@ function SosActiveContent() {
     void Promise.allSettled(
       ids.map((id) =>
         (kind === "cancel" ? sosApi.cancel(id) : sosApi.confirm(id)).then(
-          (updated) => queryClient.setQueryData(["sos", id], updated),
+          (updated) =>
+            isSosFor(updated, id)
+              ? queryClient.setQueryData(["sos", id], updated)
+              : void queryClient.invalidateQueries({
+                  queryKey: ["sos", id],
+                  exact: true,
+                }),
         ),
       ),
     )
