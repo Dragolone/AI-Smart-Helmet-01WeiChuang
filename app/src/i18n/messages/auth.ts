@@ -144,6 +144,7 @@ export const auth = {
     "sos.failSend": "立即求救没有发出",
     "sos.failStillCounting": "倒计时仍在继续，约 {n} 秒后会通知紧急联系人",
     "sos.failDueNow": "倒计时即将结束，马上会通知紧急联系人",
+    "sos.connecting": "正在连接服务器…网络恢复后显示剩余时间",
     "sos.sessionDeadTitle": "登录已失效",
     "sos.sessionDeadBody":
       "倒计时结束会照常通知紧急联系人。要取消，请重新登录，登录后这单会重新打开。",
@@ -296,6 +297,7 @@ export const auth = {
     "sos.failSend": "立即求救沒有送出",
     "sos.failStillCounting": "倒數仍在繼續，約 {n} 秒後會通知緊急聯絡人",
     "sos.failDueNow": "倒數即將結束，馬上會通知緊急聯絡人",
+    "sos.connecting": "正在連線伺服器…網路恢復後顯示剩餘時間",
     "sos.sessionDeadTitle": "登入已失效",
     "sos.sessionDeadBody":
       "倒數結束會照常通知緊急聯絡人。要取消，請重新登入，登入後這單會重新開啟。",
@@ -468,6 +470,8 @@ export const auth = {
       "The countdown is still running. Emergency contacts will be notified in about {n}s.",
     "sos.failDueNow":
       "The countdown is about to end. Emergency contacts will be notified shortly.",
+    "sos.connecting":
+      "Connecting to the server… The time left will show once you're back online.",
     "sos.sessionDeadTitle": "You've been logged out",
     "sos.sessionDeadBody":
       "Your emergency contacts will still be notified when the countdown ends. To cancel, log in again — this SOS will reopen.",
