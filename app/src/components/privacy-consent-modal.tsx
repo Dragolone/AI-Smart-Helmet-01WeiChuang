@@ -9,6 +9,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { router, usePathname } from "expo-router";
 
 import { PrimaryButton } from "@/components/form";
+import { useSplashCovering } from "@/components/splash/covering";
 import { ThemedText } from "@/components/themed-text";
 import { consentModalVisible } from "@/constants/legal";
 import { Radius } from "@/constants/theme";
@@ -27,10 +28,12 @@ export function PrivacyConsentModal() {
   const accept = useConsentStore((s) => s.accept);
   const [checked, setChecked] = useState(false);
   const pathname = usePathname();
+  // 冷启动时等开屏播完再弹：Modal 是单独的窗口，会直接压在开屏动画上（见 splash/covering）
+  const splashCovering = useSplashCovering();
 
   // 可见性纯由状态推导；登录页/注册页勾过的这里永远不会出现。协议页与倒计时页上让路（见 constants/legal）
   const visible = consentModalVisible({ authed, hydrated, accepted, pathname });
-  if (!visible) return null;
+  if (!visible || splashCovering) return null;
 
   return (
     <Modal transparent animationType="none" onRequestClose={() => undefined}>

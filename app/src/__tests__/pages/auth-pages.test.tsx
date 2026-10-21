@@ -27,6 +27,7 @@ import { translate, useLocaleStore, type MessageKey } from "@/i18n";
 import { useAuthStore } from "@/stores/auth-store";
 import { useConsentStore } from "@/stores/consent-store";
 import { useThemeStore } from "@/stores/theme-store";
+import { SplashArrive } from "@/components/splash/splash-arrive";
 import LoginScreen from "@/app/(auth)/login";
 import RegisterScreen from "@/app/(auth)/register";
 import ResetPasswordScreen from "@/app/(auth)/reset-password";
@@ -305,6 +306,15 @@ describe("登录页", () => {
     const r = render(<LoginScreen />);
     expect(r.allText()).toContain(tr("auth.sessionExpiredNotice"));
     expect(r.icons()).toContain("warning-outline");
+    // 跟着开屏依次进场：原来没包进来，冷启动时页面一涌上来它就先露出来，像是开屏播到一半冒出一条提示（10-20）
+    expect(
+      r.root
+        .findAllByType(SplashArrive)
+        .some(
+          (a) =>
+            a.findAll((n) => n.props.accessibilityRole === "alert").length > 0,
+        ),
+    ).toBe(true);
     r.press(tr("auth.consentTerms"));
     r.press(tr("auth.consentPrivacy"));
     expect(mockRouter.navigate.mock.calls.map((c) => c[0])).toEqual([

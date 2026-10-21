@@ -7,6 +7,7 @@ import { Modal, Platform, Pressable, StyleSheet, View } from "react-native";
 import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 
 import { PrimaryButton } from "@/components/form";
+import { useSplashCovering } from "@/components/splash/covering";
 import { ThemedText } from "@/components/themed-text";
 import { Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
@@ -28,8 +29,10 @@ export function KeepAliveTip() {
       .then((v) => setShown(v === "1"))
       .catch(() => setShown(false));
   }, []);
+  // 冷启动时头盔可能在开屏还没播完就连上：等开屏让开再弹，Modal 是单独的窗口，会压在开屏动画上
+  const splashCovering = useSplashCovering();
   // 可见性由状态推导（不在 effect 里 setState）：首次连上 且 从未展示过
-  const visible = anyConnected && shown === false;
+  const visible = anyConnected && shown === false && !splashCovering;
 
   const close = () => {
     setShown(true);
