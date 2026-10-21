@@ -15,6 +15,8 @@ export const accident = {
     "sosAlert.cancelGoneBody":
       "头盔可能已在别的手机上解除绑定，或你已切换账号。请打开 App 确认。",
     "sosAlert.openAction": "打开 App",
+    "sosAlert.cancelledTitle": "求救已取消",
+    "sosAlert.resultChannel": "求救结果",
     "sosAlert.cancelFailedTitle": "取消请求发送失败",
     "sosAlert.cancelFailedBody": "取消请求未送达服务器，请打开求救页面重试。",
     "accident.triggeredAt": "求救创建时间",
@@ -51,6 +53,8 @@ export const accident = {
     "sosAlert.cancelFailedTitle": "取消請求傳送失敗",
     "sosAlert.cancelFailedBody": "取消請求未送達伺服器，請開啟求救頁面重試。",
     "sosAlert.openAction": "開啟 App",
+    "sosAlert.cancelledTitle": "求救已取消",
+    "sosAlert.resultChannel": "求救結果",
     "accident.triggeredAt": "求救建立時間",
     "accident.helmetTriggeredAt": "頭盔上的觸發時間",
     "accident.deadline": "倒數截止",
@@ -87,6 +91,8 @@ export const accident = {
     "sosAlert.cancelFailedBody":
       "The cancellation request did not reach the server. Open the SOS page and try again.",
     "sosAlert.openAction": "Open app",
+    "sosAlert.cancelledTitle": "SOS cancelled",
+    "sosAlert.resultChannel": "SOS results",
     "accident.triggeredAt": "SOS created at",
     "accident.helmetTriggeredAt": "Triggered on helmet",
     "accident.deadline": "Countdown ends",
