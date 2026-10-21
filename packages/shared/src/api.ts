@@ -1,11 +1,7 @@
 // REST API Contract（docs/API.md 已实现部分落型）。全部为线上格式：
 // 时间字段一律 ISO 8601 UTC 字符串（后端内部用 Date，由序列化层转换）。
-import type {
-  CommandResult,
-  CoordinateSystem,
-  DeviceCommand,
-} from './events';
-import type { DeviceSettingKey } from './settings';
+import type { CommandResult, CoordinateSystem, DeviceCommand } from "./events";
+import type { DeviceSettingKey } from "./settings";
 
 // —— §1 通用约定 ——
 
@@ -14,6 +10,8 @@ export interface ApiErrorBody {
   code: string;
   message: string;
   requestId: string;
+  /** 可选的结构化补充（2026-10-22）：如 CHANNEL_FULL / CHANNEL_LIMIT_REACHED / EMERGENCY_CONTACT_LIMIT_REACHED 带 `limit`；客户端按 code 决定读哪些键 */
+  details?: Record<string, unknown>;
 }
 
 /** 统一分页响应（pageSize 默认 20，最大 100） */
@@ -27,7 +25,7 @@ export interface Paginated<T> {
 // —— §2 认证与用户（已实现） ——
 
 /** 验证码用途：注册 / 找回密码 / 换绑手机号（API.md §2；change_phone 的 phone 为新号，2026-09-11） */
-export type SmsCodePurpose = 'register' | 'reset_password' | 'change_phone';
+export type SmsCodePurpose = "register" | "reset_password" | "change_phone";
 
 /** POST /auth/sms-code → 204；60s 内重发 429 SMS_CODE_TOO_FREQUENT，日上限 429 SMS_CODE_DAILY_LIMIT */
 export interface SmsCodeRequest {
@@ -279,11 +277,7 @@ export interface EventDetail extends EventListItem {
 
 /** 命令状态机（DEVICE_PROTOCOL §7）：未回执绝不显示成功；offline=回执超时（设备离线或未执行） */
 export type CommandStatus =
-  | 'pending'
-  | 'delivered'
-  | 'success'
-  | 'failed'
-  | 'offline';
+  "pending" | "delivered" | "success" | "failed" | "offline";
 
 export interface PutSettingsRequest {
   /**
@@ -297,7 +291,7 @@ export interface PutSettingsRequest {
 /** PUT /devices/{id}/settings 响应：命令已创建、尚未送达（状态流转见 CommandPublic.status） */
 export interface PutSettingsResponse {
   commandId: string;
-  status: 'pending';
+  status: "pending";
 }
 
 export interface CommandPublic {
@@ -308,7 +302,7 @@ export interface CommandPublic {
   status: CommandStatus;
   issuedAt: string;
   deliveredAt: string | null;
-  ackResult: 'success' | 'failed' | null;
+  ackResult: "success" | "failed" | null;
   errorCode: string | null;
   executedAt: string | null;
 }
@@ -322,7 +316,7 @@ export interface ReportSettingsRequest {
 }
 
 /** invalid = 不在清单或类型/范围不合法；recent_command = 该键有未完成或 30 s 内刚成功的命令，以命令为准 */
-export type ReportSettingsSkipReason = 'invalid' | 'recent_command';
+export type ReportSettingsSkipReason = "invalid" | "recent_command";
 
 export interface ReportSettingsResponse {
   /** 合入后的当前生效设置 */
@@ -348,10 +342,10 @@ export interface MediaUrlResponse {
 
 // —— §7 SOS / 事故记录（已实现） ——
 
-export type SosTriggerType = 'possible_fall' | 'manual_sos';
+export type SosTriggerType = "possible_fall" | "manual_sos";
 
 /** 服务端权威状态机（决策 #8）：pending → notified | cancelled；App 仅渲染 */
-export type SosStatus = 'pending' | 'notified' | 'cancelled';
+export type SosStatus = "pending" | "notified" | "cancelled";
 
 /** sos 对象（API.md §7）：App 收到后按 deadline 本地倒计时渲染，不自行计时判断超时 */
 export interface Sos {
@@ -392,7 +386,7 @@ export interface AccidentLocation {
   longitude: number;
   coordinateSystem: CoordinateSystem;
   accuracy: number | null;
-  source: 'event' | 'last_point';
+  source: "event" | "last_point";
 }
 
 /** 事故记录列表项（= SOS 单，含已取消供留档） */
@@ -403,10 +397,10 @@ export interface AccidentListItem extends Sos {
 /** 通知发送记录；target 已脱敏（手机号打码），联系人以 contactName 辨识 */
 export interface SosNotificationPublic {
   id: string;
-  channel: 'sms' | 'push';
+  channel: "sms" | "push";
   target: string;
   contactName: string | null;
-  status: 'pending' | 'sent' | 'failed';
+  status: "pending" | "sent" | "failed";
   attempts: number;
   lastError: string | null;
   sentAt: string | null;
@@ -422,13 +416,13 @@ export interface AccidentDetail extends AccidentListItem {
 // —— §11 WebSocket（App 实时通道） ——
 
 export type WsMessageType =
-  | 'device_status'
-  | 'location_update'
-  | 'sos_update'
-  | 'risk_event'
-  | 'device_event'
-  | 'device_command'
-  | 'voice_taken_over';
+  | "device_status"
+  | "location_update"
+  | "sos_update"
+  | "risk_event"
+  | "device_event"
+  | "device_command"
+  | "voice_taken_over";
 
 /** WS 是加速通道不是可靠通道：重连后须用 REST 拉取兜底（API.md §11） */
 export interface WsMessage<T = unknown> {
@@ -473,9 +467,9 @@ export interface WsVoiceTakenOverData {
  *  delivered = App 已把命令写入头盔（蓝牙版的"送达"，对应 4G 版 PUBACK）；
  *  executed = 转发头盔执行结果（executedAt 缺省由服务端取当前时间） */
 export type RelayAckRequest =
-  | { stage: 'delivered' }
+  | { stage: "delivered" }
   | {
-      stage: 'executed';
+      stage: "executed";
       result: CommandResult;
       errorCode?: string;
       executedAt?: string;
@@ -527,7 +521,7 @@ export interface VoiceChannelMemberPublic {
  */
 export interface VoiceTokenRequest {
   clientId?: string;
-  purpose?: 'enter' | 'renew';
+  purpose?: "enter" | "renew";
 }
 
 /** 进房凭证：App 端用 TRTC SDK 携此进房（roomId + privateMapKey）+ PTT */
@@ -591,7 +585,10 @@ export interface AdminUserRow {
 }
 
 /** GET /admin/devices 列表项（API.md §10.1）：状态字段同 DevicePublic，但不含用户自定义名与绑定码 */
-export interface AdminDeviceRow extends Omit<DevicePublic, 'name' | 'bindCode'> {
+export interface AdminDeviceRow extends Omit<
+  DevicePublic,
+  "name" | "bindCode"
+> {
   bindUser: { id: string; phone: string; nickname: string | null } | null;
 }
 
@@ -604,7 +601,7 @@ export interface AdminAccidentRow extends AccidentListItem {
  * GET /admin/events 列表项：Admin 是排查工具，带业务接口不可见的 source/clockSkew。
  * 这里的 timestamp 是设备上报的原值（不是 App 接口的业务时间，决策 #59），配合 clockSkew 排查时钟问题
  */
-export interface AdminEventRow extends Omit<EventListItem, 'deviceTimestamp'> {
+export interface AdminEventRow extends Omit<EventListItem, "deviceTimestamp"> {
   payload: Record<string, unknown>;
   source: string;
   clockSkew: boolean;

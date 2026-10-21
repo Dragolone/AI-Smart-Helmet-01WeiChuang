@@ -42,6 +42,13 @@ const roomKeyExpireSeconds = (): number =>
  */
 const randomRoomId = (): number => randomInt(1_000_000_000, 2_147_483_647);
 
+/**
+ * 每账号可建 / 加入的频道数上限（上线清单 B 线 23，10-22 夜测：原来没有，一个账号建了 60 个）；
+ * 建的频道创建者自动入座，所以按「成员身份数」计，退出就释放
+ */
+const channelsPerUserLimit = (): number =>
+  envPositiveInt('VOICE_CHANNELS_PER_USER_LIMIT', 20);
+
 const channelNotFound = () =>
   new NotFoundException({ code: 'NOT_FOUND', message: '频道不存在' });
 
@@ -69,6 +76,7 @@ export class VoiceService {
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
         const channel = await this.prisma.$transaction(async (tx) => {
+          await this.ensureChannelQuota(tx, userId);
           const created = await tx.voiceChannel.create({
             data: {
               name,
@@ -129,6 +137,7 @@ export class VoiceService {
         select: { id: true },
       });
       if (alreadyMember) return;
+      await this.ensureChannelQuota(tx, userId);
       const members = await tx.voiceChannelMember.count({
         where: { channelId: channel.id },
       });
@@ -136,6 +145,8 @@ export class VoiceService {
         throw new ConflictException({
           code: 'CHANNEL_FULL',
           message: `频道成员已达上限 ${memberLimit()}`,
+          // App 文案里的上限值从这里取，不再写死 20（B 线 23）
+          details: { limit: memberLimit() },
         });
       }
       try {
@@ -245,6 +256,26 @@ export class VoiceService {
       privateMapKey,
       expiresAt: new Date(Date.now() + expireSeconds * 1000).toISOString(),
     };
+  }
+
+  /**
+   * 事务内按账号串行化「计数 → 入座」：本账号已加入的频道数到上限则 409。
+   * 用账号级咨询锁：并发建两个 / 同时加入两个不同频道时不会双双越过上限（与 join 的频道锁顺序固定：先频道后账号，不成环）
+   */
+  private async ensureChannelQuota(
+    tx: Prisma.TransactionClient,
+    userId: string,
+  ): Promise<void> {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`voice-user:${userId}`}))`;
+    const limit = channelsPerUserLimit();
+    const joined = await tx.voiceChannelMember.count({ where: { userId } });
+    if (joined >= limit) {
+      throw new ConflictException({
+        code: 'CHANNEL_LIMIT_REACHED',
+        message: `每个账号最多加入 ${limit} 个频道`,
+        details: { limit },
+      });
+    }
   }
 
   /** 非成员访问一律 404（不泄露频道存在性） */

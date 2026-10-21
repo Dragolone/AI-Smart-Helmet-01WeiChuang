@@ -22,8 +22,12 @@ export const errors = {
     "error.sosAlreadyFinalized": "本次求救已取消或已启动通知，无需重复操作",
     "error.sosInProgress": "有正在倒计时的求救，请先取消或立即求救，再注销账号",
     "error.accountDeleted": "账号已注销",
-    "error.channelFull": "这个频道已满（最多 20 人）",
-    "error.contactLimitReached": "紧急联系人最多 5 位",
+    "error.channelFull": "这个频道已满（最多 {limit} 人）",
+    "error.channelLimitReached":
+      "每个账号最多加入 {limit} 个频道，请先退出一个",
+    "error.contactLimitReached": "紧急联系人最多 {limit} 位",
+    "error.contactIsSelf": "紧急联系人不能填自己的手机号",
+    "error.contactDuplicate": "这个号码已经是你的紧急联系人",
     "error.mediaNotReady": "这段画面还没上传完成，请稍后再试",
     "error.trtcNotConfigured": "对讲服务暂不可用，请稍后再试",
     "error.voiceTakenOver": "你的账号已在另一台手机上进入对讲",
@@ -55,8 +59,12 @@ export const errors = {
     "error.sosAlreadyFinalized": "本次求救已取消或已啟動通知，無需重複操作",
     "error.sosInProgress": "有正在倒數的求救，請先取消或立即求救，再註銷帳號",
     "error.accountDeleted": "帳號已註銷",
-    "error.channelFull": "這個頻道已滿（最多 20 人）",
-    "error.contactLimitReached": "緊急聯絡人最多 5 位",
+    "error.channelFull": "這個頻道已滿（最多 {limit} 人）",
+    "error.channelLimitReached":
+      "每個帳號最多加入 {limit} 個頻道，請先退出一個",
+    "error.contactLimitReached": "緊急聯絡人最多 {limit} 位",
+    "error.contactIsSelf": "緊急聯絡人不能填自己的手機號",
+    "error.contactDuplicate": "這個號碼已經是你的緊急聯絡人",
     "error.mediaNotReady": "這段畫面還沒上傳完成，請稍後再試",
     "error.trtcNotConfigured": "對講服務暫不可用，請稍後再試",
     "error.voiceTakenOver": "你的帳號已在另一支手機上進入對講",
@@ -92,8 +100,14 @@ export const errors = {
     "error.sosInProgress":
       "An SOS countdown is in progress. Cancel it or send SOS now before deleting your account.",
     "error.accountDeleted": "This account has been deleted.",
-    "error.channelFull": "This channel is full (up to 20 people).",
-    "error.contactLimitReached": "You can add up to 5 emergency contacts.",
+    "error.channelFull": "This channel is full (up to {limit} people).",
+    "error.channelLimitReached":
+      "You can join up to {limit} channels. Leave one first.",
+    "error.contactLimitReached":
+      "You can add up to {limit} emergency contacts.",
+    "error.contactIsSelf":
+      "An emergency contact can't be your own phone number.",
+    "error.contactDuplicate": "This number is already an emergency contact.",
     "error.mediaNotReady":
       "This clip has not finished uploading. Try again later.",
     "error.trtcNotConfigured":

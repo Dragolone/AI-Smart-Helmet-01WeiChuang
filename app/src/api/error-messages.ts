@@ -33,8 +33,19 @@ const MESSAGE_KEYS: Record<string, MessageKey> = {
   EMERGENCY_CONTACT_LIMIT_REACHED: "error.contactLimitReached",
   MEDIA_NOT_READY: "error.mediaNotReady",
   TRTC_NOT_CONFIGURED: "error.trtcNotConfigured",
+  // 10-22 服务端校验（上线清单 B 线 23）
+  CHANNEL_LIMIT_REACHED: "error.channelLimitReached",
+  CONTACT_IS_SELF: "error.contactIsSelf",
+  CONTACT_DUPLICATE: "error.contactDuplicate",
   VOICE_TAKEN_OVER: "error.voiceTakenOver",
   INTERNAL_ERROR: "error.internal",
+};
+
+/** 文案里带上限值的几条：服务端没给 details.limit 时用的默认值（与服务端默认一致） */
+const LIMIT_DEFAULTS: Record<string, number> = {
+  "error.channelFull": 20,
+  "error.channelLimitReached": 20,
+  "error.contactLimitReached": 5,
 };
 
 /** 只认表里自己的键：code 恰好叫 constructor / toString / __proto__ 时，普通下标会取到 Object.prototype 上的东西 */
@@ -70,9 +81,16 @@ export function toUserMessage(err: unknown): string {
     if (err.code === "UNAUTHORIZED" && err.withSession)
       return translate("error.sessionCheckFailed");
     const key = own(MESSAGE_KEYS, err.code);
-    return key
-      ? translate(key)
-      : translate("error.unknown", { code: err.code });
+    if (!key) return translate("error.unknown", { code: err.code });
+    // 上限类文案的数字以服务端 details.limit 为准（旧服务端没给时用默认值），不再写死
+    const fallback = own(LIMIT_DEFAULTS, key);
+    if (fallback !== undefined) {
+      const given = err.details?.limit;
+      return translate(key, {
+        limit: typeof given === "number" ? given : fallback,
+      });
+    }
+    return translate(key);
   }
   // 请求超时（client.ts 的 AbortController）：与断网区分，给用户可执行的提示
   if (err instanceof Error && err.name === "AbortError") {
