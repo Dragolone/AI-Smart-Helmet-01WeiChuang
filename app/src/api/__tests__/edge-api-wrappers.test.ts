@@ -18,6 +18,8 @@ const mockApi = jest.fn(
 let mockRefresh = "rt-1";
 jest.mock("../client", () => ({
   api: (p: string, i?: Record<string, unknown>) => mockApi(p, i),
+  // 列表接口走 apiList（应答必须是数组，见 client.ts）；这里只看路径
+  apiList: (p: string) => mockApi(p),
   currentRefreshToken: () => mockRefresh,
 }));
 jest.mock("@/services/server-clock", () => ({

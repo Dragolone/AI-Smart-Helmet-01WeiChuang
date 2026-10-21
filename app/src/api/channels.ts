@@ -5,22 +5,22 @@ import type {
   VoiceChannel,
   VoiceChannelMemberPublic,
   VoiceTokenResponse,
-} from '@helmet/shared';
-import { api } from './client';
+} from "@helmet/shared";
+import { api, apiList } from "./client";
 
 export const channelsApi = {
   /** 我加入的频道列表 */
-  list: () => api<VoiceChannel[]>('/voice/channels'),
+  list: () => apiList<VoiceChannel>("/voice/channels"),
 
   create: (body: CreateChannelRequest) =>
-    api<VoiceChannel>('/voice/channels', { method: 'POST', body }),
+    api<VoiceChannel>("/voice/channels", { method: "POST", body }),
 
   join: (body: JoinChannelRequest) =>
-    api<VoiceChannel>('/voice/channels/join', { method: 'POST', body }),
+    api<VoiceChannel>("/voice/channels/join", { method: "POST", body }),
 
   leave: (channelId: string) =>
     api<void>(`/voice/channels/${encodeURIComponent(channelId)}/membership`, {
-      method: 'DELETE',
+      method: "DELETE",
     }),
 
   members: (channelId: string) =>
@@ -32,6 +32,6 @@ export const channelsApi = {
   token: (channelId: string) =>
     api<VoiceTokenResponse>(
       `/voice/channels/${encodeURIComponent(channelId)}/token`,
-      { method: 'POST' },
+      { method: "POST" },
     ),
 };
