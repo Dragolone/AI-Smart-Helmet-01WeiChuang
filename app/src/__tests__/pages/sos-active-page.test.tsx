@@ -58,8 +58,11 @@ import { sosScreen } from "@/services/sos-queue";
 import {
   __resetServerClockForTests,
   noteServerDate,
+  serverClockOffsetMs,
 } from "@/services/server-clock";
 import { presentedSos } from "@/services/sos-sync";
+import { countdownHoldUntil } from "@/services/countdown-hold";
+import { useAuthStore } from "@/stores/auth-store";
 import { useSosCancelStore } from "@/stores/sos-cancel-store";
 import { useThemeStore } from "@/stores/theme-store";
 import SosActiveScreen from "@/app/sos-active";
@@ -2243,5 +2246,94 @@ describe("状态未知时关掉页面", () => {
     expect(number(r)).toBe("45");
     r.unmount();
     expect(presentedSos.current.has("s1")).toBe(true);
+  });
+});
+
+describe("会话被服务端否定时倒数结束才登出（O19-A，负责人 10-21 定）", () => {
+  afterEach(() => {
+    act(() => {
+      useAuthStore.setState({ sessionDeadUntil: null });
+    });
+  });
+
+  it("页面把这单的截止时刻（本机时钟）登记给 auth-store；这单结束或页面关掉就撤掉", async () => {
+    const deadline = Date.now() + 45_000;
+    const r = await mount();
+    expect(countdownHoldUntil()).toBe(deadline - serverClockOffsetMs());
+
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ status: "cancelled" })),
+    );
+    await act(async () => {
+      await qc.refetchQueries({ queryKey: ["sos", "s1"] });
+    });
+    expect(countdownHoldUntil()).toBeNull();
+    r.unmount();
+    expect(countdownHoldUntil()).toBeNull();
+
+    m(sosApi.snapshot).mockImplementation(() => Promise.resolve(sosOf()));
+    const again = await mount();
+    expect(countdownHoldUntil()).not.toBeNull();
+    again.unmount();
+    expect(countdownHoldUntil()).toBeNull();
+  });
+
+  it("几单一起倒数：登记最晚的那一刻（最后一单倒数完才登出）", async () => {
+    qc = makeQueryClient();
+    const late = sosOf({
+      sosId: "s2",
+      deviceId: "h2",
+      deadline: secondsFromNow(58),
+    });
+    qc.setQueryData(["sos-active", "h2"], { sos: late });
+    await mount(false);
+    expect(countdownHoldUntil()).toBe(
+      new Date(late.deadline).getTime() - serverClockOffsetMs(),
+    );
+  });
+
+  it("演练不登记：它不通知任何人，照常登出", async () => {
+    routerState.params = { drill: "1", deviceId: "h1" };
+    await mount();
+    expect(countdownHoldUntil()).toBeNull();
+  });
+
+  it("会话已被否定：取消滑条和立即求救换成「重新登录后取消」+ 说明（到点照常通知），读屏念一遍；点它立刻回登录页", async () => {
+    const endDeadSession = jest.fn(async () => undefined);
+    const realEnd = useAuthStore.getState().endDeadSession;
+    useAuthStore.setState({ endDeadSession });
+    try {
+      const r = await mount();
+      expect(r.allText()).toContain(tr("sos.sendNow"));
+      act(() => {
+        useAuthStore.setState({ sessionDeadUntil: Date.now() + 45_000 });
+      });
+      expect(r.allText()).toContain(tr("sos.sessionDeadTitle"));
+      expect(r.allText()).toContain(tr("sos.sessionDeadBody"));
+      expect(r.allText()).not.toContain(tr("sos.sendNow"));
+      expect(r.root.findAllByType(SlideToCancel)).toHaveLength(0);
+      expect(number(r)).toBe("45"); // 倒计时照走
+      expect(announce).toHaveBeenCalledWith(
+        `${tr("sos.sessionDeadTitle")}. ${tr("sos.sessionDeadBody")}`,
+      );
+      r.press(tr("sos.reloginToCancel"));
+      expect(endDeadSession).toHaveBeenCalledTimes(1);
+    } finally {
+      useAuthStore.setState({ endDeadSession: realEnd });
+    }
+  });
+
+  it("几单一起倒数时会话被否定：「全部取消 / 全部立即求救」也不放", async () => {
+    qc = makeQueryClient();
+    qc.setQueryData(["sos-active", "h2"], {
+      sos: sosOf({ sosId: "s2", deviceId: "h2", deadline: secondsFromNow(50) }),
+    });
+    const r = await mount(false);
+    expect(r.allText()).toContain(tr("sos.allCancel"));
+    act(() => {
+      useAuthStore.setState({ sessionDeadUntil: Date.now() + 50_000 });
+    });
+    expect(r.allText()).not.toContain(tr("sos.allCancel"));
+    expect(r.allText()).not.toContain(tr("sos.allSendNow"));
   });
 });

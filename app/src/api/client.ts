@@ -8,6 +8,8 @@ import { noteServerDate } from "@/services/server-clock";
 /** 会话操作由 auth-store 注入，避免 api 层与 store 层循环依赖 */
 type SessionHooks = {
   getTokens: () => AuthTokens | null;
+  /** 会话已被否定、只是倒计时还在走所以先不登出（O19-A）：这期间接口在本地直接拒掉，不再去刷新 */
+  isDead?: () => boolean;
   setTokens: (tokens: AuthTokens) => Promise<void>;
   clearSession: () => Promise<void>;
 };
@@ -140,6 +142,8 @@ export async function forceRefreshTokens(): Promise<
 }
 
 async function refreshTokens(): Promise<RefreshOutcome> {
+  // 已知会话被否定、只是倒计时还在走（O19-A）：不再拿同一把死掉的 refresh 去试
+  if (session?.isDead?.()) return "invalid";
   refreshing ??= (async (): Promise<RefreshOutcome> => {
     const tokens = session?.getTokens();
     if (!tokens) return "invalid";
@@ -244,6 +248,9 @@ export async function api<T>(
       timeoutMs,
     );
   };
+
+  // 会话已被否定、倒计时还在走所以先没登出（O19-A）：不发请求，直接按会话已结束处理
+  if (auth && session?.isDead?.()) throw new SessionEndedError();
 
   let res = await doFetch();
 

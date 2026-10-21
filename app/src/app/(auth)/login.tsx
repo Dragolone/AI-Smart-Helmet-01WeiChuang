@@ -49,6 +49,8 @@ export default function LoginScreen() {
   const consentHydrated = useConsentStore((s) => s.hydrated);
   const acceptPrivacy = useConsentStore((s) => s.accept);
   const sessionExpired = useAuthStore((s) => s.sessionExpired);
+  // 倒计时页在屏时被否定、等倒数走完才登出的（O19-A）：多说一句联系人多半已收到通知
+  const expiredDuringSos = useAuthStore((s) => s.expiredDuringSos);
   // 标记还没从 SecureStore 读出来时也按「需要」处理：宁可多勾一次，不能让冷启动秒点登录绕过同意
   // （评审 2026-09-26）——读出来通常只要几十毫秒，勾选框最多闪一下
   const needConsent = !consentHydrated || !privacyAccepted;
@@ -190,6 +192,9 @@ export default function LoginScreen() {
                   />
                   <ThemedText type="small" style={styles.consentText}>
                     {t("auth.sessionExpiredNotice")}
+                    {expiredDuringSos
+                      ? `\n\n${t("auth.expiredDuringSos")}`
+                      : ""}
                   </ThemedText>
                 </View>
               </SplashArrive>
