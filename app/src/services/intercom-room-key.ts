@@ -4,6 +4,20 @@
 // 在房期间每 5 分钟换一把交给 SDK，离开房间后最多 10 分钟手里那把就作废。
 import { ApiRequestError } from "@/api/client";
 
+/**
+ * 本机这一次运行的标识（决策 #62）：进房 / 续钥匙时带给服务端，区分同一账号的几台手机——收到 voice_taken_over
+ * 时认出是不是自己发起的。每次启动随机生成、不落盘：只要同一账号同时在线的几台不撞就行
+ */
+export const INTERCOM_CLIENT_ID = `${Date.now().toString(36)}-${Math.random()
+  .toString(36)
+  .slice(2, 12)}`;
+
+/** 续钥匙 / 自动重进时服务端说：这个账号已在另一台手机上进了对讲（决策 #62） */
+export const isTakenOver = (err: unknown): boolean =>
+  err instanceof ApiRequestError &&
+  err.status === 409 &&
+  err.code === "VOICE_TAKEN_OVER";
+
 /** 换钥匙的间隔：服务端有效期的一半，续失败一次还有余量 */
 export const ROOM_KEY_RENEW_MS = 5 * 60_000;
 /** 没续上（断网 / 服务端出错）多久再试 */
@@ -29,7 +43,10 @@ const ERR_TRTC_ENTER_ROOM_FAILED = -3301;
  * 在房间里收到的 onError 是不是「重连时重新进房被拒」。TRTC 文档没写重连被拒走哪个回调、报哪个码，
  * 两种都接：钥匙 / 签名校验没过的一定是（进房之后只有重新进房才会再校验）；笼统的进房失败只在正在重连时算
  */
-export function isRejoinError(errCode: unknown, reconnecting: boolean): boolean {
+export function isRejoinError(
+  errCode: unknown,
+  reconnecting: boolean,
+): boolean {
   if (
     errCode === ERR_TRTC_INVALID_PRIVATE_MAPKEY ||
     errCode === ERR_TRTC_USER_SIG_CHECK_FAILED
@@ -53,6 +70,8 @@ interface RenewerIO {
   applyKey(privateMapKey: string): Promise<unknown>;
   /** 换钥匙时服务端说已经不是这个频道的成员（404）：页面结束这次通话 */
   onRemoved(channelId: string): void;
+  /** 换钥匙时服务端说这个账号已在另一台手机上进了对讲（409，WS 通知漏收时的兜底）：页面结束这次通话 */
+  onTakenOver(channelId: string): void;
 }
 
 /**
@@ -104,6 +123,11 @@ export class RoomKeyRenewer {
           if (err instanceof ApiRequestError && err.status === 404) {
             this.stop();
             this.io.onRemoved(room.channelId);
+            return;
+          }
+          if (isTakenOver(err)) {
+            this.stop();
+            this.io.onTakenOver(room.channelId);
             return;
           }
           this.schedule(ROOM_KEY_RETRY_MS);

@@ -243,10 +243,13 @@ describe("channelsApi", () => {
     });
     await channelsApi.members(ODD);
     expect(last().path).toBe(`/voice/channels/${ENC}/members`);
-    await channelsApi.token("c1");
+    await channelsApi.token("c1", { clientId: "phone-0001", purpose: "renew" });
     expect(last()).toEqual({
       path: "/voice/channels/c1/token",
-      init: { method: "POST" },
+      init: {
+        method: "POST",
+        body: { clientId: "phone-0001", purpose: "renew" },
+      },
     });
   });
 });

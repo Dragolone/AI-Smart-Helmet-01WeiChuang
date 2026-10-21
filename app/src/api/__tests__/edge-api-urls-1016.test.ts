@@ -81,7 +81,8 @@ describe("路径里的编号一律编码", () => {
     ],
     [
       "channels.token",
-      () => channelsApi.token(WEIRD),
+      () =>
+        channelsApi.token(WEIRD, { clientId: "phone-0001", purpose: "enter" }),
       `/voice/channels/${ENC}/token`,
     ],
     [

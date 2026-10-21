@@ -4,6 +4,7 @@ import type {
   JoinChannelRequest,
   VoiceChannel,
   VoiceChannelMemberPublic,
+  VoiceTokenRequest,
   VoiceTokenResponse,
 } from "@helmet/shared";
 import { api, apiList } from "./client";
@@ -28,10 +29,13 @@ export const channelsApi = {
       `/voice/channels/${encodeURIComponent(channelId)}/members`,
     ),
 
-  /** 进房凭证：UserSig 服务端签发（决策 #27⑥），App 不再本地算签名 */
-  token: (channelId: string) =>
+  /**
+   * 进房凭证：UserSig 服务端签发（决策 #27⑥），App 不再本地算签名。
+   * body 带本机标识与用途（决策 #62）：enter 让同账号别的手机退房，renew 遇已被接管 409 VOICE_TAKEN_OVER
+   */
+  token: (channelId: string, body: VoiceTokenRequest) =>
     api<VoiceTokenResponse>(
       `/voice/channels/${encodeURIComponent(channelId)}/token`,
-      { method: "POST" },
+      { method: "POST", body },
     ),
 };

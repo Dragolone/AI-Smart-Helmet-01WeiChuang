@@ -90,6 +90,8 @@ export const intercom = {
       "通话已被结束：你的账号可能在另一台手机上进入了对讲",
     "intercom.exit.dismissed": "频道的通话房间已关闭，通话已结束",
     "intercom.exit.removed": "你已不在这个频道里，通话已结束",
+    "intercom.exit.takenOver":
+      "你的账号在另一台手机上进入了对讲，这台的通话已结束",
     "intercom.exit.rejected": "断线后没能回到通话（{code}），请重新进入",
     "intercom.service.title": "对讲进行中",
     "intercom.service.text": "正在「{name}」里通话",
@@ -189,6 +191,8 @@ export const intercom = {
       "通話已被結束：你的帳號可能在另一支手機上進入了對講",
     "intercom.exit.dismissed": "頻道的通話房間已關閉，通話已結束",
     "intercom.exit.removed": "你已不在這個頻道裡，通話已結束",
+    "intercom.exit.takenOver":
+      "你的帳號在另一支手機上進入了對講，這支手機的通話已結束",
     "intercom.exit.rejected": "斷線後沒能回到通話（{code}），請重新進入",
     "intercom.service.title": "對講進行中",
     "intercom.service.text": "正在「{name}」裡通話",
@@ -297,6 +301,8 @@ export const intercom = {
     "intercom.exit.dismissed":
       "The channel's call room was closed. Call ended.",
     "intercom.exit.removed": "You're no longer in this channel. Call ended.",
+    "intercom.exit.takenOver":
+      "Your account joined the intercom on another phone. The call on this phone has ended.",
     "intercom.exit.rejected":
       "Couldn't get back into the call after the connection dropped ({code}). Please rejoin.",
     "intercom.service.title": "Intercom on",
