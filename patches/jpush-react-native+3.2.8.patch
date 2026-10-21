@@ -1,0 +1,13 @@
+diff --git a/node_modules/jpush-react-native/android/src/main/java/cn/jiguang/plugins/push/helper/JPushHelper.java b/node_modules/jpush-react-native/android/src/main/java/cn/jiguang/plugins/push/helper/JPushHelper.java
+index d7352ae..aff8564 100644
+--- a/node_modules/jpush-react-native/android/src/main/java/cn/jiguang/plugins/push/helper/JPushHelper.java
++++ b/node_modules/jpush-react-native/android/src/main/java/cn/jiguang/plugins/push/helper/JPushHelper.java
+@@ -39,6 +39,8 @@ public class JPushHelper {
+         writableMap.putString(JConstants.MESSAGE_ID, message.msgId);
+         writableMap.putString(JConstants.TITLE, message.notificationTitle);
+         writableMap.putString(JConstants.CONTENT, message.notificationContent);
++        // 零一智行补丁（O12）：带上系统通知编号，JS 才能在求救结束时用 clearNotificationById 精确撤掉「倒计时已开始」这一条
++        writableMap.putInt(JConstants.NOTIFICATION_ID, message.notificationId);
+         convertExtras(message.notificationExtras, writableMap);
+         return writableMap;
+     }

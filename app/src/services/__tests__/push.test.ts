@@ -15,9 +15,12 @@ import {
 type Listener = (r: {
   notificationEventType: "notificationArrived" | "notificationOpened";
   extras?: Record<string, string>;
+  title?: string;
+  notificationId?: number;
 }) => void;
 
 const mockInit = jest.fn();
+const mockClearById = jest.fn();
 const mockSetAlias = jest.fn();
 const mockDeleteAlias = jest.fn();
 const mockAddNotificationListener = jest.fn((_cb: Listener) => undefined);
@@ -57,6 +60,7 @@ jest.mock("jpush-react-native", () => ({
         aliasListener = cb;
       },
       queryAlias: (p: { sequence: number }) => mockQueryAlias(p),
+      clearNotificationById: (p: unknown) => mockClearById(p),
       setLoggerEnable: () => undefined,
       getRegistrationID: (cb: (r: { registerID: string }) => void) =>
         cb({ registerID: mockRegistrationId }),
@@ -89,6 +93,10 @@ jest.mock("expo-secure-store", () => ({
   },
 }));
 
+import {
+  SOS_START_PUSH_TITLE,
+  clearSosStartPush,
+} from "@/services/sos-start-push";
 import { devLog } from "@/services/dev-log";
 import { presentedSos } from "@/services/sos-sync";
 import { useConsentStore } from "@/stores/consent-store";
@@ -382,6 +390,29 @@ describe("远程推送到达（不是被点开）→ 触发一次补拉（前台
     });
     expect(arrived).toHaveBeenCalledWith({ sosId: "s1", deviceId: "d1" });
     expect(mockRouterPush).not.toHaveBeenCalled();
+  });
+
+  it("安卓：「倒计时已开始」到达时记下极光的通知编号（补丁带上来的），这单结束时按编号撤掉（O12）", () => {
+    boot()({
+      notificationEventType: "notificationArrived",
+      extras: { sosId: "s1", deviceId: "d1" },
+      title: SOS_START_PUSH_TITLE,
+      notificationId: 501,
+    });
+    clearSosStartPush("s1");
+    // 声明写的是字符串，原生按整数读：原样把数字交过去
+    expect(mockClearById).toHaveBeenCalledWith({ notificationId: 501 });
+  });
+
+  it("服务端 extras 带 kind: sos_started 时按 kind 认（标题改了也撤得掉）", () => {
+    boot()({
+      notificationEventType: "notificationArrived",
+      extras: { sosId: "s2", deviceId: "d1", kind: "sos_started" },
+      title: "求救倒计时开始了",
+      notificationId: 777,
+    });
+    clearSosStartPush("s2");
+    expect(mockClearById).toHaveBeenCalledWith({ notificationId: 777 });
   });
 
   it("没有 sosId 的到达事件（别的推送）/ extras 缺失：不回调", () => {
