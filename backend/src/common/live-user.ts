@@ -2,14 +2,12 @@ import { UnauthorizedException } from '@nestjs/common';
 import type { Prisma } from '../generated/prisma/client';
 
 /**
- * 因账号已注销而拒绝的 401 一律用这个码（API.md §1.1，O15）：另一台手机据此写「账号已注销」，
- * 不再按普通 401 说成「登录已失效，密码可能已在别处修改」。HTTP 状态仍是 401，旧版 App 的刷新 / 登出流程不受影响
+ * 因账号已注销而拒绝的 401 一律是这个错误（API.md §1.1，O15）：code 为 ACCOUNT_DELETED，另一台手机据此写「账号已注销」，
+ * 不再按普通 401 说成「登录已失效，密码可能已在别处修改」。HTTP 状态仍是 401，旧版 App 的刷新 / 登出流程不受影响。
+ * JWT 守卫、refresh 与写前检查（请求过守卫时账号还在，写库前已被注销）共用
  */
-export const ACCOUNT_DELETED = 'ACCOUNT_DELETED';
-
-/** 与 JWT 守卫同一个错误：请求过守卫时账号还在，写库前已被注销 */
 export const accountDeleted = (): UnauthorizedException =>
-  new UnauthorizedException({ code: ACCOUNT_DELETED, message: '账号已注销' });
+  new UnauthorizedException({ code: 'ACCOUNT_DELETED', message: '账号已注销' });
 
 /**
  * 在写事务里给用户行加共享锁，返回账号是否还在（不存在也算不在）。要在提交前调用。注销事务第一句就更新用户行，

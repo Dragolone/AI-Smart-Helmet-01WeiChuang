@@ -24,6 +24,10 @@ const MESSAGE_KEYS: Record<string, MessageKey> = {
   PASSWORD_INCORRECT: "error.passwordIncorrect",
   RATE_LIMITED: "error.rateLimited",
   SOS_ALREADY_FINALIZED: "error.sosAlreadyFinalized",
+  // 注销账号时还有进行中的求救（O15，2026-10-22）；App 注销前已先拦，这是服务端兜底
+  SOS_IN_PROGRESS: "error.sosInProgress",
+  // 因账号已注销被拒的 401（O15）：另一台手机上的会话失效原因由会话层处理，这里只兜「按 code 显示」的场景
+  ACCOUNT_DELETED: "error.accountDeleted",
   // 下面四个原来没映射，界面上直接露出「操作失败（CHANNEL_FULL）」（2026-10-16 模拟器实测满员频道）
   CHANNEL_FULL: "error.channelFull",
   EMERGENCY_CONTACT_LIMIT_REACHED: "error.contactLimitReached",
