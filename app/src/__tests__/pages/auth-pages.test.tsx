@@ -301,6 +301,18 @@ describe("登录页", () => {
     expect(signIn).not.toHaveBeenCalled();
   });
 
+  it("倒计时走完才登出的（O19-A）：说明后面多一句联系人多半已收到通知；普通被动登出没有这句", async () => {
+    useAuthStore.setState({ sessionExpired: true, expiredDuringSos: true });
+    const r = render(<LoginScreen />);
+    expect(r.allText()).toContain(tr("auth.sessionExpiredNotice"));
+    expect(r.allText()).toContain(tr("auth.expiredDuringSos"));
+    r.unmount();
+    useAuthStore.setState({ expiredDuringSos: false });
+    const plain = render(<LoginScreen />);
+    expect(plain.allText()).not.toContain(tr("auth.expiredDuringSos"));
+    useAuthStore.setState({ sessionExpired: false });
+  });
+
   it("被动登出：说明原因；协议链接、注册 / 忘记密码链接、长按 App 名进工程模式", async () => {
     useAuthStore.setState({ sessionExpired: true });
     const r = render(<LoginScreen />);
