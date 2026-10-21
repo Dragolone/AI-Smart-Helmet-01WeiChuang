@@ -10,6 +10,15 @@ import type {
 } from "@helmet/shared";
 import { api, ApiRequestError } from "./client";
 
+/**
+ * 倒计时页「取消 / 立即求救」的单次超时，比全局的 15 s 短（O7，10-20 模拟器实测）：
+ * 单向 20 s 延迟下滑动取消，「取消中…」转了约 25 s 才报错，而整个倒计时只有 60 s——
+ * 用户等一次失败就去掉了小半个窗口。8 s 报错后页面会提示倒计时仍在继续并给「重试」，
+ * 再来一次比干等更有用。请求只是在本机放弃等结果：服务端若已收到并处理了，
+ * WS 推送 / 轮询会把页面切到终态，再点重试拿到 SOS_ALREADY_FINALIZED 也按已结束处理
+ */
+export const SOS_ACTION_TIMEOUT_MS = 8_000;
+
 export const sosApi = {
   /** 无进行中 SOS 时返回 { sos: null } */
   active: (deviceId: string) =>
@@ -26,12 +35,19 @@ export const sosApi = {
       `/users/me/sos/active?page=${page}&pageSize=${pageSize}`,
     ),
 
-  cancel: (sosId: string) =>
-    api<Sos>(`/sos/${encodeURIComponent(sosId)}/cancel`, { method: "POST" }),
+  /** 默认按 SOS_ACTION_TIMEOUT_MS；锁屏通知按钮那条后台重试链路显式传回全局超时（见 services/sos-alert） */
+  cancel: (sosId: string, opts: { timeoutMs?: number } = {}) =>
+    api<Sos>(`/sos/${encodeURIComponent(sosId)}/cancel`, {
+      method: "POST",
+      timeoutMs: opts.timeoutMs ?? SOS_ACTION_TIMEOUT_MS,
+    }),
 
   /** "立即求救"：跳过剩余倒计时立即通知 */
   confirm: (sosId: string) =>
-    api<Sos>(`/sos/${encodeURIComponent(sosId)}/confirm`, { method: "POST" }),
+    api<Sos>(`/sos/${encodeURIComponent(sosId)}/confirm`, {
+      method: "POST",
+      timeoutMs: SOS_ACTION_TIMEOUT_MS,
+    }),
 
   accidents: (deviceId: string, page = 1, pageSize = 20) =>
     api<Paginated<AccidentListItem>>(

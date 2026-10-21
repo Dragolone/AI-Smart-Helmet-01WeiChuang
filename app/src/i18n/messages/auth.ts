@@ -132,6 +132,14 @@ export const auth = {
     "sos.multiDoneTitle": "{n} 条求救已处理",
     "sos.multiDoneBody":
       "各头盔的结果如下。已发送不代表对方已收到，请保持手机畅通；若无人回应，请直接拨打电话求助。",
+    // 倒数中「取消 / 立即求救」没成功：页内提示条（O7，10-20），不弹框盖住还在走的倒计时
+    "sos.failCancel": "取消没有成功",
+    "sos.failSend": "立即求救没有发出",
+    "sos.failStillCounting": "倒计时仍在继续，约 {n} 秒后会通知紧急联系人",
+    "sos.failDueNow": "倒计时即将结束，马上会通知紧急联系人",
+    "sos.retry": "重试",
+    "sos.retryCancelA11y": "重试取消本次求救",
+    "sos.retrySendA11y": "重试立即求救",
   },
   "zh-TW": {
     "sos.drillBadge": "演練模式 · 不會通知任何人",
@@ -264,6 +272,13 @@ export const auth = {
     "sos.multiDoneTitle": "{n} 筆求救已處理",
     "sos.multiDoneBody":
       "各安全帽的結果如下。已傳送不代表對方已收到，請保持手機暢通；若無人回應，請直接撥打電話求助。",
+    "sos.failCancel": "取消沒有成功",
+    "sos.failSend": "立即求救沒有送出",
+    "sos.failStillCounting": "倒數仍在繼續，約 {n} 秒後會通知緊急聯絡人",
+    "sos.failDueNow": "倒數即將結束，馬上會通知緊急聯絡人",
+    "sos.retry": "重試",
+    "sos.retryCancelA11y": "重試取消本次求救",
+    "sos.retrySendA11y": "重試立即求救",
   },
   en: {
     "sos.drillBadge": "Drill · nobody will be notified",
@@ -413,5 +428,14 @@ export const auth = {
     "sos.multiDoneTitle": "{n} SOS alerts handled",
     "sos.multiDoneBody":
       "Results for each helmet are below. Sent doesn't mean received — keep your phone reachable. If no one responds, call for help directly.",
+    "sos.failCancel": "Couldn't cancel",
+    "sos.failSend": "Couldn't send SOS now",
+    "sos.failStillCounting":
+      "The countdown is still running. Emergency contacts will be notified in about {n}s.",
+    "sos.failDueNow":
+      "The countdown is about to end. Emergency contacts will be notified shortly.",
+    "sos.retry": "Retry",
+    "sos.retryCancelA11y": "Retry cancelling this SOS",
+    "sos.retrySendA11y": "Retry sending SOS now",
   },
 } as const;

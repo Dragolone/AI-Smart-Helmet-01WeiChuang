@@ -7,7 +7,7 @@ import { contactsApi } from "../contacts";
 import { devicesApi } from "../devices";
 import { eventsApi } from "../events";
 import { buildRelayEnvelope, relayApi } from "../relay";
-import { sosApi } from "../sos";
+import { SOS_ACTION_TIMEOUT_MS, sosApi } from "../sos";
 
 const mockApi = jest.fn(
   async (
@@ -121,18 +121,27 @@ describe("authApi", () => {
 });
 
 describe("sosApi", () => {
-  it("进行中 / 取消 / 立即求救：id 转义、方法正确", async () => {
+  it("进行中 / 取消 / 立即求救：id 转义、方法正确；取消 / 立即求救单次超时 8 s（O7，10-20），进行中照旧走全局超时", async () => {
     await sosApi.active(ODD);
     expect(last()).toEqual({ path: `/devices/${ENC}/sos/active`, init: {} });
     await sosApi.cancel(ODD);
     expect(last()).toEqual({
       path: `/sos/${ENC}/cancel`,
-      init: { method: "POST" },
+      init: { method: "POST", timeoutMs: SOS_ACTION_TIMEOUT_MS },
     });
     await sosApi.confirm("s1");
     expect(last()).toEqual({
       path: "/sos/s1/confirm",
-      init: { method: "POST" },
+      init: { method: "POST", timeoutMs: SOS_ACTION_TIMEOUT_MS },
+    });
+    expect(SOS_ACTION_TIMEOUT_MS).toBe(8_000);
+  });
+
+  it("取消可以按调用改超时：锁屏通知按钮那条后台重试链路传回全局的 15 s", async () => {
+    await sosApi.cancel("s1", { timeoutMs: 15_000 });
+    expect(last()).toEqual({
+      path: "/sos/s1/cancel",
+      init: { method: "POST", timeoutMs: 15_000 },
     });
   });
 
