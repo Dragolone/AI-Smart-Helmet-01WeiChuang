@@ -223,7 +223,10 @@ describe('SOS 状态机 (e2e)', () => {
         .expect(201);
     await addContact(ownerToken, '妈妈', '13800001111');
     await addContact(ownerToken, '爸爸', '13800002222');
-    await addContact(ownerToken, '妈妈备用', '13800001111');
+    // 同号的第三个直接入库：接口 10-22 起拒绝重复号码（CONTACT_DUPLICATE），通知去重仍要覆盖此前已存在的数据
+    await prisma.emergencyContact.create({
+      data: { userId: ownerId, name: '妈妈备用', phone: '13800001111' },
+    });
     await addContact(userBToken, '队友', '13800003333');
     // userC 故意零联系人
 

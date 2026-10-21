@@ -1,5 +1,7 @@
-// 紧急联系人（API.md §3）：上限 5（咨询锁串行化计数）、只改传了的字段、归属 + 未删校验、注销时批量软删。
+// 紧急联系人（API.md §3）：上限 5（咨询锁串行化计数）、本人号 / 同号拒绝（B 线 23）、只改传了的字段、
+// 归属 + 未删校验、注销时批量软删。
 import {
+  BadRequestException,
   ConflictException,
   NotFoundException,
   UnauthorizedException,
@@ -22,8 +24,20 @@ describe('ContactsService', () => {
   const tx = {
     $executeRaw: jest.fn(),
     $queryRaw: jest.fn(),
-    emergencyContact: { count: jest.fn(), create: jest.fn() },
+    user: { findUnique: jest.fn() },
+    emergencyContact: {
+      count: jest.fn(),
+      create: jest.fn(),
+      findFirst: jest.fn(),
+      update: jest.fn(),
+    },
   };
+  /** 两次计数走同一个 mock：带 phone 的是查重复，不带的是查名额 */
+  const countBy = (active: number, duplicates = 0) =>
+    tx.emergencyContact.count.mockImplementation(
+      (args: { where: { phone?: string } }) =>
+        Promise.resolve(args.where.phone ? duplicates : active),
+    );
   const prisma = {
     emergencyContact: {
       findMany: jest.fn(),
@@ -39,6 +53,8 @@ describe('ContactsService', () => {
     jest.clearAllMocks();
     tx.$executeRaw.mockResolvedValue(1);
     tx.$queryRaw.mockResolvedValue([{ deleted_at: null }]);
+    tx.user.findUnique.mockResolvedValue({ phone: '13900000000' });
+    countBy(0);
   });
 
   it('list：只列未删的，按创建时间正序，时间转 ISO', async () => {
@@ -60,7 +76,7 @@ describe('ContactsService', () => {
 
   describe('create', () => {
     it('未满：先拿用户级咨询锁再计数，然后创建', async () => {
-      tx.emergencyContact.count.mockResolvedValue(CONTACT_LIMIT - 1);
+      countBy(CONTACT_LIMIT - 1);
       tx.emergencyContact.create.mockResolvedValue(row({ id: 'c5' }));
       await expect(
         svc.create('u1', { name: '妈', phone: '13800001111' }),
@@ -86,8 +102,8 @@ describe('ContactsService', () => {
       expect(tx.emergencyContact.create).not.toHaveBeenCalled();
     });
 
-    it('已满 5 个：409 EMERGENCY_CONTACT_LIMIT_REACHED，不创建', async () => {
-      tx.emergencyContact.count.mockResolvedValue(CONTACT_LIMIT);
+    it('已满 5 个：409 EMERGENCY_CONTACT_LIMIT_REACHED 带上限值，不创建', async () => {
+      countBy(CONTACT_LIMIT);
       const err = await svc
         .create('u1', { name: 'x', phone: '13800002222' })
         .catch((e: unknown) => e);
@@ -95,28 +111,78 @@ describe('ContactsService', () => {
       expect((err as ConflictException).getResponse()).toEqual({
         code: 'EMERGENCY_CONTACT_LIMIT_REACHED',
         message: '紧急联系人最多 5 个',
+        details: { limit: 5 },
+      });
+      expect(tx.emergencyContact.create).not.toHaveBeenCalled();
+    });
+
+    it('本人手机号：400 CONTACT_IS_SELF，不计名额不创建', async () => {
+      const err = await svc
+        .create('u1', { name: '我', phone: '13900000000' })
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(BadRequestException);
+      expect((err as BadRequestException).getResponse()).toMatchObject({
+        code: 'CONTACT_IS_SELF',
+      });
+      expect(tx.emergencyContact.create).not.toHaveBeenCalled();
+    });
+
+    it('与本人另一个未删联系人同号：409 CONTACT_DUPLICATE（查重只看未删的）', async () => {
+      countBy(2, 1);
+      const err = await svc
+        .create('u1', { name: '妈妈备用', phone: '13800001111' })
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as ConflictException).getResponse()).toMatchObject({
+        code: 'CONTACT_DUPLICATE',
+      });
+      expect(tx.emergencyContact.count).toHaveBeenCalledWith({
+        where: { userId: 'u1', deletedAt: null, phone: '13800001111' },
       });
       expect(tx.emergencyContact.create).not.toHaveBeenCalled();
     });
   });
 
   describe('update / remove', () => {
-    it('只改传了的字段（空串也算传了）', async () => {
-      prisma.emergencyContact.findFirst.mockResolvedValue(row());
-      prisma.emergencyContact.update.mockResolvedValue(row({ relation: '' }));
+    it('只改传了的字段（空串也算传了）；改号码时查重不算自己这条', async () => {
+      tx.emergencyContact.findFirst.mockResolvedValue(row());
+      tx.emergencyContact.update.mockResolvedValue(row({ relation: '' }));
       await svc.update('u1', 'c1', { relation: '' });
-      expect(prisma.emergencyContact.update).toHaveBeenCalledWith({
+      expect(tx.emergencyContact.update).toHaveBeenCalledWith({
         where: { id: 'c1' },
         data: { relation: '' },
       });
+      // 没改号码：不查本人 / 重复
+      expect(tx.user.findUnique).not.toHaveBeenCalled();
       await svc.update('u1', 'c1', { name: '妈妈', phone: '13800003333' });
-      expect(prisma.emergencyContact.update).toHaveBeenLastCalledWith({
+      expect(tx.emergencyContact.update).toHaveBeenLastCalledWith({
         where: { id: 'c1' },
         data: { name: '妈妈', phone: '13800003333' },
       });
+      expect(tx.emergencyContact.count).toHaveBeenCalledWith({
+        where: {
+          userId: 'u1',
+          deletedAt: null,
+          phone: '13800003333',
+          id: { not: 'c1' },
+        },
+      });
+    });
+
+    it('改成本人号 400 CONTACT_IS_SELF、改成另一个联系人的号 409 CONTACT_DUPLICATE：都不写库', async () => {
+      tx.emergencyContact.findFirst.mockResolvedValue(row());
+      await expect(
+        svc.update('u1', 'c1', { phone: '13900000000' }),
+      ).rejects.toMatchObject({ response: { code: 'CONTACT_IS_SELF' } });
+      countBy(2, 1);
+      await expect(
+        svc.update('u1', 'c1', { phone: '13800002222' }),
+      ).rejects.toMatchObject({ response: { code: 'CONTACT_DUPLICATE' } });
+      expect(tx.emergencyContact.update).not.toHaveBeenCalled();
     });
 
     it('他人的 / 已删的：404「联系人不存在」，不写库', async () => {
+      tx.emergencyContact.findFirst.mockResolvedValue(null);
       prisma.emergencyContact.findFirst.mockResolvedValue(null);
       await expect(
         svc.update('u1', 'c9', { name: 'x' }),
@@ -124,9 +190,13 @@ describe('ContactsService', () => {
       await expect(svc.remove('u1', 'c9')).rejects.toMatchObject({
         response: { code: 'NOT_FOUND', message: '联系人不存在' },
       });
+      expect(tx.emergencyContact.findFirst).toHaveBeenCalledWith({
+        where: { id: 'c9', userId: 'u1', deletedAt: null },
+      });
       expect(prisma.emergencyContact.findFirst).toHaveBeenCalledWith({
         where: { id: 'c9', userId: 'u1', deletedAt: null },
       });
+      expect(tx.emergencyContact.update).not.toHaveBeenCalled();
       expect(prisma.emergencyContact.update).not.toHaveBeenCalled();
     });
 

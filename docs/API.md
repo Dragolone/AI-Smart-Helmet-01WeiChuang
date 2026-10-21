@@ -19,7 +19,7 @@
 { "code": "DEVICE_NOT_FOUND", "message": "human readable", "requestId": "req_..." }
 ```
 
-客户端只依赖 `code` 不依赖 `message`。**错误码只增不改**。
+客户端只依赖 `code` 不依赖 `message`。**错误码只增不改**。**可选 `details`（2026-10-22）**：个别错误码带一个结构化补充对象，客户端按 code 决定读哪些键——目前 `CHANNEL_FULL` / `CHANNEL_LIMIT_REACHED` / `EMERGENCY_CONTACT_LIMIT_REACHED` 带 `{ "limit": <上限> }`，App 文案里的数字以它为准，不再写死（TS 类型 `ApiErrorBody.details`）。
 
 ### 1.1 通用错误码（首批，✅）
 
@@ -46,11 +46,11 @@
 | code | HTTP | 节 |
 |------|------|----|
 | SMS_CODE_INVALID / SMS_CODE_TOO_FREQUENT / SMS_CODE_DAILY_LIMIT / SMS_SEND_FAILED / PHONE_NOT_REGISTERED | 400 / 429 / 429 / 503 / 404 | §2 |
-| EMERGENCY_CONTACT_LIMIT_REACHED | 409 | §3 |
+| EMERGENCY_CONTACT_LIMIT_REACHED / CONTACT_IS_SELF / CONTACT_DUPLICATE | 409 / 400 / 409 | §3 |
 | SOS_IN_PROGRESS | 409 | §2（注销账号时还有进行中的求救） |
 | SOS_ALREADY_FINALIZED | 409 | §7 |
 | MEDIA_NOT_READY | 409 | §9 |
-| CHANNEL_FULL / TRTC_NOT_CONFIGURED | 409 / 503 | §13 |
+| CHANNEL_FULL / CHANNEL_LIMIT_REACHED / TRTC_NOT_CONFIGURED | 409 / 409 / 503 | §13 |
 
 ## 1.2 健康检查（✅ 已实现）
 
@@ -87,8 +87,8 @@ Token 有效期（✅ 已定稿并实现，2026-08-15）：**access 15 分钟 / 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | /users/me/emergency-contacts | 列表（按创建先后排序） |
-| POST | /users/me/emergency-contacts | body：`{ name, phone, relation? }`；超上限 → 409 `EMERGENCY_CONTACT_LIMIT_REACHED` |
-| PATCH | /users/me/emergency-contacts/{contactId} | 更新（name/phone/relation 任意子集） |
+| POST | /users/me/emergency-contacts | body：`{ name, phone, relation? }`；超上限 → 409 `EMERGENCY_CONTACT_LIMIT_REACHED`（`details.limit` = 5）；**phone 是本人手机号 → 400 `CONTACT_IS_SELF`；与本人另一个未删联系人同号 → 409 `CONTACT_DUPLICATE`**（2026-10-22，B 线 23；已删的不算重复） |
+| PATCH | /users/me/emergency-contacts/{contactId} | 更新（name/phone/relation 任意子集）；改 phone 时同样校验本人 / 重复（不算自己这条） |
 | DELETE | /users/me/emergency-contacts/{contactId} | 删除（软删除，释放名额；历史 SOS 通知记录留档不受影响） |
 
 `contact` 对象：`{ id, name, phone, relation: string|null, createdAt }`（TS 类型见 `@helmet/shared` EmergencyContact）。SOS 通知（SMS）发送对象即此列表。
@@ -305,9 +305,9 @@ MVP 实用为主，全部只读 + 少量运维操作。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | /voice/channels | 建频道。body：`{ name }`（整理后 1–30 字，全空白 / 只含零宽字符 400）→ channel 对象（创建者自动入频道） |
+| POST | /voice/channels | 建频道。body：`{ name }`（整理后 1–30 字，全空白 / 只含零宽字符 400）→ channel 对象（创建者自动入频道）；**本账号已加入的频道数到上限 → 409 `CHANNEL_LIMIT_REACHED`**（`details.limit`，默认 20，`VOICE_CHANNELS_PER_USER_LIMIT` 可调；2026-10-22 B 线 23，退出频道即释放） |
 | GET | /voice/channels | 我加入的频道列表 |
-| POST | /voice/channels/join | body：`{ inviteCode }`（6 位字母 / 数字，不区分大小写；形状不对 400）；邀请码错误 404；满员 409 `CHANNEL_FULL`；重复加入幂等返回频道；限频每账号每分钟 10 次、同一 IP 每分钟 60 次（决策 #57，超限 429 `RATE_LIMITED`） |
+| POST | /voice/channels/join | body：`{ inviteCode }`（6 位字母 / 数字，不区分大小写；形状不对 400）；邀请码错误 404；满员 409 `CHANNEL_FULL`（`details.limit` = 成员上限）；本账号频道数到上限 409 `CHANNEL_LIMIT_REACHED`；重复加入幂等返回频道；限频每账号每分钟 10 次、同一 IP 每分钟 60 次（决策 #57，超限 429 `RATE_LIMITED`） |
 | DELETE | /voice/channels/{channelId}/membership | 退出频道（非成员 404；频道保留，MVP 不做解散/回收） |
 | GET | /voice/channels/{channelId}/members | 成员列表（仅成员可见）：`{ userId, nickname, avatarUrl, phone, joinedAt }`（**手机号脱敏**；avatarUrl 同频道成员互相可见,2026-08-17；TS 类型 VoiceChannelMemberPublic） |
 | POST | /voice/channels/{channelId}/token | 进房凭证（仅成员）：`{ sdkAppId, userId, roomId, userSig, privateMapKey, expiresAt }`；`privateMapKey` 为**绑定该房间**的权限钥匙（TRTC PrivateMapKey，默认 10 分钟有效 `TRTC_ROOM_KEY_EXPIRE_SECONDS`，App 进房前现取，填 `TRTCParams.privateMapKey`；在房期间每 5 分钟再取一次交给 SDK（决策 #60），离开房间后最多 10 分钟作废；2026-10-14 决策 #56——TRTC 控制台开启「高级权限控制」后不带它进不了房）；TRTC 未配置时 503 `TRTC_NOT_CONFIGURED`。**可选请求体 `{ clientId, purpose }`**（决策 #62，见下文「一个账号只留一台在通话」） |

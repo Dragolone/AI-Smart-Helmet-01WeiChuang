@@ -58,6 +58,7 @@ describe('VoiceService', () => {
   const saved: Record<string, string | undefined> = {};
   const ENV = [
     'VOICE_CHANNEL_MEMBER_LIMIT',
+    'VOICE_CHANNELS_PER_USER_LIMIT',
     'TRTC_SDK_APP_ID',
     'TRTC_SECRET_KEY',
     'TRTC_SIG_EXPIRE_SECONDS',
@@ -197,6 +198,63 @@ describe('VoiceService', () => {
       expect((err as ConflictException).getResponse()).toEqual({
         code: 'CHANNEL_FULL',
         message: '频道成员已达上限 2',
+        details: { limit: 2 },
+      });
+    });
+  });
+
+  describe('每账号频道数上限（B 线 23）', () => {
+    beforeEach(() => {
+      prisma.voiceChannel.findUnique.mockResolvedValue(channelRow());
+      prisma.voiceChannelMember.findUnique.mockResolvedValue(null);
+      prisma.voiceChannel.findUniqueOrThrow.mockResolvedValue(
+        channelRow({ _count: { members: 2 } }),
+      );
+      prisma.voiceChannel.create.mockResolvedValue(channelRow());
+      tx.voiceChannelMember.findUnique.mockResolvedValue(null);
+      tx.voiceChannelMember.create.mockResolvedValue({});
+    });
+
+    it('create：先拿账号级咨询锁再数本账号的成员身份；到上限（env 调成 2）409 CHANNEL_LIMIT_REACHED 带上限值，不建频道', async () => {
+      process.env.VOICE_CHANNELS_PER_USER_LIMIT = '2';
+      tx.voiceChannelMember.count.mockResolvedValue(2);
+      const err = await svc.create('u1', '车队').catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as ConflictException).getResponse()).toEqual({
+        code: 'CHANNEL_LIMIT_REACHED',
+        message: '每个账号最多加入 2 个频道',
+        details: { limit: 2 },
+      });
+      expect(prisma.voiceChannel.create).not.toHaveBeenCalled();
+      const lockArgs = tx.$executeRaw.mock.calls[0] as unknown[];
+      expect(lockArgs.slice(1)).toEqual(['voice-user:u1']);
+      expect(tx.voiceChannelMember.count).toHaveBeenCalledWith({
+        where: { userId: 'u1' },
+      });
+    });
+
+    it('create：未到上限（默认 20，已加入 19 个）照常建', async () => {
+      tx.voiceChannelMember.count.mockResolvedValue(19);
+      await expect(svc.create('u1', '车队')).resolves.toMatchObject({
+        channelId: 'ch1',
+      });
+    });
+
+    it('join：本账号到上限 409 CHANNEL_LIMIT_REACHED，不入座；锁顺序先频道后账号；已是成员的照常幂等返回', async () => {
+      process.env.VOICE_CHANNELS_PER_USER_LIMIT = '1';
+      tx.voiceChannelMember.count.mockResolvedValue(1);
+      const err = await svc.join('u2', 'ABC234').catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as ConflictException).getResponse()).toMatchObject({
+        code: 'CHANNEL_LIMIT_REACHED',
+      });
+      expect(tx.voiceChannelMember.create).not.toHaveBeenCalled();
+      const locks = tx.$executeRaw.mock.calls.map((c) => (c as unknown[])[1]);
+      expect(locks).toEqual(['voice:ch1', 'voice-user:u2']);
+
+      tx.voiceChannelMember.findUnique.mockResolvedValue({ id: 'm1' });
+      await expect(svc.join('u2', 'ABC234')).resolves.toMatchObject({
+        memberCount: 2,
       });
     });
   });

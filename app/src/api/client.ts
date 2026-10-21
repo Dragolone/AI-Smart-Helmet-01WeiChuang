@@ -31,6 +31,8 @@ export class ApiRequestError extends Error {
    * 带会话的接口是「登录状态没核对上」——文案要分开（error-messages）
    */
   readonly withSession: boolean;
+  /** 服务端随错误码给的结构化补充（如上限值 limit，API.md §1）；只认普通对象 */
+  readonly details?: Record<string, unknown>;
 
   constructor(
     status: number,
@@ -42,6 +44,12 @@ export class ApiRequestError extends Error {
     this.code = body.code ?? "INTERNAL_ERROR";
     this.status = status;
     this.requestId = body.requestId;
+    if (
+      typeof body.details === "object" &&
+      body.details !== null &&
+      !Array.isArray(body.details)
+    )
+      this.details = body.details;
     this.retryAfterSec = retryAfterSec;
     this.withSession = withSession;
   }

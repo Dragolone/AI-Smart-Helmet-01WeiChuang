@@ -14,6 +14,8 @@ export interface ApiErrorBody {
   code: string;
   message: string;
   requestId: string;
+  /** 可选的结构化补充（2026-10-22）：如 CHANNEL_FULL / CHANNEL_LIMIT_REACHED / EMERGENCY_CONTACT_LIMIT_REACHED 带 `limit`；客户端按 code 决定读哪些键 */
+  details?: Record<string, unknown>;
 }
 
 /** 统一分页响应（pageSize 默认 20，最大 100） */

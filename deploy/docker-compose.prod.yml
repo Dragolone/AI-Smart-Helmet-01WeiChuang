@@ -115,6 +115,7 @@ services:
       TRTC_SIG_EXPIRE_SECONDS: ${TRTC_SIG_EXPIRE_SECONDS:-}
       TRTC_ROOM_KEY_EXPIRE_SECONDS: ${TRTC_ROOM_KEY_EXPIRE_SECONDS:-}
       VOICE_CHANNEL_MEMBER_LIMIT: ${VOICE_CHANNEL_MEMBER_LIMIT:-}
+      VOICE_CHANNELS_PER_USER_LIMIT: ${VOICE_CHANNELS_PER_USER_LIMIT:-}
 
   # 演示常驻 Mock 头盔（CLAUDE.md「演示环境常驻 Mock 设备跑剧本，保证随时可 Demo」）
   # 与外部真机/Mock 走完全相同的 MQTT + 设备认证 + Topic ACL，仅网络路径为容器内网 emqx:1883。

@@ -27,6 +27,9 @@ interface ClientHttpError extends Error {
   type?: string;
 }
 
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
 /** Express 中间件层（body-parser 等）抛出的 4xx HttpError */
 function isClientHttpError(err: unknown): err is ClientHttpError {
   if (!(err instanceof Error)) return false;
@@ -48,6 +51,7 @@ export class UnifiedExceptionFilter implements ExceptionFilter {
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let code = 'INTERNAL_ERROR';
     let message = 'Internal server error';
+    let details: Record<string, unknown> | undefined;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -55,11 +59,17 @@ export class UnifiedExceptionFilter implements ExceptionFilter {
       if (typeof body === 'string') {
         message = body;
       } else if (typeof body === 'object' && body !== null) {
-        const b = body as { code?: string; message?: string | string[] };
+        const b = body as {
+          code?: string;
+          message?: string | string[];
+          details?: unknown;
+        };
         message = Array.isArray(b.message)
           ? b.message.join('; ')
           : (b.message ?? exception.message);
         if (b.code) code = b.code;
+        // 业务异常可带结构化补充（如上限值 limit），客户端按 code 决定读哪些键；只认普通对象（API.md §1）
+        if (isPlainObject(b.details)) details = b.details;
       }
       if (code === 'INTERNAL_ERROR') {
         code = STATUS_CODE_MAP[status] ?? `HTTP_${status}`;
@@ -81,6 +91,8 @@ export class UnifiedExceptionFilter implements ExceptionFilter {
       );
     }
 
-    res.status(status).json({ code, message, requestId });
+    res
+      .status(status)
+      .json({ code, message, requestId, ...(details && { details }) });
   }
 }
