@@ -18,7 +18,12 @@ const shutdownDrainMs = (): number => {
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
-  const app = await NestFactory.create(AppModule);
+  // forceCloseConnections（10-22 夜测）：EMQX 认证回调的 keep-alive 连接池（compose 里 8 条）有的从没发过请求，
+  // Node 关 HTTP 服务时既不当空闲连接关掉、也不再按超时清理，app.close() 一直等到对方断开——本地一个实例挂了三个多小时，
+  // 部署时则每次排空完都卡到 stop_grace_period（15s）被 SIGKILL，「已关闭」走不到。排空期过后在途请求已跑完，直接断开剩下的连接
+  const app = await NestFactory.create(AppModule, {
+    forceCloseConnections: true,
+  });
   // 原生 ws（决策 #25）：App 用平台原生 WebSocket 直连，不用 Socket.IO
   app.useWebSocketAdapter(new WsAdapter(app));
   app.setGlobalPrefix('api/v1');
