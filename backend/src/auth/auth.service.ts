@@ -20,7 +20,7 @@ const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
  * 刷新应答丢失的补发窗口（评审 R-05 / 10-06 并发评审 #2）：App 的刷新请求到了服务端、应答却没回去
  * （隧道里被 RST、切网、或等满 15 s 超时），它手里还是旧 token，下一次刷新带的仍是旧 token——
  * 连接被重置时这「下一次」可能就在一两秒内。旧 token 在本窗口内再次出现，当作「上次的应答没送到」：
- * 作废那张从没用过的新 token、再发一张；每张旧 token 只补发一次。超过本窗口再出现才按盗用撤销全部会话。
+ * 再发一张（替代它的那张保留，见 reissueAfterLostResponse）；每张旧 token 只补发一次。超过本窗口再出现才按盗用撤销全部会话。
  * 取 access 的寿命，断网几分钟后回来的第一次刷新落在窗口内。
  */
 const REFRESH_RETRY_WINDOW_MS = 15 * 60 * 1000;
@@ -324,10 +324,14 @@ export class AuthService {
   }
 
   /**
-   * 旧 token 在补发窗口内再次出现：只有「轮换出来、从没用过」的那张新 token 才能换——
-   * 登出 / 改密作废的 token 没有替代者，照常拒绝；新 token 已被用过（正常轮换走了）或这张旧 token
-   * 已补发过一次，再出现就是复用，也拒绝。能换则作废那张新 token、补发一张，不把它记成替代者，
-   * 所以同一张旧 token 第二次来时 updateMany 命中 0 行。
+   * 旧 token 在补发窗口内再次出现：上次的应答没送到，App 手上只剩它。补发一对，每张旧 token 只补发一次——
+   * 清掉它的替代关系，同一张旧 token 再来就是「没有替代者」，照常 401；替代它的那张已经用过（正常轮换走了）
+   * 说明不是应答丢失，也拒绝。
+   * 替代者本身不作废：服务端分不清 App 手上拿到的是替代者还是这次补发的这张。重试先到、原请求晚到时
+   * （弱网下被 App 放弃的那次请求过后才送达），App 拿到的正是替代者——原来把它作废，App 下次刷新就 401、
+   * 被登出，蓝牙中转跟着停（2026-10-21 模拟器 + 延迟代理复现）。两张都留着，没人用的那张到期自然失效。
+   * 代价（负责人 10-21 定，O30 / 决策 #61）：偷到旧 token 的人在窗口内抢先重放，骑手这台不再被顶掉，
+   * #128 时「下次刷新 401、提示如非本人操作请改密」的信号没了；补发过的旧 token 窗口外再来只 401、不撤销全部会话。
    */
   private async reissueAfterLostResponse(record: {
     id: string;
@@ -338,16 +342,21 @@ export class AuthService {
     if (!replacedById) return null;
     const pair = await this.prisma.$transaction(async (tx) => {
       await lockUserRow(tx, record.userId);
-      const taken = await tx.refreshToken.updateMany({
-        where: { id: replacedById, revokedAt: null },
-        data: { revokedAt: new Date() },
+      const child = await tx.refreshToken.findUnique({
+        where: { id: replacedById },
+        select: { revokedAt: true },
       });
-      if (taken.count === 0) return null;
+      if (!child || child.revokedAt) return null;
+      const unlinked = await tx.refreshToken.updateMany({
+        where: { id: record.id, replacedById },
+        data: { replacedById: null },
+      });
+      if (unlinked.count === 0) return null;
       return this.issueTokens(record.userId, undefined, tx);
     });
     if (!pair) return null;
     this.logger.log(
-      `refresh 应答疑似丢失：为用户 ${record.userId} 补发 token，作废未用过的 ${record.replacedById}`,
+      `refresh 应答疑似丢失：为用户 ${record.userId} 补发 token（替代者 ${replacedById} 保留）`,
     );
     return pair;
   }
