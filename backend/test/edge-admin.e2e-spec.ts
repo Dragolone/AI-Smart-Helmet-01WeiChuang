@@ -224,6 +224,14 @@ describe('边界：管理后台 (e2e)', () => {
       await relay(http, u.token, devGone, [
         envelope(devGone, 'manual_sos', {}),
       ]).expect(202);
+      // 有进行中的求救不能注销（O15）：先取消
+      const pending = await prisma.sosCase.findFirstOrThrow({
+        where: { deviceId: devGone, userId: u.id, status: 'pending' },
+      });
+      await request(http)
+        .post(`/api/v1/sos/${pending.id}/cancel`)
+        .set(auth(u.token))
+        .expect(200);
       await request(http)
         .delete('/api/v1/users/me')
         .set(auth(u.token))

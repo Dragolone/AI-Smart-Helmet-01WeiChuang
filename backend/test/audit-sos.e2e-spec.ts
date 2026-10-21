@@ -810,31 +810,34 @@ describe('审计 §4 SOS 全链路与状态机 (e2e, 手动 tick)', () => {
     await cancelSos(http, owner.token, pending!.id).catch(() => undefined);
   });
 
-  it('pending 中注销账号：旧 token 全 401（无人可取消）；到期照终态化 notified，联系人已软删 → 0 条 SMS，push 行仍写给已注销用户', async () => {
-    setCountdown('1');
+  it('pending 中注销账号：409 SOS_IN_PROGRESS、账号原样（O15）；取消后才能注销，之后旧 token 一律 401 ACCOUNT_DELETED，后台仍见事故归属', async () => {
     const e = fallEnvelope(devDelete);
     await relay(http, userD.token, devDelete, [e]).expect(202);
     const c = (await sosByEvent(prisma, e.eventId as string))!;
+    const refused = await request(http)
+      .delete('/api/v1/users/me')
+      .set(auth(userD.token))
+      .send({ password: userD.password })
+      .expect(409);
+    expect(refused.body.code).toBe('SOS_IN_PROGRESS');
+    // 什么都没改：设备仍绑着、单仍 pending，本人照样能取消
+    expect(
+      (await prisma.device.findUnique({ where: { deviceId: devDelete } }))!
+        .bindUserId,
+    ).toBe(userD.id);
+    expect((await cancelSos(http, userD.token, c.id)).status).toBe(200);
     await request(http)
       .delete('/api/v1/users/me')
       .set(auth(userD.token))
       .send({ password: userD.password })
       .expect(204);
-    expect((await cancelSos(http, userD.token, c.id)).status).toBe(401);
-    expect((await confirmSos(http, userD.token, c.id)).status).toBe(401);
+    const late = await confirmSos(http, userD.token, c.id);
+    expect(late.status).toBe(401);
+    expect(late.body.code).toBe('ACCOUNT_DELETED');
     expect(
       (await prisma.device.findUnique({ where: { deviceId: devDelete } }))!
         .bindUserId,
     ).toBeNull();
-    await sleep(1050);
-    await scheduler.tick();
-    const final = (await sosByEvent(prisma, c.triggerEventId))!;
-    expect(final.status).toBe('notified');
-    const rows = await notificationsOf(prisma, c.id);
-    expect(rows.map((r) => r.channel)).toEqual(['push']);
-    expect(sosSmsCalls(mocks)).toHaveLength(0);
-    // 联系人已随注销软删 → 0 条短信：Push 按 SOS-04 口径提示「未设置紧急联系人」，不宣称已通知
-    expect(pushCallsTitled(mocks, 'SOS 未设置紧急联系人')).toHaveLength(1);
     // Admin 仍可见（归属为已注销用户，phone 已改写）
     const adminList = await request(http)
       .get('/api/v1/admin/accidents')

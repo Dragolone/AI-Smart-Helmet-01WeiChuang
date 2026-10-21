@@ -290,6 +290,55 @@ export async function createAdmin(
   return { username, token: res.body.accessToken as string };
 }
 
+/**
+ * 建单故障注入：建单在事务里（先锁用户行再 create，O15），直接替换 prisma.sosCase.create 打不到。
+ * 换掉 $transaction，给回调的事务客户端套一层：sosCase.create 前 times 次抛错，其余调用原样转发
+ */
+export function failSosCaseCreate(
+  prisma: PrismaService,
+  error: Error,
+  times = 1,
+): { calls: number; restore: () => void } {
+  type Tx = Record<PropertyKey, unknown>;
+  const client = prisma as unknown as {
+    $transaction: (arg: unknown, opts?: unknown) => Promise<unknown>;
+  };
+  const original = client.$transaction;
+  const state = { calls: 0, restore: () => undefined as void };
+  const bound = (target: Tx, prop: PropertyKey): unknown => {
+    const v = Reflect.get(target, prop);
+    return typeof v === 'function'
+      ? (v as (...a: unknown[]) => unknown).bind(target)
+      : v;
+  };
+  const wrapTx = (tx: Tx): Tx =>
+    new Proxy(tx, {
+      get: (target, prop) => {
+        if (prop !== 'sosCase') return bound(target, prop);
+        const delegate = target.sosCase as Tx;
+        return new Proxy(delegate, {
+          get: (d, p) =>
+            p !== 'create'
+              ? bound(d, p)
+              : (...args: unknown[]) => {
+                  state.calls += 1;
+                  if (state.calls <= times) return Promise.reject(error);
+                  return (d.create as (...a: unknown[]) => unknown)(...args);
+                },
+        });
+      },
+    });
+  client.$transaction = function (arg: unknown, opts?: unknown) {
+    if (typeof arg !== 'function') return original.call(prisma, arg, opts);
+    const fn = arg as (tx: Tx) => Promise<unknown>;
+    return original.call(prisma, (tx: Tx) => fn(wrapTx(tx)), opts);
+  };
+  state.restore = () => {
+    client.$transaction = original;
+  };
+  return state;
+}
+
 /** 一次性故障注入：把 Prisma 委托方法替换为「第一次调用抛错，之后恢复原实现」 */
 export function failOnce<T extends object, K extends keyof T>(
   target: T,
