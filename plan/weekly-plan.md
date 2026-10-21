@@ -216,6 +216,13 @@ npx expo run:android            # Android 模拟器同理（需先在 Android St
 
 ### A 线当前进度与待办（2026-09-06，B 线整理；A 线直接按此推进，有疑问群里问）
 
+> **📣 给 A 线的通知（2026-10-22，B 线）——#333 闹钟通道警报、#368 锁屏公开 + 精确撤推送都已合入 main，你要双端重新 prebuild 打包**
+>
+> - **#333（F15）已 Squash 合入**（88e2d52）。B 线在你分支上推了一次合 main 和一个修正提交（b960a19），评审在 #333 评论里：① 合 main 后 `secondsLeft` 可能为 null（#386），`null <= 10` 为真，截止时间解析不出来时一开始就切急促——已修，tsc 原来也报错（CI 是在 10-20 旧基线上绿的）；② 原生加兜底：`startSosAlarm(maxMs)`，页面按「离截止还剩多久 + 30 s」给，App 在后台 JS 定时器不跑、实时通道断了收不到终态时，原生到点自己停（原来会一直循环响）；③ 停的时候 reactContext 没了也照样还音频焦点、停震动，`OnDestroy` 走同一个 `stopAlarm`；④ 播放器起不来只剩震动时，最后 10 秒也切急促。
+> - **#368（O31 / O12）已 Squash 合入**（51e0574；负责人同意新增 patch-package）。评审在 #368 评论里。B 线推了 98841dc：带了 `extras.kind` 就只认 kind，没有才退回认标题；后端 #389（499a746）给「倒计时已开始」加了 `kind: "sos_started"`（API.md §7「推送 extras」），云端待更新。极光 v3 没有锁屏可见性字段，你的做法就是能做到的最好。**注意**：根 `package.json` 加了 `postinstall: patch-package`，`npm ci` 后应看到两个补丁都 ✔；expo-notifications 在安卓上改成从源码编。
+> - **你要做的**：拉 main、`npm ci` 后**双端 `npx expo prebuild --clean`，重新打包**（helmet-link-service 加了原生方法和一段 raw 警报音；expo-notifications / jpush-react-native 带补丁）。旧原生包配新 JS 不会崩（`sosAlarmAvailable` 为 false 时退回 expo-audio），但没有新包就不会「静音也响」。
+> - **新包要测**：① OWNER_MANUAL_CHECKS 第 4 项，负责人听音量 / 渐强 / 震动；② REGRESSION 6.15 用新包再跑一次（对讲在房时来单：警报从哪儿出声、够不够大，结束后对讲声音回来没有）；③ 倒数中锁屏 + 断网 → 警报应在截止后约 30 s 自己停，解锁回来页面照常结算（原生兜底只编译过、单测过，没在设备上跑过）；④ OWNER_MANUAL_CHECKS 第 8 项（iPhone：别处取消后通知中心的「倒计时已开始」被撤掉）；第 16、17 项你已用草稿包跑过，不用再测。音量 / 渐强 / 震动和「截止后 30 秒自停」先按现稿，负责人听过再调。
+>
 > **📣 给 A 线的通知（2026-10-22，B 线）——上线清单 B 线 16–19 的服务器半，契约有变，App 要配合的列在每条后面**
 >
 > - **B 16 / O15 注销（云端更新后生效）**：① `DELETE /users/me` 本账号还有进行中的求救 → **409 `SOS_IN_PROGRESS`**，什么都不改（你 #366 的拦截是第一道，这是兜底）。`error-messages.ts` 里 B 线已配好三种语言的文案（「有正在倒计时的求救，请先取消或立即求救，再注销账号」），`ACCOUNT_DELETED` 也配了「账号已注销」——`audit-error-codes` 测试要求后端每个码都有文案；要不要在这个提示上加一个去倒计时页的入口由你定。② 因账号已注销而拒绝的 401 改用 **`ACCOUNT_DELETED`**（守卫、`/auth/refresh`、`/users/me` 都是）。HTTP 状态仍是 401，`client.ts` 按状态码走的刷新 / 登出不受影响。另一台手机要写「账号已注销」，就得读 refresh 401 的 body：现在 `refreshTokens()` 遇到 401 不读 body，直接回 `invalid`，要改成 code 为 `ACCOUNT_DELETED` 时带上原因，登录页 / 会话失效通知换成「账号已在其他设备上注销」，不写「可能改了密码」。WS 不变，仍是 4401（关闭原因「账号已注销」），你收到 4401 去刷新时就会拿到这个码。API.md §1.1 / §2 已写。
