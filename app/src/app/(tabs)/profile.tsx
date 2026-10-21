@@ -33,7 +33,9 @@ import {
   useThemeStore,
   type ThemeMode,
 } from "@/stores/theme-store";
+import { firstActiveSos } from "@/services/active-sos";
 import { drainRelayQueue } from "@/services/ble-relay-uplink";
+import { sosActiveHref } from "@/services/sos-routes";
 import { devLog } from "@/services/dev-log";
 import { showNotice } from "@/services/notice";
 import { profilePatch } from "@/services/profile-patch";
@@ -171,6 +173,30 @@ export default function ProfileScreen() {
     setSigningOut(true);
     try {
       const left = await drainRelayQueue(SIGN_OUT_UPLOAD_MS);
+      // 有一单在倒计时（刚补传上去的那条摔倒建出的单，或本来就在倒数的）：走了这台手机就取消不了，
+      // 到点照样通知紧急联系人——先说清楚，让他去处理或确认再走（10-21 第二轮审查）。查不了（断网）不拦：
+      // 退出本身不需要网，补传那一步已经单独提醒过
+      const active = await firstActiveSos(queryClient).catch(() => null);
+      if (active) {
+        Alert.alert(
+          translate("profile.signOutActiveSosTitle"),
+          translate("profile.signOutActiveSosBody"),
+          [
+            { text: translate("common.cancel"), style: "cancel" },
+            {
+              text: translate("profile.signOutActiveSosOpen"),
+              onPress: () =>
+                router.navigate(sosActiveHref(active.sosId, active.deviceId)),
+            },
+            {
+              text: translate("profile.signOutAnyway"),
+              style: "destructive",
+              onPress: () => void signOut(),
+            },
+          ],
+        );
+        return;
+      }
       if (left.total === 0) {
         await signOut();
         return;

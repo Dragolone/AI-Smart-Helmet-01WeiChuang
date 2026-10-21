@@ -1129,10 +1129,18 @@ describe("取消先落地、立即求救被拒时替他重发（O29，负责人 
       .mockImplementation((id: unknown) =>
         Promise.resolve(sosOf({ sosId: id as string, status: "notified" })),
       );
-  const newSos = (sosId = "s9") => {
+  /** 最近一次注入的 manual_sos 的 eventId（服务端建出的单的 triggerEventId 就是它） */
+  const lastPushedEventId = () =>
+    (
+      m(relayApi.push).mock.calls.at(-1)?.[0] as
+        { envelopes: { eventId: string }[] } | undefined
+    )?.envelopes[0].eventId ?? "e-none";
+  /** 这顶头盔来了一单新的：默认是重发那条事件建出的单；传 triggerEventId 就是别的事件（比如一次新的摔倒） */
+  const newSos = (sosId = "s9", triggerEventId = lastPushedEventId()) => {
     const fresh = sosOf({
       sosId,
       triggerType: "manual_sos",
+      triggerEventId,
       deadline: new Date(Date.now() + 60_000).toISOString(),
     });
     m(sosApi.snapshot).mockImplementation(() => Promise.resolve(fresh));
@@ -1202,6 +1210,115 @@ describe("取消先落地、立即求救被拒时替他重发（O29，负责人 
     await tick(0);
     await tick(0);
     expect(sosApi.confirm).not.toHaveBeenCalledWith("s10");
+  });
+
+  it("两分钟内这顶头盔来的是别的事件建的单（比如一次新的误报摔倒）：不自动确认，照常倒数（10-21 第二轮审查）", async () => {
+    finalizedOnce();
+    m(relayApi.push).mockImplementation(() =>
+      Promise.resolve({ accepted: 1, duplicate: 0, invalid: 0 }),
+    );
+    const r = await mount();
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ status: "cancelled" })),
+    );
+    r.press(tr("sos.sendNow"));
+    await tick(0);
+    await tick(0);
+    newSos("s10", "fall-event-xyz");
+    await tick(0);
+    await tick(0);
+    expect(sosApi.confirm).not.toHaveBeenCalledWith("s10");
+    expect(number(r)).toBe("60");
+  });
+
+  it("几顶一起倒数、页面已切到别的头盔时重发的单才到（只是顶上一个胶囊）：切过去并立即确认它，不碰屏上那单", async () => {
+    qc = makeQueryClient();
+    qc.setQueryData(["sos-active", "h2"], {
+      sos: sosOf({ sosId: "s2", deviceId: "h2", deadline: secondsFromNow(50) }),
+    });
+    finalizedOnce();
+    m(relayApi.push).mockImplementation(() =>
+      Promise.resolve({ accepted: 1, duplicate: 0, invalid: 0 }),
+    );
+    const r = await mount(false);
+    m(sosApi.snapshot).mockImplementation((id: unknown) =>
+      Promise.resolve(
+        id === "s1"
+          ? sosOf({ status: "cancelled" })
+          : sosOf({
+              sosId: id as string,
+              deviceId: "h2",
+              deadline: secondsFromNow(50),
+            }),
+      ),
+    );
+    r.press(tr("sos.sendNow"));
+    await tick(0);
+    await tick(0);
+    await tick(0);
+    m(sosApi.confirm).mockClear();
+    const resentId = lastPushedEventId();
+    const s9 = sosOf({
+      sosId: "s9",
+      triggerType: "manual_sos",
+      triggerEventId: resentId,
+      deadline: secondsFromNow(60),
+    });
+    m(sosApi.snapshot).mockImplementation((id: unknown) =>
+      Promise.resolve(
+        id === "s9"
+          ? s9
+          : sosOf({
+              sosId: id as string,
+              deviceId: "h2",
+              deadline: secondsFromNow(50),
+            }),
+      ),
+    );
+    act(() => {
+      qc.setQueryData(["sos-active", "h1"], { sos: s9 });
+    });
+    for (let i = 0; i < 4; i++) await tick(0);
+    expect(sosApi.confirm).toHaveBeenCalledWith("s9");
+    expect(sosApi.confirm).not.toHaveBeenCalledWith("s2");
+  });
+
+  it("「全部立即求救」里被拒、原因是取消先落地的那单：同样替他重发，新单出现就确认（10-21 第二轮审查）", async () => {
+    qc = makeQueryClient();
+    qc.setQueryData(["sos-active", "h2"], {
+      sos: sosOf({ sosId: "s2", deviceId: "h2", deadline: secondsFromNow(50) }),
+    });
+    m(relayApi.push).mockImplementation(() =>
+      Promise.resolve({ accepted: 1, duplicate: 0, invalid: 0 }),
+    );
+    m(sosApi.confirm).mockImplementation((id: unknown) =>
+      id === "s1"
+        ? Promise.reject(
+            new ApiRequestError(409, { code: "SOS_ALREADY_FINALIZED" }),
+          )
+        : Promise.resolve(
+            sosOf({ sosId: id as string, deviceId: "h2", status: "notified" }),
+          ),
+    );
+    const r = await mount(false);
+    m(sosApi.snapshot).mockImplementation((id: unknown) =>
+      Promise.resolve(
+        id === "s1"
+          ? sosOf({ status: "cancelled" })
+          : sosOf({ sosId: "s2", deviceId: "h2", status: "notified" }),
+      ),
+    );
+    r.press(tr("sos.allSendNow"));
+    const buttons = alert.mock.calls.at(-1)?.[2] as
+      { text: string; onPress?: () => void }[] | undefined;
+    act(() => buttons?.at(-1)?.onPress?.());
+    await tick(0);
+    await tick(0);
+    await tick(0);
+    const body = m(relayApi.push).mock.calls.at(-1)?.[0] as
+      { deviceId: string } | undefined;
+    expect(body?.deviceId).toBe("h1");
+    expect(r.allText()).toContain(tr("sos.resentAfterCancel"));
   });
 });
 

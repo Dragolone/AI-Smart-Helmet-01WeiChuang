@@ -118,6 +118,12 @@ jest.mock("@/api/devices", () => ({ devicesApi: { list: jest.fn() } }));
 const mockDrain = jest.fn((_ms: number) =>
   Promise.resolve({ total: 0, sos: 0 }),
 );
+const mockActiveSos = jest.fn(
+  async (): Promise<{ sosId: string; deviceId: string } | null> => null,
+);
+jest.mock("@/services/active-sos", () => ({
+  firstActiveSos: () => mockActiveSos(),
+}));
 jest.mock("@/services/ble-relay-uplink", () => ({
   ...jest.requireActual<typeof import("@/services/ble-relay-uplink")>(
     "@/services/ble-relay-uplink",
@@ -378,6 +384,50 @@ describe("入口", () => {
     expect(second[1].text).toBe(tr("profile.signOutAnyway"));
     act(() => second[1].onPress!());
     expect(signOut).toHaveBeenCalled();
+  });
+
+  it("有一单在倒计时（比如刚补传上去的摔倒建出的）：先说走了就取消不了，可去倒计时页，也可仍要退出；查不了不拦（10-21 第二轮审查）", async () => {
+    mockDrain.mockImplementation(() => Promise.resolve({ total: 0, sos: 0 }));
+    mockActiveSos.mockImplementation(async () => ({
+      sosId: "s7",
+      deviceId: "h1",
+    }));
+    const r = mount();
+    r.press(tr("profile.signOut"));
+    const first = alert.mock.calls[0][2] as { onPress?: () => void }[];
+    await act(async () => first[1].onPress!());
+    expect(signOut).not.toHaveBeenCalled();
+    expect(alert.mock.calls[1][0]).toBe(tr("profile.signOutActiveSosTitle"));
+    expect(alert.mock.calls[1][1]).toBe(tr("profile.signOutActiveSosBody"));
+    const buttons = alert.mock.calls[1][2] as {
+      text: string;
+      style?: string;
+      onPress?: () => void;
+    }[];
+    expect(buttons.map((b) => b.text)).toEqual([
+      tr("common.cancel"),
+      tr("profile.signOutActiveSosOpen"),
+      tr("profile.signOutAnyway"),
+    ]);
+    act(() => buttons[1].onPress!());
+    expect(mockRouter.navigate).toHaveBeenCalledWith(
+      "/sos-active?sosId=s7&deviceId=h1",
+    );
+    expect(signOut).not.toHaveBeenCalled();
+    act(() => buttons[2].onPress!());
+    expect(signOut).toHaveBeenCalled();
+
+    // 查不了（断网）：照原样直接退
+    signOut.mockClear();
+    alert.mockClear();
+    mockActiveSos.mockImplementation(async () => {
+      throw new TypeError("Network request failed");
+    });
+    r.press(tr("profile.signOut"));
+    const again = alert.mock.calls[0][2] as { onPress?: () => void }[];
+    await act(async () => again[1].onPress!());
+    expect(signOut).toHaveBeenCalled();
+    mockActiveSos.mockImplementation(async () => null);
   });
 
   it("积压里没有摔倒：说明只写什么时候补传", async () => {
