@@ -102,6 +102,8 @@ import {
   useHelmetHistoryStore,
 } from "@/stores/helmet-history-store";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 /** 标题栏占的高度（含上边距）：算大图光晕能铺多大时要用 */
 const HEADER_HEIGHT = 48;
 /** 其他设备行里电量条的长度 */

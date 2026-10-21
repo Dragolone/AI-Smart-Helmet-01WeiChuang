@@ -27,6 +27,8 @@ import {
 } from "@/services/notification-settings";
 import { SOS_CHANNEL_ID } from "@/services/sos-alert";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 const MAX_CONTACTS = 5; // API.md §3 定稿
 
 export default function SafetySettingsScreen() {

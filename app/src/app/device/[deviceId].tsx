@@ -72,6 +72,8 @@ import { cleanHelmetName, helmetNameOf } from "@/services/safety-status";
 import { useBleStore } from "@/stores/ble-store";
 import { showNotice } from "@/services/notice";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 /** 头盔没确认过音量时滑杆停在出厂默认（按「待确认」显示，不当成头盔上的值） */
 const VOLUME_DEFAULT = Number(DEVICE_SETTINGS.volume.default);
 /**

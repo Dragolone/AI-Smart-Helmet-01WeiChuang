@@ -91,6 +91,8 @@ import {
   personNameOf,
 } from "@/services/user-name";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 const SPEAKING_THRESHOLD = 10; // onUserVoiceVolume 0–100
 /** 屏幕常亮的标记：只管对讲页自己开的这一份，不影响地图页开的 */
 const KEEP_AWAKE_TAG = "intercom";

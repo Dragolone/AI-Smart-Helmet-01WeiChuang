@@ -42,9 +42,15 @@ import {
   timeSync,
   writeRegister,
 } from "@/services/ble-bench";
-import { Reg, SETTINGS_READ_ADDR, SETTINGS_READ_LEN } from "@/services/ble/protocol";
+import {
+  Reg,
+  SETTINGS_READ_ADDR,
+  SETTINGS_READ_LEN,
+} from "@/services/ble/protocol";
 import { useBleBenchStore } from "@/stores/ble-bench-store";
 import type { BenchLogEntry, BenchPeripheral } from "@/stores/ble-bench-store";
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
 
 /** 页面只渲染最近这么多条；完整日志走「分享」导出 */
 const VISIBLE_LOG = 200;
@@ -150,7 +156,11 @@ function LogLine({ e }: { e: BenchLogEntry }) {
         ? theme.backgroundSelected
         : "transparent";
   const tagColor =
-    e.dir === "tx" ? theme.brand : e.dir === "rx" ? theme.text : theme.textSecondary;
+    e.dir === "tx"
+      ? theme.brand
+      : e.dir === "rx"
+        ? theme.text
+        : theme.textSecondary;
   return (
     <View style={styles.logLine}>
       <ThemedText type="code" themeColor="textSecondary" style={styles.logTime}>
@@ -167,7 +177,10 @@ function LogLine({ e }: { e: BenchLogEntry }) {
             {e.hex.toUpperCase()}
           </ThemedText>
         ) : null}
-        <ThemedText type="small" style={{ color: tone, fontSize: 12, lineHeight: 16 }}>
+        <ThemedText
+          type="small"
+          style={{ color: tone, fontSize: 12, lineHeight: 16 }}
+        >
           {e.text}
           {e.latencyMs !== undefined ? ` · ${e.latencyMs} ms` : ""}
         </ThemedText>
@@ -229,8 +242,16 @@ export default function BleBenchScreen() {
     },
     { n: 5, label: "读状态区", run: () => readRegister(0x10, 10) },
     { n: 6, label: "对时", run: timeSync },
-    { n: 7, label: "写音量 50", run: () => writeRegister(Reg.BUZZER_VOLUME, [50]) },
-    { n: 8, label: "写越界 200", run: () => writeRegister(Reg.BUZZER_VOLUME, [200]) },
+    {
+      n: 7,
+      label: "写音量 50",
+      run: () => writeRegister(Reg.BUZZER_VOLUME, [50]),
+    },
+    {
+      n: 8,
+      label: "写越界 200",
+      run: () => writeRegister(Reg.BUZZER_VOLUME, [200]),
+    },
     {
       n: 9,
       label: "连写蜂鸣+音量",
@@ -244,13 +265,20 @@ export default function BleBenchScreen() {
       label: "RECOVERY",
       danger: true,
       run: () =>
-        confirmThen("恢复出厂参数", "头盔 0x20–0x2D 全部回到出厂值。确定发 RECOVERY？", recovery),
+        confirmThen(
+          "恢复出厂参数",
+          "头盔 0x20–0x2D 全部回到出厂值。确定发 RECOVERY？",
+          recovery,
+        ),
     },
     {
       n: 14,
       label: "RESET",
       danger: true,
-      run: () => confirmThen("软重启头盔", "头盔会重启并断开连接。确定发 RESET？", () => reset(0x01)),
+      run: () =>
+        confirmThen("软重启头盔", "头盔会重启并断开连接。确定发 RESET？", () =>
+          reset(0x01),
+        ),
     },
   ];
 
@@ -258,16 +286,23 @@ export default function BleBenchScreen() {
     const pa = a.name === preferredName ? 1 : 0;
     const pb = b.name === preferredName ? 1 : 0;
     if (pa !== pb) return pb - pa;
-    if (a.hasHelmetService !== b.hasHelmetService) return a.hasHelmetService ? -1 : 1;
+    if (a.hasHelmetService !== b.hasHelmetService)
+      return a.hasHelmetService ? -1 : 1;
     return (b.rssi ?? -999) - (a.rssi ?? -999);
   });
 
   const scanBadge =
-    adapter === "off" || adapter === "unauthorized" || adapter === "unsupported" ? (
+    adapter === "off" ||
+    adapter === "unauthorized" ||
+    adapter === "unsupported" ? (
       <Badge
         variant="danger"
         label={
-          adapter === "off" ? "蓝牙已关闭" : adapter === "unauthorized" ? "无蓝牙权限" : "本机无蓝牙"
+          adapter === "off"
+            ? "蓝牙已关闭"
+            : adapter === "unauthorized"
+              ? "无蓝牙权限"
+              : "本机无蓝牙"
         }
       />
     ) : phase === "scanning" ? (
@@ -286,9 +321,16 @@ export default function BleBenchScreen() {
   return (
     <SafeAreaView style={styles.flex} edges={["bottom"]}>
       <ThemedView style={styles.flex}>
-        <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          contentContainerStyle={styles.container}
+          keyboardShouldPersistTaps="handled"
+        >
           <ThemedText style={styles.title}>蓝牙工程模式</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" style={styles.subtitle}>
+          <ThemedText
+            type="small"
+            themeColor="textSecondary"
+            style={styles.subtitle}
+          >
             不登录、不上云，只对头盔收发字节。清单见 docs/BLE_BENCH.md。
           </ThemedText>
 
@@ -309,7 +351,9 @@ export default function BleBenchScreen() {
           <Card>
             {sorted.length === 0 ? (
               <ThemedText type="small" themeColor="textSecondary">
-                {phase === "scanning" ? "还没扫到外设，让头盔上电并广播…" : "列表为空"}
+                {phase === "scanning"
+                  ? "还没扫到外设，让头盔上电并广播…"
+                  : "列表为空"}
               </ThemedText>
             ) : (
               sorted.map((p) => (
@@ -327,9 +371,21 @@ export default function BleBenchScreen() {
           {/* 连接信息 */}
           {(connected || busy) && (
             <>
-              <View style={[styles.row, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+              <View
+                style={[
+                  styles.row,
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: theme.border,
+                  },
+                ]}
+              >
                 <View style={styles.rowLeft}>
-                  <Ionicons name="bluetooth" size={16} color={theme.textSecondary} />
+                  <Ionicons
+                    name="bluetooth"
+                    size={16}
+                    color={theme.textSecondary}
+                  />
                   <ThemedText type="label" themeColor="textSecondary">
                     设备
                   </ThemedText>
@@ -340,16 +396,31 @@ export default function BleBenchScreen() {
                   </ThemedText>
                   {connected && (
                     <Tappable onPress={() => void disconnect()} hitSlop={8}>
-                      <ThemedText type="smallBold" style={{ color: theme.danger }}>
+                      <ThemedText
+                        type="smallBold"
+                        style={{ color: theme.danger }}
+                      >
                         断开
                       </ThemedText>
                     </Tappable>
                   )}
                 </View>
               </View>
-              <View style={[styles.row, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+              <View
+                style={[
+                  styles.row,
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: theme.border,
+                  },
+                ]}
+              >
                 <View style={styles.rowLeft}>
-                  <Ionicons name="swap-horizontal-outline" size={16} color={theme.textSecondary} />
+                  <Ionicons
+                    name="swap-horizontal-outline"
+                    size={16}
+                    color={theme.textSecondary}
+                  />
                   <ThemedText type="label" themeColor="textSecondary">
                     MTU
                   </ThemedText>
@@ -359,10 +430,20 @@ export default function BleBenchScreen() {
               <Tappable
                 feedback="fill"
                 onPress={() => setShowGatt((v) => !v)}
-                style={[styles.row, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}
+                style={[
+                  styles.row,
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: theme.border,
+                  },
+                ]}
               >
                 <View style={styles.rowLeft}>
-                  <Ionicons name="git-network-outline" size={16} color={theme.textSecondary} />
+                  <Ionicons
+                    name="git-network-outline"
+                    size={16}
+                    color={theme.textSecondary}
+                  />
                   <ThemedText type="label" themeColor="textSecondary">
                     特征值
                   </ThemedText>
@@ -370,7 +451,9 @@ export default function BleBenchScreen() {
                 <View style={styles.rowRight}>
                   <ThemedText
                     type="smallBold"
-                    style={{ color: notifyOk && writeOk ? theme.success : theme.danger }}
+                    style={{
+                      color: notifyOk && writeOk ? theme.success : theme.danger,
+                    }}
                   >
                     {charsText}
                   </ThemedText>
@@ -387,7 +470,11 @@ export default function BleBenchScreen() {
                     <View key={s.uuid} style={styles.gattSvc}>
                       <ThemedText type="code">{s.uuid}</ThemedText>
                       {s.characteristics.map((c) => (
-                        <ThemedText key={c.uuid} type="code" themeColor="textSecondary">
+                        <ThemedText
+                          key={c.uuid}
+                          type="code"
+                          themeColor="textSecondary"
+                        >
                           {`  ${c.uuid}  ${[
                             c.notify && "notify",
                             c.write && "write",
@@ -402,9 +489,21 @@ export default function BleBenchScreen() {
                   ))}
                 </Card>
               )}
-              <View style={[styles.row, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+              <View
+                style={[
+                  styles.row,
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: theme.border,
+                  },
+                ]}
+              >
                 <View style={styles.rowLeft}>
-                  <Ionicons name="checkmark-done-outline" size={16} color={theme.textSecondary} />
+                  <Ionicons
+                    name="checkmark-done-outline"
+                    size={16}
+                    color={theme.textSecondary}
+                  />
                   <ThemedText type="label" themeColor="textSecondary">
                     高危事件自动 ACK
                   </ThemedText>
@@ -438,7 +537,10 @@ export default function BleBenchScreen() {
             <View
               style={[
                 styles.hexRow,
-                { backgroundColor: theme.background, borderColor: theme.borderStrong },
+                {
+                  backgroundColor: theme.background,
+                  borderColor: theme.borderStrong,
+                },
               ]}
             >
               <TextInput
@@ -486,7 +588,9 @@ export default function BleBenchScreen() {
                 ref={logRef}
                 style={styles.logBox}
                 nestedScrollEnabled
-                onContentSizeChange={() => logRef.current?.scrollToEnd({ animated: false })}
+                onContentSizeChange={() =>
+                  logRef.current?.scrollToEnd({ animated: false })
+                }
               >
                 {visible.map((e) => (
                   <LogLine key={e.id} e={e} />
@@ -533,7 +637,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   rowLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
-  rowRight: { flexDirection: "row", alignItems: "center", gap: 10, flexShrink: 1 },
+  rowRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flexShrink: 1,
+  },
   gattSvc: { gap: 2, marginBottom: 6 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   cmd: {
@@ -563,8 +672,19 @@ const styles = StyleSheet.create({
   hexInput: { flex: 1, fontSize: 14, paddingVertical: 8 },
   hexBtn: { minWidth: 72, paddingHorizontal: 14 },
   logBox: { maxHeight: 420 },
-  logLine: { flexDirection: "row", alignItems: "flex-start", gap: 6, paddingVertical: 4 },
+  logLine: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    paddingVertical: 4,
+  },
   logTime: { width: 58, fontSize: 11, lineHeight: 16 },
-  logTag: { width: 24, borderRadius: 4, alignItems: "center", paddingVertical: 1, marginTop: 1 },
+  logTag: {
+    width: 24,
+    borderRadius: 4,
+    alignItems: "center",
+    paddingVertical: 1,
+    marginTop: 1,
+  },
   logBody: { flex: 1, gap: 1 },
 });

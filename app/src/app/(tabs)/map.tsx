@@ -133,6 +133,8 @@ import { serverNow } from "@/services/server-clock";
 import { MOVING_MPS } from "@/services/switch-reminder";
 import { useAuthStore } from "@/stores/auth-store";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 /** 底部抽屉过渡：点按/松手都用 220ms 缓出，不要弹簧的惯性（负责人 2026-09-17：点收起不要有惯性副作用） */
 const SHEET_TIMING = { duration: 220, easing: Easing.out(Easing.cubic) };
 /** 展开态 maxHeight 取一个够大的值 = 自适应，内容开合永远不会被裁 */

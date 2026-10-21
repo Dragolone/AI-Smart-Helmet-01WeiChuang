@@ -80,6 +80,8 @@ import {
 } from "@/services/safety-status";
 import { showNotice } from "@/services/notice";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 /** 长按求救没成功后，多久之内再长按算同一次（复用 eventId） */
 const SOS_RETRY_WINDOW_MS = 60_000;
 type UnsentSos = {
