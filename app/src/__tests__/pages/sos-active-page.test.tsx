@@ -667,6 +667,58 @@ describe("倒数中", () => {
   });
 });
 
+describe("最后 10 秒的红底", () => {
+  /** 铺满整页的那层红（不跳的那层，SOS_RED）；没画时给 null。共享值改了不触发渲染，先再渲染一次再找 */
+  const wash = (r: Rendered) => {
+    r.rerender(
+      <QueryClientProvider client={qc}>
+        <SosActiveScreen />
+      </QueryClientProvider>,
+    );
+    return (
+      r.root.findAll(
+        (n) =>
+          isHost(n, "View") &&
+          n.props.pointerEvents === "none" &&
+          flat(n.props.style).backgroundColor === "#D92D25" &&
+          flat(n.props.style).position === "absolute" &&
+          flat(n.props.style).bottom === 0,
+      )[0] ?? null
+    );
+  };
+
+  it("还没到最后 10 秒：不画红底", async () => {
+    const r = await mount();
+    expect(number(r)).toBe("45");
+    expect(wash(r)).toBeNull();
+  });
+
+  it("最后 10 秒铺红底；这单一结束整层撤掉，不靠渐隐——最后几秒按了 Home、在后台结束时渐隐没落到画面上，回来后结果页和之后每一单都铺着红底（10-22 夜测）", async () => {
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ deadline: secondsFromNow(8) })),
+    );
+    const r = await mount();
+    await tick(1000);
+    expect(flat(wash(r)!.props.style).opacity).toBe(1);
+
+    // 渐隐停在不透明不动（替身里补间直接给终值，这里改成停在原值）
+    const timing = jest
+      .spyOn(
+        jest.requireMock<Record<string, (...a: unknown[]) => unknown>>(
+          "react-native-reanimated",
+        ),
+        "withTiming",
+      )
+      .mockImplementation(() => 1);
+    await act(async () => {
+      qc.setQueryData(["sos", "s1"], sosOf({ status: "notified" }));
+    });
+    await tick(1000);
+    expect(wash(r)).toBeNull();
+    timing.mockRestore();
+  });
+});
+
 describe("取消 / 立即求救", () => {
   it("滑动取消（读屏双击同效）：调取消接口，结果写进缓存 → 已取消页；撤掉锁屏提醒；不再拦返回键", async () => {
     m(sosApi.cancel).mockImplementation(() =>
