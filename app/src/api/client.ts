@@ -248,7 +248,10 @@ export async function api<T>(
   const doFetch = async (): Promise<Response> => {
     const body =
       typeof bodyOrFn === "function" ? (bodyOrFn as () => unknown)() : bodyOrFn;
-    const headers: Record<string, string> = {};
+    // 不许底层网络库拿磁盘缓存应答（10-21 夜测）：安卓的 OkHttp 带 HTTP 缓存，后端回包只有 ETag、没写缓存策略。
+    // 手机时间往回拨过（手动改时间、开机时钟没校准再被网络校正）以后，此前存下的回包按「在未来收到」算成新鲜，
+    // GET 根本不上网、一直给旧数据——设备在线状态、进行中求救的兜底轮询都会停在旧值。接口应答都是动态数据，一律不缓存
+    const headers: Record<string, string> = { "Cache-Control": "no-store" };
     if (body !== undefined) headers["Content-Type"] = "application/json";
     const tz = clientTimeZone();
     if (tz) headers["X-Client-Timezone"] = tz;

@@ -435,6 +435,19 @@ describe("响应体形态", () => {
   });
 });
 
+describe("不用 HTTP 缓存（10-21 夜测：手机时间往回拨后 OkHttp 一直给旧应答）", () => {
+  it("每个请求都带 Cache-Control: no-store，登录前的、带会话的、带请求体的都一样", async () => {
+    fetchMock.mockImplementation(async () => res(200, {}));
+    await api("/x", { auth: false });
+    await api("/devices");
+    await api("/x", { method: "POST", body: { a: 1 } });
+    for (const call of fetchMock.mock.calls) {
+      expect(call[1]?.headers).toMatchObject({ "Cache-Control": "no-store" });
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+});
+
 describe("超时（15 s）", () => {
   it("请求挂起：14.999 s 还在等，15 s 被中止；文案是「超时」而不是「没有网络」，会话不动", async () => {
     jest.useFakeTimers();
