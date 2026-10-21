@@ -5,12 +5,15 @@ const mockGetPermissions = jest.fn<() => Promise<unknown>>();
 jest.mock("expo-notifications", () => ({
   getPermissionsAsync: () => mockGetPermissions(),
 }));
-/** 登录后那一次系统通知授权申请（services/sos-alert.ts 的 ensureSosAlertPermission） */
-const mockEnsure = jest.fn<() => Promise<void>>();
+/**
+ * 登录后那一次系统通知授权申请真正有了结果（services/sos-alert.ts 的 whenSosAlertPermissionAsked；
+ * 倒计时页在屏时推迟到页面关掉后才弹，O10）
+ */
+const mockAsked = jest.fn<() => Promise<void>>();
 /** Android 上求救通道有没有被单独关掉（services/sos-alert.ts 的 isSosChannelBlocked） */
 const mockBlocked = jest.fn<() => Promise<boolean>>();
 jest.mock("@/services/sos-alert", () => ({
-  ensureSosAlertPermission: () => mockEnsure(),
+  whenSosAlertPermissionAsked: () => mockAsked(),
   isSosChannelBlocked: () => mockBlocked(),
 }));
 
@@ -21,7 +24,7 @@ import {
 
 beforeEach(() => {
   mockGetPermissions.mockReset();
-  mockEnsure.mockReset();
+  mockAsked.mockReset();
   mockBlocked.mockReset();
   mockBlocked.mockResolvedValue(false);
 });
@@ -62,7 +65,7 @@ describe("readNotifyPermission", () => {
 describe("readNotifyPermissionAfterAsk", () => {
   it("系统的授权框还没有结果：先不读；有结果后读到的是用户选的", async () => {
     let answered: () => void = () => undefined;
-    mockEnsure.mockReturnValue(
+    mockAsked.mockReturnValue(
       new Promise<void>((resolve) => {
         answered = resolve;
       }),
@@ -80,13 +83,13 @@ describe("readNotifyPermissionAfterAsk", () => {
   });
 
   it("用户在系统框里点了不允许：读到被拒", async () => {
-    mockEnsure.mockResolvedValue(undefined);
+    mockAsked.mockResolvedValue(undefined);
     mockGetPermissions.mockResolvedValue({ granted: false, status: "denied" });
     expect(await readNotifyPermissionAfterAsk()).toBe("denied");
   });
 
   it("申请本身出错：不拦着读", async () => {
-    mockEnsure.mockRejectedValue(new Error("boom"));
+    mockAsked.mockRejectedValue(new Error("boom"));
     mockGetPermissions.mockResolvedValue({ granted: true, status: "granted" });
     expect(await readNotifyPermissionAfterAsk()).toBe("granted");
   });

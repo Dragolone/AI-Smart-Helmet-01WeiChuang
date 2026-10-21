@@ -1031,6 +1031,80 @@ function SosActiveContent() {
       .finally(() => clearBusy(ids));
   };
 
+  // 一次处理这几单（「全部取消 / 全部立即求救」确认之后，以及它没全成功时提示条上的「重试」）
+  const runAll = (kind: ActKind, ids: readonly string[]) => {
+    const byId = new Map(queue.map((q) => [q.sosId, q]));
+    setBulkIds(ids);
+    markBusy(ids, kind);
+    void Promise.allSettled(
+      ids.map((id) =>
+        (kind === "cancel" ? sosApi.cancel(id) : sosApi.confirm(id)).then(
+          (updated) => queryClient.setQueryData(["sos", id], updated),
+        ),
+      ),
+    )
+      .then(async (results) => {
+        // 已在别处结束的单：和单条操作一样拉一次它的权威状态（屏上这单不然要等下一轮 10 秒轮询才切走）
+        results.forEach((r, i) => {
+          if (r.status === "rejected" && isFinalized(r.reason))
+            void queryClient.invalidateQueries({
+              queryKey: ["sos", ids[i]],
+              exact: true,
+            });
+        });
+        // 其余失败（超时 / 断网）和单条操作一样先补拉：短信慢时服务端终态化早于响应，页面已经是
+        // 「N 条求救已处理 · 短信已发出」，再提示失败就自相矛盾（10-20 模拟器：三顶、每条短信 9 s）。
+        // 没切到过的单在缓存里没有自己的详情查询，直接拉一次它的快照（带它自己的头盔号）
+        const rejected = ids
+          .map((id, i) => ({ id, r: results[i] }))
+          .filter(
+            (x): x is { id: string; r: PromiseRejectedResult } =>
+              x.r.status === "rejected" && !isFinalized(x.r.reason),
+          );
+        // 拉到的状态写回缓存（晚到的也写）：WS 断着时页面也能按实际状态画，不等 10 秒轮询；
+        // 下结论最多等 FAILURE_RECHECK_MS（坏网络下快照自己也会挂住）
+        const fresh = await Promise.all(
+          rejected.map((x) =>
+            settleWithin(
+              sosApi
+                .snapshot(x.id, byId.get(x.id)?.deviceId)
+                .then((snap) => {
+                  const settled = settleSnapshot(queryClient, x.id, snap);
+                  if (settled) queryClient.setQueryData(["sos", x.id], settled);
+                  return settled;
+                })
+                .catch(() => null),
+              FAILURE_RECHECK_MS,
+            ).then((v) => v ?? null),
+          ),
+        );
+        const failed = rejected.filter((x, i) => {
+          const c = fresh[i] ?? queryClient.getQueryData<Sos>(["sos", x.id]);
+          return !c || c.status === "pending";
+        });
+        // 没成功的那几单：和单条一样走页内提示条（O7），不弹框盖住还在倒数的单。整份替换就行：
+        // 「全部」发的是此刻全部在倒数的单，重试发的是提示条上全部没结束的单，这一批之外不会还有失败的单
+        setActFail(
+          failed.length > 0 ? { kind, ids: failed.map((x) => x.id) } : null,
+        );
+        if (failed.length > 0) {
+          devLog(
+            "SOS",
+            `倒计时页全部${kind === "cancel" ? "取消" : "立即求救"}有 ${failed.length} 单失败`,
+            failed[0].r.reason,
+          );
+          announceFail(
+            kind,
+            failed
+              .map((x) => byId.get(x.id)?.deadline)
+              .filter((d): d is string => d !== undefined),
+          );
+        }
+        void refreshActiveSos(queryClient);
+      })
+      .finally(() => clearBusy(ids));
+  };
+
   // 两单以上：一次处理全部。取消要确认（和单条的滑动取消一样不能误触）；立即求救也确认一下，
   // 这一下是替好几顶头盔的骑手做决定
   const actAll = (kind: ActKind) => {

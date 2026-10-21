@@ -25,6 +25,7 @@ import { newerFix } from "@/components/map/coords";
 import {
   setBleTargetNameResolver,
   setBleTargets,
+  checkBlePermissions,
   startBleLink,
   stopBleLink,
 } from "@/services/ble-link";
@@ -55,6 +56,8 @@ import {
 import {
   clearSosAlert,
   ensureSosAlertPermission,
+  whenSosAlertPermissionAsked,
+  holdPermissionPromptUntil,
   resetSosAlerts,
   setSosCancelConfirmedListener,
   showSosAlertIfBackground,
@@ -122,8 +125,17 @@ export function useRealtimeUpdates(): void {
     let uplinkOwner = useAuthStore.getState().user?.id;
     startRelayUplink(uplinkOwner ?? undefined);
     let cancelled = false;
+    // 冷启动补拉结束前系统通知授权框先别弹（O10）：进行中的单要等补拉回来才拉起倒计时页，授权框先弹的话
+    // 会盖在倒计时页上、挡住滑动取消。补拉结束（不论成败）放行，sos-alert 那边另有 5 s 上限
+    let coldResumeSettled: () => void = () => undefined;
+    holdPermissionPromptUntil(
+      new Promise<void>((resolve) => {
+        coldResumeSettled = resolve;
+      }),
+    );
     // 通知权限的系统框要先有结果，再去要蓝牙权限：Android 一次只允许一个权限请求，两路并发时后到的
-    // 被立即取消，蓝牙权限框不出现、链路本次进程起不来（Android 13+ 全新安装首次登录，2026-10-05 评审）
+    // 被立即取消，蓝牙权限框不出现、链路本次进程起不来（Android 13+ 全新安装首次登录，2026-10-05 评审）。
+    // 系统根本不弹框时不等补拉；倒计时页在屏、申请被推迟时它立刻兑现，链路不被这一单拖住（sos-alert askPermission）
     const permissionReady = ensureSosAlertPermission();
     // BLE 近场链路：目标 = 已绑定设备；绑定/解绑后随 ['devices'] 缓存变化同步目标。
     // 列表还没拉到（或拉失败）时用上次存下的那份，见 services/ble-targets.ts
@@ -171,8 +183,16 @@ export function useRealtimeUpdates(): void {
     };
     onUserReady();
     const unsubscribeUser = useAuthStore.subscribe(onUserReady);
-    void Promise.all([permissionReady, cachedReady]).then(() => {
-      if (!cancelled) void startBleLink(bleTargetsOf());
+    void Promise.all([permissionReady, cachedReady]).then(async () => {
+      if (cancelled) return;
+      // 蓝牙权限还没给过时，起链路就会弹「附近设备」系统框，同样盖在倒计时页上（O10 草稿 10-20 模拟器复验：
+      // 通知框推迟之后换成这个框挡住滑动取消）。这种情况下等通知那次（倒计时在屏时被推迟到关页后）有结果再起链路：
+      // 蓝牙权限本来就没有，链路晚起不丢事件——头盔没收到 ACK 的高危事件留在 Flash，连上后补传
+      if (!(await checkBlePermissions().catch(() => true))) {
+        await whenSosAlertPermissionAsked();
+        if (cancelled) return;
+      }
+      void startBleLink(bleTargetsOf());
     });
     // SOS 同步的判断逻辑在 services/sos-sync.ts（纯函数 + 注入副作用，有单测）；这里只接线
     const sosDeps: SosSyncDeps = {
@@ -242,7 +262,9 @@ export function useRealtimeUpdates(): void {
       if (cancelled) return;
       const ids = bleTargetsOf();
       coldResumeHadTargets = ids.length > 0;
-      void resumePendingSos(queryClient, ids, presentedSos, sosDeps);
+      void resumePendingSos(queryClient, ids, presentedSos, sosDeps).finally(
+        coldResumeSettled,
+      );
     });
     // 自己把摔倒 / 求救送上云且服务端接受了 → 立刻核对进行中的 SOS 并拉起倒计时页，顺手让 WS 立即重连。
     // 手机深睡时 WS 早已断、极光长连接也被挂起，这是唯一不依赖它们的拉起路径（10-06 不变式评审 F-1）

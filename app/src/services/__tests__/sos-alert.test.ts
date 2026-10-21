@@ -28,7 +28,11 @@ const mockDismiss = jest.fn(async (_id: string) => undefined);
 const mockSetChannel = jest.fn(async (_id: string, _o: unknown) => undefined);
 const mockSetCategory = jest.fn(async (_id: string, _a: unknown) => undefined);
 const mockGetPerms = jest.fn(
-  async (): Promise<{ granted: boolean; status?: string }> => ({
+  async (): Promise<{
+    granted: boolean;
+    status?: string;
+    canAskAgain?: boolean;
+  }> => ({
     granted: true,
   }),
 );
@@ -144,6 +148,33 @@ const loadWithSync = (): { m: SosAlert; presented: Set<string> } => {
   });
   loaded.push(mod);
   return { m: mod, presented: sync.presentedSos.current };
+};
+
+/**
+ * 连同同一份隔离注册表里的 sos-queue / sos-sync 一起载入：倒计时页在屏标志（sosScreen）和「已拉起」集合
+ * 都在它们里面，顶层 import 的不是同一个实例（O10 推迟授权框的用例用）
+ */
+const loadWithScreen = (): {
+  m: SosAlert;
+  screen: { mounted: boolean };
+  presented: Set<string>;
+} => {
+  let mod!: SosAlert;
+  let queue!: typeof import("@/services/sos-queue");
+  let sync!: typeof import("@/services/sos-sync");
+  jest.isolateModules(() => {
+    sync =
+      require("@/services/sos-sync") as typeof import("@/services/sos-sync");
+    queue =
+      require("@/services/sos-queue") as typeof import("@/services/sos-queue");
+    mod = require("../sos-alert") as SosAlert;
+  });
+  loaded.push(mod);
+  return {
+    m: mod,
+    screen: queue.sosScreen,
+    presented: sync.presentedSos.current,
+  };
 };
 
 type Req = {
@@ -415,6 +446,187 @@ describe("sos-alert", () => {
       mockSetCategory.mockRejectedValueOnce(new Error("no"));
       const m = load();
       await expect(m.ensureSosAlertPermission()).resolves.toBeUndefined();
+    });
+  });
+
+  describe("倒计时页在屏时推迟系统通知授权框（O10，2026-10-20 Android 16 模拟器 4.41：框盖在倒计时页上，要先点掉才能滑动取消）", () => {
+    /** 让 then 链走完（假定时器下不能靠 setTimeout 0 等一拍） */
+    const settle = async () => {
+      for (let i = 0; i < 20; i += 1) await Promise.resolve();
+    };
+    /** 系统会弹框的「未授权」：Android 13+ 被撤回 / 还没问过 */
+    const willPrompt = () =>
+      mockGetPerms.mockResolvedValue({
+        granted: false,
+        status: "denied",
+        canAskAgain: true,
+      });
+
+    it("页面在屏：不弹框，ensure 照样兑现（蓝牙链路在等它）；通道、通知动作照常立刻建好；页面一直在就一直不弹", async () => {
+      jest.useFakeTimers();
+      override(Platform, "OS", "android");
+      willPrompt();
+      const { m, screen } = loadWithScreen();
+      screen.mounted = true;
+      await m.ensureSosAlertPermission();
+      expect(mockSetChannel.mock.calls[0][0]).toBe("sos");
+      expect(mockSetCategory).toHaveBeenCalledTimes(1);
+      expect(mockRequestPerms).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(60_000);
+      await settle();
+      expect(mockRequestPerms).not.toHaveBeenCalled();
+    });
+
+    it("页面关掉后补弹一次（只一次）；界面读权限要等的是这次补弹有了结果，不是 ensure", async () => {
+      jest.useFakeTimers();
+      willPrompt();
+      let answer!: () => void;
+      mockRequestPerms.mockImplementationOnce(
+        () =>
+          new Promise<{ granted: boolean }>(
+            (r) => (answer = () => r({ granted: true })),
+          ),
+      );
+      const { m, screen } = loadWithScreen();
+      screen.mounted = true;
+      await m.ensureSosAlertPermission();
+      const asked = jest.fn();
+      void m.whenSosAlertPermissionAsked().then(asked);
+      await jest.advanceTimersByTimeAsync(5_000);
+      await settle();
+      expect(asked).not.toHaveBeenCalled(); // 推迟中：ensure 早兑现了，这个还不能
+
+      screen.mounted = false;
+      await jest.advanceTimersByTimeAsync(1_000);
+      await settle();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+      expect(asked).not.toHaveBeenCalled(); // 系统框开着，用户还没点
+      answer();
+      await settle();
+      expect(asked).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(10_000);
+      await settle();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+      await m.ensureSosAlertPermission();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+    });
+
+    it("页面不在屏、也没有正要拉起的单：立刻申请，和原来一样（ensure 等到框有结果）", async () => {
+      willPrompt();
+      const { m } = loadWithScreen();
+      await m.ensureSosAlertPermission();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+      await expect(m.whenSosAlertPermissionAsked()).resolves.toBeUndefined();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+    });
+
+    it("冷启动：补拉没回来之前不弹（通道照常先建）；补拉拉起了倒计时页（已登记、页面还没挂上）→ 推迟、ensure 兑现；页面挂上再关掉后才弹", async () => {
+      jest.useFakeTimers();
+      willPrompt();
+      const { m, screen, presented } = loadWithScreen();
+      let coldResumeDone!: () => void;
+      m.holdPermissionPromptUntil(
+        new Promise<void>((r) => (coldResumeDone = r)),
+      );
+      const ready = jest.fn();
+      void m.ensureSosAlertPermission().then(ready);
+      await settle();
+      expect(mockSetCategory).toHaveBeenCalledTimes(1);
+      expect(mockRequestPerms).not.toHaveBeenCalled();
+      expect(ready).not.toHaveBeenCalled(); // 系统框会弹的情况下，蓝牙仍排在这次申请（或推迟）之后
+
+      presented.add("s1"); // 补拉找到进行中的单、push 了倒计时页（页面下一拍才挂上）
+      coldResumeDone();
+      await settle();
+      expect(ready).toHaveBeenCalledTimes(1);
+      expect(mockRequestPerms).not.toHaveBeenCalled();
+
+      screen.mounted = true;
+      await jest.advanceTimersByTimeAsync(30_000);
+      await settle();
+      expect(mockRequestPerms).not.toHaveBeenCalled();
+      screen.mounted = false;
+      await jest.advanceTimersByTimeAsync(1_000);
+      await settle();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+    });
+
+    it("冷启动没有进行中的单：补拉一回来就弹", async () => {
+      willPrompt();
+      const { m } = loadWithScreen();
+      let coldResumeDone!: () => void;
+      m.holdPermissionPromptUntil(
+        new Promise<void>((r) => (coldResumeDone = r)),
+      );
+      const ready = m.ensureSosAlertPermission();
+      await settle();
+      expect(mockRequestPerms).not.toHaveBeenCalled();
+      coldResumeDone();
+      await ready;
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+    });
+
+    it("补拉迟迟不回（弱网）：最多等 5 s，之后照常弹；补拉失败（reject）也当作回来了", async () => {
+      jest.useFakeTimers();
+      willPrompt();
+      const { m } = loadWithScreen();
+      m.holdPermissionPromptUntil(new Promise<void>(() => undefined));
+      const ready = m.ensureSosAlertPermission();
+      await settle();
+      await jest.advanceTimersByTimeAsync(4_999);
+      await settle();
+      expect(mockRequestPerms).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(1);
+      await ready;
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+
+      mockRequestPerms.mockClear();
+      const second = loadWithScreen();
+      const failed = Promise.reject(new Error("offline"));
+      failed.catch(() => undefined); // 只为不让 Node 报未处理的拒绝；被测代码自己也接了
+      second.m.holdPermissionPromptUntil(failed);
+      await second.m.ensureSosAlertPermission();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+    });
+
+    it("页面一直没挂上（拉起失败）或已经关掉：推迟后第一眼看页面不在就补弹，不会永远不问", async () => {
+      jest.useFakeTimers();
+      willPrompt();
+      const { m, presented } = loadWithScreen();
+      presented.add("s1");
+      await m.ensureSosAlertPermission();
+      expect(mockRequestPerms).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(1_000);
+      await settle();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+    });
+
+    it("系统根本不会弹框（canAskAgain=false：iOS 已答过 / Android 已永久拒绝）：不等补拉、页面在屏也照原样调一次，ensure 立刻兑现", async () => {
+      mockGetPerms.mockResolvedValue({
+        granted: false,
+        status: "denied",
+        canAskAgain: false,
+      });
+      const { m, screen } = loadWithScreen();
+      screen.mounted = true;
+      m.holdPermissionPromptUntil(new Promise<void>(() => undefined));
+      await m.ensureSosAlertPermission();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+    });
+
+    it("补弹那次申请出错：不抛（没有未处理的拒绝），界面照常往下读", async () => {
+      jest.useFakeTimers();
+      willPrompt();
+      mockRequestPerms.mockRejectedValueOnce(new Error("activity gone"));
+      const { m, screen } = loadWithScreen();
+      screen.mounted = true;
+      await m.ensureSosAlertPermission();
+      const asked = m.whenSosAlertPermissionAsked();
+      screen.mounted = false;
+      await jest.advanceTimersByTimeAsync(1_000);
+      await expect(asked).resolves.toBeUndefined();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
     });
   });
 
