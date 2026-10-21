@@ -77,3 +77,32 @@ describe("initialOf", () => {
     expect(initialOf(null)).toBe("?");
   });
 });
+
+describe("记录结构不对（10-22 夜测：服务端出错把类型写乱）", () => {
+  it("不是数组：没有行、状态未知、照常 3 秒后再看；行不是对象的跳过；名字 / 号码不是字符串的当没有", () => {
+    for (const bad of [{ not: "a list" }, "x", 42, null]) {
+      const v = bad as never;
+      expect(smsRows(v)).toEqual([]);
+      expect(deliveryStateOf(v)).toBe("unknown");
+      expect(deliveryPollInterval(v)).toBe(3_000);
+    }
+    const rows = smsRows([
+      null,
+      "x",
+      { channel: "push", status: "sent" },
+      { channel: "sms", status: "sent", contactName: 12345, target: { a: 1 } },
+      {
+        channel: "sms",
+        status: "failed",
+        contactName: "妈妈",
+        target: "138****0000",
+      },
+    ] as never);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ contactName: null, target: "" });
+    expect(rows[1]).toMatchObject({
+      contactName: "妈妈",
+      target: "138****0000",
+    });
+  });
+});
