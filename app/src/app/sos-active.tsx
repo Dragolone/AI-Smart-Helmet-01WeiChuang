@@ -75,6 +75,7 @@ import { clearSosAlert } from "@/services/sos-alert";
 import { toUserMessage } from "@/api/error-messages";
 import { buildRelayEnvelope, relayApi } from "@/api/relay";
 import { sosApi } from "@/api/sos";
+import { isSosFor } from "@/api/sos-shape";
 import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
 import { CountdownRing } from "@/components/countdown-ring";
@@ -640,7 +641,13 @@ function SosActiveContent() {
     markBusy([id], kind);
     (kind === "cancel" ? sosApi.cancel(id) : sosApi.confirm(id))
       .then((updated) => {
-        queryClient.setQueryData(["sos", id], updated);
+        if (isSosFor(updated, id))
+          queryClient.setQueryData(["sos", id], updated);
+        else
+          void queryClient.invalidateQueries({
+            queryKey: ["sos", id],
+            exact: true,
+          });
         setActFail((f) => dropFail(f, [id]));
       })
       .catch((e) => {
@@ -1036,7 +1043,13 @@ function SosActiveContent() {
     void Promise.allSettled(
       ids.map((id) =>
         (kind === "cancel" ? sosApi.cancel(id) : sosApi.confirm(id)).then(
-          (updated) => queryClient.setQueryData(["sos", id], updated),
+          (updated) =>
+            isSosFor(updated, id)
+              ? queryClient.setQueryData(["sos", id], updated)
+              : void queryClient.invalidateQueries({
+                  queryKey: ["sos", id],
+                  exact: true,
+                }),
         ),
       ),
     )
