@@ -400,6 +400,43 @@ describe("不播 / 立刻让开", () => {
     expect(isSplashCovering()).toBe(false);
   });
 
+  it("窗口放不下（横着拿的展开折叠屏 / 平板，O32）：和由通知拉起一样不播，不建视频播放器、直接收场", async () => {
+    mockVideo.on = true;
+    const real = Dimensions.get("window");
+    const dims = jest
+      .spyOn(Dimensions, "get")
+      .mockReturnValue({ ...real, width: 841, height: 701 });
+    try {
+      const r = mount();
+      expect(hosts(r, "RouteVideoLayer")).toHaveLength(0);
+      layout(r);
+      expect(SplashScreen.hide).toHaveBeenCalledTimes(1);
+      expect(releaseSplashPage).toHaveBeenCalled();
+      expect(frameClock.active).toBe(false);
+      await advance(50);
+      expect(shown(r)).toBe(false);
+      expect(loadRouteFrames).not.toHaveBeenCalled();
+      expect(splashStory.get()).toBe(-1);
+    } finally {
+      dims.mockRestore();
+    }
+  });
+
+  it("竖着拿的展开折叠屏（0.83）照播", async () => {
+    const real = Dimensions.get("window");
+    const dims = jest
+      .spyOn(Dimensions, "get")
+      .mockReturnValue({ ...real, width: 701, height: 841 });
+    try {
+      const r = mount();
+      await start(r);
+      expect(frameClock.active).toBe(true);
+      expect(shown(r)).toBe(true);
+    } finally {
+      dims.mockRestore();
+    }
+  });
+
   it("以求救页冷启动（第一帧就在 /sos-active）：不等排版，收掉原生启动图并立刻卸掉", () => {
     mockPath.value = "/sos-active";
     const r = mount();

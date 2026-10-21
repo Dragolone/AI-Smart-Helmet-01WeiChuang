@@ -78,7 +78,7 @@ import {
   loginDock,
   loginReveal,
 } from "./landings";
-import { planLanding } from "./plan";
+import { planLanding, tooWideForSplash } from "./plan";
 import { loadRouteFrames } from "./route-frames";
 import {
   MARK_LIFT,
@@ -266,10 +266,13 @@ function SplashPlayer({ onDone }: { onDone: () => void }) {
   // consumeLaunchResponse），而 begin() 要等 onLayout 才跑——晚于那次清除就读成 false，锁屏按
   // 「我没事，取消」拉起的 App 又会播两三秒开屏（2026-10-14）。这一层排在 RealtimeBridge 前面挂载
   const [byNotification] = useState(launchedByNotification);
+  // 窗口放不下开屏（横着拿的展开折叠屏 / 平板等，见 plan.ts）也不播。只在挂载时看一次：播到一半转屏的极少，让它播完
+  const [tooWide] = useState(() => tooWideForSplash(width, height));
+  const skip = byNotification || tooWide;
 
   // ------------------------------------------------------------ 安卓：路线段的视频
-  // 由通知拉起时不播开屏，播放器也就不用建
-  const [videoOn, setVideoOn] = useState(() => ROUTE_VIDEO && !byNotification);
+  // 由通知拉起 / 窗口放不下时不播开屏，播放器也就不用建
+  const [videoOn, setVideoOn] = useState(() => ROUTE_VIDEO && !skip);
   // 这一层还指望着视频（没放完、也没放弃）
   const videoLive = useRef(videoOn);
   // 路线段最后是怎么播的（只为日志）
@@ -583,8 +586,8 @@ function SplashPlayer({ onDone }: { onDone: () => void }) {
   const begin = useCallback(() => {
     if (begun.current) return;
     begun.current = true;
-    // 由通知拉起（多半是求救 / 摔倒提醒）：不播，直接把页面露出来
-    if (byNotification) {
+    // 由通知拉起（多半是求救 / 摔倒提醒）、或窗口放不下：不播，直接把页面露出来
+    if (skip) {
       SplashScreen.hide();
       finish();
       return;
@@ -647,12 +650,12 @@ function SplashPlayer({ onDone }: { onDone: () => void }) {
       clock.setActive(true);
     });
   }, [
-    byNotification,
     clock,
     dropVideo,
     endVideo,
     finish,
     real,
+    skip,
     videoGate,
     videoMode,
     warp,
