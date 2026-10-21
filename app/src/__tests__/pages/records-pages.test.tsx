@@ -139,6 +139,7 @@ const mockOpenChannel = jest.fn((_id: string) => Promise.resolve());
 jest.mock("@/services/notification-settings", () => ({
   openNotificationSettings: () => mockOpenSettings(),
   openNotificationChannelSettings: (id: string) => mockOpenChannel(id),
+  openSosDndSettings: (id: string) => mockOpenChannel(id),
 }));
 
 const dark = Colors.dark;

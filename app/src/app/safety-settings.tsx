@@ -22,8 +22,8 @@ import { useSwitchReminderSetting } from "@/hooks/use-switch-reminder";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
 import {
-  openNotificationChannelSettings,
   openNotificationSettings,
+  openSosDndSettings,
 } from "@/services/notification-settings";
 import { SOS_CHANNEL_ID } from "@/services/sos-alert";
 
@@ -106,9 +106,7 @@ export default function SafetySettingsScreen() {
               subtitle={t(
                 dndBypass ? "safetySettings.dnd.on" : "safetySettings.dnd.off",
               )}
-              onPress={() =>
-                void openNotificationChannelSettings(SOS_CHANNEL_ID)
-              }
+              onPress={() => openSosDndSettings(SOS_CHANNEL_ID)}
               last={!whitelist && !launch}
             />
           )}
