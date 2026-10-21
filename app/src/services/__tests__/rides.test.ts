@@ -29,6 +29,7 @@ import {
   rideAt,
   rideAtWindow,
   rideAvgKmh,
+  rideMaxKmh,
   rideSeconds,
   ridesByDay,
   trackWindowOf,
@@ -279,6 +280,22 @@ describe("一趟的小结", () => {
       endAt: new Date(Date.parse(r.startAt) + 30_000).toISOString(),
     };
     expect(rideAvgKmh(blink)).toBeNull();
+  });
+
+  it("最高时速不小于平均（O25，10-21 夜测见过「平均 22 > 最高 18」）；头盔没报出像样的最高就不写", () => {
+    // 30 分钟 10 km = 平均 20 km/h
+    const base = ride(local(2026, 9, 7, 8, 12), 30, { distanceMeters: 10_000 });
+    expect(rideMaxKmh({ ...base, maxSpeed: 5 })).toBeCloseTo(20, 5); // 报的 18 < 平均 20
+    expect(rideMaxKmh({ ...base, maxSpeed: 10 })).toBeCloseTo(36, 5);
+    expect(rideMaxKmh({ ...base, maxSpeed: null })).toBeNull();
+    expect(rideMaxKmh({ ...base, maxSpeed: 400 })).toBeNull(); // 飞点
+    // 不到一分钟没有平均：照报的写
+    const blink = {
+      ...base,
+      maxSpeed: 5,
+      endAt: new Date(Date.parse(base.startAt) + 30_000).toISOString(),
+    };
+    expect(rideMaxKmh(blink)).toBeCloseTo(18, 5);
   });
 
   it("时长拆成小时和分钟：四舍五入到分钟，进位不出「1 小时 60 分」", () => {

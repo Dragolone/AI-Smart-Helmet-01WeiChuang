@@ -144,10 +144,13 @@ jest.mock("@/services/intercom-cues", () => ({
   playCue: jest.fn(),
   prepareCues: jest.fn(),
 }));
-const mockLinkService = { setMicrophone: jest.fn((..._args: unknown[]) => true) };
+const mockLinkService = {
+  setMicrophone: jest.fn((..._args: unknown[]) => true),
+};
 jest.mock("helmet-link-service", () => ({
   HelmetLinkService: {
-    setMicrophone: (...args: unknown[]) => mockLinkService.setMicrophone(...args),
+    setMicrophone: (...args: unknown[]) =>
+      mockLinkService.setMicrophone(...args),
   },
 }));
 jest.mock("@/components/toast", () => ({
@@ -1673,6 +1676,29 @@ describe("房间里", () => {
     expect(mockCloud.exitRoom.mock.calls.length).toBe(exits + 1);
   });
 
+  it("结束通话后 260 ms 内又切进别的频道：那次延时退房作废，不会把新进的房也退掉（10-21 修）", async () => {
+    const r = await inRoom();
+    jest.useFakeTimers();
+    const advance = async (ms: number) => {
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(ms);
+      });
+    };
+    const exits = mockCloud.exitRoom.mock.calls.length;
+    await tap(r, tr("intercom.leaveRoom"));
+    await advance(100);
+    await tap(r, tr("intercom.switch.a11y", { name: C1.name }));
+    await press(r, C2.name);
+    await advance(0);
+    await waitFor(() =>
+      expect(channelsApi.token).toHaveBeenLastCalledWith("c2"),
+    );
+    // 只有进 c2 前那一次退房；260 ms 到了也不再多退一次
+    expect(mockCloud.exitRoom.mock.calls.length).toBe(exits + 1);
+    await advance(400);
+    expect(mockCloud.exitRoom.mock.calls.length).toBe(exits + 1);
+  });
+
   it("通话中这个频道从列表里消失（在另一台手机上退了频道）：房间标题、邀请按钮、小条照样在", async () => {
     const r = await inRoom();
     m(channelsApi.list).mockImplementation(() => Promise.resolve([C2]));
@@ -1991,8 +2017,9 @@ describe("重连被拒时自动重进", () => {
     // 先退掉那个进不去的房，再拿新钥匙进
     expect(mockCloud.exitRoom.mock.calls.length).toBe(exits + 1);
     expect(mockCloud.enterRoom.mock.calls.length).toBe(enters + 1);
-    expect({ ...(mockCloud.enterRoom.mock.calls.at(-1)![0] as object) })
-      .toMatchObject({ roomId: 101, privateMapKey: "pmk-fresh" });
+    expect({
+      ...(mockCloud.enterRoom.mock.calls.at(-1)![0] as object),
+    }).toMatchObject({ roomId: 101, privateMapKey: "pmk-fresh" });
     // 麦克风一下也没关过：锁着屏的人不知道发生了什么，不能重进之后就没人听得到他
     expect(mutesSince(mutes)).toEqual([false]);
 

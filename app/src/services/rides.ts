@@ -2,6 +2,8 @@
 // 轨迹上的事件落在哪个点、「在地图上查看该时刻」落在哪一趟。
 import type { RideSummary } from "@helmet/shared";
 
+import { plausibleSpeed } from "@/components/map/coords";
+
 const MIN_MS = 60_000;
 const DAY_MS = 86_400_000;
 /** 轨迹接口单次最多取 24 小时（API.md §5） */
@@ -224,9 +226,25 @@ export function rideSeconds(r: Pick<RideSummary, "startAt" | "endAt">): number {
 }
 
 /** 平均时速（km/h）= 里程 ÷ 时长；不到一分钟的不算（除出来的数没有意义） */
-export function rideAvgKmh(r: RideSummary): number | null {
+export function rideAvgKmh(
+  r: Pick<RideSummary, "startAt" | "endAt" | "distanceMeters">,
+): number | null {
   const s = rideSeconds(r);
   return s < 60 ? null : (r.distanceMeters / s) * 3.6;
+}
+
+/**
+ * 行程的「最高速度」（km/h）：头盔报的最高（剔除飞点）和平均速度取较大的那个。两者来源不同——最高取头盔报的速度字段，
+ * 平均按里程 ÷ 时长——GPS 抖动让里程偏大时会出现「平均 22 > 最高 18」（10-21 夜测，负责人定取较大，O25）。
+ * 头盔没报出像样的最高时照旧不写（不拿平均冒充最高）
+ */
+export function rideMaxKmh(
+  r: Pick<RideSummary, "startAt" | "endAt" | "distanceMeters" | "maxSpeed">,
+): number | null {
+  const reported = plausibleSpeed(r.maxSpeed);
+  if (reported === null) return null;
+  const avg = rideAvgKmh(r);
+  return Math.max(reported * 3.6, avg ?? 0);
 }
 
 /** 时长拆成几小时几分：四舍五入到分钟，不足一分钟写 1 分钟 */
