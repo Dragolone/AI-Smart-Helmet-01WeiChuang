@@ -2,7 +2,6 @@
 // 不登录、不上云。文案只有中文：这页给硬件工程师看，不进三语字典。
 // 按钮编号与 docs/BLE_BENCH.md 的测试清单一一对应，硬件按同一编号做固件测试集。
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -21,6 +20,7 @@ import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { Radius } from "@/constants/theme";
+import { useRouteParams } from "@/hooks/use-route-params";
 import { useTheme } from "@/hooks/use-theme";
 import {
   ackLastEvent,
@@ -191,7 +191,7 @@ function LogLine({ e }: { e: BenchLogEntry }) {
 
 export default function BleBenchScreen() {
   const theme = useTheme();
-  const { deviceId } = useLocalSearchParams<{ deviceId?: string }>();
+  const { deviceId } = useRouteParams<{ deviceId?: string }>();
   const preferredName = deviceId ? `Helmet-${deviceId.slice(-6)}` : null;
 
   const phase = useBleBenchStore((s) => s.phase);

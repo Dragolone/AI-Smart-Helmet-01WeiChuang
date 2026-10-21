@@ -2,7 +2,7 @@
 // 正文由后端托管（`/legal/<doc>`，见 constants/legal.ts），本页只是个 WebView 壳子——
 // 从前这里渲染 messages/legal.ts 里的内置草案，与托管版内容已分叉；隐私政策必须单一来源，
 // 否则包里两份口径不同的政策会卡上架审核（也会让「同意」这个动作指向不确定的内容）。
-import { Stack, useLocalSearchParams } from "expo-router";
+import { Stack } from "expo-router";
 import { useState } from "react";
 import { Linking, Pressable, StyleSheet, View } from "react-native";
 import { WebView } from "react-native-webview";
@@ -10,6 +10,7 @@ import { WebView } from "react-native-webview";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { legalUrl, parseLegalDoc, type LegalDoc } from "@/constants/legal";
+import { useRouteParams } from "@/hooks/use-route-params";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
 
@@ -18,7 +19,7 @@ export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-bo
 export default function LegalDocScreen() {
   const t = useT();
   const theme = useTheme();
-  const params = useLocalSearchParams<{ doc?: string }>();
+  const params = useRouteParams<{ doc?: string }>();
   const doc: LegalDoc = parseLegalDoc(params.doc);
   const url = legalUrl(doc);
   // 重试靠换 key 强制重建 WebView：onError 之后单纯 reload() 在 Android 上不稳

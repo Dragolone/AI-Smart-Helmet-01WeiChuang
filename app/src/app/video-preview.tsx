@@ -1,7 +1,7 @@
 // 实时视频预览（决策 #37/#49，DEVICE_PROTOCOL §1.3）：手机连头盔 SoftAP → RTSP over TCP 拉流 → libVLC 硬解。
 // 约束（§1.3 App 侧硬要求）：本页不发任何外网请求（此时手机在没有互联网的头盔热点上）；
 // Android 进程绑在头盔热点期间连不上云端，所以只在前台持有，离开 / 退后台 / 摔倒求救入队时立即释放。
-import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useFocusEffect } from "expo-router";
 import { File, Paths } from "expo-file-system";
 import type { ComponentType, Ref } from "react";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
@@ -21,6 +21,7 @@ import { showToast } from "@/components/toast";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { Radius } from "@/constants/theme";
+import { useRouteParams } from "@/hooks/use-route-params";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
 import { flushRelayQueue, onSosRelayEvent } from "@/services/ble-relay-uplink";
@@ -76,7 +77,7 @@ export default function VideoPreviewScreen() {
   //   ?join=0 再跳过连热点（手机和电脑在同一个普通 Wi-Fi 下，只测播放器）
   //   ?ssid=…&pass=… 换成另一台手机现成的热点名和密码（不用把手机改名成 X821cam）
   //   &wpa3=1（Android 10 对 iPhone 这类 WPA2/WPA3 混合热点要按 WPA3 请求才匹配得上）
-  const params = useLocalSearchParams<{
+  const params = useRouteParams<{
     url?: string;
     join?: string;
     ssid?: string;

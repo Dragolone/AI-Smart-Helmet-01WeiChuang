@@ -2,10 +2,11 @@
 // + 位置快照 + 通知发送记录（手机号已脱敏）。界面上不叫「事故」：疑似摔倒、已取消的求救都在这里，不代表出了事故。
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
-import { router, useLocalSearchParams } from "expo-router";
+import { router } from "expo-router";
 import { useEffect, useRef } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 
+import { useRouteParams } from "@/hooks/use-route-params";
 import { sosActiveHref } from "@/services/sos-routes";
 import { ApiRequestError } from "@/api/client";
 import { devicesApi } from "@/api/devices";
@@ -51,7 +52,7 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 export default function AccidentDetailScreen() {
-  const { accidentId } = useLocalSearchParams<{ accidentId: string }>();
+  const { accidentId } = useRouteParams<{ accidentId: string }>();
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();

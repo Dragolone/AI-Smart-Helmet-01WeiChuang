@@ -9,12 +9,7 @@ import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { Image } from "expo-image";
-import {
-  router,
-  useFocusEffect,
-  useIsFocused,
-  useLocalSearchParams,
-} from "expo-router";
+import { router, useFocusEffect, useIsFocused } from "expo-router";
 import {
   useCallback,
   useEffect,
@@ -95,6 +90,7 @@ import {
   useRidePages,
   useRideTrack,
 } from "@/hooks/use-rides";
+import { useRouteParams } from "@/hooks/use-route-params";
 import { useCurrentHelmetChoice, useHelmetLinks } from "@/hooks/use-safety";
 import { useTheme } from "@/hooks/use-theme";
 import { translate, useLocale, useT, type MessageKey } from "@/i18n";
@@ -532,7 +528,7 @@ export default function MapScreen() {
   //   ?deviceId=           设备页带过来的头盔
   //   ?deviceId=&rides=1   设备页「今日骑行」那一格：打开这顶头盔的行程列表
   //   ?deviceId=&at=ISO    安全记录「在地图上查看该时刻」：打开那一刻所在的那一趟，回放停在那一刻
-  const params = useLocalSearchParams<{
+  const params = useRouteParams<{
     deviceId?: string;
     at?: string;
     rides?: string;

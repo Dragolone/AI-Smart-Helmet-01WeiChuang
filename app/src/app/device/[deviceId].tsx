@@ -11,7 +11,7 @@
 //   各页用同一个 deviceId、同一份设置缓存（hooks/use-device-settings），进出页面不丢等待中的命令。
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { router, useLocalSearchParams, useNavigation } from "expo-router";
+import { router, useNavigation } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -30,6 +30,7 @@ import { devicesApi } from "@/api/devices";
 import { showToast } from "@/components/toast";
 import { ApiRequestError } from "@/api/client";
 import { isSessionEnded, toUserMessage } from "@/api/error-messages";
+import { useRouteParams } from "@/hooks/use-route-params";
 import { devLog } from "@/services/dev-log";
 import { DEVICE_SETTINGS, type DevicePublic } from "@helmet/shared";
 import {
@@ -96,7 +97,7 @@ const BLE_DETAIL: Partial<Record<BleRowState, MessageKey>> = {
 };
 
 export default function DeviceDetailScreen() {
-  const { deviceId } = useLocalSearchParams<{ deviceId: string }>();
+  const { deviceId } = useRouteParams<{ deviceId: string }>();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const t = useT();

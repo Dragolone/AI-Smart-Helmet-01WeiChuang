@@ -3,7 +3,7 @@
 // 绑定码规则不变：默认打码，点了才显示，10 秒后自动收起（防旁人看到后绑走）。
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
-import { router, useLocalSearchParams } from "expo-router";
+import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 
@@ -14,6 +14,7 @@ import { Card, ListRow } from "@/components/list";
 import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
+import { useRouteParams } from "@/hooks/use-route-params";
 import { useTheme } from "@/hooks/use-theme";
 import { useLocale, useT } from "@/i18n";
 import { shortDate, shortTime } from "@/i18n/format";
@@ -54,7 +55,7 @@ function InfoRow({
 }
 
 export default function DeviceAboutScreen() {
-  const { deviceId } = useLocalSearchParams<{ deviceId: string }>();
+  const { deviceId } = useRouteParams<{ deviceId: string }>();
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
