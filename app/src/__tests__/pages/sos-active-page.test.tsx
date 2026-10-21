@@ -1060,6 +1060,93 @@ describe("这一单的状态拿不到 / 不存在", () => {
   });
 });
 
+describe("取消先落地、立即求救被拒时替他重发（O29，负责人 10-21 定）", () => {
+  const finalizedOnce = () =>
+    m(sosApi.confirm)
+      .mockImplementationOnce(() =>
+        Promise.reject(
+          new ApiRequestError(409, { code: "SOS_ALREADY_FINALIZED" }),
+        ),
+      )
+      .mockImplementation((id: unknown) =>
+        Promise.resolve(sosOf({ sosId: id as string, status: "notified" })),
+      );
+  const newSos = (sosId = "s9") => {
+    const fresh = sosOf({
+      sosId,
+      triggerType: "manual_sos",
+      deadline: new Date(Date.now() + 60_000).toISOString(),
+    });
+    m(sosApi.snapshot).mockImplementation(() => Promise.resolve(fresh));
+    act(() => {
+      qc.setQueryData(["sos-active", "h1"], { sos: fresh });
+    });
+  };
+
+  it("这单已被取消：提示已重发，替这顶头盔注入 manual_sos；新单一出现就立即确认，不再倒数", async () => {
+    finalizedOnce();
+    m(relayApi.push).mockImplementation(() =>
+      Promise.resolve({ accepted: 1, duplicate: 0, invalid: 0 }),
+    );
+    const r = await mount();
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ status: "cancelled" })),
+    );
+    r.press(tr("sos.sendNow"));
+    await tick(0);
+    await tick(0);
+    expect(r.allText()).toContain(tr("sos.resentAfterCancel"));
+    expect(announce).toHaveBeenCalledWith(tr("sos.resentAfterCancel"));
+    const body = m(relayApi.push).mock.calls[0][0] as {
+      deviceId: string;
+      envelopes: { eventType: string }[];
+    };
+    expect(body.deviceId).toBe("h1");
+    expect(body.envelopes[0].eventType).toBe("manual_sos");
+    expect(alert).not.toHaveBeenCalled();
+    // 新单到了：自动确认这一单（不是被取消的那单）
+    newSos();
+    await tick(0);
+    await tick(0);
+    expect(sosApi.confirm).toHaveBeenLastCalledWith("s9");
+  });
+
+  it("这单其实已通知（别处先点了 / 到期）：不重发", async () => {
+    finalizedOnce();
+    m(sosApi.accidentDetail).mockImplementation(() =>
+      Promise.resolve({ notifications: [] } as unknown as AccidentDetail),
+    );
+    const r = await mount();
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ status: "notified" })),
+    );
+    r.press(tr("sos.sendNow"));
+    await tick(0);
+    await tick(0);
+    expect(relayApi.push).not.toHaveBeenCalled();
+    expect(r.allText()).not.toContain(tr("sos.resentAfterCancel"));
+  });
+
+  it("重发后两分钟都没等到新单：之后才来的那一单不自动确认", async () => {
+    finalizedOnce();
+    m(relayApi.push).mockImplementation(() =>
+      Promise.resolve({ accepted: 1, duplicate: 0, invalid: 0 }),
+    );
+    const r = await mount();
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ status: "cancelled" })),
+    );
+    r.press(tr("sos.sendNow"));
+    await tick(0);
+    await tick(0);
+    await tick(121_000);
+    newSos("s10");
+    await tick(0);
+    await tick(0);
+    expect(sosApi.confirm).not.toHaveBeenCalledWith("s10");
+  });
+});
+
 describe("已取消后「我还是需要帮助」", () => {
   const cancelled = async () => {
     m(sosApi.snapshot).mockImplementation(() =>
