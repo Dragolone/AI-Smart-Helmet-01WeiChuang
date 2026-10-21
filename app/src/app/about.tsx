@@ -9,6 +9,8 @@ import { ThemedView } from "@/components/themed-view";
 import { translate, useT } from "@/i18n";
 import { showNotice } from "@/services/notice";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 export default function AboutScreen() {
   const t = useT();
   const appVersion = Constants.expoConfig?.version ?? "—";

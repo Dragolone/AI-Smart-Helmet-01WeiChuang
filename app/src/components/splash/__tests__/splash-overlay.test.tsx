@@ -43,6 +43,7 @@ import {
   splashStory,
   whenPageReady,
 } from "../bus";
+import { isSplashCovering } from "../covering";
 import { releaseDeviceLanding } from "../landing-device";
 import { DEVICE, LOGIN, UNBOUND, loginReveal } from "../landings";
 import { loadRouteFrames } from "../route-frames";
@@ -139,9 +140,12 @@ jest.mock("@/api/devices", () => ({ devicesApi: { list: jest.fn() } }));
 jest.mock("@/services/launch-intent", () => ({
   launchedByNotification: jest.fn(() => false),
 }));
-const mockHero = { value: undefined as unknown };
+const mockHero = { value: undefined as unknown, boom: false };
 jest.mock("../use-hero-splash", () => ({
-  useHeroSplash: () => mockHero.value,
+  useHeroSplash: () => {
+    if (mockHero.boom) throw new Error("hero boom");
+    return mockHero.value;
+  },
 }));
 jest.mock("../landing-device", () => {
   const { createElement: h } =
@@ -395,6 +399,64 @@ describe("不播 / 立刻让开", () => {
     expect(mockVideo.mounts).toBe(0);
     expect(loadRouteFrames).not.toHaveBeenCalled();
     expect(splashStory.get()).toBe(-1);
+    // 卸掉了，App 自己的提示框不用再等
+    expect(isSplashCovering()).toBe(false);
+  });
+
+  it("窗口放不下（横着拿的展开折叠屏 / 平板，O32）：和由通知拉起一样不播，不建视频播放器、直接收场", async () => {
+    mockVideo.on = true;
+    const real = Dimensions.get("window");
+    const dims = jest
+      .spyOn(Dimensions, "get")
+      .mockReturnValue({ ...real, width: 841, height: 701 });
+    try {
+      const r = mount();
+      expect(hosts(r, "RouteVideoLayer")).toHaveLength(0);
+      layout(r);
+      expect(SplashScreen.hide).toHaveBeenCalledTimes(1);
+      expect(releaseSplashPage).toHaveBeenCalled();
+      expect(frameClock.active).toBe(false);
+      await advance(50);
+      expect(shown(r)).toBe(false);
+      expect(loadRouteFrames).not.toHaveBeenCalled();
+      expect(splashStory.get()).toBe(-1);
+    } finally {
+      dims.mockRestore();
+    }
+  });
+
+  it("竖着拿的展开折叠屏（0.83）照播", async () => {
+    const real = Dimensions.get("window");
+    const dims = jest
+      .spyOn(Dimensions, "get")
+      .mockReturnValue({ ...real, width: 701, height: 841 });
+    try {
+      const r = mount();
+      await start(r);
+      expect(frameClock.active).toBe(true);
+      expect(shown(r)).toBe(true);
+    } finally {
+      dims.mockRestore();
+    }
+  });
+
+  it("开屏这一层自己抛错（10-21 夜测：设备列表回了不是数组的东西）：整层让开、放行页面、收掉原生启动图，不往上抛把 App 带崩", () => {
+    const err = jest
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    mockHero.boom = true;
+    try {
+      const r = mount();
+      expect(shown(r)).toBe(false);
+      expect(SplashScreen.hide).toHaveBeenCalled();
+      expect(releaseSplashHold).toHaveBeenCalled();
+      expect(releaseSplashPage).toHaveBeenCalled();
+      expect(isSplashCovering()).toBe(false);
+      expect(splashStory.get()).toBe(-1);
+    } finally {
+      mockHero.boom = false;
+      err.mockRestore();
+    }
   });
 
   it("以求救页冷启动（第一帧就在 /sos-active）：不等排版，收掉原生启动图并立刻卸掉", () => {
@@ -418,10 +480,12 @@ describe("不播 / 立刻让开", () => {
     const r = mount();
     await advance(8999);
     expect(shown(r)).toBe(true);
+    expect(isSplashCovering()).toBe(true);
     await advance(1);
     expect(releaseSplashHold).toHaveBeenCalled();
     await advance(50);
     expect(shown(r)).toBe(false);
+    expect(isSplashCovering()).toBe(false);
   });
 });
 
@@ -521,8 +585,11 @@ describe("没登录：落到登录页", () => {
     runUntil((s) => s >= STORY_TOTAL.login - 40);
     expect(shown(r)).toBe(true);
     expect(releaseSplashPage).not.toHaveBeenCalled();
+    // 盖着的整段里 App 自己的提示框 / Toast / Modal 都压着（splash/covering）；这一层卸掉才放
+    expect(isSplashCovering()).toBe(true);
     await playToEnd();
     expect(shown(r)).toBe(false);
+    expect(isSplashCovering()).toBe(false);
     expect(releaseSplashPage).toHaveBeenCalledTimes(1);
     expect(anchorOwned.loginMark.get()).toBe(0);
     expect(arriveFrom.get()).toBe(-1);

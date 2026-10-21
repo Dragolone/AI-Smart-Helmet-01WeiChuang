@@ -147,9 +147,22 @@ let deviceCursor = 0;
 /** 已注销的账号：它的分区不再落盘（注销之后链路停下来时的那次落盘不能把文件写回来） */
 const discardedOwners = new Set<string>();
 
+/**
+ * 本账号分区的积压正在读、还没并进内存：这期间不落盘——内存里这份缺了文件里的积压，写下去就把它们盖掉了
+ * （登录后链路刚起来、冷启动时登录过期被强制登出早于读盘，10-19 夜测记下、10-21 负责人让修）。读完合并后补落一次
+ */
+let loading: { owner: string; saved: Promise<Envelope[]> } | null = null;
+
 const persist = (): void => {
   if (discardedOwners.has(owner)) return;
+  if (loading && loading.owner === owner) return;
   void store.save(owner, queue);
+};
+
+/** 把文件里读出来的积压并进内存（按 头盔号:事件号 去重，文件里的排前面） */
+const mergeSaved = (saved: Envelope[], mem: Envelope[]): Envelope[] => {
+  const known = new Set(mem.map(dedupeKey));
+  return [...saved.filter((e) => !known.has(dedupeKey(e))), ...mem];
 };
 
 /**
@@ -350,6 +363,38 @@ export async function flushRelayQueue(): Promise<void> {
   }
 }
 
+/** 手机里还没传上去的头盔事件：总数、其中摔倒 / 求救几条（退出登录前提示用，O21） */
+export function relayBacklog(): { total: number; sos: number } {
+  return {
+    total: queue.length,
+    sos: queue.filter((e) => SOS_TRIGGER_TYPES.has(e.eventType)).length,
+  };
+}
+
+const waitMs = (ms: number) =>
+  new Promise<void>((done) => setTimeout(done, Math.max(0, ms)));
+
+/**
+ * 退出登录前尽力把积压送完（负责人 10-21 定，O21）：一轮轮提交，送完、到时限、或某一轮一条没送出去（断网 / 被拒）为止，
+ * 返回剩下的。退出后这些要等这个账号下次在这台手机上登录才补传——换个账号登录不会替它传。
+ */
+export async function drainRelayQueue(
+  timeoutMs: number,
+): Promise<{ total: number; sos: number }> {
+  const until = Date.now() + timeoutMs;
+  while (queue.length > 0 && Date.now() < until) {
+    // 周期提交正在途：等它回来再看，别把「它还没回来」当成「送不出去」
+    if (flushing) {
+      await waitMs(Math.min(200, until - Date.now()));
+      continue;
+    }
+    const before = queue.length;
+    await Promise.race([flushRelayQueue(), waitMs(until - Date.now())]);
+    if (queue.length >= before) break;
+  }
+  return relayBacklog();
+}
+
 /**
  * 登录期间常驻(use-realtime 同生命周期)：恢复本账号的持久化队列 + 周期 flush。
  * ownerKey = 当前用户 id；未登录/未知时用匿名分区，绝不与真实账号的文件混用。
@@ -357,11 +402,16 @@ export async function flushRelayQueue(): Promise<void> {
 export function startRelayUplink(ownerKey: string = ANONYMOUS_OWNER): void {
   if (flushTimer) return;
   owner = ownerKey;
-  void store.load(ownerKey).then((saved) => {
-    // 恢复期间可能已 stop/换账号：只在归属仍是自己时合并；按 eventId 去重，重入不会出现两份（审计 BLE-07）
-    if (owner !== ownerKey || saved.length === 0) return;
-    const known = new Set(queue.map(dedupeKey));
-    queue = [...saved.filter((e) => !known.has(dedupeKey(e))), ...queue];
+  const mine = { owner: ownerKey, saved: store.load(ownerKey) };
+  loading = mine;
+  void mine.saved.then((saved) => {
+    // 恢复期间已 stop / 换账号 / 又起了一次：那边负责（stop 把这份和当时的内存合并写回）。按身份判断，不按归属键——
+    // 匿名分区 stop 之后归属还是匿名，按归属判断会把它当成没停。按 eventId 去重，重入不会出现两份（审计 BLE-07）
+    if (loading !== mine) return;
+    loading = null;
+    if (owner !== ownerKey) return;
+    if (saved.length > 0) queue = mergeSaved(saved, queue);
+    persist();
   });
   flushTimer = setInterval(() => void flushRelayQueue(), FLUSH_INTERVAL_MS);
   // Node/jest 里不让定时器拖住进程退出；RN 的 setInterval 返回数字，无此方法
@@ -381,12 +431,13 @@ export function adoptRelayUplinkOwner(ownerKey: string): boolean {
   owner = ownerKey;
   // 先读本人分区再落盘：save 不等待、同步就写文件，先 persist 会把上次没送完的那份覆盖掉。
   // 匿名文件等合并落盘之后再清，中途被杀也不丢
-  void store.load(ownerKey).then((saved) => {
+  const mine = { owner: ownerKey, saved: store.load(ownerKey) };
+  loading = mine;
+  void mine.saved.then((saved) => {
+    if (loading !== mine) return;
+    loading = null;
     if (owner !== ownerKey) return;
-    if (saved.length > 0) {
-      const known = new Set(queue.map(dedupeKey));
-      queue = [...saved.filter((e) => !known.has(dedupeKey(e))), ...queue];
-    }
+    if (saved.length > 0) queue = mergeSaved(saved, queue);
     persist();
     void store.save(ANONYMOUS_OWNER, []);
   });
@@ -399,7 +450,19 @@ export function stopRelayUplink(): void {
     clearInterval(flushTimer);
     flushTimer = null;
   }
-  persist();
+  const pending = loading && loading.owner === owner ? loading : null;
+  if (pending) {
+    // 积压还没读进内存就停了：等读完，把文件里的和此刻内存里的合在一起写回本人分区，不拿缺了积压的内存那份盖文件
+    const stoppedOwner = owner;
+    const mem = queue;
+    loading = null;
+    void pending.saved.then((saved) => {
+      if (discardedOwners.has(stoppedOwner)) return;
+      void store.save(stoppedOwner, mergeSaved(saved, mem));
+    });
+  } else {
+    persist();
+  }
   queue = [];
   deviceCursor = 0;
   batchLimit = MAX_BATCH;

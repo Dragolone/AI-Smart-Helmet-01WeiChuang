@@ -108,3 +108,40 @@ describe("往前跳：分不清拨快还是睡醒，不动偏移、只催一次�
     expect(poke).not.toHaveBeenCalled();
   });
 });
+
+// 2026-10-20 补分支：拿不到单调钟（运行时没有 performance.now）时整套跳变补偿都得安静退场——
+// 倒计时页每秒都调 serverNow，这里一抛整页就崩；也不能拿 undefined 算出 NaN 的锚把偏移带坏
+describe("没有单调钟（performance.now 不可用的运行时）", () => {
+  it("退回只靠 Date 头学偏移：照常学到偏移；手机时间被拨动时不补、不催，下一个 Date 头按跳变直接采信、一个来回就对上", () => {
+    const saved = Object.getOwnPropertyDescriptor(globalThis, "performance");
+    Object.defineProperty(globalThis, "performance", {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+    try {
+      const poke = jest.fn();
+      onWallClockForwardJump(poke);
+      // 手机比服务端慢 90 秒
+      noteServerDate(header(LOCAL + 90_000), LOCAL);
+      expect(serverClockOffsetMs()).toBe(90_000);
+      expect(serverNow()).toBe(LOCAL + 90_000);
+      // 往回拨 120 秒：有单调钟时立刻补；没有就跟着墙钟退（10-20 之前的行为），不抛、偏移不变
+      jest.setSystemTime(LOCAL - 120_000);
+      expect(() => serverNow()).not.toThrow();
+      expect(serverNow()).toBe(LOCAL - 30_000);
+      expect(serverClockOffsetMs()).toBe(90_000);
+      // 下一个响应：样本与偏移差 120 秒，当跳变直接采信
+      noteServerDate(header(LOCAL + 90_000), LOCAL - 120_000);
+      expect(serverClockOffsetMs()).toBe(210_000);
+      expect(serverNow()).toBe(LOCAL + 90_000);
+      // 往前跳 1 小时（睡醒 / 拨快）：没有锚就判断不了，不催补拉、偏移不动
+      jest.setSystemTime(LOCAL + 3_600_000);
+      expect(serverNow()).toBe(LOCAL + 3_810_000);
+      expect(serverClockOffsetMs()).toBe(210_000);
+      expect(poke).not.toHaveBeenCalled();
+    } finally {
+      if (saved) Object.defineProperty(globalThis, "performance", saved);
+    }
+  });
+});

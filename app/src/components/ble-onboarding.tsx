@@ -37,6 +37,11 @@ type Step = {
   key: "bluetooth" | "permission" | "whitelist" | "launch";
   done: boolean;
   blocking: boolean;
+  /**
+   * 这一步做没做查不到：蓝牙权限（安卓 12 以下是位置权限）被拒时链路只知道「没授权」，不知道蓝牙开没开，
+   * 不能照「没开」去催人开蓝牙——人家多半开着（10-21 安卓 12 模拟器：蓝牙开着，第 1 步却写着去打开）
+   */
+  unknown?: boolean;
   action: () => void;
 };
 
@@ -111,6 +116,7 @@ export function useBleOnboardingSteps(): Step[] {
       key: "bluetooth",
       done: adapter === "on",
       blocking: adapter === "off",
+      unknown: adapter === "unauthorized",
       action: () => void openBluetoothSettings(),
     },
     {
@@ -263,11 +269,13 @@ export function BleFirstConnectGuide() {
                 {/* 说明是整句话：不用全大写的 label 样式（英文下一整句大写读起来费劲，2026-10-15） */}
                 {!step.done && (
                   <ThemedText type="small" themeColor="textSecondary">
-                    {t(`ble.onboarding.${stepCopyOf(step.key)}Hint`)}
+                    {step.unknown
+                      ? t("ble.onboarding.bluetoothUnknownHint")
+                      : t(`ble.onboarding.${stepCopyOf(step.key)}Hint`)}
                   </ThemedText>
                 )}
               </View>
-              {!step.done && (
+              {!step.done && !step.unknown && (
                 <Tappable
                   feedback="scale"
                   accessibilityRole="button"

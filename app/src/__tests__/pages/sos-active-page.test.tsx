@@ -3,6 +3,7 @@
 // 已在别处结束（SOS_ALREADY_FINALIZED）不弹错而是拉权威状态；404 收掉；离线时才信缓存；
 // 倒数中拦住 Android 返回键、每秒警报 + 震动（最后 10 秒连震两下）、锁屏通知按钮的取消在路上时不响；
 // 结束后撤掉锁屏提醒；已通知页按短信结果写标题；「我还是需要帮助」同一个 eventId 重试；演练不碰服务端。
+// 倒数中取消 / 立即求救没成功：按钮区上方的页内提示条（还剩约几秒 + 重试），不弹框盖住倒计时（O7，10-20）。
 import {
   afterEach,
   beforeEach,
@@ -57,8 +58,11 @@ import { sosScreen } from "@/services/sos-queue";
 import {
   __resetServerClockForTests,
   noteServerDate,
+  serverClockOffsetMs,
 } from "@/services/server-clock";
 import { presentedSos } from "@/services/sos-sync";
+import { countdownHoldUntil } from "@/services/countdown-hold";
+import { useAuthStore } from "@/stores/auth-store";
 import { useSosCancelStore } from "@/stores/sos-cancel-store";
 import { useThemeStore } from "@/stores/theme-store";
 import SosActiveScreen from "@/app/sos-active";
@@ -185,6 +189,7 @@ let backSpy: ReturnType<typeof jest.spyOn>;
 let alert: ReturnType<typeof jest.spyOn>;
 let sr: ReturnType<typeof jest.spyOn>;
 let srSub: ReturnType<typeof jest.spyOn>;
+let announce: ReturnType<typeof jest.spyOn>;
 
 const sosOf = (over: Partial<Sos> = {}): Sos => ({
   sosId: "s1",
@@ -241,6 +246,28 @@ const slideButton = (r: Rendered) =>
       typeof n.type === "string" &&
       n.props.accessibilityLabel === tr("sos.slideA11y"),
   );
+/** 取消 / 立即求救没成功的页内提示条（O7）：从它的标题往上找到带边框的那一层 */
+const failBar = (r: Rendered) => {
+  const titles = [tr("sos.failCancel"), tr("sos.failSend")];
+  let cur: ReturnType<Rendered["root"]["find"]> | null = r.root.find(
+    (n) => isHost(n, "Text") && titles.includes(n.children.join("")),
+  );
+  while (cur && !(isHost(cur, "View") && flat(cur.props.style).borderWidth))
+    cur = cur.parent;
+  if (!cur) throw new Error("没有提示条");
+  return cur;
+};
+/** 读屏念的那一句：标题 + 分隔 + 倒计时那一行 */
+const said = (title: MessageKey, body: string) =>
+  `${tr(title)}${tr("common.a11ySep")}${body}`;
+/** 请求在 ms 毫秒后失败（超时 / 断网），按假计时器走 */
+const failAfter = (ms: number) => () =>
+  new Promise((_resolve, reject) => {
+    setTimeout(
+      () => reject(Object.assign(new Error("Aborted"), { name: "AbortError" })),
+      ms,
+    );
+  });
 
 beforeEach(() => {
   jest.useFakeTimers({ now: Date.UTC(2026, 9, 16, 2, 0, 0) });
@@ -272,12 +299,16 @@ beforeEach(() => {
   srSub = jest
     .spyOn(AccessibilityInfo, "addEventListener")
     .mockImplementation(() => ({ remove: jest.fn() }) as never);
+  announce = jest
+    .spyOn(AccessibilityInfo, "announceForAccessibility")
+    .mockImplementation(() => undefined);
 });
 afterEach(() => {
   backSpy.mockRestore();
   alert.mockRestore();
   sr.mockRestore();
   srSub.mockRestore();
+  announce.mockRestore();
   jest.clearAllMocks();
   jest.useRealTimers();
 });
@@ -310,6 +341,18 @@ describe("倒数中", () => {
     expect(number(r)).toBe("60");
     await tick(1000);
     expect(number(r)).toBe("59");
+  });
+
+  it("截止时间解析不出来（服务端出错）：大数字写「—」不写 NaN，按钮照常可用（10-21 夜测）", async () => {
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ deadline: "not-a-date" })),
+    );
+    const r = await mount();
+    expect(number(r)).toBe("—");
+    expect(r.allText()).not.toContain("NaN");
+    expect(r.allText()).toContain(tr("sos.sendNow"));
+    await tick(3000);
+    expect(r.allText()).not.toContain("NaN");
   });
 
   it("警报：音频设成锁屏 / 静音键下也响，每秒重播 + 震一下；最后 10 秒每秒连震两下", async () => {
@@ -420,6 +463,37 @@ describe("倒数中", () => {
       const r = await mount();
       expect(r.icons()).not.toContain("warning-outline");
       expect(numberFontSize(r)).toBe(Math.round((112 * 216) / 252));
+    } finally {
+      dims.mockRestore();
+    }
+  });
+
+  it("分屏半屏（360×440）：最小的环也塞不下 → 不画环、说明收起，只留大号秒数（O20，负责人 10-21 定）；按钮照常", async () => {
+    const raw = require("react-native") as { useWindowDimensions: object };
+    const dims = jest
+      .spyOn(raw, "useWindowDimensions", "get")
+      .mockReturnValue(() => ({
+        width: 360,
+        height: 440,
+        scale: 2,
+        fontScale: 1,
+      }));
+    try {
+      const r = await mount();
+      expect(r.root.findAllByType(CountdownRing)).toHaveLength(0);
+      expect(number(r)).toBe("45");
+      expect(r.allText()).toContain(tr("sos.autoSendSuffix"));
+      // 标题下那句说明收起，高度让给数字（1080×900 模拟器：只去掉环时数字底边仍被按钮裁掉）
+      expect(r.allText()).not.toContain(tr("sos.pendingBody"));
+      expect(r.allText()).toContain(tr("sos.fall"));
+      const size = numberFontSize(r);
+      expect(size).toBeGreaterThanOrEqual(44);
+      expect(size).toBeLessThanOrEqual(96);
+      expect(r.icons()).not.toContain("warning-outline");
+      expect(r.root.findAllByType(SlideToCancel)).toHaveLength(1);
+      expect(r.allText()).toContain(tr("sos.sendNow"));
+      await tick(1050);
+      expect(number(r)).toBe("44");
     } finally {
       dims.mockRestore();
     }
@@ -544,6 +618,22 @@ describe("倒数中", () => {
     expect(r.texts()).not.toContain("丁");
   });
 
+  it("倒数期间别处改了紧急联系人：每 10 秒跟着刷新，页面写的名单跟上（到点按终态化那一刻的名单发，O24）", async () => {
+    const r = await mount();
+    expect(r.allText()).toContain(tr("sos.willNotify", { n: 1 }));
+    m(contactsApi.list).mockImplementation(() =>
+      Promise.resolve([
+        { id: "c2", name: "爸爸" },
+        { id: "c3", name: "朋友" },
+      ]),
+    );
+    await tick(10_100);
+    await tick(0);
+    expect(r.allText()).toContain(tr("sos.willNotify", { n: 2 }));
+    expect(r.allText()).toContain("爸爸");
+    expect(r.allText()).not.toContain("妈妈");
+  });
+
   it("账号下两顶以上：写明是哪顶头盔发起的（两顶同时求救时分得清）", async () => {
     m(devicesApi.list).mockImplementation(() =>
       Promise.resolve([
@@ -595,6 +685,25 @@ describe("取消 / 立即求救", () => {
     expect(back).toBeNull();
     r.press(tr("sos.close"));
     expect(mockRouter.back).toHaveBeenCalled();
+  });
+
+  it("倒数期间登记 sosScreen.counting（外来链接不把这页挤掉，app/+native-intent）；到了已取消页撤掉，卸载也撤掉（10-21 夜测）", async () => {
+    m(sosApi.cancel).mockImplementation(() =>
+      Promise.resolve(sosOf({ status: "cancelled" })),
+    );
+    const r = await mount();
+    expect(sosScreen.counting).toBe(true);
+    act(() =>
+      slideButton(r).props.onAccessibilityAction({
+        nativeEvent: { actionName: "activate" },
+      }),
+    );
+    await tick(0);
+    expect(r.allText()).toContain(tr("sos.cancelledTitle"));
+    expect(sosScreen.counting).toBe(false);
+    expect(sosScreen.mounted).toBe(true);
+    r.unmount();
+    expect(sosScreen.counting).toBe(false);
   });
 
   it("立即求救：调确认接口 → 已通知页；短信全部发出时标题写已发出，列出每位联系人", async () => {
@@ -654,19 +763,223 @@ describe("取消 / 立即求救", () => {
     expect(r.allText()).toContain(tr("sos.cancelledTitle"));
   });
 
-  it("其它失败：弹窗说明，页面还在倒数", async () => {
+  // 原来这两种失败弹系统提示框：盖住还在走的倒计时、不写剩余秒数，要先点「确定」才能再滑（O7，10-20 模拟器）
+  it("滑动取消没成功（8 s 超时）：不弹框；按钮区上方写「取消没有成功」和约几秒后通知（按失败这一刻算、跟着倒计时走），倒计时和警报照常、滑块复位可再滑；读屏念一遍；点重试再发一次取消，成功 → 已取消页、提示条收起", async () => {
+    // 跨过 10 s 轮询：快照每次给同一个 deadline（默认的 sosOf() 每次按当下现算）
+    const s1 = sosOf();
+    m(sosApi.snapshot).mockImplementation(() => Promise.resolve(s1));
+    let calls = 0;
+    m(sosApi.cancel).mockImplementation(() =>
+      ++calls === 1
+        ? failAfter(8_000)()
+        : Promise.resolve({ ...s1, status: "cancelled" }),
+    );
+    const r = await mount();
+    act(() =>
+      slideButton(r).props.onAccessibilityAction({
+        nativeEvent: { actionName: "activate" },
+      }),
+    );
+    // 在路上：滑块写「取消中…」，还没有提示条
+    await tick(1_000);
+    expect(r.allText()).toContain(tr("sos.cancelling"));
+    expect(r.allText()).not.toContain(tr("sos.failCancel"));
+    await tick(7_050);
+    expect(alert).not.toHaveBeenCalled();
+    expect(number(r)).toBe("37");
+    expect(r.allText()).toContain(tr("sos.failCancel"));
+    expect(r.allText()).toContain(tr("sos.failStillCounting", { n: 37 }));
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith(
+      said("sos.failCancel", tr("sos.failStillCounting", { n: 37 })),
+    );
+    // 提示条在环和两个按钮之间、不是浮层：不盖住数字和按钮
+    expect(flat(failBar(r).props.style).position).toBeUndefined();
+    const order = r.texts();
+    expect(order.indexOf("妈妈")).toBeLessThan(
+      order.indexOf(tr("sos.failCancel")),
+    );
+    expect(order.indexOf(tr("sos.failCancel"))).toBeLessThan(
+      order.indexOf(tr("sos.sendNow")),
+    );
+    // 倒计时、警报、返回键拦截照常；滑块已复位
+    expect(slideButton(r).props.accessibilityState).toEqual({
+      disabled: false,
+      busy: false,
+    });
+    const seeks = mockAlarm.seekTo.mock.calls.length;
+    await tick(3_000);
+    expect(number(r)).toBe("34");
+    expect(r.allText()).toContain(tr("sos.failStillCounting", { n: 34 }));
+    expect(mockAlarm.seekTo.mock.calls.length).toBeGreaterThan(seeks);
+    expect(back!()).toBe(true);
+    // 重试 = 再发一次取消
+    r.press(tr("sos.retry"));
+    await tick(0);
+    expect(m(sosApi.cancel).mock.calls.map((c) => c[0])).toEqual(["s1", "s1"]);
+    expect(r.allText()).toContain(tr("sos.cancelledTitle"));
+    expect(r.allText()).not.toContain(tr("sos.failCancel"));
+    expect(alert).not.toHaveBeenCalled();
+  });
+
+  it("立即求救没成功：提示条写「立即求救没有发出」；重试再发确认、又没成功就再念一遍；之后服务端推来已通知（到期）→ 提示条收起", async () => {
     m(sosApi.confirm).mockImplementation(() =>
       Promise.reject(new TypeError("Network request failed")),
+    );
+    m(sosApi.accidentDetail).mockImplementation(() =>
+      Promise.resolve({ notifications: [] } as unknown as AccidentDetail),
     );
     const r = await mount();
     r.press(tr("sos.sendNow"));
     await tick(0);
-    expect(alert).toHaveBeenCalledWith(
-      tr("common.failed"),
-      tr("error.network"),
-      NOTICE_OK,
-    );
+    expect(alert).not.toHaveBeenCalled();
     expect(number(r)).toBe("45");
+    expect(r.allText()).toContain(tr("sos.failSend"));
+    expect(r.allText()).toContain(tr("sos.failStillCounting", { n: 45 }));
+    expect(r.byLabel(tr("sos.retrySendA11y"))).toBeTruthy();
+    expect(announce).toHaveBeenLastCalledWith(
+      said("sos.failSend", tr("sos.failStillCounting", { n: 45 })),
+    );
+    await tick(2_050);
+    r.press(tr("sos.retry"));
+    await tick(0);
+    expect(m(sosApi.confirm).mock.calls.map((c) => c[0])).toEqual(["s1", "s1"]);
+    expect(r.allText()).toContain(tr("sos.failSend"));
+    expect(announce).toHaveBeenCalledTimes(2);
+    expect(announce).toHaveBeenLastCalledWith(
+      said("sos.failSend", tr("sos.failStillCounting", { n: 43 })),
+    );
+    act(() => {
+      qc.setQueryData(["sos", "s1"], sosOf({ status: "notified" }));
+    });
+    await tick(0);
+    // 发送记录里没有短信 = 没有联系人，标题写未发送（见「已通知页的标题」）
+    expect(r.allText()).toContain(tr("sos.notified.none"));
+    expect(r.allText()).not.toContain(tr("sos.failSend"));
+    expect(alert).not.toHaveBeenCalled();
+  });
+
+  it("提示条挂着时倒计时走到 0（服务端还没推终态）：不写「约 0 秒」，写马上就会通知", async () => {
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ deadline: secondsFromNow(3) })),
+    );
+    m(sosApi.cancel).mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    const r = await mount();
+    act(() =>
+      slideButton(r).props.onAccessibilityAction({
+        nativeEvent: { actionName: "activate" },
+      }),
+    );
+    await tick(0);
+    expect(r.allText()).toContain(tr("sos.failStillCounting", { n: 3 }));
+    await tick(3_050);
+    expect(number(r)).toBe("0");
+    expect(r.allText()).toContain(tr("sos.failDueNow"));
+    expect(r.allText()).not.toContain(tr("sos.failStillCounting", { n: 0 }));
+  });
+
+  it("状态还没拿到（离线，数字是一横）时取消没成功：提示条照样出，只说倒计时结束会通知、不编秒数", async () => {
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    m(sosApi.cancel).mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    const r = await mount();
+    expect(number(r)).toBe("—");
+    act(() =>
+      slideButton(r).props.onAccessibilityAction({
+        nativeEvent: { actionName: "activate" },
+      }),
+    );
+    await tick(0);
+    expect(alert).not.toHaveBeenCalled();
+    expect(r.allText()).toContain(tr("sos.failCancel"));
+    // 上面的说明一行 + 提示条里一行
+    expect(r.texts().filter((x) => x === tr("sos.pendingBody"))).toHaveLength(
+      2,
+    );
+    expect(announce).toHaveBeenCalledWith(
+      said("sos.failCancel", tr("sos.pendingBody")),
+    );
+  });
+
+  it("「立即求救」请求超时但服务端已通知（短信慢、响应晚于超时）：不弹「出错了」，页面停在已通知", async () => {
+    m(sosApi.confirm).mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    m(sosApi.accidentDetail).mockImplementation(() =>
+      Promise.resolve({ notifications: [] } as unknown as AccidentDetail),
+    );
+    const r = await mount();
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ status: "notified" })),
+    );
+    r.press(tr("sos.sendNow"));
+    await tick(0);
+    await tick(0);
+    expect(sosApi.confirm).toHaveBeenCalledWith("s1");
+    expect(alert).not.toHaveBeenCalled();
+    await tick(1100);
+    expect(r.allText()).toContain(tr("sos.notified.none"));
+  });
+
+  it("取消失败后补拉也挂住（坏网络）：最多等 3 秒就提示，不等补拉自己超时（倒计时一共 60 秒）", async () => {
+    m(sosApi.cancel).mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    const r = await mount();
+    m(sosApi.snapshot).mockImplementation(() => new Promise(() => undefined));
+    act(() =>
+      slideButton(r).props.onAccessibilityAction({
+        nativeEvent: { actionName: "activate" },
+      }),
+    );
+    await tick(0);
+    await tick(2_500);
+    expect(r.allText()).not.toContain(tr("sos.failCancel"));
+    await tick(600);
+    // O7：不弹框，3 秒内挂出页内提示条
+    expect(alert).not.toHaveBeenCalled();
+    expect(r.allText()).toContain(tr("sos.failCancel"));
+  });
+
+  it("滑动取消请求超时但服务端已取消：不弹错，页面是已取消；补拉也失败时才按缓存判断（仍在倒数就弹）", async () => {
+    m(sosApi.cancel).mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    let r = await mount();
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ status: "cancelled" })),
+    );
+    act(() =>
+      slideButton(r).props.onAccessibilityAction({
+        nativeEvent: { actionName: "activate" },
+      }),
+    );
+    await tick(0);
+    await tick(0);
+    expect(alert).not.toHaveBeenCalled();
+    expect(r.allText()).toContain(tr("sos.cancelledTitle"));
+    r.unmount();
+
+    m(sosApi.snapshot).mockImplementation(() => Promise.resolve(sosOf()));
+    r = await mount();
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    act(() =>
+      slideButton(r).props.onAccessibilityAction({
+        nativeEvent: { actionName: "activate" },
+      }),
+    );
+    await tick(0);
+    await tick(0);
+    // O7：仍在倒数时不弹框，走页内提示条
+    expect(alert).not.toHaveBeenCalled();
+    expect(r.allText()).toContain(tr("sos.failCancel"));
   });
 });
 
@@ -787,6 +1100,21 @@ describe("这一单的状态拿不到 / 不存在", () => {
     expect(sosApi.snapshot).toHaveBeenCalledTimes(1);
   });
 
+  // 2026-10-20 补分支：isNotFound 认 404 / 400 / 403 三种，原来只有前两种有用例。
+  // 403 是「这单 / 这顶头盔不归你」（头盔在倒数中被另一部手机解绑后重绑、点了别人转发的链接）：重试永远是同一个结果，
+  // 当成「状态未知」的话页面停在「—」秒、每 10 秒白拉一次、返回键还被拦着
+  it("不是你的单（服务端 403 FORBIDDEN）：同 404，不画倒计时、不重试也不轮询、不拦返回键", async () => {
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.reject(new ApiRequestError(403, { code: "FORBIDDEN" })),
+    );
+    const r = await mount();
+    expect(r.allText()).toContain(tr("sos.gone.title"));
+    expect(r.allText()).not.toContain("—");
+    await tick(30_000);
+    expect(sosApi.snapshot).toHaveBeenCalledTimes(1);
+    expect(back).toBeNull();
+  });
+
   it("没有这一单、栈里有上一页（从别的页面点进来的）：关闭就是返回上一页", async () => {
     m(sosApi.snapshot).mockImplementation(() =>
       Promise.reject(new ApiRequestError(404, { code: "NOT_FOUND" })),
@@ -796,6 +1124,30 @@ describe("这一单的状态拿不到 / 不存在", () => {
     r.press(tr("sos.close"));
     expect(mockRouter.back).toHaveBeenCalled();
     expect(mockRouter.navigate).not.toHaveBeenCalled();
+  });
+
+  it("离线、缓存也没有：数字一横下面说一句在等什么，不写「秒」（O18，负责人 10-21 定）；网络回来拉到了就收起", async () => {
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    const r = await mount();
+    expect(number(r)).toBe("—");
+    expect(r.allText()).toContain(tr("sos.connecting"));
+    expect(r.texts()).not.toContain(tr("sos.autoSendSuffix"));
+
+    m(sosApi.snapshot).mockImplementation(() => Promise.resolve(sosOf()));
+    await act(async () => {
+      await qc.refetchQueries({ queryKey: ["sos", "s1"] });
+    });
+    expect(number(r)).toBe("45");
+    expect(r.allText()).not.toContain(tr("sos.connecting"));
+    expect(r.texts()).toContain(tr("sos.autoSendSuffix"));
+  });
+
+  it("还在拉（第一次请求没回来）：不说「正在连接」，免得一打开就闪一下", async () => {
+    m(sosApi.snapshot).mockImplementation(() => new Promise(() => undefined));
+    const r = await mount();
+    expect(r.allText()).not.toContain(tr("sos.connecting"));
   });
 
   it("离线（两条 REST 都失败）：才信缓存；缓存也没有时数字写一横、环是空的", async () => {
@@ -813,6 +1165,210 @@ describe("这一单的状态拿不到 / 不存在", () => {
     r = await mount(false);
     await tick(0);
     expect(number(r)).toBe("30");
+  });
+});
+
+describe("取消先落地、立即求救被拒时替他重发（O29，负责人 10-21 定）", () => {
+  const finalizedOnce = () =>
+    m(sosApi.confirm)
+      .mockImplementationOnce(() =>
+        Promise.reject(
+          new ApiRequestError(409, { code: "SOS_ALREADY_FINALIZED" }),
+        ),
+      )
+      .mockImplementation((id: unknown) =>
+        Promise.resolve(sosOf({ sosId: id as string, status: "notified" })),
+      );
+  /** 最近一次注入的 manual_sos 的 eventId（服务端建出的单的 triggerEventId 就是它） */
+  const lastPushedEventId = () =>
+    (
+      m(relayApi.push).mock.calls.at(-1)?.[0] as
+        { envelopes: { eventId: string }[] } | undefined
+    )?.envelopes[0].eventId ?? "e-none";
+  /** 这顶头盔来了一单新的：默认是重发那条事件建出的单；传 triggerEventId 就是别的事件（比如一次新的摔倒） */
+  const newSos = (sosId = "s9", triggerEventId = lastPushedEventId()) => {
+    const fresh = sosOf({
+      sosId,
+      triggerType: "manual_sos",
+      triggerEventId,
+      deadline: new Date(Date.now() + 60_000).toISOString(),
+    });
+    m(sosApi.snapshot).mockImplementation(() => Promise.resolve(fresh));
+    act(() => {
+      qc.setQueryData(["sos-active", "h1"], { sos: fresh });
+    });
+  };
+
+  it("这单已被取消：提示已重发，替这顶头盔注入 manual_sos；新单一出现就立即确认，不再倒数", async () => {
+    finalizedOnce();
+    m(relayApi.push).mockImplementation(() =>
+      Promise.resolve({ accepted: 1, duplicate: 0, invalid: 0 }),
+    );
+    const r = await mount();
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ status: "cancelled" })),
+    );
+    r.press(tr("sos.sendNow"));
+    await tick(0);
+    await tick(0);
+    expect(r.allText()).toContain(tr("sos.resentAfterCancel"));
+    expect(announce).toHaveBeenCalledWith(tr("sos.resentAfterCancel"));
+    const body = m(relayApi.push).mock.calls[0][0] as {
+      deviceId: string;
+      envelopes: { eventType: string }[];
+    };
+    expect(body.deviceId).toBe("h1");
+    expect(body.envelopes[0].eventType).toBe("manual_sos");
+    expect(alert).not.toHaveBeenCalled();
+    // 新单到了：自动确认这一单（不是被取消的那单）
+    newSos();
+    await tick(0);
+    await tick(0);
+    expect(sosApi.confirm).toHaveBeenLastCalledWith("s9");
+  });
+
+  it("这单其实已通知（别处先点了 / 到期）：不重发", async () => {
+    finalizedOnce();
+    m(sosApi.accidentDetail).mockImplementation(() =>
+      Promise.resolve({ notifications: [] } as unknown as AccidentDetail),
+    );
+    const r = await mount();
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ status: "notified" })),
+    );
+    r.press(tr("sos.sendNow"));
+    await tick(0);
+    await tick(0);
+    expect(relayApi.push).not.toHaveBeenCalled();
+    expect(r.allText()).not.toContain(tr("sos.resentAfterCancel"));
+  });
+
+  it("重发后两分钟都没等到新单：之后才来的那一单不自动确认", async () => {
+    finalizedOnce();
+    m(relayApi.push).mockImplementation(() =>
+      Promise.resolve({ accepted: 1, duplicate: 0, invalid: 0 }),
+    );
+    const r = await mount();
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ status: "cancelled" })),
+    );
+    r.press(tr("sos.sendNow"));
+    await tick(0);
+    await tick(0);
+    await tick(121_000);
+    newSos("s10");
+    await tick(0);
+    await tick(0);
+    expect(sosApi.confirm).not.toHaveBeenCalledWith("s10");
+  });
+
+  it("两分钟内这顶头盔来的是别的事件建的单（比如一次新的误报摔倒）：不自动确认，照常倒数（10-21 第二轮审查）", async () => {
+    finalizedOnce();
+    m(relayApi.push).mockImplementation(() =>
+      Promise.resolve({ accepted: 1, duplicate: 0, invalid: 0 }),
+    );
+    const r = await mount();
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ status: "cancelled" })),
+    );
+    r.press(tr("sos.sendNow"));
+    await tick(0);
+    await tick(0);
+    newSos("s10", "fall-event-xyz");
+    await tick(0);
+    await tick(0);
+    expect(sosApi.confirm).not.toHaveBeenCalledWith("s10");
+    expect(number(r)).toBe("60");
+  });
+
+  it("几顶一起倒数、页面已切到别的头盔时重发的单才到（只是顶上一个胶囊）：切过去并立即确认它，不碰屏上那单", async () => {
+    qc = makeQueryClient();
+    qc.setQueryData(["sos-active", "h2"], {
+      sos: sosOf({ sosId: "s2", deviceId: "h2", deadline: secondsFromNow(50) }),
+    });
+    finalizedOnce();
+    m(relayApi.push).mockImplementation(() =>
+      Promise.resolve({ accepted: 1, duplicate: 0, invalid: 0 }),
+    );
+    const r = await mount(false);
+    m(sosApi.snapshot).mockImplementation((id: unknown) =>
+      Promise.resolve(
+        id === "s1"
+          ? sosOf({ status: "cancelled" })
+          : sosOf({
+              sosId: id as string,
+              deviceId: "h2",
+              deadline: secondsFromNow(50),
+            }),
+      ),
+    );
+    r.press(tr("sos.sendNow"));
+    await tick(0);
+    await tick(0);
+    await tick(0);
+    m(sosApi.confirm).mockClear();
+    const resentId = lastPushedEventId();
+    const s9 = sosOf({
+      sosId: "s9",
+      triggerType: "manual_sos",
+      triggerEventId: resentId,
+      deadline: secondsFromNow(60),
+    });
+    m(sosApi.snapshot).mockImplementation((id: unknown) =>
+      Promise.resolve(
+        id === "s9"
+          ? s9
+          : sosOf({
+              sosId: id as string,
+              deviceId: "h2",
+              deadline: secondsFromNow(50),
+            }),
+      ),
+    );
+    act(() => {
+      qc.setQueryData(["sos-active", "h1"], { sos: s9 });
+    });
+    for (let i = 0; i < 4; i++) await tick(0);
+    expect(sosApi.confirm).toHaveBeenCalledWith("s9");
+    expect(sosApi.confirm).not.toHaveBeenCalledWith("s2");
+  });
+
+  it("「全部立即求救」里被拒、原因是取消先落地的那单：同样替他重发，新单出现就确认（10-21 第二轮审查）", async () => {
+    qc = makeQueryClient();
+    qc.setQueryData(["sos-active", "h2"], {
+      sos: sosOf({ sosId: "s2", deviceId: "h2", deadline: secondsFromNow(50) }),
+    });
+    m(relayApi.push).mockImplementation(() =>
+      Promise.resolve({ accepted: 1, duplicate: 0, invalid: 0 }),
+    );
+    m(sosApi.confirm).mockImplementation((id: unknown) =>
+      id === "s1"
+        ? Promise.reject(
+            new ApiRequestError(409, { code: "SOS_ALREADY_FINALIZED" }),
+          )
+        : Promise.resolve(
+            sosOf({ sosId: id as string, deviceId: "h2", status: "notified" }),
+          ),
+    );
+    const r = await mount(false);
+    m(sosApi.snapshot).mockImplementation((id: unknown) =>
+      Promise.resolve(
+        id === "s1"
+          ? sosOf({ status: "cancelled" })
+          : sosOf({ sosId: "s2", deviceId: "h2", status: "notified" }),
+      ),
+    );
+    r.press(tr("sos.allSendNow"));
+    const buttons = alert.mock.calls.at(-1)?.[2] as
+      { text: string; onPress?: () => void }[] | undefined;
+    act(() => buttons?.at(-1)?.onPress?.());
+    await tick(0);
+    await tick(0);
+    await tick(0);
+    const body = m(relayApi.push).mock.calls.at(-1)?.[0] as
+      { deviceId: string } | undefined;
+    expect(body?.deviceId).toBe("h1");
+    expect(r.allText()).toContain(tr("sos.resentAfterCancel"));
   });
 });
 
@@ -877,6 +1433,42 @@ describe("已取消后「我还是需要帮助」", () => {
       `${tr("error.network")}\n${tr("safety.sosQueued")}`,
       NOTICE_OK,
     );
+  });
+
+  it("求助建出的新单也取消了，再点「我还是需要帮助」：换新的 eventId（原来整页复用一个，服务端判重复不建单、页面却当发出去了；10-21 代码审查）", async () => {
+    m(relayApi.push).mockImplementation(() =>
+      Promise.resolve({ accepted: 1, duplicate: 0, invalid: 0 }),
+    );
+    const r = await cancelled();
+    r.press(tr("sos.needHelp"));
+    await tick(0);
+    // 第一次求助建出的新单 s2 出现、页面切过去，随后它也被取消
+    const s2 = sosOf({
+      sosId: "s2",
+      triggerType: "manual_sos",
+      deadline: new Date(Date.now() + 60_000).toISOString(),
+    });
+    m(sosApi.snapshot).mockImplementation(() => Promise.resolve(s2));
+    act(() => {
+      qc.setQueryData(["sos-active", "h1"], { sos: s2 });
+    });
+    await tick(0);
+    await tick(0);
+    expect(number(r)).toBe("60");
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve({ ...s2, status: "cancelled" as const }),
+    );
+    await act(async () => {
+      await qc.refetchQueries({ queryKey: ["sos", "s2"] });
+    });
+    r.press(tr("sos.needHelp"));
+    await tick(0);
+    const ids = m(relayApi.push).mock.calls.map(
+      (c) =>
+        (c[0] as { envelopes: { eventId: string }[] }).envelopes[0].eventId,
+    );
+    expect(ids).toHaveLength(2);
+    expect(ids[1]).not.toBe(ids[0]);
   });
 
   it("头盔已不在这个账号下（404）：不进补发队列，明说没发出、不会自动重发（10-17 安卓：倒数中被解绑）", async () => {
@@ -1030,6 +1622,48 @@ describe("多顶头盔同时求救（10-16 N10：一张页 + 顶部胶囊点切�
     expect(sosScreen.mounted).toBe(false);
   });
 
+  it("慢网下取消 A 还没回来就切到 B：B 的按钮不被 A 的请求锁住，「立即求救」照常发给 B；A 的失败按 A 收尾（矩阵 Q9，10-20 模拟器）", async () => {
+    twoHelmets();
+    let rejectA: (e: unknown) => void = () => undefined;
+    m(sosApi.cancel).mockImplementation(
+      () =>
+        new Promise((_, reject) => {
+          rejectA = reject;
+        }),
+    );
+    m(sosApi.confirm).mockImplementation((id: unknown) =>
+      Promise.resolve(
+        id === "s2" ? { ...second(), status: "notified" } : sosOf(),
+      ),
+    );
+    const r = await mount();
+    arrive(second());
+    await tick(0);
+    slideCancel(r);
+    await tick(0);
+    expect(sosApi.cancel).toHaveBeenCalledWith("s1");
+    expect(r.allText()).toContain(tr("sos.cancelling"));
+    r.press(tr("sos.chipLeft", { n: 50 }));
+    for (let i = 0; i < 3; i++) await tick(0);
+    expect(number(r)).toBe("50");
+    // 切到 B：B 没有在途请求，滑条不是「取消中…」，「立即求救」可点
+    expect(r.allText()).not.toContain(tr("sos.cancelling"));
+    r.press(tr("sos.sendNow"));
+    await tick(0);
+    expect(sosApi.confirm).toHaveBeenCalledWith("s2");
+    // A 的取消这时才失败、而 A 仍在倒数：照常提示（按 A 的状态判断，不是按屏上 B 的）
+    m(sosApi.snapshot).mockImplementation((id: unknown) =>
+      Promise.resolve(
+        id === "s2" ? { ...second(), status: "notified" } : sosOf(),
+      ),
+    );
+    act(() => rejectA(new TypeError("Network request failed")));
+    for (let i = 0; i < 3; i++) await tick(0);
+    // O7：不弹框；提示条只挂在没成功的 A 上，屏上是 B 时不显示
+    expect(alert).not.toHaveBeenCalled();
+    expect(r.allText()).not.toContain(tr("sos.failCancel"));
+  });
+
   it("当前单取消后提示并自动切到下一单（页面仍在倒数）；两单都结束才进结果页，按头盔逐条列结论、已取消的各有「我还是需要帮助」", async () => {
     twoHelmets();
     m(sosApi.cancel).mockImplementation((id: unknown) =>
@@ -1138,7 +1772,7 @@ describe("多顶头盔同时求救（10-16 N10：一张页 + 顶部胶囊点切�
       expect(r.allText()).not.toContain(tr("sos.switchedCancelled", { name }));
   });
 
-  it("「全部立即求救」：确认后每单都调确认接口；一单失败弹窗说明，其余照常", async () => {
+  it("「全部立即求救」：确认后每单都调确认接口；一单没成功不弹框，切到那单、提示条写立即求救没有发出；重试只重发那一单（O7）", async () => {
     twoHelmets();
     m(sosApi.confirm).mockImplementation((id: unknown) =>
       id === "s2"
@@ -1163,14 +1797,81 @@ describe("多顶头盔同时求救（10-16 N10：一张页 + 顶部胶囊点切�
         .mock.calls.map((c) => c[0])
         .sort(),
     ).toEqual(["s1", "s2"]);
-    expect(alert).toHaveBeenLastCalledWith(
-      tr("common.failed"),
-      expect.any(String),
-      NOTICE_OK,
-    );
-    // s2 没成功还在倒数：页面切到它
+    // 只有「全部立即求救」那一下的确认框，失败不再弹框
+    expect(alert).toHaveBeenCalledTimes(1);
+    // s2 没成功还在倒数：页面切到它，提示条挂在它上面
     await tick(1100);
     expect(number(r)).toBe("49");
+    expect(r.allText()).toContain(tr("sos.failSend"));
+    expect(r.allText()).toContain(tr("sos.failStillCounting", { n: 49 }));
+    expect(announce).toHaveBeenCalledWith(
+      said("sos.failSend", tr("sos.failStillCounting", { n: 50 })),
+    );
+    m(sosApi.confirm).mockImplementation((id: unknown) =>
+      Promise.resolve(
+        sosOf({ sosId: id as string, deviceId: "h2", status: "notified" }),
+      ),
+    );
+    r.press(tr("sos.retry"));
+    for (let i = 0; i < 3; i++) await tick(0);
+    expect(
+      m(sosApi.confirm)
+        .mock.calls.slice(2)
+        .map((c) => c[0]),
+    ).toEqual(["s2"]);
+    expect(r.allText()).toContain(tr("sos.multiDoneTitle", { n: 2 }));
+    expect(r.allText()).not.toContain(tr("sos.failSend"));
+    expect(alert).toHaveBeenCalledTimes(1);
+  });
+
+  it("「全部取消」两单都没成功：提示条挂在屏上这单；切到另一单的胶囊，提示条跟着那单；点重试两单一起重发、不再弹确认；都成功 → 结果页、提示条收起（O7）", async () => {
+    twoHelmets();
+    m(sosApi.cancel).mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    const r = await mount();
+    arrive(second());
+    await tick(0);
+    r.press(tr("sos.allCancel"));
+    const buttons = alert.mock.calls[0][2] as {
+      text: string;
+      onPress?: () => void;
+    }[];
+    act(() => buttons[1].onPress?.());
+    for (let i = 0; i < 4; i++) await tick(0);
+    expect(alert).toHaveBeenCalledTimes(1);
+    expect(number(r)).toBe("45");
+    expect(r.allText()).toContain(tr("sos.failCancel"));
+    expect(r.byLabel(tr("sos.retryCancelA11y"))).toBeTruthy();
+    // 两单都没成功：念最早到期的那单还剩几秒
+    expect(announce).toHaveBeenCalledWith(
+      said("sos.failCancel", tr("sos.failStillCounting", { n: 45 })),
+    );
+    // 另一单也没成功：切过去提示条还在，秒数是那单的
+    r.press(tr("sos.chipLeft", { n: 50 }));
+    for (let i = 0; i < 3; i++) await tick(0);
+    expect(number(r)).toBe("50");
+    expect(r.allText()).toContain(tr("sos.failStillCounting", { n: 50 }));
+    m(sosApi.cancel).mockImplementation((id: unknown) =>
+      Promise.resolve(
+        sosOf({
+          sosId: id as string,
+          deviceId: id === "s2" ? "h2" : "h1",
+          status: "cancelled",
+        }),
+      ),
+    );
+    r.press(tr("sos.retry"));
+    for (let i = 0; i < 4; i++) await tick(0);
+    expect(
+      m(sosApi.cancel)
+        .mock.calls.slice(2)
+        .map((c) => c[0])
+        .sort(),
+    ).toEqual(["s1", "s2"]);
+    expect(alert).toHaveBeenCalledTimes(1);
+    expect(r.allText()).toContain(tr("sos.multiDoneTitle", { n: 2 }));
+    expect(r.allText()).not.toContain(tr("sos.failCancel"));
   });
 
   it("屏上这单本机还是倒计时、同一顶头盔却来了新单（旧单终态没收到）：不崩，直接切到新单，不等旧单的权威状态——中间不出新单的胶囊、「全部取消」「也在倒计时」；旧单撤锁屏提醒、照样拉一次权威状态；不提示「已切到下一单」（10-16 评审，10-17 华为 4.27）", async () => {
@@ -1500,6 +2201,53 @@ describe("多顶头盔同时求救（10-16 N10：一张页 + 顶部胶囊点切�
     );
   });
 
+  it("「全部立即求救」请求都超时但服务端都已通知（短信慢）：不弹「出错了」；补拉后仍有一单在倒数才弹（10-20 模拟器）", async () => {
+    twoHelmets();
+    m(sosApi.confirm).mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    m(sosApi.accidentDetail).mockImplementation(() =>
+      Promise.resolve({ notifications: [] } as unknown as AccidentDetail),
+    );
+    let r = await mount();
+    arrive(second());
+    await tick(0);
+    m(sosApi.snapshot).mockImplementation((id: unknown) =>
+      Promise.resolve(
+        id === "s2"
+          ? { ...second(), status: "notified" }
+          : sosOf({ status: "notified" }),
+      ),
+    );
+    r.press(tr("sos.allSendNow"));
+    let buttons = alert.mock.calls[0][2] as { onPress?: () => void }[];
+    act(() => buttons[1].onPress?.());
+    for (let i = 0; i < 6; i++) await tick(0);
+    expect(sosApi.confirm).toHaveBeenCalledTimes(2);
+    expect(alert).toHaveBeenCalledTimes(1);
+    r.unmount();
+
+    alert.mockClear();
+    m(sosApi.snapshot).mockImplementation((id: unknown) =>
+      Promise.resolve(id === "s2" ? second() : sosOf()),
+    );
+    r = await mount();
+    arrive(second());
+    await tick(0);
+    m(sosApi.snapshot).mockImplementation((id: unknown) =>
+      Promise.resolve(id === "s2" ? second() : sosOf({ status: "notified" })),
+    );
+    r.press(tr("sos.allSendNow"));
+    buttons = alert.mock.calls[0][2] as { onPress?: () => void }[];
+    act(() => buttons[1].onPress?.());
+    for (let i = 0; i < 6; i++) await tick(0);
+    // O7：仍在倒数的那单不弹框，切过去挂页内提示条；补拉到的状态写回了缓存，不等轮询就切到还在倒数的滑雪
+    expect(alert).toHaveBeenCalledTimes(1);
+    await tick(1100);
+    expect(r.allText()).toContain(tr("sos.failSend"));
+    expect(r.allText()).toContain(tr("sos.fromHelmet", { name: "滑雪" }));
+  });
+
   it("结果页上每顶各自的「我还是需要帮助」：替那一行的头盔注入 manual_sos，两顶各用各的 eventId", async () => {
     twoHelmets();
     m(sosApi.cancel).mockImplementation((id: unknown) =>
@@ -1690,6 +2438,39 @@ describe("演练（drill=1）", () => {
     expect(r.allText()).toContain(tr("sos.drillDoneTitle"));
     expect(clearSosAlert).not.toHaveBeenCalled();
   });
+
+  // 2026-10-20 补分支：失焦收尾只该结束「还在倒数」的演练（见页面 useFocusEffect 的注释），已经出了结果的不能改写
+  const blur = async (r: Rendered) => {
+    routerState.focused = false;
+    await act(async () => {
+      r.rerender(
+        <QueryClientProvider client={qc}>
+          <SosActiveScreen />
+        </QueryClientProvider>,
+      );
+    });
+    await tick(0);
+  };
+
+  it("演练里已按「立即求救」、之后页面被盖住（失焦）：结果页仍写「会尝试短信通知联系人」，不被改写成「已在倒计时内取消」", async () => {
+    const r = await mount();
+    r.press(tr("sos.sendNow"));
+    expect(r.allText()).toContain(tr("sos.drillNotifiedBody"));
+    await blur(r);
+    expect(r.allText()).toContain(tr("sos.drillNotifiedBody"));
+    expect(r.allText()).not.toContain(tr("sos.drillCancelledBody"));
+  });
+
+  // 演练倒数走完时「已通知」是渲染期按 deadline 推出来的，本地状态仍是 pending；失焦收尾原来只看本地状态，
+  // 把一场已经走完的演练改写成「已取消」——演练要教的恰好反了（10-20 补测查出，#319 带进来的）。现在只结束还在倒数的演练
+  it("演练倒数走完（显示已通知）后失焦：结果页仍是「已通知」，不被改写成「已在倒计时内取消」", async () => {
+    const r = await mount();
+    await tick(61_000);
+    expect(r.allText()).toContain(tr("sos.drillNotifiedBody"));
+    await blur(r);
+    expect(r.allText()).toContain(tr("sos.drillNotifiedBody"));
+    expect(r.allText()).not.toContain(tr("sos.drillCancelledBody"));
+  });
 });
 
 describe("安卓闹钟通道（F15）", () => {
@@ -1758,5 +2539,147 @@ describe("状态未知时关掉页面", () => {
     expect(number(r)).toBe("45");
     r.unmount();
     expect(presentedSos.current.has("s1")).toBe(true);
+  });
+});
+
+describe("会话被服务端否定时倒数结束才登出（O19-A，负责人 10-21 定）", () => {
+  afterEach(() => {
+    act(() => {
+      useAuthStore.setState({ sessionDeadUntil: null });
+    });
+  });
+
+  it("页面把这单的截止时刻（本机时钟）登记给 auth-store；这单结束或页面关掉就撤掉", async () => {
+    const deadline = Date.now() + 45_000;
+    const r = await mount();
+    expect(countdownHoldUntil()).toBe(deadline - serverClockOffsetMs());
+
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ status: "cancelled" })),
+    );
+    await act(async () => {
+      await qc.refetchQueries({ queryKey: ["sos", "s1"] });
+    });
+    expect(countdownHoldUntil()).toBeNull();
+    r.unmount();
+    expect(countdownHoldUntil()).toBeNull();
+
+    m(sosApi.snapshot).mockImplementation(() => Promise.resolve(sosOf()));
+    const again = await mount();
+    expect(countdownHoldUntil()).not.toBeNull();
+    again.unmount();
+    expect(countdownHoldUntil()).toBeNull();
+  });
+
+  it("几单一起倒数：登记最晚的那一刻（最后一单倒数完才登出）", async () => {
+    qc = makeQueryClient();
+    const late = sosOf({
+      sosId: "s2",
+      deviceId: "h2",
+      deadline: secondsFromNow(58),
+    });
+    qc.setQueryData(["sos-active", "h2"], { sos: late });
+    await mount(false);
+    expect(countdownHoldUntil()).toBe(
+      new Date(late.deadline).getTime() - serverClockOffsetMs(),
+    );
+  });
+
+  it("演练不登记：它不通知任何人，照常登出", async () => {
+    routerState.params = { drill: "1", deviceId: "h1" };
+    await mount();
+    expect(countdownHoldUntil()).toBeNull();
+  });
+
+  it("会话已被否定：取消滑条和立即求救换成「重新登录后取消」+ 说明（到点照常通知），读屏念一遍；点它立刻回登录页", async () => {
+    const endDeadSession = jest.fn(async () => undefined);
+    const realEnd = useAuthStore.getState().endDeadSession;
+    useAuthStore.setState({ endDeadSession });
+    try {
+      const r = await mount();
+      expect(r.allText()).toContain(tr("sos.sendNow"));
+      act(() => {
+        useAuthStore.setState({ sessionDeadUntil: Date.now() + 45_000 });
+      });
+      expect(r.allText()).toContain(tr("sos.sessionDeadTitle"));
+      expect(r.allText()).toContain(tr("sos.sessionDeadBody"));
+      expect(r.allText()).not.toContain(tr("sos.sendNow"));
+      expect(r.root.findAllByType(SlideToCancel)).toHaveLength(0);
+      expect(number(r)).toBe("45"); // 倒计时照走
+      expect(announce).toHaveBeenCalledWith(
+        `${tr("sos.sessionDeadTitle")}. ${tr("sos.sessionDeadBody")}`,
+      );
+      r.press(tr("sos.reloginToCancel"));
+      expect(endDeadSession).toHaveBeenCalledTimes(1);
+    } finally {
+      useAuthStore.setState({ endDeadSession: realEnd });
+    }
+  });
+
+  it("失效期间这一页的单都结束了（还连着的实时通道推来取消 / 到点通知）：立刻回登录页，到点通知的告诉登录页联系人已收到（10-21 代码审查）", async () => {
+    const endDeadSession = jest.fn(
+      async (_o?: { duringSos?: boolean }) => undefined,
+    );
+    const realEnd = useAuthStore.getState().endDeadSession;
+    useAuthStore.setState({ endDeadSession });
+    try {
+      for (const [status, duringSos] of [
+        ["cancelled", false],
+        ["notified", true],
+      ] as const) {
+        endDeadSession.mockClear();
+        m(sosApi.snapshot).mockImplementation(() => Promise.resolve(sosOf()));
+        const r = await mount();
+        act(() => {
+          useAuthStore.setState({ sessionDeadUntil: Date.now() + 45_000 });
+        });
+        expect(endDeadSession).not.toHaveBeenCalled();
+        m(sosApi.snapshot).mockImplementation(() =>
+          Promise.resolve(sosOf({ status })),
+        );
+        await act(async () => {
+          await qc.refetchQueries({ queryKey: ["sos", "s1"] });
+        });
+        expect(endDeadSession).toHaveBeenCalledWith({ duringSos });
+        r.unmount();
+        act(() => {
+          useAuthStore.setState({ sessionDeadUntil: null });
+        });
+      }
+    } finally {
+      useAuthStore.setState({ endDeadSession: realEnd });
+    }
+  });
+
+  it("会话没失效时单子结束：不碰登录", async () => {
+    const endDeadSession = jest.fn(async () => undefined);
+    const realEnd = useAuthStore.getState().endDeadSession;
+    useAuthStore.setState({ endDeadSession });
+    try {
+      await mount();
+      m(sosApi.snapshot).mockImplementation(() =>
+        Promise.resolve(sosOf({ status: "cancelled" })),
+      );
+      await act(async () => {
+        await qc.refetchQueries({ queryKey: ["sos", "s1"] });
+      });
+      expect(endDeadSession).not.toHaveBeenCalled();
+    } finally {
+      useAuthStore.setState({ endDeadSession: realEnd });
+    }
+  });
+
+  it("几单一起倒数时会话被否定：「全部取消 / 全部立即求救」也不放", async () => {
+    qc = makeQueryClient();
+    qc.setQueryData(["sos-active", "h2"], {
+      sos: sosOf({ sosId: "s2", deviceId: "h2", deadline: secondsFromNow(50) }),
+    });
+    const r = await mount(false);
+    expect(r.allText()).toContain(tr("sos.allCancel"));
+    act(() => {
+      useAuthStore.setState({ sessionDeadUntil: Date.now() + 50_000 });
+    });
+    expect(r.allText()).not.toContain(tr("sos.allCancel"));
+    expect(r.allText()).not.toContain(tr("sos.allSendNow"));
   });
 });

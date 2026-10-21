@@ -39,6 +39,8 @@ export const auth = {
       "重新登录前，头盔检测到摔倒不会通知紧急联系人。请打开 App 重新登录；如果不是你本人操作，登录后请尽快修改密码。",
     "auth.sessionExpiredNotice":
       "登录已失效（可能是在其他设备上修改了密码）。重新登录前，头盔检测到摔倒不会通知紧急联系人。如果不是你本人操作，请登录后尽快修改密码。",
+    "auth.expiredDuringSos":
+      "退出登录时求救倒计时已经结束：如果没在别处取消，紧急联系人已收到通知。登录后可在安全记录里查看。",
     "consent.title": "请先确认协议",
     "consent.body":
       "为了向你发送摔倒与紧急求救通知，我们需要你先阅读并同意用户服务协议与隐私政策。不同意将无法继续使用。",
@@ -81,6 +83,10 @@ export const auth = {
     "auth.deleteAccount": "注销账号",
     "auth.deleteConfirmTitle": "确定注销账号？",
     "auth.deleteConfirmBody": "此操作不可撤销，账号数据将被清除。",
+    "auth.deleteBlockedSosTitle": "有一单求救还在倒计时",
+    "auth.deleteBlockedSosBody":
+      "注销会删掉紧急联系人，这单到点就一条短信也发不出去。请先在倒计时页取消，或等它结束，再注销账号。",
+    "auth.deleteBlockedSosOpen": "去倒计时页",
     "auth.deleteConfirmAction": "注销",
     "auth.deleteDone": "账号已注销",
     "sos.fall": "疑似摔倒",
@@ -112,6 +118,7 @@ export const auth = {
     "sos.slideA11y": "我没事，取消本次求救",
     "sos.slideHint": "向右滑到底取消",
     "sos.sendNow": "立即求救",
+    "sos.resentAfterCancel": "取消请求先到了，已重新发出求救",
     "sos.close": "关闭",
     "sos.fromHelmet": "来自 {name}",
     "sos.gone.title": "这条求救不存在",
@@ -132,6 +139,21 @@ export const auth = {
     "sos.multiDoneTitle": "{n} 条求救已处理",
     "sos.multiDoneBody":
       "各头盔的结果如下。已发送不代表对方已收到，请保持手机畅通；若无人回应，请直接拨打电话求助。",
+    // 倒数中「取消 / 立即求救」没成功：页内提示条（O7，10-20），不弹框盖住还在走的倒计时
+    "sos.failCancel": "取消没有成功",
+    "sos.failSend": "立即求救没有发出",
+    "sos.failStillCounting": "倒计时仍在继续，约 {n} 秒后会通知紧急联系人",
+    "sos.failDueNow": "倒计时即将结束，马上会通知紧急联系人",
+    "sos.connecting": "正在连接服务器…网络恢复后显示剩余时间",
+    "sos.sessionDeadTitle": "登录已失效",
+    "sos.sessionDeadBody":
+      "倒计时结束会照常通知紧急联系人。要取消，请重新登录，登录后这单会重新打开。",
+    "sos.reloginToCancel": "重新登录后取消",
+    "sos.reloginToCancelHint":
+      "回到登录页；登录后进行中的求救会重新打开，可以再取消",
+    "sos.retry": "重试",
+    "sos.retryCancelA11y": "重试取消本次求救",
+    "sos.retrySendA11y": "重试立即求救",
   },
   "zh-TW": {
     "sos.drillBadge": "演練模式 · 不會通知任何人",
@@ -171,6 +193,8 @@ export const auth = {
       "重新登入前，頭盔偵測到跌倒不會通知緊急聯絡人。請開啟 App 重新登入；如果不是你本人操作，登入後請盡快修改密碼。",
     "auth.sessionExpiredNotice":
       "登入已失效（可能是在其他裝置上修改了密碼）。重新登入前，頭盔偵測到跌倒不會通知緊急聯絡人。如果不是你本人操作，請登入後盡快修改密碼。",
+    "auth.expiredDuringSos":
+      "登出時求救倒數已經結束：如果沒在別處取消，緊急聯絡人已收到通知。登入後可在安全記錄裡查看。",
     "consent.title": "請先確認協議",
     "consent.body":
       "為了向你發送摔倒與緊急求救通知，我們需要你先閱讀並同意使用者服務協議與隱私政策。不同意將無法繼續使用。",
@@ -213,6 +237,10 @@ export const auth = {
     "auth.deleteAccount": "註銷帳號",
     "auth.deleteConfirmTitle": "確定註銷帳號？",
     "auth.deleteConfirmBody": "此操作無法復原，帳號資料將被清除。",
+    "auth.deleteBlockedSosTitle": "有一單求救還在倒數",
+    "auth.deleteBlockedSosBody":
+      "註銷會刪掉緊急聯絡人，這單到點就一則簡訊也發不出去。請先在倒數頁取消，或等它結束，再註銷帳號。",
+    "auth.deleteBlockedSosOpen": "去倒數頁",
     "auth.deleteConfirmAction": "註銷",
     "auth.deleteDone": "帳號已註銷",
     "sos.fall": "疑似跌倒",
@@ -244,6 +272,7 @@ export const auth = {
     "sos.slideA11y": "我沒事，取消本次求救",
     "sos.slideHint": "向右滑到底取消",
     "sos.sendNow": "立即求救",
+    "sos.resentAfterCancel": "取消請求先到了，已重新發出求救",
     "sos.close": "關閉",
     "sos.fromHelmet": "來自 {name}",
     "sos.gone.title": "這則求救不存在",
@@ -264,6 +293,20 @@ export const auth = {
     "sos.multiDoneTitle": "{n} 筆求救已處理",
     "sos.multiDoneBody":
       "各安全帽的結果如下。已傳送不代表對方已收到，請保持手機暢通；若無人回應，請直接撥打電話求助。",
+    "sos.failCancel": "取消沒有成功",
+    "sos.failSend": "立即求救沒有送出",
+    "sos.failStillCounting": "倒數仍在繼續，約 {n} 秒後會通知緊急聯絡人",
+    "sos.failDueNow": "倒數即將結束，馬上會通知緊急聯絡人",
+    "sos.connecting": "正在連線伺服器…網路恢復後顯示剩餘時間",
+    "sos.sessionDeadTitle": "登入已失效",
+    "sos.sessionDeadBody":
+      "倒數結束會照常通知緊急聯絡人。要取消，請重新登入，登入後這單會重新開啟。",
+    "sos.reloginToCancel": "重新登入後取消",
+    "sos.reloginToCancelHint":
+      "回到登入頁；登入後進行中的求救會重新開啟，可以再取消",
+    "sos.retry": "重試",
+    "sos.retryCancelA11y": "重試取消本次求救",
+    "sos.retrySendA11y": "重試立即求救",
   },
   en: {
     "sos.drillBadge": "Drill · nobody will be notified",
@@ -306,6 +349,8 @@ export const auth = {
       "Until you log in again, a detected fall will not notify your emergency contacts. Open the app to log in. If this wasn't you, change your password right after.",
     "auth.sessionExpiredNotice":
       "Your session has ended (your password may have been changed on another device). Until you log in again, a detected fall will not notify your emergency contacts. If this wasn't you, change your password right after logging in.",
+    "auth.expiredDuringSos":
+      "The SOS countdown had already ended when you were logged out. Unless it was cancelled elsewhere, your emergency contacts have been notified. Log in to see it in your safety records.",
     "consent.title": "Please review our terms",
     "consent.body":
       "To send you fall and emergency alerts we need you to read and agree to the Terms of Service and Privacy Policy. You cannot continue without agreeing.",
@@ -354,6 +399,10 @@ export const auth = {
     "auth.deleteConfirmTitle": "Delete this account?",
     "auth.deleteConfirmBody":
       "This cannot be undone. Your account data will be erased.",
+    "auth.deleteBlockedSosTitle": "An SOS is still counting down",
+    "auth.deleteBlockedSosBody":
+      "Deleting your account also deletes your emergency contacts, so no text could be sent when this SOS goes off. Cancel it on the countdown screen, or wait for it to end, then delete your account.",
+    "auth.deleteBlockedSosOpen": "Open countdown",
     "auth.deleteConfirmAction": "Delete",
     "auth.deleteDone": "Account deleted",
     "sos.fall": "Possible fall",
@@ -390,6 +439,8 @@ export const auth = {
     "sos.slideA11y": "I'm OK, cancel this SOS",
     "sos.slideHint": "Slide all the way right to cancel",
     "sos.sendNow": "Send SOS now",
+    "sos.resentAfterCancel":
+      "Your cancel arrived first, so a new SOS has been sent",
     "sos.close": "Close",
     "sos.fromHelmet": "From {name}",
     "sos.gone.title": "This SOS doesn't exist",
@@ -413,5 +464,22 @@ export const auth = {
     "sos.multiDoneTitle": "{n} SOS alerts handled",
     "sos.multiDoneBody":
       "Results for each helmet are below. Sent doesn't mean received — keep your phone reachable. If no one responds, call for help directly.",
+    "sos.failCancel": "Couldn't cancel",
+    "sos.failSend": "Couldn't send SOS now",
+    "sos.failStillCounting":
+      "The countdown is still running. Emergency contacts will be notified in about {n}s.",
+    "sos.failDueNow":
+      "The countdown is about to end. Emergency contacts will be notified shortly.",
+    "sos.connecting":
+      "Connecting to the server… The time left will show once you're back online.",
+    "sos.sessionDeadTitle": "You've been logged out",
+    "sos.sessionDeadBody":
+      "Your emergency contacts will still be notified when the countdown ends. To cancel, log in again — this SOS will reopen.",
+    "sos.reloginToCancel": "Log in to cancel",
+    "sos.reloginToCancelHint":
+      "Goes to the login page. The active SOS reopens after you log in, so you can cancel it",
+    "sos.retry": "Retry",
+    "sos.retryCancelA11y": "Retry cancelling this SOS",
+    "sos.retrySendA11y": "Retry sending SOS now",
   },
 } as const;

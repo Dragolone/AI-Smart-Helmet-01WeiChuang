@@ -15,6 +15,8 @@ import { useTheme } from "@/hooks/use-theme";
 import { translate, useT, type MessageKey } from "@/i18n";
 import { showNotice } from "@/services/notice";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 const FEEDBACK_EMAIL = "zhongqilong@01weichuang.com";
 const WEBSITE = "https://www.01weichuang.com";
 

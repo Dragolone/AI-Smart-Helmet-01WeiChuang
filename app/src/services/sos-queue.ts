@@ -10,9 +10,10 @@ import { guardActiveResult, isFinal } from "./sos-sync";
 
 /**
  * 倒计时页是否在屏上。在屏上时新到的单只进队列（页面顶部多一个胶囊、提示一句），不再叠一页；
- * use-realtime 的 openCountdown 据此决定要不要 push
+ * use-realtime 的 openCountdown 据此决定要不要 push。
+ * counting：这张页此刻还在倒数（状态未知也算）——倒数期间外来的链接不跳走（app/+native-intent），结果页不拦
  */
-export const sosScreen = { mounted: false };
+export const sosScreen = { mounted: false, counting: false };
 
 /** a 是不是比 b 晚建的单（同一时刻按单号定，结果稳定） */
 const createdLater = (a: Sos, b: Sos) =>

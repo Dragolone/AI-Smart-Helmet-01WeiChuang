@@ -266,6 +266,7 @@ import {
   flushRelayQueue,
 } from "@/services/ble-relay-uplink";
 import { useBleStore } from "@/stores/ble-store";
+import { setSplashCovering } from "@/components/splash/covering";
 import { AppState, PermissionsAndroid, Platform } from "react-native";
 import { BleManager } from "react-native-ble-plx";
 import {
@@ -1334,6 +1335,65 @@ describe("补分支（2026-10-19）", () => {
       expect(mockSvcStart).not.toHaveBeenCalled();
     });
 
+    it("开屏还在播、这次要弹授权框（O27）：等开屏让开再弹；已授过权的不等", async () => {
+      asAndroid(29);
+      const request = jest
+        .spyOn(PermissionsAndroid, "request")
+        .mockResolvedValue(RESULTS.GRANTED);
+      const check = jest
+        .spyOn(PermissionsAndroid, "check")
+        .mockResolvedValue(false);
+      setSplashCovering(true);
+      try {
+        const starting = startBleLink([ID]);
+        await tick();
+        expect(check).toHaveBeenCalled();
+        expect(request).not.toHaveBeenCalled();
+        setSplashCovering(false);
+        await starting;
+        expect(request).toHaveBeenCalledTimes(1);
+        expect(mockSvcStart).toHaveBeenCalledTimes(1);
+
+        stopBleLink();
+        await bleStackReleased();
+        check.mockResolvedValue(true);
+        setSplashCovering(true);
+        await startBleLink([ID]);
+        expect(request).toHaveBeenCalledTimes(2); // 授过权：requestMultiple / request 不会弹框，直接拿结果
+      } finally {
+        setSplashCovering(false);
+      }
+    });
+
+    it("开屏一直不让开：最多等 5 s 就弹；等的时候停了链路就不弹", async () => {
+      jest.useFakeTimers();
+      asAndroid(29);
+      const request = jest
+        .spyOn(PermissionsAndroid, "request")
+        .mockResolvedValue(RESULTS.GRANTED);
+      jest.spyOn(PermissionsAndroid, "check").mockResolvedValue(false);
+      setSplashCovering(true);
+      try {
+        const starting = startBleLink([ID]);
+        await jest.advanceTimersByTimeAsync(4_999);
+        expect(request).not.toHaveBeenCalled();
+        await jest.advanceTimersByTimeAsync(1);
+        await starting;
+        expect(request).toHaveBeenCalledTimes(1);
+
+        stopBleLink();
+        await bleStackReleased();
+        const again = startBleLink([ID]);
+        await jest.advanceTimersByTimeAsync(1_000);
+        stopBleLink();
+        await jest.advanceTimersByTimeAsync(5_000);
+        await again;
+        expect(request).toHaveBeenCalledTimes(1);
+      } finally {
+        setSplashCovering(false);
+      }
+    });
+
     it("链路已在跑时再次启动（退出工程模式恢复）：只更新目标，不再申请权限、不重建 BleManager", async () => {
       asAndroid(29);
       const request = jest
@@ -2094,5 +2154,52 @@ describe("补分支（2026-10-19）", () => {
       });
       expect(helmet.mem.get(0x24)).toBe(75);
     });
+  });
+});
+
+describe("补分支（2026-10-20）", () => {
+  const ID = "helmet_94173f";
+  const managers = () =>
+    BleManager as unknown as Mock<() => { destroy: () => unknown }>;
+
+  // 「destroy 抛错 / 拒绝」那条测的是异步拒绝；原生模块已经失效时 destroy() 会在调用当下同步抛。
+  // 这时 releasing 若没被重置成已就绪的 Promise，startBleLink 的 `await releasing` 会一直等一个永不回来的销毁——
+  // 登出重登 / 退出工程模式后链路再也起不来，摔倒事件只留在头盔 Flash 里
+  it("原生 destroy 同步抛错（原生模块已失效）：停链路不抛、销毁视为已完成，下一次启动照常新建 BleManager 并开始扫描", async () => {
+    await startBleLink([ID]);
+    await tick();
+    const results = managers().mock.results;
+    const current = results[results.length - 1].value as {
+      destroy: () => unknown;
+    };
+    current.destroy = () => {
+      throw new Error("native module gone");
+    };
+    expect(() => stopBleLink()).not.toThrow();
+    await expect(bleStackReleased()).resolves.toBeUndefined();
+    const built = managers().mock.calls.length;
+    const scans = mockScans.length;
+    await startBleLink([ID]);
+    await tick();
+    expect(managers().mock.calls.length).toBe(built + 1);
+    expect(mockScans.length).toBeGreaterThan(scans);
+    expect(link()?.phase).toBe("scanning");
+  });
+
+  // ble-plx 扫描回调的类型是 (error, device | null)：两样都空时不能当成命中去连 null.connect()（会抛进原生回调里），
+  // 也不能停掉这一轮——停了就得等 20 s 兜底才重扫，这期间上电的头盔连不上
+  it("扫描回调既没报错也没给设备（空回调）：不崩、不当命中、不重开一轮；随后真发现头盔照常连上", async () => {
+    await startBleLink([ID]);
+    await tick();
+    const scans = mockScans.length;
+    expect(() => scanCb?.(null, null)).not.toThrow();
+    await tick();
+    expect(fakeDevice.connect).not.toHaveBeenCalled();
+    expect(mockScans.length).toBe(scans);
+    expect(link()?.phase).toBe("scanning");
+    scanCb?.(null, fakeDevice);
+    for (let i = 0; i < 40 && link()?.phase !== "connected"; i += 1)
+      await tick();
+    expect(link()?.phase).toBe("connected");
   });
 });

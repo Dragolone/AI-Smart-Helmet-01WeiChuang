@@ -2,12 +2,13 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useState } from "react";
-import { Alert, StyleSheet } from "react-native";
+import { Alert, ScrollView, StyleSheet } from "react-native";
 import type { EmergencyContact } from "@helmet/shared";
 
 import { contactsApi } from "@/api/contacts";
 import { toUserMessage } from "@/api/error-messages";
 import { FormError, FormInput, PrimaryButton } from "@/components/form";
+import { KeyboardAvoid } from "@/components/keyboard-avoid";
 import { ThemedView } from "@/components/themed-view";
 import {
   PHONE_INPUT_MAX,
@@ -18,6 +19,8 @@ import { useT } from "@/i18n";
 import { contactPhoneProblem } from "@/services/contact-phone";
 import { cleanNickname } from "@/services/user-name";
 import { useAuthStore } from "@/stores/auth-store";
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
 
 export default function AddContactScreen() {
   const queryClient = useQueryClient();
@@ -91,46 +94,56 @@ export default function AddContactScreen() {
     }
   };
 
+  // 和别的表单页一样让开键盘、内容可滚（10-21 夜测）：手机竖屏时保存按钮在键盘上方，但横着拿的展开折叠屏 / 平板、
+  // 小屏手机和大字号下会被键盘盖住，原来这页不能滚、按钮够不着；键盘开着时点保存也要一次就生效
   return (
-    <ThemedView style={styles.container}>
-      <FormInput
-        label={t("contacts.name")}
-        icon="person-outline"
-        value={name}
-        onChangeText={setName}
-        maxLength={30}
-        placeholder={t("contacts.namePlaceholder")}
-      />
-      <FormInput
-        label={t("contacts.phone")}
-        icon="phone-portrait-outline"
-        value={phone}
-        onChangeText={setPhone}
-        keyboardType="phone-pad"
-        // 留出空格 / 横线 / +86 的位置（「+86 138 0000 0000」17 位），提交前再规整成 11 位
-        maxLength={PHONE_INPUT_MAX}
-        placeholder={t("contacts.phonePlaceholder")}
-      />
-      <FormInput
-        label={t("contacts.relation")}
-        icon="people-outline"
-        value={relation}
-        onChangeText={setRelation}
-        maxLength={10}
-        placeholder={t("contacts.relationPlaceholder")}
-      />
-      <FormError message={error} />
-      <PrimaryButton
-        title={t("common.save")}
-        onPress={submit}
-        loading={busy}
-        success={done}
-        onSuccessShown={() => router.back()}
-      />
+    <ThemedView style={styles.flex}>
+      <KeyboardAvoid>
+        <ScrollView
+          contentContainerStyle={styles.container}
+          keyboardShouldPersistTaps="handled"
+        >
+          <FormInput
+            label={t("contacts.name")}
+            icon="person-outline"
+            value={name}
+            onChangeText={setName}
+            maxLength={30}
+            placeholder={t("contacts.namePlaceholder")}
+          />
+          <FormInput
+            label={t("contacts.phone")}
+            icon="phone-portrait-outline"
+            value={phone}
+            onChangeText={setPhone}
+            keyboardType="phone-pad"
+            // 留出空格 / 横线 / +86 的位置（「+86 138 0000 0000」17 位），提交前再规整成 11 位
+            maxLength={PHONE_INPUT_MAX}
+            placeholder={t("contacts.phonePlaceholder")}
+          />
+          <FormInput
+            label={t("contacts.relation")}
+            icon="people-outline"
+            value={relation}
+            onChangeText={setRelation}
+            maxLength={10}
+            placeholder={t("contacts.relationPlaceholder")}
+          />
+          <FormError message={error} />
+          <PrimaryButton
+            title={t("common.save")}
+            onPress={submit}
+            loading={busy}
+            success={done}
+            onSuccessShown={() => router.back()}
+          />
+        </ScrollView>
+      </KeyboardAvoid>
     </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, gap: 12 },
+  flex: { flex: 1 },
+  container: { padding: 20, gap: 12 },
 });

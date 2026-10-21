@@ -25,6 +25,8 @@ import { cleanHelmetName } from "@/services/safety-status";
 import { useLocale, useT } from "@/i18n";
 import { fullDateTime, shortTime } from "@/i18n/format";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 const isNotFound = (e: unknown) =>
   e instanceof ApiRequestError &&
   (e.status === 404 || e.status === 400 || e.status === 403); // 400：记录号是乱码（深链），同样当找不到

@@ -266,4 +266,27 @@ describe("首次连接引导：华为「应用启动管理」那一步", () => {
     (Platform as { OS: string }).OS = "ios";
     expect((await mount()).launch()).toBeUndefined();
   });
+
+  it("没授权时第 1 步「打开蓝牙」查不到：标成未知、不当成没开去催（10-21 边界审查）；授了权才按真实开关算", async () => {
+    useBleStore.setState({ adapter: "unauthorized" });
+    let latest: Steps = [];
+    function Probe() {
+      latest = useBleOnboardingSteps();
+      return null;
+    }
+    await act(async () => {
+      tree = create(<Probe />);
+    });
+    const bt = () => latest.find((st) => st.key === "bluetooth");
+    const perm = () => latest.find((st) => st.key === "permission");
+    expect(bt()).toMatchObject({ done: false, unknown: true, blocking: false });
+    expect(perm()).toMatchObject({ done: false, blocking: true });
+
+    await act(async () => useBleStore.setState({ adapter: "off" }));
+    expect(bt()).toMatchObject({ done: false, unknown: false, blocking: true });
+    expect(perm()?.done).toBe(true);
+
+    await act(async () => useBleStore.setState({ adapter: "on" }));
+    expect(bt()).toMatchObject({ done: true, unknown: false });
+  });
 });

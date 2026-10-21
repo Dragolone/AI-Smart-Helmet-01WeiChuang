@@ -1,7 +1,12 @@
 // 开屏播到商标完成时落到哪种页面（负责人 2026-10-08 定的口径）
 import { describe, expect, it } from "@jest/globals";
 
-import { planLanding, type LandingFacts } from "../plan";
+import {
+  planLanding,
+  SPLASH_MAX_ASPECT,
+  tooWideForSplash,
+  type LandingFacts,
+} from "../plan";
 
 const facts = (over: Partial<LandingFacts> = {}): LandingFacts => ({
   hydrated: true,
@@ -63,5 +68,24 @@ describe("开屏落到哪种页面", () => {
     expect(planLanding(facts({ reduceMotion: true, deviceCount: 0 }))).toBe(
       "plain",
     );
+  });
+});
+
+describe("窗口放不下开屏就不播（负责人 10-21 定，O32 选 A）", () => {
+  it("手机竖屏、竖着拿的展开折叠屏照播；正方形（离底边太近，留余量）、横着拿和更宽的不播", () => {
+    expect(tooWideForSplash(411, 914)).toBe(false); // Pixel 8
+    expect(tooWideForSplash(701, 841)).toBe(false); // 展开折叠屏竖着（0.83）
+    expect(tooWideForSplash(686, 744)).toBe(false); // 0.92：模拟器量过完整
+    expect(tooWideForSplash(686, 686)).toBe(true); // 正方形：量过还完整，但三键导航栏会压到品牌名
+    expect(tooWideForSplash(743, 686)).toBe(true); // 1.08：「零一智行」压到手势条
+    expect(tooWideForSplash(841, 701)).toBe(true); // 展开折叠屏横着（1.2）
+    expect(tooWideForSplash(1280, 800)).toBe(true); // 平板横着
+  });
+
+  it("分界在 0.95；高度还没量出来时照常播", () => {
+    expect(tooWideForSplash(95, 100)).toBe(false);
+    expect(tooWideForSplash(96, 100)).toBe(true);
+    expect(SPLASH_MAX_ASPECT).toBe(0.95);
+    expect(tooWideForSplash(400, 0)).toBe(false);
   });
 });

@@ -284,6 +284,29 @@ describe("没有头盔 / 列表没拉到", () => {
     expect(r.allText()).not.toContain(tr("empty.devicesTitle"));
   });
 
+  it("失败过之后重拉（回前台 / 30 秒轮询）还没回来：仍是「没拉到」那一页和红字，不闪回骨架（O26，10-21 华为）", async () => {
+    m(devicesApi.list).mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    const qc = makeQueryClient();
+    const r = await mount(qc);
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("devices.loadFailedTitle")),
+    );
+    // 下一次重拉挂住（网络还没恢复）
+    m(devicesApi.list).mockImplementation(() => new Promise(() => undefined));
+    act(() => {
+      void qc.refetchQueries({ queryKey: ["devices"] });
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(qc.getQueryState(["devices"])?.fetchStatus).toBe("fetching");
+    expect(r.root.findAllByType(Skeleton)).toHaveLength(0);
+    expect(r.allText()).toContain(tr("devices.loadFailedTitle"));
+    expect(r.allText()).toContain(tr("error.network"));
+  });
+
   it("从没绑过头盔的账号：走三步指引（绑定那一步），右上角「+」也能去绑定", async () => {
     m(devicesApi.list).mockImplementation(() => Promise.resolve([]));
     const r = await mount();

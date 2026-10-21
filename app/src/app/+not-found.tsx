@@ -7,6 +7,8 @@ import { EmptyState } from "@/components/empty-state";
 import { ThemedView } from "@/components/themed-view";
 import { useT } from "@/i18n";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 export default function NotFoundScreen() {
   const t = useT();
   return (

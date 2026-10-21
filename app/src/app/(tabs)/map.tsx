@@ -120,6 +120,7 @@ import {
   parseMomentParam,
   placeEvents,
   rideAvgKmh,
+  rideMaxKmh,
   rideSeconds,
   ridesByDay,
   trackWindowOf,
@@ -131,6 +132,8 @@ import { currentHelmetOf, helmetNameOf } from "@/services/safety-status";
 import { serverNow } from "@/services/server-clock";
 import { MOVING_MPS } from "@/services/switch-reminder";
 import { useAuthStore } from "@/stores/auth-store";
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
 
 /** 底部抽屉过渡：点按/松手都用 220ms 缓出，不要弹簧的惯性（负责人 2026-09-17：点收起不要有惯性副作用） */
 const SHEET_TIMING = { duration: 220, easing: Easing.out(Easing.cubic) };
@@ -631,11 +634,12 @@ export default function MapScreen() {
     true,
   );
   const liveTrackPoints = currentRide ? liveTrack.data?.points : undefined;
-  const livePath = useMemo<LngLat[]>(() => {
-    const path = (liveTrackPoints ?? NO_POINTS).map(toGcj02);
-    // 这条线每 30 秒才向服务器取一次：把此刻的位置接在末尾，线头始终连着头盔，不落后一截
-    return path.length > 0 && livePos ? [...path, livePos] : path;
-  }, [liveTrackPoints, livePos]);
+  // 这条线每 30 秒才向服务器取一次；此刻的位置作为「线头」单独接在末尾（setTrackTip），线头始终连着头盔。
+  // 不把线头拼进整条线：那样每来一个定位就要把整条（最多 1000 点）重新注入地图页，长时间开着内存一直涨
+  const livePath = useMemo<LngLat[]>(
+    () => (liveTrackPoints ?? NO_POINTS).map(toGcj02),
+    [liveTrackPoints],
+  );
 
   // 屏幕常亮只在骑行中、且正看着地图页时开：把手机当仪表盘看时不该黑屏，停着的时候不白耗电
   useEffect(() => {
@@ -865,10 +869,16 @@ export default function MapScreen() {
     if (showRide) return;
     const map = mapRef.current;
     if (!map) return;
-    // 实时模式定时刷新这条线：不收视野，镜头归「跟随」管
-    if (livePath.length > 1) map.setTrack(livePath, { fit: false });
+    // 实时模式定时刷新这条线：不收视野，镜头归「跟随」管。服务端只有 1 个点时加上线头也能画成一段
+    if (livePath.length > 0) map.setTrack(livePath, { fit: false });
     else map.clearTrack();
   }, [showRide, livePath]);
+  // 线头：每来一个定位只发这一个点
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    map.setTrackTip(!showRide && livePath.length > 0 ? livePos : null);
+  }, [showRide, livePath.length, livePos]);
 
   const marks = useMemo<MapMark[]>(() => {
     if (!showRide || ridePath.length < 2) return [];
@@ -1023,6 +1033,12 @@ export default function MapScreen() {
       : null);
   const duration = summary ? formatRideDuration(rideSeconds(summary)) : null;
   const avgKmh = ride ? rideAvgKmh(ride) : null;
+  // 最高不小于平均（O25）：只看一个时刻时没有平均，照头盔报的写
+  const maxKmh = ride
+    ? rideMaxKmh(ride)
+    : plausibleSpeed(summary?.maxSpeed) !== null
+      ? plausibleSpeed(summary?.maxSpeed)! * 3.6
+      : null;
   const rideTitle = ride
     ? `${dayTitle(ride.startAt, locale)} ${rideTimeRange(ride, locale, t)}`
     : momentMs !== null
@@ -1115,7 +1131,10 @@ export default function MapScreen() {
             if (replayPos) map.setHelmet(replayPos);
             else map.hideHelmet();
           } else {
-            if (livePath.length > 1) map.setTrack(livePath, { fit: false });
+            if (livePath.length > 0) {
+              map.setTrack(livePath, { fit: false });
+              map.setTrackTip(livePos);
+            }
             if (livePos) map.setHelmet(livePos, { follow: true });
             else map.hideHelmet();
           }
@@ -1584,13 +1603,7 @@ export default function MapScreen() {
                           />
                           <Stat
                             label={t("map.ride.max")}
-                            value={
-                              plausibleSpeed(summary?.maxSpeed) != null
-                                ? (
-                                    plausibleSpeed(summary?.maxSpeed)! * 3.6
-                                  ).toFixed(0)
-                                : "—"
-                            }
+                            value={maxKmh !== null ? maxKmh.toFixed(0) : "—"}
                             unit="km/h"
                           />
                           <Stat

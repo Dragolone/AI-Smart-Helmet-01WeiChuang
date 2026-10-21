@@ -167,8 +167,9 @@ describe("use-realtime 的启动顺序", () => {
     expect(src).toContain(
       "const permissionReady = ensureSosAlertPermission();",
     );
+    // O10：蓝牙权限还没给过时再等通知那次申请（可能被推迟到倒计时页关掉后）有结果
     expect(src).toMatch(
-      /Promise\.all\(\[permissionReady, cachedReady\]\)\.then\(\(\) => \{\s*if \(!cancelled\) void startBleLink\(bleTargetsOf\(\)\);/,
+      /Promise\.all\(\[permissionReady, cachedReady\]\)\.then\(async \(\) => \{[\s\S]*?checkBlePermissions\(\)[\s\S]*?await whenSosAlertPermissionAsked\(\);[\s\S]*?await whenCountdownClearForPrompt\(\);[\s\S]*?void startBleLink\(bleTargetsOf\(\)\);/,
     );
     // 全文件只有这一处启动链路
     expect(src.match(/startBleLink\(/g)).toHaveLength(1);

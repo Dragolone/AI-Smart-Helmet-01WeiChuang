@@ -35,3 +35,20 @@ export function planLanding(f: LandingFacts): SplashLanding | null {
   if (f.remembered === false) return "unbound";
   return f.waited ? "plain" : null;
 }
+
+/**
+ * 窗口宽高比（宽 ÷ 高）超过它就不播开屏。开屏整套按屏幕宽度排（商标边长 = 屏宽 × 196/282），
+ * 窗口越接近方形，底下的「零一智行」越往屏幕底边挤：10-21 安卓 16 模拟器逐个比例量过，0.83（竖着拿的展开折叠屏）、
+ * 0.92、1.0 都完整（1.0 时品牌名离底边只剩约一成），1.08 压到手势条，1.17 / 1.2（横着拿）被切掉一半。
+ * 取 0.95：正方形也不播，给三键导航栏（比手势条高）留余量
+ */
+export const SPLASH_MAX_ASPECT = 0.95;
+
+/**
+ * 这个窗口放不下开屏：展开的折叠屏 / 平板横着拿（安卓 16 起大屏上系统无视竖屏锁）、分屏里又宽又矮的窗口。
+ * 负责人 10-21 定（O32 选 A）：这时不播，直接进页面；按短边自适应的开屏记在 plan/OPTIMIZATIONS.md。
+ * 高度还没量出来（0）时不拦，照常播
+ */
+export function tooWideForSplash(width: number, height: number): boolean {
+  return height > 0 && width / height > SPLASH_MAX_ASPECT;
+}

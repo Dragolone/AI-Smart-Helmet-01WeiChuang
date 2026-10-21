@@ -13,6 +13,8 @@ import { legalUrl, parseLegalDoc, type LegalDoc } from "@/constants/legal";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
 
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
+
 export default function LegalDocScreen() {
   const t = useT();
   const theme = useTheme();

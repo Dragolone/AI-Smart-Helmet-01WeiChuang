@@ -121,6 +121,11 @@ export const safety = {
     "safetySettings.notify.denied": "未开启",
     "safetySettings.notify.undetermined": "尚未授权",
     "safetySettings.notify.unknown": "待确认",
+    "safetySettings.dnd": "勿扰模式下也提醒",
+    "safetySettings.dnd.on": "已允许",
+    "safetySettings.dnd.off": "未允许：开着勿扰时收不到摔倒提醒",
+    "safetySettings.dnd.huaweiSteps":
+      "华为 / 荣耀手机：在接下来的页面点「{channel}」→「高级」，打开最下面的「覆盖“请勿打扰”模式」。",
     "safetySettings.background": "后台运行说明",
     "safetySettings.drill": "SOS 演练",
     "safetySettings.drillHint": "仅模拟流程，不发送通知",
@@ -256,6 +261,11 @@ export const safety = {
     "safetySettings.notify.denied": "未開啟",
     "safetySettings.notify.undetermined": "尚未授權",
     "safetySettings.notify.unknown": "待確認",
+    "safetySettings.dnd": "勿擾模式下也提醒",
+    "safetySettings.dnd.on": "已允許",
+    "safetySettings.dnd.off": "未允許：開著勿擾時收不到摔倒提醒",
+    "safetySettings.dnd.huaweiSteps":
+      "華為 / 榮耀手機：在接下來的頁面點「{channel}」→「進階」，打開最下面的「覆蓋『請勿打擾』模式」。",
     "safetySettings.background": "背景執行說明",
     "safetySettings.drill": "SOS 演練",
     "safetySettings.drillHint": "僅模擬流程，不傳送通知",
@@ -404,6 +414,11 @@ export const safety = {
     "safetySettings.notify.denied": "Off",
     "safetySettings.notify.undetermined": "Not granted yet",
     "safetySettings.notify.unknown": "Unconfirmed",
+    "safetySettings.dnd": "Alert during Do Not Disturb",
+    "safetySettings.dnd.on": "Allowed",
+    "safetySettings.dnd.off": "Not allowed: DND silences fall alerts",
+    "safetySettings.dnd.huaweiSteps":
+      "On Huawei / Honor phones: on the next screen tap “{channel}” → “Advanced”, then turn on “Override Do Not Disturb” at the bottom.",
     "safetySettings.background": "About running in the background",
     "safetySettings.drill": "SOS drill",
     "safetySettings.drillHint":

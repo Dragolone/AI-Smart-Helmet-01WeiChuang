@@ -36,7 +36,6 @@ import { toUserMessage } from "@/api/error-messages";
 import { BatteryArc } from "@/components/battery-arc";
 import { DeviceGuide } from "@/components/device-guide";
 import { EmptyState } from "@/components/empty-state";
-import { PrimaryButton } from "@/components/form";
 import { IntercomMiniBar } from "@/components/intercom-mini-bar";
 import { Card, type IconName } from "@/components/list";
 import {
@@ -102,6 +101,8 @@ import {
   hadHelmetBefore,
   useHelmetHistoryStore,
 } from "@/stores/helmet-history-store";
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
 
 /** 标题栏占的高度（含上边距）：算大图光晕能铺多大时要用 */
 const HEADER_HEIGHT = 48;
@@ -666,6 +667,22 @@ export default function DevicesScreen() {
     queryFn: devicesApi.list,
     refetchInterval: 30_000,
   });
+  // 重拉途中查询把上一次的错误清掉了：红字按「最近一次失败」写，拿到列表才收（O26）
+  // 渲染时就地记下来（不绕一圈 effect）
+  const [lastListError, setLastListError] = useState<unknown>(null);
+  if (devices.error && devices.error !== lastListError)
+    setLastListError(devices.error);
+  else if (
+    !devices.error &&
+    devices.data !== undefined &&
+    lastListError !== null
+  )
+    setLastListError(null);
+  const listErrorShown: unknown = devices.isError
+    ? devices.error
+    : devices.data === undefined
+      ? lastListError
+      : null;
   // 只由手势驱动：若绑到 isRefetching，后台轮询/回到页面的自动刷新也会拉出转圈，且偶发停在下拉位置不复位
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = async () => {
@@ -749,8 +766,10 @@ export default function DevicesScreen() {
   // 「设为当前」的选择还没从存储读出来时先不画大图：否则会先显示一台再跳到另一台。
   // 冷启动的开屏动画还在播路线那一段时也先画骨架，等它放行再搭（见 useSplashHold）
   const splashHold = useSplashHold();
+  // 列表失败过之后的重拉（每 30 秒、回前台……）：没有旧数据时查询会回到「加载中」，原来就闪回骨架、红字收起又冒出来
+  //（10-21 华为断网冷启动看到闪了一下，O26）。只有第一次加载画骨架；失败过就停在「没拉到」那一页，拿到了再换
   const loading =
-    devices.isLoading ||
+    (devices.isLoading && devices.errorUpdateCount === 0) ||
     viewport === 0 ||
     (list.length > 0 && !choice.ready) ||
     guidePending ||
@@ -798,9 +817,9 @@ export default function DevicesScreen() {
             </SplashArrive>
           </View>
 
-          {devices.isError && (
+          {listErrorShown !== null && (
             <ThemedText type="small" themeColor="danger">
-              {toUserMessage(devices.error)}
+              {toUserMessage(listErrorShown)}
             </ThemedText>
           )}
 
@@ -896,36 +915,20 @@ export default function DevicesScreen() {
               )}
               <View style={styles.spaceBelow} />
             </View>
-          ) : devices.data === undefined ? (
+          ) : (
             // 列表没拉到（断网冷启动）≠ 没绑头盔：原来这里也写「尚未绑定头盔」+ 绑定按钮，
-            // 绑着两顶的人断网开 App 会以为被解绑了（2026-10-15 模拟器正式包）
+            // 绑着两顶的人断网开 App 会以为被解绑了（2026-10-15 模拟器正式包）。
+            // 走到这里只剩这一种：拿到了列表却一顶都没有时，要么是三步指引、要么还在读「绑过没有」（画骨架）
             <EmptyState
               icon="cloud-offline-outline"
               title={t("devices.loadFailedTitle")}
               body={t("devices.loadFailedBody")}
-            />
-          ) : (
-            <EmptyState
-              icon="bicycle-outline"
-              title={t("empty.devicesTitle")}
-              body={t("devices.emptyBody")}
             />
           )}
         </ScrollView>
 
         {/* 人在对讲房间里时占一行（不在时不占位置）：滚动区变矮，大图跟着缩 */}
         <IntercomMiniBar style={styles.miniBar} />
-
-        {/* 一台都没有时，绑定是这一页的主操作：除了右上角的「+」，底部再放一个品牌色按钮 */}
-        {noHelmet && !guideOn && !guidePending && (
-          <View style={styles.bottomCta}>
-            <PrimaryButton
-              title={t("devices.bindNew")}
-              icon="add"
-              onPress={() => router.navigate("/bind-device")}
-            />
-          </View>
-        )}
       </SafeAreaView>
       <SwitchHelmetPrompt />
     </ThemedView>
@@ -1119,5 +1122,4 @@ const styles = StyleSheet.create({
   setCurrentText: { fontSize: 12, lineHeight: 16, fontWeight: 600 },
   skeletonName: { marginTop: 16, marginBottom: 10 },
   miniBar: { paddingHorizontal: 12, paddingBottom: 12 },
-  bottomCta: { paddingHorizontal: 20, paddingTop: 4, paddingBottom: 12 },
 });

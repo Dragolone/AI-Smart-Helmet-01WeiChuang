@@ -15,7 +15,10 @@ import {
 } from "@/constants/event-types";
 import { mixHex, withAlpha } from "../color";
 import { synthWav } from "../cue-synth";
-import { openNotificationSettings } from "../notification-settings";
+import {
+  openNotificationChannelSettings,
+  openNotificationSettings,
+} from "../notification-settings";
 import {
   JOIN_TIMEOUT_MS,
   NO_PICTURE_HINT_MS,
@@ -402,6 +405,33 @@ describe("打开通知设置", () => {
       .mockResolvedValue(undefined);
     await openNotificationSettings();
     expect(open).toHaveBeenCalledTimes(1);
+    os.restore();
+    jest.restoreAllMocks();
+  });
+
+  it("Android：求救通道的设置页（允许打扰开关在那一页），带包名和通道号；打不开退回通知页（O28）", async () => {
+    const os = jest.replaceProperty(Platform, "OS", "android");
+    const send = jest.spyOn(Linking, "sendIntent").mockResolvedValue(undefined);
+    await openNotificationChannelSettings("sos");
+    expect(send).toHaveBeenCalledWith(
+      "android.settings.CHANNEL_NOTIFICATION_SETTINGS",
+      [
+        {
+          key: "android.provider.extra.APP_PACKAGE",
+          value: "com.lingyiweichuang.app",
+        },
+        { key: "android.provider.extra.CHANNEL_ID", value: "sos" },
+      ],
+    );
+    send.mockClear();
+    send
+      .mockRejectedValueOnce(new Error("No Activity found"))
+      .mockResolvedValueOnce(undefined);
+    await openNotificationChannelSettings("sos");
+    expect(send).toHaveBeenLastCalledWith(
+      "android.settings.APP_NOTIFICATION_SETTINGS",
+      expect.any(Array),
+    );
     os.restore();
     jest.restoreAllMocks();
   });

@@ -3,26 +3,26 @@ import type {
   CreateEmergencyContactRequest,
   EmergencyContact,
   UpdateEmergencyContactRequest,
-} from '@helmet/shared';
-import { api } from './client';
+} from "@helmet/shared";
+import { api, apiList } from "./client";
 
 export const contactsApi = {
-  list: () => api<EmergencyContact[]>('/users/me/emergency-contacts'),
+  list: () => apiList<EmergencyContact>("/users/me/emergency-contacts"),
 
   create: (body: CreateEmergencyContactRequest) =>
-    api<EmergencyContact>('/users/me/emergency-contacts', {
-      method: 'POST',
+    api<EmergencyContact>("/users/me/emergency-contacts", {
+      method: "POST",
       body,
     }),
 
   update: (contactId: string, body: UpdateEmergencyContactRequest) =>
     api<EmergencyContact>(
       `/users/me/emergency-contacts/${encodeURIComponent(contactId)}`,
-      { method: 'PATCH', body },
+      { method: "PATCH", body },
     ),
 
   remove: (contactId: string) =>
     api<void>(`/users/me/emergency-contacts/${encodeURIComponent(contactId)}`, {
-      method: 'DELETE',
+      method: "DELETE",
     }),
 };
