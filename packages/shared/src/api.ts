@@ -518,8 +518,9 @@ export interface VoiceChannelMemberPublic {
 /**
  * POST /voice/channels/{id}/token 请求体（决策 #62，可整个省略——旧包不带，行为同从前）：
  * - clientId：App 进程启动时随机生成的本机标识（8–64 位字母 / 数字 / _ / -），只用来区分同一账号的几台手机；
- * - purpose：enter = 进房（含断线后自动重进），服务端记下这台为本账号当前通话的手机，并经 WS 通知同账号其他连接；
- *   renew = 在房续钥匙，若本账号已被另一台手机接管则 409 VOICE_TAKEN_OVER（WS 通知漏收时的兜底）。
+ * - purpose：enter = 用户主动进房，服务端记下这台为本账号当前通话的手机，并经 WS 通知同账号其他连接；
+ *   renew = 在房续钥匙、断线后自动重进（都是接着自己原来的通话，不抢别人的），若本账号已被另一台手机接管则
+ *   409 VOICE_TAKEN_OVER（WS 通知漏收时的兜底）。
  *   带 purpose 时 clientId 必填。
  */
 export interface VoiceTokenRequest {
