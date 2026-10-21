@@ -65,6 +65,7 @@ describe('SosSchedulerService', () => {
     finalizeNotified: jest.fn(),
     failInterrupted: jest.fn(),
     deliverPending: jest.fn(),
+    backgroundDelivery: jest.fn(),
   };
   const trigger = { handleTrigger: jest.fn() };
   let svc: SosSchedulerService;
@@ -88,6 +89,7 @@ describe('SosSchedulerService', () => {
     notifier.finalizeNotified.mockResolvedValue(undefined);
     notifier.failInterrupted.mockResolvedValue(undefined);
     notifier.deliverPending.mockResolvedValue(undefined);
+    notifier.backgroundDelivery.mockReturnValue(null);
     trigger.handleTrigger.mockResolvedValue(undefined);
     svc = new SosSchedulerService(
       prisma as unknown as PrismaService,
@@ -185,6 +187,20 @@ describe('SosSchedulerService', () => {
       d.resolve();
       await closing;
       await tick;
+      expect(closed).toBe(true);
+    });
+
+    it('「立即求救」放到后台的首投还在跑：关停也等它写完结果', async () => {
+      const d = deferred<void>();
+      notifier.backgroundDelivery.mockReturnValue(d.promise);
+      let closed = false;
+      const closing = svc.onModuleDestroy().then(() => {
+        closed = true;
+      });
+      await flush();
+      expect(closed).toBe(false);
+      d.resolve();
+      await closing;
       expect(closed).toBe(true);
     });
 

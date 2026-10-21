@@ -106,13 +106,17 @@ export class SosNotifierService {
     // 否则 confirm 会给 App 回 500，而服务端其实已 notified，用户再点一次只会得到 409。
     // 'background'（App 的「立即求救」）：首投照样立刻开始，但不让 HTTP 响应等它——短信通道慢时
     // 内联首投按联系人逐条发，3 位 × 每条 9 s 要 18 s 才回，晚于 App 的超时，App 会在「已发送」页上弹「出错了」
-    //（10-20 本地后端故障注入实测）。终态和通知行已在上面的事务里提交、WS 也已推出，响应不需要等投递
+    //（10-20 本地后端故障注入实测）。终态和通知行已在上面的事务里提交、WS 也已推出，响应不需要等投递；
+    // 后台这次没发完 / 进程倒下，通知行还在，扫描照常续投
     if (options.deliverInline === 'background') {
-      void this.deliverPending(sosId).catch((err: unknown) =>
-        this.logger.error(
-          `SOS ${sosId} 终态化后首轮投递异常（状态已 notified，由扫描续投）：${errorMessage(err)}`,
-        ),
-      );
+      const delivery: Promise<void> = this.deliverPending(sosId)
+        .catch((err: unknown) =>
+          this.logger.error(
+            `SOS ${sosId} 终态化后首轮投递异常（状态已 notified，由扫描续投）：${errorMessage(err)}`,
+          ),
+        )
+        .finally(() => this.background.delete(delivery));
+      this.background.add(delivery);
       return true;
     }
     if (options.deliverInline !== false) {
@@ -125,6 +129,18 @@ export class SosNotifierService {
       }
     }
     return true;
+  }
+
+  /** 放到后台、还没结束的首投 */
+  private readonly background = new Set<Promise<void>>();
+
+  /**
+   * 后台首投都结束时 resolve（不会 reject）；没有在跑的返回 null。
+   * 关停时等它写完结果再断库（同扫描那一轮：短信已被受理却没记 sent，重启后会再发一条）；e2e 等投递落定也用它
+   */
+  backgroundDelivery(): Promise<void> | null {
+    if (this.background.size === 0) return null;
+    return Promise.all(this.background).then(() => undefined);
   }
 
   /**
@@ -182,19 +198,21 @@ export class SosNotifierService {
       // 这一行本进程正在发（内联首投还没回来、扫描又到了这一行的重试时刻）：不再占第二次。
       // 原来在飞的那次还挂着时，扫描按 due 条件又占一次再发一条——联系人收两条，后回来的结果还会把 sent 盖成 failed（10-17 评审 SOS-2）
       if (this.inFlight.has(row.id)) continue;
-      const claimed = await this.prisma.sosNotification.updateMany({
-        where: {
-          id: row.id,
-          attempts: row.attempts,
-          status: {
-            in: [NOTIFICATION_STATUS.pending, NOTIFICATION_STATUS.failed],
-          },
-        },
-        data: { attempts: { increment: 1 } },
-      });
-      if (claimed.count === 0) continue; // 另一轮扫描已抢走这一次投递
+      // 先登记再占位：占位提交之后、回到这里之前还隔着一次 await，另一路这时查到 attempts 已 +1、又到了重试时刻的行，
+      // 登记晚了它就再占一次、多发一条（「立即求救」首投放到后台后与扫描并行，e2e 抓到过同一联系人两条）
       this.inFlight.add(row.id);
       try {
+        const claimed = await this.prisma.sosNotification.updateMany({
+          where: {
+            id: row.id,
+            attempts: row.attempts,
+            status: {
+              in: [NOTIFICATION_STATUS.pending, NOTIFICATION_STATUS.failed],
+            },
+          },
+          data: { attempts: { increment: 1 } },
+        });
+        if (claimed.count === 0) continue; // 另一轮扫描已抢走这一次投递
         await this.deliverClaimed(row);
       } finally {
         this.inFlight.delete(row.id);

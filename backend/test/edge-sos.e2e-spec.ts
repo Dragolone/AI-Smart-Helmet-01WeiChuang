@@ -31,6 +31,7 @@ import {
   resetMocks,
   sosByEvent,
   sosSmsCalls,
+  settleSosDelivery,
 } from './helpers/audit-sos';
 
 jest.setTimeout(120_000);
@@ -81,6 +82,7 @@ describe('边界：SOS 状态机与事故记录 (e2e)', () => {
 
   beforeEach(() => resetMocks(mocks));
 
+  afterEach(() => settleSosDelivery(app));
   afterAll(async () => {
     await cleanupDevices(prisma, devices);
     await cleanupUsers(prisma, users);
@@ -110,6 +112,7 @@ describe('边界：SOS 状态机与事故记录 (e2e)', () => {
       const d = await newDevice(u);
       const notified = (await trigger(u, d))!;
       await confirmSos(http, u.token, notified.id).expect(200);
+      await settleSosDelivery(app);
       for (const r of [
         await cancelSos(http, u.token, notified.id),
         await confirmSos(http, u.token, notified.id),
@@ -181,6 +184,7 @@ describe('边界：SOS 状态机与事故记录 (e2e)', () => {
       const c = (await trigger(u, d))!;
       await sleep(1200);
       await confirmSos(http, u.token, c.id).expect(200);
+      await settleSosDelivery(app);
       await scheduler.tick();
       await scheduler.tick();
       const rows = await notificationsOf(prisma, c.id);
@@ -313,6 +317,7 @@ describe('边界：SOS 状态机与事故记录 (e2e)', () => {
         .expect(204);
       await addContact(http, u.token, '新加', '19100002003');
       await confirmSos(http, u.token, c.id).expect(200);
+      await settleSosDelivery(app);
       expect(
         sosSmsCalls(mocks)
           .map(([to]) => to)
@@ -331,6 +336,7 @@ describe('边界：SOS 状态机与事故记录 (e2e)', () => {
         .send({ phone: '19100003002' })
         .expect(200);
       await confirmSos(http, u.token, c.id).expect(200);
+      await settleSosDelivery(app);
       expect(sosSmsCalls(mocks).map(([to]) => to)).toEqual(['19100003002']);
     });
 
@@ -340,6 +346,7 @@ describe('边界：SOS 状态机与事故记录 (e2e)', () => {
       await addContact(http, u.token, '老婆', '19100004001');
       const c = (await trigger(u, d))!;
       await confirmSos(http, u.token, c.id).expect(200);
+      await settleSosDelivery(app);
       const detail = await request(http)
         .get(`/api/v1/accidents/${c.id}`)
         .set(auth(u.token))
@@ -400,6 +407,7 @@ describe('边界：SOS 状态机与事故记录 (e2e)', () => {
       ))!;
       expect(c.latitude).toBeNull();
       await confirmSos(http, u.token, c.id).expect(200);
+      await settleSosDelivery(app);
       const [, msg] = sosSmsCalls(mocks)[0];
       expect(msg).toMatchObject({
         template: 'sos_alert',
