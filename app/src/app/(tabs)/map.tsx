@@ -631,11 +631,12 @@ export default function MapScreen() {
     true,
   );
   const liveTrackPoints = currentRide ? liveTrack.data?.points : undefined;
-  const livePath = useMemo<LngLat[]>(() => {
-    const path = (liveTrackPoints ?? NO_POINTS).map(toGcj02);
-    // 这条线每 30 秒才向服务器取一次：把此刻的位置接在末尾，线头始终连着头盔，不落后一截
-    return path.length > 0 && livePos ? [...path, livePos] : path;
-  }, [liveTrackPoints, livePos]);
+  // 这条线每 30 秒才向服务器取一次；此刻的位置作为「线头」单独接在末尾（setTrackTip），线头始终连着头盔。
+  // 不把线头拼进整条线：那样每来一个定位就要把整条（最多 1000 点）重新注入地图页，长时间开着内存一直涨
+  const livePath = useMemo<LngLat[]>(
+    () => (liveTrackPoints ?? NO_POINTS).map(toGcj02),
+    [liveTrackPoints],
+  );
 
   // 屏幕常亮只在骑行中、且正看着地图页时开：把手机当仪表盘看时不该黑屏，停着的时候不白耗电
   useEffect(() => {
@@ -865,10 +866,16 @@ export default function MapScreen() {
     if (showRide) return;
     const map = mapRef.current;
     if (!map) return;
-    // 实时模式定时刷新这条线：不收视野，镜头归「跟随」管
-    if (livePath.length > 1) map.setTrack(livePath, { fit: false });
+    // 实时模式定时刷新这条线：不收视野，镜头归「跟随」管。服务端只有 1 个点时加上线头也能画成一段
+    if (livePath.length > 0) map.setTrack(livePath, { fit: false });
     else map.clearTrack();
   }, [showRide, livePath]);
+  // 线头：每来一个定位只发这一个点
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    map.setTrackTip(!showRide && livePath.length > 0 ? livePos : null);
+  }, [showRide, livePath.length, livePos]);
 
   const marks = useMemo<MapMark[]>(() => {
     if (!showRide || ridePath.length < 2) return [];
@@ -1115,7 +1122,10 @@ export default function MapScreen() {
             if (replayPos) map.setHelmet(replayPos);
             else map.hideHelmet();
           } else {
-            if (livePath.length > 1) map.setTrack(livePath, { fit: false });
+            if (livePath.length > 0) {
+              map.setTrack(livePath, { fit: false });
+              map.setTrackTip(livePos);
+            }
             if (livePos) map.setHelmet(livePos, { follow: true });
             else map.hideHelmet();
           }

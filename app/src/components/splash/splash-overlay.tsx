@@ -14,7 +14,14 @@ import { Image } from "expo-image";
 import { usePathname } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   AccessibilityInfo,
   StyleSheet,
@@ -52,6 +59,7 @@ import {
   splashStory,
   whenPageReady,
 } from "./bus";
+import { setSplashCovering } from "./covering";
 import { useHeroSplash } from "./use-hero-splash";
 import { DeviceLanding, releaseDeviceLanding } from "./landing-device";
 import {
@@ -246,6 +254,13 @@ function SplashPlayer({ onDone }: { onDone: () => void }) {
 
   const warp = useMemo(() => buildWarp(), []);
   const real = useSharedValue(0);
+
+  // 这一层挂着的时候，App 自己的提示框 / Toast / Modal 先压着不出（见 covering.ts）。卸掉才算让开：
+  // 收场时页面先露出来、隔两帧这一层才卸
+  useLayoutEffect(() => {
+    setSplashCovering(true);
+    return () => setSplashCovering(false);
+  }, []);
 
   // 「由通知拉起」只在挂载时读一次：RealtimeBridge 稍后会把本地通知的启动响应清掉（sos-alert 的
   // consumeLaunchResponse），而 begin() 要等 onLayout 才跑——晚于那次清除就读成 false，锁屏按

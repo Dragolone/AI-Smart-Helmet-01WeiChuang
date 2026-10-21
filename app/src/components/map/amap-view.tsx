@@ -42,6 +42,12 @@ export interface AmapViewHandle {
   hideHelmet(): void;
   /** 画整条轨迹（荧光双层线），默认把视野收进轨迹范围 */
   setTrack(path: LngLat[], opts?: TrackOptions): void;
+  /**
+   * 实时模式下把线头接到头盔此刻的位置：只传这一个点，接在 setTrack 那条线的末尾画；null = 不接。
+   * 整条线只在服务端轨迹刷新（约 30 s）时重发——原来每来一个定位（约 5 s）就把最多 1000 个点整条注入一次，
+   * 长时间停在地图页时 App 进程内存每分钟涨约 1.2 MB（10-20 长骑行 + 模拟器对照实验）
+   */
+  setTrackTip(tip: LngLat | null): void;
   clearTrack(): void;
   setCenter(pos: LngLat, zoom?: number): void;
   /** 离线：Marker 变灰、停波纹；上线恢复 */
@@ -81,6 +87,7 @@ type Cmd =
       pad: [number, number, number, number];
     }
   | { type: "clearTrack" }
+  | { type: "trackTip"; tip: [number, number] | null }
   | { type: "center"; lng: number; lat: number; zoom?: number }
   | { type: "helmetState"; online: boolean }
   | { type: "helmetReplay"; replay: boolean }
@@ -99,6 +106,7 @@ const SLOT: Record<Cmd["type"], string> = {
   hideHelmet: "helmet",
   track: "track",
   clearTrack: "track",
+  trackTip: "trackTip",
   center: "center",
   helmetState: "helmetState",
   helmetReplay: "helmetReplay",
@@ -261,6 +269,7 @@ try {
   trackCanvas.style.pointerEvents = 'none';
   var trackLayer = null;
   var trackPath = null;
+  var trackTip = null;
   var trackShown = false;
   function drawTrack() {
     var size = map.getSize();
@@ -274,10 +283,12 @@ try {
     var ctx = trackCanvas.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    if (!trackShown || !trackPath || trackPath.length < 2) return;
-    var n = trackPath.length, xs = new Array(n), ys = new Array(n);
+    if (!trackShown || !trackPath) return;
+    var base = trackPath.length, n = base + (trackTip ? 1 : 0);
+    if (n < 2) return;
+    var xs = new Array(n), ys = new Array(n);
     for (var i = 0; i < n; i++) {
-      var q = map.lngLatToContainer(trackPath[i]);
+      var q = map.lngLatToContainer(i < base ? trackPath[i] : trackTip);
       xs[i] = q.x; ys[i] = q.y;
     }
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
@@ -350,6 +361,9 @@ try {
         fitLine.setPath(cmd.path);
         drawTrack();
         if (cmd.fit && cmd.path.length > 1) map.setFitView([fitLine], true, cmd.pad);
+      } else if (cmd.type === 'trackTip') {
+        trackTip = cmd.tip;
+        if (trackLayer) drawTrack();
       } else if (cmd.type === 'clearTrack') {
         if (trackLayer) { trackShown = false; drawTrack(); }
       } else if (cmd.type === 'center') {
@@ -464,6 +478,11 @@ export function AmapView({
           path: path.map((p) => [p.longitude, p.latitude]),
           fit: opts?.fit ?? true,
           pad: opts?.pad ?? [70, 70, 70, 70],
+        }),
+      setTrackTip: (tip) =>
+        send({
+          type: "trackTip",
+          tip: tip ? [tip.longitude, tip.latitude] : null,
         }),
       clearTrack: () => send({ type: "clearTrack" }),
       setCenter: (pos, zoom) =>

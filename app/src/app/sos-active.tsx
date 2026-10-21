@@ -48,6 +48,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { devLog } from "@/services/dev-log";
 import { onWallClockForwardJump, serverNow } from "@/services/server-clock";
 import {
+  COUNTDOWN_POLL_MS,
   countdownPollInterval,
   presentedSos,
   settleSnapshot,
@@ -133,6 +134,19 @@ function secondsLeft(deadline: string, now: number): number {
 const TOTAL_SECONDS = 60;
 /** 最后这么多秒整页转红、震动改成连着两下 */
 const URGENT_SECONDS = 10;
+/**
+ * 取消 / 立即求救失败后补拉权威状态最多等多久就下结论：网络正常（只是短信慢、响应晚）时补拉不到 1 s 就回来，
+ * 这单已办成就不提示；网络真的坏时补拉本身也会挂到超时，不能让「没成功」的提示再晚 15 s——倒计时一共才 60 s。
+ * 补拉在后台继续，晚到的结果照样写回缓存、页面跟着切
+ */
+const FAILURE_RECHECK_MS = 3_000;
+const settleWithin = <T,>(p: Promise<T>, ms: number): Promise<T | undefined> =>
+  Promise.race([
+    p,
+    new Promise<undefined>((resolve) =>
+      setTimeout(() => resolve(undefined), ms),
+    ),
+  ]);
 /** 求救的红。白字压在上面对比度 4.8 : 1（设计规范），比主题里的 danger 深一档 */
 const SOS_RED = "#D92D25";
 const SOS_RED_BEAT = "#B8241D";
@@ -261,7 +275,25 @@ function SosActiveContent() {
   const t = useT();
   const locale = useLocale();
   const queryClient = useQueryClient();
-  const [busy, setBusy] = useState<"cancel" | "confirm" | null>(null);
+  // 在途的取消 / 立即求救按单记：慢网下取消 A 还没回来时切到 B（胶囊 / 同一顶新单顶替），
+  // B 的按钮不能被 A 的请求锁住（矩阵 Q9，10-20 模拟器 netem 6 s 实测锁了约 12 s）
+  const [busyById, setBusyById] = useState<
+    Record<string, "cancel" | "confirm">
+  >({});
+  const busy = busyById[sosId] ?? null;
+  const anyBusy = Object.keys(busyById).length > 0;
+  const markBusy = (ids: string[], kind: "cancel" | "confirm") =>
+    setBusyById((b) => {
+      const n = { ...b };
+      for (const id of ids) n[id] = kind;
+      return n;
+    });
+  const clearBusy = (ids: string[]) =>
+    setBusyById((b) => {
+      const n = { ...b };
+      for (const id of ids) delete n[id];
+      return n;
+    });
   // 通知按钮的取消还在路上（被杀状态下点「我没事，取消」拉起 App，页面要过启动动画才出来）：
   // 按钮显示「取消中…」、不响警报，别让用户对着一个还在倒数的页面以为刚才那一下没算数
   const cancellingFromNotification = useSosCancelStore(
@@ -287,8 +319,13 @@ function SosActiveContent() {
     useCallback(() => {
       if (!isDrill) return undefined;
       return () => {
+        // 只结束「还在倒数」的演练：倒数走完时显示的「已通知」是渲染期按 deadline 推出来的，本地状态仍是 pending，
+        // 只看本地状态会把一场已经走完的演练改写成「已在倒计时内取消」，演练要教的正好说反（10-20 补测查出）
+        const now = serverNow();
         setDrillState((s) =>
-          s.status === "pending" ? { ...s, status: "cancelled" } : s,
+          s.status === "pending" && now < new Date(s.deadline).getTime()
+            ? { ...s, status: "cancelled" }
+            : s,
         );
       };
     }, [isDrill]),
@@ -492,10 +529,12 @@ function SosActiveContent() {
       }));
       return;
     }
-    setBusy(kind);
-    (kind === "cancel" ? sosApi.cancel(sosId) : sosApi.confirm(sosId))
+    // 请求发出时是哪一单就一直按哪一单收尾：中途切单后 sosId / sosQuery 已经指向别的单
+    const id = sosId;
+    markBusy([id], kind);
+    (kind === "cancel" ? sosApi.cancel(id) : sosApi.confirm(id))
       .then((updated) => {
-        queryClient.setQueryData(["sos", sosId], updated);
+        queryClient.setQueryData(["sos", id], updated);
       })
       .catch((e) => {
         // 这单已经在别处结束（锁屏通知按钮 / 另一台手机 / 到期）：不弹错，拉一次权威状态让页面自己切到结束态
@@ -503,12 +542,29 @@ function SosActiveContent() {
           e instanceof ApiRequestError &&
           e.code === "SOS_ALREADY_FINALIZED"
         ) {
-          void sosQuery.refetch();
+          void queryClient.invalidateQueries({
+            queryKey: ["sos", id],
+            exact: true,
+          });
           return;
         }
-        showNotice(t("common.failed"), toUserMessage(e));
+        // 请求本身失败（超时 / 断网）不等于没办成：服务端终态化时先经实时通道推新状态、再内联发短信，
+        // 短信慢时「立即求救」的响应会晚于 App 的超时，页面已经切到「已发送」，再弹「出错了」就自相矛盾
+        //（10-20 本地后端实测：3 位联系人、每条短信 9 s 时响应 18 s）。先拉一次权威状态，这单已不在倒数就不弹
+        // 补拉失败时缓存保持原样（仍在倒数）→ 照常弹；切走后这单没有观察者也要拉（type: "all"）
+        // 补拉最多等 FAILURE_RECHECK_MS 就下结论（坏网络下补拉自己也会挂住）
+        return settleWithin(
+          queryClient
+            .refetchQueries({ queryKey: ["sos", id], exact: true, type: "all" })
+            .catch(() => undefined),
+          FAILURE_RECHECK_MS,
+        ).then(() => {
+          const current = queryClient.getQueryData<Sos>(["sos", id]) ?? null;
+          if (current && current.status !== "pending") return;
+          showNotice(t("common.failed"), toUserMessage(e));
+        });
       })
-      .finally(() => setBusy(null));
+      .finally(() => clearBusy([id]));
   };
 
   const left = sos ? secondsLeft(sos.deadline, now) : null;
@@ -651,6 +707,9 @@ function SosActiveContent() {
   const contacts = useQuery({
     queryKey: ["contacts"],
     queryFn: contactsApi.list,
+    // 倒数期间跟着状态轮询的节奏一起刷：别处（另一台手机）改了联系人，这里写的「将通知谁」要跟上——
+    // 到点服务端按终态化那一刻的名单发（10-20 模拟器：开始 3 位、中途全删再加 1 位，页面 60 s 内一直写原来 3 位，O24）
+    refetchInterval: counting ? COUNTDOWN_POLL_MS : false,
   });
   // 发出去之后每位联系人的结果：与事故详情页同一份缓存；还有在发的就隔几秒再看一次
   const detail = useQuery({
@@ -799,8 +858,9 @@ function SosActiveContent() {
           text: t("common.confirm"),
           style: kind === "cancel" ? "destructive" : "default",
           onPress: () => {
-            setBulkIds(targets.map((q) => q.sosId));
-            setBusy(kind);
+            const ids = targets.map((q) => q.sosId);
+            setBulkIds(ids);
+            markBusy(ids, kind);
             void Promise.allSettled(
               targets.map((q) =>
                 (kind === "cancel"
@@ -811,17 +871,7 @@ function SosActiveContent() {
                 ),
               ),
             )
-              .then((results) => {
-                const failed = results.find(
-                  (r): r is PromiseRejectedResult =>
-                    r.status === "rejected" &&
-                    !(
-                      r.reason instanceof ApiRequestError &&
-                      r.reason.code === "SOS_ALREADY_FINALIZED"
-                    ),
-                );
-                if (failed)
-                  showNotice(t("common.failed"), toUserMessage(failed.reason));
+              .then(async (results) => {
                 // 已在别处结束的单：和单条操作一样拉一次它的权威状态（屏上这单不然要等下一轮 10 秒轮询才切走）
                 results.forEach((r, i) => {
                   if (
@@ -834,9 +884,61 @@ function SosActiveContent() {
                       exact: true,
                     });
                 });
+                // 其余失败（超时 / 断网）和单条操作一样先补拉：短信慢时服务端终态化早于响应，页面已经是
+                // 「N 条求救已处理 · 短信已发出」，再弹「出错了」就自相矛盾（10-20 模拟器：三顶、每条短信 9 s）。
+                // 补拉后仍在倒数的才提示；补拉也失败时缓存保持原样，照常提示
+                const failed = results
+                  .map((r, i) => ({ r, q: targets[i] }))
+                  .filter(
+                    (x): x is { r: PromiseRejectedResult; q: Sos } =>
+                      x.r.status === "rejected" &&
+                      !(
+                        x.r.reason instanceof ApiRequestError &&
+                        x.r.reason.code === "SOS_ALREADY_FINALIZED"
+                      ),
+                  );
+                if (failed.length > 0) {
+                  // 没切到过的单在缓存里没有自己的详情查询，直接拉一次它的快照（带它自己的头盔号）。
+                  // 拉到的状态写回缓存（晚到的也写）：WS 断着时页面也能按实际状态画，不等 10 秒轮询；
+                  // 下结论最多等 FAILURE_RECHECK_MS（坏网络下快照自己也会挂住）
+                  const fresh = await Promise.all(
+                    failed.map((f) =>
+                      settleWithin(
+                        sosApi
+                          .snapshot(f.q.sosId, f.q.deviceId)
+                          .then((snap) => {
+                            const settled = settleSnapshot(
+                              queryClient,
+                              f.q.sosId,
+                              snap,
+                            );
+                            if (settled)
+                              queryClient.setQueryData(
+                                ["sos", f.q.sosId],
+                                settled,
+                              );
+                            return settled;
+                          })
+                          .catch(() => null),
+                        FAILURE_RECHECK_MS,
+                      ).then((x) => x ?? null),
+                    ),
+                  );
+                  const stillPending = failed.find((f, i) => {
+                    const c =
+                      fresh[i] ??
+                      queryClient.getQueryData<Sos>(["sos", f.q.sosId]);
+                    return !c || c.status === "pending";
+                  });
+                  if (stillPending)
+                    showNotice(
+                      t("common.failed"),
+                      toUserMessage(stillPending.r.reason),
+                    );
+                }
                 void refreshActiveSos(queryClient);
               })
-              .finally(() => setBusy(null));
+              .finally(() => clearBusy(ids));
           },
         },
       ],
@@ -1098,7 +1200,7 @@ function SosActiveContent() {
                     <Tappable
                       feedback="scale"
                       accessibilityRole="button"
-                      disabled={busy !== null}
+                      disabled={anyBusy}
                       onPress={() => actAll("confirm")}
                       style={[styles.batchBtn, { borderColor: P.sosBtn }]}
                     >
@@ -1111,7 +1213,7 @@ function SosActiveContent() {
                     <Tappable
                       feedback="scale"
                       accessibilityRole="button"
-                      disabled={busy !== null}
+                      disabled={anyBusy}
                       onPress={() => actAll("cancel")}
                       style={[styles.batchBtn, { borderColor: theme.border }]}
                     >
