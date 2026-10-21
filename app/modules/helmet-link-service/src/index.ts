@@ -14,6 +14,9 @@ interface NativeLinkService {
   releaseNetwork(): void;
   setMicrophone(on: boolean, title: string, text: string): boolean;
   openAppLaunchSettings(): string;
+  startSosAlarm(maxMs: number): void;
+  stopSosAlarm(): void;
+  setSosAlarmUrgent(urgent: boolean): void;
 }
 
 const native =
@@ -61,6 +64,25 @@ export const HelmetLinkService = {
    * （10-18 华为实测）。返回打开的是启动管理页（launch）、本应用的应用信息页（details，EMUI 里再点「电池」）
    * 还是没打开（none：iOS / 原生包比 JS 旧）
    */
+  /**
+   * 安卓求救倒计时警报走闹钟通道（F15）：expo-audio 是媒体用途，手机静音 / 媒体音量 0 时完全无声。
+   * 原生包比 JS 旧（还没有这些方法）或 iOS 时为 false，调用方退回原来的 expo-audio + 触感
+   */
+  get sosAlarmAvailable(): boolean {
+    return typeof native?.startSosAlarm === "function";
+  },
+  /** maxMs：没人叫停时原生最多响多久（App 在后台时 JS 可能停不了它） */
+  startSosAlarm(maxMs: number): void {
+    if (typeof native?.startSosAlarm === "function")
+      native.startSosAlarm(Math.round(maxMs));
+  },
+  stopSosAlarm(): void {
+    if (typeof native?.stopSosAlarm === "function") native.stopSosAlarm();
+  },
+  setSosAlarmUrgent(urgent: boolean): void {
+    if (typeof native?.setSosAlarmUrgent === "function")
+      native.setSosAlarmUrgent(urgent);
+  },
   openAppLaunchSettings(): "launch" | "details" | "none" {
     if (typeof native?.openAppLaunchSettings !== "function") return "none";
     const r = native.openAppLaunchSettings();

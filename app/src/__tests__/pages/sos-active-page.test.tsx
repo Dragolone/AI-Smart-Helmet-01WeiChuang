@@ -133,6 +133,25 @@ jest.mock("expo-audio", () => ({
   setAudioModeAsync: jest.fn(() => Promise.resolve()),
   useAudioPlayer: () => mockAlarm,
 }));
+/** 安卓闹钟通道（F15）的替身：默认不可用（= iOS / 旧原生包），个别用例打开 */
+const mockLink = {
+  sosAlarmAvailable: false,
+  startSosAlarm: jest.fn(),
+  stopSosAlarm: jest.fn(),
+  setSosAlarmUrgent: jest.fn(),
+};
+jest.mock("helmet-link-service", () => ({
+  HelmetLinkService: {
+    get sosAlarmAvailable() {
+      return mockLink.sosAlarmAvailable;
+    },
+    startSosAlarm: (ms: number) => mockLink.startSosAlarm(ms),
+    stopSosAlarm: () => mockLink.stopSosAlarm(),
+    setSosAlarmUrgent: (u: boolean) => mockLink.setSosAlarmUrgent(u),
+    holdNetwork: jest.fn(),
+    releaseNetwork: jest.fn(),
+  },
+}));
 jest.mock("@/hooks/use-keep-awake-safe", () => ({
   useKeepAwakeSafe: jest.fn(),
 }));
@@ -2485,6 +2504,58 @@ describe("演练（drill=1）", () => {
     await blur(r);
     expect(r.allText()).toContain(tr("sos.drillNotifiedBody"));
     expect(r.allText()).not.toContain(tr("sos.drillCancelledBody"));
+  });
+});
+
+describe("安卓闹钟通道（F15）", () => {
+  afterEach(() => {
+    mockLink.sosAlarmAvailable = false;
+  });
+  it("原生闹钟通道可用：倒数时只走原生（不再每秒播 expo-audio、不再触感），最后 10 秒切急促一次，结束时停", async () => {
+    mockLink.sosAlarmAvailable = true;
+    // 截止时间只算一次：服务端给的是固定时刻（每次拉快照都重算会让效果跟着重跑）
+    const fixed = sosOf({
+      deadline: new Date(Date.now() + 15_000).toISOString(),
+    });
+    m(sosApi.snapshot).mockImplementation(() => Promise.resolve(fixed));
+    const r = await mount();
+    expect(mockLink.startSosAlarm).toHaveBeenCalledTimes(1);
+    // 原生兜底时长 = 离截止还剩的（约 15 s）+ 30 s 余量：后台 JS 叫不停时原生自己到点停
+    const cap = mockLink.startSosAlarm.mock.calls[0][0] as number;
+    expect(cap).toBeGreaterThan(40_000);
+    expect(cap).toBeLessThanOrEqual(45_000);
+    await tick(3000);
+    expect(mockAlarm.play).not.toHaveBeenCalled();
+    expect(mockLink.setSosAlarmUrgent).not.toHaveBeenCalled();
+    await tick(4000);
+    expect(mockLink.setSosAlarmUrgent).toHaveBeenCalledTimes(1);
+    expect(mockLink.setSosAlarmUrgent).toHaveBeenCalledWith(true);
+    await tick(3000);
+    expect(mockLink.setSosAlarmUrgent).toHaveBeenCalledTimes(1);
+    r.unmount();
+    expect(mockLink.stopSosAlarm).toHaveBeenCalledTimes(1);
+  });
+
+  it("截止时间解析不出来：不切急促（null 不能当 0 秒比），兜底时长按满 60 秒 + 30 秒余量", async () => {
+    mockLink.sosAlarmAvailable = true;
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ deadline: "not-a-date" })),
+    );
+    const r = await mount();
+    expect(mockLink.startSosAlarm).toHaveBeenCalledWith(90_000);
+    await tick(3000);
+    expect(mockLink.setSosAlarmUrgent).not.toHaveBeenCalled();
+    r.unmount();
+    expect(mockLink.stopSosAlarm).toHaveBeenCalledTimes(1);
+  });
+
+  it("不可用（iOS / 原生包比 JS 旧）：照旧 expo-audio 每秒重播，不碰原生", async () => {
+    const r = await mount();
+    await tick(2000);
+    expect(mockAlarm.play).toHaveBeenCalled();
+    expect(mockLink.startSosAlarm).not.toHaveBeenCalled();
+    r.unmount();
+    expect(mockLink.stopSosAlarm).not.toHaveBeenCalled();
   });
 });
 
