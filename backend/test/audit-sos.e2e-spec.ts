@@ -195,6 +195,12 @@ describe('审计 §4 SOS 全链路与状态机 (e2e, 手动 tick)', () => {
       category: 'sos',
       timeSensitive: true,
     });
+    // extras 带 kind：App 据此认出「倒计时已开始」这一条，单子结束时撤掉（O12，API.md §7「推送 extras」）
+    expect(pushCallsTitled(mocks, 'SOS 倒计时已开始')[0][3]).toEqual({
+      sosId: c!.id,
+      deviceId: devChain,
+      kind: 'sos_started',
+    });
     expect(sosSmsCalls(mocks)).toHaveLength(0);
     // 层 4：App 展示面——WS sos_update(pending) / REST active / accidents 列表；Admin 列表
     const wsPending = await ownerWs.waitForSos(c!.id, 'pending');

@@ -18,6 +18,7 @@ import { PUSH_PROVIDER, type PushProvider } from '../providers/push.provider';
 import { RealtimePushService } from '../realtime/realtime-push.service';
 import {
   SOS_PUSH_CATEGORY,
+  SOS_STARTED_PUSH_KIND,
   SOS_STATUS,
   countdownMs,
   createdPushRetryDelaysMs,
@@ -301,7 +302,7 @@ export class SosTriggerService {
             userId,
             'SOS 倒计时已开始',
             body,
-            { sosId, deviceId },
+            { sosId, deviceId, kind: SOS_STARTED_PUSH_KIND },
             { category: SOS_PUSH_CATEGORY, timeSensitive: true },
           ),
           notifyTimeoutMs(),
