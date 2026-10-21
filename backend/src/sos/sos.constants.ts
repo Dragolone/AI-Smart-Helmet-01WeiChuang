@@ -105,3 +105,9 @@ export const NOTIFICATION_STATUS = {
  * 只给倒计时推送用：到期 / 确认后的推送不带，免得已终态的单上还显示「取消」。
  */
 export const SOS_PUSH_CATEGORY = 'sos';
+
+/**
+ * 本人「SOS 倒计时已开始」推送 extras 里的 `kind`（API.md §7「推送 extras」）：App 据此认出这一条，单子结束时撤掉它、
+ * 结果通知留着（O12），不靠标题文字。到期 / 确认后的结果推送不带 kind
+ */
+export const SOS_STARTED_PUSH_KIND = 'sos_started';

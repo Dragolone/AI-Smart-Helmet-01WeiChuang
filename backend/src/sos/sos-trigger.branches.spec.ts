@@ -187,7 +187,7 @@ describe('SosTriggerService：剩余分支', () => {
       'u1',
       'SOS 倒计时已开始',
       '头盔 红色头盔 触发手动求救，未取消将于 60 秒后通知紧急联系人',
-      { sosId: 'c2', deviceId: 'helmet_001' },
+      { sosId: 'c2', deviceId: 'helmet_001', kind: 'sos_started' },
       { category: 'sos', timeSensitive: true },
     );
   });
