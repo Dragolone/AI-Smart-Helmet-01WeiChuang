@@ -8,16 +8,20 @@
 //   各层是叠着而不是对接的，所以不会在 90° / 180° 处露缝。
 // - 两头的圆角是小圆点：起点固定，终点跟着进度转。
 // - 刻度：每 10° 一根。
+// 安卓 8.x 的旧绘制管线画不对这套边框（legacy-renderer），在那上面弧改用 Skia 画，刻度照旧。
 import type { ReactNode } from "react";
 import { useEffect } from "react";
 import { PixelRatio, StyleSheet, View } from "react-native";
 import Animated, {
   Easing,
+  type SharedValue,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
 
+import { LEGACY_ANDROID_RENDERER } from "@/components/legacy-renderer";
+import { SkiaArc } from "@/components/skia-arc";
 import { arcSegment } from "@/services/device-home";
 
 /** 设计稿画在 240 的画布上：环半径 104、线宽 6；刻度在半径 114 处，长 5、宽 1.6 */
@@ -34,15 +38,7 @@ const TICK_ANGLES = Array.from(
   (_, i) => -SWEEP / 2 + i * 10,
 );
 
-export function BatteryArc({
-  size,
-  value,
-  color,
-  track,
-  tick,
-  dimmed = false,
-  children,
-}: {
+type BatteryArcProps = {
   size: number;
   /** 0–100；null = 没有电量数据，只画底环 */
   value: number | null;
@@ -53,7 +49,14 @@ export function BatteryArc({
   /** 进度弧变淡：没连上时显示的是上次电量 */
   dimmed?: boolean;
   children?: ReactNode;
-}) {
+};
+
+export function BatteryArc({
+  value,
+  color,
+  dimmed = false,
+  ...rest
+}: BatteryArcProps) {
   const p = useSharedValue(0);
   useEffect(() => {
     const v = value === null ? 0 : Math.max(0, Math.min(100, value)) / 100;
@@ -68,7 +71,98 @@ export function BatteryArc({
   useEffect(() => {
     dim.set(withTiming(dimmed ? 0.45 : 1, { duration: 240 }));
   }, [dimmed, dim]);
+  const anim = { p, stroke, dim, dimmed };
+  return LEGACY_ANDROID_RENDERER ? (
+    <BatteryArcSkia {...rest} {...anim} />
+  ) : (
+    <BatteryArcViews {...rest} {...anim} />
+  );
+}
 
+type ArcBodyProps = Omit<BatteryArcProps, "value" | "color" | "dimmed"> & {
+  p: SharedValue<number>;
+  stroke: SharedValue<string>;
+  dim: SharedValue<number>;
+  dimmed: boolean;
+};
+
+/** 每 10° 一根刻度（两种画法共用：旋转的细长方块，旧管线也画得对） */
+function Ticks({ size, tick }: { size: number; tick: string }) {
+  const snap = PixelRatio.roundToNearestPixel;
+  const k = size / VIEWBOX;
+  const half = snap(size / 2);
+  const box = half * 2;
+  const tickW = Math.max(snap(TICK_W * k), 1 / PixelRatio.get());
+  return TICK_ANGLES.map((deg) => (
+    <View
+      key={deg}
+      pointerEvents="none"
+      style={[
+        styles.abs,
+        {
+          left: half - tickW / 2,
+          top: 0,
+          width: tickW,
+          height: box,
+          transform: [{ rotate: `${deg}deg` }],
+        },
+      ]}
+    >
+      <View
+        style={{
+          marginTop: half - (TICK_R + TICK_LEN / 2) * k,
+          width: tickW,
+          height: TICK_LEN * k,
+          backgroundColor: tick,
+        }}
+      />
+    </View>
+  ));
+}
+
+/** 安卓 8.x：同样尺寸的 270° 底环 + 进度弧，起点在左下（缺口朝下） */
+function BatteryArcSkia({
+  size,
+  track,
+  tick,
+  children,
+  p,
+  stroke,
+  dim,
+}: ArcBodyProps) {
+  const snap = PixelRatio.roundToNearestPixel;
+  const k = size / VIEWBOX;
+  const box = snap(size / 2) * 2;
+  const w = snap((RING_W * k) / 2) * 2;
+  return (
+    <View style={{ width: box, height: box }}>
+      <Ticks size={size} tick={tick} />
+      <SkiaArc
+        box={box}
+        r={RING_R * k}
+        w={w}
+        startDeg={90 + (360 - SWEEP) / 2}
+        sweepDeg={SWEEP}
+        track={track}
+        color={stroke}
+        progress={p}
+        opacity={dim}
+      />
+      {children}
+    </View>
+  );
+}
+
+function BatteryArcViews({
+  size,
+  track,
+  tick,
+  children,
+  p,
+  stroke,
+  dim,
+  dimmed,
+}: ArcBodyProps) {
   // 尺寸全部落在整像素上：几层弧是各自排版的，带小数时各取各的整，叠在一起会错开一像素
   const snap = PixelRatio.roundToNearestPixel;
   const k = size / VIEWBOX;
@@ -78,7 +172,6 @@ export function BatteryArc({
   const outer = snap(RING_R * k + w / 2);
   const off = half - outer;
   const r = outer - w / 2;
-  const tickW = Math.max(snap(TICK_W * k), 1 / PixelRatio.get());
   const ring = {
     width: outer * 2,
     height: outer * 2,
@@ -128,31 +221,7 @@ export function BatteryArc({
 
   return (
     <View style={{ width: box, height: box }}>
-      {TICK_ANGLES.map((deg) => (
-        <View
-          key={deg}
-          pointerEvents="none"
-          style={[
-            styles.abs,
-            {
-              left: half - tickW / 2,
-              top: 0,
-              width: tickW,
-              height: box,
-              transform: [{ rotate: `${deg}deg` }],
-            },
-          ]}
-        >
-          <View
-            style={{
-              marginTop: half - (TICK_R + TICK_LEN / 2) * k,
-              width: tickW,
-              height: TICK_LEN * k,
-              backgroundColor: tick,
-            }}
-          />
-        </View>
-      ))}
+      <Ticks size={size} tick={tick} />
 
       <View
         pointerEvents="none"

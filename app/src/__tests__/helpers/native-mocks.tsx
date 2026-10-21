@@ -205,11 +205,20 @@ export function skiaMock() {
     C.displayName = `Skia${name}`;
     return C;
   };
-  const path = () => ({
-    kind: "path",
-    copy: () => path(),
-    getBounds: () => ({ x: 0, y: 0, width: 24, height: 24 }),
-  });
+  const path = () => {
+    const p = {
+      kind: "path",
+      /** addArc 收到的参数（旧绘制管线的安卓上用 Skia 画环，legacy-rings 测试看它） */
+      arcs: [] as unknown[][],
+      copy: () => path(),
+      getBounds: () => ({ x: 0, y: 0, width: 24, height: 24 }),
+      addArc: (...args: unknown[]) => {
+        p.arcs.push(args);
+        return p;
+      },
+    };
+    return p;
+  };
   const known: Record<string, unknown> = {
     Path: {
       MakeFromSVGString: (svg: string) =>

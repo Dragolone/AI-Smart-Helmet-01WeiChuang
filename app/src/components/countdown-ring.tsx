@@ -10,12 +10,16 @@
 //      盖上去的弧两头都落在已经上色的整段里，自己不露头。
 //   各层是叠着而不是对接的，所以不会在 90° / 180° / 270° 处露缝。
 // 进度由调用方给（一个 0–1 的共享值）：怎么走、走多快是页面的事，这里只管画。
+// 安卓 8.x 的旧绘制管线画不对这套边框（legacy-renderer），在那上面改用 Skia 画同样尺寸的环。
 import type { ReactNode } from "react";
 import { PixelRatio, StyleSheet, View } from "react-native";
 import Animated, {
   useAnimatedStyle,
   type SharedValue,
 } from "react-native-reanimated";
+
+import { LEGACY_ANDROID_RENDERER } from "@/components/legacy-renderer";
+import { SkiaArc } from "@/components/skia-arc";
 
 /** 设计稿画在 252 的画布上：环半径 118、线宽 10 */
 const VIEWBOX = 252;
@@ -28,20 +32,61 @@ function quarter(p: number, i: number): number {
   return Math.max(0, Math.min(1, p * 4 - i));
 }
 
-export function CountdownRing({
-  size,
-  progress,
-  color,
-  track,
-  children,
-}: {
+type CountdownRingProps = {
   size: number;
   /** 还剩多少：1 = 整圈，0 = 没有了 */
   progress: SharedValue<number>;
   color: string;
   track: string;
   children?: ReactNode;
-}) {
+};
+
+export function CountdownRing(props: CountdownRingProps) {
+  return LEGACY_ANDROID_RENDERER ? (
+    <CountdownRingSkia {...props} />
+  ) : (
+    <CountdownRingViews {...props} />
+  );
+}
+
+/** 安卓 8.x：同样的尺寸和线宽，从正上方顺时针画「还剩多少」 */
+function CountdownRingSkia({
+  size,
+  progress,
+  color,
+  track,
+  children,
+}: CountdownRingProps) {
+  const snap = PixelRatio.roundToNearestPixel;
+  const k = size / VIEWBOX;
+  const box = snap(size / 2) * 2;
+  const w = snap((RING_W * k) / 2) * 2;
+  return (
+    <View style={{ width: box, height: box }}>
+      <SkiaArc
+        box={box}
+        r={RING_R * k}
+        w={w}
+        startDeg={-90}
+        sweepDeg={359.9}
+        track={track}
+        color={color}
+        progress={progress}
+      />
+      <View style={[styles.abs, styles.inside, { width: box, height: box }]}>
+        {children}
+      </View>
+    </View>
+  );
+}
+
+function CountdownRingViews({
+  size,
+  progress,
+  color,
+  track,
+  children,
+}: CountdownRingProps) {
   // 尺寸全部落在整像素上：几层弧是各自排版的，带小数时各取各的整，叠在一起会错开一像素
   const snap = PixelRatio.roundToNearestPixel;
   const k = size / VIEWBOX;
