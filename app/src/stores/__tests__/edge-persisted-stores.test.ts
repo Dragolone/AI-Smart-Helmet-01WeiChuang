@@ -622,7 +622,8 @@ describe("locale-store", () => {
     ["zh-CN", "zh-CN"],
     ["zh-Hans-HK", "zh-CN"],
     ["zh", "zh-CN"],
-    ["ja-JP", "zh-CN"],
+    // 中文以外退回英文（O11）
+    ["ja-JP", "en"],
     [undefined, "zh-CN"],
   ])("系统语言 %s → %s", (tag, expected) => {
     withSystemLocale(tag);

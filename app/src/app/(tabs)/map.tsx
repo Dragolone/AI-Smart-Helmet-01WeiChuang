@@ -120,6 +120,7 @@ import {
   parseMomentParam,
   placeEvents,
   rideAvgKmh,
+  rideMaxKmh,
   rideSeconds,
   ridesByDay,
   trackWindowOf,
@@ -1030,6 +1031,12 @@ export default function MapScreen() {
       : null);
   const duration = summary ? formatRideDuration(rideSeconds(summary)) : null;
   const avgKmh = ride ? rideAvgKmh(ride) : null;
+  // 最高不小于平均（O25）：只看一个时刻时没有平均，照头盔报的写
+  const maxKmh = ride
+    ? rideMaxKmh(ride)
+    : plausibleSpeed(summary?.maxSpeed) !== null
+      ? plausibleSpeed(summary?.maxSpeed)! * 3.6
+      : null;
   const rideTitle = ride
     ? `${dayTitle(ride.startAt, locale)} ${rideTimeRange(ride, locale, t)}`
     : momentMs !== null
@@ -1594,13 +1601,7 @@ export default function MapScreen() {
                           />
                           <Stat
                             label={t("map.ride.max")}
-                            value={
-                              plausibleSpeed(summary?.maxSpeed) != null
-                                ? (
-                                    plausibleSpeed(summary?.maxSpeed)! * 3.6
-                                  ).toFixed(0)
-                                : "—"
-                            }
+                            value={maxKmh !== null ? maxKmh.toFixed(0) : "—"}
                             unit="km/h"
                           />
                           <Stat

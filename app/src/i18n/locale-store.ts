@@ -34,13 +34,18 @@ export function detectLocale(): Locale {
     /* 极少数环境 Intl 不可用：按简体 */
   }
   const lower = tag.toLowerCase();
-  if (lower.startsWith("en")) return "en";
-  // 繁体：脚本写明 Hant，或地区是台湾 / 香港 / 澳门（脚本写明 Hans 的除外，如 zh-Hans-HK）。
-  // 粤语（yue-Hant-HK，iOS 可选「粤语（繁体）」）也是繁体字，原来落到简体
-  if (/^(zh|yue)(-|$)/.test(lower) && !/-hans(-|$)/.test(lower)) {
-    if (/-(hant|tw|hk|mo)(-|$)/.test(lower)) return "zh-TW";
+  // 读不出系统语言（空标签）：按国内默认简体
+  if (lower === "") return "zh-CN";
+  if (/^(zh|yue)(-|$)/.test(lower)) {
+    // 繁体：脚本写明 Hant，或地区是台湾 / 香港 / 澳门（脚本写明 Hans 的除外，如 zh-Hans-HK）。
+    // 粤语（yue-Hant-HK，iOS 可选「粤语（繁体）」）也是繁体字，原来落到简体
+    if (!/-hans(-|$)/.test(lower) && /-(hant|tw|hk|mo)(-|$)/.test(lower))
+      return "zh-TW";
+    return "zh-CN";
   }
-  return "zh-CN";
+  // 中文以外的系统语言（日语、韩语、法语……）退回英文：系统语言不是中文的人多半看不懂中文
+  //（负责人 10-21 定，O11；原来一律退回简体中文）
+  return "en";
 }
 
 type LocaleState = {

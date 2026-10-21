@@ -403,12 +403,21 @@ export default function IntercomScreen() {
   const rejoinRef = useRef<(from: Resume) => void>(() => {});
   /** 正在结束通话（提示音响完才真退房） */
   const leaving = useRef(false);
+  /** 结束通话后那 260 ms 的延时退房：这期间又进了别的频道就作废它，不然它会把新进的房也退掉 */
+  const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (leaveTimer.current) clearTimeout(leaveTimer.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     const cloud = trtc.current;
     const keys = new RoomKeyRenewer({
       fetchKey: (id) => channelsApi.token(id).then((tk) => tk.privateMapKey),
-      applyKey: (key) => cloud.callExperimentalAPI(updatePrivateMapKeyJson(key)),
+      applyKey: (key) =>
+        cloud.callExperimentalAPI(updatePrivateMapKeyJson(key)),
       // 在另一台手机上退出了这个频道：钥匙续不上了。主动结束这次通话，不等手里那把过期、到重连时才被拒
       onRemoved: () => {
         joinSeq.current += 1;
@@ -520,7 +529,9 @@ export default function IntercomScreen() {
             ).catch(() => {});
             showToast(
               translate(
-                reason === 2 ? "intercom.exit.dismissed" : "intercom.exit.kicked",
+                reason === 2
+                  ? "intercom.exit.dismissed"
+                  : "intercom.exit.kicked",
               ),
             );
           }
@@ -727,6 +738,12 @@ export default function IntercomScreen() {
   /** resumeFrom：断线重连被拒后的自动重进，带着掉线前的说话方式 */
   const join = async (target: VoiceChannel, resumeFrom?: Resume) => {
     if (joining) return;
+    // 刚结束通话、延时退房还没执行就进了别的频道：作废那次退房（下面进房前会先退一次房，效果一样）
+    if (leaveTimer.current) {
+      clearTimeout(leaveTimer.current);
+      leaveTimer.current = null;
+      leaving.current = false;
+    }
     const seq = (joinSeq.current += 1);
     awaitingEnter.current = 0;
     resume.current = resumeFrom ?? null;
@@ -825,7 +842,8 @@ export default function IntercomScreen() {
     trtc.current.muteLocalAudio(true).catch(() => {});
     playCue("leave");
     // 留一点时间让提示音响完：退房会把 TRTC 的音频引擎一起停掉
-    setTimeout(() => {
+    leaveTimer.current = setTimeout(() => {
+      leaveTimer.current = null;
       leaving.current = false;
       void trtc.current.exitRoom();
     }, 260);
