@@ -143,6 +143,8 @@ describe("按账号分区：文件名层面的隔离", () => {
     const a1 = env("location_update", "helmet_of_A");
     up.enqueueRelayEvent(a1);
     up.stopRelayUplink();
+    // 积压还没读进内存就停：等读完合并再落盘（10-21），所以文件晚一拍才写
+    await tick();
     const aFileBefore = mockFiles.get(fileOf("user_A"));
     expect(savedIds("user_A")).toEqual([a1.eventId]);
 
@@ -164,11 +166,12 @@ describe("按账号分区：文件名层面的隔离", () => {
     expect(sentIds(push)).toEqual([[b1.eventId], [a1.eventId]]);
   });
 
-  it("归属键含路径分隔符时做 URI 编码，文件名不会逃出文档目录", () => {
+  it("归属键含路径分隔符时做 URI 编码，文件名不会逃出文档目录", async () => {
     const { up } = load();
     up.startRelayUplink("../a/b");
     up.enqueueRelayEvent(env("device_status"));
     up.stopRelayUplink();
+    await tick();
     expect([...mockFiles.keys()]).toEqual(["ble-relay-queue...%2Fa%2Fb.json"]);
   });
 
@@ -763,6 +766,7 @@ describe("discardRelayQueue：注销账号后丢掉这个账号的积压", () =>
     up.startRelayUplink("user_B");
     up.enqueueRelayEvent(env("location_update", "helmet_of_B"));
     up.stopRelayUplink();
+    await tick();
     expect(savedIds("user_B")).toHaveLength(1);
 
     up.startRelayUplink("user_A");
