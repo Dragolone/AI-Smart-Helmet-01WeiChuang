@@ -24,6 +24,7 @@ import {
   waitFor,
   type Rendered,
 } from "@/__tests__/helpers/render";
+import { SessionEndedError } from "@/api/client";
 import { contactsApi } from "@/api/contacts";
 import { devicesApi } from "@/api/devices";
 import { BatteryArc } from "@/components/battery-arc";
@@ -282,6 +283,18 @@ describe("没有头盔 / 列表没拉到", () => {
     );
     expect(r.allText()).toContain(tr("error.network"));
     expect(r.allText()).not.toContain(tr("empty.devicesTitle"));
+  });
+
+  it("列表拉取时会话已失效（正被送回登录页）：页上不再写一遍「登录已失效」", async () => {
+    m(devicesApi.list).mockImplementation(() =>
+      Promise.reject(new SessionEndedError()),
+    );
+    const r = await mount();
+    await waitFor(() => expect(devicesApi.list).toHaveBeenCalled());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(r.allText()).not.toContain(tr("error.sessionEnded"));
   });
 
   it("失败过之后重拉（回前台 / 30 秒轮询）还没回来：仍是「没拉到」那一页和红字，不闪回骨架（O26，10-21 华为）", async () => {

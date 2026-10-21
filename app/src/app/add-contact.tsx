@@ -6,7 +6,7 @@ import { Alert, ScrollView, StyleSheet } from "react-native";
 import type { EmergencyContact } from "@helmet/shared";
 
 import { contactsApi } from "@/api/contacts";
-import { toUserMessage } from "@/api/error-messages";
+import { isSessionEnded, toUserMessage } from "@/api/error-messages";
 import { FormError, FormInput, PrimaryButton } from "@/components/form";
 import { KeyboardAvoid } from "@/components/keyboard-avoid";
 import { ThemedView } from "@/components/themed-view";
@@ -88,6 +88,8 @@ export default function AddContactScreen() {
       await queryClient.invalidateQueries({ queryKey: ["contacts"] });
       setDone(true);
     } catch (e) {
+      // 会话已失效：正被送回登录页，登录页自有说明
+      if (isSessionEnded(e)) return;
       setError(toUserMessage(e));
     } finally {
       setBusy(false);

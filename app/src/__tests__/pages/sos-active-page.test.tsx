@@ -36,7 +36,7 @@ import {
   render,
   type Rendered,
 } from "@/__tests__/helpers/render";
-import { ApiRequestError } from "@/api/client";
+import { ApiRequestError, SessionEndedError } from "@/api/client";
 import { contactsApi } from "@/api/contacts";
 import { devicesApi } from "@/api/devices";
 import { toUserMessage } from "@/api/error-messages";
@@ -980,6 +980,21 @@ describe("取消 / 立即求救", () => {
     // O7：仍在倒数时不弹框，走页内提示条
     expect(alert).not.toHaveBeenCalled();
     expect(r.allText()).toContain(tr("sos.failCancel"));
+  });
+
+  it("会话已失效：照样提示「没立即通知」——别的页这时不再提示，倒计时页是例外：没取消掉 / 没立即通知的结果，登录页的说明讲不出来", async () => {
+    m(sosApi.confirm).mockImplementation(() =>
+      Promise.reject(new SessionEndedError()),
+    );
+    const r = await mount();
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.reject(new SessionEndedError()),
+    );
+    r.press(tr("sos.sendNow"));
+    await tick(0);
+    await tick(0);
+    // O7：仍在倒数时走页内提示条，不弹框
+    expect(r.allText()).toContain(tr("sos.failSend"));
   });
 });
 

@@ -42,7 +42,7 @@ import {
   type Rendered,
 } from "@/__tests__/helpers/render";
 import { channelsApi } from "@/api/channels";
-import { ApiRequestError } from "@/api/client";
+import { ApiRequestError, SessionEndedError } from "@/api/client";
 import { toUserMessage } from "@/api/error-messages";
 import { DotsLoader } from "@/components/motion";
 import { showToast } from "@/components/toast";
@@ -1866,6 +1866,168 @@ describe("页面进出", () => {
     expect(mockCloud.unRegisterListener).toHaveBeenCalled();
     expect(mockCloud.exitRoom.mock.calls.length).toBe(exits + 1);
     expect(useIntercomStore.getState().session).toBeNull();
+  });
+});
+
+describe("会话已失效（正被送回登录页）：不再单独提示，登录页自有说明", () => {
+  it("新建、邀请码加入、退出频道遇到会话已失效：都不弹失败提示", async () => {
+    m(channelsApi.create).mockImplementation(() =>
+      Promise.reject(new SessionEndedError()),
+    );
+    m(channelsApi.join).mockImplementation(() =>
+      Promise.reject(new SessionEndedError()),
+    );
+    m(channelsApi.leave).mockImplementation(() =>
+      Promise.reject(new SessionEndedError()),
+    );
+    const r = mount();
+    await waitFor(() => expect(r.texts()).toContain(C1.name));
+
+    await tap(r, tr("intercom.add.a11y"));
+    await press(r, tr("intercom.add.create"));
+    r.type(tr("intercom.channelNamePlaceholder"), "车队");
+    await press(r, tr("intercom.createAction"));
+    await waitFor(() => expect(channelsApi.create).toHaveBeenCalled());
+    act(() => r.root.findAllByType(Modal)[1].props.onRequestClose());
+
+    await tap(r, tr("intercom.add.a11y"));
+    await press(r, tr("intercom.add.join"));
+    r.type(tr("intercom.inviteCodePlaceholder"), "AB12CD");
+    await press(r, tr("intercom.join"));
+    await waitFor(() => expect(channelsApi.join).toHaveBeenCalled());
+    act(() => r.root.findAllByType(Modal)[2].props.onRequestClose());
+
+    await tap(r, tr("intercom.more.a11y", { name: C1.name }));
+    await press(r, tr("intercom.more.quit"));
+    const confirm = alert.mock.calls.find(
+      (c: unknown[]) => c[0] === tr("intercom.leaveChannel"),
+    )!;
+    await act(async () => {
+      (confirm[2] as { onPress?: () => void }[])[1].onPress!();
+    });
+    await waitFor(() => expect(channelsApi.leave).toHaveBeenCalled());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    // 只有退出频道前的那个确认框
+    expect(alert.mock.calls.map((c: unknown[]) => c[0])).toEqual([
+      tr("intercom.leaveChannel"),
+    ]);
+  });
+
+  it("进房拿凭证时会话已失效：列表下不写「登录已失效」，也不卡在进入中", async () => {
+    m(channelsApi.token).mockImplementation(() =>
+      Promise.reject(new SessionEndedError()),
+    );
+    const r = mount();
+    await waitFor(() => expect(r.texts()).toContain(C1.name));
+    await tap(r, tr("intercom.enter.a11y", { name: C1.name }));
+    await waitFor(() => expect(count(r, tr("intercom.enter"))).toBe(2));
+    expect(r.allText()).not.toContain(tr("error.sessionEnded"));
+    expect(mockCloud.enterRoom).not.toHaveBeenCalled();
+  });
+});
+
+// 夜测 N8（2026-10-16）：系统「显示大小」调到最大（约 600dpi，1080 像素宽的屏只剩约 288dp）时，
+// 一行里图标、「更多」、定宽的「进入」把名字挤得只剩 1 个字，「进入」也被切。名字要先留够几个字，
+// 放不下时「更多」「进入」整组换到下一行靠右，「进入」按字的大小撑开。
+// 第一版用 flexBasis，安卓 16 上不参与换行判断（Wesley 10-18 模拟器实测仍挤成「周…」），改成 minWidth
+describe("频道行：窄屏 / 大字体下名字不被挤没（夜测 N8）", () => {
+  const NAME_MIN_CHARS = 5;
+  const NAME_FONT_SIZE = 16;
+  /** 288dp 宽时卡片里能用的宽度：页面左右留白 20 × 2、卡片内边距 14 + 12、边框 1 × 2 */
+  const CARD_INNER = 288 - 20 * 2 - 14 - 12 - 2;
+  let dims: { mockRestore: () => void } | null = null;
+  const at = (fontScale: number) => {
+    // 同 edge-large-font：react-native 的导出是 getter，换原模块上的 getter 本身
+    const raw = require("react-native") as { useWindowDimensions: object };
+    dims = jest
+      .spyOn(raw, "useWindowDimensions", "get")
+      .mockReturnValue(() => ({
+        width: 288,
+        height: 592,
+        scale: 3.75,
+        fontScale,
+      }));
+  };
+  afterEach(() => {
+    dims?.mockRestore();
+    dims = null;
+  });
+
+  /** 从 n 往上到 stop（不含）的祖先 */
+  const chain = (n: ReactTestInstance, stop?: ReactTestInstance) => {
+    const out: ReactTestInstance[] = [];
+    for (let p = n.parent; p && p !== stop; p = p.parent) out.push(p);
+    return out;
+  };
+  const rowParts = (r: Rendered) => {
+    const name = r.root.find((n) => isHost(n, "Text") && textOf(n) === C1.name);
+    const enterBtn = node(r, tr("intercom.enter.a11y", { name: C1.name }));
+    const moreBtn = node(r, tr("intercom.more.a11y", { name: C1.name }));
+    // 一行 = 同时包着名字和「进入」的最近那层
+    const row = chain(name).find(
+      (a) => a.findAll((x) => x === enterBtn).length > 0,
+    )!;
+    /** 行里直接的那一块（包着 n 的、父节点就是行的那层） */
+    const slotOf = (n: ReactTestInstance) =>
+      [n, ...chain(n, row)].find((a) => a.parent === row)!;
+    return { name, enterBtn, moreBtn, row, slotOf };
+  };
+
+  it.each([1, 1.3, 2])(
+    "字体 %s 倍：名字那一块最少留 5 个字宽（不够就把「更多」「进入」挤到下一行）；只占一行、放不下省略",
+    async (fontScale) => {
+      at(fontScale);
+      const r = mount();
+      await waitFor(() => expect(r.texts()).toContain(C1.name));
+      const { name, slotOf } = rowParts(r);
+      expect(name.props.numberOfLines).toBe(1);
+      const style = flat(slotOf(name).props.style);
+      expect(style.minWidth).toBeGreaterThanOrEqual(
+        NAME_MIN_CHARS * NAME_FONT_SIZE * fontScale,
+      );
+      expect(style.minWidth).toBeLessThanOrEqual(CARD_INNER);
+      // 同排时多出来的宽度都给名字
+      expect(style.flexGrow).toBe(1);
+      // flexBasis 在安卓上不参与换行判断，不靠它
+      expect(style.flexBasis).toBeUndefined();
+    },
+  );
+
+  it("字体再大（iOS 辅助功能最大档约 3.1 倍）：名字那一块封顶到卡片内宽，不撑出卡片", async () => {
+    at(3.1);
+    const r = mount();
+    await waitFor(() => expect(r.texts()).toContain(C1.name));
+    const { name, slotOf } = rowParts(r);
+    expect(flat(slotOf(name).props.style).minWidth).toBe(CARD_INNER);
+  });
+
+  it("放不下时「更多」「进入」整组换到下一行、靠右，不和名字抢一行", async () => {
+    at(1);
+    const r = mount();
+    await waitFor(() => expect(r.texts()).toContain(C1.name));
+    const { row, enterBtn, moreBtn, slotOf } = rowParts(r);
+    expect(flat(row.props.style)).toMatchObject({
+      flexDirection: "row",
+      flexWrap: "wrap",
+    });
+    const actions = slotOf(enterBtn);
+    expect(actions).toBe(slotOf(moreBtn));
+    expect(flat(actions.props.style).marginLeft).toBe("auto");
+  });
+
+  it("「进入」不定宽定高：大字体下按字撑开，不被切", async () => {
+    at(2);
+    const r = mount();
+    await waitFor(() => expect(r.texts()).toContain(C1.name));
+    const style = flat(
+      node(r, tr("intercom.enter.a11y", { name: C1.name })).props.style,
+    );
+    expect(style.width).toBeUndefined();
+    expect(style.height).toBeUndefined();
+    expect(style.minWidth).toBeGreaterThanOrEqual(76);
+    expect(style.minHeight).toBeGreaterThanOrEqual(44);
   });
 });
 

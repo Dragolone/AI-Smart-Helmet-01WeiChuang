@@ -9,7 +9,7 @@ import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { sosActiveHref } from "@/services/sos-routes";
 import { ApiRequestError } from "@/api/client";
 import { devicesApi } from "@/api/devices";
-import { toUserMessage } from "@/api/error-messages";
+import { isSessionEnded, toUserMessage } from "@/api/error-messages";
 import { sosApi } from "@/api/sos";
 import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
@@ -100,7 +100,7 @@ export default function AccidentDetailScreen() {
   return (
     <ThemedView style={styles.flex}>
       <ScrollView contentContainerStyle={styles.container}>
-        {detail.isError && (
+        {detail.isError && !isSessionEnded(detail.error) && (
           <ThemedText type="small">{toUserMessage(detail.error)}</ThemedText>
         )}
         {d && (

@@ -52,7 +52,11 @@ import type { DevicePublic } from "@helmet/shared";
 
 import { contactsApi } from "@/api/contacts";
 import { devicesApi } from "@/api/devices";
-import { isTransientFailure, toUserMessage } from "@/api/error-messages";
+import {
+  isSessionEnded,
+  isTransientFailure,
+  toUserMessage,
+} from "@/api/error-messages";
 import { FormError, FormInput, PrimaryButton } from "@/components/form";
 import { DotsLoader } from "@/components/motion";
 import { Tappable } from "@/components/tappable";
@@ -119,7 +123,9 @@ type Notice = "notBindCode" | "alreadyBound" | "justFailed";
 
 type BindResult =
   | { ok: true; deviceId: string }
-  | { ok: false; message: string; transient: boolean };
+  | { ok: false; message: string; transient: boolean }
+  /** 会话已失效：正被送回登录页，这一页什么都不说（登录页自有说明） */
+  | { ok: false; sessionEnded: true };
 
 const wait = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -260,6 +266,7 @@ export default function BindDeviceScreen() {
       boundHere.current.add(bound.deviceId);
       return { ok: true, deviceId: bound.deviceId };
     } catch (e) {
+      if (isSessionEnded(e)) return { ok: false, sessionEnded: true };
       return {
         ok: false,
         message: toUserMessage(e),
@@ -291,6 +298,7 @@ export default function BindDeviceScreen() {
       showDone(result.deviceId);
       return;
     }
+    if ("sessionEnded" in result) return;
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(
       () => undefined,
     );
@@ -400,6 +408,7 @@ export default function BindDeviceScreen() {
       return;
     }
     if (!result.ok) {
+      if ("sessionEnded" in result) return;
       // 手输绑不上：原因写在面板里，填的内容留着改
       setBusy(false);
       setFormError(result.message);

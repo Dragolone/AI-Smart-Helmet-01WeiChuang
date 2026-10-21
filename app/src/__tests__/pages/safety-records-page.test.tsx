@@ -23,7 +23,7 @@ import {
   waitFor,
   type Rendered,
 } from "@/__tests__/helpers/render";
-import { ApiRequestError } from "@/api/client";
+import { ApiRequestError, SessionEndedError } from "@/api/client";
 import { Tappable } from "@/components/tappable";
 import { translate, useLocaleStore, type MessageKey } from "@/i18n";
 import { shortTime } from "@/i18n/format";
@@ -803,5 +803,50 @@ describe("多顶头盔", () => {
     expect(mockRouter.navigate).toHaveBeenCalledWith(
       "/sos-active?sosId=s9&deviceId=h2",
     );
+  });
+});
+
+describe("会话已失效（正被送回登录页）：不再单独提示，登录页自有说明", () => {
+  const settle = () =>
+    act(async () => {
+      await new Promise((res) => setTimeout(res, 0));
+    });
+
+  it("头盔列表没拿到是因为会话已失效：失败态不写「登录已失效」", () => {
+    Object.assign(mockHelmets, {
+      known: false,
+      stale: true,
+      error: new SessionEndedError(),
+    });
+    const r = mount();
+    expect(r.allText()).not.toContain(tr("error.sessionEnded"));
+  });
+
+  it("记录列表、部分头盔、详情拉取时会话已失效：都不写「登录已失效」", async () => {
+    mockHelmets.list = [dev("h1", "通勤"), dev("h2")];
+    mockRoutes.fn = (p) =>
+      p.startsWith("/devices/h1/events")
+        ? { items: [ev("e1", "collision_risk", today(9))], total: 1 }
+        : p.startsWith("/devices/h2/events") || p.startsWith("/events/")
+          ? new SessionEndedError()
+          : { items: [], total: 0 };
+    const r = mount();
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("events.type.collision_risk")),
+    );
+    await settle();
+    expect(r.allText()).not.toContain(tr("error.sessionEnded"));
+    // 只看 h2：整张列表都没拿到
+    r.press("h2");
+    await settle();
+    expect(r.allText()).not.toContain(tr("error.sessionEnded"));
+    r.press(tr("records.allHelmets"));
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("events.type.collision_risk")),
+    );
+    r.press(tr("events.type.collision_risk"));
+    await settle();
+    await settle();
+    expect(r.allText()).not.toContain(tr("error.sessionEnded"));
   });
 });
