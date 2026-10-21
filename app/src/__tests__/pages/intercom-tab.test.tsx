@@ -180,6 +180,7 @@ const mockCloud = {
   ),
   muteRemoteAudio: jest.fn((..._args: unknown[]) => Promise.resolve()),
   callExperimentalAPI: jest.fn((..._args: unknown[]) => Promise.resolve()),
+  sendCustomCmdMsg: jest.fn((..._args: unknown[]) => Promise.resolve()),
   getDeviceManager: () => mockDeviceManager,
 };
 jest.mock("trtc-react-native", () => {
@@ -199,6 +200,7 @@ jest.mock("trtc-react-native", () => {
     "onConnectionRecovery",
     "onError",
     "onStatistics",
+    "onRecvCustomCmdMsg",
   ];
   return {
     __esModule: true,
@@ -2357,5 +2359,105 @@ describe("档案还没回来", () => {
     // 本端（userId 空串）在说话：标在自己的格子上
     fire("onUserVoiceVolume", { userVolumes: [{ userId: "", volume: 40 }] });
     expect(count(r, tr("intercom.speaking"))).toBe(1);
+  });
+});
+
+describe("对讲心跳 / 可能已掉线（O14，负责人 10-21 定）", () => {
+  const inRoom = async () => {
+    const r = mount();
+    await waitFor(() => expect(r.texts()).toContain(C1.name));
+    await enter(r);
+    await waitFor(() =>
+      expect(qc.getQueryData(["voice-members", "c1"])).toBeDefined(),
+    );
+    fire("onRemoteUserEnterRoom", { userId: "u2" });
+    fire("onRemoteUserEnterRoom", { userId: "u3" });
+    return r;
+  };
+  /** SDK 的音量回调（每 300 ms 一次、锁屏照来）：心跳挂在它上面发和查 */
+  const tick = (vols: { userId: string; volume: number }[] = []) =>
+    fire("onUserVoiceVolume", { userVolumes: vols });
+  const hb = (userId: string) =>
+    fire("onRecvCustomCmdMsg", { userId, cmdID: 1, seq: 1, message: "1" });
+  const gone = (r: Rendered) => count(r, tr("intercom.maybeGone"));
+
+  it("在房里每 5 秒经房间自定义消息发一次心跳（命令号 1、不要求可靠 / 有序），挂在 SDK 回调上发，不靠定时器", async () => {
+    mockCloud.sendCustomCmdMsg.mockClear();
+    await inRoom();
+    // 进房之后的第一个回调（这里是别人的进房事件）就发第一次
+    tick();
+    expect(mockCloud.sendCustomCmdMsg.mock.calls).toEqual([
+      [1, "1", false, false],
+    ]);
+    later(3_000);
+    tick();
+    expect(mockCloud.sendCustomCmdMsg).toHaveBeenCalledTimes(1);
+    later(2_000);
+    tick();
+    expect(mockCloud.sendCustomCmdMsg).toHaveBeenCalledTimes(2);
+  });
+
+  it("发过心跳的人 15 秒没动静 → 标「可能已掉线」、头像淡下去，读屏也念；心跳又来了就撤掉；TRTC 报离开才移出。没升级、不发心跳的人不标", async () => {
+    const r = await inRoom();
+    hb("u2");
+    later(14_000);
+    tick();
+    expect(gone(r)).toBe(0);
+    later(1_000);
+    tick();
+    expect(gone(r)).toBe(1);
+    expect(
+      r.root.findAll(
+        (n) =>
+          typeof n.props.accessibilityLabel === "string" &&
+          n.props.accessibilityLabel.includes(tr("intercom.maybeGone")),
+      ).length,
+    ).toBeGreaterThan(0);
+    hb("u2");
+    tick();
+    expect(gone(r)).toBe(0);
+    later(15_000);
+    tick();
+    expect(gone(r)).toBe(1);
+    fire("onRemoteUserLeaveRoom", { userId: "u2" });
+    tick();
+    expect(gone(r)).toBe(0);
+  });
+
+  it("心跳丢了但听得到他说话：不标", async () => {
+    const r = await inRoom();
+    hb("u2");
+    later(10_000);
+    tick([{ userId: "u2", volume: 40 }]);
+    later(10_000);
+    tick();
+    expect(gone(r)).toBe(0);
+  });
+
+  it("自己在断线重连：收不到是自己的问题，谁都不标；连回来从头计时，不会一回来就全标", async () => {
+    const r = await inRoom();
+    hb("u2");
+    fire("onConnectionLost");
+    later(30_000);
+    tick();
+    expect(gone(r)).toBe(0);
+    fire("onConnectionRecovery");
+    tick();
+    expect(gone(r)).toBe(0);
+    later(15_000);
+    tick();
+    expect(gone(r)).toBe(1);
+  });
+
+  it("发心跳时原生桥同步抛错：监听器不被带崩，后面的事件照常处理", async () => {
+    const r = await inRoom();
+    mockCloud.sendCustomCmdMsg.mockImplementation(() => {
+      throw new Error("not a function");
+    });
+    later(5_000);
+    tick();
+    fire("onRemoteUserLeaveRoom", { userId: "u3" });
+    await waitFor(() => expect(r.texts()).not.toContain("13800000003"));
+    mockCloud.sendCustomCmdMsg.mockImplementation(() => Promise.resolve());
   });
 });

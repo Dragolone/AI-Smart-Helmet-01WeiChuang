@@ -81,6 +81,7 @@ import {
 import { useAuthStore } from "@/stores/auth-store";
 import { useBleStore } from "@/stores/ble-store";
 import { useIntercomStore } from "@/stores/intercom-store";
+import { HEARTBEAT_CMD_ID, PeerLiveness } from "@/services/intercom-liveness";
 import { showNotice } from "@/services/notice";
 import {
   avatarInitial,
@@ -120,6 +121,7 @@ function MemberCell({
   self = false,
   muted = false,
   micOpen = false,
+  maybeGone = false,
   avatarUrl,
   onPress,
 }: {
@@ -129,6 +131,8 @@ function MemberCell({
   muted?: boolean;
   /** 自己一直开着麦（没在说话时也标出来：别人随时听得到） */
   micOpen?: boolean;
+  /** 15 秒没收到他的心跳（O14）：TRTC 还没报他离开，但多半已经掉线 */
+  maybeGone?: boolean;
   avatarUrl?: string | null;
   onPress?: () => void;
 }) {
@@ -138,13 +142,14 @@ function MemberCell({
   const a11yLabel = [
     self ? `${name} (${t("intercom.me")})` : name,
     speaking ? t("intercom.speaking") : micOpen ? t("intercom.micOpen") : "",
+    maybeGone ? t("intercom.maybeGone") : "",
     muted ? t("intercom.mutedForMe") : "",
   ]
     .filter(Boolean)
     .join(t("common.a11ySep"));
   const body = (
     <>
-      <View style={styles.cellRingBox}>
+      <View style={[styles.cellRingBox, maybeGone && styles.cellGone]}>
         <PulseRing
           active={speaking}
           size={64}
@@ -189,7 +194,20 @@ function MemberCell({
         )}
       </ThemedText>
       <View style={styles.cellSlot}>
-        {speaking ? (
+        {maybeGone && !speaking ? (
+          <View
+            style={[styles.speakPill, { backgroundColor: theme.warningBg }]}
+          >
+            <ThemedText
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
+              style={[styles.speakPillText, { color: theme.warning }]}
+            >
+              {t("intercom.maybeGone")}
+            </ThemedText>
+          </View>
+        ) : speaking ? (
           <View style={[styles.speakPill, { backgroundColor: theme.brand }]}>
             <ThemedText
               numberOfLines={1}
@@ -281,6 +299,9 @@ export default function IntercomScreen() {
     transform: [{ scale: interpolate(pttScale.get(), [0.92, 1], [1.12, 1]) }],
   }));
   const [onlineIds, setOnlineIds] = useState<string[]>([]);
+  /** 在线名单里 15 秒没心跳的人（O14） */
+  const [goneIds, setGoneIds] = useState<string[]>([]);
+  const liveness = useRef(new PeerLiveness());
   const [joining, setJoining] = useState(false);
   /** 断线重连被拒后正在自动重进：麦克风前台服务不能撤（锁着屏撤了就加不回来） */
   const [resuming, setResuming] = useState(false);
@@ -299,12 +320,30 @@ export default function IntercomScreen() {
   const myId = user?.id ?? "";
 
   // TRTC 监听器和蓝牙订阅里要读这几样的最新值，又不能因为它们变了就重注册——重注册的清理会退房
-  const live = useRef({ inRoom, mode, micOn, talking, activeId, joining });
+  const live = useRef({
+    inRoom,
+    mode,
+    micOn,
+    talking,
+    activeId,
+    joining,
+    onlineIds,
+    netDown,
+  });
   // 监听器里经 ref 读自己的 id：冷启动时档案可能在通话中才回来（myId 从空变有），放进监听 effect 的依赖会让它重跑、
   // 清理里退房——通话被悄悄退掉（10-19 夜测 #281 测出）。退出登录时整个标签页卸载，照样退房
   const myIdRef = useRef(myId);
   useEffect(() => {
-    live.current = { inRoom, mode, micOn, talking, activeId, joining };
+    live.current = {
+      inRoom,
+      mode,
+      micOn,
+      talking,
+      activeId,
+      joining,
+      onlineIds,
+      netDown,
+    };
     myIdRef.current = myId;
   });
 
@@ -444,6 +483,32 @@ export default function IntercomScreen() {
       rejoinRef.current({ mode: live.current.mode, micOn: live.current.micOn });
       return true;
     };
+    const peers = liveness.current;
+    /**
+     * 心跳（O14）：在房里就每 5 秒经房间自定义消息发一下，顺带重算谁 15 秒没动静。挂在每个 SDK 回调上做——
+     * 音量回调每 300 ms 一次、锁屏照来；Android 锁屏后 JS 定时器停摆，用定时器的话锁屏骑车的人会被对方当成掉线。
+     * 自己在断线重连：收不到是自己的问题，不标任何人（顶上已经写着在重连）
+     */
+    const beat = () => {
+      const { inRoom: here, onlineIds: online, netDown: down } = live.current;
+      if (!here) return;
+      const now = Date.now();
+      if (peers.takeSendTurn(now)) {
+        try {
+          Promise.resolve(
+            cloud.sendCustomCmdMsg(HEARTBEAT_CMD_ID, "1", false, false),
+          ).catch(() => {});
+        } catch {
+          // 原生桥同步抛错（模块没这个方法等）：这次不发，不能把整个监听器带崩
+        }
+      }
+      const gone = down ? [] : peers.stale(online, now);
+      setGoneIds((prev) =>
+        prev.length === gone.length && prev.every((id, i) => id === gone[i])
+          ? prev
+          : gone,
+      );
+    };
     // 监听器内用 translate 而非 t：避免语言切换时重注册监听并触发 cleanup 的 exitRoom
     const listener = (type: TRTCCloudListener, params: any) => {
       switch (type) {
@@ -471,6 +536,7 @@ export default function IntercomScreen() {
           );
           if (ok) {
             enteredAt.current = Date.now();
+            peers.reset();
             setNetDown(false);
             const id = live.current.activeId;
             if (id) keys.start(id);
@@ -510,6 +576,8 @@ export default function IntercomScreen() {
             (isRejoinExit(reason, reconnecting.current) && tryRejoin());
           keys.stop();
           reconnecting.current = false;
+          peers.reset();
+          setGoneIds([]);
           setInRoom(false);
           setOnlineIds([]);
           setVolumes({});
@@ -558,13 +626,21 @@ export default function IntercomScreen() {
           break;
         }
         case TRTCCloudListener.onRemoteUserLeaveRoom:
+          peers.forget(params.userId);
           setOnlineIds((prev) => prev.filter((m) => m !== params.userId));
+          break;
+        case TRTCCloudListener.onRecvCustomCmdMsg:
+          if (params?.cmdID === HEARTBEAT_CMD_ID && params.userId)
+            peers.heartbeat(params.userId, Date.now());
           break;
         case TRTCCloudListener.onUserVoiceVolume: {
           // userId 为空串 = 本端；音量 0–100
           const next: Record<string, number> = {};
           for (const v of params.userVolumes ?? []) {
             next[v.userId === "" ? myIdRef.current : v.userId] = v.volume;
+            // 听得到他说话就是还连着（心跳偶尔丢包时不误报）
+            if (v.userId !== "" && v.volume >= SPEAKING_THRESHOLD)
+              peers.heard(v.userId, Date.now());
           }
           // 音量数值每 300 ms 都在变，但指示环只看是否过阈值：没人开口或闭口就沿用旧状态，不重画
           setVolumes((prev) =>
@@ -592,6 +668,7 @@ export default function IntercomScreen() {
           break;
         case TRTCCloudListener.onConnectionRecovery:
           reconnecting.current = false;
+          peers.graceAll(Date.now());
           setNetDown(false);
           playCue("back");
           showToast(translate("intercom.reconnected"));
@@ -626,8 +703,9 @@ export default function IntercomScreen() {
           pttScale.set(withSpring(1, { damping: 12, stiffness: 200 }));
           break;
       }
-      // 锁屏后 Android 上的 JS 定时器停摆，SDK 的回调照常来：每个回调都顺带看一眼钥匙该不该续
+      // 锁屏后 Android 上的 JS 定时器停摆，SDK 的回调照常来：每个回调都顺带看一眼钥匙该不该续、心跳该不该发
       keys.tick();
+      beat();
     };
     cloud.registerListener(listener);
     return () => {
@@ -1188,6 +1266,7 @@ export default function IntercomScreen() {
                     self={self}
                     muted={!!muted[id]}
                     micOpen={self && micOpen}
+                    maybeGone={!self && goneIds.includes(id)}
                     avatarUrl={avatarOf(id)}
                     onPress={self ? undefined : () => void toggleMuteMember(id)}
                   />
@@ -2172,6 +2251,8 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   cell: { width: "25%", alignItems: "center", gap: 6 },
+  /** 可能已掉线（O14）：头像淡下去 */
+  cellGone: { opacity: 0.45 },
   cellRingBox: {
     width: 64,
     height: 64,
