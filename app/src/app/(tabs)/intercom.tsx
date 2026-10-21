@@ -22,6 +22,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   type AccessibilityActionEvent,
   Alert,
+  Linking,
   Modal,
   PermissionsAndroid,
   Platform,
@@ -306,6 +307,8 @@ export default function IntercomScreen() {
   /** 断线重连被拒后正在自动重进：麦克风前台服务不能撤（锁着屏撤了就加不回来） */
   const [resuming, setResuming] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
+  /** 这次进不了房是因为没给麦克风：报错下面给「去设置」。iOS 拒过一次就不再弹框，安卓拒两次也一样，只能去设置里开 */
+  const [micBlocked, setMicBlocked] = useState(false);
   const [speakerOn, setSpeakerOn] = useState(true);
   const [volumes, setVolumes] = useState<Record<string, number>>({});
   const [muted, setMuted] = useState<Record<string, boolean>>({});
@@ -843,6 +846,7 @@ export default function IntercomScreen() {
             )
           : true;
     if (stale()) return;
+    setMicBlocked(!micGranted);
     if (!micGranted) {
       stopJoining(true);
       setJoinError(translate("intercom.micDenied"));
@@ -1710,6 +1714,18 @@ export default function IntercomScreen() {
                 {joinError}
               </ThemedText>
             )}
+            {joinError && micBlocked && (
+              <Tappable
+                feedback="opacity"
+                accessibilityRole="button"
+                onPress={() => void Linking.openSettings()}
+                style={styles.joinErrorAction}
+              >
+                <ThemedText type="link" style={styles.centerText}>
+                  {t("intercom.micOpenSettings")}
+                </ThemedText>
+              </Tappable>
+            )}
           </>
         )}
 
@@ -2166,6 +2182,7 @@ const styles = StyleSheet.create({
   },
   enterText: { fontSize: 15, lineHeight: 20, fontWeight: 700 },
   joinError: { paddingBottom: 12 },
+  joinErrorAction: { alignSelf: "center", paddingBottom: 12 },
 
   // C. 房间里：头部
   roomHead: {

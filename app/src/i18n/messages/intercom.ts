@@ -35,6 +35,7 @@ export const intercom = {
     "intercom.joinTimeout": "通话连接超时，请重试",
     "intercom.micDenied":
       "没有麦克风权限，进不了频道。请在系统设置里允许「零一智行」使用麦克风",
+    "intercom.micOpenSettings": "去设置",
     "intercom.createFailed": "创建失败",
     "intercom.joinError": "加入失败",
     "intercom.inviteNotFound": "没有找到这个邀请码对应的频道，请核对后再试",
@@ -133,6 +134,7 @@ export const intercom = {
     "intercom.joinTimeout": "通話連線逾時，請重試",
     "intercom.micDenied":
       "沒有麥克風權限，無法進入頻道。請在系統設定裡允許「零一智行」使用麥克風",
+    "intercom.micOpenSettings": "去設定",
     "intercom.createFailed": "建立失敗",
     "intercom.joinError": "加入失敗",
     "intercom.inviteNotFound": "沒有找到這個邀請碼對應的頻道，請核對後再試",
@@ -234,6 +236,7 @@ export const intercom = {
     "intercom.joinTimeout": "Call connection timed out. Try again.",
     "intercom.micDenied":
       "Microphone permission is required to join. Allow it for this app in system settings.",
+    "intercom.micOpenSettings": "Open Settings",
     "intercom.createFailed": "Could not create",
     "intercom.joinError": "Could not join",
     "intercom.inviteNotFound":

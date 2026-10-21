@@ -13,6 +13,8 @@ export const common = {
     "ble.onboarding.bluetooth": "打开手机蓝牙",
     "ble.onboarding.bluetoothHint":
       "iPhone 在控制中心打开；安卓在系统设置里打开",
+    "ble.onboarding.bluetoothUnknownHint":
+      "完成下面这一步授权后，才能确认蓝牙开没开",
     "ble.onboarding.permission": "允许「零一智行」使用蓝牙",
     "ble.onboarding.permissionHint": "之前拒绝过，需要到系统设置里重新允许",
     "ble.onboarding.permissionLocation": "允许「零一智行」使用位置信息",
@@ -121,6 +123,8 @@ export const common = {
     "ble.onboarding.bluetooth": "打開手機藍牙",
     "ble.onboarding.bluetoothHint":
       "iPhone 在控制中心打開；Android 在系統設定裡打開",
+    "ble.onboarding.bluetoothUnknownHint":
+      "完成下面這一步授權後，才能確認藍牙有沒有開",
     "ble.onboarding.permission": "允許「零一智行」使用藍牙",
     "ble.onboarding.permissionHint": "之前拒絕過，需要到系統設定裡重新允許",
     "ble.onboarding.permissionLocation": "允許「零一智行」使用位置資訊",
@@ -229,6 +233,8 @@ export const common = {
     "ble.onboarding.bluetooth": "Turn on Bluetooth",
     "ble.onboarding.bluetoothHint":
       "iPhone: Control Center; Android: system settings",
+    "ble.onboarding.bluetoothUnknownHint":
+      "We can check this after you allow the permission below",
     "ble.onboarding.permission": "Allow Bluetooth for this app",
     "ble.onboarding.permissionHint":
       "It was denied before; re-enable it in system settings",
