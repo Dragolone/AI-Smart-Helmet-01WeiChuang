@@ -56,6 +56,7 @@ import {
 import {
   clearSosAlert,
   ensureSosAlertPermission,
+  whenCountdownClearForPrompt,
   whenSosAlertPermissionAsked,
   holdPermissionPromptUntil,
   resetSosAlerts,
@@ -190,6 +191,9 @@ export function useRealtimeUpdates(): void {
       // 蓝牙权限本来就没有，链路晚起不丢事件——头盔没收到 ACK 的高危事件留在 Flash，连上后补传
       if (!(await checkBlePermissions().catch(() => true))) {
         await whenSosAlertPermissionAsked();
+        if (cancelled) return;
+        // 通知那次根本没弹框（早就授权 / 永久拒绝）时上面立刻兑现：蓝牙这次也要自己避开倒计时页
+        await whenCountdownClearForPrompt();
         if (cancelled) return;
       }
       void startBleLink(bleTargetsOf());

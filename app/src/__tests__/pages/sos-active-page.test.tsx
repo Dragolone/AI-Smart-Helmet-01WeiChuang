@@ -1268,6 +1268,42 @@ describe("已取消后「我还是需要帮助」", () => {
     );
   });
 
+  it("求助建出的新单也取消了，再点「我还是需要帮助」：换新的 eventId（原来整页复用一个，服务端判重复不建单、页面却当发出去了；10-21 代码审查）", async () => {
+    m(relayApi.push).mockImplementation(() =>
+      Promise.resolve({ accepted: 1, duplicate: 0, invalid: 0 }),
+    );
+    const r = await cancelled();
+    r.press(tr("sos.needHelp"));
+    await tick(0);
+    // 第一次求助建出的新单 s2 出现、页面切过去，随后它也被取消
+    const s2 = sosOf({
+      sosId: "s2",
+      triggerType: "manual_sos",
+      deadline: new Date(Date.now() + 60_000).toISOString(),
+    });
+    m(sosApi.snapshot).mockImplementation(() => Promise.resolve(s2));
+    act(() => {
+      qc.setQueryData(["sos-active", "h1"], { sos: s2 });
+    });
+    await tick(0);
+    await tick(0);
+    expect(number(r)).toBe("60");
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve({ ...s2, status: "cancelled" as const }),
+    );
+    await act(async () => {
+      await qc.refetchQueries({ queryKey: ["sos", "s2"] });
+    });
+    r.press(tr("sos.needHelp"));
+    await tick(0);
+    const ids = m(relayApi.push).mock.calls.map(
+      (c) =>
+        (c[0] as { envelopes: { eventId: string }[] }).envelopes[0].eventId,
+    );
+    expect(ids).toHaveLength(2);
+    expect(ids[1]).not.toBe(ids[0]);
+  });
+
   it("头盔已不在这个账号下（404）：不进补发队列，明说没发出、不会自动重发（10-17 安卓：倒数中被解绑）", async () => {
     m(relayApi.push).mockImplementation(() =>
       Promise.reject(
@@ -2373,6 +2409,59 @@ describe("会话被服务端否定时倒数结束才登出（O19-A，负责人 1
       );
       r.press(tr("sos.reloginToCancel"));
       expect(endDeadSession).toHaveBeenCalledTimes(1);
+    } finally {
+      useAuthStore.setState({ endDeadSession: realEnd });
+    }
+  });
+
+  it("失效期间这一页的单都结束了（还连着的实时通道推来取消 / 到点通知）：立刻回登录页，到点通知的告诉登录页联系人已收到（10-21 代码审查）", async () => {
+    const endDeadSession = jest.fn(
+      async (_o?: { duringSos?: boolean }) => undefined,
+    );
+    const realEnd = useAuthStore.getState().endDeadSession;
+    useAuthStore.setState({ endDeadSession });
+    try {
+      for (const [status, duringSos] of [
+        ["cancelled", false],
+        ["notified", true],
+      ] as const) {
+        endDeadSession.mockClear();
+        m(sosApi.snapshot).mockImplementation(() => Promise.resolve(sosOf()));
+        const r = await mount();
+        act(() => {
+          useAuthStore.setState({ sessionDeadUntil: Date.now() + 45_000 });
+        });
+        expect(endDeadSession).not.toHaveBeenCalled();
+        m(sosApi.snapshot).mockImplementation(() =>
+          Promise.resolve(sosOf({ status })),
+        );
+        await act(async () => {
+          await qc.refetchQueries({ queryKey: ["sos", "s1"] });
+        });
+        expect(endDeadSession).toHaveBeenCalledWith({ duringSos });
+        r.unmount();
+        act(() => {
+          useAuthStore.setState({ sessionDeadUntil: null });
+        });
+      }
+    } finally {
+      useAuthStore.setState({ endDeadSession: realEnd });
+    }
+  });
+
+  it("会话没失效时单子结束：不碰登录", async () => {
+    const endDeadSession = jest.fn(async () => undefined);
+    const realEnd = useAuthStore.getState().endDeadSession;
+    useAuthStore.setState({ endDeadSession });
+    try {
+      await mount();
+      m(sosApi.snapshot).mockImplementation(() =>
+        Promise.resolve(sosOf({ status: "cancelled" })),
+      );
+      await act(async () => {
+        await qc.refetchQueries({ queryKey: ["sos", "s1"] });
+      });
+      expect(endDeadSession).not.toHaveBeenCalled();
     } finally {
       useAuthStore.setState({ endDeadSession: realEnd });
     }
