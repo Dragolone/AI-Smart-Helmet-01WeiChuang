@@ -115,6 +115,15 @@ jest.mock("@/api/auth", () => ({
 }));
 jest.mock("@/api/contacts", () => ({ contactsApi: { list: jest.fn() } }));
 jest.mock("@/api/devices", () => ({ devicesApi: { list: jest.fn() } }));
+const mockDrain = jest.fn((_ms: number) =>
+  Promise.resolve({ total: 0, sos: 0 }),
+);
+jest.mock("@/services/ble-relay-uplink", () => ({
+  ...jest.requireActual<typeof import("@/services/ble-relay-uplink")>(
+    "@/services/ble-relay-uplink",
+  ),
+  drainRelayQueue: (ms: number) => mockDrain(ms),
+}));
 
 /** 只有一个按钮的提示统一走 services/notice 的 showNotice：第三个参数是一个「确定」 */
 const NOTICE_OK = [{ text: translate("common.confirm", undefined, "zh-CN") }];
@@ -323,7 +332,8 @@ describe("入口", () => {
     expect(Image.clearMemoryCache).toHaveBeenCalled();
   });
 
-  it("退出登录要确认，确认那一项是危险样式", () => {
+  it("退出登录要确认，确认那一项是危险样式；手机里没有积压就直接退出", async () => {
+    mockDrain.mockImplementation(() => Promise.resolve({ total: 0, sos: 0 }));
     const r = mount();
     r.press(tr("profile.signOut"));
     const buttons = alert.mock.calls[0][2] as {
@@ -331,8 +341,52 @@ describe("入口", () => {
       onPress?: () => void;
     }[];
     expect(buttons[1].style).toBe("destructive");
-    act(() => buttons[1].onPress!());
+    await act(async () => buttons[1].onPress!());
+    expect(mockDrain).toHaveBeenCalledWith(5_000);
     expect(signOut).toHaveBeenCalled();
+    expect(alert).toHaveBeenCalledTimes(1);
+  });
+
+  it("还有没传上去的头盔事件（含摔倒）：先显示「正在上传」，送不完再问一次，说明后果；取消就不退，仍要退出才退（O21）", async () => {
+    let finish!: (v: { total: number; sos: number }) => void;
+    mockDrain.mockImplementation(
+      () =>
+        new Promise((done) => {
+          finish = done;
+        }),
+    );
+    const r = mount();
+    r.press(tr("profile.signOut"));
+    const first = alert.mock.calls[0][2] as { onPress?: () => void }[];
+    act(() => first[1].onPress!());
+    expect(r.allText()).toContain(tr("profile.signOutUploading"));
+    await act(async () => finish({ total: 3, sos: 1 }));
+    expect(signOut).not.toHaveBeenCalled();
+    expect(alert.mock.calls[1][0]).toBe(
+      tr("profile.signOutPendingTitle", { n: 3 }),
+    );
+    expect(alert.mock.calls[1][1]).toBe(
+      tr("profile.signOutPendingBodySos", { n: 1 }),
+    );
+    expect(r.allText()).toContain(tr("profile.signOut"));
+    const second = alert.mock.calls[1][2] as {
+      text: string;
+      style?: string;
+      onPress?: () => void;
+    }[];
+    expect(second[0].style).toBe("cancel");
+    expect(second[1].text).toBe(tr("profile.signOutAnyway"));
+    act(() => second[1].onPress!());
+    expect(signOut).toHaveBeenCalled();
+  });
+
+  it("积压里没有摔倒：说明只写什么时候补传", async () => {
+    mockDrain.mockImplementation(() => Promise.resolve({ total: 2, sos: 0 }));
+    const r = mount();
+    r.press(tr("profile.signOut"));
+    const first = alert.mock.calls[0][2] as { onPress?: () => void }[];
+    await act(async () => first[1].onPress!());
+    expect(alert.mock.calls[1][1]).toBe(tr("profile.signOutPendingBody"));
   });
 });
 

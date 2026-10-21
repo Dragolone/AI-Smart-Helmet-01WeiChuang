@@ -33,6 +33,7 @@ import {
   useThemeStore,
   type ThemeMode,
 } from "@/stores/theme-store";
+import { drainRelayQueue } from "@/services/ble-relay-uplink";
 import { devLog } from "@/services/dev-log";
 import { showNotice } from "@/services/notice";
 import { profilePatch } from "@/services/profile-patch";
@@ -41,6 +42,9 @@ import {
   cleanNickname,
   personNameOf,
 } from "@/services/user-name";
+
+/** 退出前最多花这么久把积压的头盔事件送出去（O21） */
+const SIGN_OUT_UPLOAD_MS = 5_000;
 
 export default function ProfileScreen() {
   const theme = useTheme();
@@ -160,6 +164,36 @@ export default function ProfileScreen() {
     );
   };
 
+  // 退出前先尽力把手机里还没传上去的头盔事件送完：退出后它们要等这个账号下次在这台手机上登录才补传，
+  // 换个账号登录不会替它传——断网时摔的那一下就一直卡在手机里（负责人 10-21 定，O21）
+  const [signingOut, setSigningOut] = useState(false);
+  const signOutAfterUpload = async () => {
+    setSigningOut(true);
+    try {
+      const left = await drainRelayQueue(SIGN_OUT_UPLOAD_MS);
+      if (left.total === 0) {
+        await signOut();
+        return;
+      }
+      Alert.alert(
+        translate("profile.signOutPendingTitle", { n: left.total }),
+        left.sos > 0
+          ? translate("profile.signOutPendingBodySos", { n: left.sos })
+          : translate("profile.signOutPendingBody"),
+        [
+          { text: translate("common.cancel"), style: "cancel" },
+          {
+            text: translate("profile.signOutAnyway"),
+            style: "destructive",
+            onPress: () => void signOut(),
+          },
+        ],
+      );
+    } finally {
+      setSigningOut(false);
+    }
+  };
+
   const confirmSignOut = () => {
     Alert.alert(
       translate("profile.signOut"),
@@ -169,7 +203,7 @@ export default function ProfileScreen() {
         {
           text: translate("profile.signOutConfirm"),
           style: "destructive",
-          onPress: () => void signOut(),
+          onPress: () => void signOutAfterUpload(),
         },
       ],
     );
@@ -330,13 +364,16 @@ export default function ProfileScreen() {
             />
           </Card>
 
-          <Tappable onPress={confirmSignOut} style={styles.signOut}>
+          <Tappable
+            onPress={signingOut ? undefined : confirmSignOut}
+            style={styles.signOut}
+          >
             <ThemedText
               type="small"
               themeColor="textSecondary"
               style={{ fontSize: 15 }}
             >
-              {t("profile.signOut")}
+              {t(signingOut ? "profile.signOutUploading" : "profile.signOut")}
             </ThemedText>
           </Tappable>
         </ScrollView>

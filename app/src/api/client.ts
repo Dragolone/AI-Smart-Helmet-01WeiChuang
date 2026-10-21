@@ -79,11 +79,15 @@ export function parseRetryAfter(
 }
 
 /** 单次请求超时：后端挂起/黑洞网络时不能让页面永远转圈（审计 APP-03）；超时按网络错误呈现 */
-const REQUEST_TIMEOUT_MS = 15_000;
+export const REQUEST_TIMEOUT_MS = 15_000;
 
-function fetchWithTimeout(input: string, init: RequestInit): Promise<Response> {
+function fetchWithTimeout(
+  input: string,
+  init: RequestInit,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<Response> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   return fetch(input, { ...init, signal: controller.signal })
     .then((res) => {
       // 顺手学服务端时钟（倒计时与头盔对时都用它，见 services/server-clock）
@@ -207,6 +211,8 @@ export function currentRefreshToken(): string {
 /**
  * `body` 可以是函数：每次真正发请求时现算。请求体里带着 token 的接口必须这样传——
  * 401 静默刷新后的重试若原样重发提交时定死的 body，带出去的是已被轮换掉的旧 refresh token。
+ * `timeoutMs`：这一个请求的单次超时，不传是全局的 15 s。只管这个接口自己的那次（401 后重试的那次也按它），
+ * 中间的 refresh 照旧 15 s——刷新是全账号共用的一次，不能被某个急着要结果的接口提前掐掉
  */
 export async function api<T>(
   path: string,
@@ -214,9 +220,10 @@ export async function api<T>(
     method?: string;
     body?: unknown | (() => unknown);
     auth?: boolean;
+    timeoutMs?: number;
   } = {},
 ): Promise<T> {
-  const { method = "GET", body: bodyOrFn, auth = true } = options;
+  const { method = "GET", body: bodyOrFn, auth = true, timeoutMs } = options;
 
   const doFetch = async (): Promise<Response> => {
     const body =
@@ -227,11 +234,15 @@ export async function api<T>(
       const tokens = session?.getTokens();
       if (tokens) headers.Authorization = `Bearer ${tokens.accessToken}`;
     }
-    return fetchWithTimeout(`${BASE_URL}${path}`, {
-      method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
+    return fetchWithTimeout(
+      `${BASE_URL}${path}`,
+      {
+        method,
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      },
+      timeoutMs,
+    );
   };
 
   let res = await doFetch();

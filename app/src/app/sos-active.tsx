@@ -50,6 +50,7 @@ import { onWallClockForwardJump, serverNow } from "@/services/server-clock";
 import {
   COUNTDOWN_POLL_MS,
   countdownPollInterval,
+  isFinal,
   presentedSos,
   settleSnapshot,
 } from "@/services/sos-sync";
@@ -129,6 +130,20 @@ function useScreenReader(): boolean {
 function secondsLeft(deadline: string, now: number): number {
   return shownSeconds(Math.ceil((new Date(deadline).getTime() - now) / 1000));
 }
+
+type ActKind = "cancel" | "confirm";
+/** 倒数中「取消 / 立即求救」没成功的那几单（「全部…」一次可能不止一单） */
+type ActFail = { kind: ActKind; ids: readonly string[] };
+
+/** 去掉已经办成（或已在别处结束）的那几单；一单不剩就收起提示条 */
+function dropFail(f: ActFail | null, done: readonly string[]): ActFail | null {
+  if (!f) return null;
+  const ids = f.ids.filter((id) => !done.includes(id));
+  return ids.length > 0 ? { ...f, ids } : null;
+}
+
+const isFinalized = (e: unknown) =>
+  e instanceof ApiRequestError && e.code === "SOS_ALREADY_FINALIZED";
 
 /** 环走一圈对应的秒数（服务端的倒计时是 60 秒，决策 #8） */
 const TOTAL_SECONDS = 60;
@@ -277,23 +292,26 @@ function SosActiveContent() {
   const queryClient = useQueryClient();
   // 在途的取消 / 立即求救按单记：慢网下取消 A 还没回来时切到 B（胶囊 / 同一顶新单顶替），
   // B 的按钮不能被 A 的请求锁住（矩阵 Q9，10-20 模拟器 netem 6 s 实测锁了约 12 s）
-  const [busyById, setBusyById] = useState<
-    Record<string, "cancel" | "confirm">
-  >({});
+  const [busyById, setBusyById] = useState<Record<string, ActKind>>({});
   const busy = busyById[sosId] ?? null;
   const anyBusy = Object.keys(busyById).length > 0;
-  const markBusy = (ids: string[], kind: "cancel" | "confirm") =>
+  const markBusy = (ids: readonly string[], kind: ActKind) =>
     setBusyById((b) => {
       const n = { ...b };
       for (const id of ids) n[id] = kind;
       return n;
     });
-  const clearBusy = (ids: string[]) =>
+  const clearBusy = (ids: readonly string[]) =>
     setBusyById((b) => {
       const n = { ...b };
       for (const id of ids) delete n[id];
       return n;
     });
+  // 倒数中「取消 / 立即求救」没成功（弱网 / 超时）：原来弹系统提示框（安卓是模态框），盖住还在走的倒计时、
+  // 不写还剩几秒，要先点「确定」才能再滑（O7，10-20 模拟器单向 20 s 延迟实测）。取消失败比立即求救失败更要命——
+  // 用户以为没事了，联系人却会被通知。改成按钮区上方的页内提示条：哪个动作没成功 + 还剩约几秒 + 重试。
+  // 只在屏上这单是没成功的那几单之一、且还在倒数时显示，单子进入终态自然就收起
+  const [actFail, setActFail] = useState<ActFail | null>(null);
   // 通知按钮的取消还在路上（被杀状态下点「我没事，取消」拉起 App，页面要过启动动画才出来）：
   // 按钮显示「取消中…」、不响警报，别让用户对着一个还在倒数的页面以为刚才那一下没算数
   const cancellingFromNotification = useSosCancelStore(
@@ -521,7 +539,31 @@ function SosActiveContent() {
     };
   }, [counting, alarm, deadline]);
 
-  const act = (kind: "cancel" | "confirm") => {
+  /** 提示条的两行：哪个动作没成功；倒计时还在走、约几秒后通知（状态还没拿到、不知道剩几秒时只说到期会通知） */
+  const failLines = (kind: ActKind, n: number | null) =>
+    [
+      t(kind === "cancel" ? "sos.failCancel" : "sos.failSend"),
+      n === null
+        ? t("sos.pendingBody")
+        : n > 0
+          ? t("sos.failStillCounting", { n })
+          : t("sos.failDueNow"),
+    ] as const;
+  // 读屏：提示条出现时念一遍（同绑定页失败的写法）。不给提示条挂 accessibilityLiveRegion——
+  // 里面的秒数每秒在变，Android 会每秒重念一次。秒数按失败这一刻现算，别用发请求时的（最多晚 8 s）
+  const announceFail = (kind: ActKind, deadlines: readonly string[]) => {
+    const n =
+      deadlines.length > 0
+        ? Math.min(...deadlines.map((d) => secondsLeft(d, serverNow())))
+        : null;
+    const [title, body] = failLines(kind, n);
+    AccessibilityInfo.announceForAccessibility(
+      `${title}${t("common.a11ySep")}${body}`,
+    );
+  };
+
+  const act = (kind: ActKind) => {
+    // 演练只改本地状态，没有失败的路
     if (isDrill) {
       setDrillState((d) => ({
         ...d,
@@ -531,17 +573,17 @@ function SosActiveContent() {
     }
     // 请求发出时是哪一单就一直按哪一单收尾：中途切单后 sosId / sosQuery 已经指向别的单
     const id = sosId;
+    const due = sos?.deadline;
     markBusy([id], kind);
     (kind === "cancel" ? sosApi.cancel(id) : sosApi.confirm(id))
       .then((updated) => {
         queryClient.setQueryData(["sos", id], updated);
+        setActFail((f) => dropFail(f, [id]));
       })
       .catch((e) => {
-        // 这单已经在别处结束（锁屏通知按钮 / 另一台手机 / 到期）：不弹错，拉一次权威状态让页面自己切到结束态
-        if (
-          e instanceof ApiRequestError &&
-          e.code === "SOS_ALREADY_FINALIZED"
-        ) {
+        // 这单已经在别处结束（锁屏通知按钮 / 另一台手机 / 到期）：不提示，拉一次权威状态让页面自己切到结束态
+        if (isFinalized(e)) {
+          setActFail((f) => dropFail(f, [id]));
           void queryClient.invalidateQueries({
             queryKey: ["sos", id],
             exact: true,
@@ -549,10 +591,10 @@ function SosActiveContent() {
           return;
         }
         // 请求本身失败（超时 / 断网）不等于没办成：服务端终态化时先经实时通道推新状态、再内联发短信，
-        // 短信慢时「立即求救」的响应会晚于 App 的超时，页面已经切到「已发送」，再弹「出错了」就自相矛盾
-        //（10-20 本地后端实测：3 位联系人、每条短信 9 s 时响应 18 s）。先拉一次权威状态，这单已不在倒数就不弹
-        // 补拉失败时缓存保持原样（仍在倒数）→ 照常弹；切走后这单没有观察者也要拉（type: "all"）
-        // 补拉最多等 FAILURE_RECHECK_MS 就下结论（坏网络下补拉自己也会挂住）
+        // 短信慢时「立即求救」的响应会晚于 App 的超时，页面已经切到「已发送」，再提示失败就自相矛盾
+        //（10-20 本地后端实测：3 位联系人、每条短信 9 s 时响应 18 s）。先拉一次权威状态，这单已不在倒数就不提示。
+        // 补拉失败时缓存保持原样（仍在倒数）→ 照常提示；切走后这单没有观察者也要拉（type: "all"）
+        // 补拉最多等 FAILURE_RECHECK_MS 就下结论（坏网络下补拉自己也会挂住，提示条不能再晚 15 s）
         return settleWithin(
           queryClient
             .refetchQueries({ queryKey: ["sos", id], exact: true, type: "all" })
@@ -560,8 +602,22 @@ function SosActiveContent() {
           FAILURE_RECHECK_MS,
         ).then(() => {
           const current = queryClient.getQueryData<Sos>(["sos", id]) ?? null;
-          if (current && current.status !== "pending") return;
-          showNotice(t("common.failed"), toUserMessage(e));
+          if (current && current.status !== "pending") {
+            setActFail((f) => dropFail(f, [id]));
+            return;
+          }
+          // 文案里不写原因（超时 / 断网）：提示条要短，能做的只有重试；原因留日志
+          devLog(
+            "SOS",
+            `倒计时页${kind === "cancel" ? "取消" : "立即求救"}失败`,
+            e,
+          );
+          setActFail((f) => ({
+            kind,
+            ids:
+              f?.kind === kind ? [...f.ids.filter((x) => x !== id), id] : [id],
+          }));
+          announceFail(kind, due ? [due] : []);
         });
       })
       .finally(() => clearBusy([id]));
@@ -569,6 +625,8 @@ function SosActiveContent() {
 
   const left = sos ? secondsLeft(sos.deadline, now) : null;
   const finished = sos && sos.status !== "pending";
+  const fail =
+    !isDrill && !finished && actFail?.ids.includes(sosId) ? actFail : null;
 
   // 页内一句话提示（当前单结束已切到下一单 / 又一顶开始倒计时），4 秒自己消失
   const [toast, setToast] = useState<string | null>(null);
@@ -843,10 +901,84 @@ function SosActiveContent() {
   };
   // 「我还是需要帮助」之后的新单：进队列 → 上面那条 effect 自动切过去重新倒数，不再另开一页
 
+  // 一次处理这几单（「全部取消 / 全部立即求救」确认之后，以及它没全成功时提示条上的「重试」）
+  const runAll = (kind: ActKind, ids: readonly string[]) => {
+    const byId = new Map(queue.map((q) => [q.sosId, q]));
+    setBulkIds(ids);
+    markBusy(ids, kind);
+    void Promise.allSettled(
+      ids.map((id) =>
+        (kind === "cancel" ? sosApi.cancel(id) : sosApi.confirm(id)).then(
+          (updated) => queryClient.setQueryData(["sos", id], updated),
+        ),
+      ),
+    )
+      .then(async (results) => {
+        // 已在别处结束的单：和单条操作一样拉一次它的权威状态（屏上这单不然要等下一轮 10 秒轮询才切走）
+        results.forEach((r, i) => {
+          if (r.status === "rejected" && isFinalized(r.reason))
+            void queryClient.invalidateQueries({
+              queryKey: ["sos", ids[i]],
+              exact: true,
+            });
+        });
+        // 其余失败（超时 / 断网）和单条操作一样先补拉：短信慢时服务端终态化早于响应，页面已经是
+        // 「N 条求救已处理 · 短信已发出」，再提示失败就自相矛盾（10-20 模拟器：三顶、每条短信 9 s）。
+        // 没切到过的单在缓存里没有自己的详情查询，直接拉一次它的快照（带它自己的头盔号）
+        const rejected = ids
+          .map((id, i) => ({ id, r: results[i] }))
+          .filter(
+            (x): x is { id: string; r: PromiseRejectedResult } =>
+              x.r.status === "rejected" && !isFinalized(x.r.reason),
+          );
+        // 拉到的状态写回缓存（晚到的也写）：WS 断着时页面也能按实际状态画，不等 10 秒轮询；
+        // 下结论最多等 FAILURE_RECHECK_MS（坏网络下快照自己也会挂住）
+        const fresh = await Promise.all(
+          rejected.map((x) =>
+            settleWithin(
+              sosApi
+                .snapshot(x.id, byId.get(x.id)?.deviceId)
+                .then((snap) => {
+                  const settled = settleSnapshot(queryClient, x.id, snap);
+                  if (settled) queryClient.setQueryData(["sos", x.id], settled);
+                  return settled;
+                })
+                .catch(() => null),
+              FAILURE_RECHECK_MS,
+            ).then((v) => v ?? null),
+          ),
+        );
+        const failed = rejected.filter((x, i) => {
+          const c = fresh[i] ?? queryClient.getQueryData<Sos>(["sos", x.id]);
+          return !c || c.status === "pending";
+        });
+        // 没成功的那几单：和单条一样走页内提示条（O7），不弹框盖住还在倒数的单。整份替换就行：
+        // 「全部」发的是此刻全部在倒数的单，重试发的是提示条上全部没结束的单，这一批之外不会还有失败的单
+        setActFail(
+          failed.length > 0 ? { kind, ids: failed.map((x) => x.id) } : null,
+        );
+        if (failed.length > 0) {
+          devLog(
+            "SOS",
+            `倒计时页全部${kind === "cancel" ? "取消" : "立即求救"}有 ${failed.length} 单失败`,
+            failed[0].r.reason,
+          );
+          announceFail(
+            kind,
+            failed
+              .map((x) => byId.get(x.id)?.deadline)
+              .filter((d): d is string => d !== undefined),
+          );
+        }
+        void refreshActiveSos(queryClient);
+      })
+      .finally(() => clearBusy(ids));
+  };
+
   // 两单以上：一次处理全部。取消要确认（和单条的滑动取消一样不能误触）；立即求救也确认一下，
   // 这一下是替好几顶头盔的骑手做决定
-  const actAll = (kind: "cancel" | "confirm") => {
-    const targets = queue;
+  const actAll = (kind: ActKind) => {
+    const targets = queue.map((q) => q.sosId);
     Alert.alert(
       t(kind === "cancel" ? "sos.allCancelTitle" : "sos.allSendTitle", {
         n: targets.length,
@@ -857,92 +989,23 @@ function SosActiveContent() {
         {
           text: t("common.confirm"),
           style: kind === "cancel" ? "destructive" : "default",
-          onPress: () => {
-            const ids = targets.map((q) => q.sosId);
-            setBulkIds(ids);
-            markBusy(ids, kind);
-            void Promise.allSettled(
-              targets.map((q) =>
-                (kind === "cancel"
-                  ? sosApi.cancel(q.sosId)
-                  : sosApi.confirm(q.sosId)
-                ).then((updated) =>
-                  queryClient.setQueryData(["sos", q.sosId], updated),
-                ),
-              ),
-            )
-              .then(async (results) => {
-                // 已在别处结束的单：和单条操作一样拉一次它的权威状态（屏上这单不然要等下一轮 10 秒轮询才切走）
-                results.forEach((r, i) => {
-                  if (
-                    r.status === "rejected" &&
-                    r.reason instanceof ApiRequestError &&
-                    r.reason.code === "SOS_ALREADY_FINALIZED"
-                  )
-                    void queryClient.invalidateQueries({
-                      queryKey: ["sos", targets[i].sosId],
-                      exact: true,
-                    });
-                });
-                // 其余失败（超时 / 断网）和单条操作一样先补拉：短信慢时服务端终态化早于响应，页面已经是
-                // 「N 条求救已处理 · 短信已发出」，再弹「出错了」就自相矛盾（10-20 模拟器：三顶、每条短信 9 s）。
-                // 补拉后仍在倒数的才提示；补拉也失败时缓存保持原样，照常提示
-                const failed = results
-                  .map((r, i) => ({ r, q: targets[i] }))
-                  .filter(
-                    (x): x is { r: PromiseRejectedResult; q: Sos } =>
-                      x.r.status === "rejected" &&
-                      !(
-                        x.r.reason instanceof ApiRequestError &&
-                        x.r.reason.code === "SOS_ALREADY_FINALIZED"
-                      ),
-                  );
-                if (failed.length > 0) {
-                  // 没切到过的单在缓存里没有自己的详情查询，直接拉一次它的快照（带它自己的头盔号）。
-                  // 拉到的状态写回缓存（晚到的也写）：WS 断着时页面也能按实际状态画，不等 10 秒轮询；
-                  // 下结论最多等 FAILURE_RECHECK_MS（坏网络下快照自己也会挂住）
-                  const fresh = await Promise.all(
-                    failed.map((f) =>
-                      settleWithin(
-                        sosApi
-                          .snapshot(f.q.sosId, f.q.deviceId)
-                          .then((snap) => {
-                            const settled = settleSnapshot(
-                              queryClient,
-                              f.q.sosId,
-                              snap,
-                            );
-                            if (settled)
-                              queryClient.setQueryData(
-                                ["sos", f.q.sosId],
-                                settled,
-                              );
-                            return settled;
-                          })
-                          .catch(() => null),
-                        FAILURE_RECHECK_MS,
-                      ).then((x) => x ?? null),
-                    ),
-                  );
-                  const stillPending = failed.find((f, i) => {
-                    const c =
-                      fresh[i] ??
-                      queryClient.getQueryData<Sos>(["sos", f.q.sosId]);
-                    return !c || c.status === "pending";
-                  });
-                  if (stillPending)
-                    showNotice(
-                      t("common.failed"),
-                      toUserMessage(stillPending.r.reason),
-                    );
-                }
-                void refreshActiveSos(queryClient);
-              })
-              .finally(() => clearBusy(ids));
-          },
+          onPress: () => runAll(kind, targets),
         },
       ],
     );
+  };
+
+  // 提示条上的「重试」：再发同一个动作。只有屏上这单没成功就按单条重发；「全部…」留下不止一单还在倒数时，
+  // 这几单一起重发（用户已经确认过一次「全部」，不再弹确认）
+  const retryFail = () => {
+    if (!fail || cancelBusy) return;
+    // 只去掉本机已知结束了的；不按「在不在队列里」筛——队列只认进行中缓存，屏上这单之外的不一定在里面。
+    // 多发一单已结束的也无妨：服务端回 SOS_ALREADY_FINALIZED，按已结束处理
+    const ids = fail.ids.filter((id) => !isFinal(queryClient, id));
+    // 在途请求按单记（Q9）：单条重试只看屏上这单；一起重发几单时和「全部…」按钮一样，有任何在途就不发
+    if (ids.length > 1 ? anyBusy : busy !== null) return;
+    if (ids.length > 1) runAll(fail.kind, ids);
+    else act(fail.kind);
   };
 
   // 环随屏幕高度缩，两个操作始终留在屏幕里。环以外要放下的东西按 1 倍字体算是 446；
@@ -958,7 +1021,9 @@ function SosActiveContent() {
     (isDrill ? 44 : 0) -
     (sourceName ? 26 : 0) -
     (lateNote ? 26 : 0) -
-    (others.length > 0 ? 44 + 26 + 30 : 0);
+    (others.length > 0 ? 44 + 26 + 30 : 0) -
+    // 取消 / 立即求救没成功的提示条在环和按钮之间占的高度（360dp 宽时三行）
+    (fail ? 88 : 0);
   const estimateCompact = room < 200;
   const estimateRing = Math.round(
     Math.max(140, Math.min(252, room + (estimateCompact ? 66 : 0))),
@@ -967,7 +1032,7 @@ function SosActiveContent() {
   // 量出上半截实际溢出多少，就把环再缩多少（环是这里唯一能伸缩的东西）；环缩到 140 还放不下才收起顶上的图标，
   // 再放不下（字体放得很大）才靠滚动兜底。2026-10-15 华为 P30 Pro 英文、没有联系人时上半截能上下滑（负责人发现）
   // 量出来的结果连同当时的布局条件一起存：条件一变（转屏、改字体、换语言、联系人加载出来）就当作没量过，从估算重新来
-  const layoutKey = `${windowHeight}|${fontScale}|${locale}|${isDrill}|${sourceName ?? ""}|${lateNote ?? ""}|${contacts.data?.length ?? "?"}|${others.length > 0}`;
+  const layoutKey = `${windowHeight}|${fontScale}|${locale}|${isDrill}|${sourceName ?? ""}|${lateNote ?? ""}|${contacts.data?.length ?? "?"}|${others.length > 0}|${fail !== null}`;
   const [fitState, setFitState] = useState({
     key: layoutKey,
     shrink: 0,
@@ -994,6 +1059,8 @@ function SosActiveContent() {
       setFitState({ ...fit, compact: true });
     }
   };
+
+  const [failTitle, failBody] = fail ? failLines(fail.kind, left) : ["", ""];
 
   const notifiedTitleOf = (d: ReturnType<typeof deliveryStateOf>) =>
     d === "sent"
@@ -1401,6 +1468,52 @@ function SosActiveContent() {
               </View>
               <View style={styles.grow} />
             </ScrollView>
+
+            {/* 取消 / 立即求救没成功：在环和两个按钮之间，不盖住数字和按钮；秒数跟着倒计时走（O7） */}
+            {fail ? (
+              <Animated.View
+                entering={FadeIn.duration(200)}
+                style={[
+                  styles.actFail,
+                  { backgroundColor: P.alertBg, borderColor: P.alertBorder },
+                ]}
+              >
+                <Ionicons
+                  name="alert-circle-outline"
+                  size={18}
+                  color={P.alert}
+                />
+                <View style={styles.actFailBody}>
+                  <ThemedText style={[styles.actFailTitle, { color: P.text }]}>
+                    {failTitle}
+                  </ThemedText>
+                  <ThemedText style={[styles.actFailText, { color: P.text }]}>
+                    {failBody}
+                  </ThemedText>
+                </View>
+                <Tappable
+                  feedback="scale"
+                  accessibilityRole="button"
+                  accessibilityLabel={t(
+                    fail.kind === "cancel"
+                      ? "sos.retryCancelA11y"
+                      : "sos.retrySendA11y",
+                  )}
+                  disabled={
+                    cancelBusy ||
+                    (fail.ids.length > 1 ? anyBusy : busy !== null)
+                  }
+                  onPress={retryFail}
+                  style={[styles.actFailRetry, { borderColor: P.text }]}
+                >
+                  <ThemedText
+                    style={[styles.actFailRetryText, { color: P.text }]}
+                  >
+                    {t("sos.retry")}
+                  </ThemedText>
+                </Tappable>
+              </Animated.View>
+            ) : null}
 
             <View style={styles.actions}>
               <Tappable
@@ -1844,6 +1957,29 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   noContactsText: { flex: 1, fontSize: 14, lineHeight: 20, fontWeight: 600 },
+  actFail: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 8,
+    paddingVertical: 10,
+    paddingLeft: 14,
+    paddingRight: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  actFailBody: { flex: 1, gap: 2 },
+  actFailTitle: { fontSize: 14, lineHeight: 20, fontWeight: 700 },
+  actFailText: { fontSize: 14, lineHeight: 20 },
+  actFailRetry: {
+    minHeight: 36,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actFailRetryText: { fontSize: 14, lineHeight: 20, fontWeight: 700 },
   actions: { gap: 20, paddingTop: 8 },
   send: {
     height: 72,
