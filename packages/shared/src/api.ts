@@ -425,7 +425,8 @@ export type WsMessageType =
   | 'sos_update'
   | 'risk_event'
   | 'device_event'
-  | 'device_command';
+  | 'device_command'
+  | 'voice_taken_over';
 
 /** WS 是加速通道不是可靠通道：重连后须用 REST 拉取兜底（API.md §11） */
 export interface WsMessage<T = unknown> {
@@ -457,6 +458,13 @@ export type WsDeviceEventData = EventListItem;
  *  commandId 幂等——App/头盔重复收到不重复执行 */
 export interface WsDeviceCommandData extends DeviceCommand {
   deviceId: string;
+}
+
+/** type=voice_taken_over 的 data（决策 #62）：本账号在 clientId 那台手机上进了对讲（POST /voice/channels/{id}/token
+ *  带 purpose=enter）。clientId 不是自己、自己又在通话里（或已拿到凭证正在进房）的 App 退房并提示「被另一台手机接管」 */
+export interface WsVoiceTakenOverData {
+  channelId: string;
+  clientId: string;
 }
 
 /** POST /devices/{id}/commands/{cid}/relay-ack 请求体（决策 #36）：
@@ -505,6 +513,18 @@ export interface VoiceChannelMemberPublic {
   avatarUrl: string | null;
   phone: string;
   joinedAt: string;
+}
+
+/**
+ * POST /voice/channels/{id}/token 请求体（决策 #62，可整个省略——旧包不带，行为同从前）：
+ * - clientId：App 进程启动时随机生成的本机标识（8–64 位字母 / 数字 / _ / -），只用来区分同一账号的几台手机；
+ * - purpose：enter = 进房（含断线后自动重进），服务端记下这台为本账号当前通话的手机，并经 WS 通知同账号其他连接；
+ *   renew = 在房续钥匙，若本账号已被另一台手机接管则 409 VOICE_TAKEN_OVER（WS 通知漏收时的兜底）。
+ *   带 purpose 时 clientId 必填。
+ */
+export interface VoiceTokenRequest {
+  clientId?: string;
+  purpose?: 'enter' | 'renew';
 }
 
 /** 进房凭证：App 端用 TRTC SDK 携此进房（roomId + privateMapKey）+ PTT */

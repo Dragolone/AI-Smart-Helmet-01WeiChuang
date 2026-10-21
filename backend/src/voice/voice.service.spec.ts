@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
+import type { RealtimePushService } from '../realtime/realtime-push.service';
 import { verifyUserSig } from './trtc-sig';
 import { VoiceService } from './voice.service';
 
@@ -52,6 +53,7 @@ describe('VoiceService', () => {
   };
   // 建频道在事务里写：事务客户端上的 voiceChannel 就用同一组 mock
   Object.assign(tx, { voiceChannel: prisma.voiceChannel });
+  const push = { pushVoiceTakenOver: jest.fn() };
   let svc: VoiceService;
   const saved: Record<string, string | undefined> = {};
   const ENV = [
@@ -76,7 +78,11 @@ describe('VoiceService', () => {
       for (const fn of Object.values(group)) fn.mockReset();
     tx.$executeRaw.mockReset().mockResolvedValue(1);
     tx.$queryRaw.mockReset().mockResolvedValue([{ deleted_at: null }]);
-    svc = new VoiceService(prisma as unknown as PrismaService);
+    push.pushVoiceTakenOver.mockReset();
+    svc = new VoiceService(
+      prisma as unknown as PrismaService,
+      push as unknown as RealtimePushService,
+    );
     jest.spyOn(Logger.prototype, 'log').mockImplementation();
   });
   afterEach(() => {
@@ -347,6 +353,86 @@ describe('VoiceService', () => {
       process.env.TRTC_SECRET_KEY = 'fake-key';
       await expect(svc.token('u9', 'ch1')).rejects.toMatchObject({
         response: { code: 'NOT_FOUND' },
+      });
+    });
+
+    describe('一个账号只留一台在通话（决策 #62）', () => {
+      beforeEach(() => {
+        process.env.TRTC_SDK_APP_ID = '1400000000';
+        process.env.TRTC_SECRET_KEY = 'k';
+      });
+
+      it('enter：通知同账号的连接（带频道与发起方 clientId）', async () => {
+        await svc.token('u1', 'ch1', {
+          clientId: 'phoneA-1',
+          purpose: 'enter',
+        });
+        expect(push.pushVoiceTakenOver).toHaveBeenCalledWith('u1', {
+          channelId: 'ch1',
+          clientId: 'phoneA-1',
+        });
+      });
+
+      it('另一台 enter 之后，先进那台的 renew：409 VOICE_TAKEN_OVER；后进那台 renew 照常', async () => {
+        await svc.token('u1', 'ch1', {
+          clientId: 'phoneA-1',
+          purpose: 'enter',
+        });
+        await svc.token('u1', 'ch1', {
+          clientId: 'phoneB-1',
+          purpose: 'enter',
+        });
+        await expect(
+          svc.token('u1', 'ch1', { clientId: 'phoneA-1', purpose: 'renew' }),
+        ).rejects.toMatchObject({
+          status: 409,
+          response: { code: 'VOICE_TAKEN_OVER' },
+        });
+        await expect(
+          svc.token('u1', 'ch1', { clientId: 'phoneB-1', purpose: 'renew' }),
+        ).resolves.toMatchObject({ userId: 'u1' });
+      });
+
+      it('renew 不通知别的手机；还没人 enter 过（如服务端刚重启）时 renew 照常', async () => {
+        await expect(
+          svc.token('u1', 'ch1', { clientId: 'phoneA-1', purpose: 'renew' }),
+        ).resolves.toMatchObject({ userId: 'u1' });
+        expect(push.pushVoiceTakenOver).not.toHaveBeenCalled();
+      });
+
+      it('按账号分开：别的账号 enter 不影响本账号 renew', async () => {
+        await svc.token('u1', 'ch1', {
+          clientId: 'phoneA-1',
+          purpose: 'enter',
+        });
+        await svc.token('u2', 'ch1', {
+          clientId: 'phoneC-1',
+          purpose: 'enter',
+        });
+        await expect(
+          svc.token('u1', 'ch1', { clientId: 'phoneA-1', purpose: 'renew' }),
+        ).resolves.toMatchObject({ userId: 'u1' });
+      });
+
+      it('不带请求体（旧包）：照常签发，不通知、不记录，也不会让别的手机 renew 409', async () => {
+        await svc.token('u1', 'ch1', {
+          clientId: 'phoneA-1',
+          purpose: 'enter',
+        });
+        push.pushVoiceTakenOver.mockClear();
+        await svc.token('u1', 'ch1');
+        expect(push.pushVoiceTakenOver).not.toHaveBeenCalled();
+        await expect(
+          svc.token('u1', 'ch1', { clientId: 'phoneA-1', purpose: 'renew' }),
+        ).resolves.toMatchObject({ userId: 'u1' });
+      });
+
+      it('TRTC 未配置的 enter：503，不记录也不通知（别的手机不能因为一次失败的进房被挤掉）', async () => {
+        delete process.env.TRTC_SECRET_KEY;
+        await expect(
+          svc.token('u1', 'ch1', { clientId: 'phoneB-1', purpose: 'enter' }),
+        ).rejects.toMatchObject({ response: { code: 'TRTC_NOT_CONFIGURED' } });
+        expect(push.pushVoiceTakenOver).not.toHaveBeenCalled();
       });
     });
   });

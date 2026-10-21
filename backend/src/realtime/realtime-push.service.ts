@@ -8,6 +8,7 @@ import type {
   WsMessage,
   WsRiskEventData,
   WsSosData,
+  WsVoiceTakenOverData,
 } from '@helmet/shared';
 import type { DeviceSnapshot } from '../devices/device-snapshot.service';
 import { buildSummary } from '../events/event-wire';
@@ -25,6 +26,16 @@ export class RealtimePushService {
     const message: WsMessage<WsSosData> = {
       type: 'sos_update',
       data: sos,
+      sentAt: new Date().toISOString(),
+    };
+    this.gateway.pushToUser(userId, message);
+  }
+
+  /** 本账号在另一台手机上进了对讲（决策 #62）：同账号的连接都发，发起的那台按 clientId 认出是自己、不理 */
+  pushVoiceTakenOver(userId: string, data: WsVoiceTakenOverData): void {
+    const message: WsMessage<WsVoiceTakenOverData> = {
+      type: 'voice_taken_over',
+      data,
       sentAt: new Date().toISOString(),
     };
     this.gateway.pushToUser(userId, message);
