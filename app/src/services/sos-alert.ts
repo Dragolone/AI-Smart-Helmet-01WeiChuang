@@ -477,16 +477,38 @@ export async function isSosAlertPermissionDenied(): Promise<boolean> {
  * 而 getPermissionsAsync 仍报 granted。华为 P30 实测（2026-10-19）：通知总开关关着的时候
  * App 首次启动建的通道会被记成「关闭」，之后把总开关打开，通道还是关的——界面得把这种也算成未开启，
  * 把人带到系统的通知设置页（通道开关就在那一页上）。通道还没建、查不到都按没关处理，不吓唬用户。
+ * 被调成「静默」（LOW / MIN）同样算：通知只进通知栏，不响、不震、不弹横幅，求救倒计时等于没提醒，
+ * 原来照样写「已开启」（10-21 模拟器：通道改成 Silent 后来单，桌面上什么都没有）。「默认」（会响、不弹横幅）不算。
  */
 export async function isSosChannelBlocked(): Promise<boolean> {
   if (Platform.OS !== "android") return false;
   try {
     const ch = await Notifications.getNotificationChannelAsync(SOS_CHANNEL_ID);
     return (
-      ch !== null && ch.importance === Notifications.AndroidImportance.NONE
+      ch !== null &&
+      ch.importance >= Notifications.AndroidImportance.NONE &&
+      ch.importance <= Notifications.AndroidImportance.LOW
     );
   } catch {
     return false;
+  }
+}
+
+/**
+ * Android：求救通道在勿扰模式下能不能照常提醒。建通道时申请的 bypassDnd 系统不认（没有勿扰权限的 App
+ * 申请了也记成 false，模拟器 / 华为 dumpsys 都是 mBypassDnd=false），只有用户在这条通道的设置里打开
+ * 「允许打扰 / Override Do Not Disturb」才是 true。不是 true 时开着勿扰锁屏来单，通知被系统拦下：
+ * 没有横幅、没有声音和震动，误报也来不及取消（2026-10-21 模拟器 dumpsys mIntercept=true）。
+ * iOS（本地和远程求救通知都是 time-sensitive，专注模式默认放行）、通道还没建、查不到都返回 null，不显示这一项。
+ */
+export async function sosChannelBypassesDnd(): Promise<boolean | null> {
+  if (Platform.OS !== "android") return null;
+  try {
+    const ch = await Notifications.getNotificationChannelAsync(SOS_CHANNEL_ID);
+    if (ch === null) return null;
+    return ch.bypassDnd === true;
+  } catch {
+    return null;
   }
 }
 
