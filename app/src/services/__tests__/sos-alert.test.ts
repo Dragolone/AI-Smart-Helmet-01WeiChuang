@@ -676,6 +676,44 @@ describe("sos-alert", () => {
       expect(mockRequestPerms).toHaveBeenCalledTimes(1);
     });
 
+    it("别的授权框（蓝牙）也走同一道门：页面不在屏立刻放行；在屏就等它关掉；登记了却没挂上的看一眼就放行；补拉没回来最多等 5 s（10-21 代码审查）", async () => {
+      jest.useFakeTimers();
+      const { m, screen, presented } = loadWithScreen();
+      const free = jest.fn();
+      void m.whenCountdownClearForPrompt().then(free);
+      await settle();
+      expect(free).toHaveBeenCalledTimes(1);
+
+      screen.mounted = true;
+      const waiting = jest.fn();
+      void m.whenCountdownClearForPrompt().then(waiting);
+      await jest.advanceTimersByTimeAsync(30_000);
+      await settle();
+      expect(waiting).not.toHaveBeenCalled();
+      screen.mounted = false;
+      await jest.advanceTimersByTimeAsync(1_000);
+      await settle();
+      expect(waiting).toHaveBeenCalledTimes(1);
+
+      presented.add("s1");
+      const once = jest.fn();
+      void m.whenCountdownClearForPrompt().then(once);
+      await jest.advanceTimersByTimeAsync(1_000);
+      await settle();
+      expect(once).toHaveBeenCalledTimes(1);
+      presented.clear();
+
+      m.holdPermissionPromptUntil(new Promise<void>(() => undefined));
+      const gated = jest.fn();
+      void m.whenCountdownClearForPrompt().then(gated);
+      await jest.advanceTimersByTimeAsync(4_999);
+      await settle();
+      expect(gated).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(1);
+      await settle();
+      expect(gated).toHaveBeenCalledTimes(1);
+    });
+
     it("补弹那次申请出错：不抛（没有未处理的拒绝），界面照常往下读", async () => {
       jest.useFakeTimers();
       willPrompt();

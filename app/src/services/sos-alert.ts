@@ -166,10 +166,29 @@ async function askPermission(willPrompt: boolean): Promise<void> {
 }
 
 /** 轮询而不是挂页面卸载回调：不用改倒计时页；同一次提交里先卸后挂（切单）的那一瞬间定时器插不进来 */
-async function askAfterCountdown(): Promise<void> {
+async function waitCountdownClosed(): Promise<void> {
   do {
     await new Promise((r) => setTimeout(r, DEFERRED_ASK_POLL_MS));
   } while (sosScreen.mounted);
+}
+
+/**
+ * 别的系统授权框（蓝牙「附近设备」、安卓 11 及以下的定位）弹之前也过同一道门（O10，10-21 代码审查）：
+ * 等冷启动补拉（最多 5 s），倒计时页在屏或正要拉起就等它关掉。原来只有通知那次会推迟——通知早就授权了
+ * （安卓 12 及以下根本没有通知授权框，华为 P30 就是）或已被永久拒绝时，起蓝牙链路那一下的框照样盖在倒计时页上
+ */
+export async function whenCountdownClearForPrompt(): Promise<void> {
+  if (promptGate) await settledOrTimeout(promptGate, PROMPT_GATE_MAX_MS);
+  if (!sosScreen.mounted && presentedSos.current.size === 0) return;
+  devLog(
+    "SOS-ALERT",
+    "倒计时页在屏 / 正要拉起，系统授权框推迟到页面关掉后再弹",
+  );
+  await waitCountdownClosed();
+}
+
+async function askAfterCountdown(): Promise<void> {
+  await waitCountdownClosed();
   try {
     await Notifications.requestPermissionsAsync();
   } catch (e) {

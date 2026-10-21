@@ -147,6 +147,16 @@ describe("倒计时页在屏、还剩 20 秒", () => {
     expect(s.expiredDuringSos).toBe(false);
   });
 
+  it("页面上的单都结束了、按到点通知收尾：登录页说明里多那一句（倒计时页见 sos-active 的用例）", async () => {
+    setCountdownHold(until());
+    rejectSession();
+    await api("/contacts").catch(() => undefined);
+    await useAuthStore.getState().endDeadSession({ duringSos: true });
+    const s = useAuthStore.getState();
+    expect(s.tokens).toBeNull();
+    expect(s.expiredDuringSos).toBe(true);
+  });
+
   it("会话没被否定时点它：什么都不做", async () => {
     await useAuthStore.getState().endDeadSession();
     expect(useAuthStore.getState().tokens).not.toBeNull();

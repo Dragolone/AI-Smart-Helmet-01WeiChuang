@@ -690,6 +690,13 @@ function SosActiveContent() {
   /** 拉过了、但两条 REST 都失败且缓存里也没有这单（null ≠ 还在拉的 undefined） */
   const connecting = !isDrill && sosQuery.data === null;
   const finished = sos && sos.status !== "pending";
+  // 失效期间这一页上的单都结束了（还连着的实时通道推来别处取消 / 到点通知）：没什么要等的了，现在就回登录页。
+  // 不然结果页上的「我还是需要帮助」在本机就被拒，却提示「已暂存」，要等同一账号下次登录才补传（10-21 代码审查）
+  const finalStatus = sos?.status;
+  useEffect(() => {
+    if (sessionDead && finished && holdUntil === null)
+      void endDeadSession({ duringSos: finalStatus === "notified" });
+  }, [sessionDead, finished, holdUntil, finalStatus, endDeadSession]);
   const fail =
     !isDrill && !finished && actFail?.ids.includes(sosId) ? actFail : null;
 
@@ -915,9 +922,14 @@ function SosActiveContent() {
   // 这一页里只算一次求救：再点（失败后重试）复用同一个 eventId，服务端按它幂等。换了 eventId 的话，
   // 前一条已经建了单、倒计时中再到一条 manual_sos，会被当成「倒计时中按实体键」直接跳过 60 秒通知联系人
   //（10-06 不变式评审 F-5）
-  // 按头盔号各存一份：多顶头盔的结果页上每顶各有一个「我还是需要帮助」（10-16 N10）
+  // 按头盔号各存一份：多顶头盔的结果页上每顶各有一个「我还是需要帮助」（10-16 N10）。
+  // 同时记下它是接在哪一单之后发的：那一单建出的新单也结束后再点（或 O29 替他重发），要换新的 eventId——
+  // 原来整页复用同一个，服务端判重复、不建单，页面却当成发出去了（10-21 代码审查）
   const helpEnvelope = useRef(
-    new Map<string, ReturnType<typeof buildRelayEnvelope>>(),
+    new Map<
+      string,
+      { afterSosId: string; envelope: ReturnType<typeof buildRelayEnvelope> }
+    >(),
   );
   const helpQueued = useRef(new Set<string>());
   const [helpBusy, setHelpBusy] = useState(false);
@@ -926,10 +938,16 @@ function SosActiveContent() {
     const helpDevice = device ?? sos?.deviceId ?? deviceId;
     if (!helpDevice) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
-    let envelope = helpEnvelope.current.get(helpDevice);
-    if (!envelope) {
+    // 这顶头盔眼下结束的是哪一单：当前这单是它的就是当前这单，否则看结果页列着的那一单
+    const afterSosId =
+      (sos?.deviceId === helpDevice ? sos.sosId : handled[helpDevice]?.sosId) ??
+      "";
+    const kept = helpEnvelope.current.get(helpDevice);
+    let envelope = kept?.envelope;
+    if (!envelope || kept?.afterSosId !== afterSosId) {
       envelope = buildRelayEnvelope(helpDevice, "manual_sos", {});
-      helpEnvelope.current.set(helpDevice, envelope);
+      helpEnvelope.current.set(helpDevice, { afterSosId, envelope });
+      helpQueued.current.delete(helpDevice);
     }
     setHelpBusy(true);
     relayApi

@@ -62,6 +62,7 @@ import { setPushArrivalHandler, startPush, stopPush } from "@/services/push";
 import {
   clearSosAlert,
   ensureSosAlertPermission,
+  whenCountdownClearForPrompt,
   whenSosAlertPermissionAsked,
   holdPermissionPromptUntil,
   resetSosAlerts,
@@ -148,6 +149,7 @@ jest.mock("@/services/sos-alert", () => ({
   clearSosAlert: jest.fn(),
   ensureSosAlertPermission: jest.fn(),
   whenSosAlertPermissionAsked: jest.fn(),
+  whenCountdownClearForPrompt: jest.fn(),
   holdPermissionPromptUntil: jest.fn(),
   resetSosAlerts: jest.fn(),
   setSosCancelConfirmedListener: jest.fn(),
@@ -397,6 +399,7 @@ beforeEach(() => {
   jest.mocked(saveCachedTargets).mockResolvedValue(undefined);
   jest.mocked(ensureSosAlertPermission).mockResolvedValue(undefined);
   jest.mocked(whenSosAlertPermissionAsked).mockResolvedValue(undefined);
+  jest.mocked(whenCountdownClearForPrompt).mockResolvedValue(undefined);
   jest.mocked(checkBlePermissions).mockResolvedValue(true);
   jest.mocked(startBleLink).mockResolvedValue(undefined);
   jest.mocked(adoptRelayUplinkOwner).mockReturnValue(true);
@@ -581,10 +584,26 @@ describe("蓝牙链路目标", () => {
     expect(startBleLink).toHaveBeenCalledTimes(1);
   });
 
+  it("蓝牙权限没有、通知那次根本没弹框（早就授权 / 永久拒绝，立刻兑现）：倒计时页在屏时照样等它关掉再起链路（O10，10-21 代码审查）", async () => {
+    const clear = deferred<void>();
+    jest.mocked(checkBlePermissions).mockResolvedValue(false);
+    jest.mocked(whenSosAlertPermissionAsked).mockResolvedValue(undefined);
+    jest.mocked(whenCountdownClearForPrompt).mockReturnValue(clear.promise);
+    jest.mocked(devicesApi.list).mockResolvedValue([dev("h1")]);
+    await mountBridge();
+    await run(() => undefined);
+    expect(startBleLink).not.toHaveBeenCalled();
+    await run(() => clear.resolve());
+    expect(startBleLink).toHaveBeenCalledTimes(1);
+  });
+
   it("蓝牙权限已经有了：不等通知那次申请（可能被推迟），通知权限一有结果就起链路", async () => {
     jest.mocked(checkBlePermissions).mockResolvedValue(true);
     jest
       .mocked(whenSosAlertPermissionAsked)
+      .mockReturnValue(new Promise(() => undefined));
+    jest
+      .mocked(whenCountdownClearForPrompt)
       .mockReturnValue(new Promise(() => undefined));
     jest.mocked(devicesApi.list).mockResolvedValue([dev("h1")]);
     await mountBridge();

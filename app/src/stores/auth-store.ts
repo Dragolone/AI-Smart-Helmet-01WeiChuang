@@ -38,8 +38,11 @@ type AuthState = {
   sessionDeadUntil: number | null;
   /** 真正登出时倒计时已经走完（O19-A）：登录页多说一句「如果没在别处取消，紧急联系人已收到通知」 */
   expiredDuringSos: boolean;
-  /** 倒计时页上点「重新登录后取消」：不等倒数结束，现在就回登录页 */
-  endDeadSession: () => Promise<void>;
+  /**
+   * 不等倒数结束、现在就回登录页：倒计时页上点「重新登录后取消」，或失效期间这一页的单都已结束。
+   * duringSos：单子已到点通知，登录页多说一句联系人已收到通知
+   */
+  endDeadSession: (opts?: { duringSos?: boolean }) => Promise<void>;
   hydrate: () => Promise<void>;
   signIn: (auth: AuthResponse) => Promise<void>;
   signOut: () => Promise<void>;
@@ -61,9 +64,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   sessionDeadUntil: null,
   expiredDuringSos: false,
 
-  endDeadSession: async () => {
+  endDeadSession: async (opts) => {
     if (get().sessionDeadUntil === null) return;
-    await clearLocalSession({ duringSos: false });
+    await clearLocalSession({ duringSos: opts?.duringSos ?? false });
   },
 
   hydrate: async () => {
