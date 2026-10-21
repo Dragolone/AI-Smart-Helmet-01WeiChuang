@@ -22,6 +22,7 @@ import { useSosCancelStore } from "@/stores/sos-cancel-store";
 import { showNotice } from "@/services/notice";
 import {
   clearSosStartPush,
+  setSosStartPushArrivalHook,
   SOS_START_PUSH_TITLE,
 } from "@/services/sos-start-push";
 import {
@@ -64,6 +65,10 @@ const alerts = new Map<
   { ids: string[]; timers: ReturnType<typeof setTimeout>[] }
 >();
 let responseSub: Notifications.EventSubscription | null = null;
+// 极光那条比本地提醒晚到（安卓）：本地这条已在通知栏上就当场撤掉它（见 sos-start-push 的说明）
+setSosStartPushArrivalHook((sosId) => {
+  if (alerts.has(sosId)) clearSosStartPush(sosId);
+});
 /** 通知按钮「取消」被服务端确认后回调（use-realtime 注册：让倒计时页立刻拉一次权威状态） */
 let onCancelConfirmed: ((sosId: string, sos?: Sos) => void) | null = null;
 export function setSosCancelConfirmedListener(

@@ -82,8 +82,12 @@ jest.mock("@/i18n", () => ({
 }));
 jest.mock("@/services/dev-log", () => ({ devLog: jest.fn() }));
 const mockClearStartPush = jest.fn();
+let mockArrivalHook: ((sosId: string) => void) | null = null;
 jest.mock("@/services/sos-start-push", () => ({
   clearSosStartPush: (sosId: string) => mockClearStartPush(sosId),
+  setSosStartPushArrivalHook: (hook: ((sosId: string) => void) | null) => {
+    mockArrivalHook = hook;
+  },
   SOS_START_PUSH_TITLE: "SOS 倒计时已开始",
 }));
 jest.mock("expo-notifications", () => ({
@@ -1423,6 +1427,18 @@ describe("sos-alert", () => {
       await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
       await new Promise((r) => setTimeout(r, 0));
       expect(mockClearStartPush).toHaveBeenCalledWith("s1");
+      await m.clearSosAlert("s1");
+    });
+
+    it("极光那条比本地提醒晚到（App 在后台、补扫定时器不跑）：到达时本地这条已在通知栏上就当场撤；这单没有本地提醒就不碰（10-21 夜华为实测）", async () => {
+      const m = load();
+      await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
+      mockClearStartPush.mockClear();
+      mockArrivalHook?.("s1");
+      expect(mockClearStartPush).toHaveBeenCalledWith("s1");
+      mockClearStartPush.mockClear();
+      mockArrivalHook?.("s-unknown");
+      expect(mockClearStartPush).not.toHaveBeenCalled();
       await m.clearSosAlert("s1");
     });
 

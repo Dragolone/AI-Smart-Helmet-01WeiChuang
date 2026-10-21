@@ -8,6 +8,18 @@ export const SOS_START_PUSH_TITLE = "SOS 倒计时已开始";
 
 const arrived = new Map<string, number[]>();
 let clearById: ((notificationId: number) => void) | null = null;
+let onArrived: ((sosId: string) => void) | null = null;
+
+/**
+ * sos-alert 装上：极光那条到达时，这一单的本地提醒若已在通知栏上，当场撤掉它。原来只靠本地提醒弹出后 3 s / 10 s
+ * 的补扫，App 在后台时安卓的 JS 定时器不跑，晚到的那条就一直挂着（华为 10-21 夜实测：晚 0.8 s 到、20 s 都没撤）。
+ * 到达事件是原生推过来的，后台也会来
+ */
+export function setSosStartPushArrivalHook(
+  hook: ((sosId: string) => void) | null,
+): void {
+  onArrived = hook;
+}
 
 /** push.ts 初始化极光后装上：按编号撤一条极光通知 */
 export function setJPushNotificationClearer(
@@ -28,6 +40,11 @@ export function noteSosStartPush(
   const ids = arrived.get(sosId) ?? [];
   if (!ids.includes(notificationId)) ids.push(notificationId);
   arrived.set(sosId, ids);
+  try {
+    onArrived?.(sosId);
+  } catch {
+    // 撤不掉也不影响记下的编号：单子结束时还会再撤
+  }
 }
 
 /** 这一单结束：撤掉记下的那几条（首投失败重试时同一单可能到了不止一条） */
@@ -48,4 +65,5 @@ export function clearSosStartPush(sosId: string): void {
 export function __resetSosStartPushForTests(): void {
   arrived.clear();
   clearById = null;
+  onArrived = null;
 }
