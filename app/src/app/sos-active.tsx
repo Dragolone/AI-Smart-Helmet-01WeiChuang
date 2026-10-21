@@ -135,8 +135,11 @@ function useScreenReader(): boolean {
   return on;
 }
 
-function secondsLeft(deadline: string, now: number): number {
-  return shownSeconds(Math.ceil((new Date(deadline).getTime() - now) / 1000));
+/** 剩几秒；截止时间解析不出来（服务端出错）时返回 null，页面按「状态未知」写「—」，不写 NaN（10-21 夜测） */
+function secondsLeft(deadline: string, now: number): number | null {
+  const at = new Date(deadline).getTime();
+  if (!Number.isFinite(at)) return null;
+  return shownSeconds(Math.ceil((at - now) / 1000));
 }
 
 type ActKind = "cancel" | "confirm";
@@ -563,7 +566,8 @@ function SosActiveContent() {
       alarm.seekTo(0).catch(() => {});
       safePlay();
       pulse();
-      if (deadline && secondsLeft(deadline, serverNow()) <= URGENT_SECONDS) {
+      const s = deadline ? secondsLeft(deadline, serverNow()) : null;
+      if (s !== null && s <= URGENT_SECONDS) {
         second = setTimeout(pulse, 160);
       }
     }, 1000);
@@ -591,10 +595,10 @@ function SosActiveContent() {
   // 读屏：提示条出现时念一遍（同绑定页失败的写法）。不给提示条挂 accessibilityLiveRegion——
   // 里面的秒数每秒在变，Android 会每秒重念一次。秒数按失败这一刻现算，别用发请求时的（最多晚 8 s）
   const announceFail = (kind: ActKind, deadlines: readonly string[]) => {
-    const n =
-      deadlines.length > 0
-        ? Math.min(...deadlines.map((d) => secondsLeft(d, serverNow())))
-        : null;
+    const known = deadlines
+      .map((d) => secondsLeft(d, serverNow()))
+      .filter((x): x is number => x !== null);
+    const n = known.length > 0 ? Math.min(...known) : null;
     const [title, body] = failLines(kind, n);
     AccessibilityInfo.announceForAccessibility(
       `${title}${t("common.a11ySep")}${body}`,
@@ -1378,7 +1382,7 @@ function SosActiveContent() {
                     {queue.slice(0, MAX_CHIPS).map((q) => {
                       const on = q.sosId === sosId;
                       const name = nameOf(q.deviceId);
-                      const n = secondsLeft(q.deadline, now);
+                      const n = secondsLeft(q.deadline, now) ?? "—";
                       return (
                         <Tappable
                           key={q.sosId}
