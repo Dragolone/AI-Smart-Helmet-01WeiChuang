@@ -1,0 +1,18 @@
+diff --git a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/builders/ExpoNotificationBuilder.kt b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/builders/ExpoNotificationBuilder.kt
+index 610d303..dc61fd4 100644
+--- a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/builders/ExpoNotificationBuilder.kt
++++ b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/notifications/presentation/builders/ExpoNotificationBuilder.kt
+@@ -97,6 +97,13 @@ open class ExpoNotificationBuilder(
+ 
+     val content = notificationContent
+ 
++    // 零一智行补丁（O31）：data 里 lockscreenVisibility = "public" 的通知，锁屏上照常显示内容。
++    // 系统开了「隐藏敏感内容」时，默认 PRIVATE 的通知在锁屏上被打码成「App 名 · 刚刚」，求救倒计时提醒必须看得见；
++    // 通道的 lockscreenVisibility 只能比单条更严、放不宽，所以要设在单条上
++    if (content.body?.optString("lockscreenVisibility") == "public") {
++      builder.setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
++    }
++
+     builder.setAutoCancel(content.isAutoDismiss)
+     builder.setOngoing(content.isSticky)
+ 

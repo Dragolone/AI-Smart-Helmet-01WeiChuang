@@ -20,6 +20,7 @@ import { presentedSos } from "@/services/sos-sync";
 import { sosScreen } from "@/services/sos-queue";
 import { useSosCancelStore } from "@/stores/sos-cancel-store";
 import { showNotice } from "@/services/notice";
+import { clearSosStartPush } from "@/services/sos-start-push";
 import {
   PROMPT_AFTER_SPLASH_MAX_MS,
   splashGoneWithin,
@@ -536,7 +537,8 @@ export async function showSosAlertIfBackground(
     interruptionLevel: "timeSensitive" as const,
     priority: Notifications.AndroidNotificationPriority.MAX,
     categoryIdentifier: CATEGORY_ID,
-    data: { sosId, deviceId },
+    // lockscreenVisibility：系统开了「隐藏敏感内容」时锁屏上也照常显示（O31；安卓靠 patches/expo-notifications，iOS 不认这个键）
+    data: { sosId, deviceId, lockscreenVisibility: "public" },
   });
   /** 排一条；排完发现这单已被清掉就立刻撤回，返回是否还该继续 */
   let armed = false;
@@ -605,13 +607,21 @@ export async function showSosAlertIfBackground(
   }
 }
 
-/** 撤掉通知中心里同一单的远程推送（只在 iOS 上查得到；Android 的极光通知不经 expo，查不到也撤不了） */
+/**
+ * 撤掉通知中心里这一单的远程推送「倒计时已开始」（iOS：它在 expo 的已送达列表里、自定义字段在 trigger.payload）。
+ * 只认带类别 sos 的那条——结果通知（已通知联系人 / 发送失败）不带类别，要留给用户看（O12，负责人 10-21 定）。
+ * 安卓上极光的通知 expo 列得出来但读不到单号，走 sos-start-push 记下的极光编号
+ */
 async function dismissRemoteTwins(sosId: string): Promise<void> {
   try {
     const shown = await Notifications.getPresentedNotificationsAsync();
     for (const n of shown) {
       const ref = sosRefOf(n);
-      if (ref?.remote && ref.sosId === sosId)
+      if (
+        ref?.remote &&
+        ref.sosId === sosId &&
+        n.request.content.categoryIdentifier === CATEGORY_ID
+      )
         await Notifications.dismissNotificationAsync(n.request.identifier);
     }
   } catch (e) {
@@ -642,6 +652,9 @@ export async function clearSosAlert(sosId: string): Promise<void> {
   // 「还剩 10 秒」照样会弹（10-17 夜模拟器实测）
   const ids = [...(entry?.ids ?? [])];
   for (const id of alertIdsOf(sosId)) if (!ids.includes(id)) ids.push(id);
+  // 极光那条「倒计时已开始」也撤（O12）：别处取消、到点通知时原来没人撤，一直挂着让人以为还在倒数
+  clearSosStartPush(sosId);
+  void dismissRemoteTwins(sosId);
   for (const id of ids) await removeNotification(id);
 }
 

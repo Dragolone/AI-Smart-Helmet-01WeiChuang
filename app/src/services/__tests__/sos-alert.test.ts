@@ -81,6 +81,10 @@ jest.mock("@/i18n", () => ({
     p ? `${k}:${JSON.stringify(p)}` : k,
 }));
 jest.mock("@/services/dev-log", () => ({ devLog: jest.fn() }));
+const mockClearStartPush = jest.fn();
+jest.mock("@/services/sos-start-push", () => ({
+  clearSosStartPush: (sosId: string) => mockClearStartPush(sosId),
+}));
 jest.mock("expo-notifications", () => ({
   scheduleNotificationAsync: (req: unknown) => mockSchedule(req),
   cancelScheduledNotificationAsync: (id: string) => mockCancelScheduled(id),
@@ -252,7 +256,12 @@ describe("sos-alert", () => {
       expect(r[0].trigger).toBeNull();
       expect(r[0].content.sound).toBe("default");
       expect(r[0].content.body).toBe('sosAlert.bodyCountdown:{"seconds":60}');
-      expect(r[0].content.data).toEqual({ sosId: "s1", deviceId: "d1" });
+      // lockscreenVisibility：系统「隐藏敏感内容」时锁屏也照常显示（O31，安卓靠 expo-notifications 补丁）
+      expect(r[0].content.data).toEqual({
+        sosId: "s1",
+        deviceId: "d1",
+        lockscreenVisibility: "public",
+      });
       expect(r[0].content.categoryIdentifier).toBe("sos");
       // 刷新：不响铃，延迟 = 剩余 - 档位，第二条换 id 免得互相覆盖
       expect(r[1].content.sound).toBe(false);
@@ -1244,11 +1253,12 @@ describe("sos-alert", () => {
   });
 
   describe("同一单的两条通知（2026-10-06 iPhone：叠成一摞，长按到的是没有按钮的远程推送）", () => {
-    const remote = (id: string, sosId: string) => ({
+    /** 服务器「倒计时已开始」推送带类别 sos（远程推送上也有「取消」按钮）；结果通知（已通知联系人）不带 */
+    const remote = (id: string, sosId: string, categoryIdentifier = "sos") => ({
       request: {
         identifier: id,
         trigger: { type: "push", payload: { sosId, deviceId: "d1" } },
-        content: { data: null },
+        content: { data: null, categoryIdentifier },
       },
     });
     const local = (sosId: string) => ({
@@ -1304,6 +1314,27 @@ describe("sos-alert", () => {
       const dismissed = mockDismiss.mock.calls.map((c) => c[0]);
       expect(dismissed).toContain("apns-1");
       expect(dismissed).not.toContain("apns-2");
+    });
+
+    it("这一单在别处结束（别的手机取消 / 到点通知）：「倒计时已开始」那条撤掉，结果通知留着（O12，负责人 10-21 定）", async () => {
+      mockPresented.mockResolvedValue([
+        remote("apns-start", "s1"),
+        remote("apns-result", "s1", ""),
+        remote("apns-other", "s9"),
+      ]);
+      const m = load();
+      await m.clearSosAlert("s1");
+      await new Promise((r) => setTimeout(r, 0));
+      const dismissed = mockDismiss.mock.calls.map((c) => c[0]);
+      expect(dismissed).toContain("apns-start");
+      expect(dismissed).not.toContain("apns-result");
+      expect(dismissed).not.toContain("apns-other");
+    });
+
+    it("单子结束时也交给 sos-start-push 撤安卓上极光的那条（按编号，见 sos-start-push 的单测）", async () => {
+      const m = load();
+      await m.clearSosAlert("s1");
+      expect(mockClearStartPush).toHaveBeenCalledWith("s1");
     });
 
     it("查通知中心抛错不影响提醒本身", async () => {

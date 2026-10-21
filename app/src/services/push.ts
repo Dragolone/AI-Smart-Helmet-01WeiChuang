@@ -16,6 +16,10 @@ import { accidentHref, sosActiveHref } from "@/services/sos-routes";
 import { sosApi } from "@/api/sos";
 import { devLog } from "@/services/dev-log";
 import { presentedSos } from "@/services/sos-sync";
+import {
+  noteSosStartPush,
+  setJPushNotificationClearer,
+} from "@/services/sos-start-push";
 import { useConsentStore } from "@/stores/consent-store";
 // 直接读 app.json 而不是 expo-constants：dev-client 下 Constants.expoConfig.extra 在 iPhone 上实测为空
 // （2026-09-24 00:07 真机日志「未配置 extra.jpush.appKey」），构建期常量没必要绕运行时 manifest 一圈
@@ -313,6 +317,12 @@ function installListener(sdk: JPushStatic): void {
         typeof extras.sosId === "string" &&
         extras.sosId
       ) {
+        // 安卓：记下极光这条通知的编号，单子结束时精确撤掉（O12；编号靠 patches/jpush-react-native 带上来）
+        noteSosStartPush(
+          extras.sosId,
+          result.title,
+          (result as { notificationId?: unknown }).notificationId,
+        );
         try {
           arrivalHandler?.(extras);
         } catch (e) {
@@ -339,6 +349,12 @@ function initOnce(sdk: JPushStatic, cfg: PushConfig): void {
   if (initialized) return;
   initialized = true;
   installListener(sdk);
+  // 声明里写的是字符串，原生侧按整数读（JPushModule.clearNotificationById 用 getInt）
+  setJPushNotificationClearer((notificationId) =>
+    sdk.clearNotificationById({
+      notificationId: notificationId as unknown as string,
+    }),
+  );
   sdk.setLoggerEnable(__DEV__);
   // production 对应 iOS APNs 环境：Debug 包签 development、Release/TestFlight 签 production，
   // 与 __DEV__ 一致；服务端 JPUSH_APNS_PRODUCTION 要与装机包一致（THIRD_PARTY §6）
