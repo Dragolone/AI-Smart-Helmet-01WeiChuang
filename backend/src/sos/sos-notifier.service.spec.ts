@@ -1,5 +1,6 @@
 // SOS 终态化与通知投递的单测分支：Prisma / 短信 / 推送 / WS 全部 mock，绝不真发。
-// 重点钉：短信在飞时本人 Push 先不发、占位抢输不发、Push 正文按短信真实结果、短信昵称回落、失败落 failed 且日志脱敏。
+// 重点钉：短信在飞时本人 Push 先不发、占位抢输不发、Push 正文按短信真实结果、短信昵称回落、失败落 failed 且日志脱敏；
+// 状态推送说了「全部失败」、之后短信重试成功时只补推一条（O17）。
 import { Logger } from '@nestjs/common';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { RealtimePushService } from '../realtime/realtime-push.service';
@@ -38,19 +39,22 @@ const row = (
 });
 
 describe('SosNotifierService', () => {
+  const notificationRows = {
+    findMany: jest.fn(),
+    count: jest.fn(),
+    updateMany: jest.fn(),
+    update: jest.fn(),
+  };
+  // 事务客户端与 prisma 共用通知行的读写替身：写「已发送」在事务里（锁单 + 判断要不要补推），断言照样看同一个 updateMany
   const tx = {
+    $queryRaw: jest.fn(),
     sosCase: { updateMany: jest.fn(), findUniqueOrThrow: jest.fn() },
     emergencyContact: { findMany: jest.fn() },
-    sosNotification: { create: jest.fn() },
+    sosNotification: { ...notificationRows, create: jest.fn() },
   };
   const prisma = {
     $transaction: jest.fn((fn: (t: typeof tx) => Promise<unknown>) => fn(tx)),
-    sosNotification: {
-      findMany: jest.fn(),
-      count: jest.fn(),
-      updateMany: jest.fn(),
-      update: jest.fn(),
-    },
+    sosNotification: notificationRows,
     device: { findUnique: jest.fn() },
     user: { findUnique: jest.fn() },
   };
@@ -71,11 +75,12 @@ describe('SosNotifierService', () => {
       tx.sosCase,
       tx.emergencyContact,
       tx.sosNotification,
-      prisma.sosNotification,
       prisma.device,
       prisma.user,
     ])
       for (const fn of Object.values(group)) fn.mockReset();
+    tx.$queryRaw.mockReset();
+    prisma.$transaction.mockClear();
     for (const fn of [realtime.pushSosUpdate, sms.send, push.send])
       fn.mockReset();
     prisma.sosNotification.findMany.mockResolvedValue([]);
@@ -353,6 +358,160 @@ describe('SosNotifierService', () => {
         '头盔 helmet_0000000001 的求救确认，但你尚未设置紧急联系人，无人会收到短信，请直接拨打电话求助',
       );
     });
+  });
+
+  describe('重试后补推（O17）', () => {
+    const lastWrite = () =>
+      (
+        prisma.sosNotification.updateMany.mock.calls.at(-1) as [
+          { data: Record<string, unknown> },
+        ]
+      )[0].data;
+
+    it('状态推送记下实际用的标题；不是「全部失败」的直接写，不锁单', async () => {
+      queueRows([row('push')], ['sent']);
+      await svc.deliverPending();
+      expect(lastWrite()).toEqual({
+        status: 'sent',
+        sentAt: expect.any(Date),
+        lastError: null,
+        pushTitle: PUSH_TITLE.contactsNotified,
+      });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(tx.sosNotification.create).not.toHaveBeenCalled();
+    });
+
+    it('短信重试成功，状态推送已以「全部失败」发出、还没补过：锁单后建一条补推行', async () => {
+      prisma.sosNotification.findMany
+        .mockResolvedValueOnce([row('sms', { attempts: 1, status: 'failed' })])
+        .mockResolvedValueOnce([
+          { pushTitle: PUSH_TITLE.contactsFailed, status: 'sent' },
+        ]);
+      prisma.sosNotification.count.mockResolvedValue(1);
+      await svc.deliverPending();
+      expect(lastWrite()).toEqual({
+        status: 'sent',
+        sentAt: expect.any(Date),
+        lastError: null,
+      });
+      expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+      expect(
+        (tx.$queryRaw.mock.calls[0] as [TemplateStringsArray])[0].join('?'),
+      ).toContain('FOR NO KEY UPDATE');
+      expect(tx.sosNotification.create).toHaveBeenCalledWith({
+        data: {
+          sosId: 'sos1',
+          channel: 'push',
+          target: 'user:u1',
+          pushTitle: PUSH_TITLE.retryNotified,
+        },
+      });
+    });
+
+    it.each([
+      [
+        '补推行已经建过（每单最多一条）',
+        [
+          { pushTitle: PUSH_TITLE.contactsFailed, status: 'sent' },
+          { pushTitle: PUSH_TITLE.retryNotified, status: 'pending' },
+        ],
+      ],
+      ['状态推送说的不是「全部失败」（部分成功 / 已通知）', []],
+      [
+        '「全部失败」那条还没发出去（本人根本没收到）',
+        [{ pushTitle: PUSH_TITLE.contactsFailed, status: 'failed' }],
+      ],
+    ])('短信重试成功但%s：不补', async (_n, pushes) => {
+      prisma.sosNotification.findMany
+        .mockResolvedValueOnce([row('sms', { attempts: 1, status: 'failed' })])
+        .mockResolvedValueOnce(pushes);
+      prisma.sosNotification.count.mockResolvedValue(1);
+      await svc.deliverPending();
+      expect(tx.sosNotification.create).not.toHaveBeenCalled();
+    });
+
+    it('状态推送以「全部失败」发出、写「已发送」时已有短信成功（文案生成之后、写库之前成功的那条）：同一事务里补建', async () => {
+      prisma.sosNotification.findMany
+        .mockResolvedValueOnce([row('push')])
+        .mockResolvedValueOnce([{ status: 'failed' }]) // 生成文案时：全部失败
+        .mockResolvedValueOnce([
+          { pushTitle: PUSH_TITLE.contactsFailed, status: 'sent' },
+        ]);
+      prisma.sosNotification.count
+        .mockResolvedValueOnce(0) // 没有短信在飞，可以发本人推送
+        .mockResolvedValueOnce(1); // 锁单后：已有一条短信成功
+      await svc.deliverPending();
+      expect(push.send.mock.calls[0][1]).toBe(PUSH_TITLE.contactsFailed);
+      expect(lastWrite()).toMatchObject({
+        pushTitle: PUSH_TITLE.contactsFailed,
+      });
+      expect(tx.sosNotification.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          pushTitle: PUSH_TITLE.retryNotified,
+        }),
+      });
+    });
+
+    it('状态推送以「全部失败」发出、短信仍一条没成：不补（等短信成功那一刻再判断）', async () => {
+      prisma.sosNotification.findMany
+        .mockResolvedValueOnce([row('push')])
+        .mockResolvedValueOnce([{ status: 'failed' }])
+        .mockResolvedValueOnce([
+          { pushTitle: PUSH_TITLE.contactsFailed, status: 'sent' },
+        ]);
+      prisma.sosNotification.count.mockResolvedValue(0);
+      await svc.deliverPending();
+      expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+      expect(tx.sosNotification.create).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      [
+        '还有能再试的',
+        [
+          { status: 'sent', attempts: 2 },
+          { status: 'failed', attempts: 2 },
+          { status: 'sent', attempts: 3 },
+        ],
+        '头盔 通勤盔 的求救短信已在重试后发给 2/3 位紧急联系人（其余仍在重试）',
+      ],
+      [
+        '其余次数已用完',
+        [
+          { status: 'sent', attempts: 2 },
+          { status: 'failed', attempts: 5 },
+        ],
+        '头盔 通勤盔 的求救短信已在重试后发给 1/2 位紧急联系人（其余发送失败）',
+      ],
+      [
+        '全部发出',
+        [
+          { status: 'sent', attempts: 2 },
+          { status: 'sent', attempts: 1 },
+        ],
+        '头盔 通勤盔 的求救短信已在重试后发给 2/2 位紧急联系人',
+      ],
+    ])(
+      '补推行的文案按此刻短信结果现算（%s）；结果推送不带 kind',
+      async (_n, sms, body) => {
+        queueRows([row('push', { pushTitle: PUSH_TITLE.retryNotified })]);
+        prisma.sosNotification.findMany.mockResolvedValueOnce(sms);
+        await svc.deliverPending();
+        expect(push.send).toHaveBeenCalledWith(
+          'u1',
+          PUSH_TITLE.retryNotified,
+          body,
+          { sosId: 'sos1', deviceId: 'helmet_0000000001' },
+          { timeSensitive: true },
+        );
+        // 补推本身发出后直接写，不再判断补推
+        expect(prisma.$transaction).not.toHaveBeenCalled();
+        expect(lastWrite()).toMatchObject({
+          status: 'sent',
+          pushTitle: PUSH_TITLE.retryNotified,
+        });
+      },
+    );
   });
 
   describe('finalizeNotified', () => {

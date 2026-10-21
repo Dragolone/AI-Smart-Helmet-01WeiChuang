@@ -212,6 +212,9 @@ model SosNotification {
   lastError   String?   @map("last_error")
   sentAt      DateTime? @map("sent_at")
   createdAt   DateTime  @default(now()) @map("created_at")
+  // 本人推送的标题（短信行为空）：状态推送发出时记下实际用的标题；「重试后补推」行建行时就写好（O17）。
+  // 补推只在状态推送是以「通知发送失败」发出、之后又有短信成功时建，靠这一列判断，每单最多一条
+  pushTitle   String?   @map("push_title")
 
   @@index([sosId])
   @@index([status])
