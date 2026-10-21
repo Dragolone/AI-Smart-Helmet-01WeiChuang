@@ -25,6 +25,7 @@
 |------|------|------|
 | VALIDATION_FAILED | 400 | 请求体/参数校验失败（含任何字段带 NUL `\u0000`，PostgreSQL 不接受；设备入口 `/ingest/*` 例外——脏 envelope 留档为 invalid 不整批拒绝）。**请求体 JSON 嵌套超过 2000 层一律 400，设备入口也整批 400**（2026-10-16 #202：否则校验管道递归栈溢出成 500，公开接口不带令牌也能打） |
 | UNAUTHORIZED | 401 | 未登录或 token 无效/过期 |
+| ACCOUNT_DELETED | 401 | 账号已注销（2026-10-22，O15；原来同为 `UNAUTHORIZED`）：注销后残留的 access token 访问任何需登录接口、拿注销前的 refresh token 刷新，都回这个码。App 据此提示「账号已注销」，不再说成「登录已失效，密码可能已在别处修改」。HTTP 状态仍是 401，按 401 走的静默刷新 / 登出流程不变；登录接口不用它（号码已释放，与「手机号或密码错误」不区分） |
 | FORBIDDEN | 403 | 无权访问该资源（含资源归属校验失败、非 Admin 访问 Admin API） |
 | NOT_FOUND | 404 | 通用资源不存在 |
 | DEVICE_NOT_FOUND | 404 | 设备不存在或未绑定到当前用户 |
@@ -44,6 +45,7 @@
 |------|------|----|
 | SMS_CODE_INVALID / SMS_CODE_TOO_FREQUENT / SMS_CODE_DAILY_LIMIT / SMS_SEND_FAILED / PHONE_NOT_REGISTERED | 400 / 429 / 429 / 503 / 404 | §2 |
 | EMERGENCY_CONTACT_LIMIT_REACHED | 409 | §3 |
+| SOS_IN_PROGRESS | 409 | §2（注销账号时还有进行中的求救） |
 | SOS_ALREADY_FINALIZED | 409 | §7 |
 | MEDIA_NOT_READY | 409 | §9 |
 | CHANNEL_FULL / TRTC_NOT_CONFIGURED | 409 / 503 | §13 |
@@ -68,9 +70,9 @@
 | POST | /auth/logout | 作废当前 refreshToken。带来的若是轮换前的旧 token（refresh 应答丢了），沿替代关系把这台设备现役的那张一并作废，旧 token 也不能再补发（2026-10-17） |
 | POST | /auth/change-password | 修改密码（✅ 2026-09-11，**需登录**）。body：`{ oldPassword, newPassword, refreshToken? }` → 204。旧密码错误 → 400 `PASSWORD_INCORRECT`；`newPassword` 与注册同规则（8–72）。成功后**撤销该用户其他全部 refresh token**；带上当前设备的 `refreshToken`（须属于本人）则该会话保留，本设备免重新登录 |
 | POST | /auth/change-phone | 换绑手机号（✅ 2026-09-11，**需登录**）。body：`{ newPhone, code, password }`（`code` 为 `change_phone` 用途、发往 `newPhone` 的验证码；`password` 为当前密码——持有会话不等于本人，与改密 / 注销同口径，2026-10-14 加）→ 200 返回更新后的 `user` 对象。校验顺序：密码错误 400 `PASSWORD_INCORRECT`（不消费验证码）→ `newPhone` 已注册 409 `PHONE_ALREADY_REGISTERED` → 验证码错误/过期/已用 400 `SMS_CODE_INVALID` → 改号。会话不受影响；原号即刻释放可供他人注册 |
-| GET | /users/me | 当前用户信息；已注销账号的残留 access token → 401 `UNAUTHORIZED` |
+| GET | /users/me | 当前用户信息；已注销账号的残留 access token → 401 `ACCOUNT_DELETED`（2026-10-22 起；原为 `UNAUTHORIZED`） |
 | PATCH | /users/me | 更新昵称/头像等非敏感字段 |
-| DELETE | /users/me | 注销账号（✅ 2026-09-11，**需登录**；App Store 要求应用内可注销）。body：`{ password }` → 204；密码错误 → 400 `PASSWORD_INCORRECT`。**软删除**（`users.deleted_at`），一个事务内完成：置 `deletedAt`、`phone` 改写为 `deleted:<userId>`（**原手机号不保留**，即刻可重新注册为全新账号）、清空 `avatarUrl`、撤销全部 refresh token、解绑名下全部设备（与 `DELETE /devices/{deviceId}/binding` 同口径，设备与历史事件留档）、软删除全部紧急联系人、**退出全部对讲频道（释放名额，频道本身保留；2026-09-14 审计 VOICE-02 补）**，并**主动以 4401 断开该账号已建立的 WebSocket 连接**（2026-09-14 审计 AUTH-05/INGEST-04 补）。事故记录/事件/轨迹按设备留档不动；**昵称保留**（Admin 按昵称找已注销账号做事故归属，ADMIN-04；隐私政策只承诺清手机号与头像，2026-10-14 定）。已注销用户：login 401（号已改写）、refresh 401（token 已撤销 + 服务端校验 `deletedAt`）；**JWT 守卫验签后查 `deleted_at`（✅ 2026-09-12 上线前探针修复）**——注销后残留的 access token 在全部 REST 接口与 WS 连接上立即 401 / 4401，不能再绑设备、建联系人、改资料 |
+| DELETE | /users/me | 注销账号（✅ 2026-09-11，**需登录**；App Store 要求应用内可注销）。body：`{ password }` → 204；密码错误 → 400 `PASSWORD_INCORRECT`；**本账号还有进行中的求救 → 409 `SOS_IN_PROGRESS`，什么都不改**（2026-10-22，O15：注销会删光紧急联系人，单子到点照常变「已通知」却一条短信都发不出去。按建单时固化的用户算，头盔已解绑的单也算，与 §7 `GET /users/me/sos/active` 同口径；App 先查进行中的求救、有就拦，这里是服务端兜底。注销与建单并发时两边串行：建单先提交则注销 409，注销先提交则那次摔倒 / 求救只留档不建单）。校验顺序：密码 → 进行中的求救。**软删除**（`users.deleted_at`），一个事务内完成：置 `deletedAt`、`phone` 改写为 `deleted:<userId>`（**原手机号不保留**，即刻可重新注册为全新账号）、清空 `avatarUrl`、撤销全部 refresh token、解绑名下全部设备（与 `DELETE /devices/{deviceId}/binding` 同口径，设备与历史事件留档）、软删除全部紧急联系人、**退出全部对讲频道（释放名额，频道本身保留；2026-09-14 审计 VOICE-02 补）**，并**主动以 4401 断开该账号已建立的 WebSocket 连接**（2026-09-14 审计 AUTH-05/INGEST-04 补）。事故记录/事件/轨迹按设备留档不动；**昵称保留**（Admin 按昵称找已注销账号做事故归属，ADMIN-04；隐私政策只承诺清手机号与头像，2026-10-14 定）。已注销用户：login 401 `UNAUTHORIZED`（号已改写）、refresh 401 `ACCOUNT_DELETED`（服务端先校验 `deletedAt`，再看 token 是否已撤销）；**JWT 守卫验签后查 `deleted_at`（✅ 2026-09-12 上线前探针修复）**——注销后残留的 access token 在全部 REST 接口上立即 401 `ACCOUNT_DELETED`、WS 连接 4401（关闭原因「账号已注销」；App 收到 4401 去刷新，从 refresh 的 `ACCOUNT_DELETED` 得知是注销），不能再绑设备、建联系人、改资料 |
 
 **名字类字段入库前整理**（昵称、头盔名、联系人名、频道名；2026-10-16，10-16 夜测 N1 / N6）：去掉看不见的字符（零宽空格 / 零宽不连字、方向控制符、BOM、控制符等；表情组合用的零宽连接符与变体选择符保留），换行、制表等连续空白压成一个空格，去首尾空白——与 App 显示同一规则（`backend/src/common/display-name.ts` ↔ `app/src/services/safety-status.ts` `cleanHelmetName`）。长度上限按整理后的名字算。整理完为空：昵称存 null、头盔名等于清除、联系人名 / 频道名 400 VALIDATION_FAILED。
 

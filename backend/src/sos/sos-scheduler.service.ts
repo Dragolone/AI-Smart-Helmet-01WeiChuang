@@ -222,6 +222,12 @@ export class SosSchedulerService implements OnModuleInit, OnModuleDestroy {
           select: { userId: true },
         });
         if (!binding) continue;
+        // 那位用户已注销：建单会被跳过（联系人已删光，见 sos-trigger createOrMerge），这里不再每轮重试
+        const owner = await this.prisma.user.findUnique({
+          where: { id: binding.userId },
+          select: { deletedAt: true },
+        });
+        if (owner?.deletedAt) continue;
         // 已有单代表了这次事故 → 只留档不建单（合并规则：设备 + 用户，决策 #26① / #40），属正常，不是丢失。两种：
         // ① 事件到达时那单已在倒数：按合并规则本来就并进去了。manual_sos 并入的单只会以 notified 收尾（升级即立即通知），
         //    并入对象若是 cancelled，只可能是「读到 pending 后、升级前被本人取消」那次竞态把求救吞掉了，要补建；

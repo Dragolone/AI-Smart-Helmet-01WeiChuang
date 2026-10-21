@@ -5,11 +5,12 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { WsAdapter } from '@nestjs/platform-ws';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { AppModule } from '../src/app.module';
 import { UnifiedExceptionFilter } from '../src/common/http-exception.filter';
 import { requestIdMiddleware } from '../src/common/request-id.middleware';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { SosTriggerService } from '../src/sos/sos-trigger.service';
 import { lastCodeFor, registerUser } from './helpers/register';
 
 const randomPhone = (): string =>
@@ -58,6 +59,9 @@ describe('账号与安全 (e2e)', () => {
   });
 
   afterAll(async () => {
+    await prisma.sosCase
+      .deleteMany({ where: { userId: { in: userIds } } })
+      .catch(() => undefined);
     await prisma.device.delete({ where: { deviceId } }).catch(() => undefined);
     await prisma.emergencyContact
       .deleteMany({ where: { userId: { in: userIds } } })
@@ -299,7 +303,43 @@ describe('账号与安全 (e2e)', () => {
       await request(http).get('/api/v1/users/me').set(auth(access)).expect(200);
     });
 
-    it('密码正确 → 204；残留 access 访问 /users/me 401、refresh 401、旧号登录 401', async () => {
+    const fall = () => ({
+      schemaVersion: 1,
+      eventId: randomUUID(),
+      deviceId,
+      eventType: 'possible_fall',
+      timestamp: new Date(),
+      firmwareVersion: '1.0.0',
+      payload: {},
+    });
+
+    it('有进行中的求救 → 409 SOS_IN_PROGRESS，账号原样；取消后才能注销（O15）', async () => {
+      await app.get(SosTriggerService).handleTrigger(fall(), userId);
+      const sos = await prisma.sosCase.findFirstOrThrow({
+        where: { userId, status: 'pending' },
+      });
+      const res = await request(http)
+        .delete('/api/v1/users/me')
+        .set(auth(access))
+        .send({ password })
+        .expect(409);
+      expect(res.body.code).toBe('SOS_IN_PROGRESS');
+      // 什么都没改：资料、设备绑定、联系人、会话都在
+      await request(http).get('/api/v1/users/me').set(auth(access)).expect(200);
+      const device = await prisma.device.findUnique({ where: { deviceId } });
+      expect(device?.bindUserId).toBe(userId);
+      expect(
+        await prisma.emergencyContact.count({
+          where: { userId, deletedAt: null },
+        }),
+      ).toBe(1);
+      await request(http)
+        .post(`/api/v1/sos/${sos.id}/cancel`)
+        .set(auth(access))
+        .expect(200);
+    });
+
+    it('密码正确 → 204；残留 access 访问 /users/me、refresh 都回 401 ACCOUNT_DELETED，旧号登录 401', async () => {
       await request(http)
         .delete('/api/v1/users/me')
         .set(auth(access))
@@ -309,11 +349,12 @@ describe('账号与安全 (e2e)', () => {
         .get('/api/v1/users/me')
         .set(auth(access))
         .expect(401);
-      expect(me.body.code).toBe('UNAUTHORIZED');
-      await request(http)
+      expect(me.body.code).toBe('ACCOUNT_DELETED');
+      const refreshed = await request(http)
         .post('/api/v1/auth/refresh')
         .send({ refreshToken: refresh })
         .expect(401);
+      expect(refreshed.body.code).toBe('ACCOUNT_DELETED');
       await request(http)
         .post('/api/v1/auth/login')
         .send({ phone, password })
@@ -339,6 +380,13 @@ describe('账号与安全 (e2e)', () => {
         where: { userId },
       });
       expect(allContacts).toBe(1);
+    });
+
+    it('注销之后才处理到的摔倒（按注销前的绑定用户）：不建单（联系人已删光，O15 竞态的注销先提交一侧）', async () => {
+      await app.get(SosTriggerService).handleTrigger(fall(), userId);
+      expect(
+        await prisma.sosCase.count({ where: { userId, status: 'pending' } }),
+      ).toBe(0);
     });
 
     it('同一手机号可重新注册（新账号，设备可再次绑定）', async () => {

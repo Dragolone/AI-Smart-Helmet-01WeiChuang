@@ -22,6 +22,7 @@ import {
   buildSosApp,
   confirmSos,
   failOnce,
+  failSosCaseCreate,
   fallEnvelope,
   makeProviderMocks,
   notificationsOf,
@@ -99,9 +100,8 @@ describe('审计 §4 SOS 故障注入 (e2e, 手动 tick)', () => {
   it('① raw 落库后 sos_cases.create 瞬断一次：进程内重试补建，入口 202/accepted，App 无需重传【SOS-02 修复验证 a】', async () => {
     const e = fallEnvelope(devCreateFail);
     const eventId = e.eventId as string;
-    const fault = failOnce(
-      prisma.sosCase,
-      'create',
+    const fault = failSosCaseCreate(
+      prisma,
       new Error('audit: 数据库连接瞬断（模拟）'),
     );
     try {
@@ -127,9 +127,11 @@ describe('审计 §4 SOS 故障注入 (e2e, 手动 tick)', () => {
     const e = fallEnvelope(devCreateLost);
     const eventId = e.eventId as string;
     // 持续失败：重试耗尽后 handleTrigger 记 ERROR 放弃（raw 已落库）
-    const original = prisma.sosCase.create.bind(prisma.sosCase);
-    (prisma.sosCase as { create: unknown }).create = () =>
-      Promise.reject(new Error('audit: 数据库持续不可用（模拟）'));
+    const fault = failSosCaseCreate(
+      prisma,
+      new Error('audit: 数据库持续不可用（模拟）'),
+      Infinity,
+    );
     const savedGrace = process.env.SOS_RECONCILE_GRACE_MS;
     try {
       const res = await relay(http, owner.token, devCreateLost, [e]).expect(
@@ -144,7 +146,7 @@ describe('审计 §4 SOS 故障注入 (e2e, 手动 tick)', () => {
       expect(replay.body).toEqual({ accepted: 0, duplicate: 1, invalid: 0 });
       expect(await sosByEvent(prisma, eventId)).toBeNull();
     } finally {
-      (prisma.sosCase as { create: unknown }).create = original;
+      fault.restore();
     }
     // 对账（= 进程重启时的启动对账）：宽限设 0 让刚落库的事件立即参与
     process.env.SOS_RECONCILE_GRACE_MS = '1';

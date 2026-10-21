@@ -508,7 +508,9 @@ describe('加固：认证与令牌 (e2e)', () => {
         request(http).get('/api/v1/devices').set(auth(u.token)),
       ]);
       expect(attempts.map((r) => r.status)).toEqual([401, 401, 401, 401, 401]);
-      expect(attempts.every((r) => r.body.code === 'UNAUTHORIZED')).toBe(true);
+      expect(attempts.every((r) => r.body.code === 'ACCOUNT_DELETED')).toBe(
+        true,
+      );
       const dev = await prisma.device.findUnique({ where: { deviceId } });
       expect(dev?.bindUserId).toBeNull();
       const me = await prisma.user.findUnique({ where: { id: u.id } });

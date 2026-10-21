@@ -102,8 +102,10 @@ export interface ChangePhoneRequest {
   password: string;
 }
 
-/** DELETE /users/me → 204（需登录）：注销账号（软删除）；密码错误 → 400 PASSWORD_INCORRECT。
- *  成功后全部会话作废、设备全部解绑、紧急联系人全部删除，原手机号可重新注册（原号不保留） */
+/** DELETE /users/me → 204（需登录）：注销账号（软删除）；密码错误 → 400 PASSWORD_INCORRECT；
+ *  本账号还有进行中的求救 → 409 SOS_IN_PROGRESS（什么都不改，2026-10-22 O15）。
+ *  成功后全部会话作废、设备全部解绑、紧急联系人全部删除，原手机号可重新注册（原号不保留）；
+ *  残留的 access token / refresh token 之后一律 401 ACCOUNT_DELETED */
 export interface DeleteAccountRequest {
   password: string;
 }

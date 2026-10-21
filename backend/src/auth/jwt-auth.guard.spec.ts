@@ -69,10 +69,10 @@ describe('JwtAuthGuard', () => {
     expect(findUnique).not.toHaveBeenCalled();
   });
 
-  it('账号已注销（token 还没过期）：401 账号已注销', async () => {
+  it('账号已注销（token 还没过期）：401 ACCOUNT_DELETED（另一台手机据此写「账号已注销」，O15）', async () => {
     findUnique.mockResolvedValue({ deletedAt: new Date() });
     expect(await fail({ headers: { authorization: 'Bearer t' } })).toEqual({
-      code: 'UNAUTHORIZED',
+      code: 'ACCOUNT_DELETED',
       message: '账号已注销',
     });
   });

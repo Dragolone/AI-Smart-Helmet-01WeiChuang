@@ -60,6 +60,7 @@ describe('SosSchedulerService', () => {
     sosCase: { count: jest.fn(), findMany: jest.fn(), findFirst: jest.fn() },
     rawEvent: { findMany: jest.fn() },
     deviceBinding: { findFirst: jest.fn() },
+    user: { findUnique: jest.fn() },
   };
   const notifier = {
     finalizeNotified: jest.fn(),
@@ -358,6 +359,20 @@ describe('SosSchedulerService', () => {
         'u1',
       );
       expect(warnSpy).toHaveBeenCalledWith('SOS 对账补建 1 单');
+    });
+
+    it('当时绑定的用户已注销（注销与建单撞车、注销先提交）：跳过，不每轮重试补建（O15）', async () => {
+      prisma.rawEvent.findMany.mockResolvedValueOnce([rawRow('d1')]);
+      prisma.sosCase.findMany.mockResolvedValueOnce([]);
+      prisma.deviceBinding.findFirst.mockResolvedValueOnce({ userId: 'gone' });
+      prisma.user.findUnique.mockResolvedValueOnce({ deletedAt: new Date() });
+      await expect(svc.reconcileLostTriggers(60_000)).resolves.toBe(0);
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { id: 'gone' },
+        select: { deletedAt: true },
+      });
+      expect(prisma.sosCase.findFirst).not.toHaveBeenCalled();
+      expect(trigger.handleTrigger).not.toHaveBeenCalled();
     });
 
     it('同一 eventId 在别的设备上已有单：不算本设备已建单（按 deviceId + eventId 成对比对）', async () => {

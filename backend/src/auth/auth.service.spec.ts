@@ -357,7 +357,7 @@ describe('AuthService（单测，mock 数据层）', () => {
     expect(prismaMock.refreshToken.update).not.toHaveBeenCalled();
   });
 
-  it('refresh：已注销用户的 token → UNAUTHORIZED 且不轮换', async () => {
+  it('refresh：已注销用户的 token → ACCOUNT_DELETED 且不轮换', async () => {
     prismaMock.refreshToken.findUnique.mockResolvedValue({
       userId: 'u1',
       revokedAt: null,
@@ -365,7 +365,8 @@ describe('AuthService（单测，mock 数据层）', () => {
       user: { deletedAt: new Date() },
     });
     await expect(service.refresh('deleted')).rejects.toMatchObject({
-      response: { code: 'UNAUTHORIZED' },
+      status: 401,
+      response: { code: 'ACCOUNT_DELETED' },
     });
     expect(prismaMock.refreshToken.update).not.toHaveBeenCalled();
   });

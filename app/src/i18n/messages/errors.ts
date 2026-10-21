@@ -20,6 +20,8 @@ export const errors = {
     "error.rateLimitedRetryHours": "操作太频繁，请 {hours} 小时后再试",
     "error.internal": "服务暂时不可用，请稍后再试",
     "error.sosAlreadyFinalized": "本次求救已取消或已启动通知，无需重复操作",
+    "error.sosInProgress": "有正在倒计时的求救，请先取消或立即求救，再注销账号",
+    "error.accountDeleted": "账号已注销",
     "error.channelFull": "这个频道已满（最多 20 人）",
     "error.contactLimitReached": "紧急联系人最多 5 位",
     "error.mediaNotReady": "这段画面还没上传完成，请稍后再试",
@@ -51,6 +53,8 @@ export const errors = {
     "error.rateLimitedRetryHours": "操作太頻繁，請 {hours} 小時後再試",
     "error.internal": "服務暫時無法使用，請稍後再試",
     "error.sosAlreadyFinalized": "本次求救已取消或已啟動通知，無需重複操作",
+    "error.sosInProgress": "有正在倒數的求救，請先取消或立即求救，再註銷帳號",
+    "error.accountDeleted": "帳號已註銷",
     "error.channelFull": "這個頻道已滿（最多 20 人）",
     "error.contactLimitReached": "緊急聯絡人最多 5 位",
     "error.mediaNotReady": "這段畫面還沒上傳完成，請稍後再試",
@@ -85,6 +89,9 @@ export const errors = {
     "error.internal": "Service temporarily unavailable. Try again later.",
     "error.sosAlreadyFinalized":
       "This SOS was cancelled or notifications have started. No further action is needed.",
+    "error.sosInProgress":
+      "An SOS countdown is in progress. Cancel it or send SOS now before deleting your account.",
+    "error.accountDeleted": "This account has been deleted.",
     "error.channelFull": "This channel is full (up to 20 people).",
     "error.contactLimitReached": "You can add up to 5 emergency contacts.",
     "error.mediaNotReady":
@@ -96,8 +103,7 @@ export const errors = {
     "error.unknown": "Something went wrong ({code})",
     "error.network": "Network error. Check your connection and try again.",
     "error.timeout": "Request timed out. Check your connection and try again.",
-    "error.sessionCheckFailed":
-      "Couldn't verify your login. Try again later.",
+    "error.sessionCheckFailed": "Couldn't verify your login. Try again later.",
     "error.sessionEnded": "Your session has ended. Please log in again.",
   },
 } as const;

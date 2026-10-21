@@ -179,13 +179,14 @@ export class AuthService {
     this.logger.log(`用户 ${user.id} 已通过验证码重置密码，全部会话已撤销`);
   }
 
-  /** 校验当前用户密码；错误 → 400 PASSWORD_INCORRECT；用户不存在/已注销 → 401（access token 尚未过期的残留会话）。 */
+  /** 校验当前用户密码；错误 → 400 PASSWORD_INCORRECT；用户不存在 → 401；已注销 → 401 ACCOUNT_DELETED（access token 尚未过期的残留会话）。 */
   async verifyPassword(userId: string, password: string): Promise<void> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { passwordHash: true, deletedAt: true },
     });
-    if (!user || user.deletedAt) throw unauthorized('用户不存在或已注销');
+    if (!user) throw unauthorized('用户不存在');
+    if (user.deletedAt) throw accountDeleted();
     if (!(await bcrypt.compare(password, user.passwordHash))) {
       throw new BadRequestException({
         code: 'PASSWORD_INCORRECT',
@@ -277,8 +278,9 @@ export class AuthService {
       include: { user: { select: { deletedAt: true } } },
     });
     if (!record) throw unauthorized('refresh token 无效');
-    // 注销时已撤销全部 token，这里是兜底：已注销用户不得续期
-    if (record.user.deletedAt) throw unauthorized('账号已注销');
+    // 注销时已撤销全部 token，这里是兜底：已注销用户不得续期。排在「已作废」判断前面：
+    // 注销撤销的 token 也是已作废，另一台手机要靠这里的 ACCOUNT_DELETED 才知道是账号没了、不是密码被改（O15）
+    if (record.user.deletedAt) throw accountDeleted();
     if (record.revokedAt) {
       const revokedAgo = Date.now() - record.revokedAt.getTime();
       if (revokedAgo < REFRESH_CONCURRENT_GRACE_MS) {

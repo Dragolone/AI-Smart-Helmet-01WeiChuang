@@ -43,6 +43,9 @@ describe('SosTriggerService：升级与取消撞车 / 建单推送重试', () =>
     sosCase: { findFirst: jest.fn(), findUnique: jest.fn(), create: jest.fn() },
     locationPoint: { findFirst: jest.fn() },
     deviceBinding: { findMany: jest.fn() },
+    // 建单事务：先给用户行加共享锁（账号还在），再 create
+    $transaction: jest.fn(),
+    $queryRaw: jest.fn(),
   };
   const notifierMock = { finalizeNotified: jest.fn() };
   const realtimeMock = { pushSosUpdate: jest.fn() };
@@ -55,6 +58,10 @@ describe('SosTriggerService：升级与取消撞车 / 建单推送重试', () =>
     process.env.SOS_CREATED_PUSH_RETRY_DELAYS_SECONDS = '';
     prismaMock.locationPoint.findFirst.mockResolvedValue(null);
     prismaMock.deviceBinding.findMany.mockResolvedValue([]);
+    prismaMock.$transaction.mockImplementation(
+      (fn: (tx: typeof prismaMock) => Promise<unknown>) => fn(prismaMock),
+    );
+    prismaMock.$queryRaw.mockResolvedValue([{ deleted_at: null }]);
     pushMock.send.mockResolvedValue(undefined);
     const moduleRef = await Test.createTestingModule({
       providers: [
