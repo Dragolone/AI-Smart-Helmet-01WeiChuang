@@ -155,6 +155,8 @@ const URGENT_SECONDS = 10;
  * 补拉在后台继续，晚到的结果照样写回缓存、页面跟着切
  */
 const FAILURE_RECHECK_MS = 3_000;
+/** 取消先到、替他重发求救后，最多等新单这么久；过了就不再自动确认（O29） */
+const RESEND_WAIT_MS = 120_000;
 const settleWithin = <T,>(p: Promise<T>, ms: number): Promise<T | undefined> =>
   Promise.race([
     p,
@@ -562,6 +564,16 @@ function SosActiveContent() {
     );
   };
 
+  // 「立即求救」被拒是因为取消先落地了（通知上的「我没事，取消」还在路上时又点了立即求救，10-21 模拟器实测）：
+  // 他最后明确按的是求救，就按求救办——替他新建一单（走「我还是需要帮助」那条路），新单一出现就立即确认，
+  // 不再倒数 60 秒（负责人 10-21 定，O29）。记下是哪顶头盔、被取消的是哪单；两分钟内没等到新单就作罢，
+  // 免得很久以后来的另一单被误确认
+  const resendFor = useRef<{
+    deviceId: string;
+    cancelledId: string;
+    at: number;
+  } | null>(null);
+
   const act = (kind: ActKind) => {
     // 演练只改本地状态，没有失败的路
     if (isDrill) {
@@ -584,11 +596,32 @@ function SosActiveContent() {
         // 这单已经在别处结束（锁屏通知按钮 / 另一台手机 / 到期）：不提示，拉一次权威状态让页面自己切到结束态
         if (isFinalized(e)) {
           setActFail((f) => dropFail(f, [id]));
-          void queryClient.invalidateQueries({
-            queryKey: ["sos", id],
-            exact: true,
-          });
-          return;
+          if (kind !== "confirm") {
+            void queryClient.invalidateQueries({
+              queryKey: ["sos", id],
+              exact: true,
+            });
+            return;
+          }
+          // 立即求救被拒：结束的原因若是取消先到了，替他重发求救（见 resendFor）；已通知（别处先点了 / 到期）什么也不做
+          const device = sos?.deviceId ?? deviceId;
+          return queryClient
+            .refetchQueries({ queryKey: ["sos", id], exact: true, type: "all" })
+            .catch(() => undefined)
+            .then(() => {
+              const current = queryClient.getQueryData<Sos>(["sos", id]);
+              if (current?.status !== "cancelled" || !device) return;
+              resendFor.current = {
+                deviceId: device,
+                cancelledId: id,
+                at: Date.now(),
+              };
+              setToast(t("sos.resentAfterCancel"));
+              AccessibilityInfo.announceForAccessibility(
+                t("sos.resentAfterCancel"),
+              );
+              needHelp(device);
+            });
         }
         // 请求本身失败（超时 / 断网）不等于没办成：服务端终态化时先经实时通道推新状态、再内联发短信，
         // 短信慢时「立即求救」的响应会晚于 App 的超时，页面已经切到「已发送」，再提示失败就自相矛盾
@@ -900,6 +933,29 @@ function SosActiveContent() {
       .finally(() => setHelpBusy(false));
   };
   // 「我还是需要帮助」之后的新单：进队列 → 上面那条 effect 自动切过去重新倒数，不再另开一页
+  // 替他重发的那一单（见 resendFor）：切过来、还在倒数就立即确认，不让他再等 60 秒
+  const resendSosId = sos?.sosId;
+  const resendStatus = sos?.status;
+  const resendDevice = sos?.deviceId;
+  useEffect(() => {
+    const r = resendFor.current;
+    if (!r || isDrill) return;
+    if (Date.now() - r.at > RESEND_WAIT_MS) {
+      resendFor.current = null;
+      return;
+    }
+    if (
+      !resendSosId ||
+      resendSosId === r.cancelledId ||
+      resendDevice !== r.deviceId ||
+      resendStatus !== "pending"
+    )
+      return;
+    resendFor.current = null;
+    act("confirm");
+    // act 每次渲染都是新的；这里只在切到新单 / 状态变化时看一眼
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resendSosId, resendStatus, resendDevice, isDrill]);
 
   // 一次处理这几单（「全部取消 / 全部立即求救」确认之后，以及它没全成功时提示条上的「重试」）
   const runAll = (kind: ActKind, ids: readonly string[]) => {
