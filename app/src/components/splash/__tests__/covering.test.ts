@@ -4,11 +4,15 @@ import { afterEach, describe, expect, it, jest } from "@jest/globals";
 import {
   isSplashCovering,
   setSplashCovering,
+  splashGoneWithin,
   subscribeSplashCovering,
   whenSplashGone,
 } from "../covering";
 
-afterEach(() => setSplashCovering(false));
+afterEach(() => {
+  setSplashCovering(false);
+  jest.useRealTimers();
+});
 
 describe("whenSplashGone", () => {
   it("没盖着：立刻做", () => {
@@ -52,5 +56,43 @@ describe("whenSplashGone", () => {
     off();
     setSplashCovering(false);
     expect(l).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("splashGoneWithin（O27：系统授权框等开屏，最多 5 s）", () => {
+  it("没盖着：立刻兑现，不留定时器", async () => {
+    jest.useFakeTimers();
+    await splashGoneWithin(5_000);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it("盖着：让开就兑现，定时器撤掉", async () => {
+    jest.useFakeTimers();
+    setSplashCovering(true);
+    const done = jest.fn();
+    void splashGoneWithin(5_000).then(done);
+    await jest.advanceTimersByTimeAsync(3_000);
+    expect(done).not.toHaveBeenCalled();
+    setSplashCovering(false);
+    await Promise.resolve();
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it("一直盖着：满时限就兑现，不再挂在订阅上（之后让开不会再回调）", async () => {
+    jest.useFakeTimers();
+    setSplashCovering(true);
+    const done = jest.fn();
+    void splashGoneWithin(5_000).then(done);
+    await jest.advanceTimersByTimeAsync(4_999);
+    expect(done).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(1);
+    expect(done).toHaveBeenCalledTimes(1);
+    const l = jest.fn();
+    const off = subscribeSplashCovering(l);
+    setSplashCovering(false);
+    off();
+    expect(l).toHaveBeenCalledTimes(1);
+    expect(done).toHaveBeenCalledTimes(1);
   });
 });

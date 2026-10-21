@@ -26,6 +26,13 @@ export const profile = {
     "profile.signOutBody":
       "退出后，App 将停止转发头盔事件。请重新登录后再使用头盔。",
     "profile.signOutConfirm": "退出",
+    "profile.signOutUploading": "正在上传头盔数据…",
+    "profile.signOutPendingTitle": "还有 {n} 条头盔数据没传上去",
+    "profile.signOutPendingBody":
+      "现在退出，这些要等下次在这台手机上登录这个账号才会上传。",
+    "profile.signOutPendingBodySos":
+      "其中有 {n} 次摔倒 / 求救。现在退出，要等下次在这台手机上登录这个账号才会上传，期间不会通知紧急联系人。",
+    "profile.signOutAnyway": "仍要退出",
     "profile.edit": "个人资料",
     "profile.changeAvatar": "点击更换头像",
     "profile.nickname": "昵称",
@@ -74,6 +81,13 @@ export const profile = {
     "profile.signOutBody":
       "登出後，App 將停止轉送頭盔事件。請重新登入後再使用頭盔。",
     "profile.signOutConfirm": "登出",
+    "profile.signOutUploading": "正在上傳頭盔資料…",
+    "profile.signOutPendingTitle": "還有 {n} 筆頭盔資料沒傳上去",
+    "profile.signOutPendingBody":
+      "現在登出，這些要等下次在這支手機上登入這個帳號才會上傳。",
+    "profile.signOutPendingBodySos":
+      "其中有 {n} 次摔倒 / 求救。現在登出，要等下次在這支手機上登入這個帳號才會上傳，期間不會通知緊急聯絡人。",
+    "profile.signOutAnyway": "仍要登出",
     "profile.edit": "個人資料",
     "profile.changeAvatar": "點擊更換頭像",
     "profile.nickname": "暱稱",
@@ -123,6 +137,13 @@ export const profile = {
     "profile.signOutBody":
       "Signing out stops the app from relaying helmet events. Sign in again before using your helmet.",
     "profile.signOutConfirm": "Sign out",
+    "profile.signOutUploading": "Uploading helmet data…",
+    "profile.signOutPendingTitle": "Helmet events not uploaded: {n}",
+    "profile.signOutPendingBody":
+      "If you sign out now, they will only be uploaded the next time this account signs in on this phone.",
+    "profile.signOutPendingBodySos":
+      "Falls / SOS among them: {n}. If you sign out now, they will only be uploaded the next time this account signs in on this phone, and emergency contacts won't be notified until then.",
+    "profile.signOutAnyway": "Sign out anyway",
     "profile.edit": "Profile",
     "profile.changeAvatar": "Tap to change photo",
     "profile.nickname": "Nickname",

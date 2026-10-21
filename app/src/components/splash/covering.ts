@@ -39,6 +39,30 @@ export function whenSplashGone(run: () => void): () => void {
   return unsubscribe;
 }
 
+/**
+ * 系统授权框（通知 / 蓝牙）最多为开屏等这么久（O27，负责人 10-21 定）：框和开屏抢不过——它是单独的窗口，
+ * 弹在还在播的路线动画上；但蓝牙链路排在授权结果后面，等太久头盔就晚连上
+ */
+export const PROMPT_AFTER_SPLASH_MAX_MS = 5_000;
+
+/** 开屏让开就兑现，最多等 maxMs（到点不再等）；现在就没盖着则立刻兑现 */
+export function splashGoneWithin(maxMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let cancel: (() => void) | undefined;
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      cancel?.();
+      resolve();
+    };
+    cancel = whenSplashGone(finish);
+    if (!done) timer = setTimeout(finish, maxMs);
+  });
+}
+
 /** 组件用：true = 开屏还盖着，自己的 Modal 先别挂 */
 export function useSplashCovering(): boolean {
   return useSyncExternalStore(subscribeSplashCovering, isSplashCovering);

@@ -44,6 +44,11 @@ import { devLog } from "@/services/dev-log";
 import { serverNow } from "@/services/server-clock";
 import { HelmetLinkService } from "helmet-link-service";
 import { useBleStore } from "@/stores/ble-store";
+import {
+  isSplashCovering,
+  PROMPT_AFTER_SPLASH_MAX_MS,
+  splashGoneWithin,
+} from "@/components/splash/covering";
 import type { BleDeviceLink } from "@/stores/ble-store";
 
 let manager: BleManager | null = null;
@@ -98,8 +103,9 @@ export async function requestBlePermissions(): Promise<boolean> {
   return r === PermissionsAndroid.RESULTS.GRANTED;
 }
 
-/** 只查不弹框：人去系统设置里授权回来时用（Android 授权不会重启进程，得自己再看一眼） */
-async function checkBlePermissions(): Promise<boolean> {
+/** 只查不弹框：人去系统设置里授权回来时用（Android 授权不会重启进程，得自己再看一眼）；
+ *  登录后起链路前也用它判断这次会不会弹系统授权框（use-realtime，O10） */
+export async function checkBlePermissions(): Promise<boolean> {
   if (Platform.OS !== "android") return true;
   const names =
     Platform.Version >= 31
@@ -774,6 +780,11 @@ export async function startBleLink(deviceIds: string[]): Promise<void> {
   if (running) return;
   running = true;
   log("链路启动，目标设备", deviceIds.join(",") || "(无)");
+  // 冷启动开屏还在播、这次又要弹系统授权框：先等开屏让开，最多 5 s（O27）。已经授过权的不弹框，不等
+  if (isSplashCovering() && !(await checkBlePermissions().catch(() => false))) {
+    await splashGoneWithin(PROMPT_AFTER_SPLASH_MAX_MS);
+    if (!running) return;
+  }
   const granted = await requestBlePermissions().catch(() => false);
   if (!running) return; // 等权限期间已 stop（登出 / 进工程模式）
   if (!granted) {
