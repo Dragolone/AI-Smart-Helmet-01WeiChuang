@@ -1086,9 +1086,12 @@ function SosActiveContent() {
     (connecting ? 44 : 0);
   const estimateCompact = room < 200;
   // 分屏半屏 / 小窗这类矮窗口（O20，负责人 10-21 定）：收起图标后最小的 140 环也塞不下，原来环被裁掉、
-  // 秒数要上滑才看得到。这时不画环，只留大号秒数，字号随剩下的高度定（44–96）
+  // 秒数要上滑才看得到。这时不画环，「秒」挪到数字右边同一行，标题下那句说明也收起，省下的高度都给数字（44–96）。
+  // 模拟器 1080×900 实测：只去掉环时数字底边仍被按钮裁掉一截
   const bare = room + 66 < 140;
-  const bareNumberSize = Math.round(Math.max(44, Math.min(96, room + 66 - 24)));
+  const bareNumberSize = Math.round(
+    Math.max(44, Math.min(96, room + 66 + 40 - 8)),
+  );
   const estimateRing = Math.round(
     Math.max(140, Math.min(252, room + (estimateCompact ? 66 : 0))),
   );
@@ -1150,6 +1153,7 @@ function SosActiveContent() {
           allowFontScaling={false}
           style={[
             styles.suffix,
+            bare && styles.suffixBare,
             { color: P.sub, fontSize: ringSize >= 220 && !bare ? 14 : 12 },
           ]}
         >
@@ -1431,9 +1435,11 @@ function SosActiveContent() {
                     {t("sos.moreAlarms", { n: others.length })}
                   </ThemedText>
                 ) : null}
-                <ThemedText style={[styles.subtitle, { color: P.sub }]}>
-                  {t("sos.pendingBody")}
-                </ThemedText>
+                {bare ? null : (
+                  <ThemedText style={[styles.subtitle, { color: P.sub }]}>
+                    {t("sos.pendingBody")}
+                  </ThemedText>
+                )}
                 {lateNote ? (
                   <ThemedText style={[styles.subtitle, { color: P.sub }]}>
                     {lateNote}
@@ -1920,7 +1926,8 @@ const styles = StyleSheet.create({
   },
   ring: { marginTop: 20, alignItems: "center" },
   ringBare: { marginTop: 8 },
-  bareFace: { alignItems: "center" },
+  bareFace: { flexDirection: "row", alignItems: "baseline", gap: 6 },
+  suffixBare: { marginTop: 0 },
   connecting: {
     fontSize: 13,
     lineHeight: 18,

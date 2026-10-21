@@ -434,7 +434,7 @@ describe("倒数中", () => {
     }
   });
 
-  it("分屏半屏（360×440）：最小的环也塞不下 → 不画环，只留大号秒数（O20，负责人 10-21 定）；按钮照常", async () => {
+  it("分屏半屏（360×440）：最小的环也塞不下 → 不画环、说明收起，只留大号秒数（O20，负责人 10-21 定）；按钮照常", async () => {
     const raw = require("react-native") as { useWindowDimensions: object };
     const dims = jest
       .spyOn(raw, "useWindowDimensions", "get")
@@ -449,6 +449,9 @@ describe("倒数中", () => {
       expect(r.root.findAllByType(CountdownRing)).toHaveLength(0);
       expect(number(r)).toBe("45");
       expect(r.allText()).toContain(tr("sos.autoSendSuffix"));
+      // 标题下那句说明收起，高度让给数字（1080×900 模拟器：只去掉环时数字底边仍被按钮裁掉）
+      expect(r.allText()).not.toContain(tr("sos.pendingBody"));
+      expect(r.allText()).toContain(tr("sos.fall"));
       const size = numberFontSize(r);
       expect(size).toBeGreaterThanOrEqual(44);
       expect(size).toBeLessThanOrEqual(96);
