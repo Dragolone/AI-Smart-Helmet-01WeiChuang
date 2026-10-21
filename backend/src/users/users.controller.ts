@@ -7,7 +7,6 @@ import {
   NotFoundException,
   Patch,
   Req,
-  UnauthorizedException,
 } from '@nestjs/common';
 import {
   IsOptional,
@@ -85,16 +84,11 @@ export class UsersController {
     }
     const { deletedAt, ...user } = found;
     // JWT 守卫无状态：注销后 access token 最多再活 15 分钟，这里把残留会话按未登录处理
-    if (deletedAt) {
-      throw new UnauthorizedException({
-        code: 'UNAUTHORIZED',
-        message: '账号已注销',
-      });
-    }
+    if (deletedAt) throw accountDeleted();
     return user;
   }
 
-  /** 注销账号（软删除）：密码错误 400 PASSWORD_INCORRECT；成功 204，之后原手机号可重新注册 */
+  /** 注销账号（软删除）：密码错误 400 PASSWORD_INCORRECT；有进行中的求救 409 SOS_IN_PROGRESS；成功 204，之后原手机号可重新注册 */
   @RateLimit(...PASSWORD_CHECK_LIMITS)
   @Delete('me')
   @HttpCode(204)

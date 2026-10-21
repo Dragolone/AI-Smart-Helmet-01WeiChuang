@@ -49,6 +49,9 @@ describe('SosTriggerService：剩余分支', () => {
     locationPoint: { findFirst: jest.fn() },
     device: { findUnique: jest.fn() },
     deviceBinding: { findMany: jest.fn() },
+    // 建单事务：先给用户行加共享锁（账号还在），再 create
+    $transaction: jest.fn(),
+    $queryRaw: jest.fn(),
   };
   const boundAt = new Date(NOW - 3_600_000);
   const notifier = { finalizeNotified: jest.fn() };
@@ -71,6 +74,10 @@ describe('SosTriggerService：剩余分支', () => {
     prisma.deviceBinding.findMany.mockResolvedValue([
       { boundAt, unboundAt: null },
     ]);
+    prisma.$transaction.mockImplementation(
+      (fn: (tx: typeof prisma) => Promise<unknown>) => fn(prisma),
+    );
+    prisma.$queryRaw.mockResolvedValue([{ deleted_at: null }]);
     push.send.mockResolvedValue(undefined);
     svc = new SosTriggerService(
       prisma as unknown as PrismaService,
@@ -127,6 +134,26 @@ describe('SosTriggerService：剩余分支', () => {
     ).resolves.toBeUndefined();
     expect(debugSpy).toHaveBeenCalledWith('SOS 重复触发已跳过：ev-new');
     expect(prisma.sosCase.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('建单时账号已注销（注销先提交）：不建单、不推送，只记 warn；建单在锁住用户行的同一事务里（O15）', async () => {
+    prisma.sosCase.findFirst.mockResolvedValue(null);
+    prisma.$queryRaw.mockResolvedValue([{ deleted_at: new Date() }]);
+    await expect(
+      svc.handleTrigger(env('possible_fall'), 'u1'),
+    ).resolves.toBeUndefined();
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.sosCase.create).not.toHaveBeenCalled();
+    expect(realtime.pushSosUpdate).not.toHaveBeenCalled();
+    expect(push.send).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      'possible_fall 到达时账号 u1 已注销，不建 SOS 单（raw 已留档）：ev-new',
+    );
+    // 用户行查不到（不该发生）同样按不在处理
+    prisma.$queryRaw.mockResolvedValue([]);
+    await svc.handleTrigger(env('possible_fall'), 'u1');
+    expect(prisma.sosCase.create).not.toHaveBeenCalled();
   });
 
   it('manual_sos 升级没抢到、回查那单已经查不到：记「已是 未知」，不建第二单', async () => {

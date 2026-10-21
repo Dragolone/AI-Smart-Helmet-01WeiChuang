@@ -105,12 +105,17 @@ describe('AuthService：剩余分支', () => {
 
   describe('verifyPassword', () => {
     it.each([
-      ['用户不存在', null],
-      ['已注销', { passwordHash: 'x', deletedAt: new Date() }],
-    ])('%s：401（残留 access token）', async (_n, row) => {
+      ['用户不存在', null, 'UNAUTHORIZED'],
+      [
+        '已注销',
+        { passwordHash: 'x', deletedAt: new Date() },
+        'ACCOUNT_DELETED',
+      ],
+    ])('%s：401（残留 access token）', async (_n, row, code) => {
       prisma.user.findUnique.mockResolvedValue(row);
       await expect(svc.verifyPassword('u1', 'whatever')).rejects.toMatchObject({
         status: 401,
+        response: { code },
       });
     });
 
@@ -323,7 +328,7 @@ describe('AuthService：剩余分支', () => {
         svc.changePhone('u1', '13900000000', '123456', 'old-password'),
       ).rejects.toMatchObject({
         status: 401,
-        response: { code: 'UNAUTHORIZED', message: '账号已注销' },
+        response: { code: 'ACCOUNT_DELETED', message: '账号已注销' },
       });
       expect(prisma.user.updateMany).toHaveBeenCalledWith({
         where: { id: 'u1', deletedAt: null },

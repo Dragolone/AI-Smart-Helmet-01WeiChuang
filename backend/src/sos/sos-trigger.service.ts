@@ -8,6 +8,7 @@ import {
   MAX_PLAUSIBLE_BACKFILL_MS,
 } from '../common/device-time';
 import { helmetLabel } from '../common/helmet-label';
+import { lockUserIfLive } from '../common/live-user';
 import { BindingScopeService } from '../devices/binding-scope.service';
 import { timerMs } from '../common/env';
 import { sleep } from '../common/sleep';
@@ -193,26 +194,39 @@ export class SosTriggerService {
 
     const snapshot = await this.resolveSnapshot(e, userId);
     try {
-      const created = await this.prisma.sosCase.create({
-        data: {
-          deviceId: e.deviceId,
-          userId,
-          triggerEventId: e.eventId,
-          triggerType: e.eventType,
-          triggeredAt: e.timestamp,
-          // 服务器时间权威：设备时钟偏移（clock_skew）不影响保命链路
-          deadline: new Date(Date.now() + countdownMs()),
-          ...(snapshot
-            ? {
-                latitude: snapshot.latitude,
-                longitude: snapshot.longitude,
-                coordinateSystem: snapshot.coordinateSystem,
-                accuracy: snapshot.accuracy,
-                locationSource: snapshot.source,
-              }
-            : {}),
-        },
-      });
+      // 建单与注销串行（O15）：先给用户行加共享锁，与注销事务对用户行的更新互斥。
+      // 注销先提交 → 不建：联系人已随注销删光，没有人可通知，也没有人能取消（同「未绑定设备只留档」）；
+      // 这里先提交 → 注销事务里的「进行中求救」检查一定看得到这张单，拒绝注销
+      const created = await this.prisma.$transaction(async (tx) =>
+        (await lockUserIfLive(tx, userId))
+          ? tx.sosCase.create({
+              data: {
+                deviceId: e.deviceId,
+                userId,
+                triggerEventId: e.eventId,
+                triggerType: e.eventType,
+                triggeredAt: e.timestamp,
+                // 服务器时间权威：设备时钟偏移（clock_skew）不影响保命链路
+                deadline: new Date(Date.now() + countdownMs()),
+                ...(snapshot
+                  ? {
+                      latitude: snapshot.latitude,
+                      longitude: snapshot.longitude,
+                      coordinateSystem: snapshot.coordinateSystem,
+                      accuracy: snapshot.accuracy,
+                      locationSource: snapshot.source,
+                    }
+                  : {}),
+              },
+            })
+          : null,
+      );
+      if (!created) {
+        this.logger.warn(
+          `${e.eventType} 到达时账号 ${userId} 已注销，不建 SOS 单（raw 已留档）：${e.eventId}`,
+        );
+        return;
+      }
       this.logger.warn(
         `SOS 单已创建 ${created.id}（${e.eventType}，device=${e.deviceId}，deadline=${created.deadline.toISOString()}）`,
       );

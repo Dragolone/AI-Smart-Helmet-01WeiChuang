@@ -1,4 +1,5 @@
 // 注销账号（API.md §2）：先验密码；同一事务里软删、释放号码、清验证码、撤会话、解绑设备、删联系人、退频道；事务后断开 WS。
+// 有进行中的求救 → 409 SOS_IN_PROGRESS，事务回滚、什么都不改（O15）。
 import { Logger } from '@nestjs/common';
 import type { AuthService } from '../auth/auth.service';
 import type { ContactsService } from '../contacts/contacts.service';
@@ -20,6 +21,7 @@ describe('UsersService.deleteAccount', () => {
       findUniqueOrThrow: jest.fn(track('user.find', { phone: '13800001111' })),
       update: jest.fn(track('user.update')),
     },
+    sosCase: { count: jest.fn(track('sos.countPending', 0)) },
     smsCode: { deleteMany: jest.fn(track('smsCode.deleteMany')) },
     refreshToken: { updateMany: jest.fn(track('refreshToken.revoke')) },
     voiceChannelMember: { deleteMany: jest.fn(track('voice.leave')) },
@@ -72,6 +74,7 @@ describe('UsersService.deleteAccount', () => {
       'tx.begin',
       'user.find',
       'user.update',
+      'sos.countPending',
       'smsCode.deleteMany',
       'refreshToken.revoke',
       'devices.unbindAll',
@@ -86,6 +89,10 @@ describe('UsersService.deleteAccount', () => {
     expect(tx.user.update).toHaveBeenCalledWith({
       where: { id: 'u1' },
       data: { deletedAt: now, phone: 'deleted:u1', avatarUrl: null },
+    });
+    // 进行中的求救按建单时固化的 userId 数（头盔已解绑的单也算），在锁住用户行之后数
+    expect(tx.sosCase.count).toHaveBeenCalledWith({
+      where: { userId: 'u1', status: 'pending' },
     });
     // 原号码的验证码记录（明文手机号）一起删
     expect(tx.smsCode.deleteMany).toHaveBeenCalledWith({
@@ -116,5 +123,20 @@ describe('UsersService.deleteAccount', () => {
     );
     expect(realtime.closeUser).not.toHaveBeenCalled();
     expect(contacts.removeAll).not.toHaveBeenCalled();
+  });
+
+  it('有进行中的求救：409 SOS_IN_PROGRESS，后面的清理一步都不做、不断开 WS（事务回滚）', async () => {
+    tx.sosCase.count.mockImplementationOnce(track('sos.countPending', 1));
+    await expect(svc.deleteAccount('u1', 'pw')).rejects.toMatchObject({
+      status: 409,
+      response: { code: 'SOS_IN_PROGRESS' },
+    });
+    expect(order).toEqual([
+      'tx.begin',
+      'user.find',
+      'user.update',
+      'sos.countPending',
+    ]);
+    expect(realtime.closeUser).not.toHaveBeenCalled();
   });
 });

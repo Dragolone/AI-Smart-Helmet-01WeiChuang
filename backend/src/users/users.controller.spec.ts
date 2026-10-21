@@ -51,7 +51,7 @@ describe('UsersController', () => {
     });
   });
 
-  it('GET /me：账号已注销 → 401「账号已注销」', async () => {
+  it('GET /me：账号已注销 → 401 ACCOUNT_DELETED', async () => {
     prisma.user.findUnique.mockResolvedValue({
       id: 'u1',
       deletedAt: new Date(),
@@ -59,7 +59,7 @@ describe('UsersController', () => {
     const err = await ctl.me(req).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(UnauthorizedException);
     expect((err as UnauthorizedException).getResponse()).toEqual({
-      code: 'UNAUTHORIZED',
+      code: 'ACCOUNT_DELETED',
       message: '账号已注销',
     });
   });
@@ -90,7 +90,7 @@ describe('UsersController', () => {
     prisma.user.updateMany.mockResolvedValue({ count: 0 });
     await expect(ctl.updateMe(req, { nickname: 'x' })).rejects.toMatchObject({
       status: 401,
-      response: { code: 'UNAUTHORIZED', message: '账号已注销' },
+      response: { code: 'ACCOUNT_DELETED', message: '账号已注销' },
     });
     expect(prisma.user.findUniqueOrThrow).not.toHaveBeenCalled();
   });
