@@ -13,6 +13,7 @@ import type {
   WsDeviceStatusData,
   WsLocationData,
   WsSosData,
+  ActiveSosResponse,
 } from "@helmet/shared";
 
 import { refreshActiveSos, sosScreen } from "@/services/sos-queue";
@@ -60,6 +61,7 @@ import {
   whenSosAlertPermissionAsked,
   holdPermissionPromptUntil,
   resetSosAlerts,
+  setOtherSosPendingCheck,
   setSosCancelConfirmedListener,
   showSosAlertIfBackground,
 } from "@/services/sos-alert";
@@ -296,6 +298,15 @@ export function useRealtimeUpdates(): void {
       );
     });
     // 锁屏通知「取消」被服务端确认（含重试成功）→ 倒计时页与安全页立刻拉权威状态，不等 WS / 10 s 轮询
+    // 单子结束时 sos-alert 要知道账号下还有没有别的单在倒数（决定能不能按标题撤极光遗留的通知，O12）
+    setOtherSosPendingCheck((sosId) =>
+      queryClient
+        .getQueriesData<ActiveSosResponse>({ queryKey: ["sos-active"] })
+        .some(
+          ([, data]) =>
+            data?.sos?.status === "pending" && data.sos.sosId !== sosId,
+        ),
+    );
     setSosCancelConfirmedListener((sosId, sos) => {
       // 先把取消返回的终态写进缓存：弱网下接着的刷新失败也不会让页面回落到 pending 重新倒数
       if (sos) queryClient.setQueryData(["sos", sosId], sos);
@@ -442,6 +453,7 @@ export function useRealtimeUpdates(): void {
       setPushArrivalHandler(null);
       setCriticalAcceptedHandler(null);
       setSosCancelConfirmedListener(null);
+      setOtherSosPendingCheck(null);
       presentedSos.current.clear();
       void resetSosAlerts();
       stopPush();

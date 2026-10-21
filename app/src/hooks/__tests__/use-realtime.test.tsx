@@ -66,6 +66,7 @@ import {
   whenSosAlertPermissionAsked,
   holdPermissionPromptUntil,
   resetSosAlerts,
+  setOtherSosPendingCheck,
   setSosCancelConfirmedListener,
   showSosAlertIfBackground,
 } from "@/services/sos-alert";
@@ -150,6 +151,7 @@ jest.mock("@/services/sos-alert", () => ({
   ensureSosAlertPermission: jest.fn(),
   whenSosAlertPermissionAsked: jest.fn(),
   whenCountdownClearForPrompt: jest.fn(),
+  setOtherSosPendingCheck: jest.fn(),
   holdPermissionPromptUntil: jest.fn(),
   resetSosAlerts: jest.fn(),
   setSosCancelConfirmedListener: jest.fn(),
@@ -613,6 +615,24 @@ describe("蓝牙链路目标", () => {
     await run(() => undefined);
     expect(startBleLink).not.toHaveBeenCalled();
     await setAuth({ sessionDeadUntil: null });
+  });
+
+  it("给 sos-alert 注册「账号下还有别的单在倒数吗」：按 [sos-active] 缓存判断；登出时撤掉（O12 兜底撤极光遗留通知用）", async () => {
+    await mountBridge();
+    const check = jest
+      .mocked(setOtherSosPendingCheck)
+      .mock.calls.at(-1)?.[0] as ((id: string) => boolean) | null;
+    expect(typeof check).toBe("function");
+    qc.setQueryData(["sos-active", "h1"], {
+      sos: { sosId: "s1", deviceId: "h1", status: "pending" },
+    });
+    qc.setQueryData(["sos-active", "h2"], { sos: null });
+    expect(check!("s1")).toBe(false);
+    expect(check!("s9")).toBe(true);
+    await logout();
+    expect(
+      jest.mocked(setOtherSosPendingCheck).mock.calls.at(-1)?.[0],
+    ).toBeNull();
   });
 
   it("蓝牙权限已经有了：不等通知那次申请（可能被推迟），通知权限一有结果就起链路", async () => {

@@ -20,7 +20,10 @@ import { presentedSos } from "@/services/sos-sync";
 import { sosScreen } from "@/services/sos-queue";
 import { useSosCancelStore } from "@/stores/sos-cancel-store";
 import { showNotice } from "@/services/notice";
-import { clearSosStartPush } from "@/services/sos-start-push";
+import {
+  clearSosStartPush,
+  SOS_START_PUSH_TITLE,
+} from "@/services/sos-start-push";
 import {
   PROMPT_AFTER_SPLASH_MAX_MS,
   splashGoneWithin,
@@ -600,7 +603,11 @@ export async function showSosAlertIfBackground(
     // （2026-10-06 iPhone 实测）。本地这条内容更全、带按钮，弹出后把那条远程的撤掉；
     // 远程推送可能晚到，JS 醒着的话隔几秒再扫两遍
     const sweep = () => {
-      if (alive()) void dismissRemoteTwins(sosId);
+      if (!alive()) return;
+      void dismissRemoteTwins(sosId);
+      // 安卓同理：极光那条没有按钮，锁屏「隐藏通知内容」时还会被打码成「零一智行 · 1 个通知」；
+      // 本地这条锁屏照常显示（O31），弹出后把极光那条按编号撤掉（O12 / O31，10-21 晚）
+      clearSosStartPush(sosId);
     };
     entry.timers.push(setTimeout(sweep, 3_000), setTimeout(sweep, 10_000));
     if (
@@ -670,6 +677,39 @@ async function dismissRemoteTwins(sosId: string): Promise<void> {
   }
 }
 
+/** 账号下除了这一单还有别的单在倒数吗（use-realtime 按查询缓存注册）；没注册时当作还有，不乱撤 */
+let otherSosPending: (sosId: string) => boolean = () => true;
+export function setOtherSosPendingCheck(
+  check: ((sosId: string) => boolean) | null,
+): void {
+  otherSosPending = check ?? (() => true);
+}
+
+/** expo 给别的 SDK 贴的通知起的标识（ExpoPresentationDelegate.getInternalIdentifierKey） */
+const FOREIGN_NOTIFICATION_PREFIX =
+  "expo-notifications://foreign_notifications";
+
+/**
+ * 安卓兜底：App 被杀时到达的极光「倒计时已开始」没记到编号（到达事件那时 JS 没在跑），单子结束后撤不掉。
+ * 账号下已经没有别的单在倒数时，按标题把通知栏里剩下的这类通知都撤掉——它们指的单肯定都结束了。
+ * 还有别的单在倒数就不碰（认不出哪条是哪单的）
+ */
+async function dismissOrphanStartPushes(): Promise<void> {
+  if (Platform.OS !== "android") return;
+  try {
+    const shown = await Notifications.getPresentedNotificationsAsync();
+    for (const n of shown) {
+      if (
+        n.request.identifier.startsWith(FOREIGN_NOTIFICATION_PREFIX) &&
+        n.request.content.title === SOS_START_PUSH_TITLE
+      )
+        await Notifications.dismissNotificationAsync(n.request.identifier);
+    }
+  } catch (e) {
+    devLog("SOS-ALERT", "清理极光遗留通知失败", e as Error);
+  }
+}
+
 async function removeNotification(id: string): Promise<void> {
   try {
     await Notifications.cancelScheduledNotificationAsync(id);
@@ -696,6 +736,7 @@ export async function clearSosAlert(sosId: string): Promise<void> {
   // 极光那条「倒计时已开始」也撤（O12）：别处取消、到点通知时原来没人撤，一直挂着让人以为还在倒数
   clearSosStartPush(sosId);
   void dismissRemoteTwins(sosId);
+  if (!otherSosPending(sosId)) void dismissOrphanStartPushes();
   for (const id of ids) await removeNotification(id);
 }
 
