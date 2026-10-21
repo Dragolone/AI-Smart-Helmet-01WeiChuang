@@ -148,6 +148,11 @@ function dropFail(f: ActFail | null, done: readonly string[]): ActFail | null {
   return ids.length > 0 ? { ...f, ids } : null;
 }
 
+/** 替他重发（O29）后还在等的那几条：超过 RESEND_WAIT_MS 没等到新单的作废 */
+const unexpiredResends = <T extends { at: number }>(list: T[]): T[] => {
+  const now = Date.now();
+  return list.filter((r) => now - r.at <= RESEND_WAIT_MS);
+};
 const isFinalized = (e: unknown) =>
   e instanceof ApiRequestError && e.code === "SOS_ALREADY_FINALIZED";
 
@@ -596,13 +601,23 @@ function SosActiveContent() {
 
   // 「立即求救」被拒是因为取消先落地了（通知上的「我没事，取消」还在路上时又点了立即求救，10-21 模拟器实测）：
   // 他最后明确按的是求救，就按求救办——替他新建一单（走「我还是需要帮助」那条路），新单一出现就立即确认，
-  // 不再倒数 60 秒（负责人 10-21 定，O29）。记下是哪顶头盔、被取消的是哪单；两分钟内没等到新单就作罢，
-  // 免得很久以后来的另一单被误确认
-  const resendFor = useRef<{
-    deviceId: string;
-    cancelledId: string;
-    at: number;
-  } | null>(null);
+  // 不再倒数 60 秒（负责人 10-21 定，O29）。只认重发那条事件建出的单（服务端 triggerEventId = 信封的 eventId）：
+  // 原来按头盔号认，两分钟内这顶头盔来的别的单（比如一次新的误报摔倒）会被直接确认、跳过 60 秒（10-21 第二轮审查）。
+  // 两分钟内没等到就作罢
+  const resendFor = useRef<{ eventId: string; at: number }[]>([]);
+  // 被拒的那单若是被取消先落地才结束的，替他重发（单条「立即求救」和「全部立即求救」共用）
+  const resendIfCancelWon = (id: string, device: string | undefined) =>
+    queryClient
+      .refetchQueries({ queryKey: ["sos", id], exact: true, type: "all" })
+      .catch(() => undefined)
+      .then(() => {
+        const current = queryClient.getQueryData<Sos>(["sos", id]);
+        if (current?.status !== "cancelled" || !device) return;
+        setToast(t("sos.resentAfterCancel"));
+        AccessibilityInfo.announceForAccessibility(t("sos.resentAfterCancel"));
+        const eventId = needHelp(device);
+        if (eventId) resendFor.current.push({ eventId, at: Date.now() });
+      });
 
   const act = (kind: ActKind) => {
     // 演练只改本地状态，没有失败的路
@@ -634,24 +649,7 @@ function SosActiveContent() {
             return;
           }
           // 立即求救被拒：结束的原因若是取消先到了，替他重发求救（见 resendFor）；已通知（别处先点了 / 到期）什么也不做
-          const device = sos?.deviceId ?? deviceId;
-          return queryClient
-            .refetchQueries({ queryKey: ["sos", id], exact: true, type: "all" })
-            .catch(() => undefined)
-            .then(() => {
-              const current = queryClient.getQueryData<Sos>(["sos", id]);
-              if (current?.status !== "cancelled" || !device) return;
-              resendFor.current = {
-                deviceId: device,
-                cancelledId: id,
-                at: Date.now(),
-              };
-              setToast(t("sos.resentAfterCancel"));
-              AccessibilityInfo.announceForAccessibility(
-                t("sos.resentAfterCancel"),
-              );
-              needHelp(device);
-            });
+          return resendIfCancelWon(id, sos?.deviceId ?? deviceId);
         }
         // 请求本身失败（超时 / 断网）不等于没办成：服务端终态化时先经实时通道推新状态、再内联发短信，
         // 短信慢时「立即求救」的响应会晚于 App 的超时，页面已经切到「已发送」，再提示失败就自相矛盾
@@ -933,10 +931,11 @@ function SosActiveContent() {
   );
   const helpQueued = useRef(new Set<string>());
   const [helpBusy, setHelpBusy] = useState(false);
-  const needHelp = (device?: string) => {
+  /** 返回这次发出的 manual_sos 的 eventId（建出的单的 triggerEventId 就是它）；没有头盔号时 null */
+  const needHelp = (device?: string): string | null => {
     // 外部深链只带 sosId 时路由里没有 deviceId，用这一单自己的（10-16 C1）
     const helpDevice = device ?? sos?.deviceId ?? deviceId;
-    if (!helpDevice) return;
+    if (!helpDevice) return null;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
     // 这顶头盔眼下结束的是哪一单：当前这单是它的就是当前这单，否则看结果页列着的那一单
     const afterSosId =
@@ -981,31 +980,39 @@ function SosActiveContent() {
         );
       })
       .finally(() => setHelpBusy(false));
+    return envelope.eventId;
   };
   // 「我还是需要帮助」之后的新单：进队列 → 上面那条 effect 自动切过去重新倒数，不再另开一页
   // 替他重发的那一单（见 resendFor）：切过来、还在倒数就立即确认，不让他再等 60 秒
+  // 重发建出的单不在屏上（几顶一起倒数时它只是顶上的一个胶囊）：先切过去，切到之后再确认
   const resendSosId = sos?.sosId;
   const resendStatus = sos?.status;
-  const resendDevice = sos?.deviceId;
+  const resendTrigger = sos?.triggerEventId;
   useEffect(() => {
-    const r = resendFor.current;
-    if (!r || isDrill) return;
-    if (Date.now() - r.at > RESEND_WAIT_MS) {
-      resendFor.current = null;
+    if (isDrill || resendFor.current.length === 0) return;
+    resendFor.current = unexpiredResends(resendFor.current);
+    const waiting = new Set(resendFor.current.map((r) => r.eventId));
+    if (
+      resendStatus === "pending" &&
+      resendTrigger &&
+      waiting.has(resendTrigger)
+    ) {
+      resendFor.current = resendFor.current.filter(
+        (r) => r.eventId !== resendTrigger,
+      );
+      act("confirm");
       return;
     }
-    if (
-      !resendSosId ||
-      resendSosId === r.cancelledId ||
-      resendDevice !== r.deviceId ||
-      resendStatus !== "pending"
-    )
-      return;
-    resendFor.current = null;
-    act("confirm");
-    // act 每次渲染都是新的；这里只在切到新单 / 状态变化时看一眼
+    const elsewhere = queue.find(
+      (q) =>
+        q.sosId !== resendSosId &&
+        q.status === "pending" &&
+        waiting.has(q.triggerEventId),
+    );
+    if (elsewhere) setSelected(elsewhere.sosId);
+    // act / queue 每次渲染都是新的；这里只在切单、状态或队列变化时看一眼
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resendSosId, resendStatus, resendDevice, isDrill]);
+  }, [resendSosId, resendStatus, resendTrigger, cacheTick, isDrill]);
 
   // 一次处理这几单（「全部取消 / 全部立即求救」确认之后，以及它没全成功时提示条上的「重试」）
   const runAll = (kind: ActKind, ids: readonly string[]) => {
@@ -1022,7 +1029,11 @@ function SosActiveContent() {
       .then(async (results) => {
         // 已在别处结束的单：和单条操作一样拉一次它的权威状态（屏上这单不然要等下一轮 10 秒轮询才切走）
         results.forEach((r, i) => {
-          if (r.status === "rejected" && isFinalized(r.reason))
+          if (r.status !== "rejected" || !isFinalized(r.reason)) return;
+          // 「全部立即求救」里被拒、原因是取消先落地的那几单：和单条一样替他重发（10-21 第二轮审查）
+          if (kind === "confirm")
+            void resendIfCancelWon(ids[i], byId.get(ids[i])?.deviceId);
+          else
             void queryClient.invalidateQueries({
               queryKey: ["sos", ids[i]],
               exact: true,

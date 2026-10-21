@@ -33,6 +33,10 @@ export const profile = {
     "profile.signOutPendingBodySos":
       "其中有 {n} 次摔倒 / 求救。现在退出，要等下次在这台手机上登录这个账号才会上传，期间不会通知紧急联系人。",
     "profile.signOutAnyway": "仍要退出",
+    "profile.signOutActiveSosTitle": "有一单求救正在倒计时",
+    "profile.signOutActiveSosBody":
+      "退出后这台手机就没法取消它，倒计时结束会照常通知紧急联系人。",
+    "profile.signOutActiveSosOpen": "去倒计时页",
     "profile.edit": "个人资料",
     "profile.changeAvatar": "点击更换头像",
     "profile.nickname": "昵称",
@@ -88,6 +92,10 @@ export const profile = {
     "profile.signOutPendingBodySos":
       "其中有 {n} 次摔倒 / 求救。現在登出，要等下次在這支手機上登入這個帳號才會上傳，期間不會通知緊急聯絡人。",
     "profile.signOutAnyway": "仍要登出",
+    "profile.signOutActiveSosTitle": "有一單求救正在倒數",
+    "profile.signOutActiveSosBody":
+      "登出後這支手機就沒辦法取消它，倒數結束會照常通知緊急聯絡人。",
+    "profile.signOutActiveSosOpen": "去倒數頁",
     "profile.edit": "個人資料",
     "profile.changeAvatar": "點擊更換頭像",
     "profile.nickname": "暱稱",
@@ -144,6 +152,10 @@ export const profile = {
     "profile.signOutPendingBodySos":
       "Falls / SOS among them: {n}. If you sign out now, they will only be uploaded the next time this account signs in on this phone, and emergency contacts won't be notified until then.",
     "profile.signOutAnyway": "Sign out anyway",
+    "profile.signOutActiveSosTitle": "An SOS is counting down",
+    "profile.signOutActiveSosBody":
+      "After you sign out, this phone can't cancel it. Your emergency contacts will be notified when the countdown ends.",
+    "profile.signOutActiveSosOpen": "Open countdown",
     "profile.edit": "Profile",
     "profile.changeAvatar": "Tap to change photo",
     "profile.nickname": "Nickname",

@@ -597,6 +597,24 @@ describe("蓝牙链路目标", () => {
     expect(startBleLink).toHaveBeenCalledTimes(1);
   });
 
+  it("会话被否定、倒计时还在走（O19-A）：停掉蓝牙链路，让头盔里的高危事件留着等重新登录后补传；这时界面重建也不再起链路（10-21 第二轮审查）", async () => {
+    jest.mocked(devicesApi.list).mockResolvedValue([dev("h1")]);
+    await mountBridge();
+    expect(startBleLink).toHaveBeenCalledTimes(1);
+    jest.mocked(stopBleLink).mockClear();
+    await setAuth({ sessionDeadUntil: Date.now() + 40_000 });
+    expect(stopBleLink).toHaveBeenCalledTimes(1);
+    // 同一失效期里再来一次变化不重复停
+    await setAuth({ sessionDeadUntil: Date.now() + 50_000 });
+    expect(stopBleLink).toHaveBeenCalledTimes(1);
+
+    jest.mocked(startBleLink).mockClear();
+    await mountBridge();
+    await run(() => undefined);
+    expect(startBleLink).not.toHaveBeenCalled();
+    await setAuth({ sessionDeadUntil: null });
+  });
+
   it("蓝牙权限已经有了：不等通知那次申请（可能被推迟），通知权限一有结果就起链路", async () => {
     jest.mocked(checkBlePermissions).mockResolvedValue(true);
     jest
