@@ -59,11 +59,11 @@ import {
 } from "@/services/bridge-lifecycle";
 import { devLog } from "@/services/dev-log";
 import { setPushArrivalHandler, startPush, stopPush } from "@/services/push";
+import { whenSignInQuiet } from "@/services/sign-in-moment";
 import {
   clearSosAlert,
   ensureSosAlertPermission,
   whenCountdownClearForPrompt,
-  whenSignInQuiet,
   whenSosAlertPermissionAsked,
   holdPermissionPromptUntil,
   resetSosAlerts,
@@ -147,12 +147,16 @@ jest.mock("@/services/ble-targets", () => ({
   saveCachedTargets: jest.fn(),
   loadWithRetry: jest.fn(),
 }));
+jest.mock("@/services/sign-in-moment", () => ({
+  markSignedIn: jest.fn(),
+  signInQuietRemainingMs: () => 0,
+  whenSignInQuiet: jest.fn(),
+}));
 jest.mock("@/services/sos-alert", () => ({
   clearSosAlert: jest.fn(),
   ensureSosAlertPermission: jest.fn(),
   whenSosAlertPermissionAsked: jest.fn(),
   whenCountdownClearForPrompt: jest.fn(),
-  whenSignInQuiet: jest.fn(),
   setOtherSosPendingCheck: jest.fn(),
   holdPermissionPromptUntil: jest.fn(),
   resetSosAlerts: jest.fn(),

@@ -692,7 +692,7 @@ describe("sos-alert", () => {
       void m.ensureSosAlertPermission().then(ready);
       await settle();
       expect(mockSetCategory).toHaveBeenCalledTimes(1);
-      await jest.advanceTimersByTimeAsync(m.SIGN_IN_PROMPT_QUIET_MS - 1);
+      await jest.advanceTimersByTimeAsync(signIn.SIGN_IN_PROMPT_QUIET_MS - 1);
       await settle();
       expect(mockRequestPerms).not.toHaveBeenCalled();
       expect(ready).not.toHaveBeenCalled();
@@ -718,10 +718,10 @@ describe("sos-alert", () => {
       const { m, signIn } = loadWithScreen();
       signIn.markSignedIn();
       const gated = jest.fn();
-      void m.whenSignInQuiet().then(gated);
+      void signIn.whenSignInQuiet().then(gated);
       const cleared = jest.fn();
       void m.whenCountdownClearForPrompt().then(cleared);
-      await jest.advanceTimersByTimeAsync(m.SIGN_IN_PROMPT_QUIET_MS - 1);
+      await jest.advanceTimersByTimeAsync(signIn.SIGN_IN_PROMPT_QUIET_MS - 1);
       await settle();
       expect(gated).not.toHaveBeenCalled();
       expect(cleared).not.toHaveBeenCalled();
@@ -730,7 +730,7 @@ describe("sos-alert", () => {
       expect(gated).toHaveBeenCalledTimes(1);
       expect(cleared).toHaveBeenCalledTimes(1);
       const late = jest.fn();
-      void m.whenSignInQuiet().then(late);
+      void signIn.whenSignInQuiet().then(late);
       await settle();
       expect(late).toHaveBeenCalledTimes(1);
     });

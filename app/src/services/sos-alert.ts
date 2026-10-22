@@ -30,7 +30,7 @@ import {
   PROMPT_AFTER_SPLASH_MAX_MS,
   splashGoneWithin,
 } from "@/components/splash/covering";
-import { msSinceSignIn } from "@/services/sign-in-moment";
+import { whenSignInQuiet } from "@/services/sign-in-moment";
 
 /** 锁屏求救提醒走的 Android 通知通道；安全页判断「通知有没有开」也要看它有没有被单独关掉 */
 export const SOS_CHANNEL_ID = "sos";
@@ -56,21 +56,6 @@ let deferredAsk: Promise<void> | null = null;
 let promptGate: Promise<unknown> | null = null;
 /** 补拉迟迟不回（弱网）最多等这么久：之后照常申请，最坏退回改动前的样子（框可能盖在倒计时页上） */
 const PROMPT_GATE_MAX_MS = 5_000;
-/**
- * iOS：刚登录（不是冷启动时本来就登录着）的这几秒里先别弹系统授权框（10-22 iPad 真机 + iPad 模拟器实测）。
- * 登录页一消失，iOS 会弹「保存密码？」卡片（SafariViewService 托管在 UITextEffectsWindow 里，点登录后约 1.4 s 出来）。
- * 它还在弹出的过程中，通知 / 蓝牙授权框就压上来的话：卡片没显示出来，承载它的全屏视图却留在最上层，
- * 所有点按都被它接走，用户看不到卡片也点不了「以后」，整个 App 卡死到杀掉重开。卡片单独出现时正常；
- * 卡片完整弹出之后授权框再来也正常（授权框叠在卡片上，点完授权框卡片还在，点「以后」后照常操作）。
- * 冷启动没有登录这一步，不等；安卓没有这张卡片，不等
- */
-export const SIGN_IN_PROMPT_QUIET_MS = 4_000;
-
-export async function whenSignInQuiet(): Promise<void> {
-  if (Platform.OS !== "ios") return;
-  const wait = SIGN_IN_PROMPT_QUIET_MS - msSinceSignIn();
-  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-}
 /** 推迟期间多久看一眼倒计时页还在不在；第一眼也给刚 push、还没挂上的页面留出时间 */
 const DEFERRED_ASK_POLL_MS = 1_000;
 /**
