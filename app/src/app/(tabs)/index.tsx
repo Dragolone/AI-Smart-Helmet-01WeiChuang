@@ -940,7 +940,8 @@ const styles = StyleSheet.create({
   abs: { position: "absolute" },
   container: { flexGrow: 1, paddingHorizontal: 20, paddingBottom: 16 },
   header: {
-    height: HEADER_HEIGHT - 4,
+    // 不能写死高度：iOS 辅助功能大字号下标题放到 2 倍多，固定 44 的头部装不下，字顶被滚动区上沿切掉（10-22 iPad 模拟器）
+    minHeight: HEADER_HEIGHT - 4,
     marginTop: 4,
     flexDirection: "row",
     alignItems: "center",
