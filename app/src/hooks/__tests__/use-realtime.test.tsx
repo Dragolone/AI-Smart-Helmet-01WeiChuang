@@ -59,6 +59,7 @@ import {
 } from "@/services/bridge-lifecycle";
 import { devLog } from "@/services/dev-log";
 import { setPushArrivalHandler, startPush, stopPush } from "@/services/push";
+import { whenSignInQuiet } from "@/services/sign-in-moment";
 import {
   clearSosAlert,
   ensureSosAlertPermission,
@@ -145,6 +146,11 @@ jest.mock("@/services/ble-targets", () => ({
   loadCachedTargets: jest.fn(),
   saveCachedTargets: jest.fn(),
   loadWithRetry: jest.fn(),
+}));
+jest.mock("@/services/sign-in-moment", () => ({
+  markSignedIn: jest.fn(),
+  signInQuietRemainingMs: () => 0,
+  whenSignInQuiet: jest.fn(),
 }));
 jest.mock("@/services/sos-alert", () => ({
   clearSosAlert: jest.fn(),
@@ -402,6 +408,7 @@ beforeEach(() => {
   jest.mocked(ensureSosAlertPermission).mockResolvedValue(undefined);
   jest.mocked(whenSosAlertPermissionAsked).mockResolvedValue(undefined);
   jest.mocked(whenCountdownClearForPrompt).mockResolvedValue(undefined);
+  jest.mocked(whenSignInQuiet).mockResolvedValue(undefined);
   jest.mocked(checkBlePermissions).mockResolvedValue(true);
   jest.mocked(startBleLink).mockResolvedValue(undefined);
   jest.mocked(adoptRelayUplinkOwner).mockReturnValue(true);
@@ -573,6 +580,17 @@ describe("蓝牙链路目标", () => {
     await run(() => permission.resolve());
     expect(startBleLink).toHaveBeenCalledTimes(1);
     expect(startBleLink).toHaveBeenCalledWith(["h3", "h1", "h2"]);
+  });
+
+  it("刚登录的几秒里不起链路（iOS 新建蓝牙管理器就弹蓝牙授权框，压在「保存密码？」卡片上会把 App 卡死，10-22 iPad）", async () => {
+    const quiet = deferred<void>();
+    jest.mocked(whenSignInQuiet).mockReturnValue(quiet.promise);
+    jest.mocked(devicesApi.list).mockResolvedValue([dev("h1")]);
+    await mountBridge();
+    await run(() => undefined);
+    expect(startBleLink).not.toHaveBeenCalled();
+    await run(() => quiet.resolve());
+    expect(startBleLink).toHaveBeenCalledTimes(1);
   });
 
   it("蓝牙权限还没给过（这次起链路会弹系统框）：等通知那次申请有结果（倒计时在屏时被推迟到关页后）再起链路，不让「附近设备」框盖住倒计时（O10）", async () => {

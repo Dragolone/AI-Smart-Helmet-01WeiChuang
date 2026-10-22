@@ -171,6 +171,10 @@ describe("use-realtime 的启动顺序", () => {
     expect(src).toMatch(
       /Promise\.all\(\[permissionReady, cachedReady\]\)\.then\(async \(\) => \{[\s\S]*?checkBlePermissions\(\)[\s\S]*?await whenSosAlertPermissionAsked\(\);[\s\S]*?await whenCountdownClearForPrompt\(\);[\s\S]*?void startBleLink\(bleTargetsOf\(\)\);/,
     );
+    // iOS 新建蓝牙管理器就会弹蓝牙授权框：刚登录的几秒里先别弹，起链路前先过这道门（10-22 iPad 卡死）
+    expect(src).toMatch(
+      /await whenSignInQuiet\(\);\s*if \(cancelled\) return;[\s\S]*?void startBleLink\(bleTargetsOf\(\)\);/,
+    );
     // 全文件只有这一处启动链路
     expect(src.match(/startBleLink\(/g)).toHaveLength(1);
   });

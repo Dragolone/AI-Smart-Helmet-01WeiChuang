@@ -21,6 +21,7 @@ import {
   setJPushNotificationClearer,
 } from "@/services/sos-start-push";
 import { useConsentStore } from "@/stores/consent-store";
+import { signInQuietRemainingMs } from "@/services/sign-in-moment";
 // 直接读 app.json 而不是 expo-constants：dev-client 下 Constants.expoConfig.extra 在 iPhone 上实测为空
 // （2026-09-24 00:07 真机日志「未配置 extra.jpush.appKey」），构建期常量没必要绕运行时 manifest 一圈
 import appJson from "../../app.json";
@@ -60,6 +61,8 @@ let initialized = false;
 let listenerInstalled = false;
 let currentAlias: string | null = null;
 let unsubscribeConsent: (() => void) | null = null;
+/** iOS 刚登录时推迟的那次初始化（见 startPush）；登出 / 换人时撤掉 */
+let deferredInit: ReturnType<typeof setTimeout> | null = null;
 /** 每次别名操作一个 sequence，结果回调靠它对应是哪一次（单调递增） */
 let sequence = 0;
 /**
@@ -386,12 +389,24 @@ export function startPush(
     devLog("PUSH", "未配置 extra.jpush.appKey，跳过");
     return;
   }
-  const run = () => {
+  const runNow = () => {
     const sdk = loadJPush();
     if (!sdk) return;
     initOnce(sdk, cfg);
     applyAlias(sdk, userId);
   };
+  // iOS：极光 init 当场申请通知授权、弹系统框（RCTJPushModule 里的 registerForRemoteNotificationConfig），
+  // 刚登录的几秒里先不初始化，免得压在「保存密码？」卡片上把 App 卡死（services/sign-in-moment）
+  const run = () => {
+    const wait = signInQuietRemainingMs();
+    if (wait === 0) return runNow();
+    devLog("PUSH", `刚登录，${wait} ms 后再初始化推送 SDK`);
+    deferredInit = setTimeout(() => {
+      deferredInit = null;
+      runNow();
+    }, wait);
+  };
+  clearDeferredInit();
   unsubscribeConsent?.();
   unsubscribeConsent = null;
   if (useConsentStore.getState().privacyAccepted) {
@@ -413,10 +428,16 @@ export function startPush(
   });
 }
 
+function clearDeferredInit(): void {
+  if (deferredInit) clearTimeout(deferredInit);
+  deferredInit = null;
+}
+
 /** 登出：解绑 alias，之后这台手机不再收到该用户的推送。SDK 本身不能反初始化，留着 */
 export function stopPush(): void {
   unsubscribeConsent?.();
   unsubscribeConsent = null;
+  clearDeferredInit();
   if (!initialized || currentAlias === null) return;
   currentAlias = null;
   clearAliasTimer(); // 登出后不再重设 / 校验别名
@@ -431,6 +452,7 @@ export function stopPush(): void {
 export function __resetPushForTests(): void {
   unsubscribeConsent?.();
   unsubscribeConsent = null;
+  clearDeferredInit();
   initialized = false;
   listenerInstalled = false;
   launchResponseHandled = false;

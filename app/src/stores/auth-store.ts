@@ -6,6 +6,7 @@ import { attachSession } from "@/api/client";
 import { authApi } from "@/api/auth";
 import { countdownHoldUntil } from "@/services/countdown-hold";
 import { SECURE_KEYS } from "@/services/secure-keys";
+import { markSignedIn } from "@/services/sign-in-moment";
 
 const TOKEN_KEY = SECURE_KEYS.sessionTokens;
 /** 钥匙串可访问性：默认 WHEN_UNLOCKED 在锁屏时写入会抛 "User interaction is not allowed"
@@ -102,6 +103,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   signIn: async (auth) => {
+    markSignedIn();
     set({
       tokens: {
         accessToken: auth.accessToken,

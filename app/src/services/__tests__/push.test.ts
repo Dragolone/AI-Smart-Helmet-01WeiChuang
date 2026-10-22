@@ -99,7 +99,13 @@ import {
 } from "@/services/sos-start-push";
 import { devLog } from "@/services/dev-log";
 import { presentedSos } from "@/services/sos-sync";
+import { Platform } from "react-native";
+
 import { useConsentStore } from "@/stores/consent-store";
+import {
+  markSignedIn,
+  SIGN_IN_PROMPT_QUIET_MS,
+} from "@/services/sign-in-moment";
 
 import {
   __resetPushForTests,
@@ -180,6 +186,48 @@ describe("推送初始化门控", () => {
     startPush("u1");
     stopPush();
     expect(mockDeleteAlias).toHaveBeenCalledTimes(1);
+  });
+
+  it("iOS 刚登录：init（会当场弹通知授权框）推迟到登录后满 4 s；等的时候登出就不再 init；安卓不推迟（10-22 iPad 卡死）", () => {
+    jest.useFakeTimers();
+    const os = Platform.OS;
+    try {
+      Object.defineProperty(Platform, "OS", {
+        value: "ios",
+        configurable: true,
+      });
+      useConsentStore.setState({ privacyAccepted: true });
+      markSignedIn();
+      startPush("u1");
+      expect(mockInit).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(SIGN_IN_PROMPT_QUIET_MS - 1);
+      expect(mockInit).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(1);
+      expect(mockInit).toHaveBeenCalledTimes(1);
+      expect(mockSetAlias).toHaveBeenCalledWith(
+        expect.objectContaining({ alias: "u1" }),
+      );
+
+      __resetPushForTests();
+      jest.clearAllMocks();
+      markSignedIn();
+      startPush("u1");
+      stopPush();
+      jest.advanceTimersByTime(SIGN_IN_PROMPT_QUIET_MS);
+      expect(mockInit).not.toHaveBeenCalled();
+
+      Object.defineProperty(Platform, "OS", {
+        value: "android",
+        configurable: true,
+      });
+      markSignedIn();
+      startPush("u1");
+      expect(mockInit).toHaveBeenCalledTimes(1);
+    } finally {
+      Object.defineProperty(Platform, "OS", { value: os, configurable: true });
+      jest.useRealTimers();
+      markSignedIn(0); // 模块级状态：还原成「这个进程里没登录过」，别让后面的用例也被推迟
+    }
   });
 
   it("APNs 环境跟着 __DEV__ 走：调试包连 development，正式包（Release / TestFlight）连 production（标反了 iPhone 收不到远程推送）", () => {

@@ -30,6 +30,7 @@ import {
   PROMPT_AFTER_SPLASH_MAX_MS,
   splashGoneWithin,
 } from "@/components/splash/covering";
+import { whenSignInQuiet } from "@/services/sign-in-moment";
 
 /** 锁屏求救提醒走的 Android 通知通道；安全页判断「通知有没有开」也要看它有没有被单独关掉 */
 export const SOS_CHANNEL_ID = "sos";
@@ -160,10 +161,12 @@ async function askPermission(willPrompt: boolean): Promise<void> {
   const splashGone = willPrompt
     ? splashGoneWithin(PROMPT_AFTER_SPLASH_MAX_MS)
     : undefined;
+  const signInQuiet = willPrompt ? whenSignInQuiet() : undefined;
   if (willPrompt && promptGate) {
     await settledOrTimeout(promptGate, PROMPT_GATE_MAX_MS);
   }
   await splashGone;
+  await signInQuiet;
   if (willPrompt && (sosScreen.mounted || presentedSos.current.size > 0)) {
     devLog(
       "SOS-ALERT",
@@ -189,6 +192,7 @@ async function waitCountdownClosed(): Promise<void> {
  */
 export async function whenCountdownClearForPrompt(): Promise<void> {
   if (promptGate) await settledOrTimeout(promptGate, PROMPT_GATE_MAX_MS);
+  await whenSignInQuiet();
   if (!sosScreen.mounted && presentedSos.current.size === 0) return;
   devLog(
     "SOS-ALERT",
