@@ -130,6 +130,7 @@ Debug 包要先起 Metro（`npm run start -w app`），再执行 `xcrun simctl o
 - **`-destination` 要写具体的模拟器**：Debug 包配 `generic/platform=iOS Simulator` 时会把 arm64 和 x86_64 都编一遍，中间产物多出一倍。一次 Release 构建的 DerivedData 大约 7 GB，10-21 就因为磁盘写满中断过一次。
 - 包没签名（`CODE_SIGNING_ALLOWED=NO`）就用不了钥匙串：启动时 expo-notifications 报 `ERR_NOTIFICATIONS_KEYCHAIN_ACCESS`（开发包里是一条红色提示），登录状态也存不住。这些是预期行为，和代码无关。
 - 模拟器没有蓝牙和相机，设备、扫码、实时画面这几页只能看到「不支持」或「没连上」的状态。
+- **本地打 iOS 正式包要清空 `EXPO_PUBLIC_BLE_LOG_URL`**：开发机 `.env` 里通常是局域网日志地址，带进正式包后 App 一启动就往局域网发日志，系统弹「允许查找本地网络中的设备？」（2026-10-22 iPad 真机）。命令前加 `EXPO_PUBLIC_BLE_LOG_URL=`。
 - **iPad 模拟器测「在 iPad 上运行」**：App 只声明 iPhone，装到 iPad 模拟器上就是审核员看到的 iPhone 兼容窗口（居中、放大约 1.63 倍）。用 WDA 驱动时，读到的元素坐标是 App 窗口里的（390×844），和屏幕坐标对不上，按坐标点会点歪，要按元素点或用以元素为原点的动作；默认读到的是桌面那一层，要把 `defaultActiveApplication` 设成本 App。开发包的开发菜单关掉后可能残留一层挡住点按，冷启动一次就好（2026-10-22）。
 - 测权限被拒：`xcrun simctl privacy <UDID> revoke|reset microphone com.lingyiweichuang.app` 会把 App 进程杀掉，改完要重新打开。「去设置」（`Linking.openSettings()`）在模拟器上停在设置首页，iPhone 真机落在本 App 那一页（2026-10-16 实测），落哪页以真机为准（2026-10-22）。
 
@@ -335,6 +336,7 @@ paths:
 
 | 日期 | 平台 | 能力 | 实测限制 | 口径/结论 |
 |------|------|------|---------|----------|
+| 2026-10-22 | iOS（iPad 真机 iPadOS 26.5 + iPad 模拟器实测） | 登录后的系统授权框 | 登录页一消失 iOS 约 1.4 s 弹「保存密码？」卡片（SafariViewService 托管在 `UITextEffectsWindow` 里）。卡片还在弹出时系统授权框压上来，卡片显示不出来，承载它的全屏视图却留在最上层接走所有点按，**整个 App 卡死到杀掉重开**。iOS 上极光 RN 模块 `init` 会调 `registerForRemoteNotificationConfig`，当场申请通知授权，模拟器上不走这一步 | #423：iOS 刚登录 4 s 内不弹系统授权框（`services/sign-in-moment`：极光 init、通知、起蓝牙链路都过这道门）。以后在登录前后新加会弹系统框的东西，也要过这道门 |
 | 2026-10-22 | Android（安卓 16 / 12 模拟器实测） | 系统备份 / 换机迁移 | 原来 `allowBackup=true`，expo-secure-store 的规则只排除了登录凭证，其余 SharedPreferences 都会进备份。其中极光 SDK 的 `app_prefs.xml`（键名异或 0x5FDA）存着这台设备在极光的 uid / regId，恢复到新手机后两台共用一个 regId。另外**安卓 12 起 `allowBackup=false` 挡不住换机迁移**（device-transfer），要在 `dataExtractionRules` 里逐个域排除 | 草稿 #420：整个关掉（`plugins/with-no-backup.js`）。备份里没有值得恢复的东西：登录凭证本来排除了，App 自己的数据在数据库和文件里，原规则也不带。iOS 的 iCloud 备份 / 快速开始是否同样，没在真机上测过 |
 | 2026-10-22 | iOS（iPad 模拟器实测） | 系统「更大字体」 | RN 在 iOS 上按系统字号档位统一放大所有文字，默认倍数表（`RCTAccessibilityManager`）辅助功能五档是 1.786 / 2.143 / 2.643 / 3.143 / 3.571。安卓 14 起大字非线性放大，2.0 倍时 32 号标题几乎不变，所以**安卓测过的大字号不能代表 iOS** | 1.79 / 2.14 倍各页能用（#421 修了设备页标题被切）；2.64 倍起多页排版坏，是否封顶 2 倍待负责人定（O35，回归 7.15）。倍数表只能整张替换：只传几档，其余档会报错并退回 1.0 |
 | 2026-10-22 | Android（RN 的 OkHttp，安卓 16 模拟器实测） | 手机时间往回拨后的 HTTP 缓存 | RN 安卓底层 OkHttp 带磁盘 HTTP 缓存（`cache/http-cache`）。后端应答只有 ETag、没写缓存策略时，手机时间往回拨过（手动改、开机时钟没校准再被网络校正），之前存下的应答「收到时间」在未来，被算成新鲜，GET 不上网直接给旧应答，直到手机时间追上 | #381 起 App 每个请求带 `Cache-Control: no-store`；后端统一加 no-store 记上线清单 B 线 22 |
