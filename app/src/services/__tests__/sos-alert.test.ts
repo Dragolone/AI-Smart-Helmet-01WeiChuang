@@ -178,12 +178,16 @@ const loadWithScreen = (): {
   screen: { mounted: boolean };
   presented: Set<string>;
   splash: typeof import("@/components/splash/covering");
+  signIn: typeof import("@/services/sign-in-moment");
 } => {
   let mod!: SosAlert;
   let queue!: typeof import("@/services/sos-queue");
   let sync!: typeof import("@/services/sos-sync");
   let splash!: typeof import("@/components/splash/covering");
+  let signIn!: typeof import("@/services/sign-in-moment");
   jest.isolateModules(() => {
+    signIn =
+      require("@/services/sign-in-moment") as typeof import("@/services/sign-in-moment");
     splash =
       require("@/components/splash/covering") as typeof import("@/components/splash/covering");
     sync =
@@ -198,6 +202,7 @@ const loadWithScreen = (): {
     screen: queue.sosScreen,
     presented: sync.presentedSos.current,
     splash,
+    signIn,
   };
 };
 
@@ -676,6 +681,58 @@ describe("sos-alert", () => {
       await jest.advanceTimersByTimeAsync(1);
       await ready;
       expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+    });
+
+    it("iOS 刚登录：登录后满 4 s 才弹通知授权框（10-22 iPad：「保存密码？」卡片还在弹出时压上授权框，App 整个点不动）", async () => {
+      jest.useFakeTimers();
+      willPrompt();
+      const { m, signIn } = loadWithScreen();
+      signIn.markSignedIn();
+      const ready = jest.fn();
+      void m.ensureSosAlertPermission().then(ready);
+      await settle();
+      expect(mockSetCategory).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(m.SIGN_IN_PROMPT_QUIET_MS - 1);
+      await settle();
+      expect(mockRequestPerms).not.toHaveBeenCalled();
+      expect(ready).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(1);
+      await settle();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+      expect(ready).toHaveBeenCalledTimes(1);
+    });
+
+    it("冷启动本来就登录着（这个进程里没登录过）、安卓刚登录：都不等", async () => {
+      willPrompt();
+      await loadWithScreen().m.ensureSosAlertPermission();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(1);
+      override(Platform, "OS", "android");
+      const { m, signIn } = loadWithScreen();
+      signIn.markSignedIn();
+      await m.ensureSosAlertPermission();
+      expect(mockRequestPerms).toHaveBeenCalledTimes(2);
+    });
+
+    it("iOS 刚登录：别的授权框（蓝牙）那道门也等满 4 s；登录已过 4 s 就立刻放行", async () => {
+      jest.useFakeTimers();
+      const { m, signIn } = loadWithScreen();
+      signIn.markSignedIn();
+      const gated = jest.fn();
+      void m.whenSignInQuiet().then(gated);
+      const cleared = jest.fn();
+      void m.whenCountdownClearForPrompt().then(cleared);
+      await jest.advanceTimersByTimeAsync(m.SIGN_IN_PROMPT_QUIET_MS - 1);
+      await settle();
+      expect(gated).not.toHaveBeenCalled();
+      expect(cleared).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(1);
+      await settle();
+      expect(gated).toHaveBeenCalledTimes(1);
+      expect(cleared).toHaveBeenCalledTimes(1);
+      const late = jest.fn();
+      void m.whenSignInQuiet().then(late);
+      await settle();
+      expect(late).toHaveBeenCalledTimes(1);
     });
 
     it("系统根本不会弹框（canAskAgain=false）：开屏盖着也不等", async () => {

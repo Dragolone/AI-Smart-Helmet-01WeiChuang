@@ -58,6 +58,7 @@ import {
   clearSosAlert,
   ensureSosAlertPermission,
   whenCountdownClearForPrompt,
+  whenSignInQuiet,
   whenSosAlertPermissionAsked,
   holdPermissionPromptUntil,
   resetSosAlerts,
@@ -206,6 +207,10 @@ export function useRealtimeUpdates(): void {
         await whenCountdownClearForPrompt();
         if (cancelled) return;
       }
+      // iOS 起链路时新建蓝牙管理器就会弹蓝牙授权框：刚登录的几秒里先别弹（和通知框同一个原因，见 sos-alert）。
+      // 通知框弹过的话这里早已过了这几秒；通知早就授权、没弹框时才真的等
+      await whenSignInQuiet();
+      if (cancelled) return;
       // 会话已被否定、只是倒计时还在走（O19-A）：不起链路，理由见下面 unsubscribeDead
       if (useAuthStore.getState().sessionDeadUntil !== null) return;
       void startBleLink(bleTargetsOf());
