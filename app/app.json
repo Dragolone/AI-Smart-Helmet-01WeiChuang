@@ -48,6 +48,7 @@
         "monochromeImage": "./assets/images/icon-android-mono.png"
       },
       "predictiveBackGestureEnabled": false,
+      "allowBackup": false,
       "package": "com.lingyiweichuang.app",
       "blockedPermissions": [
         "android.permission.ACCESS_BACKGROUND_LOCATION",
@@ -73,7 +74,12 @@
           "imageWidth": 64
         }
       ],
-      "expo-secure-store",
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": false
+        }
+      ],
       [
         "expo-build-properties",
         {
@@ -111,7 +117,8 @@
           "bluetoothAlwaysPermission": "用于连接您的智能头盔,接收摔倒检测与危险预警等安全事件(即使 App 在后台)。"
         }
       ],
-      "./plugins/with-jpush.js"
+      "./plugins/with-jpush.js",
+      "./plugins/with-no-backup.js"
     ],
     "experiments": {
       "typedRoutes": true,
