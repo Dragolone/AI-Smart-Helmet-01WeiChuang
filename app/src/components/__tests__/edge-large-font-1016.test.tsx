@@ -169,3 +169,15 @@ describe("设备详情页接线 + 电量卡标题行", () => {
     expect(src.match(/maxFontSizeMultiplier=\{1\.3\}/g)).toHaveLength(2);
   });
 });
+
+describe("设备页标题（10-22 iOS 辅助功能大字号）", () => {
+  it("头部只给最小高度：标题放到 2 倍多时头部跟着长高，字顶不被滚动区上沿切掉", () => {
+    const src = readFileSync(
+      join(__dirname, "..", "..", "app", "(tabs)", "index.tsx"),
+      "utf8",
+    );
+    const header = src.match(/\n {2}header: \{([^}]*)\}/)?.[1] ?? "";
+    expect(header).toContain("minHeight: HEADER_HEIGHT - 4");
+    expect(header).not.toMatch(/(^|[^A-Za-z])height:/);
+  });
+});
