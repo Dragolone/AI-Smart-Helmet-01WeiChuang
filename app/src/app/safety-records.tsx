@@ -38,14 +38,13 @@ import { RISK_ALERT_TYPE_PARAM } from "@/constants/event-types";
 import { Radius } from "@/constants/theme";
 import { useHelmetLinks, useHelmets, usePendingSos } from "@/hooks/use-safety";
 import { useTheme } from "@/hooks/use-theme";
+import { useLocale, useT, type Locale, type MessageKey } from "@/i18n";
 import {
-  LOCALE_TAGS,
-  useLocale,
-  useT,
-  type Locale,
-  type MessageKey,
-} from "@/i18n";
-import { fullDateTime, shortDate, shortTime } from "@/i18n/format";
+  dateMaybeYear,
+  fullDateTime,
+  shortDate,
+  shortTime,
+} from "@/i18n/format";
 import { readableEventFields, riskLevelOf } from "@/services/event-fields";
 import {
   combinePages,
@@ -143,11 +142,8 @@ function dayHeaderOf(iso: string, locale: Locale, t: Translate): string {
   if (diff === 0) return `${t("common.today")} · ${shortDate(iso, locale)}`;
   if (diff === 1) return `${t("common.yesterday")} · ${shortDate(iso, locale)}`;
   if (d.getFullYear() === now.getFullYear()) return shortDate(iso, locale);
-  return new Intl.DateTimeFormat(LOCALE_TAGS[locale], {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  }).format(d);
+  // 跨年的带年份；不直接用 Intl（安卓 Hermes 不认 locale，见 i18n/format.ts）
+  return dateMaybeYear(iso, locale);
 }
 
 /** 按天分组（输入已按时间倒序）；认不出时间的归到同一组，不丢 */
