@@ -43,7 +43,7 @@ export default function OverviewPage() {
             title="在线设备"
             value={s?.deviceOnline ?? '—'}
             prefix={<WifiOutlined />}
-            valueStyle={{ color: '#3f8600' }}
+            styles={{ content: { color: '#3f8600' } }}
           />
         </Col>
         <Col xs={12} md={8} lg={4}>
@@ -65,8 +65,8 @@ export default function OverviewPage() {
             title="进行中 SOS"
             value={s?.activeSos ?? '—'}
             prefix={<AlertOutlined />}
-            valueStyle={
-              s && s.activeSos > 0 ? { color: '#cf1322' } : undefined
+            styles={
+              s && s.activeSos > 0 ? { content: { color: '#cf1322' } } : undefined
             }
           />
         </Col>
