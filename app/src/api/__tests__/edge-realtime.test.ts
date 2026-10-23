@@ -449,3 +449,98 @@ describe("start / stop 生命周期", () => {
     c.stop();
   });
 });
+
+// 2026-10-24 安卓模拟器断网 23 s 实测：恢复后第一次重连用的是断网期间到期的 token → 4401 → 换好 token 却还按
+// 断网攒下的退避等了 16 s。本轮第一次被拒且确实换到新 token 就立刻重连；第二次起照旧退避（10-17 口径不动）
+describe("4401 撞上断网攒下的退避", () => {
+  const outage = async (c: ReturnType<typeof load>) => {
+    for (const delay of [1000, 2000, 4000, 8000]) {
+      last().drop();
+      await jest.advanceTimersByTimeAsync(delay);
+    }
+  };
+
+  it("断网退避到第 4 次后恢复，第一次重连被 4401：刷新换到新 token 后 1 s 就重连，不再等 16 s", async () => {
+    let token = "expired";
+    const c = load();
+    const deps = depsWith(
+      () => token,
+      async () => {
+        token = "fresh";
+      },
+    );
+    c.start(deps);
+    await outage(c);
+    last().open();
+    const before = count();
+    last().drop(4401);
+    await jest.advanceTimersByTimeAsync(999);
+    expect(count()).toBe(before);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(count()).toBe(before + 1);
+    expect(last().url).toContain("token=fresh");
+    c.stop();
+  });
+
+  it("新 token 的连接又被 4401：从第二次起退避照涨（2 s），坏 token 仍刷不起来", async () => {
+    let n = 0;
+    let token = "tok-0";
+    const c = load();
+    const deps = depsWith(
+      () => token,
+      async () => {
+        n += 1;
+        token = `tok-${n}`;
+      },
+    );
+    c.start(deps);
+    await outage(c);
+    last().open();
+    last().drop(4401);
+    await jest.advanceTimersByTimeAsync(1000); // 第一次：清零后 1 s 重连
+    last().open();
+    const before = count();
+    last().drop(4401); // 第二次
+    await jest.advanceTimersByTimeAsync(1999);
+    expect(count()).toBe(before);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(count()).toBe(before + 1);
+    expect(deps.triggerTokenRefresh).toHaveBeenCalledTimes(2);
+    c.stop();
+  });
+
+  it("第一次 4401 但刷新没换到新 token（刷新失败、还没被登出）：退避不清零，照等那一轮", async () => {
+    const c = load();
+    const deps = depsWith(
+      () => "same",
+      async () => undefined,
+    );
+    c.start(deps);
+    await outage(c);
+    last().open();
+    const before = count();
+    last().drop(4401);
+    await jest.advanceTimersByTimeAsync(15_999);
+    expect(count()).toBe(before);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(count()).toBe(before + 1);
+    c.stop();
+  });
+
+  it("第一次 4401 时手上已是别的请求刚换的新 token：不刷新、也立刻重连", async () => {
+    let token = "expired";
+    const c = load();
+    const deps = depsWith(() => token);
+    c.start(deps);
+    await outage(c);
+    last().open();
+    token = "fresh"; // REST 那边 401 → 静默刷新已经换过了
+    const before = count();
+    last().drop(4401);
+    expect(deps.triggerTokenRefresh).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(1000);
+    expect(count()).toBe(before + 1);
+    expect(last().url).toContain("token=fresh");
+    c.stop();
+  });
+});
