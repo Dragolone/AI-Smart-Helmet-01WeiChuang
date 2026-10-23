@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * BLE 头盔链路前台服务（决策 #41）：本身不做任何蓝牙操作，只是让进程在退后台/锁屏后不被系统回收，
@@ -49,12 +50,39 @@ class HelmetLinkService : Service() {
       // 开关由模块先写进 micOn；进程被回收后对讲早就不在了，这个 Intent 不要重新送回来
       return START_NOT_STICKY
     }
+    // 这条启动 Intent 送到了，不再算「在路上」（进程被回收后系统重送的 Intent 在新进程里没有计数，钳在 0）
+    val stillPending = pendingStarts.updateAndGet { (it - 1).coerceAtLeast(0) }
+    if (stopRequested) {
+      // 启动 Intent 还在路上时 JS 就撤了（登录态失效的被动登出紧跟在链路启动之后，10-24 Android 17 模拟器实测相隔 220 ms）：
+      // startForegroundService 之后必须 startForeground 一次，否则系统按「前台服务没按时露面」把整个 App 杀掉
+      // （ForegroundServiceDidNotStartInTimeException）。露个面就收掉；后面还有在路上的启动 Intent 时标记留着，等它们都到齐
+      if (stillPending == 0) stopRequested = false
+      linkOn = false
+      showBriefly()
+      stopSelf()
+      return START_NOT_STICKY
+    }
     linkOn = true
     linkTitle = intent?.getStringExtra(EXTRA_TITLE) ?: getString(R.string.helmet_link_channel_name)
     linkText = intent?.getStringExtra(EXTRA_TEXT) ?: ""
     applyForeground()
     // 系统因内存回收后自动重启服务（Intent 保留），配合 JS 端启动时的重连
     return START_REDELIVER_INTENT
+  }
+
+  /** 只为满足「startForegroundService 之后必须 startForeground」露一面，紧接着就会 stopSelf */
+  private fun showBriefly() {
+    ensureChannel()
+    try {
+      val notification = buildNotification(linkTitle, linkText)
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+      } else {
+        startForeground(NOTIFICATION_ID, notification)
+      }
+    } catch (e: RuntimeException) {
+      Log.w(TAG, "foreground start refused", e)
+    }
   }
 
   override fun onDestroy() {
@@ -153,6 +181,10 @@ class HelmetLinkService : Service() {
     @Volatile var running = false
     /** 头盔链路要前台服务（JS start / stop） */
     @Volatile var linkOn = false
+    /** 模块已发出、服务还没收到的启动 Intent 数（有在路上的就不能 stopService，见模块 stop） */
+    val pendingStarts = AtomicInteger(0)
+    /** 启动 Intent 还在路上时 JS 已经叫停：服务收到后露个面就收掉，而不是由模块 stopService */
+    @Volatile var stopRequested = false
     /** 对讲在房、要麦克风类型（JS setMicrophone） */
     @Volatile var micOn = false
     @Volatile var linkTitle = ""

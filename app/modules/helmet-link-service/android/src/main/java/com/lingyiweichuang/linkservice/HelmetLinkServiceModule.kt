@@ -114,10 +114,18 @@ class HelmetLinkServiceModule : Module() {
       val intent = Intent(context, HelmetLinkService::class.java)
         .putExtra(HelmetLinkService.EXTRA_TITLE, title)
         .putExtra(HelmetLinkService.EXTRA_TEXT, text)
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        context.startForegroundService(intent)
-      } else {
-        context.startService(intent)
+      // 先登记再发：服务收到这条 Intent 时会减回去；stop 看到还有在路上的就不 stopService
+      HelmetLinkService.stopRequested = false
+      HelmetLinkService.pendingStarts.incrementAndGet()
+      try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+          context.startForegroundService(intent)
+        } else {
+          context.startService(intent)
+        }
+      } catch (e: Exception) {
+        HelmetLinkService.pendingStarts.updateAndGet { (it - 1).coerceAtLeast(0) }
+        throw e
       }
     }
 
@@ -127,8 +135,14 @@ class HelmetLinkServiceModule : Module() {
         // 对讲还在房里（比如锁屏通话中头盔断开）：只撤掉连接外设这一样，麦克风那一样不能跟着没了。
         // 服务还没起来（刚发出的对讲 Intent 还没送到）时不 stopService：那边起来后按 micOn 只开对讲
         HelmetLinkService.instance?.let { service -> onMain { service.applyForeground() } }
-      } else {
+      } else if (HelmetLinkService.pendingStarts.get() == 0) {
         context.stopService(Intent(context, HelmetLinkService::class.java))
+      } else {
+        // 刚发出的启动 Intent 还没送到（服务还没来得及 startForeground）：这时 stopService 会让系统判
+        // 「前台服务没按时露面」、把整个 App 杀掉（ForegroundServiceDidNotStartInTimeException；10-24 Android 17
+        // 模拟器实测：登录态失效的被动登出紧跟在链路启动之后 220 ms，首次冷启动就崩）。
+        // 改为留下标记，让服务收到 Intent 后露一面再自己收掉
+        HelmetLinkService.stopRequested = true
       }
     }
 
