@@ -47,6 +47,13 @@ class RealtimeClient {
    * 先建的那条被 `this.ws` 覆盖后成了没人关的孤儿，一直挂到 token 过期（2026-10-05 评审）。
    */
   private epoch = 0;
+  /**
+   * 连续被 4401 的次数（稳住一次就清零）。断网期间 access token 到期是常事（15 min）：网络一恢复、
+   * 第一次重连就被 4401，刷新成功后若还按断网攒下的退避（16–30 s）干等，实时通道白白空一轮
+   * （2026-10-24 安卓模拟器断网 23 s 实测：恢复 → 4401 → 换好 token → 等了 16 s 才连）。
+   * 所以「本轮第一次被拒 + 刷新确实换到了新 token」就立刻重连；第二次起照 10-17 口径退避照涨，坏 token 仍刷不起来
+   */
+  private unauthorizedStreak = 0;
 
   start(deps: Deps): void {
     this.deps = deps;
@@ -54,6 +61,7 @@ class RealtimeClient {
     this.running = true;
     this.epoch += 1;
     this.attempts = 0;
+    this.unauthorizedStreak = 0;
     this.connect();
   }
 
@@ -108,6 +116,7 @@ class RealtimeClient {
   private markStable(): void {
     this.clearStable();
     this.attempts = 0;
+    this.unauthorizedStreak = 0;
   }
 
   private setConnected(v: boolean): void {
@@ -166,8 +175,11 @@ class RealtimeClient {
       this.clearStable();
       if (!this.running) return;
       if (event.code === CLOSE_UNAUTHORIZED) {
+        this.unauthorizedStreak += 1;
+        const firstRefusal = this.unauthorizedStreak === 1;
         // 这条连接用的 token 已经被换掉了（别的请求顺手刷新过）：直接拿新的重连，不再刷新一遍
         if (this.deps?.getAccessToken() !== token) {
+          if (firstRefusal) this.resetBackoffForFreshToken();
           this.scheduleReconnect();
           return;
         }
@@ -178,7 +190,12 @@ class RealtimeClient {
           ?.triggerTokenRefresh()
           .catch(() => undefined)
           .finally(() => {
-            if (this.epoch === epoch) this.scheduleReconnect();
+            if (this.epoch !== epoch) return;
+            // 本轮第一次被拒、而且确实换到了新 token：不再等断网攒下的那轮退避
+            if (firstRefusal && this.deps?.getAccessToken() !== token) {
+              this.resetBackoffForFreshToken();
+            }
+            this.scheduleReconnect();
           });
         return;
       }
@@ -188,6 +205,12 @@ class RealtimeClient {
     ws.onerror = () => {
       // onclose 会随后触发并统一走重连，这里仅防未处理事件告警
     };
+  }
+
+  private resetBackoffForFreshToken(): void {
+    if (this.attempts === 0) return;
+    devLog("realtime", "token 已换新，退避清零");
+    this.attempts = 0;
   }
 
   private scheduleReconnect(): void {
