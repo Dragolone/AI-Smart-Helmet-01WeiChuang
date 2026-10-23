@@ -1,0 +1,16 @@
+diff --git a/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerView.java b/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerView.java
+index 8c7acdf..3f6d306 100755
+--- a/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerView.java
++++ b/node_modules/react-native-vlc-media-player/android/src/main/java/com/yuanzhou/vlc/vlcplayer/ReactVlcPlayerView.java
+@@ -496,6 +496,11 @@ class ReactVlcPlayerView extends TextureView implements
+         vout.detachViews();
+         //surfaceView.removeOnLayoutChangeListener(onLayoutChangeListener);
+         mMediaPlayer.release();
++        // 零一智行补丁（10-22 安卓 9 模拟器随机点按测出）：释放后置空。这个视图在构造时注册的前后台监听从来不撤，
++        // 原来离开预览页（播放器释放）后再退到后台，onHostPause 判断 mMediaPlayer != null 为真，去 pause 已释放的对象，
++        // 抛 IllegalStateException「can't get VLCObject instance」整个 App 闪退（连带头盔连接的前台服务）。
++        // 各个用到它的地方本来都判空
++        mMediaPlayer = null;
+         libvlc.release();
+         libvlc = null;
+ 
