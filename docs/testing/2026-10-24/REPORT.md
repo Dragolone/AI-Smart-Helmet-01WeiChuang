@@ -64,7 +64,7 @@
 | Android PSS | 447 MB | 433 MB | 476 MB | 473 MB |
 | iOS RSS | 396 MB | 387 MB | 418 MB | 413 MB |
 
-3066 个位置点入库，双端崩溃 0，后端 RSS 160–171 MB、PG 3 连接、EMQX 261 MB 全程平稳。双端 App 各缓涨约 20 MB（有回落、不是单调），10-22 真机 32 分钟是 361–384 MB 波动；是否收敛看后面的长跑（03:57 起 tour 剧本到 11:40，每 2 分钟采样，结论见文末「长跑」一节）。
+3066 个位置点入库，双端崩溃 0，后端 RSS 160–171 MB、PG 3 连接、EMQX 261 MB 全程平稳。双端 App 各缓涨约 20 MB（有回落、不是单调），10-22 真机 32 分钟是 361–384 MB 波动；是否收敛看第七节的长跑（5 h 50 min）与隔离实验。
 
 ## 四、发现并修掉的
 
@@ -105,3 +105,32 @@ App 内语言切到 English 扫五个标签 + 设备详情：0 条未翻译。�
 - 全套：scratchpad worktree → `npm ci` → `npm run build -w @helmet/shared` → `typecheck / lint / test --workspaces`；容器 e2e 用 `docs/testing/2026-10-03/run-e2e-in-container.sh` 的副本（容器名改成自己的）；换 lock 后要先删容器里的 node_modules 再跑（脚本见到 `.bin` 就跳过安装）。
 - 本地栈：worktree 里 `docker compose up -d`（PG + EMQX）→ `prisma migrate deploy` → `provision:device` → `node dist/main.js`；Mock 用 `SCENARIO=tour`（MQTT）和 `TRANSPORT=app-relay`（中转）各跑一遍；Admin `vite --port 5173`。
 - 模拟器：iOS 按 DEVELOPMENT.md「iOS 模拟器」；Android `assembleRelease -x lintVital*`，本地 http 后端要在 app.json 的 expo-build-properties 临时加 `android.usesCleartextTraffic: true`（**不要提交**），API 指 `http://10.0.2.2:3000/api/v1`。
+
+## 七、长跑（03:57 → 09:47，5 h 50 min；每 2 分钟采样 191 次）
+
+负载：Mock `SCENARIO=tour TOUR_SOS=0`（每 2 s 一个位置点、每 30 s 心跳、每轮 8 条危险事件 + 解除 + 录像就绪 + 休眠 / 蓝牙断开）经 MQTT；05:30 起第二顶头盔（滑雪剧本）并行；iOS / Android 两台模拟器登录同一账号，主要停在地图页。期间穿插了双端操作（语言切换、对讲进房、设置下发等）。
+
+| 指标 | 结果 |
+|---|---|
+| 入库事件 | +23 901 条（raw_events 1 068 → 24 969），期间无丢失、无 ERROR |
+| 后端 RSS | 99–270 MB 波动；07:48 用 inspector 强制 GC 后 123 MB，heapUsed 全程 50–60 MB，活动句柄 16（1 Server + 15 Socket）→ 是 V8 惰性扩堆，**不是泄漏** |
+| PostgreSQL 连接 | 3–6 |
+| EMQX | 260–264 MB 平 |
+| iOS App（Release，iPhone 17 Pro 模拟器） | `ps` RSS 312–556 MB 含共享页不作数；`vmmap` 物理足迹 09:07–10:25 在 265–277 MB 平 |
+| Android App（Release，Pixel_8 / Android 17） | PSS 413 → 542 MB；`dumpsys meminfo` 分类：Dalvik 堆 20–21 MB 不变、Views 851 不变、WebViews 2 不变，**Native Heap 187 → 265 MB 持续上行** |
+| 崩溃 | 0（logcat FATAL 0；iOS 进程未重启） |
+
+### Android Native Heap 缓涨的隔离实验（09:07–10:45）
+
+| # | 条件 | 时长 | Native Heap | 结论 |
+|---|---|---|---|---|
+| 基线 | 地图页前台、0.5 Hz 位置 + 心跳 + 危险事件 | 06:27→09:06 | 187 → 250 MB（~24 MB/h） | — |
+| ① | 关掉模拟器蓝牙（App 停止每 20 s 的过滤 / 全量扫描切换） | 18 min | 251 → 258（~22 MB/h） | 不是 BLE 扫描 |
+| ② | 离开地图页停设备页 | 20 min | 258.5 → 265.5（~21 MB/h） | 不是地图页 / WebView |
+| ③ | 停掉事件流（WS 无消息） | 19 min | 265.5 → 265.7（+0.2） | **由事件驱动** |
+| ④ | 恢复事件流并加倍到 1 Hz，App 退后台（WS 照收、前台服务在、UI 不渲染） | 19 min，1 157 条位置 | 265.2 → 264.9（不涨） | **不是 WS / JS 处理路径** |
+| ⑤ | 同 1 Hz 纯骑行流，拉回前台停设备页 | 24 min，1 491 条位置 | 269.2 → 268.9（不涨） | 位置更新的前台渲染也不是 |
+| ⑥ | tour 剧本 6 倍速（80 s 一轮 8 条危险事件 + 解除 + 录像就绪 + 休眠 / 蓝牙断开，448 条），前台设备页 | 14 min | 269.4 → 267.7（不涨） | 危险事件 / 事件页 refetch 也不是 |
+| ⑦ | 把第二顶头盔（滑雪剧本，每 2 s 一点，581 条）加回来，两路流 + 前台设备页 | 19 min | 270.3 → 275.7（**~17 MB/h，涨回来了**） | **触发条件 = 第二顶（非当前）头盔的位置流** |
+
+结论：安卓 App 在前台、账号下有第二顶头盔在持续上报位置时，**每条非当前头盔的位置更新在 native 堆上留下约 9 KB**（测试速率每 2 s 一条 ≈ 17–24 MB/h；只有当前头盔在发、或 App 退后台、或没有事件时都不涨）。Dalvik 堆、View 数、WebView 数全程不变，iOS 物理足迹同期也从 272 缓涨到 296 MB，所以更像两端共用的某条 JS 路径在非当前头盔的 `location_update` 上攒东西，再经原生模块（极可能是地图 WebView 的 postMessage / 其他头盔标记，或「其他头盔」行 / 换头盔提醒）落到 native 侧；不是 BLE 扫描、不是危险事件、不是事件页刷新、不是当前头盔的位置渲染（①–⑥ 逐一排除）。按云端真实速率（每 10 s 一点）折算约 3–5 MB/h，不致命，但「家里两顶头盔、一顶在骑、App 开着」是真实场景，值得查清。**交 A 线**：两顶头盔绑定同一账号，非当前那顶 `SCENARIO=riding LOCATION_INTERVAL_MS=2000`，App 前台任意标签停 20 分钟，用 dev-client + Android Studio Memory Profiler（Native allocations）/ Perfetto heapprofd 看分配栈，重点看 `use-realtime` 的 `location_update` 分支下游（`device-location` 缓存的消费者：地图页其他头盔、「其他头盔」行、换头盔提醒）。复现脚本与采样数据见 `scripts/longsoak-sample.sh` 与本节。
