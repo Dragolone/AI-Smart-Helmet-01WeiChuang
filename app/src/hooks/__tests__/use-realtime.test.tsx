@@ -1180,9 +1180,13 @@ describe("其余实时消息与前后台", () => {
     );
   });
 
-  it("device_command：交给中转写头盔；回执完成才刷新设置页，没送达（头盔不在身边）不刷", async () => {
+  it("device_command：交给中转写头盔；回执完成后才刷新设置页（不抢在回执前拉到旧状态）", async () => {
     await mountBridge();
     const invalidate = jest.spyOn(qc, "invalidateQueries");
+    let finish!: (acked: boolean) => void;
+    jest
+      .mocked(handleDeviceCommand)
+      .mockReturnValueOnce(new Promise((r) => (finish = r)));
     const cmd: WsDeviceCommandData = {
       deviceId: "h1",
       commandId: "c1",
@@ -1192,15 +1196,28 @@ describe("其余实时消息与前后台", () => {
     };
     await wsPush("device_command", cmd);
     expect(handleDeviceCommand).toHaveBeenCalledWith(cmd);
+    expect(invalidate).not.toHaveBeenCalled();
+    await act(async () => finish(true));
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: ["device-settings", "h1"],
     });
+  });
 
-    invalidate.mockClear();
+  it("device_command 没送达（头盔不在这台身边，比如同账号另一台手机下发的）：也刷新设置页，让它进 2 秒快轮询跟上头盔最终执行的值（优化清单 2）", async () => {
+    await mountBridge();
+    const invalidate = jest.spyOn(qc, "invalidateQueries");
     jest.mocked(handleDeviceCommand).mockResolvedValue(false);
-    await wsPush("device_command", { ...cmd, commandId: "c2" });
-    expect(handleDeviceCommand).toHaveBeenCalledTimes(2);
-    expect(invalidate).not.toHaveBeenCalled();
+    await wsPush("device_command", {
+      deviceId: "h2",
+      commandId: "c2",
+      type: "set_config",
+      params: { light: 3 },
+      issuedAt: "2026-10-18T02:00:00.000Z",
+    });
+    expect(handleDeviceCommand).toHaveBeenCalledTimes(1);
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ["device-settings", "h2"],
+    });
   });
 
   it("认不出的消息类型（服务端先上了新类型）：忽略，不碰缓存", async () => {
