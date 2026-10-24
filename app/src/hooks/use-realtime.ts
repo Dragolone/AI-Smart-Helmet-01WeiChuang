@@ -442,15 +442,15 @@ export function useRealtimeUpdates(): void {
           break;
         }
         case "device_command": {
-          // BLE 下行通道(决策 #36):写头盔+回执由 ble-relay 处理,完成后刷新设置页状态
+          // BLE 下行通道(决策 #36):写头盔+回执由 ble-relay 处理,完成后刷新设置页状态。
+          // 没送达(头盔不在这台身边)也刷:服务端把命令推给本账号所有连接,同账号另一台手机下发的也到这里——
+          // 刷新后设置页看到这条未终态命令、进入 2 秒快轮询,跟上头盔最终执行的值(原来要等 30 秒轮询,优化清单 2)
           const cmd = message.data as WsDeviceCommandData;
-          void handleDeviceCommand(cmd).then((acked) => {
-            if (acked) {
-              void queryClient.invalidateQueries({
-                queryKey: ["device-settings", cmd.deviceId],
-              });
-            }
-          });
+          void handleDeviceCommand(cmd).then(() =>
+            queryClient.invalidateQueries({
+              queryKey: ["device-settings", cmd.deviceId],
+            }),
+          );
           break;
         }
         default:
