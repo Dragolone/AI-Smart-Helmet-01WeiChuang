@@ -22,6 +22,7 @@ import { PrivacyConsentModal } from "@/components/privacy-consent-modal";
 import { ThemeFade } from "@/components/theme-fade";
 import { installDevErrorTap } from "@/services/dev-log";
 import { clearIfFreshInstall } from "@/services/fresh-install";
+import { hideIconsFromScreenReader } from "@/services/icon-a11y";
 import {
   clearSessionExpiredNotice,
   notifySessionExpired,
@@ -32,6 +33,8 @@ import { useThemeStore } from "@/stores/theme-store";
 
 // 开发期：未捕获异常旁路上报（真机 Metro 日志通道断时仍能看到红屏原因）
 installDevErrorTap();
+// 图标字符不拼进按钮的读屏名字（services/icon-a11y）
+hideIconsFromScreenReader();
 
 SplashScreen.preventAutoHideAsync();
 
