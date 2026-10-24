@@ -19,6 +19,7 @@ import { isHost, render, type Rendered } from "@/__tests__/helpers/render";
 import { useRealtimeUpdates } from "@/hooks/use-realtime";
 import { translate, useLocaleStore, type MessageKey } from "@/i18n";
 import { installDevErrorTap } from "@/services/dev-log";
+import { hideIconsFromScreenReader } from "@/services/icon-a11y";
 import {
   clearSessionExpiredNotice,
   notifySessionExpired,
@@ -165,6 +166,9 @@ jest.mock("@/services/dev-log", () => ({
   installDevErrorTap: jest.fn(),
   devLog: jest.fn(),
 }));
+jest.mock("@/services/icon-a11y", () => ({
+  hideIconsFromScreenReader: jest.fn(),
+}));
 jest.mock("@/services/session-notice", () => ({
   notifySessionExpired: jest.fn(),
   clearSessionExpiredNotice: jest.fn(),
@@ -181,6 +185,7 @@ jest.mock("@/services/fresh-install", () => ({
 // 模块加载时的调用：在任何用例清掉替身记录之前先记下来
 const atImport = {
   devTap: (installDevErrorTap as jest.Mock).mock.calls.length,
+  iconsHidden: (hideIconsFromScreenReader as jest.Mock).mock.calls.length,
   splashHold: (SplashScreen.preventAutoHideAsync as jest.Mock).mock.calls
     .length,
 };
@@ -237,8 +242,9 @@ afterEach(() => {
 });
 
 describe("模块加载时", () => {
-  it("装上开发期异常旁路、留住原生启动图（由开屏动画自己收）", () => {
+  it("装上开发期异常旁路、图标不进读屏名字、留住原生启动图（由开屏动画自己收）", () => {
     expect(atImport.devTap).toBe(1);
+    expect(atImport.iconsHidden).toBe(1);
     expect(atImport.splashHold).toBe(1);
   });
 
