@@ -1220,6 +1220,21 @@ describe("其余实时消息与前后台", () => {
     });
   });
 
+  it("device_command 坏消息（data 是 null / 字符串 / 没有命令号）：不交给中转、不刷新，也不抛出没人接的错（10-25 iOS 注入）", async () => {
+    await mountBridge();
+    const invalidate = jest.spyOn(qc, "invalidateQueries");
+    for (const bad of [
+      null,
+      "x",
+      { deviceId: "h1", type: "set_config", params: { light: 1 } },
+      { commandId: 7, deviceId: "h1" },
+    ]) {
+      await wsPush("device_command", bad as never);
+    }
+    expect(handleDeviceCommand).not.toHaveBeenCalled();
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
   it("认不出的消息类型（服务端先上了新类型）：忽略，不碰缓存", async () => {
     await mountBridge();
     const invalidate = jest.spyOn(qc, "invalidateQueries");
