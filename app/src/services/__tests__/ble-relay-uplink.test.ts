@@ -53,6 +53,7 @@ describe("2026-10-14 审查：补传回 duplicate 也要拉倒计时", () => {
     pushMock.mockResolvedValue({ accepted: 0, duplicate: 1, invalid: 0 });
     enqueueRelayEvent(env("possible_fall", "helmet_dup"));
     await flushRelayQueue();
+    await new Promise((r) => setImmediate(r)); // 入队时已自动起了一次提交：等它回来
     expect(hits).toEqual(["helmet_dup"]);
     setCriticalAcceptedHandler(null);
   });
@@ -112,38 +113,40 @@ describe("enqueueRelayEvent + flushRelayQueue", () => {
   });
 });
 
-describe('onSosRelayEvent（视频预览让出网络，决策 #49）', () => {
-  it('摔倒 / 求救入队时通知，且在本次上传发起之前同步回调', async () => {
+describe("onSosRelayEvent（视频预览让出网络，决策 #49）", () => {
+  it("摔倒 / 求救入队时通知，且在本次上传发起之前同步回调", async () => {
     const order: string[] = [];
     pushMock.mockImplementation(async () => {
-      order.push('push');
+      order.push("push");
       return { accepted: 1, duplicate: 0, invalid: 0 };
     });
     const off = onSosRelayEvent((type) => order.push(`listener:${type}`));
-    enqueueRelayEvent(env('possible_fall'));
-    enqueueRelayEvent(env('manual_sos'));
+    enqueueRelayEvent(env("possible_fall"));
+    enqueueRelayEvent(env("manual_sos"));
     await new Promise((r) => setTimeout(r, 0));
     off();
-    expect(order[0]).toBe('listener:possible_fall');
-    expect(order).toContain('listener:manual_sos');
-    expect(order.indexOf('listener:possible_fall')).toBeLessThan(order.indexOf('push'));
+    expect(order[0]).toBe("listener:possible_fall");
+    expect(order).toContain("listener:manual_sos");
+    expect(order.indexOf("listener:possible_fall")).toBeLessThan(
+      order.indexOf("push"),
+    );
   });
 
-  it('危险预警与周期事件不通知（不打断预览）', () => {
+  it("危险预警与周期事件不通知（不打断预览）", () => {
     const seen: string[] = [];
     const off = onSosRelayEvent((type) => seen.push(type));
-    enqueueRelayEvent(env('collision_risk'));
-    enqueueRelayEvent(env('obstacle_risk'));
-    enqueueRelayEvent(env('location_update'));
+    enqueueRelayEvent(env("collision_risk"));
+    enqueueRelayEvent(env("obstacle_risk"));
+    enqueueRelayEvent(env("location_update"));
     off();
     expect(seen).toEqual([]);
   });
 
-  it('订阅方抛错不影响入队与上传', async () => {
+  it("订阅方抛错不影响入队与上传", async () => {
     const off = onSosRelayEvent(() => {
-      throw new Error('boom');
+      throw new Error("boom");
     });
-    expect(() => enqueueRelayEvent(env('possible_fall'))).not.toThrow();
+    expect(() => enqueueRelayEvent(env("possible_fall"))).not.toThrow();
     await new Promise((r) => setTimeout(r, 0));
     off();
     expect(pushMock).toHaveBeenCalled();
@@ -151,14 +154,14 @@ describe('onSosRelayEvent（视频预览让出网络，决策 #49）', () => {
       pushMock.mock.calls[0][0].envelopes.map(
         (e) => (e as EventEnvelope<EventType>).eventType,
       ),
-    ).toContain('possible_fall');
+    ).toContain("possible_fall");
   });
 
-  it('退订后不再通知', () => {
+  it("退订后不再通知", () => {
     const seen: string[] = [];
     const off = onSosRelayEvent((type) => seen.push(type));
     off();
-    enqueueRelayEvent(env('manual_sos'));
+    enqueueRelayEvent(env("manual_sos"));
     expect(seen).toEqual([]);
   });
 });

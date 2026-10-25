@@ -5,13 +5,32 @@ import { ApiRequestError } from "@/api/client";
 import { isHelmetGoneError, isUnrecoverableRelayError } from "../relay-errors";
 
 describe("isUnrecoverableRelayError", () => {
-  it("404 头盔不在这个账号下 / 403 无权 / 400 坏体：再试也是同一个结果", () => {
-    for (const status of [404, 403, 400])
+  it("服务端说的 404 头盔不在这个账号下 / 403 无权 / 400 坏体：再试也是同一个结果", () => {
+    for (const [status, code] of [
+      [404, "DEVICE_NOT_FOUND"],
+      [403, "FORBIDDEN"],
+      [400, "VALIDATION_FAILED"],
+    ] as const)
       expect(
-        isUnrecoverableRelayError(
-          new ApiRequestError(status, { code: "DEVICE_NOT_FOUND" }),
-        ),
+        isUnrecoverableRelayError(new ApiRequestError(status, { code })),
       ).toBe(true);
+  });
+
+  it("10-25 审查：网关 / 运营商回的 404 / 403 / 400 错误页（没有 JSON → 码是 INTERNAL_ERROR）、路由不存在的 NOT_FOUND：不丢积压，留着重发", () => {
+    for (const status of [404, 403, 400])
+      expect(isUnrecoverableRelayError(new ApiRequestError(status, {}))).toBe(
+        false,
+      );
+    expect(
+      isUnrecoverableRelayError(
+        new ApiRequestError(404, { code: "NOT_FOUND" }),
+      ),
+    ).toBe(false);
+    expect(
+      isUnrecoverableRelayError(
+        new ApiRequestError(403, { code: "BIND_CODE_INVALID" }),
+      ),
+    ).toBe(false);
   });
 
   it("断网、超时、服务端出错、会话过期：值得暂存重发", () => {

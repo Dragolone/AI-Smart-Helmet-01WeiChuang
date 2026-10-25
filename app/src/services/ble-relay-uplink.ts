@@ -202,6 +202,7 @@ export function onSosRelayEvent(
 
 /** BLE 模块收到头盔事件后调用：范围外事件本地丢弃(蓝牙版 MVP 只中转 7 种,决策 #31) */
 export function enqueueRelayEvent(envelope: Envelope): void {
+  abandonIfStuck();
   if (!RELAY_SCOPE.has(envelope.eventType)) {
     devLog("BLE-RELAY", `范围外事件不中转:${envelope.eventType}`);
     return;
@@ -249,6 +250,36 @@ export function enqueueRelayEvent(envelope: Envelope): void {
 /** flush 进行中又被叫到（高危帧「立即冲刷」正撞上在途的位置包）：结束后立刻补跑一次，不等下个 5 s tick（10-06 并发评审 F5） */
 let rerunAfterFlush = false;
 
+/**
+ * 在途的那次提交。安卓后台时 JS 定时器不走，提交自带的 15 s 超时也就不走；底层又不设超时（expo/fetch 用 RN 的
+ * OkHttp 客户端，连接 / 读 / 写超时都是 0），连接半开时请求永远不结束——flushing 一直为真，之后的摔倒照样回 ACK、
+ * 入队，却再也传不上去（10-25 审查）。后台能叫醒 JS 的只有蓝牙事件：每来一条就看一眼，卡过 RELAY_STUCK_MS
+ * 就放弃这次、立刻重发（服务端按 eventId 去重，原来那次后来到了也只算重复）
+ */
+let inflight: { startedAt: number; abandon: (e: Error) => void } | null = null;
+const RELAY_STUCK_MS = 20_000;
+
+function abandonIfStuck(): void {
+  if (!inflight || Date.now() - inflight.startedAt < RELAY_STUCK_MS) return;
+  devLog(
+    "BLE-RELAY",
+    `中转提交 ${RELAY_STUCK_MS / 1000} s 没有结果，放弃这次、重发`,
+  );
+  inflight.abandon(new Error("中转提交卡住"));
+  inflight = null;
+  rerunAfterFlush = true;
+}
+
+/** 「高危事件已接受」后的补拉还在跑几个：它要在网络锁里把倒计时页 / 锁屏提醒拉起来，跑完之前别放锁 */
+let resumesPending = 0;
+
+/** 放网络锁：还有高危事件没送完、或补拉还在跑就先不放（满批重跑那一批先回来时原来会直接放，10-25 审查） */
+function releaseNetworkIfIdle(): void {
+  if (resumesPending > 0 || queue.some((e) => CRITICAL_TYPES.has(e.eventType)))
+    return;
+  HelmetLinkService.releaseNetwork();
+}
+
 /** 高危事件（摔倒 / 求救）被服务端接受后的回调：由 use-realtime 接到「核对进行中的 SOS 并拉起倒计时页」 */
 // 返回 Promise 时（补拉进行中的求救）上行队列等它跑完再放网络锁；别的返回值不管
 let criticalAcceptedHandler: ((deviceId: string) => unknown) | null = null;
@@ -283,6 +314,7 @@ const RESUME_HOLD_MAX_MS = 30_000;
 export async function flushRelayQueue(): Promise<void> {
   if (queue.length === 0) return;
   if (flushing) {
+    abandonIfStuck();
     rerunAfterFlush = true;
     return;
   }
@@ -306,10 +338,27 @@ export async function flushRelayQueue(): Promise<void> {
     try {
       // 2xx 但响应体是 null（网关改写）：服务端已消化这一批，按全部接受走后续——原来读 counts.invalid 抛 TypeError，
       // 「高危已接受」回调没走、网络锁没放（10-16 A8）
-      const counts = (await relayApi.push({
-        deviceId: dev,
-        envelopes: batch,
-      })) ?? { accepted: batch.length, duplicate: 0, invalid: 0 };
+      const mine = { startedAt: Date.now(), abandon: (_e: Error) => {} };
+      const pushed = new Promise<Awaited<ReturnType<typeof relayApi.push>>>(
+        (resolve, reject) => {
+          mine.abandon = reject;
+          relayApi
+            .push({ deviceId: dev, envelopes: batch })
+            .then(resolve, reject);
+        },
+      );
+      inflight = mine;
+      let res: Awaited<typeof pushed>;
+      try {
+        res = await pushed;
+      } finally {
+        if (inflight === mine) inflight = null;
+      }
+      const counts = res ?? {
+        accepted: batch.length,
+        duplicate: 0,
+        invalid: 0,
+      };
       batchLimit = Math.min(MAX_BATCH, batchLimit * 2);
       // 202 = 整批已消化(accepted/duplicate 入库,invalid 服务端留档不重试)→ 整批出队
       const sent = new Set(batch);
@@ -340,19 +389,18 @@ export async function flushRelayQueue(): Promise<void> {
       ) {
         resumed = notifyCriticalAccepted(dev);
       }
-      if (!queue.some((e) => CRITICAL_TYPES.has(e.eventType))) {
-        if (resumed) {
-          // 补拉进行中的求救（拉起倒计时页 / 带「我没事，取消」的锁屏提醒）要在网络锁里跑完：深睡的华为一放锁
-          // 网络就挂起，这一下补拉落空就只剩极光那条没按钮的通知（10-25 审查）。不阻塞上行队列，最多等 30 s
-          void Promise.race([
-            resumed,
-            new Promise((r) => setTimeout(r, RESUME_HOLD_MAX_MS)),
-          ]).then(() => {
-            if (!queue.some((e) => CRITICAL_TYPES.has(e.eventType)))
-              HelmetLinkService.releaseNetwork();
-          });
-        } else HelmetLinkService.releaseNetwork();
-      }
+      if (resumed) {
+        // 补拉进行中的求救（拉起倒计时页 / 带「我没事，取消」的锁屏提醒）要在网络锁里跑完：深睡的华为一放锁
+        // 网络就挂起，这一下补拉落空就只剩极光那条没按钮的通知（10-25 审查）。不阻塞上行队列，最多等 30 s
+        resumesPending += 1;
+        void Promise.race([
+          resumed,
+          new Promise((r) => setTimeout(r, RESUME_HOLD_MAX_MS)),
+        ]).then(() => {
+          resumesPending -= 1;
+          releaseNetworkIfIdle();
+        });
+      } else releaseNetworkIfIdle();
       devLog(
         "BLE-RELAY",
         `已中转 ${dev} accepted=${counts.accepted} duplicate=${counts.duplicate} invalid=${counts.invalid}` +

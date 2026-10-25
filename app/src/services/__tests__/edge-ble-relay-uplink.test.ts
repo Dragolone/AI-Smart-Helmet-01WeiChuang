@@ -329,22 +329,26 @@ describe("高危事件被服务端接受后的回调（10-06 不变式评审 F-1
     push.mockResolvedValueOnce({ accepted: 0, duplicate: 0, invalid: 1 });
     up.enqueueRelayEvent(env("possible_fall", "helmet_x"));
     await up.flushRelayQueue();
+    await tick(); // 高危入队时已自动起了一次提交：等它回来
     expect(onAccepted).not.toHaveBeenCalled();
     // 只有位置事件：不是高危，不回调
     push.mockResolvedValueOnce({ accepted: 1, duplicate: 0, invalid: 0 });
     up.enqueueRelayEvent(env("location_update", "helmet_x"));
     await up.flushRelayQueue();
+    await tick(); // 高危入队时已自动起了一次提交：等它回来
     expect(onAccepted).not.toHaveBeenCalled();
     // 补传回 duplicate：第一次已到服务端、单子早建好了，同样要拉倒计时（10-14 代码审查）
     push.mockResolvedValueOnce({ accepted: 0, duplicate: 1, invalid: 0 });
     up.enqueueRelayEvent(env("possible_fall", "helmet_x"));
     await up.flushRelayQueue();
+    await tick(); // 高危入队时已自动起了一次提交：等它回来
     expect(onAccepted).toHaveBeenCalledTimes(1);
     expect(onAccepted).toHaveBeenCalledWith("helmet_x");
     push.mockResolvedValueOnce({ accepted: 2, duplicate: 0, invalid: 0 });
     up.enqueueRelayEvent(env("manual_sos", "helmet_x"));
     up.enqueueRelayEvent(env("location_update", "helmet_x"));
     await up.flushRelayQueue();
+    await tick(); // 高危入队时已自动起了一次提交：等它回来
     expect(onAccepted).toHaveBeenCalledTimes(2);
     expect(onAccepted).toHaveBeenLastCalledWith("helmet_x");
     up.setCriticalAcceptedHandler(null);
@@ -360,6 +364,7 @@ describe("高危事件被服务端接受后的回调（10-06 不变式评审 F-1
     push.mockResolvedValueOnce({ accepted: 1, duplicate: 0, invalid: 0 });
     up.enqueueRelayEvent(env("possible_fall"));
     await expect(up.flushRelayQueue()).resolves.toBeUndefined();
+    await tick(); // 高危入队时已自动起了一次提交：等它回来
     expect(savedIds("user_A")).toEqual([]);
     up.setCriticalAcceptedHandler(null);
   });
@@ -424,7 +429,11 @@ describe("溢出与批内次序的极端情况", () => {
     await tick();
     push.mockClear();
     push.mockResolvedValue({ accepted: 100, duplicate: 0, invalid: 0 });
-    for (let i = 0; i < 12; i += 1) await up.flushRelayQueue();
+    // 满批成功后会在后台接着冲下一批：每次之间让微任务跑完，不靠数拍子
+    for (let i = 0; i < 12; i += 1) {
+      await up.flushRelayQueue();
+      await tick();
+    }
     const all = sentIds(push).flat();
     expect(all).toHaveLength(1000);
     expect(all).not.toContain(first.eventId);
@@ -440,7 +449,11 @@ describe("溢出与批内次序的极端情况", () => {
     await tick();
     push.mockClear();
     push.mockResolvedValue({ accepted: 100, duplicate: 0, invalid: 0 });
-    for (let i = 0; i < 12; i += 1) await up.flushRelayQueue();
+    // 满批成功后会在后台接着冲下一批：每次之间让微任务跑完，不靠数拍子
+    for (let i = 0; i < 12; i += 1) {
+      await up.flushRelayQueue();
+      await tick();
+    }
     const all = sentIds(push).flat();
     expect(all).toHaveLength(1000);
     expect(all).not.toContain(periodic.eventId);
@@ -503,12 +516,16 @@ describe("溢出与批内次序的极端情况", () => {
 });
 
 describe("提交失败的状态码分流", () => {
-  it.each([400, 403])(
-    "%i 不可重试：这台设备的全部积压（含本批之外的）一次丢掉，另一台设备不受影响",
-    async (status) => {
+  it.each([
+    [400, "VALIDATION_FAILED"],
+    [403, "FORBIDDEN"],
+  ])(
+    "服务端回 %i %s 不可重试：这台设备的全部积压（含本批之外的）一次丢掉，另一台设备不受影响",
+    async (status, code) => {
       const { up, push } = load();
       push.mockImplementation(async (body) => {
-        if (body.deviceId === "helmet_bad") throw httpError(status);
+        if (body.deviceId === "helmet_bad")
+          throw Object.assign(httpError(status), { code });
         return { accepted: body.envelopes.length, duplicate: 0, invalid: 0 };
       });
       for (let i = 0; i < 130; i += 1)
@@ -522,6 +539,24 @@ describe("提交失败的状态码分流", () => {
       expect(savedIds("anonymous")).toEqual([]);
     },
   );
+
+  it("10-25 审查：网关 / 运营商回的 404 / 403 错误页（没有 JSON，码是 INTERNAL_ERROR）：不丢积压（含摔倒），留着下轮重发", async () => {
+    const { up, push } = load();
+    push.mockRejectedValue(
+      Object.assign(httpError(404), { code: "INTERNAL_ERROR" }),
+    );
+    const fall = env("possible_fall", "helmet_bad");
+    up.enqueueRelayEvent(fall);
+    up.enqueueRelayEvent(env("location_update", "helmet_bad"));
+    await up.flushRelayQueue();
+    push.mockRejectedValue(
+      Object.assign(httpError(403), { code: "INTERNAL_ERROR" }),
+    );
+    await up.flushRelayQueue();
+    push.mockResolvedValue({ accepted: 2, duplicate: 0, invalid: 0 });
+    await up.flushRelayQueue();
+    expect(sentIds(push).at(-1)).toContain(fall.eventId);
+  });
 
   it("413（请求体太大）且这一批不止一条：批量减半立即重试，一条都不丢（2026-10-16 A7）", async () => {
     const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
@@ -684,6 +719,52 @@ describe("深睡持锁（Android holdNetwork / releaseNetwork）", () => {
     finishResume();
     await tick();
     expect(mockRelease).toHaveBeenCalledTimes(1);
+  });
+
+  it("10-25 审查：补拉还在跑时，满批重跑的下一批先回来——也不放锁，补拉结束才放", async () => {
+    const { up, push } = load();
+    let finishResume!: () => void;
+    up.setCriticalAcceptedHandler(
+      () => new Promise<void>((r) => (finishResume = r)),
+    );
+    push.mockImplementation(async (body) => ({
+      accepted: body.envelopes.length,
+      duplicate: 0,
+      invalid: 0,
+    }));
+    for (let i = 0; i < 150; i += 1)
+      up.enqueueRelayEvent(env("location_update"));
+    up.enqueueRelayEvent(env("manual_sos")); // 第一批：求救 + 99 条位置（满批）→ 接着冲剩下的 51 条
+    await tick();
+    expect(push).toHaveBeenCalledTimes(2);
+    expect(mockRelease).not.toHaveBeenCalled();
+    finishResume();
+    await tick();
+    expect(mockRelease).toHaveBeenCalledTimes(1);
+  });
+
+  it("10-25 审查：提交卡住（安卓后台定时器不走、底层又不超时）：没到 20 s 不动；过了 20 s 下一个蓝牙事件进来就放弃这次、立刻重发；卡住那次后来才回来也不搅乱", async () => {
+    jest.useFakeTimers();
+    const { up, push } = load();
+    const stuck = deferPush(push);
+    const fall = env("possible_fall");
+    up.enqueueRelayEvent(fall);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(push).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(19_000);
+    up.enqueueRelayEvent(env("location_update"));
+    await jest.advanceTimersByTimeAsync(0);
+    expect(push).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(2_000);
+    up.enqueueRelayEvent(env("location_update"));
+    await jest.advanceTimersByTimeAsync(0);
+    expect(push).toHaveBeenCalledTimes(2);
+    expect(sentIds(push)[1][0]).toBe(fall.eventId);
+    expect(up.relayBacklog().total).toBe(0);
+    stuck.resolve({ accepted: 1, duplicate: 0, invalid: 0 });
+    await jest.advanceTimersByTimeAsync(0);
+    expect(up.relayBacklog().total).toBe(0);
+    expect(push).toHaveBeenCalledTimes(2);
   });
 
   it("另一台设备的高危还没送出：这一轮成功也不释放锁", async () => {

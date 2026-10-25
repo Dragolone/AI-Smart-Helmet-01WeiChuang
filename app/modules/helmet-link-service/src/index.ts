@@ -24,6 +24,12 @@ const native =
     ? requireOptionalNativeModule<NativeLinkService>("HelmetLinkService")
     : null;
 
+/**
+ * 网络锁持到什么时刻。原生一次只记一把锁、再调就按新时长重新拿：周期事件的 20 s 会把保命事件刚拿的 90 s
+ * 截短（10-25 审查）。这里只让它往后延，不往前缩
+ */
+let heldUntil = 0;
+
 export const HelmetLinkService = {
   /** 模块是否可用（Android 且原生已链接；模拟器/未 prebuild 时为 false） */
   available: native !== null,
@@ -45,10 +51,14 @@ export const HelmetLinkService = {
   },
   /** 高危事件待上传：短暂持 CPU/Wi-Fi 锁（最多 ms 毫秒），上传完成后 releaseNetwork */
   holdNetwork(ms: number): void {
+    const until = Date.now() + ms;
+    if (until <= heldUntil) return;
+    heldUntil = until;
     // 原生包可能比 JS 旧（dev client 热更）：方法不存在时静默跳过，绝不让上传链路因此失败
     if (typeof native?.holdNetwork === "function") native.holdNetwork(ms);
   },
   releaseNetwork(): void {
+    heldUntil = 0;
     if (typeof native?.releaseNetwork === "function") native.releaseNetwork();
   },
   /**

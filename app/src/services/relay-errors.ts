@@ -2,12 +2,18 @@
 // 这类错误进了队列也会被丢掉，页面上不能对人说「已暂存，网络恢复后自动发送」。
 
 /**
- * 客户端规范化错误（api/client.ts）带 HTTP 状态时：404 = 设备不属于当前账号、403 = 无权、400 = 结构性坏体，
- * 重试永远同一个结果（审计 BLE-05）。没有状态的（断网、超时）不算
+ * 服务端明确说了这批永远送不出去，重试也是同一个结果（审计 BLE-05）：404 DEVICE_NOT_FOUND = 设备不属于当前账号、
+ * 403 FORBIDDEN = 无权、400 VALIDATION_FAILED = 结构性坏体。只看状态码不够：网关 / 运营商劫持回的 404 / 403 错误页
+ * 没有 JSON，规范化后码是 INTERNAL_ERROR，当成不可恢复会把这台头盔的积压连摔倒一起丢掉（10-25 审查）。
+ * 没有状态的（断网、超时）不算
  */
 export const isUnrecoverableRelayError = (e: unknown): boolean => {
-  const status = (e as { status?: unknown })?.status;
-  return status === 404 || status === 403 || status === 400;
+  const { status, code } = (e ?? {}) as { status?: unknown; code?: unknown };
+  return (
+    (status === 404 && code === "DEVICE_NOT_FOUND") ||
+    (status === 403 && code === "FORBIDDEN") ||
+    (status === 400 && code === "VALIDATION_FAILED")
+  );
 };
 
 /**

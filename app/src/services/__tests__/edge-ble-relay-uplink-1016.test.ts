@@ -218,9 +218,13 @@ describe("溢出（上限 1000）", () => {
 });
 
 describe("服务端拒收的几种状态码", () => {
-  it.each([400, 403, 404])(
-    "%s：这台头盔的全部积压（不只这一批）都丢掉，别的头盔照常",
-    async (status) => {
+  it.each([
+    [400, "VALIDATION_FAILED"],
+    [403, "FORBIDDEN"],
+    [404, "DEVICE_NOT_FOUND"],
+  ])(
+    "服务端回 %s %s：这台头盔的全部积压（不只这一批）都丢掉，别的头盔照常",
+    async (status, code) => {
       const { up, push } = load();
       push.mockRejectedValue(new Error("offline"));
       for (let i = 0; i < 120; i += 1)
@@ -229,7 +233,8 @@ describe("服务端拒收的几种状态码", () => {
       await tick();
       push.mockReset();
       push.mockImplementation(async (b) => {
-        if (b.deviceId === "helmet_bad") throw httpError(status);
+        if (b.deviceId === "helmet_bad")
+          throw Object.assign(httpError(status), { code });
         return { accepted: b.envelopes.length, duplicate: 0, invalid: 0 };
       });
       await up.flushRelayQueue();
