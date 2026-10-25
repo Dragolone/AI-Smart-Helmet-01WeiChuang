@@ -305,7 +305,10 @@ export default function SafetyScreen() {
   const latestSos = sosRecords
     .map((q) => q.data?.items[0])
     .filter((a): a is AccidentListItem => a !== undefined)
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+    // 时间按字符串比（ISO 可直接比）；缺字段 / 类型不对时当空串，不能让一条坏记录把整个安全页（含求救按钮）弄崩
+    .sort((a, b) =>
+      String(b.createdAt ?? "").localeCompare(String(a.createdAt ?? "")),
+    )[0];
   // 有一台没拿到就不能下「没有记录」的结论
   const recordsState = sosRecords.some((q) => q.isError)
     ? "failed"

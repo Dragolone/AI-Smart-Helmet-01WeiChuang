@@ -11,7 +11,8 @@ const mockApi = jest.fn(async (_path: string) => ({
   page: 1,
   pageSize: 0,
 }));
-jest.mock("../client", () => ({ api: (path: string) => mockApi(path) }));
+// 事件列表走 apiPage（分页应答校验在 client.ts，这里只看键和路径）
+jest.mock("../client", () => ({ apiPage: (path: string) => mockApi(path) }));
 
 const TYPE = "collision_risk,obstacle_risk";
 

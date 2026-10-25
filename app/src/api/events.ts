@@ -1,6 +1,6 @@
 // 事件查询（docs/API.md §6；backend/src/events 已实现并验收）
-import type { EventDetail, EventListItem, Paginated } from "@helmet/shared";
-import { api } from "./client";
+import type { EventDetail, EventListItem } from "@helmet/shared";
+import { api, apiPage } from "./client";
 
 export const eventsApi = {
   /** 设备事件历史（最新在前）；type 可多值逗号分隔（EVENTS.md §3 事件类型）；from / to 选填（API.md §6） */
@@ -20,7 +20,7 @@ export const eventsApi = {
     if (opts.to) params.set("to", opts.to);
     params.set("page", String(opts.page ?? 1));
     params.set("pageSize", String(opts.pageSize ?? 20));
-    return api<Paginated<EventListItem>>(
+    return apiPage<EventListItem>(
       `/devices/${encodeURIComponent(deviceId)}/events?${params.toString()}`,
     );
   },

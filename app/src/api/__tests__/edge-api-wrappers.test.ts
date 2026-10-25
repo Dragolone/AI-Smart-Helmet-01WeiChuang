@@ -20,6 +20,8 @@ jest.mock("../client", () => ({
   api: (p: string, i?: Record<string, unknown>) => mockApi(p, i),
   // 列表接口走 apiList（应答必须是数组，见 client.ts）；这里只看路径
   apiList: (p: string) => mockApi(p),
+  // 分页接口走 apiPage（应答的 items 必须是数组，见 client.ts）；同样只看路径
+  apiPage: (p: string) => mockApi(p),
   currentRefreshToken: () => mockRefresh,
 }));
 jest.mock("@/services/server-clock", () => ({

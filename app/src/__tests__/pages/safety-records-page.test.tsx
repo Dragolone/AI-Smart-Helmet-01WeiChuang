@@ -81,6 +81,12 @@ jest.mock("@/api/client", () => ({
     if (out instanceof Error) throw out;
     return out;
   },
+  // 分页接口（事件 / SOS 记录）走 apiPage：真实现里调的是模块内部的 api，替身要单独接到同一张路由表
+  apiPage: async (path: string) => {
+    const out = mockRoutes.fn(path);
+    if (out instanceof Error) throw out;
+    return out;
+  },
 }));
 const mockHelmets = {
   list: [] as DevicePublic[],
