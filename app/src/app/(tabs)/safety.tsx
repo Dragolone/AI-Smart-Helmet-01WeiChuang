@@ -304,7 +304,8 @@ export default function SafetyScreen() {
   });
   const latestSos = sosRecords
     .map((q) => q.data?.items[0])
-    .filter((a): a is AccidentListItem => a !== undefined)
+    // null 也滤掉：分页校验只管 items 是不是数组，里面夹着 null 时排序会在 .createdAt 上抛错（10-25 审查）
+    .filter((a): a is AccidentListItem => a != null)
     // 时间按字符串比（ISO 可直接比）；缺字段 / 类型不对时当空串，不能让一条坏记录把整个安全页（含求救按钮）弄崩
     .sort((a, b) =>
       String(b.createdAt ?? "").localeCompare(String(a.createdAt ?? "")),

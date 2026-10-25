@@ -942,6 +942,28 @@ describe("求救：拉起倒计时页与锁屏提醒", () => {
     },
   );
 
+  it("账号级接口回了不像分页的应答（apiPage 按服务端出错拒掉，状态码 200）：同 404 退回逐台查，进行中的单照样拉起（10-25 审查）", async () => {
+    jest.mocked(sosApi.activeForAccount).mockRejectedValue(
+      new ApiRequestError(
+        200,
+        {
+          code: "INTERNAL_ERROR",
+          message: "/users/me/sos/active: not a page",
+        },
+        undefined,
+        true,
+      ),
+    );
+    jest
+      .mocked(sosApi.active)
+      .mockResolvedValue({ sos: sosOf({ sosId: "s8", deviceId: "h1" }) });
+    await mountBridge();
+    expect(sosApi.active).toHaveBeenCalledWith("h1");
+    expect(router.push).toHaveBeenCalledWith(
+      "/sos-active?sosId=s8&deviceId=h1",
+    );
+  });
+
   describe("冷启动补拉失败后重试（10-22 夜测：安卓划掉后进程和 WS 都活着，界面重挂时只有这一次补拉，弱网下没拉到就再没机会）", () => {
     /** 截下重试用的定时器（2 s 起头、5 s 第二次），由用例自己触发；别的定时器照常 */
     function catchRetryTimers(): (ms?: number) => (() => void) | null {
@@ -1250,6 +1272,26 @@ describe("其余实时消息与前后台", () => {
       unsub();
     });
 
+    it("手机时间往回拨 1 小时：不会把窗口拉长到一小时、位置照样立刻写（10-25 审查）", async () => {
+      await mountBridge();
+      const real = Date.now();
+      await wsPush("location_update", fixAt("h1", 1));
+      const now = jest.spyOn(Date, "now").mockReturnValue(real - 3_600_000);
+      try {
+        await wsPush("location_update", fixAt("h1", 2));
+        expect(qc.getQueryData(["device-location", "h1"])).toEqual(
+          fixAt("h1", 2),
+        );
+        await wsPush("location_update", fixAt("h1", 3));
+        await waitWindow();
+        expect(qc.getQueryData(["device-location", "h1"])).toEqual(
+          fixAt("h1", 3),
+        );
+      } finally {
+        now.mockRestore();
+      }
+    });
+
     it("两顶头盔各算各的窗口：都立刻写；坏消息（data 不是对象 / 没有设备号）不写", async () => {
       await mountBridge();
       await wsPush("location_update", fixAt("h1", 1));
@@ -1347,6 +1389,26 @@ describe("其余实时消息与前后台", () => {
       await wsPush("device_status", bad as never);
     }
     expect(write).not.toHaveBeenCalled();
+  });
+
+  it("device_status 只带了一部分字段：列表行只合并带了的，没带的（电量 / 充电）不被规整补的 null 盖掉（10-25 审查）", async () => {
+    await mountBridge();
+    qc.setQueryData(
+      ["devices"],
+      [dev("h1", { battery: 80, charging: true, online: false })],
+    );
+    await wsPush("device_status", { deviceId: "h1", online: true } as never);
+    const row = qc
+      .getQueryData<
+        {
+          deviceId: string;
+          battery: number | null;
+          charging: boolean | null;
+          online: boolean;
+        }[]
+      >(["devices"])
+      ?.find((d) => d.deviceId === "h1");
+    expect(row).toMatchObject({ battery: 80, charging: true, online: true });
   });
 
   it("认不出的消息类型（服务端先上了新类型）：忽略，不碰缓存", async () => {

@@ -222,12 +222,18 @@ export function useRealtimeUpdates(): void {
     // SOS 同步的判断逻辑在 services/sos-sync.ts（纯函数 + 注入副作用，有单测）；这里只接线
     const sosDeps: SosSyncDeps = {
       fetchActive: (id) => sosApi.active(id),
-      // 账号级一次拿全（B 线第 12 项）；服务端还没有这个接口（404）就退回逐台查
+      // 账号级一次拿全（B 线第 12 项）；服务端还没有这个接口（404）就退回逐台查。
+      // 200 = 应答不像分页（apiPage 拦下的坏应答）：同样退回逐台查——当成网络失败的话，冷启动 / 重连 / 推送到达那几次
+      // 补拉都直接放弃，进行中的求救拉不起来（10-25 审查）
       fetchAccountActive: async () => {
         try {
           return await sosApi.activeForAccount();
         } catch (e) {
-          if (e instanceof ApiRequestError && e.status === 404) return null;
+          if (
+            e instanceof ApiRequestError &&
+            (e.status === 404 || e.status === 200)
+          )
+            return null;
           throw e;
         }
       },
@@ -421,6 +427,8 @@ export function useRealtimeUpdates(): void {
         w = { at: 0, pending: null, timer: null };
         locationWrites.set(fix.deviceId, w);
       }
+      // 手机时间往回拨（now 比上次写还早）：当作上次写在很久以前，不然窗口会被拉长到拨回的那么久、位置一直写不进去（10-25 审查）
+      if (now < w.at) w.at = now - LOCATION_WRITE_MS;
       if (w.timer === null && now - w.at >= LOCATION_WRITE_MS) {
         w.at = now;
         writeLocation(fix);
@@ -437,7 +445,11 @@ export function useRealtimeUpdates(): void {
             slot.pending = null;
             if (p) writeLocation(p);
           },
-          Math.max(0, slot.at + LOCATION_WRITE_MS - now),
+          // 最多等一个窗口：时间被拨动时也不会把这次写推迟到很久以后
+          Math.min(
+            LOCATION_WRITE_MS,
+            Math.max(0, slot.at + LOCATION_WRITE_MS - now),
+          ),
         );
       }
     };
@@ -455,10 +467,14 @@ export function useRealtimeUpdates(): void {
             ["device-status", deviceId],
             status,
           );
-          // 列表缓存：合并进对应设备行
+          // 列表缓存：只合并这次推送里带了的字段（规整后的值）——推送漏了某个字段时，不拿规整补上的 null
+          // 盖掉列表里原来的好值（10-25 审查）
+          const present = Object.fromEntries(
+            Object.entries(status).filter(([k]) => k in raw),
+          ) as Partial<DeviceStatus>;
           queryClient.setQueryData<DevicePublic[]>(["devices"], (prev) =>
             prev?.map((d) =>
-              d.deviceId === deviceId ? { ...d, ...status } : d,
+              d.deviceId === deviceId ? { ...d, ...present } : d,
             ),
           );
           const dev = queryClient
