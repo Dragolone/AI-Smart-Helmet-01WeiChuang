@@ -461,6 +461,35 @@ describe("溢出与批内次序的极端情况", () => {
     expect(b2).toEqual(locs.slice(99).map((e) => e.eventId));
   });
 
+  it("积压 250 条：满批成功后不等 5 秒的定时器接着冲，一次触发就 100 / 100 / 50 三批传完（优化清单 7）", async () => {
+    const { up, push } = load();
+    push.mockResolvedValue({ accepted: 100, duplicate: 0, invalid: 0 });
+    for (let i = 0; i < 250; i += 1)
+      up.enqueueRelayEvent(env("location_update"));
+    await up.flushRelayQueue();
+    for (let i = 0; i < 5; i += 1) await tick();
+    expect(sentIds(push).map((b) => b.length)).toEqual([100, 100, 50]);
+    expect(up.relayBacklog().total).toBe(0);
+  });
+
+  it("不满的批传完就停、等下一轮；满批失败也不连发（留给下一轮，不打爆服务端）", async () => {
+    const { up, push } = load();
+    push.mockResolvedValue({ accepted: 5, duplicate: 0, invalid: 0 });
+    for (let i = 0; i < 5; i += 1) up.enqueueRelayEvent(env("location_update"));
+    await up.flushRelayQueue();
+    for (let i = 0; i < 3; i += 1) await tick();
+    expect(push).toHaveBeenCalledTimes(1);
+
+    push.mockClear();
+    push.mockRejectedValue(new Error("offline"));
+    for (let i = 0; i < 250; i += 1)
+      up.enqueueRelayEvent(env("location_update"));
+    await up.flushRelayQueue();
+    for (let i = 0; i < 3; i += 1) await tick();
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(up.relayBacklog().total).toBe(250);
+  });
+
   it("同一 eventId 入队两次（跨会话重发帧）：队列不去重，两条同批提交，靠服务端幂等计 duplicate", async () => {
     const { up, push } = load();
     const e = env("device_status");
