@@ -9,6 +9,7 @@ import type { DeviceSettingKey } from "@helmet/shared";
 
 import { devicesApi } from "@/api/devices";
 import { isSessionEnded, toUserMessage } from "@/api/error-messages";
+import { DeviceGone, isDeviceGone } from "@/components/device-gone";
 import { DeviceSettingList } from "@/components/device-settings";
 import { Card } from "@/components/list";
 import { ThemedText } from "@/components/themed-text";
@@ -70,6 +71,9 @@ export function DeviceSettingsPage({
     queryFn: () => devicesApi.status(deviceId),
     refetchInterval: 15_000,
   });
+  // 乱链接 / 已解绑的头盔：不画开关（点了全都报错），同详情首页给空态（优化清单 10）
+  if (isDeviceGone(status.error, settings.error))
+    return <DeviceGone deviceId={deviceId} />;
   return (
     <ThemedView style={styles.flex}>
       <ScrollView
@@ -81,10 +85,10 @@ export function DeviceSettingsPage({
         {settings.isError &&
           settings.values === undefined &&
           !isSessionEnded(settings.error) && (
-          <ThemedText type="small" themeColor="danger">
-            {toUserMessage(settings.error)}
-          </ThemedText>
-        )}
+            <ThemedText type="small" themeColor="danger">
+              {toUserMessage(settings.error)}
+            </ThemedText>
+          )}
         {groups.map((group) => (
           <View key={group.keys.join(",")} style={styles.group}>
             {group.title && (

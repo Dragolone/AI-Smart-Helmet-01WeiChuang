@@ -72,10 +72,16 @@ describe("接线：设备详情页（源码不变式）", () => {
     );
   });
 
-  it("404 空态正文里的编号截断", () => {
-    expect(src).toMatch(
+  it("404 空态正文里的编号截断（空态在 components/device-gone，详情首页和各分类页共用）", () => {
+    const gone = readFileSync(
+      join(__dirname, "..", "..", "components", "device-gone.tsx"),
+      "utf8",
+    );
+    expect(gone).toMatch(
       /t\("device\.goneBody", \{ id: shortDeviceId\(deviceId\) \}\)/,
     );
-    expect(src).not.toMatch(/t\("device\.goneBody", \{ id: deviceId \}\)/);
+    expect(gone).not.toMatch(/t\("device\.goneBody", \{ id: deviceId \}\)/);
+    expect(src).toMatch(/<DeviceGone deviceId=\{deviceId\} \/>/);
+    expect(src).not.toMatch(/device\.goneBody/);
   });
 });

@@ -9,6 +9,7 @@ import { ScrollView, StyleSheet, View } from "react-native";
 
 import { devicesApi } from "@/api/devices";
 import { isSessionEnded, toUserMessage } from "@/api/error-messages";
+import { DeviceGone, isDeviceGone } from "@/components/device-gone";
 import { DeviceContext } from "@/components/device-settings-page";
 import { Card, ListRow } from "@/components/list";
 import { Tappable } from "@/components/tappable";
@@ -105,6 +106,10 @@ export default function DeviceAboutScreen() {
 
   const s = status.data;
   const firmware = s?.firmwareVersion ?? bleFirmwareVersion;
+
+  // 乱链接 / 已解绑的头盔：不画绑定码和工程模式入口，同详情首页给空态（优化清单 10）
+  if (isDeviceGone(status.error, detail.error))
+    return <DeviceGone deviceId={deviceId} />;
 
   return (
     <ThemedView style={styles.flex}>

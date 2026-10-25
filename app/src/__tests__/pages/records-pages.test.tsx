@@ -613,6 +613,18 @@ describe("关于这顶头盔", () => {
     act(() => useBleStore.setState({ links: {} }));
   });
 
+  it("头盔已不在本账号下（乱链接 / 别的手机解绑了）：同详情首页只给空态，不画绑定码和工程模式入口（优化清单 10）", async () => {
+    m(devicesApi.status).mockImplementation(() =>
+      Promise.reject(new ApiRequestError(404, { code: "DEVICE_NOT_FOUND" })),
+    );
+    const r = mount(<DeviceAboutScreen />);
+    await waitFor(() => expect(r.allText()).toContain(tr("device.goneTitle")));
+    expect(r.allText()).toContain(tr("device.goneBody", { id: "h1" }));
+    expect(r.allText()).not.toContain("AB12CD34");
+    r.press(tr("device.goneBack"));
+    expect(mockRouter.navigate).toHaveBeenCalledWith("/");
+  });
+
   it("在线：信号、工作中、最后上报时间；固件取服务端的", async () => {
     m(devicesApi.status).mockImplementation(() =>
       Promise.resolve({
