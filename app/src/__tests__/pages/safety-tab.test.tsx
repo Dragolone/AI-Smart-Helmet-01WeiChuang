@@ -355,24 +355,28 @@ describe("状态卡", () => {
 
 describe("最近一条 SOS 与入口", () => {
   it("有一顶的记录缺时间 / 时间类型不对（服务端出错）：整页不崩，最近一条按有时间的那条写（10-25 iOS 改写应答）", async () => {
-    mockSafety.list = [dev("h1"), dev("h2"), dev("h3")];
+    mockSafety.list = [dev("h1"), dev("h2"), dev("h3"), dev("h4")];
     m(sosApi.accidents).mockImplementation((...args: unknown[]) =>
       Promise.resolve({
-        items: [
-          args[0] === "h2"
-            ? ({
-                sosId: "b",
-                createdAt: "2026-10-12T01:00:00.000Z",
-                triggerType: "manual_sos",
-                status: "notified",
-              } as AccidentListItem)
-            : ({
-                sosId: args[0] === "h1" ? "a" : "c",
-                createdAt: args[0] === "h1" ? undefined : 12345,
-                triggerType: "possible_fall",
-                status: "cancelled",
-              } as unknown as AccidentListItem),
-        ],
+        // h4 那页夹着 null（分页校验只管 items 是数组）：也不能把整页弄崩（10-25 审查）
+        items:
+          args[0] === "h4"
+            ? [null]
+            : [
+                args[0] === "h2"
+                  ? ({
+                      sosId: "b",
+                      createdAt: "2026-10-12T01:00:00.000Z",
+                      triggerType: "manual_sos",
+                      status: "notified",
+                    } as AccidentListItem)
+                  : ({
+                      sosId: args[0] === "h1" ? "a" : "c",
+                      createdAt: args[0] === "h1" ? undefined : 12345,
+                      triggerType: "possible_fall",
+                      status: "cancelled",
+                    } as unknown as AccidentListItem),
+              ],
         total: 1,
       }),
     );
