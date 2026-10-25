@@ -126,6 +126,52 @@ export function whenSosAlertPermissionAsked(): Promise<void> {
   return ensureSosAlertPermission().then(() => deferredAsk ?? undefined);
 }
 
+/** 求救通道名和通知上两个按钮的文字：交给系统那一刻按当时的语言写死，切语言后要再交一次（refreshSosAlertTexts） */
+async function registerAlertTexts(): Promise<void> {
+  if (Platform.OS === "android") {
+    await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
+      name: translate("sosAlert.channel"),
+      importance: Notifications.AndroidImportance.MAX,
+      // 不传 sound：Android 把字符串当成打包进 App 的自定义音频资源名，传 "default"
+      // 会在每次启动打一条 ERROR（华为 P30 Pro 实测）然后回落到系统默认铃声——
+      // 省掉这层报错，直接要系统默认。
+      vibrationPattern: [0, 500, 250, 500],
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      bypassDnd: true,
+    });
+  }
+  await Notifications.setNotificationCategoryAsync(CATEGORY_ID, [
+    {
+      identifier: ACTION_CANCEL,
+      buttonTitle: translate("sosAlert.cancelAction"),
+      // 必须拉起 App：不拉起时取消请求在后台发出，iOS 随即挂起进程，请求被中断
+      // （2026-09-24 iPhone 实测 FetchRequestCanceledException），60 s 后照样通知联系人——
+      // 一个「按了却没生效」的取消键比没有更危险。拉起后页面会显示已取消。
+      options: { opensAppToForeground: true, isDestructive: false },
+    },
+    {
+      identifier: ACTION_OPEN,
+      buttonTitle: translate("sosAlert.openAction"),
+      options: { opensAppToForeground: true },
+    },
+  ]);
+}
+
+/**
+ * 切语言后把通道名和按钮文字按新语言再交一次（10-25 安卓模拟器：切成简体后，求救通知标题是中文、
+ * 按钮还是「I'm OK, cancel」，要重开 App 才换）。还没初始化过就不动：初始化时本来就按当时的语言写
+ */
+export async function refreshSosAlertTexts(): Promise<void> {
+  if (!permissionReady) return;
+  await permissionReady;
+  try {
+    await registerAlertTexts();
+    if (resultChannelReady) await createResultChannel();
+  } catch (e) {
+    devLog("SOS-ALERT", "切语言后更新通知文字失败", e as Error);
+  }
+}
+
 async function initSosAlert(): Promise<void> {
   installPresentationPolicy();
   // 先于任何 await：根布局同一个 effect 里紧接着就会同步跑 push.ts 的初始化，它读的是同一条启动点击。
@@ -133,34 +179,7 @@ async function initSosAlert(): Promise<void> {
   // 取消请求从未发出（10-06 并发评审 F1）
   installResponseHandler();
   try {
-    if (Platform.OS === "android") {
-      await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
-        name: translate("sosAlert.channel"),
-        importance: Notifications.AndroidImportance.MAX,
-        // 不传 sound：Android 把字符串当成打包进 App 的自定义音频资源名，传 "default"
-        // 会在每次启动打一条 ERROR（华为 P30 Pro 实测）然后回落到系统默认铃声——
-        // 省掉这层报错，直接要系统默认。
-        vibrationPattern: [0, 500, 250, 500],
-        lockscreenVisibility:
-          Notifications.AndroidNotificationVisibility.PUBLIC,
-        bypassDnd: true,
-      });
-    }
-    await Notifications.setNotificationCategoryAsync(CATEGORY_ID, [
-      {
-        identifier: ACTION_CANCEL,
-        buttonTitle: translate("sosAlert.cancelAction"),
-        // 必须拉起 App：不拉起时取消请求在后台发出，iOS 随即挂起进程，请求被中断
-        // （2026-09-24 iPhone 实测 FetchRequestCanceledException），60 s 后照样通知联系人——
-        // 一个「按了却没生效」的取消键比没有更危险。拉起后页面会显示已取消。
-        options: { opensAppToForeground: true, isDestructive: false },
-      },
-      {
-        identifier: ACTION_OPEN,
-        buttonTitle: translate("sosAlert.openAction"),
-        options: { opensAppToForeground: true },
-      },
-    ]);
+    await registerAlertTexts();
     const current = await Notifications.getPermissionsAsync();
     if (!current.granted) await askPermission(current.canAskAgain !== false);
   } catch (e) {
@@ -413,8 +432,12 @@ let resultChannelReady = false;
 async function ensureResultChannel(): Promise<void> {
   if (resultChannelReady) return;
   resultChannelReady = true;
+  await createResultChannel();
+}
+
+function createResultChannel(): Promise<unknown> {
   // 安静的通道：取消是用户自己点的，结果只要看得到，不必再响一声、弹一次横幅
-  await Notifications.setNotificationChannelAsync(RESULT_CHANNEL_ID, {
+  return Notifications.setNotificationChannelAsync(RESULT_CHANNEL_ID, {
     name: translate("sosAlert.resultChannel"),
     importance: Notifications.AndroidImportance.LOW,
   }).catch(() => undefined);

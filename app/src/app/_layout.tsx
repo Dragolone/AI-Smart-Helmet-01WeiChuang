@@ -23,6 +23,7 @@ import { ThemeFade } from "@/components/theme-fade";
 import { installDevErrorTap } from "@/services/dev-log";
 import { clearIfFreshInstall } from "@/services/fresh-install";
 import { hideIconsFromScreenReader } from "@/services/icon-a11y";
+import { installLocaleSync } from "@/services/locale-sync";
 import {
   clearSessionExpiredNotice,
   notifySessionExpired,
@@ -35,6 +36,8 @@ import { useThemeStore } from "@/stores/theme-store";
 installDevErrorTap();
 // 图标字符不拼进按钮的读屏名字（services/icon-a11y）
 hideIconsFromScreenReader();
+// 切语言后，交给系统的通知按钮 / 通道名 / 蓝牙常驻通知也换成新语言（services/locale-sync）
+installLocaleSync();
 
 SplashScreen.preventAutoHideAsync();
 

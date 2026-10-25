@@ -20,10 +20,20 @@ let channelReady = false;
 async function ensureChannel(): Promise<void> {
   if (channelReady || Platform.OS !== "android") return;
   channelReady = true;
-  await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
+  await createChannel();
+}
+
+function createChannel(): Promise<unknown> {
+  return Notifications.setNotificationChannelAsync(CHANNEL_ID, {
     name: translate("battery.channel"),
     importance: Notifications.AndroidImportance.DEFAULT,
   }).catch(() => undefined);
+}
+
+/** 切语言后通道名（系统设置 → 通知里列的名字）按新语言再写一次；还没建过通道就不动 */
+export async function refreshBatteryChannelName(): Promise<void> {
+  if (!channelReady) return;
+  await createChannel();
 }
 
 export function checkBatteryAlert(

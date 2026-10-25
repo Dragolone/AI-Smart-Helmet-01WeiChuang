@@ -20,6 +20,7 @@ import { useRealtimeUpdates } from "@/hooks/use-realtime";
 import { translate, useLocaleStore, type MessageKey } from "@/i18n";
 import { installDevErrorTap } from "@/services/dev-log";
 import { hideIconsFromScreenReader } from "@/services/icon-a11y";
+import { installLocaleSync } from "@/services/locale-sync";
 import {
   clearSessionExpiredNotice,
   notifySessionExpired,
@@ -169,6 +170,9 @@ jest.mock("@/services/dev-log", () => ({
 jest.mock("@/services/icon-a11y", () => ({
   hideIconsFromScreenReader: jest.fn(),
 }));
+jest.mock("@/services/locale-sync", () => ({
+  installLocaleSync: jest.fn(),
+}));
 jest.mock("@/services/session-notice", () => ({
   notifySessionExpired: jest.fn(),
   clearSessionExpiredNotice: jest.fn(),
@@ -186,6 +190,7 @@ jest.mock("@/services/fresh-install", () => ({
 const atImport = {
   devTap: (installDevErrorTap as jest.Mock).mock.calls.length,
   iconsHidden: (hideIconsFromScreenReader as jest.Mock).mock.calls.length,
+  localeSync: (installLocaleSync as jest.Mock).mock.calls.length,
   splashHold: (SplashScreen.preventAutoHideAsync as jest.Mock).mock.calls
     .length,
 };
@@ -242,9 +247,10 @@ afterEach(() => {
 });
 
 describe("模块加载时", () => {
-  it("装上开发期异常旁路、图标不进读屏名字、留住原生启动图（由开屏动画自己收）", () => {
+  it("装上开发期异常旁路、图标不进读屏名字、切语言时同步交给系统的文字、留住原生启动图（由开屏动画自己收）", () => {
     expect(atImport.devTap).toBe(1);
     expect(atImport.iconsHidden).toBe(1);
+    expect(atImport.localeSync).toBe(1);
     expect(atImport.splashHold).toBe(1);
   });
 

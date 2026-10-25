@@ -76,9 +76,11 @@ jest.mock("expo-router", () => ({
     navigate: (h: string) => mockNavigate(h),
   },
 }));
+/** 当前语言的前缀：「切语言后重写按钮文字」的用例用，默认空 = 文字就是键名 */
+let mockLang = "";
 jest.mock("@/i18n", () => ({
   translate: (k: string, p?: Record<string, unknown>) =>
-    p ? `${k}:${JSON.stringify(p)}` : k,
+    mockLang + (p ? `${k}:${JSON.stringify(p)}` : k),
 }));
 jest.mock("@/services/dev-log", () => ({ devLog: jest.fn() }));
 const mockClearStartPush = jest.fn();
@@ -216,6 +218,7 @@ const reqs = (): Req[] => mockSchedule.mock.calls.map((c) => c[0] as Req);
 describe("sos-alert", () => {
   beforeEach(() => {
     responseHandler = null;
+    mockLang = "";
     for (const [m, impl] of defaultImpls) {
       m.mockReset();
       if (impl) m.mockImplementation(impl);
@@ -480,6 +483,37 @@ describe("sos-alert", () => {
       mockSetCategory.mockRejectedValueOnce(new Error("no"));
       const m = load();
       await expect(m.ensureSosAlertPermission()).resolves.toBeUndefined();
+    });
+
+    it("切语言后按钮文字、安卓求救通道名按新语言再交一次；还没初始化就不动，重写失败不抛（10-25 安卓模拟器：切成简体后按钮还是英文）", async () => {
+      override(Platform, "OS", "android");
+      const m = load();
+      await m.refreshSosAlertTexts();
+      expect(mockSetCategory).not.toHaveBeenCalled();
+      await m.ensureSosAlertPermission();
+      mockSetCategory.mockClear();
+      mockSetChannel.mockClear();
+      mockLang = "zh:";
+      await m.refreshSosAlertTexts();
+      const actions = mockSetCategory.mock.calls[0][1] as {
+        identifier: string;
+        buttonTitle: string;
+      }[];
+      expect(actions.map((a) => [a.identifier, a.buttonTitle])).toEqual([
+        ["cancel", "zh:sosAlert.cancelAction"],
+        ["open", "zh:sosAlert.openAction"],
+      ]);
+      expect(mockSetChannel).toHaveBeenCalledWith(
+        "sos",
+        expect.objectContaining({ name: "zh:sosAlert.channel", importance: 7 }),
+      );
+      // 结果通道还没建过：不顺手建出来
+      expect(mockSetChannel).not.toHaveBeenCalledWith(
+        "sos-result",
+        expect.anything(),
+      );
+      mockSetCategory.mockRejectedValueOnce(new Error("no"));
+      await expect(m.refreshSosAlertTexts()).resolves.toBeUndefined();
     });
   });
 
@@ -1732,6 +1766,27 @@ describe("sos-alert", () => {
       app.fire("active");
       expect(mockDismiss).toHaveBeenCalledWith("sos-cancelled-s1");
       expect(app.count()).toBe(0);
+    });
+
+    it("结果通道建过之后切语言：通道名也按新语言重写（系统设置 → 通知里列的名字）", async () => {
+      override(Platform, "OS", "android");
+      catchAppState();
+      mockCancel.mockResolvedValueOnce(cancelled as never);
+      const m = load();
+      await m.ensureSosAlertPermission();
+      expect(await m.cancelFromNotification("s1", 0, "d1")).toBe(true);
+      await Promise.resolve();
+      await Promise.resolve();
+      mockSetChannel.mockClear();
+      mockLang = "en:";
+      await m.refreshSosAlertTexts();
+      expect(mockSetChannel).toHaveBeenCalledWith(
+        "sos-result",
+        expect.objectContaining({
+          name: "en:sosAlert.resultChannel",
+          importance: 4,
+        }),
+      );
     });
 
     it("App 已经在前台（安卓 12 起会拉起）：不补", async () => {
