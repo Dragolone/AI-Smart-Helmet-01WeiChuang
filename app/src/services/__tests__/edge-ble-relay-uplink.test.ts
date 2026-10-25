@@ -670,6 +670,22 @@ describe("深睡持锁（Android holdNetwork / releaseNetwork）", () => {
     expect(mockRelease).toHaveBeenCalledTimes(1);
   });
 
+  it("求救被接受、紧接着的补拉还在跑：先不放锁，补拉结束才放（深睡的华为一放锁网络就挂起，10-25 审查）", async () => {
+    const { up, push } = load();
+    let finishResume!: () => void;
+    up.setCriticalAcceptedHandler(
+      () => new Promise<void>((r) => (finishResume = r)),
+    );
+    const hold = deferPush(push);
+    up.enqueueRelayEvent(env("manual_sos"));
+    hold.resolve({ accepted: 1, duplicate: 0, invalid: 0 });
+    await tick();
+    expect(mockRelease).not.toHaveBeenCalled();
+    finishResume();
+    await tick();
+    expect(mockRelease).toHaveBeenCalledTimes(1);
+  });
+
   it("另一台设备的高危还没送出：这一轮成功也不释放锁", async () => {
     const { up, push } = load();
     let cReachable = false;

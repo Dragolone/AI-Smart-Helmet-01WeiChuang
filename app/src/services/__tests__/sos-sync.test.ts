@@ -367,6 +367,59 @@ describe("resumePendingSos：账号级接口一次拿全（B 线第 12 项）", 
     expect(deps.fetchActive).not.toHaveBeenCalled();
   });
 
+  describe("断线期间已在别处结束的单（10-25 审查：补拉原来只加不减，锁屏提醒停在「10 秒后通知…」不动）", () => {
+    const held = (id: string, dev: string, status: Sos["status"] = "pending") =>
+      qc.setQueryData<ActiveSosResponse>(
+        ["sos-active", dev],
+        { sos: sos({ sosId: id, deviceId: dev, status }) },
+        { updatedAt: Date.now() - 60_000 },
+      );
+
+    it("账号级列表是全的、里面没有缓存里那单：写回 null、撤锁屏提醒、让倒计时页重拉；列表里有的照常拉起", async () => {
+      held("s1", "d1");
+      const invalidate = jest.spyOn(qc, "invalidateQueries");
+      deps.fetchAccountActive.mockResolvedValue({
+        items: [sos({ sosId: "s2", deviceId: "d2" })],
+        total: 1,
+      } as never);
+      const found = await resumePendingSos(qc, ["d1", "d2"], presented, deps);
+      expect(found).toEqual(["s2"]);
+      expect(qc.getQueryData(["sos-active", "d1"])).toEqual({ sos: null });
+      expect(deps.clearLockScreenAlert).toHaveBeenCalledWith("s1");
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["sos", "s1"] });
+    });
+
+    it("列表不全（total 多于这一页）、缓存那单本来就结束了、请求途中 WS 刚写过：都不动", async () => {
+      held("s1", "d1");
+      held("s3", "d3", "cancelled");
+      deps.fetchAccountActive.mockResolvedValue({
+        items: [],
+        total: 5,
+      } as never);
+      await resumePendingSos(qc, ["d1"], presented, deps);
+      expect(
+        qc.getQueryData<ActiveSosResponse>(["sos-active", "d1"])?.sos?.sosId,
+      ).toBe("s1");
+      expect(deps.clearLockScreenAlert).not.toHaveBeenCalled();
+
+      deps.fetchAccountActive.mockImplementation(async () => {
+        // 请求途中 WS 推来这一单（比这次应答新）
+        qc.setQueryData<ActiveSosResponse>(["sos-active", "d1"], {
+          sos: sos({ sosId: "s1", deviceId: "d1" }),
+        });
+        return { items: [], total: 0 } as never;
+      });
+      await resumePendingSos(qc, ["d1"], presented, deps);
+      expect(
+        qc.getQueryData<ActiveSosResponse>(["sos-active", "d1"])?.sos?.sosId,
+      ).toBe("s1");
+      expect(deps.clearLockScreenAlert).not.toHaveBeenCalled();
+      expect(
+        qc.getQueryData<ActiveSosResponse>(["sos-active", "d3"])?.sos?.status,
+      ).toBe("cancelled");
+    });
+  });
+
   it("给了重试间隔：账号级接口失败后按间隔再试，成功那次照常拉起；没给就只试一次（原行为）", async () => {
     deps.fetchAccountActive
       .mockRejectedValueOnce(new TypeError("Network request failed"))

@@ -1534,6 +1534,53 @@ describe("sos-alert", () => {
       await m.clearSosAlert("s1");
     });
 
+    it("安卓：本地这条看不见时不撤极光那条——求救通道被调成静默 / 通知栏里没有本地这条都不撤，看得见才撤（10-25 审查）", async () => {
+      override(Platform, "OS", "android");
+      const settle = () => new Promise((r) => setTimeout(r, 0));
+      // ① 通道被调成「低」（静默）
+      mockGetChannel.mockResolvedValue({
+        importance: 4, // AndroidImportance.LOW（上面 expo-notifications 替身里的值）
+      });
+      let m = load();
+      mockClearStartPush.mockClear();
+      await m.showSosAlertIfBackground("s1", "d1", deadlineIn(60));
+      await settle();
+      mockArrivalHook?.("s1");
+      await settle();
+      expect(mockClearStartPush).not.toHaveBeenCalled();
+      await m.clearSosAlert("s1");
+      // ② 通道正常，但通知栏里没有本地这条
+      mockGetChannel.mockResolvedValue({
+        importance: 7, // AndroidImportance.MAX
+      });
+      mockPresented.mockResolvedValue([]);
+      m = load();
+      mockClearStartPush.mockClear();
+      await m.showSosAlertIfBackground("s2", "d1", deadlineIn(60));
+      await settle();
+      expect(mockClearStartPush).not.toHaveBeenCalled();
+      await m.clearSosAlert("s2");
+      // ③ 通知栏里有本地这条：撤
+      m = load();
+      mockSchedule.mockClear();
+      mockClearStartPush.mockClear();
+      mockPresented.mockImplementation(async () => [
+        {
+          request: {
+            identifier: (
+              mockSchedule.mock.calls[0]?.[0] as { identifier: string }
+            )?.identifier,
+          },
+        },
+      ]);
+      await m.showSosAlertIfBackground("s3", "d1", deadlineIn(60));
+      await settle();
+      expect(mockClearStartPush).toHaveBeenCalledWith("s3");
+      await m.clearSosAlert("s3");
+      mockPresented.mockResolvedValue([]);
+      mockGetChannel.mockResolvedValue(null);
+    });
+
     it("安卓兜底：App 被杀时到的极光「倒计时已开始」没记到编号——单子结束、账号下没有别的单在倒数时按标题撤掉；还有别的单在倒数就不碰", async () => {
       override(Platform, "OS", "android");
       const foreign = (id: string, title: string) => ({

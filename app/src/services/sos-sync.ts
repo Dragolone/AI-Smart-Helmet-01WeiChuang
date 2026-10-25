@@ -96,6 +96,34 @@ export function applySosUpdate(
 }
 
 /**
+ * 账号级列表是全的（total 不大于条数）时：缓存里还算进行中、列表里却没有的单 = 断线期间已在别处结束。
+ * 补拉原来只加不减，这些单的缓存一直是 pending、锁屏提醒停在「10 秒后通知… · 我没事，取消」（10-25 审查）。
+ * 写回 null、撤锁屏提醒、让倒计时页重拉这一单的权威状态；请求途中 WS 写过的以缓存为准（同 applyAccountActive）
+ */
+function dropEndedElsewhere(
+  qc: QueryClient,
+  account: { items: Sos[]; total?: number },
+  startedAt: number,
+  deps: SosSyncDeps,
+  reason: string,
+): void {
+  if (typeof account.total !== "number" || account.total > account.items.length)
+    return;
+  const listed = new Set(
+    account.items.filter((s): s is Sos => !!s).map((s) => s.sosId),
+  );
+  for (const q of qc.getQueryCache().findAll({ queryKey: ["sos-active"] })) {
+    const held = (q.state.data as ActiveSosResponse | undefined)?.sos;
+    if (!held || held.status !== "pending" || listed.has(held.sosId)) continue;
+    if (q.state.dataUpdatedAt >= startedAt) continue;
+    qc.setQueryData<ActiveSosResponse>(q.queryKey, { sos: null });
+    deps.clearLockScreenAlert(held.sosId);
+    void qc.invalidateQueries({ queryKey: ["sos", held.sosId] });
+    deps.log?.(`${reason}：${held.sosId} 已不在进行中，按已结束处理`);
+  }
+}
+
+/**
  * 冷启动 / WS 重连后按 REST 补拉进行中的 SOS（SOS-12：锁屏那一刻 socket 掉线，那几秒内创建的单
  * WS 不会重推）。REST 在路上时 WS 可能已推来这单的终态，迟到的 pending 不能盖掉它（APP-03 同源）。
  * 返回找回的 sosId 列表。
@@ -128,7 +156,8 @@ export async function resumePendingSos(
   // 账号级接口一次拿全：绑了多少顶都只发一个请求（原来逐台查，1 万顶时冷启动 / 重连要串行一万个请求，10-16 F10）；
   // 头盔已解绑、单还是本人的也在里面。deviceIds 只在退回逐台查时用
   if (deps.fetchAccountActive) {
-    let account: { items: Sos[] } | null = null;
+    let account: { items: Sos[]; total?: number } | null = null;
+    const startedAt = Date.now();
     // 远程推送到达那次补拉是前台 + WS 没连上时唯一能把倒计时页拉起来的路径：弱网下这一个请求失败就再也没有下一次
     //（10-20 模拟器 30% 丢包实测：通知到了、页面整单没弹到到期）。调用方给了 retryDelaysMs 就按它有限重试几次；
     // 冷启动 / 重连等本来就有后续机会的调用不传，行为不变
@@ -149,6 +178,7 @@ export async function resumePendingSos(
     // items 不是数组（服务端出错；apiPage 已拦，这里是注入的取数函数也守住）：不抛，退回逐台查——
     // 冷启动补拉进行中的求救不能因为一个坏应答整个跳过
     if (account && Array.isArray(account.items)) {
+      dropEndedElsewhere(qc, account, startedAt, deps, reason);
       for (const sos of account.items) if (sos) take(sos.deviceId, sos);
       return found;
     }
