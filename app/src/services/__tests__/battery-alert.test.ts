@@ -13,7 +13,11 @@ import {
 import type { Mock } from "jest-mock";
 import { AppState, Platform } from "react-native";
 
-import { checkBatteryAlert, resetBatteryAlerts } from "../battery-alert";
+import {
+  checkBatteryAlert,
+  refreshBatteryChannelName,
+  resetBatteryAlerts,
+} from "../battery-alert";
 
 const mockToast = jest.fn();
 const mockSchedule = jest.fn(async (_req: unknown) => "notif-id");
@@ -23,9 +27,11 @@ jest.mock("@/components/toast", () => ({
   showToast: (m: string) => mockToast(m),
 }));
 jest.mock("@/services/dev-log", () => ({ devLog: jest.fn() }));
+/** 当前语言的前缀：切语言的用例用，默认空 */
+let mockLang = "";
 jest.mock("@/i18n", () => ({
   translate: (k: string, p?: Record<string, unknown>) =>
-    `${k}:${p?.battery ?? ""}`,
+    `${mockLang}${k}:${p?.battery ?? ""}`,
 }));
 jest.mock("expo-notifications", () => ({
   scheduleNotificationAsync: (req: unknown) => mockSchedule(req),
@@ -56,6 +62,7 @@ const flush = async (): Promise<void> => {
 describe("checkBatteryAlert", () => {
   beforeEach(() => {
     resetBatteryAlerts();
+    mockLang = "";
     mockToast.mockClear();
     mockSchedule.mockClear();
     mockChannel.mockClear();
@@ -138,6 +145,22 @@ describe("checkBatteryAlert", () => {
     // 通道写在 trigger 里：Android 原生侧不读 content.channelId，trigger 为 null 会落到兜底通道
     expect(req.trigger).toEqual({ channelId: "device" });
     expect(req.content.channelId).toBeUndefined();
+  });
+
+  it("切语言后通道名按新语言重写；还没建过通道就不动（10-25）", async () => {
+    override(Platform, "OS", "android");
+    await refreshBatteryChannelName();
+    expect(mockChannel).not.toHaveBeenCalled();
+    override(AppState, "currentState", "background");
+    checkBatteryAlert("h1", "头盔", st(18));
+    await flush();
+    mockChannel.mockClear();
+    mockLang = "en:";
+    await refreshBatteryChannelName();
+    expect(mockChannel).toHaveBeenCalledWith(
+      "device",
+      expect.objectContaining({ name: "en:battery.channel:" }),
+    );
   });
 
   it("still notifies when the Android channel cannot be created", async () => {

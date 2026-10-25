@@ -278,6 +278,7 @@ import {
   bleStackReleased,
   currentBleTargets,
   isHelmetConnected,
+  refreshServiceNotification,
   retryBleLink,
   setBleTargetNameResolver,
   setBleTargets,
@@ -806,6 +807,25 @@ describe("2026-10-05 评审：Android 前台服务在「搜索中」就要起来
       names: "我的头盔, 一二三四五六七八九十十一…, bbbbbb, …",
     });
     setBleTargetNameResolver(null);
+  });
+
+  it("10-25：切语言后常驻通知立刻按新语言重写，不等下一次连上 / 断开；链路没在跑就不碰服务", async () => {
+    refreshServiceNotification();
+    expect(mockSvcStart).not.toHaveBeenCalled();
+    expect(mockSvcStop).not.toHaveBeenCalled();
+    await startBleLink(["helmet_94173f"]);
+    await tick();
+    mockSvcStart.mockClear();
+    mockTranslate.mockImplementation((k: string) => `zh:${k}`);
+    try {
+      refreshServiceNotification();
+      expect(mockSvcStart).toHaveBeenCalledWith(
+        "zh:device.ble.serviceTitle",
+        "zh:device.ble.serviceSearching",
+      );
+    } finally {
+      mockTranslate.mockImplementation((k: string) => k);
+    }
   });
 
   it("启动时没有目标（设备列表还没拉到）不起服务；目标补上后起", async () => {

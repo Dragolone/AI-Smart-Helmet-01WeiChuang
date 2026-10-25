@@ -938,3 +938,8 @@ export async function writeHelmetRegister(
 }
 
 export const BLE_INS = Ins;
+
+/** 切语言后常驻通知按新语言重写一遍（services/locale-sync）：不然要等下一次连上 / 断开才换 */
+export function refreshServiceNotification(): void {
+  if (running) syncForegroundService();
+}
