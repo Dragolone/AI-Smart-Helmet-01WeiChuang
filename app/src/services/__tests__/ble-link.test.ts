@@ -1590,6 +1590,99 @@ describe("补分支（2026-10-19）", () => {
       expect(fakeDevice.connect).not.toHaveBeenCalled();
     });
 
+    it("10-25 审查：名字明摆着是另一顶头盔（Helmet-xxxxxx、不是要连的这顶）：带 FEE0、只盯一顶也不去连；只是大小写不同的照样核身连上", async () => {
+      await startBleLink([ID]);
+      await tick();
+      const peer = (id: string, name: string) => ({
+        ...fakeDevice,
+        id,
+        localName: name,
+        name,
+        serviceUUIDs: [FEE0_UUID],
+      });
+      scanCb?.(null, peer("periph-5", "Helmet-a1b2c3"));
+      await tick();
+      expect(fakeDevice.connect).not.toHaveBeenCalled();
+      scanCb?.(null, peer("periph-6", "Helmet-94173F"));
+      await until(() => link()?.phase === "connected");
+      expect(link()?.phase).toBe("connected");
+    });
+
+    it("10-25 审查：兜底候选握手失败但不是身份不符（如广播 FEE0 的手环不应答）：这台外设冷却 30 s，期间再出现不连，过了再试", async () => {
+      jest.useFakeTimers();
+      helmet.override = (f) => f[0] === 0x02 && f[2] === 0x40;
+      await startBleLink([ID]);
+      await jest.advanceTimersByTimeAsync(0);
+      scanCb?.(null, nameless("periph-9", [FEE0_UUID]));
+      await until(() => link()?.phase === "handshaking");
+      await jest.advanceTimersByTimeAsync(3_000);
+      await until(() => link()?.phase === "scanning");
+      expect(fakeDevice.connect).toHaveBeenCalledTimes(1);
+      scanCb?.(null, nameless("periph-9", [FEE0_UUID]));
+      await tick();
+      expect(fakeDevice.connect).toHaveBeenCalledTimes(1);
+      helmet.override = null;
+      await jest.advanceTimersByTimeAsync(30_000);
+      scanCb?.(null, nameless("periph-9", [FEE0_UUID]));
+      await until(() => link()?.phase === "connected");
+      expect(fakeDevice.connect).toHaveBeenCalledTimes(2);
+      expect(link()?.phase).toBe("connected");
+    });
+
+    it("10-25 审查：核身前推来的事件帧（Notify 已开、0x40 应答还没回）不入队、不 ACK；核身后头盔重发的同一帧照常入队并 ACK", async () => {
+      enqueueMock.mockImplementation(() => undefined);
+      enqueueMock.mockClear();
+      fakeDevice.writeCharacteristicWithoutResponseForService.mockImplementation(
+        async (_s, _c, v) => {
+          helmet.acks.push(bytesToHex(base64ToBytes(v)));
+          return {};
+        },
+      );
+      const fall = hexToBytes(
+        "05 01 66 00 00 00 00 00 00 00 5F 2D 55 ED 4E CD 01 17 7C 29 07",
+      );
+      let pushed = false;
+      helmet.override = (f) => {
+        if (f[0] === 0x02 && f[2] === 0x40 && !pushed) {
+          pushed = true;
+          helmet.push(fall);
+        }
+        return false;
+      };
+      await startBleLink([ID]);
+      await tick();
+      scanCb?.(null, fakeDevice);
+      await until(() => link()?.phase === "connected");
+      expect(pushed).toBe(true);
+      expect(enqueueMock).not.toHaveBeenCalled();
+      expect(helmet.acks).toEqual([]);
+      expect(logged("核身前收到事件")).toBe(true);
+      helmet.push(fall);
+      await tick();
+      expect(enqueueMock).toHaveBeenCalledTimes(1);
+      expect(helmet.acks).toEqual(["06 01 66 00 00 00 00"]);
+    });
+
+    it("10-25 审查：握手还没核完身份时来的设置写入：不写进头盔、回「未送达」；这时也不算已连接", async () => {
+      let result: unknown;
+      let connectedMidway: boolean | undefined;
+      helmet.override = (f) => {
+        if (f[0] === 0x02 && f[2] === 0x40 && connectedMidway === undefined) {
+          connectedMidway = isHelmetConnected(ID);
+          void writeHelmetRegister(ID, 0x24, [3]).then((r) => (result = r));
+        }
+        return false;
+      };
+      await startBleLink([ID]);
+      await tick();
+      scanCb?.(null, fakeDevice);
+      await until(() => link()?.phase === "connected");
+      await until(() => result !== undefined);
+      expect(connectedMidway).toBe(false);
+      expect(result).toEqual({ delivered: false });
+      expect(helmet.writes.some((w) => w.startsWith("03 "))).toBe(false);
+      expect(isHelmetConnected(ID)).toBe(true);
+    });
     it("开发日志里同一个名字只记一次「发现」；广播里没带服务 UUID 也照记", async () => {
       await startBleLink([ID]);
       await tick();
@@ -1625,17 +1718,17 @@ describe("补分支（2026-10-19）", () => {
       }
     });
 
-    it("外设掉线：2 s 后重新扫描并连上；连上即清掉退避，再掉线仍从 2 s 起", async () => {
+    it("外设掉线：立刻重新扫描，不等退避定时器（安卓后台 JS 定时器不走，10-25 审查）；重扫期间仍标已断开；退避到点不重复起扫描；重新连上", async () => {
       jest.useFakeTimers();
       await connectHelmet();
       expect(link()?.phase).toBe("connected");
       for (let round = 0; round < 2; round += 1) {
         const n = mockScans.length;
         helmet.disconnectCb?.(null, fakeDevice);
+        await jest.advanceTimersByTimeAsync(0); // 只让微任务走完，时间不动
+        expect(mockScans).toHaveLength(n + 1);
         expect(link()?.phase).toBe("disconnected");
-        await jest.advanceTimersByTimeAsync(1_999);
-        expect(mockScans).toHaveLength(n);
-        await jest.advanceTimersByTimeAsync(1);
+        await jest.advanceTimersByTimeAsync(2_000);
         expect(mockScans).toHaveLength(n + 1);
         scanCb?.(null, fakeDevice);
         await until(() => link()?.phase === "connected");
@@ -1883,7 +1976,7 @@ describe("补分支（2026-10-19）", () => {
   });
 
   describe("通知通道与收帧", () => {
-    it("通知通道报错（如对端断开）：关闭会话、显示已断开，2 s 后重新扫描", async () => {
+    it("通知通道报错（如对端断开）：关闭会话、显示已断开，立刻重新扫描（10-25），2 s 后的退避不再多起一轮", async () => {
       jest.useFakeTimers();
       await connectHelmet();
       const n = mockScans.length;
@@ -1894,6 +1987,8 @@ describe("补分支（2026-10-19）", () => {
       expect(link()?.phase).toBe("disconnected");
       expect(isHelmetConnected(ID)).toBe(false);
       expect(helmet.cancelled).toBeGreaterThan(0);
+      await jest.advanceTimersByTimeAsync(0);
+      expect(mockScans).toHaveLength(n + 1);
       await jest.advanceTimersByTimeAsync(2_000);
       expect(mockScans).toHaveLength(n + 1);
     });
@@ -2052,7 +2147,7 @@ describe("补分支（2026-10-19）", () => {
       expect(mockScans).toHaveLength(1);
     });
 
-    it("没在扫描时切前后台（已连上、或掉线后等退避）：不动扫描，掉线的照退避到点才重扫", async () => {
+    it("已连上时切前后台：不动扫描；掉线后立刻重扫（10-25），之后按正在扫描处理——退后台不打断过滤扫描，回前台重开一轮，退避到点不再多起", async () => {
       jest.useFakeTimers();
       const app = captureAppState();
       await connectHelmet();
@@ -2064,13 +2159,16 @@ describe("补分支（2026-10-19）", () => {
       expect(link()?.phase).toBe("connected");
 
       helmet.disconnectCb?.(null, fakeDevice);
-      await jest.advanceTimersByTimeAsync(500);
+      await jest.advanceTimersByTimeAsync(0);
+      expect(mockScans).toHaveLength(n + 1);
       app.cb?.("background");
+      await jest.advanceTimersByTimeAsync(0);
+      expect(mockScans).toHaveLength(n + 1);
       app.cb?.("active");
       await jest.advanceTimersByTimeAsync(0);
-      expect(mockScans).toHaveLength(n);
-      await jest.advanceTimersByTimeAsync(1_500);
-      expect(mockScans).toHaveLength(n + 1);
+      expect(mockScans).toHaveLength(n + 2);
+      await jest.advanceTimersByTimeAsync(2_000);
+      expect(mockScans).toHaveLength(n + 2);
     });
 
     it("设备列表轮询又拉到同一批目标：什么都不动（不重扫、不重发常驻通知）", async () => {
