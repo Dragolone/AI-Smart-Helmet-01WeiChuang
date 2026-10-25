@@ -114,6 +114,9 @@ function prioritizeCurrent(qc: QueryClient, ids: string[]): string[] {
 
 let bridgeGeneration = 0;
 
+/** 同一顶头盔的位置缓存最多每 0.5 秒写一次（积压补传时合并，见 pushLocation） */
+export const LOCATION_WRITE_MS = 500;
+
 export function useRealtimeUpdates(): void {
   const queryClient = useQueryClient();
   const authed = useAuthStore((s) => s.tokens !== null);
@@ -391,6 +394,54 @@ export function useRealtimeUpdates(): void {
       }
     });
 
+    // 位置推送合并写（优化清单 6）：积压补传时一顶头盔一秒十几个点，逐条写缓存会让地图逐条重画、慢帧变多。
+    // 同一顶 0.5 秒内只写一次：窗口里第一个点立刻写，后面来的只留最新的、到窗口末尾再写——平时 1–5 秒一个点，照样即时。
+    // 不比缓存新的点（乱序、补传的旧点）不写：setQueryData 的更新函数返回 undefined 就不动缓存，订阅方不重画
+    const locationWrites = new Map<
+      string,
+      {
+        at: number;
+        pending: WsLocationData | null;
+        timer: ReturnType<typeof setTimeout> | null;
+      }
+    >();
+    const writeLocation = (fix: WsLocationData) => {
+      queryClient.setQueryData<WsLocationData | null>(
+        ["device-location", fix.deviceId],
+        (prev) => {
+          const next = newerFix(prev, fix);
+          return next === prev ? undefined : next;
+        },
+      );
+    };
+    const pushLocation = (fix: WsLocationData) => {
+      const now = Date.now();
+      let w = locationWrites.get(fix.deviceId);
+      if (!w) {
+        w = { at: 0, pending: null, timer: null };
+        locationWrites.set(fix.deviceId, w);
+      }
+      if (w.timer === null && now - w.at >= LOCATION_WRITE_MS) {
+        w.at = now;
+        writeLocation(fix);
+        return;
+      }
+      w.pending = newerFix(w.pending, fix);
+      if (w.timer === null) {
+        const slot = w;
+        slot.timer = setTimeout(
+          () => {
+            slot.timer = null;
+            slot.at = Date.now();
+            const p = slot.pending;
+            slot.pending = null;
+            if (p) writeLocation(p);
+          },
+          Math.max(0, slot.at + LOCATION_WRITE_MS - now),
+        );
+      }
+    };
+
     const unsubscribe = realtimeClient.subscribe((message) => {
       switch (message.type) {
         case "device_status": {
@@ -427,12 +478,10 @@ export function useRealtimeUpdates(): void {
           break;
         }
         case "location_update": {
-          // 地图页 / 换头盔提醒读这份缓存。REST 轮询也写它：只留更新的点，乱序到达时不往回跳
-          const data = message.data as WsLocationData;
-          queryClient.setQueryData<WsLocationData | null>(
-            ["device-location", data.deviceId],
-            (prev) => newerFix(prev, data),
-          );
+          // 地图页 / 换头盔提醒读这份缓存。REST 轮询也写它：只留更新的点，乱序到达时不往回跳；积压补传时合并写
+          const data = message.data as WsLocationData | null;
+          if (!isShapedObject(data) || typeof data.deviceId !== "string") break;
+          pushLocation(data);
           break;
         }
         case "sos_update": {
@@ -497,6 +546,9 @@ export function useRealtimeUpdates(): void {
     const detach = () => {
       cancelled = true;
       if (coldRetryTimer) clearTimeout(coldRetryTimer);
+      for (const w of locationWrites.values())
+        if (w.timer) clearTimeout(w.timer);
+      locationWrites.clear();
       unsubscribeDead();
       devicesLoad.cancel();
       unsubscribe();
