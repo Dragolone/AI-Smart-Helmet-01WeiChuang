@@ -8,7 +8,6 @@ import type {
   LatestLocationResponse,
   LocationPoint,
   LocationSummaryResponse,
-  Paginated,
   PutSettingsRequest,
   ReportSettingsRequest,
   ReportSettingsResponse,
@@ -17,7 +16,7 @@ import type {
   TrackResponse,
   UpdateDeviceRequest,
 } from "@helmet/shared";
-import { api, apiList } from "./client";
+import { api, apiList, apiPage } from "./client";
 
 export const devicesApi = {
   bind: (body: BindDeviceRequest) =>
@@ -102,7 +101,7 @@ export const devicesApi = {
     page: number,
     pageSize: number,
   ) =>
-    api<Paginated<LocationPoint>>(
+    apiPage<LocationPoint>(
       `/devices/${encodeURIComponent(deviceId)}/locations?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&page=${page}&pageSize=${pageSize}`,
     ),
 };

@@ -1,6 +1,6 @@
 // 统一 API 客户端：Bearer 注入、401 静默刷新（排队防并发轮换冲突）、错误规范化。
 // Base URL 通过 EXPO_PUBLIC_API_URL 配置（默认本机后端）；Contract 见 docs/API.md。
-import type { ApiErrorBody, AuthTokens } from "@helmet/shared";
+import type { ApiErrorBody, AuthTokens, Paginated } from "@helmet/shared";
 
 import { API_BASE_URL as BASE_URL } from "@/constants/api";
 import { noteServerDate } from "@/services/server-clock";
@@ -247,6 +247,28 @@ export async function apiList<T>(path: string): Promise<T[]> {
     );
   }
   return v as T[];
+}
+
+/**
+ * 分页接口（`{ items, total, … }`）同理：`items` 不是数组就按服务端出错处理（10-25 iOS 改写应答）。原来原样交出去，
+ * 求救记录回个 `{}`，安全页取最新一单时对 undefined 取下标，整个安全标签页（含求救按钮）换成「页面暂时无法显示」；
+ * 账号级进行中求救回 `{}`，冷启动补拉求救在遍历时抛错、整个跳过
+ */
+export async function apiPage<T>(path: string): Promise<Paginated<T>> {
+  const v = await api<unknown>(path);
+  if (
+    typeof v !== "object" ||
+    v === null ||
+    !Array.isArray((v as { items?: unknown }).items)
+  ) {
+    throw new ApiRequestError(
+      200,
+      { code: "INTERNAL_ERROR", message: `${path}: not a page` },
+      undefined,
+      true,
+    );
+  }
+  return v as Paginated<T>;
 }
 
 /** 此刻的 refresh token（请求体里要带它的接口用，配合函数形式的 body 在重试时重取） */

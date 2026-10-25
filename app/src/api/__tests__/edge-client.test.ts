@@ -19,6 +19,7 @@ import {
   REQUEST_TIMEOUT_MS,
   api,
   apiList,
+  apiPage,
   attachSession,
   clientTimeZone,
   forceRefreshTokens,
@@ -447,6 +448,29 @@ describe("列表接口应答不是数组（10-21 夜测：开屏层对设备列�
     }
     fetchMock.mockResolvedValueOnce(res(200, [{ deviceId: "d1" }]));
     await expect(apiList("/devices")).resolves.toEqual([{ deviceId: "d1" }]);
+  });
+});
+
+describe("分页接口应答的 items 不是数组（10-25 iOS 改写应答：安全页对 undefined 取下标整页崩、冷启动补拉求救遍历时抛错）", () => {
+  it("字符串 / null / 数字 / 数组 / 没有 items / items 不是数组 都按服务端出错（INTERNAL_ERROR）；正常分页照常返回", async () => {
+    for (const bad of [
+      "unexpected",
+      null,
+      42,
+      [1, 2],
+      {},
+      { items: null, total: 0 },
+      { items: "x", total: 1 },
+    ]) {
+      fetchMock.mockResolvedValueOnce(res(200, bad));
+      const e = await apiPage("/devices/d1/accidents").catch((x: unknown) => x);
+      expect(e).toBeInstanceOf(ApiRequestError);
+      expect((e as ApiRequestError).code).toBe("INTERNAL_ERROR");
+      expect(toUserMessage(e)).toBe(translate("error.internal"));
+    }
+    const page = { items: [{ sosId: "s1" }], total: 1, page: 1, pageSize: 20 };
+    fetchMock.mockResolvedValueOnce(res(200, page));
+    await expect(apiPage("/devices/d1/accidents")).resolves.toEqual(page);
   });
 });
 

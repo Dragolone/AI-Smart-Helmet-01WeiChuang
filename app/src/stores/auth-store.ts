@@ -181,6 +181,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // 同 hydrate：请求在途时登出了、或换成了另一个账号，这份档案就不落
     const now = get();
     if (!now.tokens) return;
+    // 应答不是一份档案（服务端出错回了 null / 别的东西）：不落，也不在 .id 上抛出没人接的错
+    if (typeof full !== "object" || full === null) return;
     if (now.user && now.user.id !== full.id) return;
     await get()
       .setUser(full)

@@ -262,6 +262,19 @@ describe("auth-store.refreshUser：别处改过的档案要能拉回来（10-16�
     expect(store.getState().user?.nickname).toBe("骑手");
   });
 
+  it("应答不是一份档案（null / 字符串）：静默，保留原档案，不在 .id 上抛出没人接的错（10-25 iOS 改写应答）", async () => {
+    mockKv.set(TOKEN_KEY, JSON.stringify(tokens));
+    mockKv.set(USER_KEY, JSON.stringify(user()));
+    const { store } = loadAuth();
+    await store.getState().hydrate();
+    await flush();
+    for (const bad of [null, "unexpected"]) {
+      mockMe.mockResolvedValue(bad as never);
+      await expect(store.getState().refreshUser()).resolves.toBeUndefined();
+      expect(store.getState().user?.nickname).toBe("骑手");
+    }
+  });
+
   it("请求在途时换成另一个账号：迟到的旧账号档案不落", async () => {
     mockKv.set(TOKEN_KEY, JSON.stringify(tokens));
     mockKv.set(USER_KEY, JSON.stringify(user()));

@@ -346,6 +346,27 @@ describe("resumePendingSos：账号级接口一次拿全（B 线第 12 项）", 
     expect(deps.showLockScreenAlert).toHaveBeenCalledTimes(2);
   });
 
+  it("账号级应答的 items 不是数组（服务端出错）：不抛，退回逐台查；列表里夹着空项就跳过（10-25 iOS 改写应答）", async () => {
+    deps.fetchAccountActive.mockResolvedValue({ total: 1 } as never);
+    deps.fetchActive.mockImplementation(async (id: string) => ({
+      sos: id === "d2" ? sos({ sosId: "s2", deviceId: "d2" }) : null,
+    }));
+    await expect(
+      resumePendingSos(qc, ["d1", "d2"], presented, deps),
+    ).resolves.toEqual(["s2"]);
+    expect(deps.fetchActive).toHaveBeenCalledTimes(2);
+
+    deps.fetchActive.mockClear();
+    deps.fetchAccountActive.mockResolvedValue({
+      items: [null, sos({ sosId: "s3", deviceId: "d3" })],
+      total: 2,
+    } as never);
+    await expect(
+      resumePendingSos(qc, ["d3"], presented, deps),
+    ).resolves.toEqual(["s3"]);
+    expect(deps.fetchActive).not.toHaveBeenCalled();
+  });
+
   it("给了重试间隔：账号级接口失败后按间隔再试，成功那次照常拉起；没给就只试一次（原行为）", async () => {
     deps.fetchAccountActive
       .mockRejectedValueOnce(new TypeError("Network request failed"))

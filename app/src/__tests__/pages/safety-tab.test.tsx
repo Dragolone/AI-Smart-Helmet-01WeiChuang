@@ -354,6 +354,40 @@ describe("状态卡", () => {
 });
 
 describe("最近一条 SOS 与入口", () => {
+  it("有一顶的记录缺时间 / 时间类型不对（服务端出错）：整页不崩，最近一条按有时间的那条写（10-25 iOS 改写应答）", async () => {
+    mockSafety.list = [dev("h1"), dev("h2"), dev("h3")];
+    m(sosApi.accidents).mockImplementation((...args: unknown[]) =>
+      Promise.resolve({
+        items: [
+          args[0] === "h2"
+            ? ({
+                sosId: "b",
+                createdAt: "2026-10-12T01:00:00.000Z",
+                triggerType: "manual_sos",
+                status: "notified",
+              } as AccidentListItem)
+            : ({
+                sosId: args[0] === "h1" ? "a" : "c",
+                createdAt: args[0] === "h1" ? undefined : 12345,
+                triggerType: "possible_fall",
+                status: "cancelled",
+              } as unknown as AccidentListItem),
+        ],
+        total: 1,
+      }),
+    );
+    const r = mount();
+    await waitFor(() =>
+      expect(r.allText()).toContain(
+        tr("safety.recordsLatest", {
+          date: shortDate("2026-10-12T01:00:00.000Z", "zh-CN"),
+          type: tr("safety.manualSos"),
+          status: tr("safety.status.notified"),
+        }),
+      ),
+    );
+  });
+
   it("还在拉写省略号；有就写日期 / 类型 / 状态（取所有头盔里最近的）；拉失败不说成暂无", async () => {
     mockSafety.list = [dev("h1"), dev("h2")];
     m(sosApi.accidents).mockImplementation((...args: unknown[]) =>

@@ -146,8 +146,10 @@ export async function resumePendingSos(
         await new Promise((r) => setTimeout(r, retryDelaysMs[attempt]));
       }
     }
-    if (account) {
-      for (const sos of account.items) take(sos.deviceId, sos);
+    // items 不是数组（服务端出错；apiPage 已拦，这里是注入的取数函数也守住）：不抛，退回逐台查——
+    // 冷启动补拉进行中的求救不能因为一个坏应答整个跳过
+    if (account && Array.isArray(account.items)) {
+      for (const sos of account.items) if (sos) take(sos.deviceId, sos);
       return found;
     }
   }

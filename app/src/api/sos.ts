@@ -5,10 +5,9 @@ import type {
   AccidentListItem,
   ActiveSosItem,
   ActiveSosResponse,
-  Paginated,
   Sos,
 } from "@helmet/shared";
-import { api, ApiRequestError } from "./client";
+import { api, apiPage, ApiRequestError } from "./client";
 import { isSosFor } from "./sos-shape";
 
 /**
@@ -41,7 +40,7 @@ export const sosApi = {
    * 默认取最早到期的 100 单——多于 100 单时 total 会大于 items.length，调用方据此知道列表不全
    */
   activeForAccount: (page = 1, pageSize = 100) =>
-    api<Paginated<ActiveSosItem>>(
+    apiPage<ActiveSosItem>(
       `/users/me/sos/active?page=${page}&pageSize=${pageSize}`,
     ),
 
@@ -60,7 +59,7 @@ export const sosApi = {
     }),
 
   accidents: (deviceId: string, page = 1, pageSize = 20) =>
-    api<Paginated<AccidentListItem>>(
+    apiPage<AccidentListItem>(
       `/devices/${encodeURIComponent(deviceId)}/accidents?page=${page}&pageSize=${pageSize}`,
     ),
 
