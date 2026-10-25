@@ -34,7 +34,10 @@ const WEIRD = "a/b?c#d&e %41 中";
 const ENC = encodeURIComponent(WEIRD);
 
 beforeEach(() => {
-  fetchMock = jest.fn(async () => ok({ sos: null, items: [], total: 0 }));
+  // 详情要有设备号、行程要有 rides 数组才过入口规整（api/device-shape）；这里只看路径
+  fetchMock = jest.fn(async () =>
+    ok({ sos: null, items: [], total: 0, deviceId: "d", rides: [] }),
+  );
   (globalThis as { fetch: unknown }).fetch = fetchMock;
   attachSession({
     getTokens: () => ({ accessToken: "a", refreshToken: "r" }),
@@ -255,6 +258,44 @@ describe(".env 里接口地址的写法", () => {
         (globalThis as { WebSocket?: unknown }).WebSocket = prevWs;
       }
       expect(sockets[0]?.startsWith(`${ws}?`)).toBe(true);
+    }
+  });
+});
+
+describe("设备 / 频道接口的入口规整（优化清单 8）", () => {
+  it("设备列表丢掉没有设备号的项，字段规整（电量 150 → 没有、在线 'yes' → 不在线）；频道成员数不是数字按 0", async () => {
+    fetchMock.mockResolvedValueOnce(
+      ok([
+        { deviceId: "h1", battery: 150, online: "yes" },
+        null,
+        { name: "x" },
+      ]),
+    );
+    const list = await devicesApi.list();
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({
+      deviceId: "h1",
+      battery: null,
+      online: false,
+    });
+    fetchMock.mockResolvedValueOnce(
+      ok([{ channelId: "c1", name: "车队", memberCount: "3" }, "bad"]),
+    );
+    const chans = await channelsApi.list();
+    expect(chans).toHaveLength(1);
+    expect(chans[0].memberCount).toBe(0);
+  });
+
+  it("详情没有设备号、状态不是对象、行程没有 rides 数组：按服务端出错（INTERNAL_ERROR），页面走已有的失败状态", async () => {
+    const cases: [() => Promise<unknown>, unknown][] = [
+      [() => devicesApi.detail("h1"), {}],
+      [() => devicesApi.status("h1"), "unexpected"],
+      [() => devicesApi.status("h1"), null],
+      [() => devicesApi.rides("h1", "a", "b"), { rides: null }],
+    ];
+    for (const [call, body] of cases) {
+      fetchMock.mockResolvedValueOnce(ok(body));
+      await expect(call()).rejects.toMatchObject({ code: "INTERNAL_ERROR" });
     }
   });
 });

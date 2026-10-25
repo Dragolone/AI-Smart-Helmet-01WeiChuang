@@ -1235,6 +1235,32 @@ describe("其余实时消息与前后台", () => {
     expect(invalidate).not.toHaveBeenCalled();
   });
 
+  it("device_status 带着越界 / 错类型的值：写进缓存前规整（电量 'x' → 没有、在线 'yes' → 不在线、充电 'no' → 不知道）；data 不是对象就不写（优化清单 8）", async () => {
+    await mountBridge();
+    await wsPush("device_status", {
+      deviceId: "h1",
+      battery: "x",
+      online: "yes",
+      charging: "no",
+      lastSeenAt: "nope",
+      sleeping: false,
+      signalLevel: 3,
+      firmwareVersion: null,
+    } as never);
+    expect(qc.getQueryData(["device-status", "h1"])).toMatchObject({
+      battery: null,
+      online: false,
+      charging: null,
+      lastSeenAt: null,
+      signalLevel: 3,
+    });
+    const write = jest.spyOn(qc, "setQueryData");
+    for (const bad of [null, "x", { battery: 50 }]) {
+      await wsPush("device_status", bad as never);
+    }
+    expect(write).not.toHaveBeenCalled();
+  });
+
   it("认不出的消息类型（服务端先上了新类型）：忽略，不碰缓存", async () => {
     await mountBridge();
     const invalidate = jest.spyOn(qc, "invalidateQueries");

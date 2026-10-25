@@ -16,16 +16,40 @@ import type {
   TrackResponse,
   UpdateDeviceRequest,
 } from "@helmet/shared";
-import { api, apiList, apiPage } from "./client";
+import { api, apiList, apiPage, ApiRequestError } from "./client";
+import {
+  isShapedObject,
+  normalizeDevice,
+  normalizeStatus,
+} from "./device-shape";
+
+/** 应答不是对象（网关回了别的 JSON）：同 apiList / apiPage，按服务端出错处理 */
+const notShaped = (path: string) =>
+  new ApiRequestError(
+    200,
+    { code: "INTERNAL_ERROR", message: `${path}: unexpected shape` },
+    undefined,
+    true,
+  );
 
 export const devicesApi = {
   bind: (body: BindDeviceRequest) =>
     api<DevicePublic>("/devices/bind", { method: "POST", body }),
 
-  list: () => apiList<DevicePublic>("/devices"),
+  // 字段在入口规整（device-shape）：越界电量、错类型的在线 / 充电不往页面上送；没有设备号的项丢掉
+  list: () =>
+    apiList<unknown>("/devices").then((items) =>
+      items.map(normalizeDevice).filter((d): d is DevicePublic => d !== null),
+    ),
 
-  detail: (deviceId: string) =>
-    api<DevicePublic>(`/devices/${encodeURIComponent(deviceId)}`),
+  detail: (deviceId: string) => {
+    const path = `/devices/${encodeURIComponent(deviceId)}`;
+    return api<unknown>(path).then((v) => {
+      const d = normalizeDevice(v);
+      if (!d) throw notShaped(path);
+      return d;
+    });
+  },
 
   /** 24h 电量历史（API.md §4；10 分钟桶） */
   batteryHistory: (deviceId: string, hours = 24) =>
@@ -33,8 +57,13 @@ export const devicesApi = {
       `/devices/${encodeURIComponent(deviceId)}/battery-history?hours=${hours}`,
     ),
 
-  status: (deviceId: string) =>
-    api<DeviceStatus>(`/devices/${encodeURIComponent(deviceId)}/status`),
+  status: (deviceId: string) => {
+    const path = `/devices/${encodeURIComponent(deviceId)}/status`;
+    return api<unknown>(path).then((v): DeviceStatus => {
+      if (!isShapedObject(v)) throw notShaped(path);
+      return normalizeStatus(v);
+    });
+  },
 
   /** 重命名（API.md §4 PATCH）；name 传空串或 null = 清除自定义名 */
   rename: (deviceId: string, body: UpdateDeviceRequest) =>
@@ -82,10 +111,14 @@ export const devicesApi = {
    * 行程列表（API.md §5）：起点落在 [from, to) 内的行程，最新在前；范围 ≤32 天。
    * from 一律传本地零点——超长行程的切点以它为基准，各处查到的同一趟才对得上。
    */
-  rides: (deviceId: string, from: string, to: string) =>
-    api<RidesResponse>(
-      `/devices/${encodeURIComponent(deviceId)}/rides?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-    ),
+  rides: (deviceId: string, from: string, to: string) => {
+    const path = `/devices/${encodeURIComponent(deviceId)}/rides?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+    // rides 不是数组：按服务端出错（原来查询函数把 undefined 交给 TanStack Query，开发包里刷一条报错）
+    return api<RidesResponse>(path).then((v) => {
+      if (!isShapedObject(v) || !Array.isArray(v.rides)) throw notShaped(path);
+      return v;
+    });
+  },
 
   /** 抽稀轨迹（API.md §5）：画线和回放用；范围 ≤24h，点数超过 maxPoints 时等间隔抽稀、首尾保留 */
   track: (deviceId: string, from: string, to: string, maxPoints = 1000) =>
