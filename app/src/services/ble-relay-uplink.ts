@@ -285,10 +285,11 @@ export async function flushRelayQueue(): Promise<void> {
     deviceCursor = (deviceCursor + 1) % Math.max(devices.length, 1);
     const mine = queue.filter((e) => e.deviceId === dev);
     // 高危事件插队：同一台设备积压时先送摔倒/求救/危险，位置心跳排后
+    const limit = batchLimit;
     const batch = [
       ...mine.filter((e) => CRITICAL_TYPES.has(e.eventType)),
       ...mine.filter((e) => !CRITICAL_TYPES.has(e.eventType)),
-    ].slice(0, batchLimit);
+    ].slice(0, limit);
     try {
       // 2xx 但响应体是 null（网关改写）：服务端已消化这一批，按全部接受走后续——原来读 counts.invalid 抛 TypeError，
       // 「高危已接受」回调没走、网络锁没放（10-16 A8）
@@ -301,6 +302,10 @@ export async function flushRelayQueue(): Promise<void> {
       const sent = new Set(batch);
       queue = queue.filter((e) => !sent.has(e));
       lastFlushOkAt = Date.now();
+      // 这一批是满的 = 积压至少还有一批：不等 5 秒的定时器，接着冲下一批，积压不足一批再回到 5 秒一轮
+      //（原来 1000 条要 50 秒才传完，优化清单 7）。失败不连发（留给下一轮）；不满的批也不连发——头盔一秒十几个点时，
+      // 「有就接着发」会变成每个请求一回来就再发一两条，比 5 秒一批的请求还多
+      if (batch.length >= limit && queue.length > 0) rerunAfterFlush = true;
       // 摔倒 / 求救被服务端判为 invalid 只留档不建单：出队是对的（重发也不会变合法），但不能只 devLog——骑手以为求救已发出。
       // 计数不分条，只知道这一批里有求救且有 invalid；App 自建 envelope 几乎不会 invalid，真发生多半是协议漂移（10-15 复审 F-3）
       if (
