@@ -36,7 +36,7 @@ import {
   waitFor,
   type Rendered,
 } from "@/__tests__/helpers/render";
-import { SessionEndedError } from "@/api/client";
+import { ApiRequestError, SessionEndedError } from "@/api/client";
 import { devicesApi } from "@/api/devices";
 import { Colors } from "@/constants/theme";
 import { useDeviceSettings } from "@/hooks/use-device-settings";
@@ -1388,6 +1388,32 @@ describe("设置分类页", () => {
     await flush();
     await flush();
     expect(r.texts()).toEqual(["h9"]);
+  });
+
+  it("头盔已不在本账号下（乱链接 / 别的手机解绑了，设置或状态 404）：不画开关，同详情首页给空态（优化清单 10）", async () => {
+    (devicesApi.detail as jest.Mock).mockImplementation(
+      () => new Promise(() => undefined),
+    );
+    (devicesApi.status as jest.Mock).mockImplementation(
+      () => new Promise(() => undefined),
+    );
+    settingsHook.mockReturnValue({
+      values: undefined,
+      lastCommand: null,
+      sending: false,
+      send: jest.fn(),
+      isError: true,
+      error: new ApiRequestError(404, { code: "DEVICE_NOT_FOUND" }),
+    });
+    const r = mount(
+      <DeviceSettingsPage
+        deviceId="h_missing"
+        groups={[{ keys: ["fallDetect"] as DeviceSettingKey[] }]}
+      />,
+    );
+    expect(r.allText()).toContain(tr("device.goneTitle"));
+    expect(r.allText()).toContain(tr("device.goneBody", { id: "h_missing" }));
+    expect(r.allText()).not.toContain(tr("device.set.fallDetect"));
   });
 
   it("分组标题、说明；读设置失败且没有缓存值时如实报错", async () => {

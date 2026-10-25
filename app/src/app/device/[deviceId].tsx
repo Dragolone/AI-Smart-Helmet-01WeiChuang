@@ -28,7 +28,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { devicesApi } from "@/api/devices";
 import { showToast } from "@/components/toast";
-import { ApiRequestError } from "@/api/client";
 import { isSessionEnded, toUserMessage } from "@/api/error-messages";
 import { useRouteParams } from "@/hooks/use-route-params";
 import { devLog } from "@/services/dev-log";
@@ -51,7 +50,7 @@ import {
   VolumeSlider,
   VOLUME_LOUD_THRESHOLD,
 } from "@/components/volume-slider";
-import { EmptyState } from "@/components/empty-state";
+import { DeviceGone, isDeviceGone } from "@/components/device-gone";
 import { FormInput, PrimaryButton } from "@/components/form";
 import { KeyboardAvoid } from "@/components/keyboard-avoid";
 import { ThemedText } from "@/components/themed-text";
@@ -66,7 +65,6 @@ import { retryBleLink } from "@/services/ble-link";
 import {
   bleRowOf,
   isBatteryLow,
-  shortDeviceId,
   type BleRowState,
 } from "@/services/device-view";
 import { cleanHelmetName, helmetNameOf } from "@/services/safety-status";
@@ -398,22 +396,8 @@ export default function DeviceDetailScreen() {
 
   // 这顶头盔已不在本账号下（别的手机解绑了、点了旧推送 / 深链）：服务端 404 DEVICE_NOT_FOUND。
   // 原来只在顶上写一行「找不到头盔」，下面照样画改名、常用控制、实时画面、解除绑定，点了全都报错（2026-10-15）
-  const gone = [status.error, detail.error].some(
-    (e) => e instanceof ApiRequestError && e.code === "DEVICE_NOT_FOUND",
-  );
-  if (gone)
-    return (
-      <ThemedView style={[styles.flex, styles.goneWrap]}>
-        <EmptyState
-          icon="help-circle-outline"
-          title={t("device.goneTitle")}
-          // 链接里的编号可以是任意长的一串（华为真机：600 个 x 铺满整屏），正文里只留前 32 个字
-          body={t("device.goneBody", { id: shortDeviceId(deviceId) })}
-          actionLabel={t("device.goneBack")}
-          onAction={() => router.navigate("/")}
-        />
-      </ThemedView>
-    );
+  if (isDeviceGone(status.error, detail.error))
+    return <DeviceGone deviceId={deviceId} />;
 
   return (
     <ThemedView style={styles.flex}>
@@ -756,7 +740,6 @@ export default function DeviceDetailScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  goneWrap: { justifyContent: "center", paddingHorizontal: 24 },
   container: { padding: 20, gap: 12, paddingBottom: 28 },
   identity: { gap: 4, marginBottom: 4 },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 10 },
