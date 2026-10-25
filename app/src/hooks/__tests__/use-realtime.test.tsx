@@ -75,7 +75,7 @@ import { sosScreen } from "@/services/sos-queue";
 import { presentedSos } from "@/services/sos-sync";
 import { useAuthStore } from "@/stores/auth-store";
 import { useCurrentHelmetStore } from "@/stores/current-helmet-store";
-import { useRealtimeUpdates } from "../use-realtime";
+import { LOCATION_WRITE_MS, useRealtimeUpdates } from "../use-realtime";
 
 /** 假的实时连接。订阅连接状态时和真的一样先回放当前值：onReconnect 靠它把「启动时已连上」算作第一次 */
 const mockWs = {
@@ -1175,9 +1175,97 @@ describe("其余实时消息与前后台", () => {
       fix("2026-10-18T02:00:10.000Z"),
     );
     await wsPush("location_update", fix("2026-10-18T02:00:20.000Z"));
+    // 0.5 秒窗口内来的新点先留着，窗口末尾写（合并写，见下一条）
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, LOCATION_WRITE_MS + 100));
+    });
     expect(qc.getQueryData(["device-location", "h1"])).toEqual(
       fix("2026-10-18T02:00:20.000Z"),
     );
+  });
+
+  describe("location_update 合并写（优化清单 6：积压补传时一秒十几个点，地图不逐条重画）", () => {
+    const fixAt = (deviceId: string, sec: number): WsLocationData => ({
+      deviceId,
+      latitude: 22.54,
+      longitude: 114.06,
+      coordinateSystem: "wgs84",
+      accuracy: 5,
+      speed: 3,
+      heading: 90,
+      altitude: null,
+      timestamp: new Date(Date.UTC(2026, 9, 18, 2, 0, sec)).toISOString(),
+      receivedAt: new Date(Date.UTC(2026, 9, 18, 2, 0, sec)).toISOString(),
+    });
+    /** 数某顶头盔位置缓存真正被写了几次（订阅方据此重画） */
+    const countWrites = (deviceId: string) => {
+      const box = { n: 0 };
+      const unsub = qc.getQueryCache().subscribe((e) => {
+        if (
+          e.type === "updated" &&
+          e.action.type === "success" &&
+          e.query.queryKey[0] === "device-location" &&
+          e.query.queryKey[1] === deviceId
+        )
+          box.n += 1;
+      });
+      return { box, unsub };
+    };
+    const waitWindow = () =>
+      act(async () => {
+        await new Promise((r) => setTimeout(r, LOCATION_WRITE_MS + 100));
+      });
+
+    it("一下来 15 个点：窗口里第一个立刻写，其余合并成窗口末尾一次（写最新的那个）", async () => {
+      await mountBridge();
+      const { box, unsub } = countWrites("h1");
+      for (let i = 1; i <= 15; i += 1) {
+        await wsPush("location_update", fixAt("h1", i));
+      }
+      expect(box.n).toBe(1);
+      expect(qc.getQueryData(["device-location", "h1"])).toEqual(
+        fixAt("h1", 1),
+      );
+      await waitWindow();
+      expect(box.n).toBe(2);
+      expect(qc.getQueryData(["device-location", "h1"])).toEqual(
+        fixAt("h1", 15),
+      );
+      unsub();
+    });
+
+    it("不比缓存新的点（补传的旧点、重复的乱序点）不写缓存，订阅方不重画", async () => {
+      await mountBridge();
+      await wsPush("location_update", fixAt("h1", 30));
+      await waitWindow();
+      const { box, unsub } = countWrites("h1");
+      await wsPush("location_update", fixAt("h1", 10));
+      await waitWindow();
+      await wsPush("location_update", fixAt("h1", 20));
+      await waitWindow();
+      expect(box.n).toBe(0);
+      expect(qc.getQueryData(["device-location", "h1"])).toEqual(
+        fixAt("h1", 30),
+      );
+      unsub();
+    });
+
+    it("两顶头盔各算各的窗口：都立刻写；坏消息（data 不是对象 / 没有设备号）不写", async () => {
+      await mountBridge();
+      await wsPush("location_update", fixAt("h1", 1));
+      await wsPush("location_update", fixAt("h2", 1));
+      expect(qc.getQueryData(["device-location", "h1"])).toEqual(
+        fixAt("h1", 1),
+      );
+      expect(qc.getQueryData(["device-location", "h2"])).toEqual(
+        fixAt("h2", 1),
+      );
+      const write = jest.spyOn(qc, "setQueryData");
+      for (const bad of [null, "x", { latitude: 1 }]) {
+        await wsPush("location_update", bad as never);
+      }
+      expect(write).not.toHaveBeenCalled();
+    });
   });
 
   it("device_command：交给中转写头盔；回执完成后才刷新设置页（不抢在回执前拉到旧状态）", async () => {
