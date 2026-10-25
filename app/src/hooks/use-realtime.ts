@@ -335,14 +335,16 @@ export function useRealtimeUpdates(): void {
     });
     // 自己把摔倒 / 求救送上云且服务端接受了 → 立刻核对进行中的 SOS 并拉起倒计时页，顺手让 WS 立即重连。
     // 手机深睡时 WS 早已断、极光长连接也被挂起，这是唯一不依赖它们的拉起路径（10-06 不变式评审 F-1）
+    // 和推送到达那次一样带 2 s / 5 s 重试；返回补拉的 Promise，上行队列等它跑完再放网络锁（10-25 审查）
     setCriticalAcceptedHandler((deviceId) => {
       realtimeClient.kick();
-      void resumePendingSos(
+      return resumePendingSos(
         queryClient,
         [deviceId],
         presentedSos,
         sosDeps,
         "中转成功后核对",
+        PUSH_ARRIVAL_RETRY_DELAYS_MS,
       );
     });
     // 远程 SOS 推送到达 → 以 REST 为准补拉一次（前台 + WS 没连上时唯一能把倒计时页拉起来的路径）

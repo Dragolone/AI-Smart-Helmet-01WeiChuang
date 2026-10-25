@@ -177,6 +177,12 @@ const NATIVE_ALARM_GRACE_MS = 30_000;
 const NATIVE_ALARM_FALLBACK_MS = 60_000;
 const NATIVE_ALARM_MAX_LEFT_MS = 10 * 60_000;
 /**
+ * 原生闹钟全 App 只有一个（原生侧已在响时再开直接返回、停则一律停）：记下此刻归哪一页（演练页 / 真单页各算一页）。
+ * 后开的先停掉前一页的、按自己的截止时间重开；先开的那页收尾时发现已经不归它就不停——否则演练中来了真单，
+ * 演练页一失焦就把真单页的警报关了，真单整段倒计时没声音、不震（10-25 审查）
+ */
+const nativeAlarm = { owner: 0, next: 1 };
+/**
  * 取消 / 立即求救失败后补拉权威状态最多等多久就下结论：网络正常（只是短信慢、响应晚）时补拉不到 1 s 就回来，
  * 这单已办成就不提示；网络真的坏时补拉本身也会挂到超时，不能让「没成功」的提示再晚 15 s——倒计时一共才 60 s。
  * 补拉在后台继续，晚到的结果照样写回缓存、页面跟着切
@@ -550,6 +556,9 @@ function SosActiveContent() {
       const left = Number.isFinite(at)
         ? Math.min(Math.max(at - serverNow(), 0), NATIVE_ALARM_MAX_LEFT_MS)
         : NATIVE_ALARM_FALLBACK_MS;
+      const me = nativeAlarm.next++;
+      if (nativeAlarm.owner !== 0) HelmetLinkService.stopSosAlarm();
+      nativeAlarm.owner = me;
       HelmetLinkService.startSosAlarm(left + NATIVE_ALARM_GRACE_MS);
       let urgentOn = false;
       const tick = setInterval(() => {
@@ -562,6 +571,8 @@ function SosActiveContent() {
       }, 1000);
       return () => {
         clearInterval(tick);
+        if (nativeAlarm.owner !== me) return;
+        nativeAlarm.owner = 0;
         HelmetLinkService.stopSosAlarm();
       };
     }
@@ -1780,7 +1791,10 @@ function SosActiveContent() {
                 </Tappable>
               </View>
             ) : (
-              <View style={styles.actions}>
+              // 按单号重建：两单同时倒数、滑到一半时当前这单到期，渲染里会自动切到下一单——同一个滑块不重建的话，
+              // 手势库把新的回调换进正在进行的手势，松手就取消了另一顶的单（「立即求救」按住跨过切单同理）。
+              // 重建会让进行中的手势 / 按压作废，要重新滑（10-25 审查）
+              <View key={sosId} style={styles.actions}>
                 <Tappable
                   feedback="scale"
                   accessibilityRole="button"

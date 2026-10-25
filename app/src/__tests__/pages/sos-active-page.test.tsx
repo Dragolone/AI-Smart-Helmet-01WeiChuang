@@ -1784,6 +1784,28 @@ describe("多顶头盔同时求救（10-16 N10：一张页 + 顶部胶囊点切�
     expect(mockRouter.back).toHaveBeenCalled();
   });
 
+  it("当前单结束、自动切到下一单时，滑块和「立即求救」整组按单号重建：滑到一半跨过切单的手势作废，不会取消到另一顶的单（10-25 审查）", async () => {
+    twoHelmets();
+    m(sosApi.cancel).mockImplementation((id: unknown) =>
+      Promise.resolve(
+        sosOf({
+          sosId: id as string,
+          deviceId: id === "s2" ? "h2" : "h1",
+          status: "cancelled",
+        }),
+      ),
+    );
+    const r = await mount();
+    arrive(second());
+    await tick(0);
+    const before = r.root.findByType(SlideToCancel);
+    slideCancel(r);
+    for (let i = 0; i < 3; i++) await tick(0);
+    expect(number(r)).toBe("50");
+    const after = r.root.findByType(SlideToCancel);
+    expect(after).not.toBe(before);
+  });
+
   it("三顶以上写「还有 2 顶头盔正在报警」；「全部取消」先确认，确认后每单都调取消接口；结果页列 3 条", async () => {
     twoHelmets();
     m(sosApi.cancel).mockImplementation((id: unknown) =>
@@ -2599,6 +2621,23 @@ describe("安卓闹钟通道（F15）", () => {
     expect(mockLink.setSosAlarmUrgent).not.toHaveBeenCalled();
     r.unmount();
     expect(mockLink.stopSosAlarm).toHaveBeenCalledTimes(1);
+  });
+
+  it("演练中来了真单：真单页接管原生警报（停掉演练的、按自己的截止时间重开），演练页随后收尾时不再把它关掉（10-25 审查）", async () => {
+    mockLink.sosAlarmAvailable = true;
+    routerState.params = { drill: "1", deviceId: "h1" };
+    const drill = await mount();
+    expect(mockLink.startSosAlarm).toHaveBeenCalledTimes(1);
+    routerState.params = { sosId: "s1", deviceId: "h1" };
+    const real = await mount();
+    // 接管：先停演练那一次，再按真单的截止时间开
+    expect(mockLink.stopSosAlarm).toHaveBeenCalledTimes(1);
+    expect(mockLink.startSosAlarm).toHaveBeenCalledTimes(2);
+    drill.unmount();
+    // 演练页收尾（失焦 / 卸载）：警报已经归真单页，不停
+    expect(mockLink.stopSosAlarm).toHaveBeenCalledTimes(1);
+    real.unmount();
+    expect(mockLink.stopSosAlarm).toHaveBeenCalledTimes(2);
   });
 
   it("不可用（iOS / 原生包比 JS 旧）：照旧 expo-audio 每秒重播，不碰原生", async () => {

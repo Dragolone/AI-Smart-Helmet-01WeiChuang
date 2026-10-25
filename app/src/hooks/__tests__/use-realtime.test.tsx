@@ -1111,6 +1111,51 @@ describe("求救：拉起倒计时页与锁屏提醒", () => {
     );
   });
 
+  it("中转成功后的核对第一次没拉到（深睡刚醒、网络还没起来）：同推送到达那条 2 s 后再试，拉到了照样拉起倒计时页（10-25 审查）", async () => {
+    await mountBridge();
+    jest
+      .mocked(sosApi.activeForAccount)
+      .mockRejectedValueOnce(offline())
+      .mockResolvedValueOnce({
+        items: [
+          { ...sosOf({ sosId: "s6", deviceId: "h6" }), deviceName: null },
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 100,
+      });
+    const real = global.setTimeout;
+    let fire: (() => void) | null = null;
+    const spy = jest.spyOn(global, "setTimeout").mockImplementation(((
+      fn: () => void,
+      ms?: number,
+    ) => {
+      if (ms === 2_000) {
+        fire = fn;
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }
+      return real(fn, ms);
+    }) as typeof setTimeout);
+    try {
+      let resumed: unknown;
+      await run(() => {
+        resumed = registered(setCriticalAcceptedHandler)("h6");
+      });
+      expect(resumed).toBeInstanceOf(Promise);
+      expect(router.push).not.toHaveBeenCalled();
+      expect(fire).not.toBeNull();
+      await run(() => fire!());
+      await act(async () => {
+        await resumed;
+      });
+      expect(router.push).toHaveBeenCalledWith(
+        "/sos-active?sosId=s6&deviceId=h6",
+      );
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("锁屏通知上的「取消」被服务端确认：先把终态写进缓存（弱网下接着的刷新失败也不回落成倒数），再让倒计时页 / 安全页重拉", async () => {
     await mountBridge();
     const invalidate = jest.spyOn(qc, "invalidateQueries");

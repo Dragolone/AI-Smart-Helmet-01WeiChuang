@@ -69,8 +69,31 @@ const alerts = new Map<
 let responseSub: Notifications.EventSubscription | null = null;
 // 极光那条比本地提醒晚到（安卓）：本地这条已在通知栏上就当场撤掉它（见 sos-start-push 的说明）
 setSosStartPushArrivalHook((sosId) => {
-  if (alerts.has(sosId)) clearSosStartPush(sosId);
+  if (alerts.has(sosId)) clearStartPushIfLocalVisible(sosId);
 });
+
+/**
+ * 撤极光那条「倒计时已开始」之前，确认本地这条真的看得见（安卓）：求救通道被关 / 调成静默（华为总开关的那个坑，
+ * isSosChannelBlocked）时本地这条排上了也不显示，再撤极光那条锁屏上就一条都不剩（10-25 审查）。
+ * 查询出错按看不见算，宁可多一条。iOS 上这一步本来就是空操作，照旧直接调
+ */
+function clearStartPushIfLocalVisible(sosId: string): void {
+  if (Platform.OS !== "android") {
+    clearSosStartPush(sosId);
+    return;
+  }
+  void (async () => {
+    try {
+      if (await isSosChannelBlocked()) return;
+      const ids = new Set(alertIdsOf(sosId));
+      const shown = await Notifications.getPresentedNotificationsAsync();
+      if (shown.some((n) => ids.has(n.request.identifier)))
+        clearSosStartPush(sosId);
+    } catch {
+      /* 看不见就不撤 */
+    }
+  })();
+}
 /** 通知按钮「取消」被服务端确认后回调（use-realtime 注册：让倒计时页立刻拉一次权威状态） */
 let onCancelConfirmed: ((sosId: string, sos?: Sos) => void) | null = null;
 export function setSosCancelConfirmedListener(
@@ -675,8 +698,8 @@ export async function showSosAlertIfBackground(
       if (!alive()) return;
       void dismissRemoteTwins(sosId);
       // 安卓同理：极光那条没有按钮，锁屏「隐藏通知内容」时还会被打码成「零一智行 · 1 个通知」；
-      // 本地这条锁屏照常显示（O31），弹出后把极光那条按编号撤掉（O12 / O31，10-21 晚）
-      clearSosStartPush(sosId);
+      // 本地这条锁屏照常显示（O31），弹出后把极光那条按编号撤掉（O12 / O31，10-21 晚）——前提是本地这条看得见
+      clearStartPushIfLocalVisible(sosId);
     };
     entry.timers.push(setTimeout(sweep, 3_000), setTimeout(sweep, 10_000));
     if (

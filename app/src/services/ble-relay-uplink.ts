@@ -250,21 +250,34 @@ export function enqueueRelayEvent(envelope: Envelope): void {
 let rerunAfterFlush = false;
 
 /** 高危事件（摔倒 / 求救）被服务端接受后的回调：由 use-realtime 接到「核对进行中的 SOS 并拉起倒计时页」 */
-let criticalAcceptedHandler: ((deviceId: string) => void) | null = null;
+// 返回 Promise 时（补拉进行中的求救）上行队列等它跑完再放网络锁；别的返回值不管
+let criticalAcceptedHandler: ((deviceId: string) => unknown) | null = null;
 export function setCriticalAcceptedHandler(
-  handler: ((deviceId: string) => void) | null,
+  handler: ((deviceId: string) => unknown) | null,
 ): void {
   criticalAcceptedHandler = handler;
 }
 const SOS_TRIGGER_TYPES = new Set(["possible_fall", "manual_sos"]);
 /** 页面直接提交（不经队列）的摔倒 / 求救被接受后也走同一条「核对并拉起倒计时页」的路 */
-export function notifyCriticalAccepted(deviceId: string): void {
+/** 返回回调给的 Promise（补拉进行中的求救）：上行队列要等它跑完再放网络锁；不会 reject */
+export function notifyCriticalAccepted(
+  deviceId: string,
+): Promise<unknown> | undefined {
   try {
-    criticalAcceptedHandler?.(deviceId);
+    const r = criticalAcceptedHandler?.(deviceId);
+    return r instanceof Promise
+      ? r.catch((err: unknown) =>
+          devLog("BLE-RELAY", "高危事件已接受后的补拉失败", err),
+        )
+      : undefined;
   } catch (err) {
     devLog("BLE-RELAY", "高危事件已接受回调抛错", err);
+    return undefined;
   }
 }
+
+/** 放网络锁前最多等补拉多久（补拉自带 2 s / 5 s 两次重试；锁本身是 90 s 的） */
+const RESUME_HOLD_MAX_MS = 30_000;
 
 /** 批量提交：成功才出队；失败/断网原样保留，下轮按原 eventId 补传 */
 export async function flushRelayQueue(): Promise<void> {
@@ -320,14 +333,26 @@ export async function flushRelayQueue(): Promise<void> {
       // WS 存活或远程推送到达就能确认「云端已建单」并拉起倒计时页的时机（10-06 不变式评审 F-1）。
       // duplicate 也算：第一次提交到了服务端但响应丢了（深睡刚醒的 SSL 读错误就是这种），重传按原
       // eventId 回 duplicate——单子早就建好了，只看 accepted 会漏掉这次拉起（10-14 代码审查）
+      let resumed: Promise<unknown> | undefined;
       if (
         counts.accepted + counts.duplicate > 0 &&
         batch.some((e) => SOS_TRIGGER_TYPES.has(e.eventType))
       ) {
-        notifyCriticalAccepted(dev);
+        resumed = notifyCriticalAccepted(dev);
       }
-      if (!queue.some((e) => CRITICAL_TYPES.has(e.eventType)))
-        HelmetLinkService.releaseNetwork();
+      if (!queue.some((e) => CRITICAL_TYPES.has(e.eventType))) {
+        if (resumed) {
+          // 补拉进行中的求救（拉起倒计时页 / 带「我没事，取消」的锁屏提醒）要在网络锁里跑完：深睡的华为一放锁
+          // 网络就挂起，这一下补拉落空就只剩极光那条没按钮的通知（10-25 审查）。不阻塞上行队列，最多等 30 s
+          void Promise.race([
+            resumed,
+            new Promise((r) => setTimeout(r, RESUME_HOLD_MAX_MS)),
+          ]).then(() => {
+            if (!queue.some((e) => CRITICAL_TYPES.has(e.eventType)))
+              HelmetLinkService.releaseNetwork();
+          });
+        } else HelmetLinkService.releaseNetwork();
+      }
       devLog(
         "BLE-RELAY",
         `已中转 ${dev} accepted=${counts.accepted} duplicate=${counts.duplicate} invalid=${counts.invalid}` +
