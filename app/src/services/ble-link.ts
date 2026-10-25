@@ -141,6 +141,11 @@ const RECONNECT_MAX_MS = 30_000;
 const SEEN_SEQ_LIMIT = 256;
 
 const advName = (deviceId: string) => `${ADV_NAME_PREFIX}${deviceId.slice(-6)}`;
+/** 名字是一顶头盔的广播名、又对不上要连的那顶（不分大小写，防固件写法不同）：是车友的头盔 */
+const isOtherHelmetName = (name: string, mine: string[]): boolean =>
+  name.length === ADV_NAME_PREFIX.length + 6 &&
+  name.toLowerCase().startsWith(ADV_NAME_PREFIX.toLowerCase()) &&
+  !mine.some((id) => advName(id).toLowerCase() === name.toLowerCase());
 const log = (...args: unknown[]) => devLog("BLE", ...args);
 
 class PendingCommand {
@@ -173,6 +178,11 @@ class HelmetSession {
   private disconnectSub: Subscription | null = null;
   firmwareVersion = "unknown";
   closed = false;
+  /**
+   * 读 0x40 核对过身份。Notify 要先开（不然应答帧会丢），核身前那一两秒推来的事件帧不能当成这顶的：
+   * 兜底候选可能是车友的头盔，按我们的 deviceId 上云会建假单，回了 ACK 它就把自己那条真摔倒擦了（10-25 审查）
+   */
+  verified = false;
 
   constructor(
     readonly deviceId: string,
@@ -235,6 +245,7 @@ class HelmetSession {
         },
       );
     }
+    this.verified = true;
     const fwResp = await this.command(
       buildRead(this.nextSeq(), Reg.FW_MAJOR, 3),
     );
@@ -370,6 +381,13 @@ class HelmetSession {
   }
 
   private async onEvent(ev: InboundEvent): Promise<void> {
+    if (!this.verified) {
+      // 不入队、不 ACK：是这顶的话，高危事件头盔会重发，重发完还没 ACK 就进 Flash，由握手第 5 步补传
+      log(
+        `${this.deviceId} 核身前收到事件 0x${ev.code.toString(16)} seq=${ev.eventSeq}，先不收`,
+      );
+      return;
+    }
     const highRisk = HIGH_RISK_CODES.has(ev.code);
     if (this.seenSeqs.includes(ev.eventSeq)) {
       // 重发帧：已入队过，只补一个 ACK（上一个 ACK 头盔没收到）
@@ -480,6 +498,15 @@ const sessions = new Map<string, HelmetSession>();
 const blocked = new Set<string>();
 /** 核身失败的兜底候选外设（peripheral id）：本次链路周期内不再尝试 */
 const ignoredPeripherals = new Set<string>();
+/**
+ * 兜底候选连接 / 握手失败（不是身份不符）：这台外设冷却到这个时刻再试。也可能就是自己没带名字的头盔、
+ * 只是偶发 GATT 错误，所以不永久忽略；可不冷却的话 finally 立刻重扫又连它——一个广播 FEE0 的手环就能
+ * 没有退避地反复占住「一次只连一台」（10-25 审查）。按时间戳判断，不靠定时器：安卓后台定时器不走
+ */
+const fallbackCooldown = new Map<string, number>();
+/** 连上过、后来掉线、正在重扫的头盔：重扫期间仍标「已断开」，不标成搜索中（见 ensureScanning） */
+const reconnecting = new Set<string>();
+const FALLBACK_COOLDOWN_MS = 30_000;
 const reconnectDelay = new Map<string, number>();
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let stateSub: Subscription | null = null;
@@ -549,7 +576,10 @@ async function ensureScanning(): Promise<void> {
     void ensureScanning();
   }, SCAN_FALLBACK_MS);
   scanFallbackTimer = fallbackTimer;
-  for (const id of want) store().patchLink(id, { phase: "scanning" });
+  // 掉线后重扫期间仍标「已断开」（phase 的定义就是「曾连上、现在掉线、后台自动重连中」）：标成搜索中的话，
+  // 服务端的「在线」还要再挂 90 秒，安全页会把刚掉线的头盔说成「头盔在线」（helmetLinkOf）
+  for (const id of want)
+    if (!reconnecting.has(id)) store().patchLink(id, { phase: "scanning" });
   // 按服务 UUID FEE0 过滤扫描，再按广播名 `Helmet-<后6位>` 匹配到具体设备：
   // iOS 退后台后只有带服务 UUID 过滤的扫描才会继续投递（真机实测 2026-09-16，不过滤时锁屏即停），
   // 因此硬件广播包必须携带 FEE0（DEVICE_PROTOCOL §1.2 已向硬件确认项）。
@@ -585,10 +615,13 @@ async function ensureScanning(): Promise<void> {
           (u) => u.toLowerCase() === SERVICE_UUID,
         );
         const candidates = wanted();
+        // 名字明摆着是另一顶头盔的：不去连（车友聚会时，自己的还没连上、旁边别人的在广播；10-25 审查）
         if (
           !advertisesService ||
           candidates.length !== 1 ||
-          ignoredPeripherals.has(device.id)
+          (name && isOtherHelmetName(name, candidates)) ||
+          ignoredPeripherals.has(device.id) ||
+          (fallbackCooldown.get(device.id) ?? 0) > Date.now()
         )
           return;
         target = candidates[0];
@@ -629,13 +662,21 @@ async function connect(
     }
     store().patchLink(deviceId, { phase: "handshaking" });
     session = new HelmetSession(deviceId, device, (reason) => {
+      const wasUp = store().links[deviceId]?.phase === "connected";
       sessions.delete(deviceId);
       store().patchLink(deviceId, {
         phase: running ? "disconnected" : "idle",
       });
       log(`${deviceId} 断开：${reason}`);
       syncForegroundService();
-      if (running) scheduleReconnect(deviceId);
+      if (running) {
+        if (wasUp) reconnecting.add(deviceId);
+        scheduleReconnect(deviceId);
+        // 立刻重开扫描，不能只等退避定时器：安卓退到后台 / 息屏后 JS 定时器整个停摆（10-25 模拟器实测），
+        // 掉线之后就再也不扫，头盔重新上电也连不上，摔倒只进 Flash（10-25 审查）。扫描由系统在后台照跑，
+        // 发现头盔是事件回调，不受定时器影响
+        void ensureScanning();
+      }
     });
     sessions.set(deviceId, session);
     await session.open();
@@ -645,6 +686,7 @@ async function connect(
       return;
     }
     reconnectDelay.delete(deviceId);
+    reconnecting.delete(deviceId);
     store().patchLink(deviceId, {
       phase: "connected",
       connectedAt: Date.now(),
@@ -670,6 +712,10 @@ async function connect(
       // 广播名撞车或绑错设备：不自动重试，页面显示错误让用户处理
       blocked.add(deviceId);
       store().patchLink(deviceId, { phase: "error", errorCode: code });
+    } else if (!byName) {
+      fallbackCooldown.set(found.id, Date.now() + FALLBACK_COOLDOWN_MS);
+      store().patchLink(deviceId, { phase: "disconnected" });
+      scheduleReconnect(deviceId);
     } else {
       store().patchLink(deviceId, { phase: "disconnected" });
       scheduleReconnect(deviceId);
@@ -834,6 +880,7 @@ export function setBleTargets(deviceIds: string[]): void {
     if (!next.includes(id)) {
       sessions.get(id)?.close("unbound");
       store().removeLink(id);
+      reconnecting.delete(id);
     }
   }
   targets = next;
@@ -867,6 +914,8 @@ export function stopBleLink(): void {
   reconnectDelay.clear();
   blocked.clear();
   ignoredPeripherals.clear();
+  fallbackCooldown.clear();
+  reconnecting.clear();
   store().reset();
   // 释放原生栈：否则 JS 重载/登出后系统仍握着外设连接，头盔不再广播、下次扫描找不到
   const dying = manager;
@@ -902,7 +951,7 @@ export function retryBleLink(deviceId?: string): void {
 }
 
 export const isHelmetConnected = (deviceId: string): boolean =>
-  sessions.has(deviceId);
+  sessions.get(deviceId)?.verified === true;
 
 /** 当前链路目标（工程模式暂停生产链路前记下来，退出时按此恢复） */
 export const currentBleTargets = (): string[] => [...targets];
@@ -922,7 +971,8 @@ export async function writeHelmetRegister(
   data: number[],
 ): Promise<RegisterWriteResult> {
   const s = sessions.get(deviceId);
-  if (!s || s.closed) return { delivered: false };
+  // 握手还没核完身份：连着的可能是别人的头盔，写进去还会回执「已生效」
+  if (!s || s.closed || !s.verified) return { delivered: false };
   try {
     const err = await s.writeRegister(addr, data);
     if (err === 0) return { delivered: true, executed: true };
