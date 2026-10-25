@@ -228,6 +228,7 @@ describe("持久化：写失败 / 损坏文件 / 恢复顺序", () => {
       events: [e],
     });
     await up.flushRelayQueue();
+    await new Promise((r) => setImmediate(r)); // 摔倒入队时已自动起了一次提交：等它回来
     expect(mockFs.writes).toHaveLength(2);
     expect(JSON.parse(mockFs.writes[1]).events).toEqual([]);
   });

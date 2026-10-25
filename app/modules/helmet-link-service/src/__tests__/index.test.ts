@@ -99,6 +99,28 @@ describe("HelmetLinkService", () => {
     expectInert(svc);
   });
 
+  it("网络锁只延长不缩短（10-25 审查）：持着 90 s 时再要 20 s 不转给原生（原生会按 20 s 重新拿锁）；更长的照转；放锁后重新计", () => {
+    jest.useFakeTimers();
+    try {
+      mockPlatform.OS = "android";
+      const n = (mockNative = fullNative());
+      const svc = load();
+      svc.holdNetwork(90_000);
+      svc.holdNetwork(20_000);
+      expect(n.holdNetwork).toHaveBeenCalledTimes(1);
+      jest.advanceTimersByTime(80_000);
+      svc.holdNetwork(20_000); // 还剩 10 s：延到 20 s 后
+      expect(n.holdNetwork).toHaveBeenLastCalledWith(20_000);
+      expect(n.holdNetwork).toHaveBeenCalledTimes(2);
+      svc.releaseNetwork();
+      svc.holdNetwork(5_000);
+      expect(n.holdNetwork).toHaveBeenLastCalledWith(5_000);
+      expect(n.holdNetwork).toHaveBeenCalledTimes(3);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it("安卓、原生齐全：逐个转给原生，参数原样（求救警报时长取整、麦克风文案默认空串）", () => {
     mockPlatform.OS = "android";
     const n = (mockNative = fullNative());
