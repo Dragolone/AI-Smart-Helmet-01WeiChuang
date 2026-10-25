@@ -19,6 +19,7 @@ import type {
 import { refreshActiveSos, sosScreen } from "@/services/sos-queue";
 import { sosActiveHref } from "@/services/sos-routes";
 import { ApiRequestError, forceRefreshTokens } from "@/api/client";
+import { isShapedObject, normalizeStatus } from "@/api/device-shape";
 import { devicesApi } from "@/api/devices";
 import { realtimeClient } from "@/api/realtime";
 import { sosApi } from "@/api/sos";
@@ -393,7 +394,11 @@ export function useRealtimeUpdates(): void {
     const unsubscribe = realtimeClient.subscribe((message) => {
       switch (message.type) {
         case "device_status": {
-          const { deviceId, ...status } = message.data as WsDeviceStatusData;
+          const data = message.data as WsDeviceStatusData | null;
+          if (!isShapedObject(data) || typeof data.deviceId !== "string") break;
+          // 越界电量、错类型的在线 / 充电不往缓存里写（同接口入口，api/device-shape）
+          const { deviceId, ...raw } = data;
+          const status = normalizeStatus(raw);
           // 详情页缓存：整体替换
           queryClient.setQueryData<DeviceStatus>(
             ["device-status", deviceId],

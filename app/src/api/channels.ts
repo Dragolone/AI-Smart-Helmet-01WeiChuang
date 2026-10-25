@@ -8,10 +8,19 @@ import type {
   VoiceTokenResponse,
 } from "@helmet/shared";
 import { api, apiList } from "./client";
+import { isShapedObject, normalizeChannel } from "./device-shape";
 
 export const channelsApi = {
   /** 我加入的频道列表 */
-  list: () => apiList<VoiceChannel>("/voice/channels"),
+  list: () =>
+    apiList<unknown>("/voice/channels").then((cs) =>
+      cs
+        .filter(
+          (c): c is VoiceChannel =>
+            isShapedObject(c) && typeof c.channelId === "string",
+        )
+        .map(normalizeChannel),
+    ),
 
   create: (body: CreateChannelRequest) =>
     api<VoiceChannel>("/voice/channels", { method: "POST", body }),

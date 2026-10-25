@@ -19,7 +19,13 @@ let mockRefresh = "rt-1";
 jest.mock("../client", () => ({
   api: (p: string, i?: Record<string, unknown>) => mockApi(p, i),
   // 列表接口走 apiList（应答必须是数组，见 client.ts）；这里只看路径
-  apiList: (p: string) => mockApi(p),
+  // 应答形状不对时要抛真的 ApiRequestError（devices 的入口规整用）
+  ApiRequestError:
+    jest.requireActual<typeof import("../client")>("../client").ApiRequestError,
+  apiList: async (p: string) => {
+    await mockApi(p);
+    return [];
+  },
   // 分页接口走 apiPage（应答的 items 必须是数组，见 client.ts）；同样只看路径
   apiPage: (p: string) => mockApi(p),
   currentRefreshToken: () => mockRefresh,
@@ -287,7 +293,8 @@ describe("devicesApi", () => {
     });
     await devicesApi.list();
     expect(last().path).toBe("/devices");
-    await devicesApi.detail(ODD);
+    // 替身应答是 {}（没有设备号），入口规整会按服务端出错拒掉——这里只看路径
+    await devicesApi.detail(ODD).catch(() => undefined);
     expect(last().path).toBe(`/devices/${ENC}`);
     await devicesApi.status(ODD);
     expect(last().path).toBe(`/devices/${ENC}/status`);
@@ -331,7 +338,7 @@ describe("devicesApi", () => {
     await devicesApi.locationSummary("d1", from, to);
     expect(last().path).toBe(`/devices/d1/locations/summary?${q}`);
     expect(last().path).toContain("%2B08%3A00");
-    await devicesApi.rides("d1", from, to);
+    await devicesApi.rides("d1", from, to).catch(() => undefined);
     expect(last().path).toBe(`/devices/d1/rides?${q}`);
     await devicesApi.track("d1", from, to);
     expect(last().path).toBe(`/devices/d1/locations/track?${q}&maxPoints=1000`);
