@@ -861,20 +861,25 @@ export default function MapScreen() {
       }
     } else map.clearTrack();
   }, [showRide, ridePath, padTop, cardPadBottom, sheetH]);
+  // 不在地图页时不往 WebView 推线和点（下面三个 effect 都看 focused）：原生标签页不卸载看不见的页面，这页从
+  // 启动起就一直挂着，人停在设备页时当前头盔的每个定位仍让看不见的地图 panTo + 重画线——头盔跑大范围（滑雪
+  // 剧本）时 App 进程 native 堆每分钟涨约 0.6 MB（10-29 模拟器对照实验，小圈骑行瓦片都缓存了就不涨）。
+  // 回到地图页时这几个 effect 因 focused 变化重跑一次，把最新的线、线头、头盔位置补上
   useEffect(() => {
-    if (showRide) return;
+    if (showRide || !focused) return;
     const map = mapRef.current;
     if (!map) return;
     // 实时模式定时刷新这条线：不收视野，镜头归「跟随」管。服务端只有 1 个点时加上线头也能画成一段
     if (livePath.length > 0) map.setTrack(livePath, { fit: false });
     else map.clearTrack();
-  }, [showRide, livePath]);
+  }, [showRide, focused, livePath]);
   // 线头：每来一个定位只发这一个点
   useEffect(() => {
+    if (!focused) return;
     const map = mapRef.current;
     if (!map) return;
     map.setTrackTip(!showRide && livePath.length > 0 ? livePos : null);
-  }, [showRide, livePath.length, livePos]);
+  }, [focused, showRide, livePath.length, livePos]);
 
   const marks = useMemo<MapMark[]>(() => {
     if (!showRide || ridePath.length < 2) return [];
@@ -897,6 +902,7 @@ export default function MapScreen() {
   // 没有可画的位置（实时还没定位、这一趟的轨迹还没到）就收起 Marker：不能停在上一顶头盔 / 上一处
   const replayPos = showRide ? ridePath[replayIdx ?? 0] : undefined;
   useEffect(() => {
+    if (!focused) return;
     const map = mapRef.current;
     if (!map) return;
     if (showRide) {
@@ -905,7 +911,7 @@ export default function MapScreen() {
     } else if (livePos) {
       map.setHelmet(livePos, { follow: following });
     } else map.hideHelmet();
-  }, [showRide, replayPos, livePos, following]);
+  }, [focused, showRide, replayPos, livePos, following]);
 
   // 离线时 Marker 变灰停波纹，一眼能看出"这不是实时位置"；看一趟时它不是实时位置，也不放波纹
   useEffect(() => {
