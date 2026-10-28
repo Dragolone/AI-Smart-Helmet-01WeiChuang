@@ -46,7 +46,10 @@ git ls-files -co --exclude-standard -- package.json package-lock.json .nvmrc bac
   | COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata -cf - -T - 2>/dev/null \
   | docker exec -i "$NODE" sh -c 'tar -xf - -C /work 2>/dev/null'
 
-until docker exec "$PG" pg_isready -U helmet >/dev/null 2>&1; do sleep 1; done
+# 不能只等 pg_isready：镜像的入口脚本初始化时会先起一个临时服务，pg_isready 对它也返回就绪，
+# 这时下面的 CREATE DATABASE 会和入口脚本自己建 helmet_ci 撞车（duplicate key），PG 容器直接退出（2026-10-29 实测）。
+# 要等入口脚本建好的 helmet_ci 能连上，才算初始化完成
+until docker exec "$PG" psql -U helmet -d helmet_ci -Atc 'select 1' >/dev/null 2>&1; do sleep 1; done
 docker exec "$PG" psql -U helmet -d postgres -q \
   -c 'DROP DATABASE IF EXISTS helmet_ci WITH (FORCE)' -c 'CREATE DATABASE helmet_ci'
 
