@@ -9,7 +9,7 @@
 // - CrossfadeIcon：换图标 / 换颜色时淡入淡出，可选弹一下
 import { Ionicons } from "@expo/vector-icons";
 import type { ReactNode } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   StyleSheet,
   View,
@@ -19,10 +19,7 @@ import {
 } from "react-native";
 import Animated, {
   Easing,
-  FadeIn,
   FadeInDown,
-  FadeOut,
-  LayoutAnimationConfig,
   interpolateColor,
   useAnimatedReaction,
   useAnimatedStyle,
@@ -69,8 +66,10 @@ export function useTintStyle(tint: {
 }
 
 /**
- * 换图标 / 换颜色时淡入淡出（旧的在快照上淡出、新的淡入），pop 时再弹一下；不硬切。
+ * 换图标 / 换颜色时淡入淡出（旧的原位淡出、新的淡入），pop 时再弹一下；不硬切。
  * 核对项变档、「安全」格的结论、状态卡的图标都用它。首次挂上不动。
+ * 和 ValueTransition 一样不走 Reanimated 的 entering / exiting、不按次挂卸动画视图：两层常驻轮流当前层，
+ * 新图标进本来就透明的那层，淡入淡出和 pop 都在 UI 线程里起（keyed 进出场每换一次都留 native 对象，10-30 heapprofd）。
  */
 export function CrossfadeIcon({
   name,
@@ -87,36 +86,81 @@ export function CrossfadeIcon({
   style?: StyleProp<ViewStyle>;
 }) {
   const reduced = useReducedMotion();
+  const key = `${name}|${color}`;
+  type Glyph = { name: keyof typeof Ionicons.glyphMap; color: string };
+  const [st, setSt] = useState<{
+    key: string;
+    count: number;
+    live: Glyph;
+    outgoing: Glyph | null;
+  }>(() => ({ key, count: 0, live: { name, color }, outgoing: null }));
+  if (st.key !== key) {
+    // 渲染期间派生状态：React 会丢掉这次结果、带着新 state 立刻重渲染
+    setSt({
+      key,
+      count: st.count + 1,
+      live: { name, color },
+      outgoing: reduced ? null : st.live,
+    });
+  }
+  const active = st.count % 2;
+  const tick = useSharedValue(0);
+  const op0 = useSharedValue(1);
+  const op1 = useSharedValue(0);
   const scale = useSharedValue(1);
-  const first = useRef(true);
   useEffect(() => {
-    if (first.current) {
-      first.current = false;
-      return;
-    }
-    if (!pop || reduced) return;
-    scale.set(
-      withSequence(
-        withTiming(1.25, { duration: 110 }),
-        withSpring(1, { damping: 12, stiffness: 320 }),
-      ),
-    );
-  }, [name, color, pop, reduced, scale]);
+    if (st.count > 0) tick.set(st.count);
+  }, [st.count, tick]);
+  useAnimatedReaction(
+    () => tick.get(),
+    (now, prev) => {
+      if (prev === null || now === prev) return;
+      const incoming = now % 2;
+      const opIn = incoming === 0 ? op0 : op1;
+      const opOut = incoming === 0 ? op1 : op0;
+      if (reduced) {
+        opIn.set(1);
+        opOut.set(0);
+        return;
+      }
+      opIn.set(withTiming(1, { duration: TINT_MS }));
+      opOut.set(withTiming(0, { duration: TINT_MS }));
+      if (pop) {
+        scale.set(
+          withSequence(
+            withTiming(1.25, { duration: 110 }),
+            withSpring(1, { damping: 12, stiffness: 320 }),
+          ),
+        );
+      }
+    },
+    [reduced, pop],
+  );
   const popStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.get() }],
   }));
+  const s0 = useAnimatedStyle(() => ({ opacity: op0.get() }));
+  const s1 = useAnimatedStyle(() => ({ opacity: op1.get() }));
+  const layer = (index: number) => {
+    const isActive = active === index;
+    const glyph = isActive ? { name, color } : st.outgoing;
+    return (
+      <Animated.View
+        style={[styles.fillAbs, index === 0 ? s0 : s1]}
+        pointerEvents="none"
+        accessibilityElementsHidden={!isActive}
+        importantForAccessibility={isActive ? "auto" : "no-hide-descendants"}
+      >
+        {glyph && (
+          <Ionicons name={glyph.name} size={size} color={glyph.color} />
+        )}
+      </Animated.View>
+    );
+  };
   return (
     <Animated.View style={[{ width: size, height: size }, style, popStyle]}>
-      <LayoutAnimationConfig skipEntering>
-        <Animated.View
-          key={`${name}|${color}`}
-          entering={FadeIn.duration(TINT_MS)}
-          exiting={FadeOut.duration(TINT_MS)}
-          style={styles.fillAbs}
-        >
-          <Ionicons name={name} size={size} color={color} />
-        </Animated.View>
-      </LayoutAnimationConfig>
+      {layer(0)}
+      {layer(1)}
     </Animated.View>
   );
 }

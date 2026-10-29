@@ -876,14 +876,15 @@ export function setBleTargets(deviceIds: string[]): void {
     next.length === targets.length && next.every((id) => targets.includes(id));
   if (unchanged && running) return;
   if (running) log("链路目标变更", next.join(",") || "(无)");
-  for (const id of targets) {
-    if (!next.includes(id)) {
-      sessions.get(id)?.close("unbound");
-      store().removeLink(id);
-      reconnecting.delete(id);
-    }
-  }
+  // 先换目标再断会话：断开回调会立刻重开扫描，它按 targets 算「还想连谁」——
+  // 换晚了就按旧名单把刚解绑的那顶又扫一轮（20 s 过滤扫描，10-29 评审）
+  const removed = targets.filter((id) => !next.includes(id));
   targets = next;
+  for (const id of removed) {
+    sessions.get(id)?.close("unbound");
+    store().removeLink(id);
+    reconnecting.delete(id);
+  }
   for (const id of targets) {
     if (!store().links[id])
       store().patchLink(id, { phase: running ? "scanning" : "idle" });
