@@ -155,10 +155,23 @@ describe("StatusChip", () => {
     expect(flat(r.root.findByType(Text).props.style).color).toBe(dark.text);
   });
 
-  it("换档时图标换掉（key 跟着名字和颜色变）", () => {
+  it("换档时图标换掉：新图标进当前层，旧图标留在淡出层等动画收尾", () => {
     const r = render(<StatusChip level="ok" label="蓝牙" />);
     r.rerender(<StatusChip level="bad" label="蓝牙" />);
-    expect(r.icons()).toEqual(["close-circle-outline"]);
+    // 两层常驻：读屏可见（importantForAccessibility="auto"）的那层是当前图标
+    const active = r.root
+      .find(
+        (n) =>
+          (n.type as unknown) === "View" &&
+          n.props.importantForAccessibility === "auto",
+      )
+      .findAll((n) => (n.type as unknown) === "Ionicons")
+      .map((n) => String(n.props.name));
+    expect(active).toEqual(["close-circle-outline"]);
+    expect(r.icons().sort()).toEqual([
+      "checkmark-circle-outline",
+      "close-circle-outline",
+    ]);
   });
 });
 
