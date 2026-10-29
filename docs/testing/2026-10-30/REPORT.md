@@ -1,0 +1,78 @@
+# 2026-10-30 测试记录（main bd2c0aa，接 10-29 一轮）
+
+> 负责人 04:25 布置：继续跑没跑完的测试，明天 08:00 前结束，遇 bug 自己开 PR 修并合，结束时把新占硬盘的全删。
+> main 自 10-29 以来没有新提交、没有 open PR（CI 同款上一轮全绿，不重跑），本轮集中在 10-29 留下的唯一疑点：**安卓 native 堆缓涨的根因**。上一轮记录：`docs/testing/2026-10-29/REPORT.md`。本轮在 scratchpad worktree 里跑，主工作区不碰。
+
+## 一、结果一览
+
+| 项 | 结果 |
+|---|---|
+| 安卓 native 堆缓涨根因 | **钉死**：`ValueTransition`（components/motion.tsx）用 key 变化触发 Reanimated 的 entering / exiting；地图页海拔格用它，ski 剧本每个点海拔都变，隐藏的地图页每 2 s 一次进出场；Reanimated 4.5.1 每次都留一批 native 侧对象（见二） |
+| 修复 | PR #468（`fix/value-transition-layout-anim-leak`）：两层常驻、轮流当前层，新值落进本来就藏着的那层，动画全在 UI 线程起；安卓 1.4 → 前 10 min 0.8、后 10 min 0.27 MB/min 并走平（完全不动画的地板 ≈0.5–0.6），iOS 1.3 → ≈0.65 MB/min |
+| 升 reanimated 4.5.5 能不能修 | 不能：仍 ≈1.1 MB/min（4.5.3 的 withheld exiting 修复不覆盖）；已还原 4.5.1 |
+| 全量 app jest / lint / tsc | 205 套 3358 例 ✅、`expo lint` ✅、`tsc` ✅（worker 退出告警 main 上本来就有） |
+| 余量 | 修后双端仍 ≈0.5 MB/min，和本组件无关（见四），交 A 线 |
+
+## 二、根因怎么找到的
+
+**方法**：模拟器镜像是 user 版（不可 root），release 包 prebuild 后在 `AndroidManifest.xml` 的 `<application>` 里临时加 `<profileable android:shell="true"/>`（只改本地生成物、不提交），然后 `perfetto` 的 heapprofd 对 App 采样 8 min（配置 `scripts/heapprofd.cfg`：2 KB 采样间隔、每 60 s 一次 dump），`scripts/analyze-heap.py` 按 callsite 算「首末两次 dump 之间未释放的增量」并打印调用栈；Reanimated / worklets 的 `.so` 是从源码编的，用 `app/android/app/build/intermediates/merged_native_libs/.../libreanimated.so`（未 strip）+ NDK `llvm-symbolizer` 把 `?` 帧补成函数名。
+
+**heap1（原版，设备页 ski 8 min）**：未释放 +9.1 MB，前 25 个 callsite 全在 Reanimated 这条链上，每个约 +100–250 个对象 ≈ 每个定位点一份：
+- `UIManager::createNode` 建出来的 ShadowNode / `RawProps::toDynamic`（JS 提交建的节点被留住）
+- `worklets::makeSerializableWorklet / makeSerializableObject / makeSerializableNumber`（JS 线程往 UI 线程传的动画对象、worklet）
+- `AnimationFrameBatchinator::addToBatch`（rAF 回调）
+- `ReanimatedModuleProxy::commitUpdates → cloneShadowTreeWithNewProps`（UI 线程样式更新的克隆）
+- `LayoutAnimationsProxy_Legacy::pullTransaction / executeLayoutAnimationsRequests`
+
+**heap2（中间版 plan B：JS 线程 withTiming + 按次挂卸快照层）**：+13.5 MB，栈和 heap1 一样 → 按次挂卸带 Reanimated 样式的视图、在 JS 线程按次造动画对象，都会留东西。
+
+**heap3（ValueTransition 完全不动画）**：只剩 +2.7 MB（1 MB 是一次性大块；worklets 序列化约每 10 s 一份；RNSTabsHost / SafeAreaProvider 克隆）→ 本组件占约 70%，余量小而分散。
+
+**为什么只有 ski**：riding 剧本海拔是「—」、速度在一段路里恒定，数值格不变、不触发过渡；ski 每个点海拔都变。**为什么 10-24 看成「第二顶头盔」**：当时第二顶跑的是 ski。
+
+## 三、对照实验表（安卓 Pixel_8 arm64 模拟器，`dumpsys meminfo` Native Heap，App 前台停在设备页，当前头盔 ski 2 s 一个点；除注明外都是新进程、10 min）
+
+| 组 | 包 | 条件 | 结果 |
+|---|---|---|---|
+| F1 | main（profileable） | 设备页 ski，heapprofd 中 | 121.2 → 126.5 MB / 7 min |
+| G1 | main | **停在地图页**（focused） | GC 后 113.6 → 117.6 MB / 6 min → 和可见性无关 |
+| H1 | reanimated 4.5.5 | 设备页 | 122.0 → 132.6 MB（≈1.1 MB/min） |
+| H2 | plan B（JS 线程 withTiming + 按次挂卸快照） | 设备页 | 121.3 → 134.8 MB / 9 min（≈1.5 MB/min） |
+| I | ValueTransition 完全不动画 | 设备页 | 112.6 → 117.6 MB / 9 min（≈0.5 MB/min，地板） |
+| J | plan B + 每 2 min 在 UI 运行时造 30 万对象逼 GC | 设备页 | 121.1 → 136.9 MB / 9 min，没掉 → 「只是 UI 运行时没 GC」不成立（至少 young GC 不够） |
+| **K** | **plan C（本 PR）** | 设备页 | **124.8 → 130.0 MB（≈0.5 MB/min）= 地板** |
+| K2 | plan C2（C + layout effect 里 JS 侧先 set(0)） | 设备页 | 124.0 → 131.6 MB / 8 min（≈0.95，疑噪声；录屏看新值先闪再被旧值盖住，弃） |
+| **L** | **plan D（本 PR：两层轮流当前层）** | 设备页 | **122.3 → 133.5 MB / 20 min：前 10 min ≈0.8 MB/min，后 10 min ≈0.27 MB/min，最后 6 min 基本走平（133.0–133.5）** |
+
+iOS（iPhone 17 Pro 模拟器 Release，`vmmap --summary` physical footprint，同条件）：
+| 组 | 包 | 结果 |
+|---|---|---|
+| G2 | main | 163 → 183 MB / 15 min，中间有平台期（≈1.3 MB/min） |
+| H3 | plan B | 194 → 209 MB / 6 min（≈2.5 MB/min），39 min 到 229 MB 后走平 |
+| K | plan C | 200.3 → 204.6 MB / 9 min（≈0.5 MB/min） |
+| L | plan D（本 PR） | 热身后 199.8 → 209.5 MB / 15 min（≈0.65 MB/min） |
+
+动画观感（双端地图页录屏逐帧：`adb screenrecord` / `simctl io recordVideo` → ffmpeg `-fps_mode passthrough` 抽帧）：
+- plan C（两层常驻、快照层按值换内容、useEffect 里 tick）：iOS 正常；**安卓新值先闪一帧**再从下面滑上来——触发放在 useEffect 晚一帧。
+- plan C2（改 useLayoutEffect + JS 侧先 `inProg.set(0)`）：**安卓更糟**——新值先画出来、再被旧值快照盖住、再动画：JS→UI 的共享值更新比 React 提交的挂载晚两帧。结论：凡是把新值提交进「可见」那层的写法都在和 UI 线程赛跑。
+- **plan D（本 PR）**：新值渲染进从上次退场起就藏着的那层（不透明度 0、停在下方 25pt），旧值留在另一层退场；两端都是旧值原位淡出上移、新值从下淡入，不闪。
+
+## 四、没做的 / 交 A 线
+
+1. **余量 ≈0.5 MB/min**（双端，修后）：heap3 看是每 10 s 左右一份 worklets 序列化对象（不是每个定位点）+ 标签页宿主（RNSTabsHost）/ SafeAreaProvider 的节点克隆 + 偶发 1 MB 单块；来源待查（可能是安全页 / 设备页的 `useTintStyle`、`PulseDot`、或 30 s 轮询引起的整页重渲染）。方法同二，起点 `scripts/heapprofd.cfg`。
+2. `CrossfadeIcon`（motion.tsx）是同一种 keyed entering / exiting 模式，只在状态翻转时触发（几分钟一次），本轮没改；若要彻底，可照 ValueTransition 的常驻两层改。
+3. Reanimated 上游：没搜到对应 issue；可用本记录的 heap1 栈 + 「keyed entering/exiting 每 2 s 一次」最小复现报 software-mansion/react-native-reanimated（4.5.1 / 4.5.5 都复现，Fabric，RN 0.86）。
+4. dumpsys 的 Unknown（匿名 mmap）各轮都 ≈1.3 MB/min 涨、与改动无关，多半是 Hermes 堆扩张，没深究。
+5. 只在模拟器量过；真机未验。
+
+## 五、本轮的坑
+
+- 后台任务里起模拟器会被会话的进程组清理 SIGKILL（exit 137）：长驻进程用 `python3 subprocess.Popen(..., preexec_fn=os.setsid)` 脱离进程组。
+- iOS 模拟器登录：勾选框和「登录」连点会丢第二下，中间 sleep 2 s；`simctl install` 同 bundle id 登录态会没。
+- 对照实验要「一次只变一个条件、两组都是新进程」；打包 / 编译期间别录屏也别采样（CPU 争用）。
+- 模拟器 `screenrecord` 实际只有 ≈20 fps（按画面变化出帧），抽帧用 `-fps_mode passthrough` 看真实帧，别用 `fps=60`（会复制帧、把一帧的闪看成三帧）；ffmpeg 9 没有 `-vsync`。
+- iOS 模拟器录屏 `simctl io recordVideo` 是真 60 fps。
+
+## 六、磁盘
+
+本轮新占：worktree（含 node_modules）、安卓构建产物、iOS DerivedData、几份 APK、录屏帧、Docker 卷；收尾全删，模拟器卸包、安卓数据镜像再 wipe 一次回到 1.4 GB；最终 `df` 对比在收工汇报里。

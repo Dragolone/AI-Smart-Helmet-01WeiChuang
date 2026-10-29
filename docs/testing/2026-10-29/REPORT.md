@@ -52,6 +52,8 @@
 
 候选修复（PR #466，已关不合）：三个 effect 加 `focused` 门控，回到地图页时因 `focused` 变化重跑一次补推。**复测结果：E' 和 D' 涨幅一样 → 这条路不是主因**（改动本身无害，iOS 上核过地图页在屏时跟随正常、切走 20 s 再回来位置最新；但不以修内存的名义合）。新进程前 10 分钟比老进程（D，跑了 4 小时）涨得更快（1.2 vs 0.7 MB/min），所以对照必须同为新进程。
 
+> **10-30 已钉死**：是 `components/motion.tsx` 的 `ValueTransition`（keyed entering / exiting）在隐藏的地图页海拔格上每 2 s 跑一次，Reanimated 4.5.1 每次都留一批 native 对象；修复 PR #468，过程见 `docs/testing/2026-10-30/REPORT.md`。下面这段线索留作历史。
+
 **留给 A 线的线索**：涨只在 ski 剧本出现、riding 不涨，两种剧本的差别是 `altitude` 字段、速度、坐标跨度；地图 WebView 推点已排除；账号下只有 1 顶在线（换头盔提醒的 watcher 不订阅）也排除；下一步看 ski 载荷在 App 里的其他消费者（use-realtime `pushLocation` 合并写、设备页 / 安全页读 `device-location` 的地方、WS 消息解析本身），以及用 `dumpsys meminfo -d` / Perfetto 的 heap profile 直接看谁在 malloc。注意本轮所有安卓实验都在模拟器（arm64 镜像）上，真机未验。
 
 ## 三之二、tour 剧本连续多单求救（双端）
