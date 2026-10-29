@@ -61,7 +61,7 @@ iOS（iPhone 17 Pro 模拟器 Release，`vmmap --summary` physical footprint，�
 
 1. **余量 ≈0.5 MB/min**（双端，修后）：heap3 看是每 10 s 左右一份 worklets 序列化对象（不是每个定位点）+ 标签页宿主（RNSTabsHost）/ SafeAreaProvider 的节点克隆 + 偶发 1 MB 单块；来源待查（可能是安全页 / 设备页的 `useTintStyle`、`PulseDot`、或 30 s 轮询引起的整页重渲染）。方法同二，起点 `scripts/heapprofd.cfg`。
 2. `CrossfadeIcon`（motion.tsx）是同一种 keyed entering / exiting 模式，只在状态翻转时触发（几分钟一次），本轮没改；若要彻底，可照 ValueTransition 的常驻两层改。
-3. Reanimated 上游：没搜到对应 issue；可用本记录的 heap1 栈 + 「keyed entering/exiting 每 2 s 一次」最小复现报 software-mansion/react-native-reanimated（4.5.1 / 4.5.5 都复现，Fabric，RN 0.86）。
+3. Reanimated 上游：**已报** software-mansion/react-native-reanimated#11088（2026-10-30，负责人拍板），最小复现仓库 <https://github.com/Dragolone/reanimated-layout-animation-leak>（Expo 57 空工程，500 ms 换值的 keyed entering/exiting，有开关对照：开 6 min 23.8 → 41.1 MB 单调，关 6 min 锯齿有界；heapprofd 栈和本 App 一致）。等上游回复后再决定要不要回收 ValueTransition 的改法。
 4. dumpsys 的 Unknown（匿名 mmap）各轮都 ≈1.3 MB/min 涨、与改动无关，多半是 Hermes 堆扩张，没深究。
 5. 只在模拟器量过；真机未验。
 
