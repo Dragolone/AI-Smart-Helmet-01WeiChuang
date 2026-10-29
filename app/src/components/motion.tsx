@@ -9,7 +9,7 @@
 // - CrossfadeIcon：换图标 / 换颜色时淡入淡出，可选弹一下
 import { Ionicons } from "@expo/vector-icons";
 import type { ReactNode } from "react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   StyleSheet,
   View,
@@ -22,9 +22,9 @@ import Animated, {
   FadeIn,
   FadeInDown,
   FadeOut,
-  FadeOutUp,
   LayoutAnimationConfig,
   interpolateColor,
+  useAnimatedReaction,
   useAnimatedStyle,
   useDerivedValue,
   useReducedMotion,
@@ -194,7 +194,17 @@ export function AnimatedChip({
   );
 }
 
-/** 数值变化过渡：key 变化触发进出场，reanimated 的退场在快照上播放，不撑开布局 */
+/** 数值变化过渡：旧值原位上滑淡出、新值从下方滑入淡入。
+ * 不走 Reanimated 的 entering / exiting，也不按次挂卸动画视图、不在 JS 线程上造动画对象：这几样每换一次值都会在
+ * Reanimated 里留下一批 native 侧对象（ShadowNode / 序列化的 worklet 和动画对象 / rAF 回调），地图页海拔每 2 s 换一次，
+ * 安卓 native 堆每分钟涨 1 MB、iOS 同样（2026-10-30 heapprofd 钉死）。
+ * 这里两层视图常驻、轮流当「正在显示的那层」：换值时新内容渲染进停在下方、不透明度 0 的那一层（它从上一次退场起就藏着，
+ * 所以提交这一帧不会先闪出新值），JS 线程只把换值次数传给 UI 线程，两层的进出动画都在 UI 线程里起。 */
+const VALUE_IN_MS = 200;
+const VALUE_OUT_MS = 140;
+/** 和 FadeInDown / FadeOutUp 默认的位移一致 */
+const VALUE_SHIFT = 25;
+
 export function ValueTransition({
   value,
   children,
@@ -204,17 +214,93 @@ export function ValueTransition({
   children: ReactNode;
   style?: StyleProp<ViewStyle>;
 }) {
+  const reduced = useReducedMotion();
+  const key = String(value);
+  // count 的奇偶 = 正在显示的那层；live = 上次换值时的内容（下次换值当退场快照用）；outgoing = 这次退场的内容
+  const [st, setSt] = useState<{
+    key: string;
+    count: number;
+    live: ReactNode;
+    outgoing: ReactNode;
+  }>(() => ({ key, count: 0, live: children, outgoing: null }));
+  if (st.key !== key) {
+    // 渲染期间派生状态：React 会丢掉这次结果、带着新 state 立刻重渲染（不会多画一帧）
+    setSt({
+      key,
+      count: st.count + 1,
+      live: children,
+      outgoing: reduced ? null : st.live,
+    });
+  }
+  const active = st.count % 2;
+  const tick = useSharedValue(0);
+  const op0 = useSharedValue(1);
+  const ty0 = useSharedValue(0);
+  const op1 = useSharedValue(0);
+  const ty1 = useSharedValue(VALUE_SHIFT);
+  useEffect(() => {
+    if (st.count > 0) tick.set(st.count);
+  }, [st.count, tick]);
+  useAnimatedReaction(
+    () => tick.get(),
+    (now, prev) => {
+      if (prev === null || now === prev) return;
+      const incoming = now % 2;
+      const opIn = incoming === 0 ? op0 : op1;
+      const tyIn = incoming === 0 ? ty0 : ty1;
+      const opOut = incoming === 0 ? op1 : op0;
+      const tyOut = incoming === 0 ? ty1 : ty0;
+      if (reduced) {
+        opIn.set(1);
+        tyIn.set(0);
+        opOut.set(0);
+        tyOut.set(VALUE_SHIFT);
+        return;
+      }
+      // 进场的那层从下方 25 起（它退场时停在上方 -25）
+      opIn.set(0);
+      tyIn.set(VALUE_SHIFT);
+      opIn.set(withTiming(1, { duration: VALUE_IN_MS }));
+      tyIn.set(
+        withTiming(0, {
+          duration: VALUE_IN_MS,
+          easing: Easing.out(Easing.cubic),
+        }),
+      );
+      opOut.set(withTiming(0, { duration: VALUE_OUT_MS }));
+      tyOut.set(withTiming(-VALUE_SHIFT, { duration: VALUE_OUT_MS }));
+    },
+    [reduced],
+  );
+  const s0 = useAnimatedStyle(() => ({
+    opacity: op0.get(),
+    transform: [{ translateY: ty0.get() }],
+  }));
+  const s1 = useAnimatedStyle(() => ({
+    opacity: op1.get(),
+    transform: [{ translateY: ty1.get() }],
+  }));
+  const layer = (index: number) => {
+    const isActive = active === index;
+    return (
+      <Animated.View
+        style={[
+          isActive ? styles.shrink : styles.outgoing,
+          index === 0 ? s0 : s1,
+        ]}
+        pointerEvents={isActive ? "auto" : "none"}
+        accessibilityElementsHidden={!isActive}
+        importantForAccessibility={isActive ? "auto" : "no-hide-descendants"}
+      >
+        {isActive ? children : st.outgoing}
+      </Animated.View>
+    );
+  };
   return (
     // flexShrink/minWidth：作为 flex row 里的一员要能被压缩，否则数字撑出单位（地图里程实测）
     <View style={[styles.shrink, style]}>
-      <Animated.View
-        style={styles.shrink}
-        key={String(value)}
-        entering={FadeInDown.duration(200).easing(Easing.out(Easing.cubic))}
-        exiting={FadeOutUp.duration(140)}
-      >
-        {children}
-      </Animated.View>
+      {layer(0)}
+      {layer(1)}
     </View>
   );
 }
@@ -363,6 +449,7 @@ export const MotionText = ThemedText;
 const styles = StyleSheet.create({
   chipText: { fontSize: 13, fontWeight: "700" },
   shrink: { flexShrink: 1, minWidth: 0 },
+  outgoing: { position: "absolute", left: 0, top: 0, right: 0 },
   dotsRow: { flexDirection: "row", alignItems: "center", gap: 5, height: 20 },
   fillAbs: {
     position: "absolute",

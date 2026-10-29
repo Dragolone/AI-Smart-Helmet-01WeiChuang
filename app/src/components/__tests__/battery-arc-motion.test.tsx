@@ -317,23 +317,64 @@ describe("motion 原语", () => {
     expect(p).toBeTruthy();
   });
 
-  it("ValueTransition：按值做 key，值变了换一个子树", () => {
+  it("ValueTransition：两层轮流当前层，换值时新值进藏着的那层、旧值留在另一层退场；同值重渲染不动；减弱动态效果时不留旧值", () => {
     const r = render(
       <ValueTransition value={3}>
         <Text>3 km</Text>
       </ValueTransition>,
     );
-    const keyOf = () =>
-      (r.root.findAllByType(View)[1] as unknown as { _fiber: { key: string } })
-        ._fiber.key;
-    expect(keyOf()).toBe("3");
+    // 替身里 withTiming 直接给终值、反应只在挂上时跑一次：看结构不看透明度，所以不用 r.texts()（它滤掉不透明度 0 的）
+    const all = () =>
+      r.root
+        .findAll((n) => (n.type as unknown) === "Text")
+        .map((n) => n.children.filter((c) => typeof c === "string").join(""));
+    const layers = () =>
+      r.root.findAll(
+        (n) =>
+          (n.type as unknown) === "View" &&
+          typeof n.props.importantForAccessibility === "string",
+      );
+    expect(all()).toEqual(["3 km"]);
+    expect(layers()).toHaveLength(2);
     r.rerender(
       <ValueTransition value="4.5">
         <Text>4.5 km</Text>
       </ValueTransition>,
     );
-    expect(keyOf()).toBe("4.5");
-    expect(r.allText()).toBe("4.5 km");
+    // 第 0 层留着旧值退场（absolute、读屏忽略），第 1 层是新值（在流里、可读）
+    expect(all()).toEqual(["3 km", "4.5 km"]);
+    const [l0, l1] = layers();
+    expect(flat(l0.props.style).position).toBe("absolute");
+    expect(l0.props.importantForAccessibility).toBe("no-hide-descendants");
+    expect(flat(l1.props.style).position).toBeUndefined();
+    expect(l1.props.importantForAccessibility).toBe("auto");
+    // 同一个值只是重渲染：当前层内容跟着变，不换层
+    r.rerender(
+      <ValueTransition value="4.5">
+        <Text>4.5 km!</Text>
+      </ValueTransition>,
+    );
+    expect(all()).toEqual(["3 km", "4.5 km!"]);
+    // 再换值：轮回第 0 层，第 1 层留上次换值时的内容退场
+    r.rerender(
+      <ValueTransition value={6}>
+        <Text>6 km</Text>
+      </ValueTransition>,
+    );
+    expect(all()).toEqual(["6 km", "4.5 km"]);
+    expect(layers()[0].props.importantForAccessibility).toBe("auto");
+    // 系统开了「减弱动态效果」：直接换，不留旧值
+    mockFlags.reducedMotion = true;
+    try {
+      r.rerender(
+        <ValueTransition value={7}>
+          <Text>7 km</Text>
+        </ValueTransition>,
+      );
+      expect(all()).toEqual(["7 km"]);
+    } finally {
+      mockFlags.reducedMotion = false;
+    }
   });
 
   it("PulseDot：尺寸 / 颜色 / 圆；静态时不透明", () => {
