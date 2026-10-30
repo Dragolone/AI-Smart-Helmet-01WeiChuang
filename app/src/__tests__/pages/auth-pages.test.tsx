@@ -249,6 +249,25 @@ describe("登录页", () => {
     r.press(tr("auth.login"));
     expect(pageErrors(r)).toEqual([tr("auth.consentRequired")]);
     expect(api.login).not.toHaveBeenCalled();
+    // 勾上之后这句就该收掉，不用等下一次提交（10-30 模拟器：勾了红字还在）
+    act(() => checkbox(r).props.onPress());
+    expect(pageErrors(r)).toEqual([]);
+  });
+
+  it("勾选框只收自己招来的那句：别的错误（账号或密码错）留着", async () => {
+    api.login.mockImplementation(() =>
+      Promise.reject(apiError(401, "INVALID_CREDENTIALS")),
+    );
+    const r = render(<LoginScreen />);
+    await flush();
+    r.type(P.phone, "13900000042");
+    r.type(P.pwd, "secret123");
+    act(() => checkbox(r).props.onPress());
+    r.press(tr("auth.login"));
+    await waitFor(() => expect(pageErrors(r)).toHaveLength(1));
+    const shown = pageErrors(r);
+    act(() => checkbox(r).props.onPress());
+    expect(pageErrors(r)).toEqual(shown);
   });
 
   it("记住的手机号会预填；勾选后登录：号码去空格、记下同意、保存号码、建会话", async () => {
@@ -454,6 +473,7 @@ describe("注册页", () => {
     r.press(tr("auth.registerAndLogin"));
     expect(pageErrors(r)).toEqual([tr("auth.consentRequired")]);
     tick(r);
+    expect(pageErrors(r)).toEqual([]);
     fill(r, { code: "12a" });
     r.press(tr("auth.registerAndLogin"));
     expect(fieldErrors(r)).toEqual([

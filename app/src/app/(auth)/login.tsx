@@ -233,7 +233,13 @@ export default function LoginScreen() {
             {needConsent && (
               <SplashArrive order={3}>
                 <Pressable
-                  onPress={() => setConsented((v) => !v)}
+                  onPress={() => {
+                    setConsented((v) => !v);
+                    // 「请先同意」是这个勾选框招来的：勾过就收掉，别的错误（密码错等）留着
+                    setError((e) =>
+                      e === t("auth.consentRequired") ? null : e,
+                    );
+                  }}
                   style={styles.consentRow}
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: consented }}
