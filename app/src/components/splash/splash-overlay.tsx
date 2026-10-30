@@ -352,6 +352,8 @@ function SplashPlayer({ onDone }: { onDone: () => void }) {
   );
   const helmetImage = useImage(hero?.image);
 
+  const finished = useRef(false);
+  const [closing, setClosing] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [waited, setWaited] = useState(false);
   // 已登录的人等到商标快完成时再定：多给设备列表一点时间回来
@@ -359,6 +361,7 @@ function SplashPlayer({ onDone }: { onDone: () => void }) {
   // 定了就不再改（渲染时就地记下来，不绕一圈 effect）
   if (
     landing === null &&
+    !closing &&
     phase === "play" &&
     (!(hydrated && authed) || ready)
   ) {
@@ -379,7 +382,9 @@ function SplashPlayer({ onDone }: { onDone: () => void }) {
     if (kind) setLanding(kind);
   }
   useEffect(() => {
-    if (!landing) return;
+    // 已经收场（比如开屏时按了 Home：回前台时看门狗先到）：不能再把页面藏起来，这一层马上就卸了，
+    // 没有人会再放回去，设备页会一直空着（2026-10-30 安卓模拟器复现）
+    if (!landing || finished.current) return;
     // 页面上要由这一层代画的东西先藏起来，页面内容跟着同一个时钟进场
     if (landing === "login") {
       anchorOwned.loginMark.set(1);
@@ -440,10 +445,10 @@ function SplashPlayer({ onDone }: { onDone: () => void }) {
   });
   // 置 1 = 已经收场，时钟不再往前走
   const over = useSharedValue(0);
-  const finished = useRef(false);
   const finish = useCallback(() => {
     if (finished.current) return;
     finished.current = true;
+    setClosing(true);
     over.set(1);
     releaseSplashHold();
     if (REPORT) {

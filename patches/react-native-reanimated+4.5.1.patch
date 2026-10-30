@@ -1,0 +1,25 @@
+diff --git a/node_modules/react-native-reanimated/Common/cpp/reanimated/Fabric/updates/AnimatedPropsRegistry.cpp b/node_modules/react-native-reanimated/Common/cpp/reanimated/Fabric/updates/AnimatedPropsRegistry.cpp
+index 2db064c..9570897 100644
+--- a/node_modules/react-native-reanimated/Common/cpp/reanimated/Fabric/updates/AnimatedPropsRegistry.cpp
++++ b/node_modules/react-native-reanimated/Common/cpp/reanimated/Fabric/updates/AnimatedPropsRegistry.cpp
+@@ -46,7 +46,6 @@ jsi::Value AnimatedPropsRegistry::getUpdatesOlderThanTimestamp(
+     const double timestamp,
+     const double cleanupTimestamp) {
+   react_native_assert(UpdatesRegistryManager::isLockedByCurrentThread());
+-  removeUpdatesOlderThanTimestamp(cleanupTimestamp);
+ 
+   std::vector<std::pair<Tag, std::reference_wrapper<const folly::dynamic>>> updates;
+ 
+@@ -66,6 +65,12 @@ jsi::Value AnimatedPropsRegistry::getUpdatesOlderThanTimestamp(
+     array.setValueAtIndex(rt, i++, item);
+   }
+ 
++  // Remove only after the settled updates were handed to JS. This is polled from a JS timer, which
++  // stops while the app is in the background: on the first poll after a pause longer than the cleanup
++  // window, removing first would drop updates that were never synced back to React, and the next React
++  // commit would revert those views to their initial style.
++  removeUpdatesOlderThanTimestamp(cleanupTimestamp);
++
+   return jsi::Value(rt, array);
+ }
+ 
