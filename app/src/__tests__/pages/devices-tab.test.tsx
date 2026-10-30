@@ -677,7 +677,7 @@ describe("大图与其他设备的颜色、电量", () => {
     expect(r.texts().some((x) => /^\d+%$/.test(x))).toBe(false);
   });
 
-  it("头盔身份不符：安全那一格写身份不符、整格标红（红色只给这一种）", async () => {
+  it("头盔身份不符：安全那一格写身份不符、图标标红（红色只给这一种）；格子保持中性底（负责人 10-15 口径）", async () => {
     mockSafety.links = { h1: "mismatch" };
     m(devicesApi.list).mockImplementation(() => Promise.resolve([dev("h1")]));
     const r = await mount();
@@ -686,6 +686,19 @@ describe("大图与其他设备的颜色、电量", () => {
     );
     expect(iconColors(r, "alert-circle-outline")).toEqual([Colors.dark.danger]);
     expect(iconColors(r, "shield-outline")).toEqual([Colors.dark.danger]);
+    const tileBacks = r.root
+      .findAll(
+        (n) =>
+          typeof n.type === "string" &&
+          flat(n.props.style).position === "absolute" &&
+          flat(n.props.style).borderWidth === 1,
+      )
+      .map((n) => flat(n.props.style));
+    expect(tileBacks.length).toBeGreaterThan(0);
+    for (const s of tileBacks) {
+      expect(s.backgroundColor).toBe(Colors.dark.backgroundElement);
+      expect(s.borderColor).toBe(Colors.dark.border);
+    }
   });
 
   it("其他设备的电量：≤10% 写红色、≤20% 写黄色；充电中数字前加一道闪电，读屏读「充电中」", async () => {
