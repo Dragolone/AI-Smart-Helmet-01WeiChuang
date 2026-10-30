@@ -2200,7 +2200,7 @@ const channelMainMinWidth = (fontScale: number, windowWidth: number) =>
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: { flex: 1, paddingHorizontal: 20 },
-  pageTitle: { fontSize: 32, lineHeight: 38, marginTop: 8 },
+  pageTitle: { fontSize: 32, lineHeight: 40, marginTop: 6 },
   centerText: { textAlign: "center" },
   caption: { fontSize: 13, lineHeight: 18 },
 
