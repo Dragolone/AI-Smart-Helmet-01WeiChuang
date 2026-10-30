@@ -245,7 +245,11 @@ export default function RegisterScreen() {
               整行可点切换勾选；书名号是嵌套 Text 的 onPress，靠它先成为 touch responder
               来避免连带切换外层勾选——这条依赖 RN 的响应者链，双端真机各点一次确认（REGRESSION 1.1）。 */}
             <Pressable
-              onPress={() => setConsented((v) => !v)}
+              onPress={() => {
+                setConsented((v) => !v);
+                // 「请先同意」是这个勾选框招来的：勾过就收掉，别的错误（密码错等）留着
+                setError((e) => (e === t("auth.consentRequired") ? null : e));
+              }}
               style={styles.consentRow}
               accessibilityRole="checkbox"
               accessibilityState={{ checked: consented }}
