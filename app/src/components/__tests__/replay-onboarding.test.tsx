@@ -263,6 +263,17 @@ describe("RideReplay", () => {
       .map((n) => flat(n.props.style).backgroundColor);
     // 最后一个是进度条上的圆点，不是事件
     expect(marks).toEqual([dark.danger, dark.warning, dark.brand]);
+    // 停在碰撞事件上时，读数也用红色（提醒色那种情况见上一条用例）
+    const onDanger = render(
+      <RideReplay
+        {...p}
+        events={[{ ...events[0], danger: true }, events[1]]}
+        activeEventKey="e1"
+      />,
+    );
+    expect(flat(onDanger.root.findAllByType(Text)[0].props.style).color).toBe(
+      dark.danger,
+    );
   });
 
   it("事件没取到：说出来并可重试（不让人以为这一趟什么都没发生）", () => {

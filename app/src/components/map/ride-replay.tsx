@@ -249,7 +249,9 @@ export function RideReplay({
             {
               color:
                 ready && activeEvent && !note
-                  ? theme.warning
+                  ? activeEvent.danger
+                    ? theme.danger
+                    : theme.warning
                   : theme.textSecondary,
             },
           ]}
