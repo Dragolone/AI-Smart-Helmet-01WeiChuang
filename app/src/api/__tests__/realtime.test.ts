@@ -144,6 +144,70 @@ describe("realtimeClient 退避与 kick", () => {
     c.stop();
   });
 
+  it("第一次 4401 的刷新撞上断网失败、第二次刷新才换到新 token：照样立刻重连，不按断网攒下的退避干等（10-29 评审）", async () => {
+    const c = await load();
+    let token = "tok";
+    let refreshCalls = 0;
+    c.start({
+      getAccessToken: () => token,
+      triggerTokenRefresh: async () => {
+        refreshCalls += 1;
+        if (refreshCalls === 1) throw new Error("network"); // 断网，这次刷不到
+        token = "tok2";
+      },
+    });
+    FakeWs.instances[0].open();
+    // 先断几次攒退避：1s、2s、4s、8s
+    for (let i = 0; i < 4; i += 1) {
+      FakeWs.instances[i].drop();
+      jest.advanceTimersByTime(8_000);
+    }
+    expect(FakeWs.instances).toHaveLength(5);
+    FakeWs.instances[4].drop(4401); // token 过期，刷新失败（断网）
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    jest.advanceTimersByTime(16_000); // 刷新失败：按退避 16 s 才重连
+    expect(FakeWs.instances).toHaveLength(6);
+    FakeWs.instances[5].drop(4401); // 还是旧 token，又被拒；这次刷新成功换到 tok2
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    jest.advanceTimersByTime(1_000); // 换到新 token：退避清零，1 s 内就重连，不是再等 32 s
+    expect(FakeWs.instances).toHaveLength(7);
+    expect(FakeWs.instances[6].url).toContain("tok2");
+    c.stop();
+  });
+
+  it("同一张新 token 只享受一次快速重连：拿着它再被 4401 照常退避", async () => {
+    const c = await load();
+    let token = "tok";
+    c.start({
+      getAccessToken: () => token,
+      triggerTokenRefresh: async () => {
+        token = "tok2";
+      },
+    });
+    FakeWs.instances[0].open();
+    for (let i = 0; i < 4; i += 1) {
+      FakeWs.instances[i].drop();
+      jest.advanceTimersByTime(8_000);
+    }
+    FakeWs.instances[4].drop(4401); // 刷新换到 tok2 → 退避清零
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    jest.advanceTimersByTime(1_000);
+    expect(FakeWs.instances).toHaveLength(6);
+    FakeWs.instances[5].drop(4401); // tok2 也被拒（服务端作废了）：刷新没换到别的 token，不清零
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    jest.advanceTimersByTime(1_500);
+    expect(FakeWs.instances).toHaveLength(6); // 1 s 过了还没重连：在退避
+    c.stop();
+  });
+
   it("kick：已连上或未启动时什么都不做；握手中卡住的旧连接被放弃", async () => {
     const c = await load();
     c.kick(); // 未启动

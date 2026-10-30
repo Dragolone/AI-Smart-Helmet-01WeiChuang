@@ -265,14 +265,26 @@ describe("CheckDraw", () => {
 });
 
 describe("motion 原语", () => {
-  it("CrossfadeIcon：首次挂上不弹；换图标时 pop 弹一下（替身里弹簧直接回到 1）", () => {
+  /** 两层常驻：读屏可见（importantForAccessibility="auto"）的那层里的图标就是当前图标，另一层是正在淡出的旧图标 */
+  const activeIcon = (r: Rendered) =>
+    r.root
+      .find(
+        (n) =>
+          (n.type as unknown) === "View" &&
+          n.props.importantForAccessibility === "auto",
+      )
+      .findAll((n) => (n.type as unknown) === "Ionicons")
+      .map((n) => String(n.props.name));
+
+  it("CrossfadeIcon：首次挂上不弹；换图标时旧的留在另一层淡出、新的进当前层，pop 弹一下（替身里弹簧直接回到 1）", () => {
     const r = render(
       <CrossfadeIcon name="checkmark" size={16} color="#0f0" pop />,
     );
     expect(r.icons()).toEqual(["checkmark"]);
     r.rerender(<CrossfadeIcon name="close" size={16} color="#f00" pop />);
     r.rerender(<CrossfadeIcon name="close" size={16} color="#f00" pop />);
-    expect(r.icons()).toEqual(["close"]);
+    expect(activeIcon(r)).toEqual(["close"]);
+    expect(r.icons().sort()).toEqual(["checkmark", "close"]); // 旧图标在淡出层上，读屏忽略
     const box = flat(rootJson(r).props.style);
     expect(box.width).toBe(16);
     expect(box.transform).toEqual([{ scale: 1 }]);
@@ -286,9 +298,10 @@ describe("motion 原语", () => {
     r.rerender(
       <CrossfadeIcon name={"b" as never} size={10} color="#000" pop />,
     );
+    expect(r.icons()).toEqual(["b"]); // 减弱动态效果：直接换，不留旧图标
     mockFlags.reducedMotion = false;
     r.rerender(<CrossfadeIcon name={"c" as never} size={10} color="#000" />);
-    expect(r.icons()).toEqual(["c"]);
+    expect(activeIcon(r)).toEqual(["c"]);
   });
 
   it("AnimatedChip：显示文字、点了回调；disabled 时不响应", () => {

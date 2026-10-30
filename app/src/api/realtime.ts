@@ -48,12 +48,13 @@ class RealtimeClient {
    */
   private epoch = 0;
   /**
-   * 连续被 4401 的次数（稳住一次就清零）。断网期间 access token 到期是常事（15 min）：网络一恢复、
-   * 第一次重连就被 4401，刷新成功后若还按断网攒下的退避（16–30 s）干等，实时通道白白空一轮
+   * 本轮（稳住一次就清零）里被 4401 之后真正换到新 token 的次数。断网期间 access token 到期是常事（15 min）：
+   * 网络一恢复、第一次重连就被 4401，刷新成功后若还按断网攒下的退避（16–30 s）干等，实时通道白白空一轮
    * （2026-10-24 安卓模拟器断网 23 s 实测：恢复 → 4401 → 换好 token → 等了 16 s 才连）。
-   * 所以「本轮第一次被拒 + 刷新确实换到了新 token」就立刻重连；第二次起照 10-17 口径退避照涨，坏 token 仍刷不起来
+   * 所以本轮第一次「确实换到了新 token」就立刻重连；之后再换照 10-17 口径退避照涨，坏 token 仍刷不起来。
+   * 按「换到新 token」算而不按「被拒第几次」算：第一次刷新撞上断网失败、第二次才换到时，快速重连的额度不能被失败那次吃掉（10-29 评审）
    */
-  private unauthorizedStreak = 0;
+  private freshTokensInStreak = 0;
 
   start(deps: Deps): void {
     this.deps = deps;
@@ -61,7 +62,7 @@ class RealtimeClient {
     this.running = true;
     this.epoch += 1;
     this.attempts = 0;
-    this.unauthorizedStreak = 0;
+    this.freshTokensInStreak = 0;
     this.connect();
   }
 
@@ -116,7 +117,7 @@ class RealtimeClient {
   private markStable(): void {
     this.clearStable();
     this.attempts = 0;
-    this.unauthorizedStreak = 0;
+    this.freshTokensInStreak = 0;
   }
 
   private setConnected(v: boolean): void {
@@ -175,11 +176,9 @@ class RealtimeClient {
       this.clearStable();
       if (!this.running) return;
       if (event.code === CLOSE_UNAUTHORIZED) {
-        this.unauthorizedStreak += 1;
-        const firstRefusal = this.unauthorizedStreak === 1;
         // 这条连接用的 token 已经被换掉了（别的请求顺手刷新过）：直接拿新的重连，不再刷新一遍
         if (this.deps?.getAccessToken() !== token) {
-          if (firstRefusal) this.resetBackoffForFreshToken();
+          this.resetBackoffForFreshToken(token);
           this.scheduleReconnect();
           return;
         }
@@ -191,10 +190,9 @@ class RealtimeClient {
           .catch(() => undefined)
           .finally(() => {
             if (this.epoch !== epoch) return;
-            // 本轮第一次被拒、而且确实换到了新 token：不再等断网攒下的那轮退避
-            if (firstRefusal && this.deps?.getAccessToken() !== token) {
-              this.resetBackoffForFreshToken();
-            }
+            // 确实换到了新 token：不再等断网攒下的那轮退避。按「换到的那张 token」只清一次，
+            // 不按「本轮第几次被拒」算——第一次刷新撞上断网失败、第二次才换到新 token 时，照样该立刻重连（10-29 评审）
+            this.resetBackoffForFreshToken(token);
             this.scheduleReconnect();
           });
         return;
@@ -207,8 +205,12 @@ class RealtimeClient {
     };
   }
 
-  private resetBackoffForFreshToken(): void {
-    if (this.attempts === 0) return;
+  /** 被拒的那条连接用的是 refused；现在手里的 token 若已不同，就是本轮又换到一张新的——第一张清零退避 */
+  private resetBackoffForFreshToken(refused: string | null): void {
+    const fresh = this.deps?.getAccessToken() ?? null;
+    if (!fresh || fresh === refused) return;
+    this.freshTokensInStreak += 1;
+    if (this.freshTokensInStreak > 1 || this.attempts === 0) return;
     devLog("realtime", "token 已换新，退避清零");
     this.attempts = 0;
   }

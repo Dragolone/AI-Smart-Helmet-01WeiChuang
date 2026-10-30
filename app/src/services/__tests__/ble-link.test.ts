@@ -1001,6 +1001,19 @@ describe("B 线 10-06 评审 F3：解绑 / 停链路撞上连接或握手在途"
   });
 });
 
+describe("10-29 评审：解绑最后一顶", () => {
+  it("解绑最后一顶后不再起扫描轮：断开回调重开扫描时目标名单已经换掉了（原来按旧名单把刚解绑的那顶又扫 20 s）", async () => {
+    await connectHelmet();
+    expect(isHelmetConnected("helmet_94173f")).toBe(true);
+    const scansBefore = mockScans.length;
+    setBleTargets([]);
+    await tick(40);
+    expect(mockScans.length).toBe(scansBefore);
+    expect(isHelmetConnected("helmet_94173f")).toBe(false);
+    expect(useBleStore.getState().links["helmet_94173f"]).toBeUndefined();
+  });
+});
+
 describe("2026-10-07 iPhone 8.9 实测：解绑撞上握手最后一步（读回设置）", () => {
   it("设置读回在途时解绑：会话已关、不能再被标成「已连接」，页面也不留行（上报步骤吞错，原来握手照样「成功」）", async () => {
     const origImpl =
