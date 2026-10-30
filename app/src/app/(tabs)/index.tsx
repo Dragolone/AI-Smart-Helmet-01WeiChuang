@@ -77,7 +77,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { useRefetchOnFocus } from "@/hooks/use-refetch-on-focus";
 import { useLocale, useT } from "@/i18n";
 import { formatKm, relativeTime } from "@/i18n/format";
-import { mixHex, withAlpha } from "@/services/color";
+import { withAlpha } from "@/services/color";
 import {
   OTHER_ROW_HEIGHT,
   TILE_HEIGHT,
@@ -367,16 +367,15 @@ function SummaryTile({
   children: ReactNode;
 }) {
   const theme = useTheme();
-  // 出问题时整格变色：提醒色给「没连上 / 通知关着 / 没有联系人」，红色只给身份不符（与安全页状态卡同一口径）
+  // 格子保持中性底，颜色只落在图标圆和图标上（负责人 10-15 口径，和安全页状态卡一致）：
+  // 提醒色给「没连上 / 通知关着 / 没有联系人」，红色只给身份不符
   const alert =
     tone === "warn" ? theme.warning : tone === "fault" ? theme.danger : null;
   // 变色是过渡的：底、描边、图标圆各 240 ms，和安全页状态卡同一个节奏
   const tileTint = useTintStyle({
     // 实色：格子背后有大图的光晕，半透明底会透出来
-    backgroundColor: alert
-      ? mixHex(theme.background, alert, 0.14)
-      : theme.backgroundElement,
-    borderColor: alert ? withAlpha(alert, 0.34) : theme.border,
+    backgroundColor: theme.backgroundElement,
+    borderColor: theme.border,
   });
   const iconTint = useTintStyle({
     backgroundColor: alert ? withAlpha(alert, 0.18) : theme.backgroundSelected,
