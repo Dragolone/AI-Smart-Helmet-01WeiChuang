@@ -205,7 +205,9 @@ export function HelmetPicker({
                         ]}
                       />
                       <ThemedText numberOfLines={1} style={styles.link}>
-                        {pill.linked
+                        {/* 服务端说在线、只是这台手机连不上：和设备页一样写「未连接」，不写「离线 · 刚刚」——
+                            它此刻正由别的手机带着在线（10-30 26 顶 Mock 同时在线时见到，设备页 10-16 已改） */}
+                        {pill.linked || d.online
                           ? t(pill.text)
                           : `${t("common.offline")} · ${relativeTime(d.lastSeenAt, locale)}`}
                       </ThemedText>

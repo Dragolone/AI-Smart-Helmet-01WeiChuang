@@ -623,6 +623,23 @@ describe("HelmetPicker", () => {
     ).toHaveLength(0);
   });
 
+  it("服务端说在线、只是这台手机没连上：写「未连接」，不写「离线 · 刚刚」（和设备页一致）", () => {
+    const r = render(
+      <HelmetPicker
+        visible
+        devices={[dev("h1"), dev("h2", { online: true })]}
+        links={{ h1: "offline", h2: "offline" }}
+        viewedId="h1"
+        currentId={undefined}
+        onPick={jest.fn()}
+        onClose={jest.fn()}
+      />,
+    );
+    const offline = `${tr("common.offline")} · ${relativeTime(devices[1].lastSeenAt, "zh-CN")}`;
+    expect(r.texts().filter((x) => x === offline)).toHaveLength(1);
+    expect(r.allText()).toContain(tr("devices.link.notConnected"));
+  });
+
   it("点一顶回调它；关闭按钮 / 点遮罩 / 返回键都关", () => {
     const onPick = jest.fn();
     const onClose = jest.fn();
