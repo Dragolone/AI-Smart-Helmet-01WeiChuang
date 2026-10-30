@@ -46,6 +46,8 @@ export default function AppTabs() {
       key={Platform.OS === "ios" ? tabsKey : undefined}
       backgroundColor={colors.background}
       indicatorColor={colors.backgroundSelected}
+      // 只有安卓认这个属性：默认只有选中项有字，「对讲」的图标单看不好认（10-31）
+      labelVisibilityMode="labeled"
       tintColor={colors.brand}
       labelStyle={{
         default: { color: colors.textSecondary, fontSize: 11 },
