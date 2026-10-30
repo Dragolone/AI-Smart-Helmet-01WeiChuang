@@ -102,6 +102,7 @@ import {
   shortTime,
   timeWithDateIfNotToday,
 } from "@/i18n/format";
+import { batteryTierOf } from "@/services/device-view";
 import {
   dayKeyOf,
   eventNear,
@@ -1572,8 +1573,15 @@ export default function MapScreen() {
                                 : "—"
                             }
                             unit="%"
+                            // 正常电量用正文色：品牌黄写在浅色面板上对比度只有 1.46:1（10-31）；低电量才提醒
                             valueColor={
-                              online ? theme.brand : theme.textSecondary
+                              !online
+                                ? theme.textSecondary
+                                : batteryTierOf(device.battery) === "critical"
+                                  ? theme.danger
+                                  : batteryTierOf(device.battery) === "low"
+                                    ? theme.warning
+                                    : undefined
                             }
                           />
                         </View>
