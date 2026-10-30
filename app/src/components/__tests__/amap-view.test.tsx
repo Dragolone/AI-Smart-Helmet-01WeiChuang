@@ -121,7 +121,7 @@ describe("AmapView", () => {
     });
     h.setMarks([
       { longitude: 1, latitude: 2, kind: "start" },
-      { longitude: 3, latitude: 4, kind: "event", label: "3" },
+      { longitude: 3, latitude: 4, kind: "event", label: "3", danger: true },
     ]);
     h.setHelmetOnline(false);
     h.setHelmetReplay(true);
@@ -140,8 +140,8 @@ describe("AmapView", () => {
       {
         type: "marks",
         items: [
-          { lng: 1, lat: 2, kind: "start", label: "" },
-          { lng: 3, lat: 4, kind: "event", label: "3" },
+          { lng: 1, lat: 2, kind: "start", danger: false, label: "" },
+          { lng: 3, lat: 4, kind: "event", danger: true, label: "3" },
         ],
       },
       { type: "helmetState", online: false },
