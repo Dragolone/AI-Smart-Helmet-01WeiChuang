@@ -290,6 +290,25 @@ describe("motion 原语", () => {
     expect(box.transform).toEqual([{ scale: 1 }]);
   });
 
+  it("CrossfadeIcon：动画线程第一次跑到反应时已经换过图标，新图标那层也要亮起来（10-31 安卓冷启动：字是「配置正常」，图标停在三个点）", () => {
+    const el = (name: string) => (
+      <CrossfadeIcon name={name as never} size={16} color="#0f0" />
+    );
+    const r = render(el("a"));
+    r.rerender(el("b")); // 换图标，effect 里 tick 变成 1
+    r.rerender(el("b")); // 替身里反应每次渲染都带 prev=null 跑，正是「第一次跑」的情形
+    r.rerender(el("b")); // 动画样式要再渲染一次才落到树上
+    const layer = (mode: string) =>
+      r.root.find(
+        (n) =>
+          (n.type as unknown) === "View" &&
+          n.props.importantForAccessibility === mode,
+      );
+    expect(activeIcon(r)).toEqual(["b"]);
+    expect(flat(layer("auto").props.style).opacity).toBe(1);
+    expect(flat(layer("no-hide-descendants").props.style).opacity).toBe(0);
+  });
+
   it("CrossfadeIcon：减弱动态效果 / 不要 pop 时换图标不弹", () => {
     mockFlags.reducedMotion = true;
     const r = render(
@@ -328,6 +347,27 @@ describe("motion 原语", () => {
         typeof n.props.onPress === "function",
     );
     expect(p).toBeTruthy();
+  });
+
+  it("ValueTransition：动画线程第一次跑到反应时已经换过值，新值那层也要亮起来（同 CrossfadeIcon，10-31）", () => {
+    const el = (v: string) => (
+      <ValueTransition value={v}>
+        <Text>{v}</Text>
+      </ValueTransition>
+    );
+    const r = render(el("—"));
+    r.rerender(el("76"));
+    r.rerender(el("76"));
+    r.rerender(el("76"));
+    const active = r.root.find(
+      (n) =>
+        (n.type as unknown) === "View" &&
+        n.props.importantForAccessibility === "auto",
+    );
+    expect(flat(active.props.style).opacity).toBe(1);
+    expect(
+      active.findAll((n) => (n.type as unknown) === "Text")[0].children,
+    ).toEqual(["76"]);
   });
 
   it("ValueTransition：两层轮流当前层，换值时新值进藏着的那层、旧值留在另一层退场；同值重渲染不动；减弱动态效果时不留旧值", () => {
