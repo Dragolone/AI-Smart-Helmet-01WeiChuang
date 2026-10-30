@@ -65,6 +65,8 @@ iOS（iPhone 17 Pro 模拟器 Release，`vmmap --summary` physical footprint，�
 4. dumpsys 的 Unknown（匿名 mmap）各轮都 ≈1.3 MB/min 涨、与改动无关，多半是 Hermes 堆扩张，没深究。
 5. 只在模拟器量过；真机未验。
 
+（下午长跑的结论见 §七：双端设备页都走平，余量是热身不是泄漏。）
+
 ## 五、本轮的坑
 
 - 后台任务里起模拟器会被会话的进程组清理 SIGKILL（exit 137）：长驻进程用 `python3 subprocess.Popen(..., preexec_fn=os.setsid)` 脱离进程组。
@@ -76,3 +78,26 @@ iOS（iPhone 17 Pro 模拟器 Release，`vmmap --summary` physical footprint，�
 ## 六、磁盘
 
 本轮新占：worktree（含 node_modules）、安卓构建产物、iOS DerivedData、几份 APK、录屏帧、Docker 卷；收尾全删，模拟器卸包、安卓数据镜像再 wipe 一次回到 1.4 GB；最终 `df` 对比在收工汇报里。
+
+## 七、下午：#471、双端长跑、iOS 模拟器预检（10-30 09:54–13:45）
+
+**PR #471（已合，3f8ea6d）**：`CrossfadeIcon` 改成和 `ValueTransition` 一样的两层常驻（换图标 / 换色时不再按次挂卸）；解绑最后一顶头盔后 BLE 不再多扫一轮；WS 快速重连额度按「换到新 token」算（同一个被拒 token 不再重置退避）。单测 61 条过；iOS 目视安全页三枚 StatusChip 多次换档后终态无残影。
+
+**长跑（合入 #468 的 main d999276 安卓包 / 3f8ea6d iOS 包，当前头盔 ski 剧本 2 s 一个点，App 前台停在设备页）**：
+
+| 端 | 时段 | Native Heap / footprint | 斜率 |
+|---|---|---|---|
+| 安卓 Pixel_8 模拟器 | 09:54–10:38（44 min） | 122.6 → 127.8 MB | 0.14–0.22 MB/min，逐渐放缓 |
+| 安卓 | 11:57–13:35（98 min，中间 10:38–11:57 本机睡眠、采样停） | 128.2 → 129.7 MB | **0.013 MB/min，走平** |
+| iOS iPhone 17 Pro 模拟器 | 12:23–13:05 地图页（42 min） | 160 → 197.7 MB | ≈0.9 MB/min，阶梯式（地图 WebView 轨迹 / 瓦片在长，不是本轮对象） |
+| iOS | 13:06–13:35 设备页（30 min） | 197.4 → 183.2 MB | **不涨反降**（地图 WebView 在回收；上午同页 main 包 ≈1.3 MB/min） |
+
+结论：#468 之后双端设备页都走平；上午报告里「修后仍有 ≈0.5 MB/min 余量」是前 40 min 的热身（heapprofd 看到的是 worklets 序列化对象 + React 提交克隆 + RNSTabsHost 克隆，Hermes / UI 运行时晚回收），不是泄漏。地图页 iOS 的缓涨另案（WebView 内的轨迹和瓦片）。
+
+**iOS 模拟器预检（账号 13800009002 / helmet_test_001，求救单经 app-relay 注入）**：填进 REGRESSION.md iOS 列的有 4.47、4.52、4.53、4.62、4.63、4.71、4.74、4.76、4.78、4.79、4.83、4.84、4.90、7.21、8.40、8.44（16 行；4.52 / 4.53 / 4.71 / 4.78 要停起后端，放在长跑之后做）。两个要负责人看的：
+- **4.63**：首次登录恰好有单在倒数时，「允许发送通知？」已正确推迟到关掉结果页才弹；但 iOS 系统的「保存密码？以后 / 保存」钥匙串面板会在登录成功那一刻弹在倒计时环上（遮秒数，不遮「立即求救」和滑动取消）。登录表单的 textContentType 触发的系统行为，要不要在倒计时页顶住 / 登录页去掉自动填充语义，待定（O10 同类）。
+- **4.74**：有进行中的求救时注销——倒计时页盖在最上面走不到注销页，双端都只有单测（服务器半 B 线 16 已拦）。
+
+**模拟器包的两个坑（已写进 DEVELOPMENT.md「iOS 模拟器」）**：`CODE_SIGNING_ALLOWED=NO` 的包钥匙串不可用（登录态只在内存、冷启动回登录页、队列不补传），要用 `CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES`；手工 `codesign` 加权利的包 launchd 拒绝 spawn。模拟器包的 API 地址是打包时从 `app/.env` 烤进去的，worktree 里指 dev 云端的话登本地账号会报「手机号或密码不正确」。
+
+**脚本**：`scripts/gen-relay-queue.py`（8.44 的队列文件生成，10k / 30k 条）。
