@@ -101,3 +101,17 @@ iOS（iPhone 17 Pro 模拟器 Release，`vmmap --summary` physical footprint，�
 **模拟器包的两个坑（已写进 DEVELOPMENT.md「iOS 模拟器」）**：`CODE_SIGNING_ALLOWED=NO` 的包钥匙串不可用（登录态只在内存、冷启动回登录页、队列不补传），要用 `CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES`；手工 `codesign` 加权利的包 launchd 拒绝 spawn。模拟器包的 API 地址是打包时从 `app/.env` 烤进去的，worktree 里指 dev 云端的话登本地账号会报「手机号或密码不正确」。
 
 **脚本**：`scripts/gen-relay-queue.py`（8.44 的队列文件生成，10k / 30k 条）。
+
+## 八、晚场：iOS 模拟器把能补的都补了（10-30 20:30–21:35，包 = main 00eeb4a）
+
+又填了 REGRESSION.md iOS 列 26 行，其中 ✅ 19 行、◐ 3 行（4.48、7.15、8.30）、➖ 4 行（4.66、4.73、4.86、4.89，模拟器做不了，要真机）。修了 1 个 bug：**#474** 地图「选择查看的头盔」面板把服务端在线、本机没连上的头盔写成「离线 · 刚刚」，设备页 10-16 已改、面板漏了。
+
+**做法**：`scripts/slow-proxy.py` 是这轮写的本地慢网代理——后端挪到 :3001（`PORT=3001`），代理占 :3000，规则文件 `slow-proxy.json` 改了即生效：`{"all": 秒, "rules": [{"match": "/cancel", "delay": 14}, {"match": "/confirm", "drop": true}, {"match": "/auth/refresh", "delay": 25, "once": true}]}`，并记下每个请求到达和发出的时刻，用来判断「请求在途」时的界面。求救单还是用 app-relay 注入；BLE 入队在 iOS 模拟器上走不了，用 `scripts/gen-relay-queue.py` 的队列文件或「我还是需要帮助」替代（4.58 / 4.59 / 8.29 都注明了）。
+
+**要负责人看的**：
+1. **7.15 / O35（待定）**：iPhone 上 2.64× 起倒计时页的字被固定行高裁成半截，滑动取消条文字消失；2.14× 能用。3.57× 结果页的「关闭」按钮会压住正文。封不封顶 2 倍还没定。
+2. **8.30**：从没有 `install-marker` 的 3ab7c77 覆盖升级，会被当新装清钥匙串、登出一次，外观也回默认。#235 写明是已知代价、只影响内部测试包。REGRESSION 里 10-21 那条 ✅ 没走到这条路径，原因没核实。
+3. **4.63 / 4.70（已定先不改）**：iOS「保存密码？」面板除了首登，「重新登录后取消」这条路上也会盖在倒计时上，要先点掉才滑得动。这条路本来就是赶着取消，多一步值得知道，但负责人 10-30 已定先不改。
+4. **4.64（小问题，没改）**：求助先失败、后来请求又到了服务端时，「求救发送失败」的系统弹窗会留在已起来的倒计时页上，要手动点确定。系统 Alert 收不回来，要改就得换成页内提示。
+
+**坑**：`simctl privacy reset notifications` 在 iOS 26.5 模拟器上报 Operation not permitted；卸载重装会连钥匙串一起清（App 自己的 #235 清的）；模拟器通知要**向右滑开**才拉得起 App，点正文和长按都没反应；iOS 没有动画缩放开关，4.80 用「减弱动态效果」看。
