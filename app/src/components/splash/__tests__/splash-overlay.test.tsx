@@ -654,6 +654,38 @@ describe("已登录：等到商标快完成再定", () => {
     expect(splashStory.get()).toBe(-1);
   });
 
+  it("开屏时按了 Home：回前台时看门狗先收场、定落点的反应才到，页面不能再被藏起来（2026-10-30 安卓模拟器：设备页只剩名字和状态）", async () => {
+    signIn();
+    mockHero.value = { image: 1, battery: 80 };
+    m(devicesApi.list).mockImplementation(() => Promise.resolve([dev("h1")]));
+    const r = mount();
+    await start(r);
+    runUntil((s) => s >= 1480);
+    // 时钟走过了定落点的时刻，但反应还排着（后台时 UI 线程和 JS 线程都停着）
+    act(() => {
+      for (let i = 0; i < 4; i++) {
+        frameClock.cb!({ timestamp: 0, timeSincePreviousFrame: 16 });
+      }
+    });
+    // 走到看门狗刚收场、卸掉这一层的那两帧还没走完
+    await advance(7000);
+    for (let i = 0; i < 2100 && !m(releaseSplashPage).mock.calls.length; i++) {
+      await advance(1);
+    }
+    expect(m(releaseSplashPage).mock.calls.length).toBe(1);
+    expect(shown(r)).toBe(true);
+    // 这时排着的反应才到：定落点不能再把页面藏起来
+    act(() => pumpReactions());
+    await advance(0);
+    expect(arriveFrom.get()).toBe(-1);
+    await advance(50);
+    expect(shown(r)).toBe(false);
+    expect(arriveFrom.get()).toBe(-1);
+    expect(headerFrom.get()).toBe(-1);
+    expect(anchorOwned.hero.get()).toBe(0);
+    expect(hosts(r, "DeviceLanding")).toHaveLength(0);
+  });
+
   it("设备列表还没回来：照本机记住的上次结果（没头盔）落到引导页，卡片从商标的位置立起来", async () => {
     signIn();
     useLaunchMemoryStore.setState({
