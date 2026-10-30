@@ -388,6 +388,31 @@ describe("登录页", () => {
     ).toBeGreaterThan(0);
     expect(lightImg.source).not.toBe(darkImg.source);
   });
+
+  it("键盘升起时商标缩一半、收起时复原：iOS 上键盘会盖住「登录」按钮的下半截（10-31）", () => {
+    const handlers: Record<string, () => void> = {};
+    const original = Keyboard.addListener;
+    Keyboard.addListener = ((event: string, cb: () => void) => {
+      handlers[event] = cb;
+      return { remove: () => undefined };
+    }) as never;
+    try {
+      const r = render(<LoginScreen />);
+      const width = () =>
+        (
+          r.root.find((n) => isHost(n, "ExpoImage")).props.style as {
+            width: number;
+          }
+        ).width;
+      const full = width();
+      act(() => handlers.keyboardWillShow());
+      expect(width()).toBe(Math.round(full / 2));
+      act(() => handlers.keyboardWillHide());
+      expect(width()).toBe(full);
+    } finally {
+      Keyboard.addListener = original;
+    }
+  });
 });
 
 describe("注册页", () => {

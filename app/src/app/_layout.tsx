@@ -77,7 +77,9 @@ function RootNavigator() {
   const authed = useAuthStore((s) => s.tokens !== null);
   const t = useT();
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack
+      screenOptions={{ headerShown: false, headerBackTitle: t("nav.back") }}
+    >
       <Stack.Protected guard={authed}>
         {/* 标签页自身不显示 header，但它的 title 会成为下级页面返回键的文字（默认会露出路由组名 "(tabs)"） */}
         <Stack.Screen name="(tabs)" options={{ title: t("nav.back") }} />

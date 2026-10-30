@@ -231,6 +231,40 @@ describe("RideReplay", () => {
     );
   });
 
+  it("事件条和进度条上的点：碰撞这类用红色、障碍物用提醒色，和安全记录列表一个口径（10-31）", () => {
+    const p = props();
+    const r = render(
+      <RideReplay
+        {...p}
+        events={[{ ...events[0], danger: true }, events[1]]}
+      />,
+    );
+    const colorOf = (s: string) =>
+      flat(
+        r.root.find(
+          (n) => (n.type as unknown) === "Text" && n.children.join("") === s,
+        ).props.style,
+      ).color;
+    expect(
+      colorOf(tr("map.ride.eventChip", { time: "08:10", name: "碰撞风险" })),
+    ).toBe(dark.danger);
+    expect(
+      colorOf(
+        tr("map.ride.eventChipMany", { time: "08:20", name: "障碍物", n: 3 }),
+      ),
+    ).toBe(dark.warning);
+    const marks = r.root
+      .findAll(
+        (n) =>
+          (n.type as unknown) === "View" &&
+          flat(n.props.style).borderColor === dark.backgroundElement &&
+          String(flat(n.props.style).left ?? "").endsWith("%"),
+      )
+      .map((n) => flat(n.props.style).backgroundColor);
+    // 最后一个是进度条上的圆点，不是事件
+    expect(marks).toEqual([dark.danger, dark.warning, dark.brand]);
+  });
+
   it("事件没取到：说出来并可重试（不让人以为这一趟什么都没发生）", () => {
     const p = props();
     const r = render(<RideReplay {...p} eventsFailed />);

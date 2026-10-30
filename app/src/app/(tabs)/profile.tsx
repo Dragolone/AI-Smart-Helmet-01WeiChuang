@@ -648,7 +648,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   miniBar: { paddingHorizontal: 12, paddingBottom: 12 },
   container: { paddingHorizontal: 20, paddingBottom: 28, gap: 14 },
-  pageTitle: { fontSize: 32, lineHeight: 40, marginBottom: -2 },
+  pageTitle: { fontSize: 32, lineHeight: 40, marginTop: 6, marginBottom: -2 },
   accountCard: {
     flexDirection: "row",
     alignItems: "center",

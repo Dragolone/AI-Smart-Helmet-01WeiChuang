@@ -102,6 +102,7 @@ import {
   shortTime,
   timeWithDateIfNotToday,
 } from "@/i18n/format";
+import { batteryTierOf } from "@/services/device-view";
 import {
   dayKeyOf,
   eventNear,
@@ -219,6 +220,13 @@ function RoundButton({
     </Tappable>
   );
 }
+
+/** 回放里用红色的事件，和安全记录列表（safety-records 的 tone: danger）同一口径 */
+const DANGER_EVENTS = new Set([
+  "collision_risk",
+  "possible_fall",
+  "manual_sos",
+]);
 
 function Stat({
   label,
@@ -791,6 +799,7 @@ export default function MapScreen() {
       time: shortTime(g.first.event.timestamp, locale),
       name: nameOf(g.first.event.eventType),
       count: g.count,
+      danger: DANGER_EVENTS.has(g.first.event.eventType),
     }));
     if (momentMs !== null) {
       out.push({
@@ -801,6 +810,7 @@ export default function MapScreen() {
           ? nameOf(jumped.eventType)
           : translate("map.moment.mark", undefined, locale),
         count: 1,
+        danger: jumped ? DANGER_EVENTS.has(jumped.eventType) : false,
       });
       out.sort((a, b) => a.index - b.index);
     }
@@ -885,6 +895,7 @@ export default function MapScreen() {
         ...ridePath[e.index],
         kind: "event",
         label: e.count > 1 ? String(Math.min(99, e.count)) : undefined,
+        danger: e.danger,
       })),
     ];
   }, [showRide, ridePath, replayEvents]);
@@ -1572,8 +1583,15 @@ export default function MapScreen() {
                                 : "—"
                             }
                             unit="%"
+                            // 正常电量用正文色：品牌黄写在浅色面板上对比度只有 1.46:1（10-31）；低电量才提醒
                             valueColor={
-                              online ? theme.brand : theme.textSecondary
+                              !online
+                                ? theme.textSecondary
+                                : batteryTierOf(device.battery) === "critical"
+                                  ? theme.danger
+                                  : batteryTierOf(device.battery) === "low"
+                                    ? theme.warning
+                                    : undefined
                             }
                           />
                         </View>

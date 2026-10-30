@@ -2200,7 +2200,7 @@ const channelMainMinWidth = (fontScale: number, windowWidth: number) =>
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: { flex: 1, paddingHorizontal: 20 },
-  pageTitle: { fontSize: 32, lineHeight: 38, marginTop: 8 },
+  pageTitle: { fontSize: 32, lineHeight: 40, marginTop: 6 },
   centerText: { textAlign: "center" },
   caption: { fontSize: 13, lineHeight: 18 },
 
@@ -2482,6 +2482,8 @@ const styles = StyleSheet.create({
   pttClip: {
     width: 160,
     height: 160,
+    // 裁成圆：方形裁边会把按钮的光晕切出一圈方框（10-31）
+    borderRadius: 80,
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
@@ -2500,7 +2502,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     shadowOpacity: 0.5,
-    shadowRadius: 20,
+    // 外层 160 的裁切圈离按钮只有 24：光晕要在这之内淡完，否则看得见一道硬边（10-31）
+    shadowRadius: 12,
     shadowOffset: { width: 0, height: 0 },
     elevation: 12,
   },

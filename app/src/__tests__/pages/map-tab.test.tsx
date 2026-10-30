@@ -40,6 +40,7 @@ import { RideCalendar } from "@/components/map/ride-calendar";
 import { RideList } from "@/components/map/ride-list";
 import { RideReplay } from "@/components/map/ride-replay";
 import { Tappable } from "@/components/tappable";
+import { Colors } from "@/constants/theme";
 import { translate, useLocaleStore, type MessageKey } from "@/i18n";
 import { formatKm, monthTitle } from "@/i18n/format";
 import { dayKeyOf } from "@/services/rides";
@@ -674,6 +675,25 @@ describe("实时位置", () => {
     mockRides.recent = undefined;
     r.rerender(screenOf(qc));
     expect(statOf(r, tr("map.rideDistance")).value).toBe("—");
+  });
+
+  it("电量数字：正常用正文色（品牌黄写在浅色面板上对比度只有 1.46:1），≤20% 黄、≤10% 红，离线灰（10-31）", async () => {
+    for (const [battery, online, color] of [
+      [80, true, undefined],
+      [15, true, Colors.dark.warning],
+      [8, true, Colors.dark.danger],
+      [80, false, Colors.dark.textSecondary],
+    ] as const) {
+      m(devicesApi.list).mockImplementation(() =>
+        Promise.resolve([dev("h1", { name: "通勤", battery, online })]),
+      );
+      const r = await mount();
+      const label = tr(online ? "map.battery" : "map.batteryLast");
+      await waitFor(() => expect(statOf(r, label).value).toBe(String(battery)));
+      expect(
+        (statOf(r, label) as unknown as { valueColor?: string }).valueColor,
+      ).toBe(color);
+    }
   });
 
   it("骑行中地图重新就绪：把实时那条线也重推（不收视野）", async () => {
@@ -1314,8 +1334,13 @@ describe("一趟里的回放、事件与抽屉", () => {
     expect(mockMap.setMarks).toHaveBeenLastCalledWith([
       expect.objectContaining({ kind: "start" }),
       expect.objectContaining({ kind: "end" }),
-      expect.objectContaining({ kind: "event", label: "2" }),
-      expect.objectContaining({ kind: "event", label: undefined }),
+      // 碰撞标红；从安全记录跳进来的那一刻没对上事件，用提醒色
+      expect.objectContaining({ kind: "event", label: "2", danger: true }),
+      expect.objectContaining({
+        kind: "event",
+        label: undefined,
+        danger: false,
+      }),
     ]);
   });
 

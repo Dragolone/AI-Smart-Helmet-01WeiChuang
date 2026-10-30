@@ -26,6 +26,8 @@ export interface MapMark extends LngLat {
   kind: "start" | "end" | "event";
   /** 事件标记里写什么：并了几个事件时写条数；不给就是一个感叹号 */
   label?: string;
+  /** 事件标记用红色（碰撞 / 摔倒 / 求救） */
+  danger?: boolean;
 }
 
 export interface TrackOptions {
@@ -93,7 +95,13 @@ type Cmd =
   | { type: "helmetReplay"; replay: boolean }
   | {
       type: "marks";
-      items: { lng: number; lat: number; kind: string; label: string }[];
+      items: {
+        lng: number;
+        lat: number;
+        kind: string;
+        label: string;
+        danger: boolean;
+      }[];
     }
   | { type: "avatar"; url: string | null };
 
@@ -172,6 +180,7 @@ const HTML = `<!doctype html>
   .mk.end { width: 14px; height: 14px; background: var(--neon, ${ACCENT}); border: 3px solid var(--el); }
   .mk.event { width: 26px; height: 26px; background: var(--warn); border: 3px solid var(--el);
     color: var(--el); font: 800 13px/20px -apple-system, "PingFang SC", sans-serif; text-align: center; }
+  .mk.event.danger { background: var(--danger); }
 </style>
 <script>
   window._AMapSecurityConfig = { securityJsCode: '${SECURITY_CODE}' };
@@ -216,6 +225,7 @@ try {
   //（退路下提醒色反不回原样——容器滤镜带 saturate(0.5)，取能得到的最接近的暖色）
   document.body.style.setProperty('--el', LIGHT ? '${Colors.light.backgroundElement}' : (IOS_DARK_LEGACY ? '#F2F3F6' : '${Colors.dark.backgroundElement}'));
   document.body.style.setProperty('--warn', LIGHT ? '${Colors.light.warning}' : (IOS_DARK_LEGACY ? '#C62E00' : '${Colors.dark.warning}'));
+  document.body.style.setProperty('--danger', LIGHT ? '${Colors.light.danger}' : '${Colors.dark.danger}');
   var ICON_FILL = IOS_DARK_LEGACY ? '#0B0C0E' : '#F4F5F7';
   var map = new AMap.Map('map', {
     mapStyle: MAP_STYLE,
@@ -388,7 +398,7 @@ try {
             map: map,
             position: [it.lng, it.lat],
             // label 只可能是条数：进页面前再滤一遍，只留数字
-            content: '<div class="mk ' + (isEvent ? 'event' : it.kind === 'end' ? 'end' : 'start') + '">' + (isEvent ? (String(it.label || '').replace(/[^0-9]/g, '') || '!') : '') + '</div>',
+            content: '<div class="mk ' + (isEvent ? (it.danger ? 'event danger' : 'event') : it.kind === 'end' ? 'end' : 'start') + '">' + (isEvent ? (String(it.label || '').replace(/[^0-9]/g, '') || '!') : '') + '</div>',
             anchor: 'top-left',
             offset: new AMap.Pixel(-half, -half),
             // 都压在轨迹线之上、头盔 Marker（120）之下；事件比起终点高一层
@@ -498,6 +508,7 @@ export function AmapView({
             lat: m.latitude,
             kind: m.kind,
             label: m.label ?? "",
+            danger: m.danger === true,
           })),
         }),
       // 断网冷启动进地图页，高德脚本拉不到就一直「地图异常」，联网也不会自己好（2026-10-15）：

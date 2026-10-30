@@ -114,7 +114,9 @@ export function CrossfadeIcon({
   useAnimatedReaction(
     () => tick.get(),
     (now, prev) => {
-      if (prev === null || now === prev) return;
+      // prev 为 null 是动画线程第一次跑到这里。此时 tick 若已不是 0，说明挂载后紧接着就换过值，
+      // 不能当初始值跳过：否则旧内容那层一直亮着、新内容那层一直透明（10-31 安卓冷启动首页安全格见到）
+      if (now === prev || (prev === null && now === 0)) return;
       const incoming = now % 2;
       const opIn = incoming === 0 ? op0 : op1;
       const opOut = incoming === 0 ? op1 : op0;
@@ -288,7 +290,9 @@ export function ValueTransition({
   useAnimatedReaction(
     () => tick.get(),
     (now, prev) => {
-      if (prev === null || now === prev) return;
+      // prev 为 null 是动画线程第一次跑到这里。此时 tick 若已不是 0，说明挂载后紧接着就换过值，
+      // 不能当初始值跳过：否则旧内容那层一直亮着、新内容那层一直透明（10-31 安卓冷启动首页安全格见到）
+      if (now === prev || (prev === null && now === 0)) return;
       const incoming = now % 2;
       const opIn = incoming === 0 ? op0 : op1;
       const tyIn = incoming === 0 ? ty0 : ty1;

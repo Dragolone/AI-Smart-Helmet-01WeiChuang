@@ -787,6 +787,8 @@ describe("AppTabs", () => {
     expect(labels).toEqual(["设备", "地图", "对讲", "安全", "我的"]);
     const tabs = r.root.find((n) => isHost(n, "NativeTabs"));
     expect(tabs.props.tintColor).toBe(dark.brand);
+    // 安卓五项都写字（默认只有选中项有字），和 iOS 一致
+    expect(tabs.props.labelVisibilityMode).toBe("labeled");
     expect(tabs.props.backgroundColor).toBe(dark.background);
     // 对讲那个没有实心款：iOS 一个 SF 名字、Android 一张图
     const icons = r.root.findAll((n) => isHost(n, "TriggerIcon"));

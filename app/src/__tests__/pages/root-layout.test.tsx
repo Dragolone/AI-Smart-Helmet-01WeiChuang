@@ -373,6 +373,10 @@ describe("根布局", () => {
 
     act(() => useThemeStore.setState({ hydrated: true }));
     expect(r.root.findAll((n) => n.type === Stack)).toHaveLength(1);
+    // iOS 返回键统一写「返回」：写上一页的长标题会把这一页的标题挤偏（10-31）
+    expect(
+      r.root.find((n) => n.type === Stack).props.screenOptions.headerBackTitle,
+    ).toBe(tr("nav.back"));
     expect(useRealtimeUpdates).toHaveBeenCalled();
     expect(hostNames(r)).toEqual(expect.arrayContaining(resident));
   });

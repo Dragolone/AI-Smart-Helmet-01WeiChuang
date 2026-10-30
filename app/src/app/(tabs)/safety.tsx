@@ -795,6 +795,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 10,
+    height: 44,
+    marginTop: 4,
     marginBottom: -4,
   },
   pageTitle: { fontSize: 32, lineHeight: 40, flexShrink: 1 },

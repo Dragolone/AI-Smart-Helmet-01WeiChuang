@@ -5,6 +5,7 @@ import { Image } from "expo-image";
 import { useEffect, useState } from "react";
 import {
   Keyboard,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -71,6 +72,24 @@ export default function LoginScreen() {
   // 顶部的商标和 App 名是开屏动画落下来的地方，尺寸两边共用
   const { width } = useWindowDimensions();
   const markSize = LOGIN_BRAND.markSize(width);
+  // 键盘升起后只剩上半屏：logo 缩一半，把「登录」按钮完整让出来（10-31 iOS 下半截被盖住；滚到底会切掉 logo）
+  const [keyboardUp, setKeyboardUp] = useState(false);
+  useEffect(() => {
+    const ios = Platform.OS === "ios";
+    const show = Keyboard.addListener(
+      ios ? "keyboardWillShow" : "keyboardDidShow",
+      () => setKeyboardUp(true),
+    );
+    const hide = Keyboard.addListener(
+      ios ? "keyboardWillHide" : "keyboardDidHide",
+      () => setKeyboardUp(false),
+    );
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+  const shownMark = keyboardUp ? Math.round(markSize / 2) : markSize;
   const titleSize = LOGIN_BRAND.titleSize(width);
 
   // 记住上次登录的手机号(只存号码不存密码);读取失败静默忽略
@@ -138,9 +157,9 @@ export default function LoginScreen() {
                       : require("@/assets/images/icon-brand.png")
                   }
                   style={{
-                    width: markSize,
-                    height: markSize,
-                    borderRadius: dark ? 0 : markSize * 0.225,
+                    width: shownMark,
+                    height: shownMark,
+                    borderRadius: dark ? 0 : shownMark * 0.225,
                   }}
                   contentFit="contain"
                   accessible={false}
