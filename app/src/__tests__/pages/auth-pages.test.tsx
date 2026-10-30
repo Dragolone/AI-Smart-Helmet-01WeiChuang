@@ -254,9 +254,9 @@ describe("登录页", () => {
     expect(pageErrors(r)).toEqual([]);
   });
 
-  it("勾选框只收自己招来的那句：别的错误（账号或密码错）留着", async () => {
+  it("勾选框只收自己招来的那句：别的错误（比如请求太频繁）留着", async () => {
     api.login.mockImplementation(() =>
-      Promise.reject(apiError(401, "INVALID_CREDENTIALS")),
+      Promise.reject(apiError(429, "RATE_LIMITED")),
     );
     const r = render(<LoginScreen />);
     await flush();
