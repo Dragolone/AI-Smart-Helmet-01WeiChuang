@@ -795,7 +795,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 10,
-    height: 44,
+    // 最小高度，不写死：系统字体放大时标题撑高页头，不压住下面的内容
+    minHeight: 44,
     marginTop: 4,
     marginBottom: -4,
   },
