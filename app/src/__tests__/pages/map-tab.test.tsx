@@ -1314,8 +1314,13 @@ describe("一趟里的回放、事件与抽屉", () => {
     expect(mockMap.setMarks).toHaveBeenLastCalledWith([
       expect.objectContaining({ kind: "start" }),
       expect.objectContaining({ kind: "end" }),
-      expect.objectContaining({ kind: "event", label: "2" }),
-      expect.objectContaining({ kind: "event", label: undefined }),
+      // 碰撞标红；从安全记录跳进来的那一刻没对上事件，用提醒色
+      expect.objectContaining({ kind: "event", label: "2", danger: true }),
+      expect.objectContaining({
+        kind: "event",
+        label: undefined,
+        danger: false,
+      }),
     ]);
   });
 

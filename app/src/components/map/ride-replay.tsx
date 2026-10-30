@@ -38,6 +38,8 @@ export interface ReplayEvent {
   name: string;
   /** 这一处并了几个事件（事件密的时候同一段路只标一处，见 services/rides 的 groupEvents） */
   count: number;
+  /** 碰撞 / 摔倒 / 求救用红色，其余用提醒色，和安全记录列表一个口径 */
+  danger?: boolean;
 }
 
 /** 轻量进度条（点按 / 拖动）——不引第三方 Slider。
@@ -52,7 +54,7 @@ function SeekBar({
 }: {
   ratio: number;
   /** 事件在进度条上的位置（0–1） */
-  marks: readonly number[];
+  marks: readonly { at: number; danger?: boolean }[];
   /** 拖到哪一刻了；null = 没在回放，不显示 */
   bubble: string | null;
   onSeek: (ratio: number) => void;
@@ -113,8 +115,8 @@ function SeekBar({
             style={[
               styles.seekMark,
               {
-                left: `${m * 100}%`,
-                backgroundColor: theme.warning,
+                left: `${m.at * 100}%`,
+                backgroundColor: m.danger ? theme.danger : theme.warning,
                 borderColor: theme.backgroundElement,
               },
             ]}
@@ -298,6 +300,7 @@ export function RideReplay({
         >
           {events.map((e) => {
             const on = e.key === activeEventKey;
+            const fg = e.danger ? theme.danger : theme.warning;
             return (
               <Tappable
                 key={e.key}
@@ -311,20 +314,19 @@ export function RideReplay({
                   style={[
                     styles.eventChip,
                     {
-                      borderColor: theme.warning,
-                      backgroundColor: on ? theme.warningBg : "transparent",
+                      borderColor: fg,
+                      backgroundColor: on
+                        ? e.danger
+                          ? theme.dangerBg
+                          : theme.warningBg
+                        : "transparent",
                     },
                   ]}
                 >
-                  <View
-                    style={[
-                      styles.eventDot,
-                      { backgroundColor: theme.warning },
-                    ]}
-                  />
+                  <View style={[styles.eventDot, { backgroundColor: fg }]} />
                   <ThemedText
                     type="smallBold"
-                    style={[styles.eventText, { color: theme.warning }]}
+                    style={[styles.eventText, { color: fg }]}
                   >
                     {e.count > 1
                       ? t("map.ride.eventChipMany", {
@@ -386,7 +388,14 @@ export function RideReplay({
           <View style={styles.seekColumn}>
             <SeekBar
               ratio={replayIdx !== null && ready ? replayIdx / last : 0}
-              marks={ready ? events.map((e) => e.index / last) : []}
+              marks={
+                ready
+                  ? events.map((e) => ({
+                      at: e.index / last,
+                      danger: e.danger,
+                    }))
+                  : []
+              }
               bubble={point ? shortTime(point.timestamp, locale) : null}
               label={t("map.ride.seek")}
               onSeek={(r) => {
