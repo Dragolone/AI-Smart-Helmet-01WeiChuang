@@ -237,7 +237,8 @@ export default function ProfileScreen() {
   };
 
   const initial = avatarInitial(personNameOf(user, "?"));
-  const deviceCount = devices.data?.length ?? 0;
+  // 没拿到列表（断网冷启动 / 拉失败）≠ 没有设备：写「0 台」会让人以为头盔被解绑了；同联系人那行写一横
+  const deviceCount = devices.data ? devices.data.length : null;
 
   return (
     <ThemedView style={styles.flex}>
@@ -308,7 +309,9 @@ export default function ProfileScreen() {
                     themeColor="textSecondary"
                     style={{ fontSize: 13 }}
                   >
-                    {t("profile.devicesCount", { n: deviceCount })}
+                    {deviceCount === null
+                      ? "—"
+                      : t("profile.devicesCount", { n: deviceCount })}
                   </ThemedText>
                 </View>
               </View>

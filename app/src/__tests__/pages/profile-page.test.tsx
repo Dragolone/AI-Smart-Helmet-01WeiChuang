@@ -277,6 +277,31 @@ describe("账号卡", () => {
     );
   });
 
+  // 断网冷启动写「0 台设备」会让人以为头盔被解绑了；联系人那行早已是一横
+  it("设备列表还没拿到 / 拉失败：设备数写一横，不写 0 台；拿到空列表才写 0 台", async () => {
+    const zero = tr("profile.devicesCount", { n: 0 });
+    m(devicesApi.list).mockImplementation(() => new Promise(() => undefined));
+    const loading = mount();
+    expect(loading.allText()).not.toContain(zero);
+    expect(loading.texts()).toContain("—");
+
+    m(devicesApi.list).mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    const qc = makeQueryClient();
+    const failed = mount(qc);
+    await waitFor(() =>
+      expect(qc.getQueryState(["devices"])?.status).toBe("error"),
+    );
+    expect(failed.allText()).not.toContain(zero);
+    expect(failed.texts()).toContain("—");
+    expect(failed.texts()).toContain("13900000042 · ");
+
+    m(devicesApi.list).mockImplementation(() => Promise.resolve([]));
+    const empty = mount();
+    await waitFor(() => expect(empty.allText()).toContain(zero));
+  });
+
   it("没有用户档案：一横和问号", () => {
     act(() => useAuthStore.setState({ user: null }));
     const r = mount();
