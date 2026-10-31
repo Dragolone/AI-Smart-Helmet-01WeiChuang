@@ -13,6 +13,8 @@ export function redirectSystemPath({
   initial: boolean;
 }): string | null {
   try {
+    // 工程模式只从设备详情进（站内导航不走这里）：外来链接一打开就会停掉蓝牙中转
+    if (/(^|\/)ble-bench(\?|$)/.test(path)) return null;
     if (
       sosScreen.counting &&
       (!/(^|\/)sos-active(\?|$)/.test(path) || /[?&]drill=1(&|$)/.test(path))

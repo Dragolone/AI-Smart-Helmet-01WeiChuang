@@ -1393,6 +1393,18 @@ describe("sos-alert", () => {
       expect(store.getState().inFlight.s9).toBeUndefined();
     });
 
+    it("会话已失效：请求没发出去，不按网络失败重试，直接说要重新登录（10-21 O19-A）", async () => {
+      jest.useFakeTimers();
+      mockCancel.mockRejectedValue(
+        Object.assign(new Error("session ended"), { code: "SESSION_ENDED" }),
+      );
+      const { m, store } = loadWithStore();
+      expect(await m.cancelFromNotification("s1")).toBe(false);
+      expect(store.getState().inFlight.s1).toBeUndefined();
+      await jest.advanceTimersByTimeAsync(20_000);
+      expect(mockCancel).toHaveBeenCalledTimes(1);
+    });
+
     it("请求发出即标记在途，服务端确认后清掉", async () => {
       let finish!: () => void;
       mockCancel.mockImplementationOnce(
