@@ -38,8 +38,11 @@ export interface TrackOptions {
 }
 
 export interface AmapViewHandle {
-  /** 移动头盔 Marker（实时位置或回放位置共用）；follow 时镜头平滑跟随 */
-  setHelmet(pos: LngLat, opts?: { follow?: boolean }): void;
+  /**
+   * 移动头盔 Marker（实时位置或回放位置共用）；follow 时镜头平滑跟随。
+   * jump：这一次镜头直接到位，不平滑移动（隔了很久才补的点）；不跟随时不起作用，镜头不动
+   */
+  setHelmet(pos: LngLat, opts?: { follow?: boolean; jump?: boolean }): void;
   /** 收起头盔 Marker：没有位置可画时（实时没定位、一趟的轨迹还没到），不能让它停在上一处 */
   hideHelmet(): void;
   /** 画整条轨迹（荧光双层线），默认把视野收进轨迹范围 */
@@ -80,7 +83,13 @@ interface Props {
 }
 
 type Cmd =
-  | { type: "helmet"; lng: number; lat: number; follow: boolean }
+  | {
+      type: "helmet";
+      lng: number;
+      lat: number;
+      follow: boolean;
+      jump?: boolean;
+    }
   | { type: "hideHelmet" }
   | {
       type: "track";
@@ -366,7 +375,7 @@ try {
         if (cmd.follow) {
           // 页面加载后第一次跟随直接到位：默认中心写死深圳，头盔在外地时 panTo 会从深圳横扫过去
           //（10-31 实测定位在北京：看到位置 1.3 s→0.87 s）。WebView 重建后页面重载，这个标记自然复位
-          if (followed) map.panTo(p);
+          if (followed && !cmd.jump) map.panTo(p);
           else { followed = true; map.setCenter(p, true); }
         }
       } else if (cmd.type === 'hideHelmet') {
@@ -489,6 +498,7 @@ export function AmapView({
           lng: pos.longitude,
           lat: pos.latitude,
           follow: opts?.follow ?? false,
+          jump: opts?.jump,
         }),
       setTrack: (path, opts) =>
         send({

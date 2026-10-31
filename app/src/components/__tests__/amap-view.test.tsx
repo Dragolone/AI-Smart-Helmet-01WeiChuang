@@ -352,6 +352,41 @@ describe("AmapView", () => {
     expect(reloaded.map.panTo).not.toHaveBeenCalled();
   });
 
+  it("jump：这一次镜头直接到位，下一次照旧平滑移动；不跟随时不动镜头", () => {
+    const { ref, message, web } = mount();
+    message({ type: "ready" });
+    ref.current!.setHelmet(
+      { longitude: 116.4, latitude: 39.9 },
+      { follow: true, jump: true },
+    );
+    expect(cmds().at(-1)).toMatchObject({ follow: true, jump: true });
+
+    const html = (web().props.source as { html: string }).html;
+    const page = runAmapPage(html, "Mozilla/5.0 (Linux; Android 14)");
+    const helmet = (lng: number, opts: object) =>
+      page.cmd({ type: "helmet", lng, lat: 39.9, ...opts });
+    helmet(116.4, { follow: true });
+    helmet(116.5, { follow: true });
+    expect(page.map.setCenter).toHaveBeenCalledTimes(1);
+    expect(page.map.panTo).toHaveBeenCalledTimes(1);
+
+    helmet(120, { follow: true, jump: true });
+    expect(page.map.setCenter).toHaveBeenCalledTimes(2);
+    expect(page.map.setCenter).toHaveBeenLastCalledWith(
+      expect.objectContaining({ lng: 120 }),
+      true,
+    );
+    expect(page.map.panTo).toHaveBeenCalledTimes(1);
+
+    helmet(120.1, { follow: true });
+    expect(page.map.setCenter).toHaveBeenCalledTimes(2);
+    expect(page.map.panTo).toHaveBeenCalledTimes(2);
+
+    helmet(121, { follow: false, jump: true });
+    expect(page.map.setCenter).toHaveBeenCalledTimes(2);
+    expect(page.map.panTo).toHaveBeenCalledTimes(2);
+  });
+
   it("卸载时清掉命令句柄", () => {
     const { ref, r } = mount();
     expect(ref.current).not.toBeNull();
