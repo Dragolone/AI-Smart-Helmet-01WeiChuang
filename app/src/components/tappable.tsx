@@ -4,8 +4,9 @@
 // 瞬时切换的缩放在真机上显僵硬（负责人 2026-09-11 动效口径:灵动不堆料）;
 // opacity/fill 仍走 Pressable pressed 状态（文字/列表行不需要弹性）。
 import * as Haptics from "expo-haptics";
+import type { ReactElement } from "react";
 import { Pressable, type PressableProps, type StyleProp, type ViewStyle } from "react-native";
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, type SharedValue } from "react-native-reanimated";
 
 import { useTheme } from "@/hooks/use-theme";
 
@@ -19,6 +20,11 @@ export type TappableProps = Omit<PressableProps, "style"> & {
   haptic?: boolean;
 };
 
+/**
+ * 只有 scale 模式才建 Reanimated 的共享值和动画样式（ScaleWrap）：全 App 100 来处调用里约 80 处不缩放，
+ * 每个实例都白建这两样东西有跨线程成本（安全记录每页 50 行）。非 scale 直接返回 Pressable，渲染树和样式不变。
+ * feedback 在「带 scale」和「不带 scale」之间运行中切换会让子树重新挂载，现有调用方没有这种用法。
+ */
 export function Tappable({
   style,
   feedback = "opacity",
@@ -32,21 +38,17 @@ export function Tappable({
   const theme = useTheme();
   const modes = Array.isArray(feedback) ? feedback : [feedback];
   const hasScale = modes.includes("scale");
-  const scale = useSharedValue(1);
-  const springStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.get() }],
-  }));
 
-  const inner = (
+  const pressable = (scale?: SharedValue<number>) => (
     <Pressable
       disabled={disabled}
       onPressIn={(e) => {
         if (haptic) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-        if (hasScale) scale.set(withSpring(0.965, { damping: 20, stiffness: 420 }));
+        scale?.set(withSpring(0.965, { damping: 20, stiffness: 420 }));
         onPressIn?.(e);
       }}
       onPressOut={(e) => {
-        if (hasScale) scale.set(withSpring(1, { damping: 9, stiffness: 240 }));
+        scale?.set(withSpring(1, { damping: 9, stiffness: 240 }));
         onPressOut?.(e);
       }}
       style={({ pressed }) => [
@@ -60,7 +62,15 @@ export function Tappable({
     </Pressable>
   );
 
-  if (!hasScale) return inner;
-  // scale 模式:外层只挂弹簧变换,style/热区仍归 Pressable
-  return <Animated.View style={springStyle}>{inner}</Animated.View>;
+  if (!hasScale) return pressable();
+  return <ScaleWrap render={pressable} />;
+}
+
+/** scale 模式:外层只挂弹簧变换,style/热区仍归 Pressable */
+function ScaleWrap({ render }: { render: (scale: SharedValue<number>) => ReactElement }) {
+  const scale = useSharedValue(1);
+  const springStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.get() }],
+  }));
+  return <Animated.View style={springStyle}>{render(scale)}</Animated.View>;
 }
