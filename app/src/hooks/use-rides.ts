@@ -207,6 +207,10 @@ export function useRideTrack(
     placeholderData: keepPrevious
       ? (prev, prevQuery) => previousIfSameDevice(prev, prevQuery, deviceId)
       : undefined,
+    // 键里带结束时间，进行中的那一趟每 30 秒换一次键：旧键的缓存（最多 1000 点）不用留，默认 5 分钟回收会攒约 10 份。
+    // 上面的占位靠的是 observer 手里的上一份，不是缓存条目，回收不影响它。
+    // 只在 keepPrevious 时写：写成 undefined 会把 QueryClient 默认的 gcTime 也盖掉
+    ...(keepPrevious ? { gcTime: 0 } : {}),
     retry: 1,
   });
 }

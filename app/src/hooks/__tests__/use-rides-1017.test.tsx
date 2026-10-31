@@ -193,6 +193,47 @@ describe("useRideTrack：换范围时留着上一份，只限同一顶头盔", (
     expect(r.current.data).toBeUndefined();
   });
 
+  it("进行中那一趟每 30 秒换一次键：旧键的缓存条目立刻回收（不攒到默认的 5 分钟），新的没回来时仍画上一份；不要求留的照旧默认回收", async () => {
+    // 不用 beforeEach 里「永不回收」的默认：这里要的正是默认的回收行为
+    qc = new QueryClient();
+    trackMock.mockImplementation(async () => track(22.5));
+    const at = (i: number) => ({
+      ...winA,
+      to: new Date(Date.parse(winA.to) + i * 30_000).toISOString(),
+    });
+    const entries = () =>
+      qc.getQueryCache().findAll({ queryKey: ["ride-track"] });
+    const r = await renderHook(useTrack, { id: "h1", win: at(0), keep: true });
+    await settle(() => r.current.isSuccess);
+    expect(entries()[0].gcTime).toBe(0);
+
+    let most = 0;
+    for (let i = 1; i <= 12; i += 1) {
+      await r.rerender({ id: "h1", win: at(i), keep: true });
+      most = Math.max(most, entries().length);
+      await settle(() => entries().length === 1 && r.current.isSuccess);
+      most = Math.max(most, entries().length);
+    }
+    expect(most).toBeLessThanOrEqual(2);
+    expect(entries()).toHaveLength(1);
+
+    // 下一个范围的数据还没回来、上一个条目已经回收了：线仍有上一份可画，不闪
+    trackMock.mockImplementation(() => new Promise(() => {}));
+    await r.rerender({ id: "h1", win: at(13), keep: true });
+    await settle(() => entries().length === 1);
+    expect(entries()).toHaveLength(1);
+    expect(r.current.isPlaceholderData).toBe(true);
+    expect(r.current.data!.points[0].latitude).toBe(22.5);
+
+    // 看历史行程（不留上一份）：不改回收时间，用 QueryClient 的默认
+    trackMock.mockImplementation(async () => track(22.5));
+    await renderHook(useTrack, { id: "h2", win: winA, keep: false });
+    const mine = qc
+      .getQueryCache()
+      .find({ queryKey: ["ride-track", "h2", winA.from, winA.to] });
+    expect(mine?.gcTime).toBe(5 * 60_000);
+  });
+
   it("previousIfSameDevice：上一次查询的设备号（键的第二位）对得上才给上一份", () => {
     const prev = { points: [] };
     const of = (id: string) => ({ queryKey: ["ride-track", id, "a", "b"] });
