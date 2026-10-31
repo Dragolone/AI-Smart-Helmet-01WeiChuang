@@ -566,6 +566,26 @@ describe("手动输入", () => {
     expect(r.texts()).not.toContain(tr("bind.manualTitle"));
   });
 
+  it("绑不上的原因跟着输入走：改设备号或绑定码，面板里的红字就收", async () => {
+    routerState.params = { manual: "1" };
+    m(devicesApi.bind).mockImplementation(() =>
+      Promise.reject(new ApiRequestError(404, { code: "DEVICE_NOT_FOUND" })),
+    );
+    const r = mount();
+    r.type(P.id, "helmet_m");
+    r.type(P.code, "11112222");
+    r.press(tr("device.bindAction"));
+    await flush();
+    expect(r.allText()).toContain(tr("error.deviceNotFound"));
+    r.type(P.code, "11112223");
+    expect(r.allText()).not.toContain(tr("error.deviceNotFound"));
+    r.press(tr("device.bindAction"));
+    await flush();
+    expect(r.allText()).toContain(tr("error.deviceNotFound"));
+    r.type(P.id, "helmet_n");
+    expect(r.allText()).not.toContain(tr("error.deviceNotFound"));
+  });
+
   it("设备号一栏粘进整条绑定链接（微信扫码落到网页后复制的）：拆成设备号和绑定码；链接里没有绑定码就只填设备号", async () => {
     routerState.params = { manual: "1" };
     const r = mount();

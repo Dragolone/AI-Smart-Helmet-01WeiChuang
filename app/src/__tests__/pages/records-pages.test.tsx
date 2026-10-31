@@ -418,6 +418,41 @@ describe("添加紧急联系人", () => {
     expect(mockRouter.back).toHaveBeenCalled();
   });
 
+  it("错误跟着输入走：必填填上就收、号码改对就收，都不提前跳到下一条", () => {
+    const r = mount(<AddContactScreen />);
+    r.press(tr("common.save"));
+    expect(errors(r)).toEqual([tr("contacts.required")]);
+    r.type(P.name, "妈妈");
+    r.type(P.phone, "12345");
+    // 必填的两格都填了：号码不对是下一条，要等再点保存才说
+    expect(errors(r)).toEqual([]);
+    r.press(tr("common.save"));
+    expect(errors(r)).toEqual([tr("contacts.invalidPhone")]);
+    r.type(P.phone, "13800000001");
+    expect(errors(r)).toEqual([]);
+  });
+
+  it("重复号码的说明和服务端的拒绝，改任一格输入就收", async () => {
+    const qc = makeQueryClient();
+    qc.setQueryData(["contacts"], [contact("1", "妈妈")]);
+    m(contactsApi.create).mockImplementation(() =>
+      Promise.reject(new ApiRequestError(400, { code: "VALIDATION_FAILED" })),
+    );
+    const r = mount(<AddContactScreen />, qc);
+    r.type(P.name, "妈");
+    r.type(P.phone, "13800000001");
+    r.press(tr("common.save"));
+    expect(errors(r)).toEqual([tr("contacts.duplicatePhone")]);
+    r.type(P.phone, "13800000009");
+    expect(errors(r)).toEqual([]);
+    r.press(tr("common.save"));
+    await waitFor(() =>
+      expect(errors(r)).toEqual([tr("error.validationFailed")]),
+    );
+    r.type(P.rel, "亲戚");
+    expect(errors(r)).toEqual([]);
+  });
+
   it("号码已经是联系人了（规整后相同）：页面级说明，不提交", () => {
     const qc = makeQueryClient();
     qc.setQueryData(["contacts"], [contact("1", "妈妈")]);
