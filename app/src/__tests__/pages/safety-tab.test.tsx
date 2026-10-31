@@ -708,6 +708,87 @@ describe("长按求救", () => {
   });
 });
 
+describe("读屏发起求救（读屏双击只有按下松开，走不到长按）", () => {
+  const pushed = () =>
+    m(relayApi.push).mock.calls.map(
+      (c) =>
+        c[0] as {
+          deviceId: string;
+          envelopes: { eventType: string; eventId: string }[];
+        },
+    );
+
+  it("按钮说明双击会怎样；动作带本地化名字，不念英文 activate", () => {
+    const btn = sosButton(mount());
+    expect(btn.props.accessibilityHint).toBe(tr("safety.sosA11yHint"));
+    expect(btn.props.accessibilityActions).toEqual([
+      { name: "activate", label: tr("safety.sosA11yAction") },
+    ]);
+  });
+
+  it("iOS 读屏双击（onAccessibilityTap）：发一条 manual_sos，核对进行中的求救", async () => {
+    m(relayApi.push).mockImplementation(() => Promise.resolve({ accepted: 1 }));
+    const r = mount();
+    await act(async () => {
+      sosButton(r).props.onAccessibilityTap();
+      await Promise.resolve();
+    });
+    expect(pushed()).toHaveLength(1);
+    expect(pushed()[0].deviceId).toBe("h1");
+    expect(pushed()[0].envelopes[0].eventType).toBe("manual_sos");
+    expect(Haptics.notificationAsync).toHaveBeenCalledWith("warning");
+    await waitFor(() =>
+      expect(notifyCriticalAccepted).toHaveBeenCalledWith("h1"),
+    );
+  });
+
+  it("安卓读屏双击（activate）：发一条 manual_sos；别的动作不发", async () => {
+    m(relayApi.push).mockImplementation(() => Promise.resolve({ accepted: 1 }));
+    const r = mount();
+    const fire = (actionName: string) =>
+      act(async () => {
+        sosButton(r).props.onAccessibilityAction({
+          nativeEvent: { actionName },
+        });
+        await Promise.resolve();
+      });
+    await fire("magicTap");
+    expect(relayApi.push).not.toHaveBeenCalled();
+    await fire("activate");
+    expect(pushed()).toHaveLength(1);
+    expect(pushed()[0].envelopes[0].eventType).toBe("manual_sos");
+  });
+
+  it("读屏发送失败：和长按一样进持久队列，再双击复用同一个 eventId（不升级成立即求救）", async () => {
+    m(relayApi.push).mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    const r = mount();
+    const tap = () =>
+      act(async () => {
+        sosButton(r).props.onAccessibilityTap();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+    await tap();
+    await waitFor(() => expect(enqueueRelayEvent).toHaveBeenCalledTimes(1));
+    await tap();
+    const ids = pushed().map((b) => b.envelopes[0].eventId);
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(1);
+  });
+
+  it("普通触摸：按下松开没满 2 秒仍不发（读屏入口不影响长按）", () => {
+    const r = mount();
+    const btn = sosButton(r);
+    act(() => btn.props.onPressIn());
+    act(() => btn.props.onPressOut());
+    expect(relayApi.push).not.toHaveBeenCalled();
+    expect(btn.props.delayLongPress).toBe(2000);
+    expect(btn.props.onPress).toBeUndefined();
+  });
+});
+
 describe("开发测试入口（DEV 构建）", () => {
   it("展开后能注入摔倒 / 碰撞风险；注入失败弹窗", async () => {
     m(relayApi.pushEvent)

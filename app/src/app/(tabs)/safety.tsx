@@ -708,6 +708,16 @@ export default function SafetyScreen() {
               accessibilityLabel={t("safety.sosA11y", {
                 device: helmetNameOf(sosTarget),
               })}
+              accessibilityHint={t("safety.sosA11yHint")}
+              // 读屏的双击只产生按下松开，走不到长按，得单独接上。一次双击只走其中一条：
+              // iOS 只发 onAccessibilityTap，安卓只发 activate（且不再触发 onPress），都不经过下面的长按
+              accessibilityActions={[
+                { name: "activate", label: t("safety.sosA11yAction") },
+              ]}
+              onAccessibilityAction={(e) => {
+                if (e.nativeEvent.actionName === "activate") fireSos();
+              }}
+              onAccessibilityTap={fireSos}
               delayLongPress={2000}
               onPressIn={() => {
                 // 按下瞬间就要有触觉确认（骑行戴手套看不清屏幕），2 秒后触发时再一次警示振动
