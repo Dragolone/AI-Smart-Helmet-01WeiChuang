@@ -316,6 +316,8 @@ export default function IntercomScreen() {
   /** 进房期间头盔的蓝牙断了 */
   const [helmetDown, setHelmetDown] = useState(false);
   const [sheet, setSheet] = useState<Sheet | null>(null);
+  /** 退出请求在路上的频道：这一行变淡、点不了（要等 DELETE 再等一次重新拉取，期间原来纹丝不动，还能再退一次得到 404） */
+  const [leavingIds, setLeavingIds] = useState<string[]>([]);
   /** PTT 按压动效:下陷缩放 + 辉光增强 */
   const pttScale = useSharedValue(1);
   const pttPressStyle = useAnimatedStyle(() => ({
@@ -1028,12 +1030,23 @@ export default function IntercomScreen() {
               stopJoining(false);
               abandonRoom(trtc.current);
             }
+            setLeavingIds((ids) => [...ids, c.channelId]);
             channelsApi
               .leave(c.channelId)
-              .then(() =>
-                queryClient.invalidateQueries({ queryKey: ["voice-channels"] }),
-              )
-              .catch((e) => showFailure(t("intercom.leaveFailed"), e));
+              .then(() => {
+                // 服务端一确认就把这个频道拿掉，不等重新拉取（同解绑）；失败时这行原样留着
+                queryClient.setQueryData<VoiceChannel[]>(
+                  ["voice-channels"],
+                  (old) => old?.filter((x) => x.channelId !== c.channelId),
+                );
+                void queryClient.invalidateQueries({
+                  queryKey: ["voice-channels"],
+                });
+              })
+              .catch((e) => showFailure(t("intercom.leaveFailed"), e))
+              .finally(() =>
+                setLeavingIds((ids) => ids.filter((id) => id !== c.channelId)),
+              );
           },
         },
       ],
@@ -1687,6 +1700,7 @@ export default function IntercomScreen() {
             >
               {list.map((c, i) => {
                 const busy = joining && activeId === c.channelId;
+                const leaving = leavingIds.includes(c.channelId);
                 return (
                   <View
                     key={c.channelId}
@@ -1696,6 +1710,7 @@ export default function IntercomScreen() {
                         backgroundColor: theme.backgroundElement,
                         borderColor: theme.border,
                       },
+                      leaving && styles.chanLeaving,
                     ]}
                   >
                     <View
@@ -1739,6 +1754,7 @@ export default function IntercomScreen() {
                         accessibilityLabel={t("intercom.more.a11y", {
                           name: channelNameOf(c.name),
                         })}
+                        disabled={leaving}
                         onPress={() =>
                           setSheet({ kind: "more", channelId: c.channelId })
                         }
@@ -1757,7 +1773,7 @@ export default function IntercomScreen() {
                         accessibilityLabel={t("intercom.enter.a11y", {
                           name: channelNameOf(c.name),
                         })}
-                        disabled={joining && !busy}
+                        disabled={leaving || (joining && !busy)}
                         onPress={() => void join(c)}
                         // 只有第一个是品牌色：一页一个主操作
                         style={[
@@ -2272,6 +2288,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   // 最少多宽见 channelMainMinWidth；同排时多出来的宽度都给名字
+  chanLeaving: { opacity: 0.55 },
   chanMain: {
     flexGrow: 1,
     flexShrink: 1,
