@@ -14,6 +14,7 @@ import { DeviceSettingList } from "@/components/device-settings";
 import { Card } from "@/components/list";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
+import { useDeviceNameBeforeDetail } from "@/hooks/use-device-name";
 import { useDeviceSettings } from "@/hooks/use-device-settings";
 import { useTheme } from "@/hooks/use-theme";
 import { useT, type MessageKey } from "@/i18n";
@@ -32,10 +33,12 @@ export function DeviceContext({ deviceId }: { deviceId: string }) {
     queryFn: () => devicesApi.status(deviceId),
     refetchInterval: 15_000,
   });
+  // 详情没回来之前先用设备列表缓存里的名字，不先闪设备号再变名字
+  const name = useDeviceNameBeforeDetail(deviceId, detail.data);
   return (
     <View style={styles.context}>
       <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-        {helmetNameOf({ name: detail.data?.name ?? null, deviceId })}
+        {helmetNameOf({ name, deviceId })}
       </ThemedText>
       {status.data && !status.data.online && (
         <View style={styles.offline}>

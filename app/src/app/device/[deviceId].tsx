@@ -56,6 +56,7 @@ import { KeyboardAvoid } from "@/components/keyboard-avoid";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { Radius } from "@/constants/theme";
+import { useDeviceNameBeforeDetail } from "@/hooks/use-device-name";
 import { useDeviceSettings } from "@/hooks/use-device-settings";
 import { useTheme } from "@/hooks/use-theme";
 import { useLocale, useT, type MessageKey } from "@/i18n";
@@ -123,7 +124,9 @@ export default function DeviceDetailScreen() {
     queryFn: () => devicesApi.detail(deviceId),
   });
   // 用户起的名字整理成一行（零宽字符 / 换行见 cleanHelmetName）；空串 = 没起名，显示设备号
-  const shownName = cleanHelmetName(detail.data?.name);
+  // 详情没回来之前先用设备列表缓存里的名字，标题不先闪设备号再变名字；改名入口仍只认详情（下面按 detail.data 门控）
+  const nameBeforeDetail = useDeviceNameBeforeDetail(deviceId, detail.data);
+  const shownName = cleanHelmetName(nameBeforeDetail);
 
   // 设备设置（§8 命令+回执状态机）：与分类页共用，见 hooks/use-device-settings
   const settings = useDeviceSettings(deviceId);
@@ -420,7 +423,7 @@ export default function DeviceDetailScreen() {
               numberOfLines={2}
               maxFontSizeMultiplier={1.3}
             >
-              {helmetNameOf({ name: detail.data?.name ?? null, deviceId })}
+              {helmetNameOf({ name: shownName, deviceId })}
             </ThemedText>
             {/* 详情回来之前不给改名：那时预填的是空串，一点保存就把原来的名字清掉了 */}
             {detail.data !== undefined && (

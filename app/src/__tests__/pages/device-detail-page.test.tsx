@@ -252,6 +252,58 @@ describe("状态卡", () => {
     expect(title.props.maxFontSizeMultiplier).toBe(1.3);
   });
 
+  // 第一次进页面：详情要等一次请求，回来前标题只能写设备号、回来后才变名字——先闪一下编号
+  describe("详情没回来之前的标题", () => {
+    const listed = (name: string | null) => {
+      const qc = makeQueryClient();
+      qc.setQueryData(["devices"], [{ deviceId: "h1", name }]);
+      return qc;
+    };
+    const renameButtons = (r: Rendered) =>
+      r.root.findAll(
+        (n) =>
+          n.type === Tappable &&
+          n.props.accessibilityLabel === tr("device.renameTitle"),
+      );
+
+    it("先用设备列表缓存里的名字，不闪设备号；改名入口仍要等详情回来", async () => {
+      m(devicesApi.detail).mockImplementation(
+        () => new Promise(() => undefined),
+      );
+      const r = mount(listed("通勤头盔"));
+      await waitFor(() => expect(r.texts()).toContain("通勤头盔"));
+      // 名字在标题，编号退到下面一行（与详情回来后一致，不再挪位置）
+      expect(r.texts()).toContain("h1");
+      expect(renameButtons(r)).toHaveLength(0);
+    });
+
+    it("详情回来以详情为准：别处清掉了名字，不让过期的列表名字盖过它；这时才给改名", async () => {
+      let resolve!: (v: unknown) => void;
+      m(devicesApi.detail).mockImplementation(
+        () => new Promise((res) => (resolve = res)),
+      );
+      const r = mount(listed("旧名字"));
+      await waitFor(() => expect(r.texts()).toContain("旧名字"));
+      await act(async () => {
+        resolve({ deviceId: "h1", name: null });
+        await Promise.resolve();
+      });
+      await waitFor(() => expect(renameButtons(r)).toHaveLength(1));
+      expect(r.texts()).not.toContain("旧名字");
+      expect(r.texts()).toContain("h1");
+    });
+
+    it("列表里也没有名字：照旧写设备号", async () => {
+      m(devicesApi.detail).mockImplementation(
+        () => new Promise(() => undefined),
+      );
+      const r = mount(listed(null));
+      await waitFor(() => expect(r.texts()).toContain("h1"));
+      expect(r.texts()).not.toContain("通勤头盔");
+      expect(renameButtons(r)).toHaveLength(0);
+    });
+  });
+
   it("名字 + 编号；在线、电量；蓝牙已连接；最近上报时间", async () => {
     const r = mount();
     await waitFor(() => expect(r.allText()).toContain("通勤头盔"));
