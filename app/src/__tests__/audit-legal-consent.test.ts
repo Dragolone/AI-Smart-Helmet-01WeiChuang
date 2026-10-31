@@ -34,13 +34,22 @@ describe("注册页同意勾选", () => {
   });
 
   it("未勾选时 submit 直接返回，早于任何网络调用", () => {
+    // 同意是校验（useFormErrors 的 validate）里的第一条，submit 第一句就是 check()，没过直接返回
+    const validate = src.slice(
+      src.indexOf("useFormErrors("),
+      src.indexOf("const sendCode"),
+    );
+    expect(validate.indexOf("if (!consented)")).toBeGreaterThanOrEqual(0);
+    expect(validate.indexOf("if (!consented)")).toBe(validate.indexOf("if ("));
     const body = src.slice(src.indexOf("const submit = async"));
-    const guard = body.indexOf("if (!consented)");
+    const guard = body.indexOf("if (!form.check()) return;");
     const call = body.indexOf("authApi.register");
     expect(guard).toBeGreaterThanOrEqual(0);
     expect(call).toBeGreaterThan(guard);
-    // 守卫和它的 return 之间不能插进别的语句
-    expect(body.slice(guard, guard + 120)).toContain("return;");
+    // 守卫之前不能插进别的语句
+    expect(
+      body.slice(0, guard).replace(/^const submit = async \(\) => \{\s*/, ""),
+    ).toBe("");
   });
 
   it("两份文档各有一个入口", () => {
