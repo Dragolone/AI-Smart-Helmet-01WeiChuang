@@ -9,12 +9,18 @@ config.resolver.assetExts.push("skpack");
 
 // "@expo/vector-icons" 裸包名只给 Ionicons / MaterialIcons：原包入口把 19 套图标字体全打进包（约 4 MB）。
 // 只拦这个精确名，@expo/vector-icons/Ionicons 这类子路径和其它模块走默认解析；类型仍来自原包（见 vector-icons.ts）。
+// 只管我们自己的代码：node_modules 里的库从裸包名拿别的图标集时，别名会让它拿到 undefined、运行时闪退，
+// 而审计测试（audit-vector-icons）只扫 src，管不到库。库的 import 走默认解析，最多包大一点，不会崩。
 const VECTOR_ICONS_SHIM = path.join(
   __dirname,
   "src/components/vector-icons.ts",
 );
+const NODE_MODULES = `${path.sep}node_modules${path.sep}`;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
-  if (moduleName === "@expo/vector-icons") {
+  if (
+    moduleName === "@expo/vector-icons" &&
+    !(context.originModulePath ?? "").includes(NODE_MODULES)
+  ) {
     return { type: "sourceFile", filePath: VECTOR_ICONS_SHIM };
   }
   return context.resolveRequest(context, moduleName, platform);

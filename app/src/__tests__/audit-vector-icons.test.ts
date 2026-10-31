@@ -88,34 +88,74 @@ describe("图标字体只打用到的两套", () => {
     expect(shim).not.toMatch(/export\s*\*/);
   });
 
-  it("metro.config.js 把裸包名指向 vector-icons.ts，其它模块照走默认解析", () => {
-    const config = require(join(ROOT, "metro.config.js")) as {
-      resolver: {
-        resolveRequest: (
-          ctx: { resolveRequest: () => unknown },
-          name: string,
-          platform: string,
-        ) => unknown;
+  describe("metro.config.js 的别名", () => {
+    type Ctx = { resolveRequest: () => unknown; originModulePath?: string };
+    const config = () =>
+      require(join(ROOT, "metro.config.js")) as {
+        resolver: {
+          resolveRequest: (ctx: Ctx, name: string, platform: string) => unknown;
+        };
       };
-    };
-    const fallback = jest.fn(() => ({ type: "empty" }));
-    const ctx = { resolveRequest: fallback };
-    const hit = config.resolver.resolveRequest(
-      ctx,
-      "@expo/vector-icons",
-      "android",
-    ) as { type: string; filePath: string };
-    expect(hit.type).toBe("sourceFile");
-    expect(hit.filePath).toBe(join(SRC, "components/vector-icons.ts"));
-    expect(fallback).not.toHaveBeenCalled();
+    const OWN = join(SRC, "components/some-screen.tsx");
 
-    for (const name of [
-      "@expo/vector-icons/Ionicons",
-      "react-native",
-      "expo-router",
-    ]) {
-      config.resolver.resolveRequest(ctx, name, "ios");
-    }
-    expect(fallback).toHaveBeenCalledTimes(3);
+    it("我们自己的代码：把裸包名指向 vector-icons.ts，其它模块照走默认解析", () => {
+      const fallback = jest.fn(() => ({ type: "empty" }));
+      const ctx = { resolveRequest: fallback, originModulePath: OWN };
+      const hit = config().resolver.resolveRequest(
+        ctx,
+        "@expo/vector-icons",
+        "android",
+      ) as { type: string; filePath: string };
+      expect(hit.type).toBe("sourceFile");
+      expect(hit.filePath).toBe(join(SRC, "components/vector-icons.ts"));
+      expect(fallback).not.toHaveBeenCalled();
+
+      for (const name of [
+        "@expo/vector-icons/Ionicons",
+        "react-native",
+        "expo-router",
+      ]) {
+        config().resolver.resolveRequest(ctx, name, "ios");
+      }
+      expect(fallback).toHaveBeenCalledTimes(3);
+    });
+
+    // 库从裸包名拿别的图标集（比如 FontAwesome）时，别名只导出两套，运行时就是 undefined 闪退；
+    // 本文件的扫描只看 src，管不到库，所以库里的 import 必须走默认解析（最多包大一点）
+    it("node_modules 里的库：裸包名也走默认解析，不套别名", () => {
+      const fallback = jest.fn(() => ({
+        type: "sourceFile",
+        filePath: "full",
+      }));
+      for (const origin of [
+        join(ROOT, "node_modules/some-lib/index.js"),
+        join(ROOT, "..", "node_modules/@scope/lib/build/icons.js"),
+      ]) {
+        const ctx = { resolveRequest: fallback, originModulePath: origin };
+        expect(
+          config().resolver.resolveRequest(
+            ctx,
+            "@expo/vector-icons",
+            "android",
+          ),
+        ).toEqual({ type: "sourceFile", filePath: "full" });
+      }
+      expect(fallback).toHaveBeenCalledTimes(2);
+    });
+
+    it("路径里只是带 node_modules 字样的我们自己的文件（不是目录名）仍套别名", () => {
+      const fallback = jest.fn(() => ({ type: "empty" }));
+      const ctx = {
+        resolveRequest: fallback,
+        originModulePath: join(SRC, "components/my_node_modules_view.tsx"),
+      };
+      const hit = config().resolver.resolveRequest(
+        ctx,
+        "@expo/vector-icons",
+        "android",
+      ) as { filePath: string };
+      expect(hit.filePath).toBe(join(SRC, "components/vector-icons.ts"));
+      expect(fallback).not.toHaveBeenCalled();
+    });
   });
 });
