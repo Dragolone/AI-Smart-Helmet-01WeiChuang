@@ -389,6 +389,10 @@ export default function SafetyScreen() {
       });
   };
 
+  const fireSosA11y = () => {
+    if (sosInFlight.current === 0) fireSos();
+  };
+
   const [devOpen, setDevOpen] = useState(false);
   const inject = (deviceId: string, type: "possible_fall" | "collision_risk") =>
     relayApi
@@ -726,14 +730,16 @@ export default function SafetyScreen() {
               })}
               accessibilityHint={t("safety.sosA11yHint")}
               // 读屏的双击只产生按下松开，走不到长按，得单独接上。一次双击只走其中一条：
-              // iOS 只发 onAccessibilityTap，安卓只发 activate（且不再触发 onPress），都不经过下面的长按
+              // iOS 只发 onAccessibilityTap，安卓只发 activate（且不再触发 onPress），都不经过下面的长按。
+              // 只有这两条路在发送中不再发：双击比长按两秒容易连按，第二条新 eventId 会被服务端当「立即求救」，
+              // 60 秒取消窗口就没了。长按不拦（宁可多发）
               accessibilityActions={[
                 { name: "activate", label: t("safety.sosA11yAction") },
               ]}
               onAccessibilityAction={(e) => {
-                if (e.nativeEvent.actionName === "activate") fireSos();
+                if (e.nativeEvent.actionName === "activate") fireSosA11y();
               }}
-              onAccessibilityTap={fireSos}
+              onAccessibilityTap={fireSosA11y}
               delayLongPress={2000}
               onPressIn={() => {
                 // 按下瞬间就要有触觉确认（骑行戴手套看不清屏幕），2 秒后触发时再一次警示振动
