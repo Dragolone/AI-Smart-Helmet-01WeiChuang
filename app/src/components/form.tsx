@@ -95,6 +95,11 @@ export function FormInput(
           onBlur={() => setFocused(false)}
           style={[styles.input, { color: theme.text }, style]}
           secureTextEntry={secureTextEntry ? !revealed : undefined}
+          // 点眼睛切成明文后 RN 默认 autoCapitalize 是 sentences，首字母被系统大写，
+          // 存下的就不是用户以为的那串；密码框固定关掉大写 / 纠错，调用方仍可覆盖
+          {...(secureTextEntry
+            ? { autoCapitalize: "none", autoCorrect: false, spellCheck: false }
+            : null)}
           {...rest}
         />
         {secureTextEntry && (
