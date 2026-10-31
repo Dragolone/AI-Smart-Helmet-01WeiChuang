@@ -21,6 +21,7 @@ import {
   Alert,
   BackHandler,
   Dimensions,
+  AppState,
   ScrollView,
   StyleSheet,
   View,
@@ -55,7 +56,7 @@ import {
   notifyCriticalAccepted,
 } from "@/services/ble-relay-uplink";
 import { devLog } from "@/services/dev-log";
-import { clearSosAlert } from "@/services/sos-alert";
+import { cancelFromNotification, clearSosAlert } from "@/services/sos-alert";
 import { sosScreen } from "@/services/sos-queue";
 import {
   __resetServerClockForTests,
@@ -161,6 +162,7 @@ jest.mock("@/hooks/use-keep-awake-safe", () => ({
 jest.mock("@/services/dev-log", () => ({ devLog: jest.fn() }));
 jest.mock("@/services/sos-alert", () => ({
   clearSosAlert: jest.fn(() => Promise.resolve()),
+  cancelFromNotification: jest.fn(() => Promise.resolve(false)),
 }));
 jest.mock("@/services/ble-relay-uplink", () => ({
   enqueueRelayEvent: jest.fn(),
@@ -876,6 +878,35 @@ describe("取消 / 立即求救", () => {
   });
 
   // 原来这两种失败弹系统提示框：盖住还在走的倒计时、不写剩余秒数，要先点「确定」才能再滑（O7，10-20 模拟器）
+  it("滑动取消失败时已不在前台：交给通知取消的重试链；在前台时不交（页面上能再滑一次）（11-01）", async () => {
+    const s1 = sosOf();
+    m(sosApi.snapshot).mockImplementation(() => Promise.resolve(s1));
+    m(sosApi.cancel).mockImplementation(failAfter(8_000));
+    const appState = AppState as { currentState: string };
+    const was = appState.currentState;
+    m(cancelFromNotification).mockClear();
+    const r = await mount();
+    const slideNow = () =>
+      act(() =>
+        slideButton(r).props.onAccessibilityAction({
+          nativeEvent: { actionName: "activate" },
+        }),
+      );
+    try {
+      appState.currentState = "active";
+      slideNow();
+      await tick(9_000);
+      expect(cancelFromNotification).not.toHaveBeenCalled();
+
+      appState.currentState = "background";
+      slideNow();
+      await tick(9_000);
+      expect(cancelFromNotification).toHaveBeenCalledWith("s1", 0, "h1");
+    } finally {
+      appState.currentState = was;
+    }
+  });
+
   it("滑动取消没成功（8 s 超时）：不弹框；按钮区上方写「取消没有成功」和约几秒后通知（按失败这一刻算、跟着倒计时走），倒计时和警报照常、滑块复位可再滑；读屏念一遍；点重试再发一次取消，成功 → 已取消页、提示条收起", async () => {
     // 跨过 10 s 轮询：快照每次给同一个 deadline（默认的 sosOf() 每次按当下现算）
     const s1 = sosOf();
@@ -1554,6 +1585,49 @@ describe("这一单的状态拿不到 / 不存在", () => {
   });
 });
 
+describe("倒数走到 0 结果还没来（断网，11-01）", () => {
+  const overdue = (agoMs: number) =>
+    sosOf({ deadline: new Date(Date.now() - agoMs).toISOString() });
+
+  it("写明在确认结果，不让页面停在 0 秒什么都不说", async () => {
+    const fixed = overdue(5_000);
+    m(sosApi.snapshot).mockImplementation(() => Promise.resolve(fixed));
+    const r = await mount();
+    expect(r.allText()).toContain(tr("sos.awaitingResult"));
+  });
+
+  it("还在倒数时不写", async () => {
+    const r = await mount();
+    expect(r.allText()).not.toContain(tr("sos.awaitingResult"));
+  });
+
+  it("没有原生闹钟的路径（iOS）：过了截止 + 余量不再响", async () => {
+    mockLink.sosAlarmAvailable = false;
+    const fixed = overdue(29_000);
+    m(sosApi.snapshot).mockImplementation(() => Promise.resolve(fixed));
+    await mount();
+    await tick(3_000);
+    expect(mockAlarm.pause).toHaveBeenCalled();
+    mockAlarm.play.mockClear();
+    await tick(3_000);
+    expect(mockAlarm.play).not.toHaveBeenCalled();
+  });
+});
+
+describe("两顶头盔同名（11-01）", () => {
+  it("来源写出设备号尾巴，分得清是哪一顶", async () => {
+    m(devicesApi.list).mockImplementation(() =>
+      Promise.resolve([
+        { deviceId: "h1", name: "同名" },
+        { deviceId: "other", name: "同名" },
+      ] as never),
+    );
+    const r = await mount();
+    await tick(0);
+    expect(r.allText()).toContain("同名 · h1");
+  });
+});
+
 describe("取消先落地、立即求救被拒时替他重发（O29，负责人 10-21 定）", () => {
   const finalizedOnce = () =>
     m(sosApi.confirm)
@@ -1628,6 +1702,20 @@ describe("取消先落地、立即求救被拒时替他重发（O29，负责人 
     await tick(0);
     expect(relayApi.push).not.toHaveBeenCalled();
     expect(r.allText()).not.toContain(tr("sos.resentAfterCancel"));
+  });
+
+  it("立即求救被拒、补拉也失败（缓存还是 pending）：不重发，但要提示没成功，不能什么都不说（11-01）", async () => {
+    finalizedOnce();
+    const r = await mount();
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.reject(new Error("offline")),
+    );
+    r.press(tr("sos.sendNow"));
+    await tick(0);
+    await tick(0);
+    await tick(0);
+    expect(relayApi.push).not.toHaveBeenCalled();
+    expect(r.allText()).toContain(tr("sos.failSend"));
   });
 
   it("重发后两分钟都没等到新单：之后才来的那一单不自动确认", async () => {

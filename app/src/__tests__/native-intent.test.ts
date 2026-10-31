@@ -10,6 +10,16 @@ afterEach(() => {
 });
 
 describe("+native-intent redirectSystemPath", () => {
+  it("工程模式不接外部链接：一打开就会停掉蓝牙中转（站内导航不走这里）", () => {
+    for (const path of [
+      "lingyizhixing://ble-bench",
+      "/ble-bench?deviceId=helmet_1",
+    ]) {
+      expect(redirectSystemPath({ path, initial: false })).toBeNull();
+      expect(redirectSystemPath({ path, initial: true })).toBeNull();
+    }
+  });
+
   it("真单倒数中的演练链接不跳：演练页会盖在真单上、写着不会通知任何人（11-01）", () => {
     sosScreen.counting = true;
     for (const path of [

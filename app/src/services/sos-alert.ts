@@ -541,6 +541,17 @@ export async function cancelFromNotification(
   } catch (e) {
     const code = (e as { code?: string }).code;
     if (code === "SOS_ALREADY_FINALIZED") return settled();
+    // 会话已失效（O19-A：倒计时走完才登出）：请求根本没发出去，重试 17 秒也是同一个结果。
+    // 原来按网络失败重试，最后才说「没送达」，用户不知道要重新登录
+    if (code === "SESSION_ENDED") {
+      devLog("SOS-ALERT", "通知取消：会话已失效，不再重试");
+      useSosCancelStore.getState().end(sosId);
+      showNotice(
+        translate("sosAlert.cancelFailedTitle"),
+        translate("error.sessionEnded"),
+      );
+      return false;
+    }
     const status = (e as { status?: unknown }).status;
     if (status === 404 || status === 403) {
       // 服务端明确说这单不在你名下（别的手机解绑了、换了账号）：重试永远同一个结果，别让人白等 17 秒；
@@ -849,8 +860,47 @@ export async function clearSosAlert(sosId: string): Promise<void> {
   for (const id of ids) await removeNotification(id);
 }
 
+/** 这个进程扫过一次了：残留只可能来自上一个进程，本进程排的都在 alerts 表里 */
+let staleSwept = false;
+
+/**
+ * 进程被杀期间单子结束：通知和预排的「还剩 N 秒」是上一个进程排的，这个进程的 alerts 是空的，缓存也是空的，
+ * 补拉发现不了它们，通知一直挂着、还带「我没事，取消」（11-01 模拟器实测，重开 App 42 秒后还在）。
+ * 第一次拿到全量的进行中列表时按它扫一遍；本进程登记过的单不碰（可能比这份列表新）
+ */
+export async function sweepStaleAlerts(
+  activeIds: ReadonlySet<string>,
+): Promise<void> {
+  if (staleSwept) return;
+  staleSwept = true;
+  try {
+    const [shown, scheduled] = await Promise.all([
+      Notifications.getPresentedNotificationsAsync(),
+      Notifications.getAllScheduledNotificationsAsync(),
+    ]);
+    const found = new Set<string>();
+    for (const n of shown) {
+      const ref = sosRefOf(n);
+      if (ref && !ref.remote) found.add(ref.sosId);
+    }
+    for (const req of scheduled) {
+      const id = (req.content?.data as { sosId?: unknown } | null | undefined)
+        ?.sosId;
+      if (typeof id === "string" && id) found.add(id);
+    }
+    for (const sosId of found) {
+      if (activeIds.has(sosId) || alerts.has(sosId)) continue;
+      devLog("SOS-ALERT", "撤掉上一个进程留下的提醒", sosId);
+      await clearSosAlert(sosId);
+    }
+  } catch (e) {
+    devLog("SOS-ALERT", "扫残留提醒失败", e as Error);
+  }
+}
+
 /** 登出：上一个账号的 SOS 提醒不该留在这台手机上（留着也取消不了——没有 token，重试只会静默用尽） */
 export async function resetSosAlerts(): Promise<void> {
+  staleSwept = false;
   for (const sosId of [...cancelRetries.keys()]) clearCancelRetry(sosId);
   // 在途标记一并清：重试停了标记还在，重新登录后同一单的倒计时页会一直「取消中…」、按钮点不了、警报静音
   const cancelStore = useSosCancelStore.getState();

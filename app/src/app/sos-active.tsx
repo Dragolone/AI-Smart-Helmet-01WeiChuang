@@ -72,7 +72,7 @@ import type {
 import { ApiRequestError } from "@/api/client";
 import { contactsApi } from "@/api/contacts";
 import { devicesApi } from "@/api/devices";
-import { clearSosAlert } from "@/services/sos-alert";
+import { cancelFromNotification, clearSosAlert } from "@/services/sos-alert";
 import { toUserMessage } from "@/api/error-messages";
 import { buildRelayEnvelope, relayApi } from "@/api/relay";
 import { sosApi } from "@/api/sos";
@@ -621,7 +621,18 @@ function SosActiveContent() {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(
         () => {},
       );
+    const at = deadline ? new Date(deadline).getTime() : Number.NaN;
     const t = setInterval(() => {
+      // 过了截止还是 pending（断网收不到结果）不能一直响：和安卓原生兜底同一个余量
+      if (Number.isFinite(at) && serverNow() > at + NATIVE_ALARM_GRACE_MS) {
+        clearInterval(t);
+        try {
+          alarm.pause();
+        } catch {
+          // 同下：会话已失效时 pause 也可能抛
+        }
+        return;
+      }
       alarm.seekTo(0).catch(() => {});
       safePlay();
       pulse();
@@ -677,6 +688,13 @@ function SosActiveContent() {
       .catch(() => undefined)
       .then(() => {
         const current = queryClient.getQueryData<Sos>(["sos", id]);
+        // 补拉失败时缓存还是 pending，而服务端刚说过这单已结束：不知道是取消先到还是已通知，
+        // 不能什么都不说（用户明确按了求救）。提示一句，他再按一次时网络好了就能走到上面的判断
+        if (current?.status === "pending") {
+          setActFail({ kind: "confirm", ids: [id] });
+          announceFail("confirm", current.deadline ? [current.deadline] : []);
+          return;
+        }
         if (current?.status !== "cancelled" || !device) return;
         setToast(t("sos.resentAfterCancel"));
         const eventId = needHelp(device);
@@ -749,6 +767,10 @@ function SosActiveContent() {
               f?.kind === kind ? [...f.ids.filter((x) => x !== id), id] : [id],
           }));
           announceFail(kind, due ? [due] : []);
+          // 滑完马上锁屏 / 回桌面时失败：页面上的提示没人看得到，也没人再滑一次，单子到期照样通知联系人。
+          // 交给通知取消那条重试链，原生到点叫醒（11-01 模拟器实测）
+          if (kind === "cancel" && AppState.currentState !== "active")
+            void cancelFromNotification(id, 0, sos?.deviceId ?? deviceId);
         });
       })
       .finally(() => clearBusy([id]));
@@ -758,6 +780,9 @@ function SosActiveContent() {
   /** 拉过了、但两条 REST 都失败且缓存里也没有这单（null ≠ 还在拉的 undefined） */
   const connecting = !isDrill && sosQuery.data === null;
   const finished = sos && sos.status !== "pending";
+  /** 走到 0 了结果还没来：正常就几秒，断网时会一直停在这，用户要知道联系人那边还没有定论 */
+  const awaitingResult =
+    !isDrill && !connecting && sos?.status === "pending" && left === 0;
   // 失效期间这一页上的单都结束了（还连着的实时通道推来别处取消 / 到点通知）：没什么要等的了，现在就回登录页。
   // 不然结果页上的「我还是需要帮助」在本机就被拒，却提示「已暂存」，要等同一账号下次登录才补传（10-21 代码审查）
   const finalStatus = sos?.status;
@@ -787,13 +812,19 @@ function SosActiveContent() {
     return () => clearTimeout(timer);
   }, [toast]);
   const devices = useQuery({ queryKey: ["devices"], queryFn: devicesApi.list });
-  const nameOf = (id: string) =>
-    helmetNameOf(
+  // 两顶改成同一个名字时带上设备号尾巴：胶囊和结果页都靠名字区分，否则分不清取消的是哪一顶（11-01）
+  const nameOf = (id: string) => {
+    const name = helmetNameOf(
       devices.data?.find((d) => d.deviceId === id) ?? {
         name: null,
         deviceId: id,
       },
     );
+    const clash = devices.data?.some(
+      (d) => d.deviceId !== id && helmetNameOf(d) === name,
+    );
+    return clash ? `${name} · ${id.slice(-4)}` : name;
+  };
   // 「全部取消 / 全部立即求救」一起处理的那几单：请求是逐单发的，第一单先结束时其余几单在缓存里还算进行中，
   // 下面会切过去——这时不说「已取消，已切到下一单」，几单是一起处理的（10-17 安卓：三单全部取消后，结果页顶上还挂着这句）
   const [bulkIds, setBulkIds] = useState<readonly string[]>([]);
@@ -1232,7 +1263,7 @@ function SosActiveContent() {
     // 取消 / 立即求救没成功的提示条在环和按钮之间占的高度（360dp 宽时三行）
     (fail ? 88 : 0) -
     // 拉不到这单状态时环下那行「正在连接服务器…」（360dp 宽时两行）
-    (connecting ? 44 : 0);
+    (connecting || awaitingResult ? 44 : 0);
   const estimateCompact = room < 200;
   // 分屏半屏 / 小窗这类矮窗口（O20，负责人 10-21 定）：收起图标后最小的 140 环也塞不下，原来环被裁掉、
   // 秒数要上滑才看得到。这时不画环，「秒」挪到数字右边同一行，标题下那句说明也收起，省下的高度都给数字（44–96）。
@@ -1248,7 +1279,7 @@ function SosActiveContent() {
   // 量出上半截实际溢出多少，就把环再缩多少（环是这里唯一能伸缩的东西）；环缩到 140 还放不下才收起顶上的图标，
   // 再放不下（字体放得很大）才靠滚动兜底。2026-10-15 华为 P30 Pro 英文、没有联系人时上半截能上下滑（负责人发现）
   // 量出来的结果连同当时的布局条件一起存：条件一变（转屏、改字体、换语言、联系人加载出来）就当作没量过，从估算重新来
-  const layoutKey = `${windowHeight}|${fontScale}|${locale}|${isDrill}|${sourceName ?? ""}|${lateNote ?? ""}|${contacts.data?.length ?? "?"}|${others.length > 0}|${fail !== null}|${connecting}|${sessionDead}`;
+  const layoutKey = `${windowHeight}|${fontScale}|${locale}|${isDrill}|${sourceName ?? ""}|${lateNote ?? ""}|${contacts.data?.length ?? "?"}|${awaitingResult}|${others.length > 0}|${fail !== null}|${connecting}|${sessionDead}`;
   const [fitState, setFitState] = useState({
     key: layoutKey,
     shrink: 0,
@@ -1727,6 +1758,11 @@ function SosActiveContent() {
                 {connecting ? (
                   <ThemedText style={[styles.connecting, { color: P.sub }]}>
                     {t("sos.connecting")}
+                  </ThemedText>
+                ) : null}
+                {awaitingResult ? (
+                  <ThemedText style={[styles.connecting, { color: P.sub }]}>
+                    {t("sos.awaitingResult")}
                   </ThemedText>
                 ) : null}
               </View>
