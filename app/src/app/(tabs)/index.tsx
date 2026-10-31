@@ -6,7 +6,7 @@
 // 不在这一页的：速度和骑行状态（地图页）、最近上报与设备编号（详情页）。
 // 数据：GET /devices（30s 轮询兜底，WS 直写缓存）。
 import { Ionicons } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { router, useFocusEffect, useIsFocused } from "expo-router";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
@@ -684,10 +684,21 @@ export default function DevicesScreen() {
       : null;
   // 只由手势驱动：若绑到 isRefetching，后台轮询/回到页面的自动刷新也会拉出转圈，且偶发停在下拉位置不复位
   const [refreshing, setRefreshing] = useState(false);
+  const queryClient = useQueryClient();
+  // 下拉是用户明说「我要最新的」：今日骑行（一分钟一轮）和联系人（拿到后不轮询）也一起重拉，
+  // 不然刚骑完 / 刚在别处改过联系人，下拉后设备列表新了、这两格还是旧的。
+  // 用 allSettled：等它们都结束再收转圈，其中一个失败也不卡住
   const onRefresh = async () => {
     setRefreshing(true);
     try {
-      await devices.refetch();
+      await Promise.allSettled([
+        devices.refetch(),
+        queryClient.refetchQueries({
+          queryKey: ["ride-today"],
+          type: "active",
+        }),
+        queryClient.refetchQueries({ queryKey: ["contacts"], type: "active" }),
+      ]);
     } finally {
       setRefreshing(false);
     }

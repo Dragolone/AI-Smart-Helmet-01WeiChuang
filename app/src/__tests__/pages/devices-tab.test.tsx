@@ -11,7 +11,7 @@ import {
   it,
   jest,
 } from "@jest/globals";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, QueryObserver } from "@tanstack/react-query";
 import type { DevicePublic } from "@helmet/shared";
 import { RefreshControl } from "react-native";
 import { act, type ReactTestInstance } from "react-test-renderer";
@@ -527,6 +527,80 @@ describe("有头盔", () => {
       await Promise.resolve();
     });
     expect(m(devicesApi.list).mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("下拉刷新：今日骑行和联系人一起重拉", () => {
+  // 页面里的 useRideToday 在本文件被替换掉了，这里自己挂一个同 key 的活跃查询来看有没有被重拉
+  const watchRide = (qc: ReturnType<typeof makeQueryClient>, fn: jest.Mock) => {
+    return new QueryObserver(qc, {
+      queryKey: ["ride-today", "h1"],
+      queryFn: fn as () => Promise<unknown>,
+      retry: false,
+    }).subscribe(() => undefined);
+  };
+  const refreshing = (r: Rendered) =>
+    r.root.findByType(RefreshControl).props.refreshing;
+  const pull = async (r: Rendered) => {
+    await act(async () => {
+      r.root.findByType(RefreshControl).props.onRefresh();
+      await Promise.resolve();
+    });
+  };
+
+  it("设备列表、联系人、今日骑行都重拉；转圈等最慢的那个拉完才收", async () => {
+    m(devicesApi.list).mockImplementation(() => Promise.resolve([dev("h1")]));
+    m(contactsApi.list).mockImplementation(() => Promise.resolve([]));
+    const qc = makeQueryClient();
+    let release!: () => void;
+    const ride = jest
+      .fn<() => Promise<unknown>>()
+      .mockResolvedValueOnce({ distanceMeters: 0, movingSeconds: 0 })
+      .mockImplementationOnce(
+        () =>
+          new Promise((res) => {
+            release = () => res({ distanceMeters: 0, movingSeconds: 0 });
+          }),
+      );
+    const unsub = watchRide(qc, ride);
+    const r = await mount(qc);
+    await waitFor(() => expect(contactsApi.list).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(ride).toHaveBeenCalledTimes(1));
+    const devicesBefore = m(devicesApi.list).mock.calls.length;
+
+    await pull(r);
+    await waitFor(() => expect(ride).toHaveBeenCalledTimes(2));
+    expect(contactsApi.list).toHaveBeenCalledTimes(2);
+    expect(m(devicesApi.list).mock.calls.length).toBeGreaterThan(devicesBefore);
+    // 设备列表和联系人早拉完了，今日骑行还在路上：转圈不收
+    expect(refreshing(r)).toBe(true);
+    await act(async () => {
+      release();
+      await new Promise((res) => setTimeout(res, 0));
+    });
+    await waitFor(() => expect(refreshing(r)).toBe(false));
+    unsub();
+  });
+
+  it("其中一个拉失败：另外两个照样拉完，转圈照样收，不卡住", async () => {
+    m(devicesApi.list).mockImplementation(() => Promise.resolve([dev("h1")]));
+    m(contactsApi.list)
+      .mockImplementationOnce(() => Promise.resolve([]))
+      .mockImplementationOnce(() =>
+        Promise.reject(new TypeError("Network request failed")),
+      );
+    const qc = makeQueryClient();
+    const ride = jest
+      .fn<() => Promise<unknown>>()
+      .mockResolvedValue({ distanceMeters: 0, movingSeconds: 0 });
+    const unsub = watchRide(qc, ride);
+    const r = await mount(qc);
+    await waitFor(() => expect(ride).toHaveBeenCalledTimes(1));
+    await pull(r);
+    await waitFor(() => expect(contactsApi.list).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(ride).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(refreshing(r)).toBe(false));
+    unsub();
   });
 });
 
