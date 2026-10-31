@@ -33,6 +33,7 @@ import { ApiRequestError, SessionEndedError } from "@/api/client";
 import { contactsApi } from "@/api/contacts";
 import { devicesApi } from "@/api/devices";
 import { sosApi } from "@/api/sos";
+import { Skeleton } from "@/components/skeleton";
 import { Tappable } from "@/components/tappable";
 import { Colors } from "@/constants/theme";
 import { translate, useLocaleStore, type MessageKey } from "@/i18n";
@@ -1020,6 +1021,183 @@ describe("求救记录详情", () => {
     r.press(tr("accident.openCountdown"));
     expect(mockRouter.navigate).toHaveBeenCalledWith(
       "/sos-active?sosId=s1&deviceId=h1",
+    );
+  });
+
+  // 弱网进来时标题下面一片空，用户不知道是在加载还是没有内容
+  it("记录还没拿到：画骨架，不写错误；拿到后骨架让位给内容", async () => {
+    let resolve!: (v: AccidentDetail) => void;
+    m(sosApi.accidentDetail).mockImplementation(
+      () => new Promise((res) => (resolve = res)),
+    );
+    const r = mount(<AccidentDetailScreen />);
+    expect(r.root.findAllByType(Skeleton).length).toBeGreaterThan(0);
+    expect(r.allText()).toBe("");
+    await act(async () => {
+      resolve(detail());
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(r.allText()).toContain(tr("records.sos.fall")));
+    expect(r.root.findAllByType(Skeleton)).toHaveLength(0);
+  });
+
+  // 以前只有一行小字，没有重试的路
+  it("一次都没拿到又失败：给原因和重试；点重试回到加载中，再拉成功就显示内容", async () => {
+    jest.useFakeTimers();
+    m(sosApi.accidentDetail).mockImplementation(() =>
+      Promise.reject(new ApiRequestError(500, { code: "INTERNAL_ERROR" })),
+    );
+    const r = mount(<AccidentDetailScreen />);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3000);
+    });
+    expect(r.allText()).toContain(tr("records.loadFailed"));
+    expect(r.allText()).toContain(tr("error.internal"));
+    // 一次失败 + 一次重试；失败后不自己再轮询
+    expect(m(sosApi.accidentDetail).mock.calls.length).toBe(2);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(60_000);
+    });
+    expect(m(sosApi.accidentDetail).mock.calls.length).toBe(2);
+
+    let resolve!: (v: AccidentDetail) => void;
+    m(sosApi.accidentDetail).mockImplementation(
+      () => new Promise((res) => (resolve = res)),
+    );
+    act(() => r.press(tr("safety.action.retry")));
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10);
+    });
+    // 重拉途中是加载中，不留着上次的错误
+    expect(r.allText()).not.toContain(tr("records.loadFailed"));
+    expect(r.root.findAllByType(Skeleton).length).toBeGreaterThan(0);
+    await act(async () => {
+      resolve(detail({ status: "cancelled" }));
+      await jest.advanceTimersByTimeAsync(10);
+    });
+    expect(r.allText()).toContain(tr("safety.status.cancelled"));
+    expect(r.allText()).not.toContain(tr("records.loadFailed"));
+  });
+
+  it("有旧数据、这次刷新失败：旧数据照常显示，上面补一行原因，不换成空态", async () => {
+    jest.useFakeTimers();
+    m(sosApi.accidentDetail)
+      .mockImplementationOnce(() =>
+        Promise.resolve(
+          detail({ status: "pending", triggerType: "manual_sos" }),
+        ),
+      )
+      .mockImplementation(() =>
+        Promise.reject(new ApiRequestError(500, { code: "INTERNAL_ERROR" })),
+      );
+    const r = mount(<AccidentDetailScreen />);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10);
+    });
+    expect(r.allText()).toContain(tr("records.sos.manual"));
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(5000 + 3000);
+    });
+    expect(r.allText()).toContain(tr("records.sos.manual"));
+    expect(r.allText()).toContain(tr("error.internal"));
+    expect(r.allText()).not.toContain(tr("records.loadFailed"));
+  });
+
+  // WS 只失效列表，漏推（断线、后台）时单子一直写「进行中」「发送中」，退出重进才对
+  it("进行中的单每 5 秒自己看一次，走到已通知后改看短信发出去没有，都发出去就停", async () => {
+    jest.useFakeTimers();
+    const smsRow = (status: "pending" | "sent") => ({
+      id: "n1",
+      channel: "sms" as const,
+      target: "138****0001",
+      contactName: "妈妈",
+      status,
+      attempts: 1,
+      lastError: null,
+      sentAt: null,
+      createdAt: "x",
+    });
+    const calls = () => m(sosApi.accidentDetail).mock.calls.length;
+    m(sosApi.accidentDetail)
+      .mockImplementationOnce(() =>
+        Promise.resolve(detail({ status: "pending" })),
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve(
+          detail({ status: "notified", notifications: [smsRow("pending")] }),
+        ),
+      )
+      .mockImplementation(() =>
+        Promise.resolve(
+          detail({ status: "notified", notifications: [smsRow("sent")] }),
+        ),
+      );
+    const r = mount(<AccidentDetailScreen />);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10);
+    });
+    expect(calls()).toBe(1);
+    expect(r.allText()).toContain(tr("safety.status.pending"));
+    // 5 秒不到不看
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(4_000);
+    });
+    expect(calls()).toBe(1);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1_000);
+    });
+    expect(calls()).toBe(2);
+    expect(r.allText()).toContain(tr("safety.status.notified"));
+    expect(r.allText()).toContain(tr("accident.notif.sending"));
+    expect(r.allText()).not.toContain(tr("accident.openCountdown"));
+    // 短信还在发：3 秒一看
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_000);
+    });
+    expect(calls()).toBe(3);
+    expect(r.allText()).toContain(tr("accident.notif.sent"));
+    expect(r.allText()).not.toContain(tr("accident.notif.sending"));
+    // 都发出去了：终态，不再看
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(120_000);
+    });
+    expect(calls()).toBe(3);
+  });
+
+  it("已取消的单是终态：不轮询", async () => {
+    jest.useFakeTimers();
+    m(sosApi.accidentDetail).mockImplementation(() =>
+      Promise.resolve(detail({ status: "cancelled" })),
+    );
+    mount(<AccidentDetailScreen />);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10);
+    });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(120_000);
+    });
+    expect(sosApi.accidentDetail).toHaveBeenCalledTimes(1);
+  });
+
+  it("回倒计时页和导航两个按钮是 Tappable（按下有反馈），点了照常跳转", async () => {
+    m(sosApi.accidentDetail).mockImplementation(() =>
+      Promise.resolve(detail({ status: "pending" })),
+    );
+    const r = mount(<AccidentDetailScreen />);
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("accident.openCountdown")),
+    );
+    const tappable = (label: string) =>
+      r.root.find(
+        (n) =>
+          n.type === Tappable &&
+          n.findAll((c) => c.props.children === label).length > 0,
+      );
+    expect(tappable(tr("accident.openCountdown")).props.accessibilityRole).toBe(
+      "button",
+    );
+    expect(tappable(tr("accident.navigate")).props.accessibilityRole).toBe(
+      "button",
     );
   });
 

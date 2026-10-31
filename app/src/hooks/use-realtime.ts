@@ -511,6 +511,10 @@ export function useRealtimeUpdates(): void {
           );
           applySosUpdate(queryClient, sos, presentedSos, sosDeps);
           void queryClient.invalidateQueries({ queryKey: ["accidents"] });
+          // 打开着的记录详情（["accident", id]，与倒计时页共用）：状态和短信发送结果跟着变，不等轮询
+          void queryClient.invalidateQueries({
+            queryKey: ["accident", sos.sosId],
+          });
           break;
         }
         case "device_command": {

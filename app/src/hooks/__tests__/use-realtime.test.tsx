@@ -869,6 +869,8 @@ describe("求救：拉起倒计时页与锁屏提醒", () => {
     );
     expect(qc.getQueryData(["sos-active", "h1"])).toEqual({ sos });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["accidents"] });
+    // 打开着的记录详情也跟着刷新（状态 / 短信发送结果）
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["accident", "s 1/x"] });
   });
 
   it("倒计时页已在屏上：新来的单只进队列（进行中缓存 + 锁屏提醒），不再叠一页；不在设备列表里的头盔提醒写设备号", async () => {
