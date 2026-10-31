@@ -190,9 +190,15 @@ export function SlideToCancel({
           accessibilityLabel={busy ? busyLabel : a11yLabel}
           accessibilityHint={busy ? undefined : a11yHint}
           accessibilityState={{ disabled: !idle, busy }}
-          accessibilityActions={[{ name: "activate" }]}
+          // 不写 label 时 iOS 读屏会把动作名念成英文 activate
+          accessibilityActions={[{ name: "activate", label: a11yLabel }]}
           onAccessibilityAction={(e) => {
             if (e.nativeEvent.actionName === "activate" && idle) onCancel();
+          }}
+          // iOS 读屏双击只走这个：不写的话系统改发一次点按，落到上面的 Pan 手势是「没拖」，取消不了。
+          // 安卓读屏双击走上面的 activate，安卓不派发这个事件，不会取消两次
+          onAccessibilityTap={() => {
+            if (idle) onCancel();
           }}
           style={[styles.thumb, { backgroundColor: colors.thumb }, thumbStyle]}
         >
