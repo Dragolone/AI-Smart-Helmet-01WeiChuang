@@ -535,6 +535,17 @@ export async function cancelFromNotification(
   } catch (e) {
     const code = (e as { code?: string }).code;
     if (code === "SOS_ALREADY_FINALIZED") return settled();
+    // 会话已失效（O19-A：倒计时走完才登出）：请求根本没发出去，重试 17 秒也是同一个结果。
+    // 原来按网络失败重试，最后才说「没送达」，用户不知道要重新登录
+    if (code === "SESSION_ENDED") {
+      devLog("SOS-ALERT", "通知取消：会话已失效，不再重试");
+      useSosCancelStore.getState().end(sosId);
+      showNotice(
+        translate("sosAlert.cancelFailedTitle"),
+        translate("error.sessionEnded"),
+      );
+      return false;
+    }
     const status = (e as { status?: unknown }).status;
     if (status === 404 || status === 403) {
       // 服务端明确说这单不在你名下（别的手机解绑了、换了账号）：重试永远同一个结果，别让人白等 17 秒；
