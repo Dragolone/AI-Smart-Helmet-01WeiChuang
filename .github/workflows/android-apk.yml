@@ -81,7 +81,8 @@ jobs:
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          # 只编 arm64-v8a：真机全是 arm64，四种 ABI 的 C++（新架构 + reanimated 等）是冷构建最慢的部分
+          # 只编 arm64-v8a：真机基本都是 arm64，每多一种 ABI 就多编一遍 C++（新架构 + reanimated 等，冷构建最慢的部分）；
+          # 不带这个 -P 时按 app.json 的 buildArchs 编 arm64-v8a + armeabi-v7a 两种
           args=(assembleRelease --console=plain -PreactNativeArchitectures=arm64-v8a)
           if [ -n "$KEYSTORE_PATH" ]; then
             echo "使用正式证书签名"
