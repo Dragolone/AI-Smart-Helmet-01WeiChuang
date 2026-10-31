@@ -38,6 +38,13 @@ const RISK_EVENT_TYPES = new Set([
   'risk_cleared',
 ]);
 const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set(EVENT_TYPES);
+/** 丢一条就可能没人收到求救的事件：重复时要出声（DEVICE_PROTOCOL §10 第 20 条） */
+const CRITICAL_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'possible_fall',
+  'manual_sos',
+]);
+/** 同号高危事件时间差超过它就不像重传（没校时的头盔重传时间也会差，所以只告警、不改判） */
+const REPLAY_ALERT_GAP_MS = 5 * 60_000;
 
 const DEVICE_EVENT_TYPES = new Set([
   'sleep_entered',
@@ -323,13 +330,36 @@ export class IngestService {
       where: {
         deviceId_eventId: { deviceId: e.deviceId, eventId: e.eventId },
       },
-      select: { eventType: true, payload: true },
+      select: {
+        eventType: true,
+        payload: true,
+        schemaVersion: true,
+        timestamp: true,
+      },
     });
+    // 库里那条版本未知，只留档、没进过业务流程：这条版本能懂就不是重传。原来按重传丢掉，
+    // 先发一条未知版本的空载荷占号，之后同号的真摔倒不建单、对账也补不回来（11-01 本地实测）
+    const archivedOnly =
+      !!prior &&
+      !SUPPORTED_SCHEMA_VERSIONS.has(prior.schemaVersion) &&
+      SUPPORTED_SCHEMA_VERSIONS.has(e.schemaVersion);
     if (
       !prior ||
-      (prior.eventType === e.eventType &&
+      (!archivedOnly &&
+        prior.eventType === e.eventType &&
         sameEventPayload(prior.payload, e.payload))
     ) {
+      // 序号回退且载荷相同时只能按重传丢，至少要看得见：DEVICE_PROTOCOL §10 第 20 条写的那道告警
+      if (
+        prior &&
+        CRITICAL_EVENT_TYPES.has(e.eventType) &&
+        Math.abs(prior.timestamp.getTime() - e.timestamp.getTime()) >
+          REPLAY_ALERT_GAP_MS
+      ) {
+        this.logger.warn(
+          `高危事件 eventId 重复但时间相差 5 分钟以上，按重复跳过：设备 ${e.deviceId} 的 ${e.eventType} ${e.eventId}——请核查头盔序号是否回退（DEVICE_PROTOCOL §10 第 20 条）`,
+        );
+      }
       this.logger.debug(`重复 eventId 已跳过：${e.eventId}`);
       return null;
     }

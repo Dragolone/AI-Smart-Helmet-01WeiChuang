@@ -95,7 +95,9 @@ describe('SosTriggerService：升级与取消撞车 / 建单推送重试', () =>
       }),
     );
     await service.handleTrigger(manualSos('manual-2'), 'u1');
-    expect(notifierMock.finalizeNotified).toHaveBeenCalledWith('c1');
+    expect(notifierMock.finalizeNotified).toHaveBeenCalledWith('c1', {
+      deliverInline: 'background',
+    });
     expect(prismaMock.sosCase.create).toHaveBeenCalledTimes(1);
     expect(prismaMock.sosCase.create.mock.calls[0][0]).toMatchObject({
       data: {

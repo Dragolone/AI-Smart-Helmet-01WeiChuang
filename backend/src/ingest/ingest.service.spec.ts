@@ -434,6 +434,8 @@ describe('IngestService', () => {
     findUnique.mockResolvedValue({
       eventType: 'possible_fall',
       payload: { confidence: 0.9 },
+      schemaVersion: 1,
+      timestamp: new Date(),
     });
     applyEvent.mockResolvedValue({ bindUserId: 'user_1' });
     const errorSpy = jest
@@ -446,6 +448,48 @@ describe('IngestService', () => {
     expect(create).toHaveBeenCalledTimes(1);
     expect(errorSpy).not.toHaveBeenCalled();
     errorSpy.mockRestore();
+  });
+
+  it('库里同号那条版本未知、只留档：这条不是重传，摔倒照常建单（11-01 本地实测被占号吞掉）', async () => {
+    create.mockRejectedValueOnce(p2002()).mockResolvedValueOnce({ id: 'r2' });
+    findUnique.mockResolvedValue({
+      eventType: 'possible_fall',
+      payload: {},
+      schemaVersion: 999,
+      timestamp: new Date(),
+    });
+    applyEvent.mockResolvedValue({ bindUserId: 'user_1' });
+    const errorSpy = jest
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+    await expect(
+      service.ingestRaw(fallMessage(), 'helmet_001', 'mqtt'),
+    ).resolves.toBe('stored');
+    expect(handleTrigger).toHaveBeenCalledTimes(1);
+    errorSpy.mockRestore();
+  });
+
+  it('高危事件同号同载荷、时间差 5 分钟以上：仍按重复跳过，但要记 warn（序号回退时看得见，没校时的头盔重传也会这样，所以不到 error）', async () => {
+    const msg = fallMessage();
+    const parsed = JSON.parse(msg) as { payload: unknown; timestamp: string };
+    create.mockRejectedValueOnce(p2002());
+    findUnique.mockResolvedValue({
+      eventType: 'possible_fall',
+      payload: parsed.payload,
+      schemaVersion: 1,
+      timestamp: new Date(new Date(parsed.timestamp).getTime() - 3600_000),
+    });
+    const warnSpy = jest
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
+    await expect(service.ingestRaw(msg, 'helmet_001', 'mqtt')).resolves.toBe(
+      'duplicate',
+    );
+    expect(handleTrigger).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('时间相差 5 分钟以上'),
+    );
+    warnSpy.mockRestore();
   });
 
   it('同 eventId 但类型 / payload 不同（头盔序号回退，或转手后被前主人预先占号）→ 按「eventId~内容摘要」另存并照常分发，求救照常建单（10-17 评审 R4-1）', async () => {

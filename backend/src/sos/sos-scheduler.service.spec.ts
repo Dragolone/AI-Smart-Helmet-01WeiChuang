@@ -230,6 +230,16 @@ describe('SosSchedulerService', () => {
   });
 
   describe('tick：两阶段各自防重入、失败不连坐', () => {
+    it('到期扫描：一单抛错不连累同批后面的单', async () => {
+      prisma.sosCase.findMany.mockResolvedValue([{ id: 's1' }, { id: 's2' }]);
+      notifier.finalizeNotified.mockRejectedValueOnce(new Error('boom'));
+      await svc.tick();
+      expect(notifier.finalizeNotified.mock.calls).toEqual([
+        ['s1', { deliverInline: false }],
+        ['s2', { deliverInline: false }],
+      ]);
+    });
+
     it('到期扫描：逐个终态化（不在扫描里等投递），按 deadline 升序最多 50 条', async () => {
       prisma.sosCase.findMany.mockResolvedValue([{ id: 's1' }, { id: 's2' }]);
       await svc.tick();
