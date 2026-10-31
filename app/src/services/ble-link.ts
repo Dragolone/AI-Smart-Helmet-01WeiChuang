@@ -507,6 +507,21 @@ const fallbackCooldown = new Map<string, number>();
 /** 连上过、后来掉线、正在重扫的头盔：重扫期间仍标「已断开」，不标成搜索中（见 ensureScanning） */
 const reconnecting = new Set<string>();
 const FALLBACK_COOLDOWN_MS = 30_000;
+/**
+ * 这顶头盔连接 / 握手连续失败后，退避到这个时刻再连（按时间戳，不靠定时器）。第一次失败照旧立刻重试
+ *（后台偶发一次 GATT 133 时这一下最管用），第二次起按退避。原来每次失败都 finally 立刻重扫、扫到又连：
+ * GATT 一直报错时 30 s 内起扫 300 次（10-31 单测量的），而安卓 30 s 内起扫超过 5 次就把扫描静默拦掉 30 s
+ */
+const retryAt = new Map<string, number>();
+const ready = (deviceId: string): boolean =>
+  (retryAt.get(deviceId) ?? 0) <= Date.now();
+/** 30 s 窗口里起扫的时刻（安卓 BluetoothLeScanner 的限制：5 次 / 30 s，第 6 次起没有结果） */
+const scanStarts: number[] = [];
+const SCAN_WINDOW_MS = 30_000;
+const SCAN_STARTS_MAX = 5;
+let scanRateTimer: ReturnType<typeof setTimeout> | null = null;
+/** 这一轮扫描里有退避中的头盔被报上来过（没连）：退避到点要重开一轮它才会再被报一次（ble-plx 不报重复的外设） */
+let skippedWhileCooling = false;
 const reconnectDelay = new Map<string, number>();
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let stateSub: Subscription | null = null;
@@ -556,6 +571,24 @@ async function ensureScanning(): Promise<void> {
     want.map(advName).join(","),
     unfiltered ? "(全量扫描)" : "(FEE0 过滤)",
   );
+  const now = Date.now();
+  while (scanStarts.length > 0 && now - scanStarts[0] >= SCAN_WINDOW_MS)
+    scanStarts.shift();
+  if (scanStarts.length >= SCAN_STARTS_MAX) {
+    // 到了系统的限额：再起会被静默拦掉，之后 30 s 什么都扫不到。等最早那次出了窗口再起（前台靠定时器；
+    // 后台定时器不走，下一次事件 / 回前台时再进来就到点了）
+    const wait = scanStarts[0] + SCAN_WINDOW_MS - now + 50;
+    log(`30 s 内已起扫 ${SCAN_STARTS_MAX} 次，${wait} ms 后再扫`);
+    scanning = false;
+    if (scanRateTimer) clearTimeout(scanRateTimer);
+    scanRateTimer = setTimeout(() => {
+      scanRateTimer = null;
+      void ensureScanning();
+    }, wait);
+    return;
+  }
+  scanStarts.push(now);
+  skippedWhileCooling = false;
   const seen = new Set<string>();
   let hit = false;
   // 过滤扫描 20 s 无一命中 → 下一轮改为全量扫描按名匹配（部分机型/广播包不带 FEE0 时的兜底）；
@@ -605,16 +638,23 @@ async function ensureScanning(): Promise<void> {
         seen.add(name);
         log("发现", name, device.serviceUUIDs?.join(",") ?? "");
       }
-      let target = name
+      const named = name
         ? wanted().find((id) => advName(id) === name)
         : undefined;
+      if (named && !ready(named)) {
+        skippedWhileCooling = true; // 还在退避里：这一报不连，到点由退避定时器重开一轮再报
+        return;
+      }
+      let target = named;
       let byName = true;
       if (!target) {
         // 名字对不上但广播了 FEE0 且只有一个目标：连上去读 0x40 核身（名字被系统缓存/截断时的兜底）
         const advertisesService = device.serviceUUIDs?.some(
           (u) => u.toLowerCase() === SERVICE_UUID,
         );
-        const candidates = wanted();
+        const candidates = wanted().filter(ready);
+        if (candidates.length === 0 && wanted().length > 0)
+          skippedWhileCooling = true;
         // 名字明摆着是另一顶头盔的：不去连（车友聚会时，自己的还没连上、旁边别人的在广播；10-25 审查）
         if (
           !advertisesService ||
@@ -669,8 +709,10 @@ async function connect(
       });
       log(`${deviceId} 断开：${reason}`);
       syncForegroundService();
-      if (running) {
-        if (wasUp) reconnecting.add(deviceId);
+      // 只管连上之后的掉线；握手途中关掉的由 connect() 的 catch 按退避处理（这里先排一次会把它的「第一次失败
+      // 立刻重试」吃掉，10-31 单测查出）
+      if (running && wasUp) {
+        reconnecting.add(deviceId);
         scheduleReconnect(deviceId);
         // 立刻重开扫描，不能只等退避定时器：安卓退到后台 / 息屏后 JS 定时器整个停摆（10-25 模拟器实测），
         // 掉线之后就再也不扫，头盔重新上电也连不上，摔倒只进 Flash（10-25 审查）。扫描由系统在后台照跑，
@@ -686,6 +728,7 @@ async function connect(
       return;
     }
     reconnectDelay.delete(deviceId);
+    retryAt.delete(deviceId);
     reconnecting.delete(deviceId);
     store().patchLink(deviceId, {
       phase: "connected",
@@ -715,14 +758,15 @@ async function connect(
     } else if (!byName) {
       fallbackCooldown.set(found.id, Date.now() + FALLBACK_COOLDOWN_MS);
       store().patchLink(deviceId, { phase: "disconnected" });
-      scheduleReconnect(deviceId);
+      backOff(deviceId);
     } else {
       store().patchLink(deviceId, { phase: "disconnected" });
-      scheduleReconnect(deviceId);
+      backOff(deviceId);
     }
   } finally {
     connecting = null;
-    void ensureScanning();
+    // 还有能连的目标才马上重扫；只剩退避中的那顶时等它的定时器（扫到了也不会连，白占一次起扫额度）
+    if (wanted().some(ready)) void ensureScanning();
   }
 }
 
@@ -784,16 +828,27 @@ function syncForegroundService(): void {
 /** 扫描出错的退避和各头盔的重连退避共用一张表，用这个键区分 */
 const SCAN_ERROR_KEY = "scan-error";
 
-function scheduleReconnect(key: string): void {
-  if (!running || reconnectTimer) return;
+function scheduleReconnect(key: string): number {
   const prev = reconnectDelay.get(key) ?? 0;
   const delay =
     prev === 0 ? RECONNECT_MIN_MS : Math.min(prev * 2, RECONNECT_MAX_MS);
   reconnectDelay.set(key, delay);
+  if (!running) return delay;
+  if (reconnectTimer) clearTimeout(reconnectTimer);
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
+    // 已经在扫（别的头盔还没连上）且退避中的那顶在这一轮里被跳过过：重开一轮它才会再被报一次
+    if (scanning && skippedWhileCooling) stopScanRound();
     void ensureScanning();
   }, delay);
+  return delay;
+}
+
+/** 连接 / 握手失败后的退避：第一次照旧立刻重试，连续失败才按 2 / 4 / 8 … s 等 */
+function backOff(deviceId: string): void {
+  const repeat = reconnectDelay.has(deviceId);
+  const delay = scheduleReconnect(deviceId);
+  if (repeat) retryAt.set(deviceId, Date.now() + delay);
 }
 
 function applyAdapterState(state: State): void {
@@ -884,6 +939,7 @@ export function setBleTargets(deviceIds: string[]): void {
     sessions.get(id)?.close("unbound");
     store().removeLink(id);
     reconnecting.delete(id);
+    retryAt.delete(id);
   }
   for (const id of targets) {
     if (!store().links[id])
@@ -907,6 +963,11 @@ export function stopBleLink(): void {
   appStateSub?.remove();
   appStateSub = null;
   stopScanRound();
+  if (scanRateTimer) {
+    clearTimeout(scanRateTimer);
+    scanRateTimer = null;
+  }
+  scanStarts.length = 0;
   unfiltered = false;
   for (const s of sessions.values()) s.close("stopped");
   sessions.clear();
@@ -916,6 +977,7 @@ export function stopBleLink(): void {
   blocked.clear();
   ignoredPeripherals.clear();
   fallbackCooldown.clear();
+  retryAt.clear();
   reconnecting.clear();
   store().reset();
   // 释放原生栈：否则 JS 重载/登出后系统仍握着外设连接，头盔不再广播、下次扫描找不到
@@ -937,11 +999,13 @@ export function stopBleLink(): void {
 export function retryBleLink(deviceId?: string): void {
   if (deviceId) {
     reconnectDelay.delete(deviceId);
+    retryAt.delete(deviceId);
     // 用户点了「重试连接」就是要马上重扫：扫描出错的退避也一起清（原来只有不带设备号的重试才清）
     reconnectDelay.delete(SCAN_ERROR_KEY);
     blocked.delete(deviceId);
   } else {
     reconnectDelay.clear();
+    retryAt.clear();
     blocked.clear();
   }
   if (reconnectTimer) {
