@@ -157,6 +157,29 @@ describe("Tappable scale 模式：弹簧缩放照旧", () => {
     },
   );
 
+  it("hitSlop 外层也带上（外层和 Pressable 一样大，原生命中测试点在外层外面就不往里找）；没写就都没有", () => {
+    const hitSlop = { top: 7, bottom: 7 };
+    const slops = (r: ReturnType<typeof render>) => {
+      const root = r.tree.toJSON() as unknown as {
+        props: { hitSlop?: unknown };
+      };
+      return [root.props.hitSlop, pressable(r).props.hitSlop];
+    };
+    expect(
+      slops(
+        render(
+          <Tappable feedback="scale" hitSlop={hitSlop}>
+            {kid}
+          </Tappable>,
+        ),
+      ),
+    ).toEqual([hitSlop, hitSlop]);
+    expect(slops(render(<Tappable feedback="scale">{kid}</Tappable>))).toEqual([
+      undefined,
+      undefined,
+    ]);
+  });
+
   it("按下缩到 0.965、松手回到 1；调用方的回调和触觉照常", () => {
     const onPressIn = jest.fn();
     const onPressOut = jest.fn();
