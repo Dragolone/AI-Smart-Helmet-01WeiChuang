@@ -144,6 +144,8 @@ const CARD_PAD_TOP = 8;
 /** 回放步进：每 200ms 前进一个轨迹点（5 秒一个点 ≈ 25 倍速；长行程服务器已抽稀到 1000 点以内） */
 const REPLAY_TICK_MS = 200;
 const KEEP_AWAKE_TAG = "map-riding";
+/** 地图出错后，实时通道连上引起的自动重载至少隔这么久 */
+const WS_RELOAD_GAP_MS = 30_000;
 const NO_POINTS: readonly LocationPoint[] = [];
 const NO_DAY_STATS: ReadonlyMap<string, DayStat> = new Map();
 
@@ -458,14 +460,23 @@ export default function MapScreen() {
   const [wsUp, setWsUp] = useState(true);
   useEffect(() => realtimeClient.subscribeState(setWsUp), []);
   // 地图在看不见时就失败了（这页从启动起就挂着，安卓断网冷启动就是这样），之后网络恢复、切到地图页，
-  // 还是红条和黑图：App 没离开过前台，上面回到前台那条不触发。切到这一页、实时通道连上（等于网络恢复了）时各重来一次。
+  // 还是红条和黑图：App 没离开过前台，上面回到前台那条不触发。切到这一页时立即重来一次。
   // 错误只从 ref 读、不放进依赖：还没网时重来又失败，不能接着再重来
   useEffect(() => {
     if (focused && mapErrorRef.current) reloadMap();
   }, [focused, reloadMap]);
+  // 实时通道连上（等于网络恢复了）也重来，但只在看得见时、且至少隔 30 秒：隧道、弱网里通道反复断连（退避 1 秒起），
+  // 每连上一次就整页重载、重拉高德脚本和瓦片，没人看也一样。只限这一条：切到这一页、回到前台、点按钮都有人在等，
+  // 立即试，也不占这 30 秒。手机时间往回拨（差为负）时放行
+  const wsReloadAt = useRef(0);
   useEffect(() => {
-    if (wsUp && mapErrorRef.current) reloadMap();
-  }, [wsUp, reloadMap]);
+    if (!wsUp || !visible || !mapErrorRef.current) return;
+    const now = Date.now();
+    const since = now - wsReloadAt.current;
+    if (since >= 0 && since < WS_RELOAD_GAP_MS) return;
+    wsReloadAt.current = now;
+    reloadMap();
+  }, [wsUp, visible, reloadMap]);
   const deviceList = useMemo(() => devices.data ?? [], [devices.data]);
   const choice = useCurrentHelmetChoice();
   const current = currentHelmetOf(deviceList, choice.chosenId);
