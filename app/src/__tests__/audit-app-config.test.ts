@@ -149,6 +149,15 @@ describe("app.json 实时视频预览（决策 #37 / #49，DEVICE_PROTOCOL §1.3
     expect(android?.minSdkVersion).toBe(26);
   });
 
+  it("Android 默认只打真机 ABI（arm64-v8a + armeabi-v7a）：不写时 prebuild 生成 4 个，x86 / x86_64 是模拟器用的，不带 -P 的正式包会从约 228 MB 涨到约 462 MB", () => {
+    const android = pluginConfig("expo-build-properties")?.android as
+      { buildArchs?: string[] } | undefined;
+    expect([...(android?.buildArchs ?? [])].sort()).toEqual([
+      "arm64-v8a",
+      "armeabi-v7a",
+    ]);
+  });
+
   it("iOS 程序化连头盔热点需要 Hotspot Configuration entitlement", () => {
     expect(
       e.ios?.entitlements?.[
