@@ -2004,6 +2004,152 @@ describe("一趟里的回放、事件与抽屉", () => {
       expanded: false,
     });
   });
+
+  describe("松手后抽屉在 UI 线程上直接吸附（不等 JS 线程）", () => {
+    // 展开态的 maxHeight 上限（map.tsx 的 SHEET_OPEN）
+    const SHEET_OPEN = 4000;
+    const setup = async () => {
+      const client = makeQueryClient();
+      const r = await mount(client);
+      await waitFor(() => expect(r.allText()).toContain(tr("map.still")));
+      const withLayout = (n: ReactTestInstance) =>
+        typeof n.type === "string" && typeof n.props.onLayout === "function";
+      const isGrabber = (c: ReactTestInstance) =>
+        typeof c.type !== "string" &&
+        c.props.hitSlop !== undefined &&
+        typeof c.props.onPress === "function";
+      const content = r.root.findAll(
+        (n) =>
+          withLayout(n) &&
+          n.findAll((c) => isHost(c, "GestureDetector")).length > 0,
+      )[0];
+      const header = r.root.findAll(
+        (n) =>
+          withLayout(n) &&
+          n.findAll((c) => isHost(c, "GestureDetector")).length === 0 &&
+          n.findAll(isGrabber).length > 0,
+      )[0];
+      act(() =>
+        content.props.onLayout({ nativeEvent: { layout: { height: 300 } } }),
+      );
+      act(() =>
+        header.props.onLayout({ nativeEvent: { layout: { height: 60 } } }),
+      );
+      const detectors = () =>
+        r.root
+          .findAll((n) => isHost(n, "GestureDetector"))
+          .map((n) => n.props.gesture as RecordedGesture);
+      const card = () => detectors()[0];
+      const sheet = () => detectors()[1];
+      /** 手势区开关（React 状态 panelCollapsed 的结果）：[整张卡, 抓手那块] */
+      const enabled = () => [
+        card().config.enabled[0],
+        sheet().config.enabled[0],
+      ];
+      /** 抽屉的 maxHeight（动画样式要再渲染一次才读得到共享值的最新值） */
+      const maxHeight = () => {
+        act(() => r.rerender(screenOf(client)));
+        return r.root
+          .findAll(
+            (n) =>
+              typeof n.type === "string" &&
+              flat(n.props.style).maxHeight !== undefined,
+          )
+          .map((n) => flat(n.props.style).maxHeight as number)[0];
+      };
+      const drag = (g: () => RecordedGesture, dy: number, vy = 0) =>
+        act(() => {
+          g().handlers.onStart();
+          g().handlers.onUpdate({ translationY: dy });
+          g().handlers.onEnd({ velocityY: vy });
+        });
+      return {
+        r,
+        enabled,
+        maxHeight,
+        drag,
+        card,
+        sheet,
+        grabber: () => r.root.findAll(isGrabber)[0],
+      };
+    };
+
+    it("JS 线程还没处理排队的回调时，高度已经到位；回 JS 的只有手势区开关", async () => {
+      const worklets = jest.requireMock<{
+        scheduleOnRN: (fn: (...a: unknown[]) => void, ...a: unknown[]) => void;
+      }>("react-native-worklets");
+      const syncRN = worklets.scheduleOnRN;
+      const queued: (() => void)[] = [];
+      worklets.scheduleOnRN = (fn, ...a) => {
+        queued.push(() => fn(...a));
+      };
+      try {
+        const { enabled, maxHeight, drag, card, sheet, grabber } =
+          await setup();
+        // 用点抓手的路径量出「收起」「展开」两种高度（这条路径本来就不经 UI 线程回调）
+        act(() => grabber().props.onPress());
+        const collapsed = maxHeight();
+        act(() => grabber().props.onPress());
+        const expanded = maxHeight();
+        expect(expanded - collapsed).toBeCloseTo(300 - 60);
+        expect(enabled()).toEqual([false, true]);
+
+        // 拖过一半松手 → 收起：JS 线程还没来得及处理，抽屉高度已经是收起的高度
+        drag(sheet, 150);
+        expect(maxHeight()).toBe(collapsed);
+        expect(enabled()).toEqual([false, true]);
+        // JS 线程空下来：手势区开关才跟着翻
+        act(() => queued.splice(0).forEach((f) => f()));
+        expect(enabled()).toEqual([true, false]);
+
+        // 收着：整张卡快速上甩 → 展开，同样先到位、后翻开关
+        drag(card, -20, -900);
+        expect(maxHeight()).toBeCloseTo(expanded);
+        expect(enabled()).toEqual([true, false]);
+        act(() => queued.splice(0).forEach((f) => f()));
+        expect(enabled()).toEqual([false, true]);
+      } finally {
+        worklets.scheduleOnRN = syncRN;
+      }
+    });
+
+    it("展开到位后放开上限交还自适应；动画途中又被收起则不放开", async () => {
+      const Reanimated = jest.requireMock<
+        Record<"withTiming", (...a: unknown[]) => unknown>
+      >("react-native-reanimated");
+      const callbacks: ((finished: boolean) => void)[] = [];
+      const timing = jest
+        .spyOn(Reanimated, "withTiming")
+        .mockImplementation((...a: unknown[]) => {
+          const cb = a[2] as ((f: boolean) => void) | undefined;
+          if (cb) callbacks.push(cb);
+          return a[0];
+        });
+      try {
+        const { maxHeight, drag, card, sheet } = await setup();
+        // 收起，再上甩展开：动画还没走完，上限还是具体高度
+        drag(sheet, 150);
+        drag(card, -20, -900);
+        expect(callbacks).toHaveLength(1);
+        expect(maxHeight()).toBeLessThan(SHEET_OPEN);
+        // 走完：放开上限
+        act(() => callbacks[0](true));
+        expect(maxHeight()).toBe(SHEET_OPEN);
+
+        // 再收起、再展开，展开动画走到一半又被收起：之后展开那条的完成回调不能把上限放开
+        drag(sheet, 150);
+        drag(card, -20, -900);
+        expect(callbacks).toHaveLength(2);
+        drag(sheet, 150);
+        const collapsedNow = maxHeight();
+        expect(collapsedNow).toBeLessThan(SHEET_OPEN);
+        act(() => callbacks[1](true));
+        expect(maxHeight()).toBe(collapsedNow);
+      } finally {
+        timing.mockRestore();
+      }
+    });
+  });
 });
 
 describe("2026-10-17 复审：头盔 Marker、视野、回放状态、定位缓存", () => {
