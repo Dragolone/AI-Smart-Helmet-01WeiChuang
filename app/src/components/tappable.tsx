@@ -63,14 +63,27 @@ export function Tappable({
   );
 
   if (!hasScale) return pressable();
-  return <ScaleWrap render={pressable} />;
+  return <ScaleWrap hitSlop={rest.hitSlop} render={pressable} />;
 }
 
-/** scale 模式:外层只挂弹簧变换,style/热区仍归 Pressable */
-function ScaleWrap({ render }: { render: (scale: SharedValue<number>) => ReactElement }) {
+/**
+ * scale 模式:外层只挂弹簧变换,style 归 Pressable。
+ * hitSlop 外层也要有:原生命中测试先问父视图,这层和 Pressable 一样大,点在它外面就不再往里找,Pressable 的 hitSlop 等于没写。
+ */
+function ScaleWrap({
+  hitSlop,
+  render,
+}: {
+  hitSlop: PressableProps["hitSlop"];
+  render: (scale: SharedValue<number>) => ReactElement;
+}) {
   const scale = useSharedValue(1);
   const springStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.get() }],
   }));
-  return <Animated.View style={springStyle}>{render(scale)}</Animated.View>;
+  return (
+    <Animated.View hitSlop={hitSlop} style={springStyle}>
+      {render(scale)}
+    </Animated.View>
+  );
 }

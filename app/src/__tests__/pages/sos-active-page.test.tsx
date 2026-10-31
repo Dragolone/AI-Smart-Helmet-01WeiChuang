@@ -940,6 +940,13 @@ describe("取消 / 立即求救", () => {
     expect(r.allText()).toContain(tr("sos.failSend"));
     expect(r.allText()).toContain(tr("sos.failStillCounting", { n: 45 }));
     expect(r.byLabel(tr("sos.retrySendA11y"))).toBeTruthy();
+    // 热区补到 48：都落在提示条自己的内边距 / 间距里
+    expect(
+      r.root
+        .findAllByType(Tappable)
+        .find((n) => n.props.accessibilityLabel === tr("sos.retrySendA11y"))!
+        .props.hitSlop,
+    ).toEqual({ top: 6, bottom: 6, left: 6, right: 8 });
     expect(announce).toHaveBeenLastCalledWith(
       said("sos.failSend", tr("sos.failStillCounting", { n: 45 })),
     );
@@ -1913,6 +1920,46 @@ describe("多顶头盔同时求救（10-16 N10：一张页 + 顶部胶囊点切�
     expect(mockRouter.back).toHaveBeenCalled();
   });
 
+  it("小按钮热区到 44 pt：「全部」两个按钮上下各补 7，下边的 7 落在胶囊区范围里（留白是 padding 不是 margin）；结果页「我还是需要帮助」补到 48", async () => {
+    twoHelmets();
+    m(sosApi.cancel).mockImplementation((id: unknown) =>
+      Promise.resolve(
+        sosOf({
+          sosId: id as string,
+          deviceId: id === "s2" ? "h2" : "h1",
+          status: "cancelled",
+        }),
+      ),
+    );
+    const r = await mount();
+    arrive(second());
+    await tick(0);
+    const slopOf = (label: string) =>
+      r.root.findAllByType(Tappable).find((n) => textIn(n).includes(label))!
+        .props.hitSlop;
+    for (const label of [tr("sos.allSendNow"), tr("sos.allCancel")])
+      expect(slopOf(label)).toEqual({ top: 7, bottom: 7 });
+    const multi = r.root.find(
+      (n) =>
+        isHost(n, "View") &&
+        typeof n.props.onLayout === "function" &&
+        textIn(n).includes(tr("sos.allCancel")),
+    );
+    expect(flat(multi.props.style).paddingBottom).toBe(8);
+    expect(flat(multi.props.style).marginBottom).toBeUndefined();
+
+    slideCancel(r);
+    for (let i = 0; i < 3; i++) await tick(0);
+    slideCancel(r);
+    for (let i = 0; i < 3; i++) await tick(0);
+    expect(slopOf(tr("sos.needHelp"))).toEqual({
+      top: 8,
+      bottom: 8,
+      left: 4,
+      right: 4,
+    });
+  });
+
   it("两顶都取消后点其中一行「我还是需要帮助」：只有那一行写「发送中…」，两行都不能再点，回来后复位", async () => {
     twoHelmets();
     m(sosApi.cancel).mockImplementation((id: unknown) =>
@@ -2325,7 +2372,7 @@ describe("多顶头盔同时求救（10-16 N10：一张页 + 顶部胶囊点切�
 
   it("顶上有头盔胶囊时，提示条量出胶囊区的底边后挪到它下面，不盖住胶囊和「全部」按钮（10-18 模拟器）", async () => {
     twoHelmets();
-    // 替身 View 的 measureInWindow 是空函数：换成原生那样回调胶囊区在窗口里的位置（顶边 120、高 64）
+    // 替身 View 的 measureInWindow 是空函数：换成原生那样回调胶囊区在窗口里的位置（顶边 120、高 64，含底部 8 的留白）
     type Measure = (
       cb: (x: number, y: number, w: number, h: number) => void,
     ) => void;
@@ -2364,7 +2411,7 @@ describe("多顶头盔同时求救（10-16 N10：一张页 + 顶部胶囊点切�
           nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 64 } },
         }),
       );
-      expect(toastTop()).toBe(120 + 64 + 8);
+      expect(toastTop()).toBe(120 + 64);
     } finally {
       measure.mockRestore();
     }

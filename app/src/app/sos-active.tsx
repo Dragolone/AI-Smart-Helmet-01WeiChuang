@@ -1407,7 +1407,7 @@ function SosActiveContent() {
             {
               top:
                 others.length > 0 && multiBottom > 0
-                  ? multiBottom + 8
+                  ? multiBottom
                   : insets.top + 8,
               backgroundColor: theme.backgroundElement,
               borderColor: theme.border,
@@ -1516,6 +1516,7 @@ function SosActiveContent() {
                         feedback="scale"
                         accessibilityRole="button"
                         disabled={anyBusy}
+                        hitSlop={BATCH_HIT_SLOP}
                         onPress={() => actAll("confirm")}
                         style={[styles.batchBtn, { borderColor: P.sosBtn }]}
                       >
@@ -1529,6 +1530,7 @@ function SosActiveContent() {
                         feedback="scale"
                         accessibilityRole="button"
                         disabled={anyBusy}
+                        hitSlop={BATCH_HIT_SLOP}
                         onPress={() => actAll("cancel")}
                         style={[styles.batchBtn, { borderColor: theme.border }]}
                       >
@@ -1763,6 +1765,7 @@ function SosActiveContent() {
                     cancelBusy ||
                     (fail.ids.length > 1 ? anyBusy : busy !== null)
                   }
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 8 }}
                   onPress={retryFail}
                   style={[styles.actFailRetry, { borderColor: P.text }]}
                 >
@@ -1912,6 +1915,7 @@ function SosActiveContent() {
                           feedback="scale"
                           accessibilityRole="button"
                           disabled={helpBusy}
+                          hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
                           onPress={() => needHelp(h.deviceId)}
                           style={[
                             styles.resultHelp,
@@ -2092,6 +2096,12 @@ function SosActiveContent() {
   );
 }
 
+/**
+ * 「全部」两个按钮的热区补到 44 pt。原生命中测试只认父视图范围内的点：上边是和胶囊排之间 8 的间距，
+ * 下边是 multi 的 paddingBottom（写成 marginBottom 的话，multi 成为原生视图时那 8 不算它的范围）
+ */
+const BATCH_HIT_SLOP = { top: 7, bottom: 7 };
+
 /** 页面左右内边距 */
 const PAGE_GUTTER = 24;
 
@@ -2167,7 +2177,7 @@ const styles = StyleSheet.create({
   },
   whoLabel: { fontSize: 13, lineHeight: 18, textAlign: "center" },
   // 多顶同时求救：顶部胶囊 + 全部按钮
-  multi: { alignSelf: "stretch", gap: 8, marginBottom: 8 },
+  multi: { alignSelf: "stretch", gap: 8, paddingBottom: 8 },
   chipsRow: { gap: 8, paddingHorizontal: 4 },
   // 这几种按钮用 minHeight 不用 height：定高时系统字体一放大，iOS 把文字框压到父高，第一行被切
   helmetChip: {
