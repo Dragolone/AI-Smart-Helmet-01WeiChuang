@@ -1285,10 +1285,70 @@ describe("读屏听得到倒计时的进展和结果", () => {
     }
   });
 
-  it("大数字念「45 秒」；旁边的「秒」对读屏隐藏，不然念成「45 秒，秒」", async () => {
+  describe("进页时设备列表还没到（通知冷启动）", () => {
+    const twoDevices = [
+      { deviceId: "h1", name: "通勤" },
+      { deviceId: "h2", name: "滑雪" },
+    ];
+    const from = () => tr("sos.fromHelmet", { name: "通勤" });
+    const mounted = async () => {
+      readerOn();
+      const s1 = sosOf();
+      m(sosApi.snapshot).mockImplementation(() => Promise.resolve(s1));
+      let arrive: (v: unknown) => void = () => {};
+      m(devicesApi.list).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            arrive = resolve;
+          }),
+      );
+      await mount();
+      return { arrive: () => arrive };
+    };
+
+    it("名字到了补一句是哪顶头盔，只补一次；改名也不再念", async () => {
+      const { arrive } = await mounted();
+      expect(queuedSpeech()).toEqual([counting()]);
+      await act(async () => {
+        arrive()(twoDevices);
+      });
+      await tick(0);
+      expect(queuedSpeech()).toEqual([counting(), from()]);
+      await tick(2_000);
+      act(() => {
+        qc.setQueryData(
+          ["devices"],
+          [{ deviceId: "h1", name: "新名字" }, twoDevices[1]],
+        );
+      });
+      await tick(1_000);
+      expect(queuedSpeech()).toEqual([counting(), from()]);
+    });
+
+    it("一开始就知道名字：进页那句已带上，不再补", async () => {
+      readerOn();
+      m(devicesApi.list).mockImplementation(() => Promise.resolve(twoDevices));
+      qc.setQueryData(["devices"], twoDevices);
+      await mount();
+      await tick(2_000);
+      expect(queuedSpeech()).toHaveLength(1);
+      expect(queuedSpeech()[0]).toContain(from());
+    });
+
+    it("只绑一顶：页面不写来源，也不补", async () => {
+      const { arrive } = await mounted();
+      await act(async () => {
+        arrive()([twoDevices[0]]);
+      });
+      await tick(2_000);
+      expect(queuedSpeech()).toEqual([counting()]);
+    });
+  });
+
+  it("大数字念「还剩 45 秒」（不用屏上的紧凑写法，英文 45s 会念成 forty-five S）；旁边的「秒」对读屏隐藏", async () => {
     const r = await mount();
     const num = r.root.find((n) => isHost(n, "Text") && textIn(n) === "45");
-    expect(num.props.accessibilityLabel).toBe(tr("sos.chipLeft", { n: 45 }));
+    expect(num.props.accessibilityLabel).toBe(tr("sos.a11yLeft", { n: 45 }));
     const suffix = hostTextWith(r, tr("sos.autoSendSuffix"));
     expect(suffix.props.accessibilityElementsHidden).toBe(true);
     expect(suffix.props.importantForAccessibility).toBe("no");

@@ -15,7 +15,13 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { Alert, ScrollView, StyleSheet, View } from "react-native";
+import {
+  AccessibilityInfo,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Animated, {
   Easing,
@@ -391,6 +397,8 @@ export default function SafetyScreen() {
 
   const fireSosA11y = () => {
     if (sosInFlight.current === 0) fireSos();
+    // 拦下了也要出声：不然读屏用户以为没点上
+    else AccessibilityInfo.announceForAccessibility(t("auth.sending"));
   };
 
   const [devOpen, setDevOpen] = useState(false);

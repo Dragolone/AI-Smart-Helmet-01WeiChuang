@@ -13,7 +13,7 @@ import {
 import { QueryClientProvider } from "@tanstack/react-query";
 import type { AccidentListItem, DevicePublic } from "@helmet/shared";
 import * as Haptics from "expo-haptics";
-import { Alert } from "react-native";
+import { AccessibilityInfo, Alert } from "react-native";
 import { act, type ReactTestInstance } from "react-test-renderer";
 import { mockRouter, routerState } from "@/__tests__/helpers/native-mocks";
 import {
@@ -923,6 +923,41 @@ describe("读屏发起求救（读屏双击只有按下松开，走不到长按�
       expect(new Set(ids).size).toBe(2);
     },
   );
+
+  it("发送中再双击被拦：念一句「发送中」，不然以为没点上；第一次双击和长按都不念", async () => {
+    const announce = jest
+      .spyOn(AccessibilityInfo, "announceForAccessibility")
+      .mockImplementation(() => undefined);
+    try {
+      m(relayApi.push).mockImplementation(() => new Promise(() => undefined));
+      const r = mount();
+      const tap = () =>
+        act(async () => {
+          sosButton(r).props.onAccessibilityTap();
+          await Promise.resolve();
+        });
+      await tap();
+      expect(announce).not.toHaveBeenCalled();
+      await act(async () => {
+        sosButton(r).props.onLongPress();
+        await Promise.resolve();
+      });
+      expect(announce).not.toHaveBeenCalled();
+      await tap();
+      expect(announce).toHaveBeenCalledTimes(1);
+      expect(announce).toHaveBeenCalledWith(tr("auth.sending"));
+      await act(async () => {
+        sosButton(r).props.onAccessibilityAction({
+          nativeEvent: { actionName: "activate" },
+        });
+        await Promise.resolve();
+      });
+      expect(announce).toHaveBeenCalledTimes(2);
+      expect(pushed()).toHaveLength(2);
+    } finally {
+      announce.mockRestore();
+    }
+  });
 
   it("同一轮渲染里连发两次双击（还没来得及重渲染）：也只发一条", async () => {
     m(relayApi.push).mockImplementation(() => new Promise(() => undefined));
