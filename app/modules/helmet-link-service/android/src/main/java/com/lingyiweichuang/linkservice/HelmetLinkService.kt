@@ -50,7 +50,7 @@ class HelmetLinkService : Service() {
       // 开关由模块先写进 micOn；进程被回收后对讲早就不在了，这个 Intent 不要重新送回来
       return START_NOT_STICKY
     }
-    // 这条启动 Intent 送到了，不再算「在路上」（进程被回收后系统重送的 Intent 在新进程里没有计数，钳在 0）
+    // 这条启动 Intent 送到了，不再算「在路上」（进程被回收时还没送到的 Intent 系统会在新进程里补送，新进程没有计数，钳在 0）
     val stillPending = pendingStarts.updateAndGet { (it - 1).coerceAtLeast(0) }
     if (stopRequested) {
       // 启动 Intent 还在路上时 JS 就撤了（登录态失效的被动登出紧跟在链路启动之后，10-24 Android 17 模拟器实测相隔 220 ms）：
@@ -66,8 +66,10 @@ class HelmetLinkService : Service() {
     linkTitle = intent?.getStringExtra(EXTRA_TITLE) ?: getString(R.string.helmet_link_channel_name)
     linkText = intent?.getStringExtra(EXTRA_TEXT) ?: ""
     applyForeground()
-    // 系统因内存回收后自动重启服务（Intent 保留），配合 JS 端启动时的重连
-    return START_REDELIVER_INTENT
+    // 进程被杀后不让系统把服务重启回来：重启只有服务、没有 JS（React 要等有 Activity 才起），也就没有蓝牙和中转，
+    // 通知却又挂上「已连接」，违背「未执行绝不显示成功」；Android 12+ 后台重启时 startForeground 还可能被拒成崩溃循环。
+    // 链路在用户重新打开 App 时由 JS 重新建立、再次 start（华为手动清后台本来也拉不回，DEVELOPMENT 2026-09-16）
+    return START_NOT_STICKY
   }
 
   /** 只为满足「startForegroundService 之后必须 startForeground」露一面，紧接着就会 stopSelf */
