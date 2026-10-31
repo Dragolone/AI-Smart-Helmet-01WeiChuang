@@ -40,6 +40,11 @@ describe("readNotifyPermission", () => {
     expect(await readNotifyPermission()).toBe("denied");
   });
 
+  it("被拒（库没带 status 字段，只有 granted: false）", async () => {
+    mockGetPermissions.mockResolvedValue({ granted: false });
+    expect(await readNotifyPermission()).toBe("denied");
+  });
+
   it("系统还没问过用户：不是被拒，也不是已开启", async () => {
     mockGetPermissions.mockResolvedValue({
       granted: false,
