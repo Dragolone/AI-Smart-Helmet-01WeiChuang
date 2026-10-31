@@ -1,5 +1,7 @@
 // 实时视频预览（决策 #37/#49，DEVICE_PROTOCOL §1.3）的纯逻辑：常量 + 页面状态机。
 // 页面只负责接线（原生 Wi-Fi、播放器回调、AppState），判断都在这里，便于单测。
+import type { VLCPlayerSource } from "react-native-vlc-media-player";
+
 import type { MessageKey } from "@/i18n";
 
 /** 头盔 SoftAP 与拉流约定（§1.3，硬件 2026-09-23 定稿；无鉴权，端口 8554 不是 554） */
@@ -9,7 +11,10 @@ export const HELMET_HOTSPOT = {
   streamUrl: "rtsp://192.168.176.1:8554/ch0",
 } as const;
 
-/** libVLC 参数沿用 Spike：§1.3 要求强制 RTSP over TCP；无音频；低缓存、迟到帧直接丢 */
+/**
+ * libVLC 参数沿用 Spike：§1.3 要求强制 RTSP over TCP；无音频；低缓存、迟到帧直接丢。
+ * 只有 iOS 读这份：安卓的库缺省 initType=1 走 new LibVLC(context)，这些全局参数被丢掉。
+ */
 export const VLC_INIT_OPTIONS = [
   "--rtsp-tcp",
   "--network-caching=150",
@@ -17,6 +22,27 @@ export const VLC_INIT_OPTIONS = [
   "--drop-late-frames",
   "--skip-frames",
 ];
+
+/**
+ * 只有安卓读这份（媒体级参数，iOS 的库不读这个字段）。不给 :network-caching 时 libVLC 安卓版在 setMedia 里
+ * 自己加 :network-caching=1500（硬解路径），10-14 华为量到端到端 2.2–2.7 s（REGRESSION 9.2）。
+ * 缓存取 300 而不是 iOS 的 150：华为硬解自身有延迟，太短可能帧迟到被丢；真机看 picture is too late 日志和卡顿再调。
+ * 末尾重复一条是故意的：库的循环到 size()-1 为止，读不到最后一条。
+ */
+export const VLC_ANDROID_MEDIA_OPTIONS = [
+  ":rtsp-tcp",
+  ":network-caching=300",
+  ":no-audio",
+  ":no-audio",
+];
+
+/** 库的类型声明没有 mediaOptions，原生层（安卓）确实读，所以断言 */
+export const vlcSource = (uri: string) =>
+  ({
+    uri,
+    initOptions: VLC_INIT_OPTIONS,
+    mediaOptions: VLC_ANDROID_MEDIA_OPTIONS,
+  }) as VLCPlayerSource;
 
 /** 首帧前等多久开始提示「检查 Wi-Fi」（§1.3 ③：约 5 s） */
 export const NO_PICTURE_HINT_MS = 5_000;

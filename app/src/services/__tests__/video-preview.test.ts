@@ -10,6 +10,7 @@ import {
   showsPlayer,
   suggestsLocalNetwork,
   toFsPath,
+  vlcSource,
   type PreviewAction,
   type PreviewState,
 } from "../video-preview";
@@ -23,6 +24,23 @@ describe("§1.3 约定", () => {
     expect(HELMET_HOTSPOT.ssid).toBe("X821cam");
     expect(VLC_INIT_OPTIONS).toContain("--rtsp-tcp");
     expect(VLC_INIT_OPTIONS).toContain("--no-audio");
+  });
+
+  it("安卓媒体级参数：库的循环读不到最后一条，强制 TCP / 低缓存 / 无音频都要在读到的范围内", () => {
+    const source = vlcSource(HELMET_HOTSPOT.streamUrl) as unknown as {
+      uri: string;
+      initOptions: string[];
+      mediaOptions: string[];
+    };
+    // ReactVlcPlayerView.java：for (i = 0; i < options.size() - 1; i++) m.addOption(...)
+    const read = source.mediaOptions.slice(0, -1);
+    expect(read).toEqual(expect.arrayContaining([":rtsp-tcp", ":no-audio"]));
+    expect(read.filter((o) => o.startsWith(":network-caching="))).toEqual([
+      ":network-caching=300",
+    ]);
+    expect(source.uri).toBe(HELMET_HOTSPOT.streamUrl);
+    // iOS 只读 initOptions，这份不能跟着丢
+    expect(source.initOptions).toBe(VLC_INIT_OPTIONS);
   });
 });
 
@@ -191,7 +209,10 @@ describe("iOS「本地网络」权限提示", () => {
       expect(suggestsLocalNetwork(s, "ios")).toBe(false);
     // 点了重新连接：提示随错误一起收起
     expect(
-      suggestsLocalNetwork(previewReducer(streamFailed, { type: "retry" }), "ios"),
+      suggestsLocalNetwork(
+        previewReducer(streamFailed, { type: "retry" }),
+        "ios",
+      ),
     ).toBe(false);
   });
 });
