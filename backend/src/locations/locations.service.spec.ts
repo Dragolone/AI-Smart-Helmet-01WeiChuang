@@ -169,6 +169,78 @@ describe('LocationsService', () => {
       expect(t.summary.pointCount).toBe(10);
     });
 
+    describe('track 只取响应用到的列', () => {
+      const WIRE_KEYS = [
+        'latitude',
+        'longitude',
+        'coordinateSystem',
+        'accuracy',
+        'speed',
+        'heading',
+        'altitude',
+        'timestamp',
+        'receivedAt',
+      ];
+      const pts = Array.from({ length: 5 }, (_, i) =>
+        dbPoint(i, T0 + i * 10_000),
+      );
+      const run = () =>
+        svc.track(
+          'u1',
+          'helmet_001',
+          '2026-10-16T00:00:00Z',
+          '2026-10-16T01:00:00Z',
+          3,
+        );
+      /** 像 Prisma 一样按 select 只返回被选中的列 */
+      const prismaProjects = () =>
+        prisma.locationPoint.findMany.mockImplementation(
+          (args: { select?: Record<string, boolean> }) =>
+            Promise.resolve(
+              pts.map((p) =>
+                args.select
+                  ? Object.fromEntries(
+                      Object.entries(p).filter(([k]) => args.select?.[k]),
+                    )
+                  : p,
+              ),
+            ),
+        );
+
+      it('select = 线上 location 对象的 9 个字段：id / eventId / deviceId 不取', async () => {
+        await run();
+        expect(findManyArg().select).toEqual(
+          Object.fromEntries(WIRE_KEYS.map((k) => [k, true])),
+        );
+      });
+
+      it('响应逐字节不变：数据库只返回被选中的列时，JSON 和返回整行时完全一样', async () => {
+        prisma.locationPoint.findMany.mockResolvedValue(pts);
+        const full = JSON.stringify(await run());
+        prismaProjects();
+        const projected = JSON.stringify(await run());
+        expect(projected).toBe(full);
+        const body = JSON.parse(projected) as {
+          points: Record<string, unknown>[];
+        };
+        expect(body.points).toHaveLength(3);
+        // 字段名与顺序钉死（API.md §5 location 对象），多出 id / eventId / deviceId 即失败
+        for (const point of body.points)
+          expect(Object.keys(point)).toEqual(WIRE_KEYS);
+        expect(body.points[0]).toEqual({
+          latitude: pts[0].latitude,
+          longitude: 114,
+          coordinateSystem: 'gcj02',
+          accuracy: 5,
+          speed: 5,
+          heading: 0,
+          altitude: null,
+          timestamp: '2026-10-16T00:00:00.000Z',
+          receivedAt: '2026-10-16T00:00:01.000Z',
+        });
+      });
+    });
+
     it('listRange：时间正序 + id 兜底，按页跳过', async () => {
       prisma.locationPoint.count.mockResolvedValue(150);
       prisma.locationPoint.findMany.mockResolvedValue([dbPoint(0, T0)]);
