@@ -29,6 +29,8 @@ const native =
  * 截短（10-25 审查）。这里只让它往后延，不往前缩
  */
 let heldUntil = 0;
+/** 上面那个时刻是什么时候算的。手机时钟往回拨过（now 比它早）heldUntil 就不可信了：不复位的话算出来一直「还持着」，高危事件的持锁被跳过 */
+let heldAt = 0;
 
 export const HelmetLinkService = {
   /** 模块是否可用（Android 且原生已链接；模拟器/未 prebuild 时为 false） */
@@ -51,9 +53,12 @@ export const HelmetLinkService = {
   },
   /** 高危事件待上传：短暂持 CPU/Wi-Fi 锁（最多 ms 毫秒），上传完成后 releaseNetwork */
   holdNetwork(ms: number): void {
-    const until = Date.now() + ms;
+    const now = Date.now();
+    if (now < heldAt) heldUntil = 0;
+    const until = now + ms;
     if (until <= heldUntil) return;
     heldUntil = until;
+    heldAt = now;
     // 原生包可能比 JS 旧（dev client 热更）：方法不存在时静默跳过，绝不让上传链路因此失败
     if (typeof native?.holdNetwork === "function") native.holdNetwork(ms);
   },

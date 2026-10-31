@@ -1,6 +1,13 @@
 // 安卓前台服务的 JS 封装（决策 #41）：iOS / 原生没链接上时全部空操作；原生包比 JS 旧（开发包热更）缺新方法时静默跳过、
 // 给保守的默认值。别处的测试都把整个模块替身掉了，这些兜底原来没有直接测——这里用假的原生模块逐条钉住
-import { beforeEach, describe, expect, it, jest } from "@jest/globals";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+} from "@jest/globals";
 
 type Native = Record<string, jest.Mock<(...a: unknown[]) => unknown>>;
 
@@ -119,6 +126,39 @@ describe("HelmetLinkService", () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  describe("手机时钟往回拨之后，高危事件的 90 s 持锁不能被跳过", () => {
+    const t0 = 1_800_000_000_000;
+    const armed = () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(t0);
+      mockPlatform.OS = "android";
+      const n = (mockNative = fullNative());
+      const svc = load();
+      svc.holdNetwork(90_000);
+      expect(n.holdNetwork).toHaveBeenCalledTimes(1);
+      return { n, svc };
+    };
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it("拨回很久（24 小时）：照转给原生，之后恢复只延长不缩短", () => {
+      const { n, svc } = armed();
+      jest.setSystemTime(t0 - 24 * 3600_000);
+      svc.holdNetwork(90_000);
+      expect(n.holdNetwork).toHaveBeenCalledTimes(2);
+      svc.holdNetwork(20_000);
+      expect(n.holdNetwork).toHaveBeenCalledTimes(2);
+    });
+
+    it("拨回得比上次拿锁之后走过的时间还少：不用复位也不会跳过（新的 90 s 总比上次的晚到期）", () => {
+      const { n, svc } = armed();
+      jest.setSystemTime(t0 + 60_000 - 30_000);
+      svc.holdNetwork(90_000);
+      expect(n.holdNetwork).toHaveBeenCalledTimes(2);
+    });
   });
 
   it("安卓、原生齐全：逐个转给原生，参数原样（求救警报时长取整、麦克风文案默认空串）", () => {
