@@ -34,12 +34,12 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Reanimated, {
   Easing,
   FadeIn,
-  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { scheduleOnRN } from "react-native-worklets";
 import type {
   LocationPoint,
   RideSummary,
@@ -434,7 +434,22 @@ export default function MapScreen() {
         const collapse =
           e.velocityY > 400 ||
           (e.velocityY > -400 && maxH.get() < (lo + hi) / 2);
-        runOnJS(snapSheet)(collapse);
+        // 吸附动画在 UI 线程上直接起（同 snapSheet）：原来整个吸附都经 runOnJS 排队，JS 线程忙的时候
+        // 松手后抽屉会停在手指离开的位置，等 JS 空下来才动。只有 React 状态（手势区开关）需要回 JS
+        collapsedSV.set(collapse);
+        if (collapse) {
+          if (maxH.get() >= SHEET_OPEN) maxH.set(hi);
+          maxH.set(withTiming(lo, SHEET_TIMING));
+        } else {
+          maxH.set(
+            withTiming(hi, SHEET_TIMING, () => {
+              "worklet";
+              // 到位后放开上限交还自适应；若途中又被收起（collapsedSV 已翻），什么都不做
+              if (!collapsedSV.get()) maxH.set(SHEET_OPEN);
+            }),
+          );
+        }
+        scheduleOnRN(setPanelCollapsed, collapse);
       });
   // 展开时：手势只在抓手 + 第一行 + 数据格（按钮行以下不受影响）；
   // 收起时：整张可见的卡（含标签栏上方那段留白）都能上滑展开，不用精确按到第一行
