@@ -47,6 +47,7 @@ import { channelsApi } from "@/api/channels";
 import { ApiRequestError, SessionEndedError } from "@/api/client";
 import { realtimeClient } from "@/api/realtime";
 import { toUserMessage } from "@/api/error-messages";
+import { PulseRing } from "@/components/pulse-ring";
 import { DotsLoader } from "@/components/motion";
 import { showToast } from "@/components/toast";
 import { Tappable } from "@/components/tappable";
@@ -1295,6 +1296,23 @@ describe("房间里", () => {
     // 没带列表的音量回调：当作都不说话
     fire("onUserVoiceVolume", {});
     expect(count(r, tr("intercom.speaking"))).toBe(0);
+  });
+
+  it("波纹只在这一页看得见时转：切到别的标签停掉，切回来接着转（麦克风和「说话中」不受影响）", async () => {
+    const r = await inRoom();
+    await pttIn(r);
+    const active = () =>
+      r.root.findAllByType(PulseRing).map((n) => n.props.active);
+    // 我的格子 + 大按钮
+    expect(active().filter(Boolean)).toHaveLength(2);
+    routerState.focused = false;
+    r.rerender(screen());
+    expect(active().filter(Boolean)).toHaveLength(0);
+    expect(lastMute()).toBe(false);
+    expect(count(r, tr("intercom.speaking"))).toBe(1);
+    routerState.focused = true;
+    r.rerender(screen());
+    expect(active().filter(Boolean)).toHaveLength(2);
   });
 
   it("按住说话：按下开麦、震动、提示音、写正在说话、我的格子标说话中；松开关麦", async () => {

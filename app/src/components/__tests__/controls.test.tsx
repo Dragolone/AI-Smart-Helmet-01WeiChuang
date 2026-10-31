@@ -234,6 +234,14 @@ describe("PulseRing", () => {
     expect(stop).toHaveBeenCalledTimes(2);
     expect(r.tree.toJSON()).toBeNull();
   });
+
+  it("系统开了减弱动态效果：活动时也不画、不启动循环", () => {
+    mockFlags.reducedMotion = true;
+    const r = render(<PulseRing active size={60} color="#f00" />);
+    expect(r.tree.toJSON()).toBeNull();
+    expect(loop).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+  });
 });
 
 describe("CountdownRing", () => {

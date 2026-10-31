@@ -1191,7 +1191,7 @@ export function DeviceGuide({
           {/* 徽标一直在最前面那张卡的左上角。正在找头盔时从它这里一圈圈往外扩 */}
           <View pointerEvents="none" style={styles.emblemAt}>
             <PulseRing
-              active={cards[0].ripple && front === 1}
+              active={cards[0].ripple && front === 1 && onStage}
               size={EMBLEM}
               color={withAlpha(theme.brand, 0.8)}
               duration={1700}
