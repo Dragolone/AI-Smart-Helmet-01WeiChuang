@@ -113,6 +113,25 @@ describe("enqueueRelayEvent + flushRelayQueue", () => {
   });
 });
 
+describe("积压时的日志", () => {
+  it("一批发完还剩一批：只写剩余条数，不把整条队列（事件类型@设备号）拼进日志", async () => {
+    const log = jest.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      for (let i = 0; i < 150; i += 1)
+        enqueueRelayEvent(env("location_update", "helmet_big"));
+      await flushRelayQueue();
+      const lines = log.mock.calls
+        .filter((c) => c[0] === "[BLE-RELAY]")
+        .map((c) => String(c[1]));
+      const sent = lines.find((l) => l.includes("已中转"));
+      expect(sent).toContain("(缓存剩余 50)");
+      expect(sent).not.toContain("location_update@helmet_big");
+    } finally {
+      log.mockRestore();
+    }
+  });
+});
+
 describe("onSosRelayEvent（视频预览让出网络，决策 #49）", () => {
   it("摔倒 / 求救入队时通知，且在本次上传发起之前同步回调", async () => {
     const order: string[] = [];

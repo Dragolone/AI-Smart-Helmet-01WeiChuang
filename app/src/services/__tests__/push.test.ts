@@ -329,6 +329,61 @@ describe("推送初始化门控", () => {
   });
 });
 
+describe("日志脱敏", () => {
+  const logged = () =>
+    (devLog as unknown as jest.Mock).mock.calls
+      .map((c) => String(c[1]))
+      .join("\n");
+  const asRelease = (fn: () => void) => {
+    const g = globalThis as { __DEV__?: boolean };
+    const dev = g.__DEV__;
+    g.__DEV__ = false;
+    try {
+      fn();
+    } finally {
+      g.__DEV__ = dev;
+    }
+  };
+
+  it("正式包：别名和极光注册号只留末 4 位，完整的用户 ID / 注册号不进日志", () => {
+    mockRegistrationId = "1099ab7c8d9e0f12";
+    try {
+      useConsentStore.setState({ privacyAccepted: true });
+      asRelease(() => startPush("cmabcdef0123456789xyz"));
+      expect(logged()).toContain("setAlias …9xyz");
+      expect(logged()).toContain("registrationID …0f12");
+      expect(logged()).not.toContain("cmabcdef0123456789xyz");
+      expect(logged()).not.toContain("1099ab7c8d9e0f12");
+      // 别名还是完整的用户 ID 设给极光（脱敏只管日志）
+      expect(mockSetAlias).toHaveBeenCalledWith(
+        expect.objectContaining({ alias: "cmabcdef0123456789xyz" }),
+      );
+    } finally {
+      mockRegistrationId = "rid";
+    }
+  });
+
+  it("开发包：照旧写完整的，联调靠它认账号", () => {
+    mockRegistrationId = "1099ab7c8d9e0f12";
+    try {
+      useConsentStore.setState({ privacyAccepted: true });
+      startPush("cmabcdef0123456789xyz");
+      expect(logged()).toContain("setAlias cmabcdef0123456789xyz");
+      expect(logged()).toContain("registrationID 1099ab7c8d9e0f12");
+    } finally {
+      mockRegistrationId = "rid";
+    }
+  });
+
+  it("短到 4 位以内的原样写（没有可省的）；还没注册上照旧写「尚未注册」", () => {
+    mockRegistrationId = "";
+    useConsentStore.setState({ privacyAccepted: true });
+    asRelease(() => startPush("u1"));
+    expect(logged()).toContain("setAlias u1");
+    expect(logged()).toContain("registrationID （尚未注册）");
+  });
+});
+
 describe("点通知落地", () => {
   it("SOS 进行中 → 倒计时页", async () => {
     mockActive.mockResolvedValueOnce({
