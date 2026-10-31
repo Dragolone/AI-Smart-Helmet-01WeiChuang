@@ -115,6 +115,14 @@ jest.mock("@/api/auth", () => ({
 }));
 jest.mock("@/api/contacts", () => ({ contactsApi: { list: jest.fn() } }));
 jest.mock("@/api/devices", () => ({ devicesApi: { list: jest.fn() } }));
+const mockNotify = { value: null as string | null };
+jest.mock("@/hooks/use-safety", () => ({
+  useNotifyPermission: () => mockNotify.value,
+}));
+const mockOpenSettings = jest.fn(() => Promise.resolve());
+jest.mock("@/services/notification-settings", () => ({
+  openNotificationSettings: () => mockOpenSettings(),
+}));
 const mockDrain = jest.fn((_ms: number) =>
   Promise.resolve({ total: 0, sos: 0 }),
 );
@@ -153,6 +161,7 @@ let setUser: jest.Mock;
 let signOut: jest.Mock;
 let setLocale: jest.Mock;
 beforeEach(() => {
+  mockNotify.value = null;
   useThemeStore.setState({ mode: "dark" });
   setLocale = jest.fn(() => Promise.resolve());
   useLocaleStore.setState({ locale: "zh-CN", setLocale } as never);
@@ -298,6 +307,32 @@ describe("入口", () => {
       "/account",
       "/about",
     ]);
+  });
+
+  // 以前写死「已开启」且点不动：系统把通知关了它还说开着，而安全页同时在警告（10-31）
+  it("消息通知：按系统真实状态显示，没查到 / 没问过 / 被拒都不写已开启；点了去系统设置", () => {
+    const valueOf = (r: Rendered) =>
+      r.root.findAll(
+        (n) =>
+          typeof n.type !== "string" &&
+          n.props.title === tr("profile.notifications") &&
+          "value" in n.props,
+      )[0].props.value;
+    const shown = [
+      [null, "unknown"],
+      ["undetermined", "undetermined"],
+      ["denied", "denied"],
+      ["granted", "granted"],
+    ] as const;
+    for (const [state, key] of shown) {
+      mockNotify.value = state;
+      const r = mount();
+      expect(valueOf(r)).toBe(tr(`safetySettings.notify.${key}`));
+    }
+    mockNotify.value = "denied";
+    const r = mount();
+    r.press(tr("profile.notifications"));
+    expect(mockOpenSettings).toHaveBeenCalledTimes(1);
   });
 
   it("语言：当前语言打勾；选了就切换并关掉", () => {
