@@ -936,6 +936,108 @@ describe("SlideToCancel（求救倒计时页的滑动取消：只测不改）", 
     expect(multiplierOf(mount({ busy: true }).r)).toBe(2);
   });
 
+  describe("initialWidth（估算宽度：第一次提交就能拖）", () => {
+    const mountEstimated = (initialWidth: number, busy = false) => {
+      const onCancel = jest.fn();
+      const el = () => (
+        <SlideToCancel
+          label="l"
+          busyLabel="b"
+          a11yLabel="a"
+          a11yHint="h"
+          busy={busy}
+          disabled={false}
+          colors={colors}
+          onCancel={onCancel}
+          initialWidth={initialWidth}
+        />
+      );
+      const r = render(el());
+      /** 共享值 set 不触发重渲染（和真的一样）：再渲染一次才读得到圆钮现在的位置 */
+      const settledX = () => {
+        r.rerender(el());
+        return thumbX(r);
+      };
+      return { r, onCancel, settledX };
+    };
+    const layout = (r: Rendered, width: number) =>
+      act(() =>
+        r.root
+          .find(
+            (n) =>
+              typeof n.type === "string" &&
+              typeof n.props.onLayout === "function",
+          )
+          .props.onLayout({ nativeEvent: { layout: { width } } }),
+      );
+    const drag = (r: Rendered, translationX: number) => {
+      const g = gestureOf(r);
+      act(() => g.handlers.onUpdate({ translationX }));
+      act(() => g.handlers.onFinalize({}, true));
+    };
+
+    it("没等 onLayout 就能拖：拖过 70% 取消", () => {
+      const { r, onCancel } = mountEstimated(300);
+      expect(gestureOf(r).config.enabled).toEqual([true]);
+      drag(r, 9999);
+      expect(onCancel).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ["估得准", 300],
+      ["估大了", 1000],
+      ["估小了", 198],
+    ])("%s：轻轻一碰（20 pt）不算取消", (_name, estimate) => {
+      const { r, onCancel } = mountEstimated(estimate);
+      drag(r, 20);
+      expect(onCancel).not.toHaveBeenCalled();
+    });
+
+    it("估大了：真实行程拖满也不够估算的 70%，不会多算；量到真实宽度后按真实的算", () => {
+      const { r, onCancel } = mountEstimated(1000);
+      drag(r, 228);
+      expect(onCancel).not.toHaveBeenCalled();
+      layout(r, 300);
+      drag(r, 228);
+      expect(onCancel).toHaveBeenCalledTimes(1);
+    });
+
+    it("估小了：量到真实宽度后门槛回到真实行程的 70%", () => {
+      const { r, onCancel } = mountEstimated(200);
+      layout(r, 300);
+      drag(r, 150);
+      expect(onCancel).not.toHaveBeenCalled();
+      drag(r, 160);
+      expect(onCancel).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ["算出来的行程太小", 130],
+      ["窗口宽度还没好（负数）", -48],
+    ])("%s：不信估算，等量到宽度才能拖", (_name, estimate) => {
+      const { r } = mountEstimated(estimate);
+      expect(gestureOf(r).config.enabled).toEqual([false]);
+      layout(r, 300);
+      expect(gestureOf(r).config.enabled).toEqual([true]);
+    });
+
+    it("正在拖时量到真实宽度：差不到 1 dp 不更新，差得多也不把圆钮拉回去", () => {
+      const { r, settledX } = mountEstimated(300);
+      act(() => gestureOf(r).handlers.onUpdate({ translationX: 100 }));
+      layout(r, 300.5);
+      expect(settledX()).toBe(100);
+      layout(r, 320);
+      expect(settledX()).toBe(100);
+    });
+
+    it("取消在路上：圆钮停右端，量到真实宽度后跟着真实行程", () => {
+      const { r, settledX } = mountEstimated(300, true);
+      expect(settledX()).toBe(228);
+      layout(r, 320);
+      expect(settledX()).toBe(248);
+    });
+  });
+
   it("还没量到宽度时不能拖", () => {
     const r = render(
       <SlideToCancel

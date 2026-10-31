@@ -888,7 +888,11 @@ function SosActiveContent() {
   // —— 以下只管界面 ——
   const dark = useColorScheme() === "dark";
   const insets = useSafeAreaInsets();
-  const { height: windowHeight, fontScale } = useWindowDimensions();
+  const {
+    width: windowWidth,
+    height: windowHeight,
+    fontScale,
+  } = useWindowDimensions();
   // 开着读屏时和「减弱动态效果」同样处理：环一秒跳一格、背景不跳。
   // Android 上一直在变的 transform 会不停发「内容变了」的无障碍事件，读屏等不到界面静止
   const screenReader = useScreenReader();
@@ -1824,6 +1828,8 @@ function SosActiveContent() {
                   disabled={busy === "confirm"}
                   colors={P.slide}
                   onCancel={() => act("cancel")}
+                  // 滑条在 container 里撑满整行（一顶、多顶都是这个结构），根上不加左右留白
+                  initialWidth={windowWidth - PAGE_GUTTER * 2}
                 />
               </View>
             )}
@@ -2086,13 +2092,16 @@ function SosActiveContent() {
   );
 }
 
+/** 页面左右内边距 */
+const PAGE_GUTTER = 24;
+
 const styles = StyleSheet.create({
   goneWrap: { flex: 1, justifyContent: "center", paddingHorizontal: 24 },
   flex: { flex: 1 },
   wash: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
   container: {
     flex: 1,
-    paddingHorizontal: 24,
+    paddingHorizontal: PAGE_GUTTER,
     paddingTop: 16,
     paddingBottom: 12,
   },
