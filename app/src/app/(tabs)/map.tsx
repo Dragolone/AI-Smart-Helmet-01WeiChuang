@@ -80,6 +80,7 @@ import { ValueTransition } from "@/components/motion";
 import { Tappable } from "@/components/tappable";
 import { ThemedText } from "@/components/themed-text";
 import { Radius } from "@/constants/theme";
+import { useAppActive } from "@/hooks/use-app-active";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { formatRideDuration } from "@/hooks/use-ride-today";
 import {
@@ -90,6 +91,7 @@ import {
   useRidePages,
   useRideTrack,
 } from "@/hooks/use-rides";
+import { useRefetchOnFocus } from "@/hooks/use-refetch-on-focus";
 import { useRouteParams } from "@/hooks/use-route-params";
 import { useCurrentHelmetChoice, useHelmetLinks } from "@/hooks/use-safety";
 import { useTheme } from "@/hooks/use-theme";
@@ -304,6 +306,9 @@ export default function MapScreen() {
   const locale = useLocale();
   const insets = useSafeAreaInsets();
   const focused = useIsFocused();
+  // 这一页此刻有没有人看：标签页不卸载，切走后 focused 才是假；停在地图页锁屏时 focused 还是真，要再看 App 在不在前台
+  const appActive = useAppActive();
+  const visible = focused && appActive;
   const { height: windowHeight } = useWindowDimensions();
   const mapRef = useRef<AmapViewHandle>(null);
   const queryClient = useQueryClient();
@@ -587,7 +592,10 @@ export default function MapScreen() {
   }, [params.deviceId, params.at, params.rides, currentId, collapsedSV, maxH]);
 
   // —— 实时 ——
-  // WS 推送直写此缓存（use-realtime）；REST 30s 轮询兜底（API.md §11 口径）
+  // 看不见时第一个点还是要放上地图（见下面头盔 Marker 的 effect）：这顶头盔的点到了没有
+  const [fixedId, setFixedId] = useState<string>();
+  // WS 推送直写此缓存（use-realtime）；REST 30s 轮询兜底（API.md §11 口径）。
+  // 看不见时不轮询，缓存更新也不让这一页重渲染：缓存照写（换头盔提醒读同一份），重新可见那次渲染直接拿到最新的点
   const live = useQuery<WsLocationData | LocationPoint | null>({
     queryKey: ["device-location", deviceId],
     queryFn: async () => {
@@ -602,11 +610,14 @@ export default function MapScreen() {
       );
     },
     enabled: !!deviceId,
-    refetchInterval: 30_000,
+    refetchInterval: visible ? 30_000 : false,
+    notifyOnChangeProps: visible || fixedId !== deviceId ? undefined : [],
   });
+  useRefetchOnFocus(["device-location", deviceId]);
   // (0,0) 这类没定位时的占位值按「没有位置」处理：不画头盔、不给导航（2026-10-15 边界测试）
   const liveLoc = live.data && isPlausibleFix(live.data) ? live.data : null;
   const livePos = useMemo(() => (liveLoc ? toGcj02(liveLoc) : null), [liveLoc]);
+  if (liveLoc && fixedId !== deviceId) setFixedId(deviceId);
 
   // 昨天零点以来的行程：第一条若是「进行中」，就是现在这一趟（本趟里程、实时模式下画的那条线）
   const recent = useRecentRides(deviceId, {
@@ -616,7 +627,7 @@ export default function MapScreen() {
   const currentRide = recent.data?.[0]?.ongoing ? recent.data[0] : null;
   // 定位停住不再来时（隧道、室内），「这个点还算不算此刻」要靠时间推着重算：看着实时页时每 10 秒取一次此刻
   const [clockMs, setClockMs] = useState(() => serverNow());
-  const watchingLive = focused && stage === "live" && liveLoc !== null;
+  const watchingLive = visible && stage === "live" && liveLoc !== null;
   useEffect(() => {
     if (!watchingLive) return;
     const tick = () => setClockMs(serverNow());
@@ -871,20 +882,24 @@ export default function MapScreen() {
       }
     } else map.clearTrack();
   }, [showRide, ridePath, padTop, cardPadBottom, sheetH]);
+  // 看不见时不往 WebView 推线和点（下面三个 effect 都看 visible）：这页从启动起就一直挂着，头盔 1–5 秒一个定位，
+  // 每个都让看不见的地图重画线、panTo，白费 JS 渲染、唤醒和瓦片流量。
+  // 重新可见时这几个 effect 因 visible 变化重跑一次，把最新的线、线头、头盔位置补上
   useEffect(() => {
-    if (showRide) return;
+    if (showRide || !visible) return;
     const map = mapRef.current;
     if (!map) return;
     // 实时模式定时刷新这条线：不收视野，镜头归「跟随」管。服务端只有 1 个点时加上线头也能画成一段
     if (livePath.length > 0) map.setTrack(livePath, { fit: false });
     else map.clearTrack();
-  }, [showRide, livePath]);
+  }, [showRide, visible, livePath]);
   // 线头：每来一个定位只发这一个点
   useEffect(() => {
+    if (!visible) return;
     const map = mapRef.current;
     if (!map) return;
     map.setTrackTip(!showRide && livePath.length > 0 ? livePos : null);
-  }, [showRide, livePath.length, livePos]);
+  }, [visible, showRide, livePath.length, livePos]);
 
   const marks = useMemo<MapMark[]>(() => {
     if (!showRide || ridePath.length < 2) return [];
@@ -906,8 +921,12 @@ export default function MapScreen() {
   // 头盔 Marker：看一趟时停在回放的那个点（没开始回放就在起点），不跟镜头——整趟已经在视野里；
   // 其余时候是实时位置，跟不跟镜头看「跟随」
   // 没有可画的位置（实时还没定位、这一趟的轨迹还没到）就收起 Marker：不能停在上一顶头盔 / 上一处
+  // 看不见时只放这顶头盔的第一个点：地图页从启动起就在后台加载，第一个点放上去，瓦片提前拉好，
+  // 第一次打开时位置已就位，不在用户眼前从默认中心跳过去。之后的点等重新可见时一次补上
   const replayPos = showRide ? ridePath[replayIdx ?? 0] : undefined;
+  const placedFor = useRef<string | undefined>(undefined);
   useEffect(() => {
+    if (!visible && (showRide || placedFor.current === deviceId)) return;
     const map = mapRef.current;
     if (!map) return;
     if (showRide) {
@@ -915,8 +934,9 @@ export default function MapScreen() {
       else map.hideHelmet();
     } else if (livePos) {
       map.setHelmet(livePos, { follow: following });
+      placedFor.current = deviceId;
     } else map.hideHelmet();
-  }, [showRide, replayPos, livePos, following]);
+  }, [visible, deviceId, showRide, replayPos, livePos, following]);
 
   // 离线时 Marker 变灰停波纹，一眼能看出"这不是实时位置"；看一趟时它不是实时位置，也不放波纹
   useEffect(() => {
