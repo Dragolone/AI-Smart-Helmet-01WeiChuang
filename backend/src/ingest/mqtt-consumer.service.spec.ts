@@ -419,7 +419,8 @@ describe('MqttConsumerService', () => {
         await flush();
         expect(ingestRaw).toHaveBeenCalledWith(raw, 'helmet_001', 'mqtt');
         expect(done).toHaveBeenCalledWith();
-        expect(logSpy).toHaveBeenCalledWith(`[${topic}] → stored`);
+        // 正常入库不逐条打日志（容器日志轮转会被刷掉），只记非常规结果
+        expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining(topic));
       },
     );
 
@@ -447,6 +448,7 @@ describe('MqttConsumerService', () => {
       await flush();
       expect(ingestRaw).toHaveBeenCalledWith('{not json', 'h1', 'mqtt');
       expect(done).toHaveBeenCalledWith();
+      expect(logSpy).toHaveBeenCalledWith('[helmet/h1/event] → stored_invalid');
     });
 
     it('超大消息（70 KB）：不截断、不在消费层丢弃，完整交给 Ingest 判超限', async () => {
