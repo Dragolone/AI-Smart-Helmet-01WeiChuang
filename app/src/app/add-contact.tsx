@@ -10,6 +10,7 @@ import { isSessionEnded, toUserMessage } from "@/api/error-messages";
 import { FormError, FormInput, PrimaryButton } from "@/components/form";
 import { KeyboardAvoid } from "@/components/keyboard-avoid";
 import { ThemedView } from "@/components/themed-view";
+import { useFormErrors } from "@/hooks/use-form-errors";
 import {
   PHONE_INPUT_MAX,
   isValidPhone,
@@ -29,36 +30,35 @@ export default function AddContactScreen() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [relation, setRelation] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // 保存成功：按钮先画勾（收成短药丸），画完再回列表
   const [done, setDone] = useState(false);
 
-  const submit = async () => {
-    setError(null);
-    // 名字 / 关系提交前和显示时同一套整理：只含零宽字符、换行的名字原来照提交，列表里是一片空白
-    const cleanName = cleanNickname(name);
-    const cleanRelation = cleanNickname(relation);
-    if (!cleanName || !phone.trim()) {
-      setError(t("contacts.required"));
-      return;
-    }
-    // 先在本地规整、校验：以前原样提交，带空格的正确号码也被后端拒，只回一句「输入格式不正确」（2026-10-15 边界测试）
-    const cleanPhone = normalizePhone(phone);
-    if (!isValidPhone(cleanPhone)) {
-      setError(t("contacts.invalidPhone"));
-      return;
-    }
-    // 服务端不查重复、不拦本人号码：重复的号码求救时收两条短信还占名额；本人号码等于没人收到
-    const problem = contactPhoneProblem(
+  // 名字 / 关系提交前和显示时同一套整理：只含零宽字符、换行的名字原来照提交，列表里是一片空白
+  const cleanName = cleanNickname(name);
+  const cleanRelation = cleanNickname(relation);
+  const cleanPhone = normalizePhone(phone);
+  // 服务端不查重复、不拦本人号码：重复的号码求救时收两条短信还占名额；本人号码等于没人收到
+  const phoneProblem = () =>
+    contactPhoneProblem(
       cleanPhone,
       queryClient.getQueryData<EmergencyContact[]>(["contacts"]) ?? [],
       selfPhone,
     );
-    if (problem === "duplicate") {
-      setError(t("contacts.duplicatePhone"));
-      return;
-    }
+  const form = useFormErrors([name, phone, relation], () => {
+    if (!cleanName || !phone.trim())
+      return { key: "required", message: t("contacts.required") };
+    // 先在本地规整、校验：以前原样提交，带空格的正确号码也被后端拒，只回一句「输入格式不正确」（2026-10-15 边界测试）
+    if (!isValidPhone(cleanPhone))
+      return { key: "phone", message: t("contacts.invalidPhone") };
+    if (phoneProblem() === "duplicate")
+      return { key: "duplicate", message: t("contacts.duplicatePhone") };
+    return null;
+  });
+
+  const submit = async () => {
+    if (!form.check()) return;
+    const problem = phoneProblem();
     const contact = {
       name: cleanName,
       phone: cleanPhone,
@@ -90,7 +90,7 @@ export default function AddContactScreen() {
     } catch (e) {
       // 会话已失效：正被送回登录页，登录页自有说明
       if (isSessionEnded(e)) return;
-      setError(toUserMessage(e));
+      form.fail(toUserMessage(e));
     } finally {
       setBusy(false);
     }
@@ -132,7 +132,7 @@ export default function AddContactScreen() {
             maxLength={10}
             placeholder={t("contacts.relationPlaceholder")}
           />
-          <FormError message={error} />
+          <FormError message={form.pageError} />
           <PrimaryButton
             title={t("common.save")}
             onPress={submit}

@@ -75,7 +75,9 @@ describe("添加联系人页接线", () => {
     expect(src).toContain(
       'queryClient.getQueryData<EmergencyContact[]>(["contacts"])',
     );
-    expect(src).toContain('setError(t("contacts.duplicatePhone"))');
+    expect(src).toContain(
+      'return { key: "duplicate", message: t("contacts.duplicatePhone") }',
+    );
     expect(src).toContain('t("contacts.selfPhoneTitle")');
     expect(src).toContain('text: t("contacts.selfPhoneConfirm")');
   });

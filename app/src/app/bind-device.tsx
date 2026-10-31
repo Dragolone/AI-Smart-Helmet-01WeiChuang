@@ -60,6 +60,7 @@ import { showToast } from "@/components/toast";
 import { helmetImageFor } from "@/constants/helmet-images";
 import { Colors } from "@/constants/theme";
 import { useAppActive } from "@/hooks/use-app-active";
+import { useFormErrors } from "@/hooks/use-form-errors";
 import { useRouteParams } from "@/hooks/use-route-params";
 import { useNotifyPermission } from "@/hooks/use-safety";
 import { useTheme } from "@/hooks/use-theme";
@@ -198,7 +199,8 @@ export default function BindDeviceScreen() {
   const [codeVal, setCodeVal] = useState(params.bindCode ?? "");
   /** 扫到的码里只有设备号：面板里多一句说明 */
   const [codeMissing, setCodeMissing] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
+  // 手输绑不上的原因：填的内容改一下就收（没有本地校验，「绑定」按钮在没填全时本来就点不了）
+  const form = useFormErrors([idVal, codeVal], () => null);
   const [busy, setBusy] = useState(false);
 
   // 安全设置还差东西（确定知道的才算，没查到的不算）时，成功卡片才提「去做安全设置」
@@ -322,7 +324,7 @@ export default function BindDeviceScreen() {
       setCodeVal(prefill.bindCode ?? "");
     }
     setCodeMissing(prefill?.codeMissing === true);
-    setFormError(null);
+    form.clear();
     setBusy(false);
     drag.set(0);
     setSheetOpen(true);
@@ -396,7 +398,7 @@ export default function BindDeviceScreen() {
   };
 
   const submitManual = async () => {
-    setFormError(null);
+    form.clear();
     setBusy(true);
     const result = await bind(idVal, codeVal);
     if (!alive.current) {
@@ -407,7 +409,7 @@ export default function BindDeviceScreen() {
       if ("sessionEnded" in result) return;
       // 手输绑不上：原因写在面板里，填的内容留着改
       setBusy(false);
-      setFormError(result.message);
+      form.fail(result.message);
       return;
     }
     // busy 不复位：面板正在收起，「绑定」保持不可点，杜绝重复提交（下次打开面板时再复位）
@@ -951,7 +953,7 @@ export default function BindDeviceScreen() {
                   maxLength={BIND_CODE_INPUT_MAX}
                   placeholder={t("device.bindCodePlaceholder")}
                 />
-                <FormError message={formError} />
+                <FormError message={form.pageError} />
                 <PrimaryButton
                   title={t("device.bindAction")}
                   onPress={() => void submitManual()}
