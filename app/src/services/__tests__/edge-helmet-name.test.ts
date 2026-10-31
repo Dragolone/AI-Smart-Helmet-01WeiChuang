@@ -153,12 +153,14 @@ describe("接线：显示头盔名的地方不直接读 device.name", () => {
 
   it("设备详情：标题、解绑确认、改名预填和提交都过名字整理", () => {
     const src = readFileSync(join(SRC, "app/device/[deviceId].tsx"), "utf8");
+    // 名字来源是「详情，没回来前用设备列表缓存里的」（hooks/use-device-name），再过整理
     expect(src).toMatch(
-      /const shownName = cleanHelmetName\(detail\.data\?\.name\);/,
+      /const nameBeforeDetail = useDeviceNameBeforeDetail\(deviceId, detail\.data\);/,
     );
     expect(src).toMatch(
-      /\{helmetNameOf\(\{ name: detail\.data\?\.name \?\? null, deviceId \}\)\}/,
+      /const shownName = cleanHelmetName\(nameBeforeDetail\);/,
     );
+    expect(src).toMatch(/\{helmetNameOf\(\{ name: shownName, deviceId \}\)\}/);
     expect(src).toMatch(/id: shownName \|\| deviceId/);
     expect(src).toMatch(/setNameDraft\(shownName\)/);
     expect(src).toMatch(
@@ -174,9 +176,7 @@ describe("接线：显示头盔名的地方不直接读 device.name", () => {
     expect(home.match(/const name = helmetNameOf\(device\);/g)).toHaveLength(2);
     expect(
       readFileSync(join(SRC, "components/device-settings-page.tsx"), "utf8"),
-    ).toMatch(
-      /helmetNameOf\(\{ name: detail\.data\?\.name \?\? null, deviceId \}\)/,
-    );
+    ).toMatch(/helmetNameOf\(\{ name, deviceId \}\)/);
     expect(
       readFileSync(join(SRC, "app/accident/[accidentId].tsx"), "utf8"),
     ).toMatch(/const helmetName = cleanHelmetName\(/);

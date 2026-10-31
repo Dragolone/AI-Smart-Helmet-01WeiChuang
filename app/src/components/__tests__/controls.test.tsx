@@ -1401,6 +1401,29 @@ describe("设置分类页", () => {
     expect(r.icons()).toEqual(["cloud-offline-outline"]);
   });
 
+  it("DeviceContext：详情没回来前先用设备列表缓存里的名字（不闪设备号）；详情回来以详情为准", async () => {
+    let resolve!: (v: unknown) => void;
+    (devicesApi.detail as jest.Mock).mockImplementation(
+      () => new Promise((res) => (resolve = res)),
+    );
+    (devicesApi.status as jest.Mock).mockImplementation(
+      () => new Promise(() => undefined),
+    );
+    const qc = makeQueryClient();
+    qc.setQueryData(["devices"], [{ deviceId: "h1", name: "通勤头盔" }]);
+    const r = render(
+      <QueryClientProvider client={qc}>
+        <DeviceContext deviceId="h1" />
+      </QueryClientProvider>,
+    );
+    expect(r.texts()).toEqual(["通勤头盔"]);
+    await act(async () => {
+      resolve({ name: "骑行头盔" });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(r.texts()).toEqual(["骑行头盔"]));
+  });
+
   it("DeviceContext：在线不提示", async () => {
     (devicesApi.detail as jest.Mock).mockImplementation(() =>
       Promise.resolve({ name: null }),
