@@ -26,6 +26,23 @@ const RIDES_PAD_BEFORE_MS = RIDE_MAX_MS;
 /** 往后多取这么长：一趟最长不到两个 RIDE_MAX_MS（起点不在网格点上时，到第二个网格点才切） */
 const RIDES_PAD_AFTER_MS = 2 * RIDE_MAX_MS;
 
+/**
+ * 轨迹响应用到的列 = 线上 location 对象的全部字段，一个不多：id / eventId / deviceId 不进响应，
+ * 一天最多 1.7 万点，每个点少读这三列就少传、少映射一遍。
+ * satisfies：线上格式加了字段而这里漏了，编译期就报错，不会悄悄返回 undefined。
+ */
+const TRACK_SELECT = {
+  latitude: true,
+  longitude: true,
+  coordinateSystem: true,
+  accuracy: true,
+  speed: true,
+  heading: true,
+  altitude: true,
+  timestamp: true,
+  receivedAt: true,
+} satisfies Record<keyof WireLocationPoint, true>;
+
 const toSummary = (s: RideStats): LocationSummaryResponse => ({
   distanceMeters: s.distanceMeters,
   movingSeconds: s.movingSeconds,
@@ -185,6 +202,7 @@ export class LocationsService {
     const points = await this.prisma.locationPoint.findMany({
       where,
       orderBy: [{ timestamp: 'asc' }, { id: 'asc' }],
+      select: TRACK_SELECT,
     });
     return {
       points: thin(points, maxPoints).map(toWireLocation),
