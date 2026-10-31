@@ -356,7 +356,10 @@ export class SosTriggerService {
       this.logger.warn(
         `倒计时中收到设备 manual_sos（${e.eventId}），按 SOS Now 升级立即通知：${activeSosId}`,
       );
-      const won = await this.notifier.finalizeNotified(activeSosId);
+      // 不在中转请求里等短信：几位联系人遇上慢通道时一条要等约 9 s，超过 App 的 15 s 超时会整批重发（同 App 的立即求救）
+      const won = await this.notifier.finalizeNotified(activeSosId, {
+        deliverInline: 'background',
+      });
       if (!won) {
         // 读到 pending 与升级之间那一单被别人终态化了。被取消（本人刚点「我没事」）→ 这次实体键求救
         // 是终态之后的新事件，必须建新单，否则一次明确的人为求救会被静默吞掉；

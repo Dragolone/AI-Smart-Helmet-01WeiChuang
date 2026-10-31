@@ -137,7 +137,14 @@ export class SosSchedulerService implements OnModuleInit, OnModuleDestroy {
       for (const { id } of expired) {
         // 条件更新保证幂等：与 cancel/confirm 或另一轮扫描竞态时只有一方赢；
         // 不在这里等投递——通知行已在事务里铺好，由投递阶段（或下一轮）接手
-        await this.notifier.finalizeNotified(id, { deliverInline: false });
+        try {
+          await this.notifier.finalizeNotified(id, { deliverInline: false });
+        } catch (err) {
+          // 一单抛错不能带上同批后面的单：按 deadline 升序，下一轮它还排最前，持续失败时全站到期单都发不出去
+          this.logger.error(
+            `SOS ${id} 到期终态化失败（本轮跳过，下一轮再试）：${errorStack(err)}`,
+          );
+        }
       }
     } catch (err) {
       this.logger.error(`SOS 到期扫描失败（下一轮继续）：${errorStack(err)}`);
