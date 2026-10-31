@@ -19,7 +19,7 @@ import {
   Text,
   TextInput,
 } from "react-native";
-import { act } from "react-test-renderer";
+import { act, type ReactTestInstance } from "react-test-renderer";
 import { mockRouter, routerState } from "@/__tests__/helpers/native-mocks";
 import {
   flat,
@@ -96,7 +96,12 @@ jest.mock("expo-haptics", () => ({
   NotificationFeedbackType: { Success: "success" },
 }));
 jest.mock("@/api/contacts", () => ({
-  contactsApi: { list: jest.fn(), create: jest.fn(), remove: jest.fn() },
+  contactsApi: {
+    list: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+    remove: jest.fn(),
+  },
 }));
 jest.mock("@/api/devices", () => ({
   devicesApi: { list: jest.fn(), detail: jest.fn(), status: jest.fn() },
@@ -363,6 +368,67 @@ describe("紧急联系人列表", () => {
         NOTICE_OK,
       );
     });
+  });
+
+  it("点联系人那一行（头像和名字号码）进编辑，带上联系人号；分享和删除两个按钮不触发编辑；删除在途的行点不了", async () => {
+    m(contactsApi.list).mockImplementation(() =>
+      Promise.resolve([contact("1", "妈妈"), contact("a/b", "爸爸")]),
+    );
+    const r = mount(<ContactsScreen />);
+    await waitFor(() => expect(r.allText()).toContain("爸爸"));
+    const textOf = (n: ReactTestInstance | string): string =>
+      typeof n === "string"
+        ? n
+        : n.children
+            .map((c) => textOf(c as ReactTestInstance | string))
+            .join("");
+    const rowOf = (name: string) =>
+      r.root.find(
+        (n) =>
+          n.type === Tappable &&
+          n.props.feedback === "fill" &&
+          n.findAll((c) => isHost(c, "Text") && textOf(c) === name).length > 0,
+      );
+    expect(rowOf("妈妈").props.accessibilityRole).toBe("button");
+    act(() => rowOf("妈妈").props.onPress());
+    expect(mockRouter.navigate).toHaveBeenLastCalledWith(
+      "/add-contact?contactId=1",
+    );
+    // 编号里的特殊字符编码后再拼进路径
+    act(() => rowOf("爸爸").props.onPress());
+    expect(mockRouter.navigate).toHaveBeenLastCalledWith(
+      "/add-contact?contactId=a%2Fb",
+    );
+    // 分享 / 删除是各自的按钮，不在可点的那一块里面
+    const buttons = r.root.findAll(
+      (n) =>
+        n.type === Tappable &&
+        [tr("contacts.tell"), tr("common.delete")].includes(
+          n.props.accessibilityLabel,
+        ),
+    );
+    expect(buttons).toHaveLength(4);
+    const before = mockRouter.navigate.mock.calls.length;
+    const share = jest
+      .spyOn(Share, "share")
+      .mockImplementation(() => Promise.resolve({ action: "sharedAction" }));
+    act(() => buttons[0].props.onPress());
+    act(() => buttons[1].props.onPress());
+    expect(mockRouter.navigate.mock.calls.length).toBe(before);
+    share.mockRestore();
+    expect(alert).toHaveBeenCalledTimes(1);
+    // 这一行删除请求在路上：不可点（也不会带着一个马上要消失的联系人去编辑）
+    m(contactsApi.remove).mockImplementationOnce(
+      () => new Promise<void>(() => undefined),
+    );
+    const buttonsOfDialog = alert.mock.calls[0][2] as {
+      onPress?: () => void;
+    }[];
+    await act(async () => {
+      buttonsOfDialog[1].onPress!();
+    });
+    expect(rowOf("爸爸").props.disabled).toBe(false);
+    expect(rowOf("妈妈").props.disabled).toBe(true);
   });
 
   it("分享联系人说明：带上名字；分享被取消也不抛", async () => {
@@ -639,6 +705,210 @@ describe("添加紧急联系人", () => {
       phone: "13800000002",
       relation: "父亲",
     });
+  });
+});
+
+describe("编辑紧急联系人", () => {
+  const P = {
+    name: tr("contacts.namePlaceholder"),
+    phone: tr("contacts.phonePlaceholder"),
+    rel: tr("contacts.relationPlaceholder"),
+  };
+  const errors = (r: Rendered) =>
+    r.root
+      .findAllByType(Text)
+      .filter((t) => flat(t.props.style).color === dark.danger)
+      .map((t) => t.props.children);
+  const valueOf = (r: Rendered, ph: string) =>
+    r.root.find((n) => n.type === TextInput && n.props.placeholder === ph).props
+      .value;
+  /** 列表缓存里有妈妈（带关系）和爸爸；编辑的是 id=1 的妈妈 */
+  const cached = () => {
+    const qc = makeQueryClient();
+    qc.setQueryData(
+      ["contacts"],
+      [contact("1", "妈妈", "母亲"), contact("2", "爸爸")],
+    );
+    return qc;
+  };
+  beforeEach(() => {
+    routerState.params = { contactId: "1" };
+    m(contactsApi.update).mockImplementation(() => Promise.resolve({}));
+  });
+  afterEach(() => {
+    routerState.params = {};
+  });
+
+  it("从列表缓存预填三格，标题改成「编辑」", () => {
+    const r = mount(<AddContactScreen />, cached());
+    expect(valueOf(r, P.name)).toBe("妈妈");
+    expect(valueOf(r, P.phone)).toBe("13800000001");
+    expect(valueOf(r, P.rel)).toBe("母亲");
+    const screen = r.root.find((n) => isHost(n, "StackScreen"));
+    expect((screen.props.options as { title: string }).title).toBe(
+      tr("nav.editContact"),
+    );
+  });
+
+  it("保存走 PATCH 不走 POST，只发改过的项，画完勾返回；输错的号码改对就行，不用删了重加", async () => {
+    jest.useFakeTimers();
+    const qc = cached();
+    const invalidate = jest.spyOn(qc, "invalidateQueries");
+    const r = mount(<AddContactScreen />, qc);
+    r.type(P.phone, "+86 138-0000-0009");
+    r.press(tr("common.save"));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(contactsApi.update).toHaveBeenCalledTimes(1);
+    expect(contactsApi.update).toHaveBeenCalledWith("1", {
+      phone: "13800000009",
+    });
+    expect(contactsApi.create).not.toHaveBeenCalled();
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["contacts"] });
+    act(() => {
+      jest.advanceTimersByTime(1100);
+    });
+    expect(mockRouter.back).toHaveBeenCalled();
+  });
+
+  it("名字和关系各自改：关系删空发空串才清得掉；改名字不带号码（号码没动）", async () => {
+    const r = mount(<AddContactScreen />, cached());
+    r.type(P.name, " 妈 ");
+    r.type(P.rel, "");
+    r.press(tr("common.save"));
+    await waitFor(() => expect(contactsApi.update).toHaveBeenCalled());
+    expect(contactsApi.update).toHaveBeenCalledWith("1", {
+      name: "妈",
+      relation: "",
+    });
+  });
+
+  it("什么都没改就保存：不发请求，照样画勾返回", async () => {
+    jest.useFakeTimers();
+    const qc = cached();
+    const invalidate = jest.spyOn(qc, "invalidateQueries");
+    const r = mount(<AddContactScreen />, qc);
+    r.press(tr("common.save"));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => {
+      jest.advanceTimersByTime(1100);
+    });
+    expect(contactsApi.update).not.toHaveBeenCalled();
+    expect(contactsApi.create).not.toHaveBeenCalled();
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(mockRouter.back).toHaveBeenCalled();
+  });
+
+  it("改回自己原来的号（含 +86 / 空格写法）不算重复；改成别人的号才算重复，不提交", async () => {
+    const r = mount(<AddContactScreen />, cached());
+    r.type(P.phone, "13800000002");
+    r.press(tr("common.save"));
+    expect(errors(r)).toEqual([tr("contacts.duplicatePhone")]);
+    expect(contactsApi.update).not.toHaveBeenCalled();
+    r.type(P.phone, "+86 138 0000 0001");
+    expect(errors(r)).toEqual([]);
+    r.type(P.name, "妈");
+    r.press(tr("common.save"));
+    await waitFor(() => expect(contactsApi.update).toHaveBeenCalled());
+    // 号码规整后和原来一样：只发名字
+    expect(contactsApi.update).toHaveBeenCalledWith("1", { name: "妈" });
+  });
+
+  it("号码没动时不查重复 / 本人号码：早期留下的旧数据只改名字也能保存", async () => {
+    act(() =>
+      useAuthStore.setState({ user: { phone: "13800000001" } } as never),
+    );
+    try {
+      const qc = makeQueryClient();
+      qc.setQueryData(
+        ["contacts"],
+        [
+          contact("1", "妈妈"),
+          { ...contact("2", "妈妈备份"), phone: "13800000001" },
+        ],
+      );
+      const r = mount(<AddContactScreen />, qc);
+      r.type(P.name, "妈");
+      r.press(tr("common.save"));
+      await waitFor(() => expect(contactsApi.update).toHaveBeenCalled());
+      expect(alert).not.toHaveBeenCalled();
+      expect(contactsApi.update).toHaveBeenCalledWith("1", { name: "妈" });
+    } finally {
+      act(() => useAuthStore.setState({ user: null } as never));
+    }
+  });
+
+  it("把号码改成自己的手机号：照旧先弹窗问清楚，坚持保存才发 PATCH", async () => {
+    act(() =>
+      useAuthStore.setState({ user: { phone: "13900000042" } } as never),
+    );
+    try {
+      const r = mount(<AddContactScreen />, cached());
+      r.type(P.phone, "139 0000 0042");
+      r.press(tr("common.save"));
+      expect(alert).toHaveBeenCalledTimes(1);
+      const [title, , buttons] = alert.mock.calls[0] as [
+        string,
+        string,
+        { onPress?: () => void }[],
+      ];
+      expect(title).toBe(tr("contacts.selfPhoneTitle"));
+      expect(contactsApi.update).not.toHaveBeenCalled();
+      await act(async () => {
+        buttons[1].onPress!();
+      });
+      expect(contactsApi.update).toHaveBeenCalledWith("1", {
+        phone: "13900000042",
+      });
+      expect(contactsApi.create).not.toHaveBeenCalled();
+    } finally {
+      act(() => useAuthStore.setState({ user: null } as never));
+    }
+  });
+
+  it("服务端拒绝：页面级说明，改任一格就收", async () => {
+    m(contactsApi.update).mockImplementation(() =>
+      Promise.reject(new ApiRequestError(409, { code: "CONTACT_DUPLICATE" })),
+    );
+    const r = mount(<AddContactScreen />, cached());
+    r.type(P.phone, "13800000009");
+    r.press(tr("common.save"));
+    await waitFor(() =>
+      expect(errors(r)).toEqual([tr("error.contactDuplicate")]),
+    );
+    r.type(P.rel, "亲戚");
+    expect(errors(r)).toEqual([]);
+  });
+
+  it("缓存里没有这个 id（旧链接 / 乱写的）：不显示空表单，直接回列表；栈里没有上一页就去列表页", () => {
+    const qc = cached();
+    routerState.params = { contactId: "nope" };
+    let r = mount(<AddContactScreen />, qc);
+    expect(r.root.findAllByType(TextInput)).toHaveLength(0);
+    expect(r.allText()).toBe("");
+    expect(mockRouter.back).toHaveBeenCalledTimes(1);
+    mockRouter.canGoBack.mockReturnValueOnce(false);
+    r = mount(<AddContactScreen />, makeQueryClient());
+    expect(r.root.findAllByType(TextInput)).toHaveLength(0);
+    expect(mockRouter.navigate).toHaveBeenCalledWith("/contacts");
+  });
+
+  it("没带 contactId 仍是添加：空表单、走 POST、不回列表", async () => {
+    routerState.params = {};
+    m(contactsApi.create).mockImplementation(() => Promise.resolve({}));
+    const r = mount(<AddContactScreen />, cached());
+    expect(valueOf(r, P.name)).toBe("");
+    expect(mockRouter.back).not.toHaveBeenCalled();
+    r.type(P.name, "姐姐");
+    r.type(P.phone, "13800000008");
+    r.press(tr("common.save"));
+    await waitFor(() => expect(contactsApi.create).toHaveBeenCalled());
+    expect(contactsApi.update).not.toHaveBeenCalled();
+    expect(r.root.findAll((n) => isHost(n, "StackScreen"))).toHaveLength(0);
   });
 });
 
