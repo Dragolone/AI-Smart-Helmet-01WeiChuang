@@ -57,6 +57,7 @@ import {
 } from "@/services/ble-targets";
 import {
   clearSosAlert,
+  sweepStaleAlerts,
   ensureSosAlertPermission,
   whenCountdownClearForPrompt,
   whenSosAlertPermissionAsked,
@@ -273,6 +274,7 @@ export function useRealtimeUpdates(): void {
           ),
         ),
       clearLockScreenAlert: (sosId) => void clearSosAlert(sosId),
+      sweepStaleAlerts: (ids) => void sweepStaleAlerts(ids),
       log: (m) => devLog("SOS", m),
     };
     // 冷启动补拉：App 被杀/重开期间若有 SOS 仍在倒计时，WS 不会重推创建消息；

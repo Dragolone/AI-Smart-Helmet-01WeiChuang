@@ -56,6 +56,7 @@ beforeEach(() => {
     openCountdown: jest.fn<SosSyncDeps["openCountdown"]>(),
     showLockScreenAlert: jest.fn<SosSyncDeps["showLockScreenAlert"]>(),
     clearLockScreenAlert: jest.fn<SosSyncDeps["clearLockScreenAlert"]>(),
+    sweepStaleAlerts: jest.fn<(ids: ReadonlySet<string>) => void>(),
     log: jest.fn<NonNullable<SosSyncDeps["log"]>>(),
   };
 });
@@ -407,6 +408,31 @@ describe("resumePendingSos：账号级接口一次拿全（B 线第 12 项）", 
       expect(qc.getQueryData(["sos-active", "d1"])).toEqual({ sos: null });
       expect(deps.clearLockScreenAlert).toHaveBeenCalledWith("s1");
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ["sos", "s1"] });
+    });
+
+    it("列表是全的才扫残留提醒（进程被杀期间结束的单缓存里没有）；不全时不扫", async () => {
+      const sweep = jest.fn<(ids: ReadonlySet<string>) => void>();
+      deps.fetchAccountActive.mockResolvedValue({
+        items: [sos({ sosId: "s2", deviceId: "d2" })],
+        total: 1,
+      } as never);
+      await resumePendingSos(qc, ["d2"], presented, {
+        ...deps,
+        sweepStaleAlerts: sweep,
+      });
+      expect(sweep).toHaveBeenCalledTimes(1);
+      expect([...sweep.mock.calls[0][0]]).toEqual(["s2"]);
+
+      sweep.mockClear();
+      deps.fetchAccountActive.mockResolvedValue({
+        items: [],
+        total: 5,
+      } as never);
+      await resumePendingSos(qc, ["d2"], presented, {
+        ...deps,
+        sweepStaleAlerts: sweep,
+      });
+      expect(sweep).not.toHaveBeenCalled();
     });
 
     it("列表不全（total 多于这一页）、缓存那单本来就结束了、请求途中 WS 刚写过：都不动", async () => {

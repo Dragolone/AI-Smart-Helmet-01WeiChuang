@@ -840,8 +840,47 @@ export async function clearSosAlert(sosId: string): Promise<void> {
   for (const id of ids) await removeNotification(id);
 }
 
+/** 这个进程扫过一次了：残留只可能来自上一个进程，本进程排的都在 alerts 表里 */
+let staleSwept = false;
+
+/**
+ * 进程被杀期间单子结束：通知和预排的「还剩 N 秒」是上一个进程排的，这个进程的 alerts 是空的，缓存也是空的，
+ * 补拉发现不了它们，通知一直挂着、还带「我没事，取消」（11-01 模拟器实测，重开 App 42 秒后还在）。
+ * 第一次拿到全量的进行中列表时按它扫一遍；本进程登记过的单不碰（可能比这份列表新）
+ */
+export async function sweepStaleAlerts(
+  activeIds: ReadonlySet<string>,
+): Promise<void> {
+  if (staleSwept) return;
+  staleSwept = true;
+  try {
+    const [shown, scheduled] = await Promise.all([
+      Notifications.getPresentedNotificationsAsync(),
+      Notifications.getAllScheduledNotificationsAsync(),
+    ]);
+    const found = new Set<string>();
+    for (const n of shown) {
+      const ref = sosRefOf(n);
+      if (ref && !ref.remote) found.add(ref.sosId);
+    }
+    for (const req of scheduled) {
+      const id = (req.content?.data as { sosId?: unknown } | null | undefined)
+        ?.sosId;
+      if (typeof id === "string" && id) found.add(id);
+    }
+    for (const sosId of found) {
+      if (activeIds.has(sosId) || alerts.has(sosId)) continue;
+      devLog("SOS-ALERT", "撤掉上一个进程留下的提醒", sosId);
+      await clearSosAlert(sosId);
+    }
+  } catch (e) {
+    devLog("SOS-ALERT", "扫残留提醒失败", e as Error);
+  }
+}
+
 /** 登出：上一个账号的 SOS 提醒不该留在这台手机上（留着也取消不了——没有 token，重试只会静默用尽） */
 export async function resetSosAlerts(): Promise<void> {
+  staleSwept = false;
   for (const sosId of [...cancelRetries.keys()]) clearCancelRetry(sosId);
   // 在途标记一并清：重试停了标记还在，重新登录后同一单的倒计时页会一直「取消中…」、按钮点不了、警报静音
   const cancelStore = useSosCancelStore.getState();

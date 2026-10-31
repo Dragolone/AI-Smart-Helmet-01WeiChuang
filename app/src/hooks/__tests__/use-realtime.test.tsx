@@ -155,6 +155,7 @@ jest.mock("@/services/sign-in-moment", () => ({
 }));
 jest.mock("@/services/sos-alert", () => ({
   clearSosAlert: jest.fn(),
+  sweepStaleAlerts: jest.fn(),
   ensureSosAlertPermission: jest.fn(),
   whenSosAlertPermissionAsked: jest.fn(),
   whenCountdownClearForPrompt: jest.fn(),

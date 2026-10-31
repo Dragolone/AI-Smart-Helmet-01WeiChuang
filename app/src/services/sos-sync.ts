@@ -30,6 +30,8 @@ export type SosSyncDeps = {
     deviceName?: string | null,
   ) => void;
   clearLockScreenAlert: (sosId: string) => void;
+  /** 拿到全量进行中列表时：撤掉上一个进程留下、已不在列表里的本地提醒 */
+  sweepStaleAlerts?: (activeIds: ReadonlySet<string>) => void;
   log?: (message: string) => void;
 };
 
@@ -117,6 +119,7 @@ function dropEndedElsewhere(
   const listed = new Set(
     account.items.filter((s): s is Sos => !!s).map((s) => s.sosId),
   );
+  deps.sweepStaleAlerts?.(listed);
   for (const q of qc.getQueryCache().findAll({ queryKey: ["sos-active"] })) {
     const held = (q.state.data as ActiveSosResponse | undefined)?.sos;
     if (!held || held.status !== "pending" || listed.has(held.sosId)) continue;
