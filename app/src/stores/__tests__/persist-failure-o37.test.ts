@@ -1,5 +1,6 @@
 // O37（10-31 安卓模拟器把存储填满实测）：钥匙串写不进 / 删不掉时，登录、退出、改设置都不能失败也不能静默——
 // 内存态照常改、Promise 照常 resolve，另外说一声（services/persist-notice）。
+// 安卓的写失败不抛，所以写成功返回后还要看一眼剩余空间（warnIfDiskLow）。
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 import type { UserProfile } from "@helmet/shared";
 
@@ -19,8 +20,10 @@ jest.mock("expo-secure-store", () => ({
   },
 }));
 const mockNote = jest.fn((_kind: string, _err: unknown) => undefined);
+const mockWarn = jest.fn((_kind: string) => undefined);
 jest.mock("@/services/persist-notice", () => ({
   notePersistFailure: (kind: string, err: unknown) => mockNote(kind, err),
+  warnIfDiskLow: (kind: string) => mockWarn(kind),
 }));
 jest.mock("@/api/auth", () => ({
   authApi: {
@@ -49,10 +52,11 @@ beforeEach(() => {
   mockFail.del = false;
   mockKv.clear();
   mockNote.mockClear();
+  mockWarn.mockClear();
 });
 
 describe("登录：钥匙串写不进", () => {
-  it("signIn 不抛、内存里已登录，提示一次「登录没存上」；写得进时不提示", async () => {
+  it("signIn 不抛、内存里已登录，提示一次「登录没存上」；写得进时不提示、但要看一眼剩余空间", async () => {
     mockFail.set = true;
     await expect(useAuthStore.getState().signIn(auth)).resolves.toBeUndefined();
     expect(useAuthStore.getState().tokens).toEqual({
@@ -62,17 +66,20 @@ describe("登录：钥匙串写不进", () => {
     expect(mockNote).toHaveBeenCalledTimes(1);
     expect(mockNote.mock.calls[0][0]).toBe("login");
     expect(mockKv.has("helmet.session.tokens")).toBe(false);
+    expect(mockWarn).not.toHaveBeenCalled();
 
     mockFail.set = false;
     await useAuthStore.getState().signIn(auth);
     expect(mockNote).toHaveBeenCalledTimes(1);
     expect(mockKv.has("helmet.session.tokens")).toBe(true);
+    expect(mockWarn.mock.calls.map((c) => c[0])).toEqual(["login"]);
   });
 });
 
 describe("退出：钥匙串删不掉", () => {
   it("dropSession / signOut 不抛、内存里已登出，提示一次「退出没清掉」", async () => {
     await useAuthStore.getState().signIn(auth);
+    mockNote.mockClear();
     mockFail.del = true;
     await expect(useAuthStore.getState().signOut()).resolves.toBeUndefined();
     expect(useAuthStore.getState().tokens).toBeNull();
@@ -85,7 +92,7 @@ describe("退出：钥匙串删不掉", () => {
 });
 
 describe("设置：外观 / 语言写不进", () => {
-  it("当次生效、不抛，各提示一次「设置没存上」", async () => {
+  it("当次生效、不抛，各提示一次「设置没存上」；写得进时看一眼剩余空间", async () => {
     mockFail.set = true;
     await expect(
       useThemeStore.getState().setMode("light"),
@@ -96,6 +103,15 @@ describe("设置：外观 / 语言写不进", () => {
     ).resolves.toBeUndefined();
     expect(useLocaleStore.getState().locale).toBe("zh-TW");
     expect(mockNote.mock.calls.map((c) => c[0])).toEqual([
+      "setting",
+      "setting",
+    ]);
+    expect(mockWarn).not.toHaveBeenCalled();
+
+    mockFail.set = false;
+    await useThemeStore.getState().setMode("dark");
+    await useLocaleStore.getState().setLocale("en");
+    expect(mockWarn.mock.calls.map((c) => c[0])).toEqual([
       "setting",
       "setting",
     ]);

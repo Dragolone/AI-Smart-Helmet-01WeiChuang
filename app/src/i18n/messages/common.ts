@@ -12,6 +12,9 @@ export const common = {
       "本机的登录信息没能清掉（可能是存储空间不足），清理空间后请再退出一次",
     "persist.settingNotSaved":
       "这项设置没能保存到本机（可能是存储空间不足），重启后会还原",
+    "persist.lowSpaceLogin":
+      "手机存储空间只剩 {mb} MB，登录状态可能保存不了，下次打开或要重新登录",
+    "persist.lowSpaceSetting": "手机存储空间只剩 {mb} MB，这项设置可能保存不了",
     "app.pageCrashBody": "其他页面照常可用。请重试，或稍后再进这一页。",
     "app.crashRetry": "重试",
     "common.close": "关闭",
@@ -127,6 +130,9 @@ export const common = {
       "本機的登入資訊沒能清掉（可能是儲存空間不足），清理空間後請再登出一次",
     "persist.settingNotSaved":
       "這項設定沒能保存到本機（可能是儲存空間不足），重啟後會還原",
+    "persist.lowSpaceLogin":
+      "手機儲存空間只剩 {mb} MB，登入狀態可能保存不了，下次開啟或要重新登入",
+    "persist.lowSpaceSetting": "手機儲存空間只剩 {mb} MB，這項設定可能保存不了",
     "app.pageCrashBody": "其他頁面照常可用。請重試，或稍後再進這一頁。",
     "app.crashRetry": "重試",
     "common.close": "關閉",
@@ -241,6 +247,10 @@ export const common = {
       "Couldn't clear the saved sign-in on this phone (storage may be full). Free up space and sign out again.",
     "persist.settingNotSaved":
       "This setting couldn't be saved on this phone (storage may be full) and will reset after a restart.",
+    "persist.lowSpaceLogin":
+      "Only {mb} MB of storage left. Your sign-in may not be saved, so you may need to sign in again next time.",
+    "persist.lowSpaceSetting":
+      "Only {mb} MB of storage left. This setting may not be saved.",
     "app.pageCrashBody":
       "The rest of the app still works. Try again, or come back to this page later.",
     "app.crashRetry": "Try again",

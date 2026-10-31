@@ -6,7 +6,7 @@ import { attachSession } from "@/api/client";
 import { authApi } from "@/api/auth";
 import { countdownHoldUntil } from "@/services/countdown-hold";
 import { SECURE_KEYS } from "@/services/secure-keys";
-import { notePersistFailure } from "@/services/persist-notice";
+import { notePersistFailure, warnIfDiskLow } from "@/services/persist-notice";
 import { markSignedIn } from "@/services/sign-in-moment";
 
 const TOKEN_KEY = SECURE_KEYS.sessionTokens;
@@ -134,6 +134,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           KEYCHAIN,
         ),
       ]);
+      // 安卓写失败不抛（见 persist-notice），写完看一眼剩余空间
+      warnIfDiskLow("login");
     } catch (e) {
       notePersistFailure("login", e);
     }
