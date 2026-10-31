@@ -1769,6 +1769,10 @@ describe("补分支（2026-10-19）", () => {
       await jest.advanceTimersByTimeAsync(1_999);
       expect(mockScans).toHaveLength(5);
       await jest.advanceTimersByTimeAsync(1);
+      // 退避是 2 s 没错，但 30 s 里已经起扫 5 次（出错的三次也算）：第 6 次压到最早那次出了窗口再起
+      //（安卓 5 次 / 30 s 的限制，10-31）——此刻 t=18 s，等到 t≈30 s
+      expect(mockScans).toHaveLength(5);
+      await jest.advanceTimersByTimeAsync(12_100);
       expect(mockScans).toHaveLength(6);
     });
 
@@ -2331,6 +2335,131 @@ describe("补分支（2026-10-20）", () => {
     scanCb?.(null, fakeDevice);
     for (let i = 0; i < 40 && link()?.phase !== "connected"; i += 1)
       await tick();
+    expect(link()?.phase).toBe("connected");
+  });
+});
+
+// —— 10-31：安卓 BluetoothLeScanner 限 30 s 内起扫 5 次（第 6 次起被系统静默拦掉、30 s 没有结果）。
+// 原来连接 / 握手一失败就 finally 立刻重扫、扫到又连：GATT 一直报错时 30 s 内起扫 300 次 ——
+describe("10-31：起扫限频与连接失败的退避", () => {
+  const ID = "helmet_94173f";
+  const until = async (cond: () => boolean, rounds = 60) => {
+    for (let i = 0; i < rounds && !cond(); i += 1) await tick();
+  };
+  /** 每 100 ms 看一眼：新起了一轮扫描就把外设再报上来（真机上广播 100 ms 一次） */
+  const feed = async (ms: number, device: unknown = fakeDevice) => {
+    let seen = mockScans.length;
+    for (let t = 0; t < ms; t += 100) {
+      await jest.advanceTimersByTimeAsync(100);
+      if (mockScans.length > seen) {
+        seen = mockScans.length;
+        scanCb?.(null, device);
+      }
+    }
+  };
+
+  it("GATT 一直立刻报错：30 s 内起扫不超过 5 次，连接按退避 2 / 4 / 8 … s 来；头盔好了之后能连上", async () => {
+    jest.useFakeTimers();
+    fakeDevice.connect.mockRejectedValue(new Error("gatt 133"));
+    await startBleLink([ID]);
+    await jest.advanceTimersByTimeAsync(0);
+    scanCb?.(null, fakeDevice);
+    await feed(30_000);
+    expect(mockScans.length).toBeLessThanOrEqual(5);
+    expect(fakeDevice.connect.mock.calls.length).toBeLessThanOrEqual(6);
+    expect(link()?.phase).toBe("disconnected");
+    fakeDevice.connect.mockResolvedValue(fakeDevice);
+    await feed(40_000);
+    await until(() => link()?.phase === "connected");
+    expect(link()?.phase).toBe("connected");
+  });
+
+  it("握手一直 3 s 无应答：30 s 内起扫不超过 5 次", async () => {
+    jest.useFakeTimers();
+    helmet.override = (f) => f[0] === 0x02 && f[2] === 0x40;
+    await startBleLink([ID]);
+    await jest.advanceTimersByTimeAsync(0);
+    scanCb?.(null, fakeDevice);
+    await feed(30_000);
+    expect(mockScans.length).toBeLessThanOrEqual(5);
+    expect(fakeDevice.connect.mock.calls.length).toBeLessThanOrEqual(5);
+  });
+
+  it("第一次失败照旧立刻重试（后台偶发一次 GATT 133 时这一下最管用），第二次起才等", async () => {
+    jest.useFakeTimers();
+    fakeDevice.connect.mockRejectedValueOnce(new Error("gatt 133"));
+    await startBleLink([ID]);
+    await jest.advanceTimersByTimeAsync(0);
+    scanCb?.(null, fakeDevice);
+    await until(() => mockScans.length === 2); // 失败后马上重扫
+    scanCb?.(null, fakeDevice);
+    await until(() => link()?.phase === "connected");
+    expect(link()?.phase).toBe("connected");
+    expect(fakeDevice.connect).toHaveBeenCalledTimes(2);
+  });
+
+  it("信号边缘连上又掉、反复：30 s 内起扫不超过 5 次，窗口过去照样能再连上", async () => {
+    jest.useFakeTimers();
+    await startBleLink([ID]);
+    await jest.advanceTimersByTimeAsync(0);
+    let seen = mockScans.length;
+    for (let t = 0; t < 30_000; t += 100) {
+      await jest.advanceTimersByTimeAsync(100);
+      if (mockScans.length > seen) {
+        seen = mockScans.length;
+        scanCb?.(null, fakeDevice);
+        await until(() => link()?.phase === "connected", 40);
+        helmet.disconnectCb?.(null, fakeDevice);
+      }
+    }
+    expect(mockScans.length).toBeLessThanOrEqual(5);
+    await feed(31_000);
+    await until(() => link()?.phase === "connected");
+    expect(link()?.phase).toBe("connected");
+  });
+
+  it("两顶都没连上、其中一顶连不上在退避里：另一顶出现照样马上连（重扫不停，只跳过退避中的那顶）", async () => {
+    jest.useFakeTimers();
+    const bad = {
+      ...fakeDevice,
+      id: "periph-2",
+      name: "Helmet-bbbbbb",
+      localName: "Helmet-bbbbbb",
+      connect: jest.fn(async () => {
+        throw new Error("gatt 133");
+      }),
+    };
+    await startBleLink([ID, "helmet_bbbbbb"]);
+    await jest.advanceTimersByTimeAsync(0);
+    scanCb?.(null, bad);
+    await until(() => mockScans.length === 2);
+    scanCb?.(null, bad); // 第二次失败：进退避
+    await until(() => mockScans.length === 3);
+    scanCb?.(null, bad); // 退避中：不连
+    await tick();
+    expect(bad.connect).toHaveBeenCalledTimes(2);
+    scanCb?.(null, fakeDevice);
+    await until(() => link()?.phase === "connected");
+    expect(link()?.phase).toBe("connected");
+    expect(bad.connect).toHaveBeenCalledTimes(2); // 退避里的那顶没有被多连一次
+  });
+
+  it("退避中用户点「重试连接」：清掉退避、立刻重扫并连上", async () => {
+    jest.useFakeTimers();
+    fakeDevice.connect.mockRejectedValue(new Error("gatt 133"));
+    await startBleLink([ID]);
+    await jest.advanceTimersByTimeAsync(0);
+    scanCb?.(null, fakeDevice);
+    await until(() => mockScans.length === 2);
+    scanCb?.(null, fakeDevice);
+    await until(() => fakeDevice.connect.mock.calls.length === 2);
+    await jest.advanceTimersByTimeAsync(500);
+    const n = mockScans.length;
+    fakeDevice.connect.mockResolvedValue(fakeDevice);
+    retryBleLink(ID);
+    await until(() => mockScans.length === n + 1);
+    scanCb?.(null, fakeDevice);
+    await until(() => link()?.phase === "connected");
     expect(link()?.phase).toBe("connected");
   });
 });
