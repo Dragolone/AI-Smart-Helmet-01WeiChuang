@@ -6,7 +6,6 @@ export const devices = {
     "devices.title": "设备",
     "devices.battery": "电量",
     "devices.bindNew": "绑定头盔",
-    "devices.emptyBody": "绑定并连接头盔后，可查看连接状态、电量与安全信息。",
     "devices.loadFailedTitle": "设备列表没拉到",
     "devices.loadFailedBody":
       "网络不通，暂时看不到你的头盔。联网后会自动重试。",
@@ -35,7 +34,6 @@ export const devices = {
     "devices.title": "裝置",
     "devices.battery": "電量",
     "devices.bindNew": "綁定頭盔",
-    "devices.emptyBody": "綁定並連接頭盔後，可查看連線狀態、電量與安全資訊。",
     "devices.loadFailedTitle": "裝置清單沒載入",
     "devices.loadFailedBody":
       "網路不通，暫時看不到你的頭盔。連上網後會自動重試。",
@@ -64,8 +62,6 @@ export const devices = {
     "devices.title": "Devices",
     "devices.battery": "Battery",
     "devices.bindNew": "Add helmet",
-    "devices.emptyBody":
-      "Add and connect a helmet to view its connection, battery and safety information.",
     "devices.loadFailedTitle": "Couldn't load your helmets",
     "devices.loadFailedBody":
       "No network connection. Your helmets will appear once you're back online.",

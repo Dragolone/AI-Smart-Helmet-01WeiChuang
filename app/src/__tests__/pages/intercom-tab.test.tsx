@@ -1641,7 +1641,7 @@ describe("房间里", () => {
 
   it("头盔断开：没进房时不管；按住说话写已切到手机；持续通话开着麦时自动静音并写出来；头盔回来横幅消失；断着时开持续通话不替他开麦", async () => {
     useBleStore.setState({
-      links: { h1: { phase: "connected", eventsReceived: 0, resent: 0 } },
+      links: { h1: { phase: "connected", eventsReceived: 0 } },
     });
     const link = (phase: "connected" | "disconnected") =>
       act(() => useBleStore.getState().patchLink("h1", { phase }));
@@ -1655,7 +1655,7 @@ describe("房间里", () => {
     await enter(r);
     m(playCue).mockClear();
     // 别的字段变了、连没连上没变：不管
-    act(() => useBleStore.getState().patchLink("h1", { lastFrameAt: 1 }));
+    act(() => useBleStore.getState().patchLink("h1", { eventsReceived: 1 }));
     expect(playCue).not.toHaveBeenCalled();
     link("disconnected");
     expect(r.texts()).toContain(tr("intercom.banner.helmet"));
@@ -1872,7 +1872,7 @@ describe("房间里", () => {
     m(deactivateKeepAwake).mockImplementation(reject);
     try {
       useBleStore.setState({
-        links: { h1: { phase: "connected", eventsReceived: 0, resent: 0 } },
+        links: { h1: { phase: "connected", eventsReceived: 0 } },
       });
       const r = await inRoom();
       expect(activateKeepAwakeAsync).toHaveBeenCalledWith("intercom");

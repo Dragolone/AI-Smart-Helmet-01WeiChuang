@@ -280,7 +280,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: -12,
   },
-  empty: { alignItems: "center", paddingVertical: 40 },
   bottom: { paddingHorizontal: 20, paddingTop: 6, paddingBottom: 24, gap: 8 },
   center: { textAlign: "center" },
 });

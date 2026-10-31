@@ -15,7 +15,6 @@ import {
   CHAR_WRITE_UUID,
   ERROR_NAMES,
   HIGH_RISK_CODES,
-  Ins,
   REQUEST_MTU,
   Reg,
   SERVICE_UUID,
@@ -350,7 +349,6 @@ class HelmetSession {
       );
       const got = r.data[0] ?? 0;
       resent += got;
-      this.patch({ resent });
       if (got === 0) break;
     }
     if (resent > 0) {
@@ -360,7 +358,6 @@ class HelmetSession {
   }
 
   private onFrame(bytes: Uint8Array): void {
-    this.patch({ lastFrameAt: Date.now() });
     const frame = parseInbound(bytes);
     if (!frame) {
       log("无法解析的帧", bytesToHex(bytes));
@@ -684,7 +681,7 @@ async function connect(
 ): Promise<void> {
   if (connecting) return; // 一次只连一台；另一台由 finally 里的 ensureScanning 重新发现
   connecting = deviceId;
-  store().patchLink(deviceId, { phase: "connecting", errorCode: undefined });
+  store().patchLink(deviceId, { phase: "connecting" });
   let session: HelmetSession | null = null;
   /** 连接 / 握手途中被解绑或停链路（B 线 10-06 评审 F3）：不能建成「已解绑设备」的会话，否则补传的
    *  离线事件被 ACK 擦除后在服务端 404 丢掉。握手途中的解绑由 setBleTargets 直接 close 会话、让握手抛错；
@@ -732,7 +729,6 @@ async function connect(
     reconnecting.delete(deviceId);
     store().patchLink(deviceId, {
       phase: "connected",
-      connectedAt: Date.now(),
       eventsReceived: 0,
     });
     log(`${deviceId} 已连接，固件 ${session.firmwareVersion}`);
@@ -754,7 +750,7 @@ async function connect(
     } else if (code === "DEVICE_ID_MISMATCH") {
       // 广播名撞车或绑错设备：不自动重试，页面显示错误让用户处理
       blocked.add(deviceId);
-      store().patchLink(deviceId, { phase: "error", errorCode: code });
+      store().patchLink(deviceId, { phase: "error" });
     } else if (!byName) {
       fallbackCooldown.set(found.id, Date.now() + FALLBACK_COOLDOWN_MS);
       store().patchLink(deviceId, { phase: "disconnected" });
@@ -1051,8 +1047,6 @@ export async function writeHelmetRegister(
     return { delivered: false };
   }
 }
-
-export const BLE_INS = Ins;
 
 /** 切语言后常驻通知按新语言重写一遍（services/locale-sync）：不然要等下一次连上 / 断开才换 */
 export function refreshServiceNotification(): void {

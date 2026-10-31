@@ -22,15 +22,8 @@ export interface BleDeviceLink {
   phase: BleLinkPhase;
   /** 握手读到的固件版本（0x00–0x02） */
   firmwareVersion?: string;
-  /** 最近一次连上的时刻（ms） */
-  connectedAt?: number;
-  /** 最近一次收到头盔帧（事件或应答）的时刻（ms） */
-  lastFrameAt?: number;
   /** 本次连接收到的事件帧计数（开发面板用） */
   eventsReceived: number;
-  /** 补传的高危事件数（握手 Step 5） */
-  resent: number;
-  errorCode?: string;
 }
 
 interface BleState {
@@ -42,7 +35,7 @@ interface BleState {
   reset: () => void;
 }
 
-export const EMPTY_LINK: BleDeviceLink = { phase: 'idle', eventsReceived: 0, resent: 0 };
+export const EMPTY_LINK: BleDeviceLink = { phase: 'idle', eventsReceived: 0 };
 
 export const useBleStore = create<BleState>((set) => ({
   adapter: 'unknown',

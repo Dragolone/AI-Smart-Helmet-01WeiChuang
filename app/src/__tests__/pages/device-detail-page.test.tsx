@@ -196,7 +196,7 @@ beforeEach(() => {
   routerState.params = { deviceId: "h1" };
   useBleStore.setState({
     adapter: "on",
-    links: { h1: { phase: "connected", eventsReceived: 0, resent: 0 } },
+    links: { h1: { phase: "connected", eventsReceived: 0 } },
   });
   Object.assign(settings, {
     values: { volume: 60 },
@@ -410,7 +410,7 @@ describe("状态卡", () => {
   it("蓝牙没连上：写原因并可重试；手机蓝牙关着：去开蓝牙；没权限：去 App 设置", async () => {
     useBleStore.setState({
       adapter: "on",
-      links: { h1: { phase: "scanning", eventsReceived: 0, resent: 0 } },
+      links: { h1: { phase: "scanning", eventsReceived: 0 } },
     });
     let r = mount();
     await waitFor(() =>
@@ -472,7 +472,7 @@ describe("状态卡", () => {
         .findAll((n) => isHost(n, "Ionicons"))[0].props.color;
     useBleStore.setState({
       adapter: "on",
-      links: { h1: { phase: "error", eventsReceived: 0, resent: 0 } },
+      links: { h1: { phase: "error", eventsReceived: 0 } },
     });
     let r = mount();
     await waitFor(() => expect(r.allText()).toContain(tr("device.ble.error")));

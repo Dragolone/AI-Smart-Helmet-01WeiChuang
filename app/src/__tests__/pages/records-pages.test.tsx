@@ -1089,7 +1089,6 @@ describe("关于这顶头盔", () => {
         h1: {
           phase: "connected",
           eventsReceived: 0,
-          resent: 0,
           firmwareVersion: "0.9.1",
         },
       },
