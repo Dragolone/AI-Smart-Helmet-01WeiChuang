@@ -4,7 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useEffect, useRef } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
 
 import { useRouteParams } from "@/hooks/use-route-params";
 import { sosActiveHref } from "@/services/sos-routes";
@@ -14,6 +14,8 @@ import { isSessionEnded, toUserMessage } from "@/api/error-messages";
 import { sosApi } from "@/api/sos";
 import { Badge } from "@/components/badge";
 import { EmptyState } from "@/components/empty-state";
+import { Skeleton } from "@/components/skeleton";
+import { Tappable } from "@/components/tappable";
 import { AmapView, type AmapViewHandle } from "@/components/map/amap-view";
 import { isPlausibleFix, toGcj02 } from "@/components/map/coords";
 import { openAmapNavigation } from "@/components/map/nav-links";
@@ -22,6 +24,7 @@ import { ThemedView } from "@/components/themed-view";
 import { Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { readableEventFields } from "@/services/event-fields";
+import { accidentPollInterval } from "@/services/sos-delivery";
 import { cleanHelmetName } from "@/services/safety-status";
 import { useLocale, useT } from "@/i18n";
 import { fullDateTime, shortTime } from "@/i18n/format";
@@ -31,6 +34,21 @@ export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-bo
 const isNotFound = (e: unknown) =>
   e instanceof ApiRequestError &&
   (e.status === 404 || e.status === 400 || e.status === 403); // 400：记录号是乱码（深链），同样当找不到
+
+/** 记录还没拿到（弱网首次进来）：标题行 + 几行信息的占位，别让标题下面一片空 */
+function DetailSkeleton() {
+  return (
+    <View style={styles.skeletonWrap}>
+      <View style={styles.titleRow}>
+        <Skeleton width="50%" height={30} />
+        <Skeleton width={64} height={24} radius={12} />
+      </View>
+      {[0, 1, 2, 3].map((i) => (
+        <Skeleton key={i} height={52} radius={Radius.control} />
+      ))}
+    </View>
+  );
+}
 
 function Row({ label, value }: { label: string; value: string }) {
   const theme = useTheme();
@@ -62,6 +80,9 @@ export default function AccidentDetailScreen() {
     queryFn: () => sosApi.accidentDetail(accidentId),
     // 记录不存在（链接里的编号有误 / 不是自己头盔的）重试也一样，直接给空态
     retry: (n, e) => !isNotFound(e) && n < 1,
+    // 倒计时中 / 短信还在发的单自己走到终态：WS 推送会让这份详情重拉，但推送会漏（断线、后台），漏了就靠这里补上，
+    // 否则「进行中」「发送中」一直不变，退出重进才对（终态不再看）
+    refetchInterval: (q) => accidentPollInterval(q.state.data),
   });
   // 来源头盔显示用户起的名字（与安全页同一份设备列表缓存）；已解绑的头盔查不到名字，退回设备号
   const devices = useQuery({ queryKey: ["devices"], queryFn: devicesApi.list });
@@ -98,10 +119,32 @@ export default function AccidentDetailScreen() {
     );
   }
 
+  // 一条都没拿到又失败了：给原因和重试（重拉期间状态回到加载中，骨架顶上，点了有反应）
+  if (!d && detail.isError) {
+    return (
+      <ThemedView style={[styles.flex, styles.goneWrap]}>
+        <EmptyState
+          icon="cloud-offline-outline"
+          title={t("records.loadFailed")}
+          body={
+            isSessionEnded(detail.error)
+              ? undefined
+              : toUserMessage(detail.error)
+          }
+          actionLabel={t("safety.action.retry")}
+          actionIcon="refresh"
+          onAction={() => void detail.refetch()}
+        />
+      </ThemedView>
+    );
+  }
+
   return (
     <ThemedView style={styles.flex}>
       <ScrollView contentContainerStyle={styles.container}>
-        {detail.isError && !isSessionEnded(detail.error) && (
+        {!d && <DetailSkeleton />}
+        {/* 有旧数据、这次刷新失败：旧数据照常显示，上面补一行原因 */}
+        {d && detail.isError && !isSessionEnded(detail.error) && (
           <ThemedText type="small">{toUserMessage(detail.error)}</ThemedText>
         )}
         {d && (
@@ -135,7 +178,7 @@ export default function AccidentDetailScreen() {
             {/* 还在倒计时的单：这一页只是记录，取消 / 立即求救在倒计时页。从推送、事故列表点进来时
                 给一条回去的路，否则用户看着「进行中」却找不到取消键（2026-10-05 评审） */}
             {d.status === "pending" && (
-              <Pressable
+              <Tappable
                 accessibilityRole="button"
                 style={[styles.countdownBtn, { backgroundColor: theme.danger }]}
                 onPress={() =>
@@ -146,7 +189,7 @@ export default function AccidentDetailScreen() {
                 <ThemedText type="smallBold" style={styles.navBtnText}>
                   {t("accident.openCountdown")}
                 </ThemedText>
-              </Pressable>
+              </Tappable>
             )}
 
             <Row
@@ -192,7 +235,8 @@ export default function AccidentDetailScreen() {
                     mapRef.current?.setHelmet(gcjPos, { follow: true })
                   }
                 />
-                <Pressable
+                <Tappable
+                  accessibilityRole="button"
                   style={[styles.navBtn, { backgroundColor: theme.danger }]}
                   onPress={() =>
                     void openAmapNavigation(gcjPos, t("accident.site"))
@@ -202,7 +246,7 @@ export default function AccidentDetailScreen() {
                   <ThemedText type="smallBold" style={styles.navBtnText}>
                     {t("accident.navigate")}
                   </ThemedText>
-                </Pressable>
+                </Tappable>
               </View>
             )}
 
@@ -270,6 +314,7 @@ export default function AccidentDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  skeletonWrap: { gap: 10 },
   goneWrap: { justifyContent: "center", paddingHorizontal: 24 },
   mapCard: {
     height: 240,

@@ -1,7 +1,7 @@
 // 求救倒计时页结束之后「通知发出去没有」的几个推导（纯函数）。
 // 数据是事故详情里的通知记录（API.md §7）：每位联系人一条短信，另有一条发给本人的推送。
 // 这里只看短信那几条——页面上列的是「谁收到了」，本人的推送不算。
-import type { SosNotificationPublic } from "@helmet/shared";
+import type { AccidentDetail, SosNotificationPublic } from "@helmet/shared";
 
 import { avatarInitial } from "./user-name";
 
@@ -68,6 +68,25 @@ export function deliveryPollInterval(
   if (sms.some((n) => n.status !== "sent" && n.status !== "failed"))
     return 3_000;
   if (sms.some((n) => n.status === "failed")) return 10_000;
+  return false;
+}
+
+/**
+ * 求救记录详情页多久再看一次：
+ * - 还没拿到记录（加载中 / 失败）：不排轮询——失败态有「重试」按钮，404 之类自己再拉也一样；
+ * - pending（还在倒计时）：5 秒。WS 的 sos_update 会让它重拉，但推送会漏（断线、后台），状态自己走到终态要靠这里兜底；
+ * - notified：看短信发出去没有，同倒计时页（deliveryPollInterval）；
+ * - cancelled 和契约外的状态：终态，不再看。
+ */
+export function accidentPollInterval(
+  detail:
+    | (Pick<AccidentDetail, "status"> & { notifications?: readonly Row[] })
+    | undefined,
+): number | false {
+  if (!detail) return false;
+  if (detail.status === "pending") return 5_000;
+  if (detail.status === "notified")
+    return deliveryPollInterval(detail.notifications);
   return false;
 }
 

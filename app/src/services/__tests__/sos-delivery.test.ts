@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@jest/globals";
 
 import {
+  accidentPollInterval,
   deliveryPollInterval,
   deliveryStateOf,
   initialOf,
@@ -104,5 +105,45 @@ describe("记录结构不对（10-22 夜测：服务端出错把类型写乱）"
       contactName: "妈妈",
       target: "138****0000",
     });
+  });
+});
+
+describe("accidentPollInterval", () => {
+  it("looks every 5 s while the countdown is running (the push only refreshes the list)", () => {
+    expect(accidentPollInterval({ status: "pending", notifications: [] })).toBe(
+      5_000,
+    );
+  });
+  it("once notified, follows the delivery cadence and stops when all went out", () => {
+    expect(
+      accidentPollInterval({
+        status: "notified",
+        notifications: [sms("pending")],
+      }),
+    ).toBe(3_000);
+    expect(
+      accidentPollInterval({
+        status: "notified",
+        notifications: [sms("failed")],
+      }),
+    ).toBe(10_000);
+    expect(
+      accidentPollInterval({
+        status: "notified",
+        notifications: [sms("sent")],
+      }),
+    ).toBe(false);
+    expect(
+      accidentPollInterval({ status: "notified", notifications: [] }),
+    ).toBe(false);
+  });
+  it("does not poll a cancelled single, an unknown status, or when nothing arrived (the error state has a retry button)", () => {
+    expect(
+      accidentPollInterval({ status: "cancelled", notifications: [] }),
+    ).toBe(false);
+    expect(
+      accidentPollInterval({ status: "weird" as never, notifications: [] }),
+    ).toBe(false);
+    expect(accidentPollInterval(undefined)).toBe(false);
   });
 });
