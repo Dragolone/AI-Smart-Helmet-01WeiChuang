@@ -228,6 +228,8 @@ export default function SafetyRecordsScreen() {
     queries: list.map((d) => ({
       queryKey: ["accidents", d.deviceId],
       queryFn: () => sosApi.accidents(d.deviceId),
+      // 和安全页是同一份缓存：原来这一页开着时靠被盖住的安全页每 30 秒轮询，安全页现在失焦就停，所以这里自己轮询（同上面的事件列表）
+      refetchInterval: 30_000,
     })),
   });
   // 「加载更多」：原来只取第 1 页，1000 条只看得到最近 20 / 50 条（2026-10-15 边界测试）。

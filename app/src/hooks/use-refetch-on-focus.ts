@@ -15,15 +15,15 @@ export function useRefetchOnFocus(queryKey: QueryKey): void {
   useFocusEffect(
     useCallback(() => {
       const queryKey = JSON.parse(keyJson) as QueryKey;
-      const q = queryClient.getQueryCache().find({ queryKey });
-      if (
-        q &&
-        (q.state.fetchStatus === "fetching" ||
-          Date.now() - q.state.dataUpdatedAt < FOCUS_REFETCH_GAP_MS)
-      )
-        return;
+      // 按前缀匹配，每条缓存各判各的：每顶头盔一份的（["accidents", 头盔]）也能只补拉该补的那几条
       void queryClient.refetchQueries(
-        { queryKey, type: "active" },
+        {
+          queryKey,
+          type: "active",
+          predicate: (q) =>
+            q.state.fetchStatus !== "fetching" &&
+            Date.now() - q.state.dataUpdatedAt >= FOCUS_REFETCH_GAP_MS,
+        },
         { cancelRefetch: false },
       );
     }, [queryClient, keyJson]),

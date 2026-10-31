@@ -473,9 +473,17 @@ function SafetyTile({
   );
 }
 
-function RideTile({ deviceId }: { deviceId: string }) {
+function RideTile({
+  deviceId,
+  focused,
+}: {
+  deviceId: string;
+  focused: boolean;
+}) {
   const t = useT();
-  const ride = useRideToday(deviceId);
+  const ride = useRideToday(deviceId, focused);
+  // 切到别的标签时今日骑行不再按分钟轮询，切回来补拉一次（间隔 2 秒内刚拉过的不重拉）
+  useRefetchOnFocus(["ride-today", deviceId]);
   const label = t("ride.today");
   const dur =
     ride.status === "rode" ? formatRideDuration(ride.movingSeconds) : null;
@@ -903,7 +911,7 @@ export default function DevicesScreen() {
                   />
                 </SplashArrive>
                 <SplashArrive order={3.5} style={styles.flex}>
-                  <RideTile deviceId={hero.deviceId} />
+                  <RideTile deviceId={hero.deviceId} focused={focused} />
                 </SplashArrive>
               </View>
               {others.length > 0 && (

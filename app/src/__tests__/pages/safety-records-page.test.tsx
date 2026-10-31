@@ -247,6 +247,22 @@ describe("一顶头盔", () => {
     expect(r.root.findByType(Modal).props.visible).toBe(false);
   });
 
+  it("SOS 记录自己每 30 秒轮询（和安全页同一份缓存；安全页被盖住失焦后不再替它轮询）", async () => {
+    const qc = makeQueryClient();
+    const r = render(
+      <QueryClientProvider client={qc}>
+        <SafetyRecordsScreen />
+      </QueryClientProvider>,
+    );
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("records.alertsEmpty")),
+    );
+    const observers = qc
+      .getQueryCache()
+      .find({ queryKey: ["accidents", "h1"] })!.observers;
+    expect(observers.map((o) => o.options.refetchInterval)).toEqual([30_000]);
+  });
+
   it("详情拉不到：标题写失败并说明原因；关掉按钮", async () => {
     mockRoutes.fn = (p) =>
       p.startsWith("/devices/h1/events")
