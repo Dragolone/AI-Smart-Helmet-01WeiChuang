@@ -1,41 +1,23 @@
 // Auth / 用户接口（docs/API.md §2；backend/src/auth、users 已实现并核对）
-// 账号安全三接口（改密 / 换手机号 / 注销）与 change_phone 用途的后端契约在另一分支并行实现，
-// 请求体先在本地定型，待 packages/shared 同步后再切回共享类型。
+// 请求 / 响应类型都来自 packages/shared（账号安全三接口：改密 / 换手机号 / 注销，以及 change_phone 用途也已同步），
+// 这里不再自己定型。
 import type {
   AuthResponse,
+  ChangePasswordRequest,
+  ChangePhoneRequest,
+  DeleteAccountRequest,
   LoginRequest,
   RegisterRequest,
   ResetPasswordRequest,
+  SmsCodeRequest,
   UpdateMeRequest,
   UserProfile,
 } from "@helmet/shared";
 import { api, currentRefreshToken } from "./client";
 
-export type SmsCodePurpose = "register" | "reset_password" | "change_phone";
-
-/** change_phone 时 phone 为「新手机号」；已被占用 → 409 PHONE_ALREADY_REGISTERED */
-export interface SmsCodeRequest {
-  phone: string;
-  purpose: SmsCodePurpose;
-}
-
-/** 带上本机 refreshToken：服务端撤销其他会话时保留本机登录态 */
-export interface ChangePasswordRequest {
-  oldPassword: string;
-  newPassword: string;
-  refreshToken: string;
-}
-
-export interface ChangePhoneRequest {
-  newPhone: string;
-  code: string;
-  /** 当前密码：持有会话不等于本人（2026-10-14 后端要求） */
-  password: string;
-}
-
-export interface DeleteAccountRequest {
-  password: string;
-}
+/** 带上本机 refreshToken：服务端撤销其他会话时保留本机登录态。shared 里它是选填，这里发出去的一定带 */
+type ChangePasswordBody = ChangePasswordRequest &
+  Required<Pick<ChangePasswordRequest, "refreshToken">>;
 
 /** 手机号脱敏展示：138****1234；非 11 位原样返回 */
 export function maskPhone(phone: string | null | undefined): string {
@@ -69,7 +51,7 @@ export const authApi = {
   changePassword: (body: Omit<ChangePasswordRequest, "refreshToken">) =>
     api<void>("/auth/change-password", {
       method: "POST",
-      body: (): ChangePasswordRequest => ({
+      body: (): ChangePasswordBody => ({
         ...body,
         refreshToken: currentRefreshToken(),
       }),
