@@ -16,7 +16,12 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { authApi } from "@/api/auth";
-import { PHONE_INPUT_MAX, normalizePhone } from "@/hooks/use-sms-code";
+import {
+  PHONE_INPUT_MAX,
+  normalizePhone,
+  phoneFromParam,
+} from "@/hooks/use-sms-code";
+import { useRouteParams } from "@/hooks/use-route-params";
 import { toUserMessage } from "@/api/error-messages";
 import {
   FormError,
@@ -58,7 +63,17 @@ export default function LoginScreen() {
   // （评审 2026-09-26）——读出来通常只要几十毫秒，勾选框最多闪一下
   const needConsent = !consentHydrated || !privacyAccepted;
   const [consented, setConsented] = useState(false);
-  const [phone, setPhone] = useState("");
+  // 找回密码页重置成功后 dismissTo 回来会带上刚重置的号码
+  const { phone: phoneParam } = useRouteParams<{ phone?: string }>();
+  const [phone, setPhone] = useState(() => phoneFromParam(phoneParam));
+  // 登录页还在栈里没重建，回来时只有参数变了：号码以刚重置的那个为准（下面「上次手机号」只在号码还空着时才填）。
+  // 渲染中比对上一次的参数、不用 effect：effect 里设状态会先按旧号码画一帧再改
+  const [seenPhoneParam, setSeenPhoneParam] = useState(phoneParam);
+  if (phoneParam !== seenPhoneParam) {
+    setSeenPhoneParam(phoneParam);
+    const fromParam = phoneFromParam(phoneParam);
+    if (fromParam) setPhone(fromParam);
+  }
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   /** 能落到具体字段的错误就地显示（红框 + 抖动），落不到的走页面级 FormError */
@@ -91,6 +106,7 @@ export default function LoginScreen() {
   }, []);
   const shownMark = keyboardUp ? Math.round(markSize / 2) : markSize;
   const titleSize = LOGIN_BRAND.titleSize(width);
+  const resetPhone = phoneFromParam(normalizePhone(phone));
 
   // 记住上次登录的手机号(只存号码不存密码);读取失败静默忽略
   useEffect(() => {
@@ -315,7 +331,14 @@ export default function LoginScreen() {
                 <Link href="/register" onPress={() => Keyboard.dismiss()}>
                   <ThemedText type="link">{t("auth.noAccount")}</ThemedText>
                 </Link>
-                <Link href="/reset-password" onPress={() => Keyboard.dismiss()}>
+                {/* 带上已填的号码：登录页常是预填好的，点进去又得重新输一遍 */}
+                <Link
+                  href={{
+                    pathname: "/reset-password",
+                    params: resetPhone ? { phone: resetPhone } : {},
+                  }}
+                  onPress={() => Keyboard.dismiss()}
+                >
                   <ThemedText type="link" themeColor="textSecondary">
                     {t("auth.forgotPassword")}
                   </ThemedText>

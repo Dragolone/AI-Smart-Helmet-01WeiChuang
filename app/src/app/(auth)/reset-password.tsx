@@ -1,7 +1,7 @@
 // 找回密码页（API.md §2：sms-code purpose=reset_password → POST /auth/reset-password）
 // 成功后服务端撤销该用户全部会话,所有设备需重新登录——页面提示后回登录页。
 import { router } from "expo-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Keyboard,
   Pressable,
@@ -30,8 +30,10 @@ import {
   isValidPhone,
   normalizePhone,
   normalizeSmsCode,
+  phoneFromParam,
   useSmsCode,
 } from "@/hooks/use-sms-code";
+import { useRouteParams } from "@/hooks/use-route-params";
 import {
   isPasswordTooLong,
   isPasswordTooShort,
@@ -44,7 +46,9 @@ export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-bo
 export default function ResetPasswordScreen() {
   const theme = useTheme();
   const t = useT();
-  const [phone, setPhone] = useState("");
+  // 登录页常是预填好的号码：点「忘记密码」带过来，不用再输一遍
+  const params = useRouteParams<{ phone?: string }>();
+  const [phone, setPhone] = useState(() => phoneFromParam(params.phone));
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -61,6 +65,8 @@ export default function ResetPasswordScreen() {
   const [busy, setBusy] = useState(false);
   // 重置成功：按钮先画勾（「已重置」），画完再提示并回登录页
   const [done, setDone] = useState(false);
+  // 成功时重置的是哪个号码：画勾的一秒里用户还能改输入框，回登录页带的要是请求里那个
+  const resetPhone = useRef("");
   const sms = useSmsCode("reset_password", phone);
 
   const sendCode = async () => {
@@ -102,14 +108,16 @@ export default function ResetPasswordScreen() {
       fail("password", t("auth.passwordTooLong"));
       return;
     }
+    const cleanPhone = normalizePhone(phone);
     setBusy(true);
     try {
       await authApi.resetPassword({
-        phone: normalizePhone(phone),
+        phone: cleanPhone,
         code: cleanCode,
         newPassword: password,
       });
       // 成功即全端会话作废(API.md §2)：按钮画完勾再回登录页用新密码登录
+      resetPhone.current = cleanPhone;
       setDone(true);
     } catch (e) {
       const field = errorField(e);
@@ -232,7 +240,11 @@ export default function ResetPasswordScreen() {
               successTitle={t("auth.resetDoneShort")}
               onSuccessShown={() => {
                 showToast(t("auth.resetDone"));
-                router.back();
+                // dismissTo：登录页还在栈里，回去而不是再压一张；把刚重置的号码带回去，登录页直接填好
+                router.dismissTo({
+                  pathname: "/login",
+                  params: { phone: resetPhone.current },
+                });
               }}
             />
 

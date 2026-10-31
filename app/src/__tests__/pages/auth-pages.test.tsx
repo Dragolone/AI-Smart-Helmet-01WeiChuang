@@ -11,7 +11,7 @@ import {
 import * as SecureStore from "expo-secure-store";
 import { Alert, Keyboard, ScrollView, Text } from "react-native";
 import { act } from "react-test-renderer";
-import { mockRouter } from "@/__tests__/helpers/native-mocks";
+import { mockRouter, routerState } from "@/__tests__/helpers/native-mocks";
 import {
   flat,
   isHost,
@@ -236,6 +236,7 @@ beforeEach(() => {
   dismiss = jest.spyOn(Keyboard, "dismiss").mockImplementation(() => undefined);
   // 重发读秒按号码记在模块里：每个用例从没发过开始
   __resetSmsCooldownsForTests();
+  routerState.params = {};
 });
 afterEach(() => {
   dismiss.mockRestore();
@@ -341,6 +342,48 @@ describe("登录页", () => {
     expect(signIn).not.toHaveBeenCalled();
   });
 
+  it("点「忘记密码」带上已填的号码（规整后的纯数字）；没填 / 填的不是号码就不带", async () => {
+    const r = render(<LoginScreen />);
+    await flush();
+    const href = () =>
+      r.root.findAll((n) => isHost(n, "Link"))[1].props.href as unknown;
+    expect(href()).toEqual({ pathname: "/reset-password", params: {} });
+    r.type(P.phone, "+86 139 0000 0042");
+    expect(href()).toEqual({
+      pathname: "/reset-password",
+      params: { phone: "13900000042" },
+    });
+    r.type(P.phone, "139");
+    expect(href()).toEqual({
+      pathname: "/reset-password",
+      params: { phone: "139" },
+    });
+    r.type(P.phone, "abc");
+    expect(href()).toEqual({ pathname: "/reset-password", params: {} });
+  });
+
+  it("找回密码成功 dismissTo 回来带着号码：直接填进手机号格；之后自己改的号码不会被盖掉", async () => {
+    (SecureStore.getItemAsync as jest.Mock).mockImplementationOnce(() =>
+      Promise.resolve("13700000001"),
+    );
+    routerState.params = { phone: "13900000042" };
+    const r = render(<LoginScreen />);
+    await flush();
+    // 参数里的号码比「上次登录的手机号」新：不被后者盖掉
+    expect(r.valueOf(P.phone)).toBe("13900000042");
+    r.type(P.phone, "13600000002");
+    r.rerender(<LoginScreen />);
+    expect(r.valueOf(P.phone)).toBe("13600000002");
+    // 登录页没重建，回来时只有参数变了
+    routerState.params = { phone: "13800000000" };
+    r.rerender(<LoginScreen />);
+    expect(r.valueOf(P.phone)).toBe("13800000000");
+    // 参数不是号码：不动输入框
+    routerState.params = { phone: "abc" };
+    r.rerender(<LoginScreen />);
+    expect(r.valueOf(P.phone)).toBe("13800000000");
+  });
+
   it("倒计时走完才登出的（O19-A）：说明后面多一句联系人多半已收到通知；普通被动登出没有这句", async () => {
     useAuthStore.setState({ sessionExpired: true, expiredDuringSos: true });
     const r = render(<LoginScreen />);
@@ -377,7 +420,7 @@ describe("登录页", () => {
     const links = r.root.findAll((n) => isHost(n, "Link"));
     expect(links.map((l) => l.props.href)).toEqual([
       "/register",
-      "/reset-password",
+      { pathname: "/reset-password", params: {} },
     ]);
     act(() => (links[0].props.onPress as () => void)());
     expect(dismiss).toHaveBeenCalledTimes(3);
@@ -740,7 +783,54 @@ describe("找回密码", () => {
     act(() => {
       jest.advanceTimersByTime(1100);
     });
-    expect(mockRouter.back).toHaveBeenCalled();
+    // 回到栈里的登录页并带上刚重置的号码（登录页直接填好，不用再输一遍）
+    expect(mockRouter.dismissTo).toHaveBeenCalledWith({
+      pathname: "/login",
+      params: { phone: "13900000042" },
+    });
+    expect(mockRouter.back).not.toHaveBeenCalled();
+  });
+
+  it("重置成功后带回登录页的是请求里的号码：画勾的那一秒里改了输入框也不变", async () => {
+    jest.useFakeTimers();
+    api.resetPassword.mockImplementation(() => Promise.resolve());
+    const r = render(<ResetPasswordScreen />);
+    r.type(P.phone, "13900000042");
+    r.type(P.code, "654321");
+    r.type(P.pwd, "abcdefgh");
+    r.type(P.confirm, "abcdefgh");
+    r.press(tr("auth.resetPassword"));
+    await flush();
+    r.type(P.phone, "13800000000");
+    act(() => {
+      jest.advanceTimersByTime(1100);
+    });
+    expect(mockRouter.dismissTo).toHaveBeenCalledWith({
+      pathname: "/login",
+      params: { phone: "13900000042" },
+    });
+  });
+
+  it("登录页点「忘记密码」带来的号码预填在手机号格；不是纯数字 / 太长的参数当没有", () => {
+    routerState.params = { phone: "13900000042" };
+    expect(render(<ResetPasswordScreen />).valueOf(P.phone)).toBe(
+      "13900000042",
+    );
+    for (const bad of [
+      "abc",
+      "1390000004x",
+      "+8613900000042",
+      "139000000421",
+      "",
+    ]) {
+      routerState.params = { phone: bad };
+      expect(render(<ResetPasswordScreen />).valueOf(P.phone)).toBe("");
+    }
+    // 链接里同一个参数写了两次时取第一个（与别的页一致）
+    routerState.params = { phone: ["13900000042", "13800000000"] };
+    expect(render(<ResetPasswordScreen />).valueOf(P.phone)).toBe(
+      "13900000042",
+    );
   });
 
   it("发验证码时就说号码没注册：落在手机号上；按钮按下时变淡", async () => {
