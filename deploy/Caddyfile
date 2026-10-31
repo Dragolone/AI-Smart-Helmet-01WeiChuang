@@ -7,6 +7,10 @@
 
 # App 的 REST + WebSocket 入口（wss 由 Caddy 透明代理，App 端 https→wss 自动推导）
 {$API_DOMAIN} {
+	# 轨迹、事件列表都是几十到几百 KB 的 JSON，gzip 后约 1/5（10-31 实测 1000 点轨迹 195→35 KB）；只开 gzip：zstd 只再小 0.1%，
+	# 没必要让安卓多走一条解压路径。WebSocket 升级请求 Caddy 不编码；不足 512 字节不压
+	encode gzip
+
 	# handle 块互斥、按路径长度最长优先（与下方 admin 块同一写法）
 	# EMQX 认证/授权回调只走容器网络 backend:3000（DEVICE_PROTOCOL §3.1），公网一律 404（审计 MQTT-03）；
 	# 后端 InternalTokenGuard 仍是第二层
@@ -35,6 +39,8 @@
 
 # 管理后台：/api 同源转发给后端（与本地 vite proxy 同职责），其余走 SPA 静态文件
 {$ADMIN_DOMAIN} {
+	encode gzip
+
 	# handle 块按路径长度排序、最长优先：/api/v1/internal/* 先于 /api/* 命中，公网一律 404（审计 MQTT-03）
 	handle /api/v1/internal/* {
 		respond 404
