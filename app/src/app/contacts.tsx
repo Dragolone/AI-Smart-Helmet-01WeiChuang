@@ -34,12 +34,14 @@ function ContactRow({
   contact,
   last,
   busy,
+  onEdit,
   onDelete,
 }: {
   contact: EmergencyContact;
   last: boolean;
   /** 删除请求在路上：整行变淡、按钮点不了 */
   busy: boolean;
+  onEdit: () => void;
   onDelete: () => void;
 }) {
   const theme = useTheme();
@@ -56,32 +58,46 @@ function ContactRow({
         busy && styles.rowBusy,
       ]}
     >
-      <View
-        style={[styles.avatar, { backgroundColor: theme.backgroundSelected }]}
+      {/* 点这一块进编辑（输错号码不用删了重加）；分享和删除是两个独立的按钮，不跟着触发 */}
+      <Tappable
+        feedback="fill"
+        accessibilityRole="button"
+        accessibilityHint={t("nav.editContact")}
+        onPress={onEdit}
+        disabled={busy}
+        style={styles.rowMain}
       >
-        <ThemedText type="smallBold" style={{ fontSize: 17 }}>
-          {avatarInitial(contact.name)}
-        </ThemedText>
-      </View>
-      <View style={styles.body}>
-        <ThemedText type="default" style={{ lineHeight: 22 }} numberOfLines={1}>
-          {/* 名字整理后为空（只含零宽字符等）就写号码，别留一片空白 */}
-          {contactNameOf(contact)}
-          {relation ? (
-            <ThemedText type="small" themeColor="textSecondary">
-              {"  "}
-              {relation}
-            </ThemedText>
-          ) : null}
-        </ThemedText>
-        <ThemedText
-          type="small"
-          themeColor="textSecondary"
-          style={{ fontSize: 13 }}
+        <View
+          style={[styles.avatar, { backgroundColor: theme.backgroundSelected }]}
         >
-          {contact.phone}
-        </ThemedText>
-      </View>
+          <ThemedText type="smallBold" style={{ fontSize: 17 }}>
+            {avatarInitial(contact.name)}
+          </ThemedText>
+        </View>
+        <View style={styles.body}>
+          <ThemedText
+            type="default"
+            style={{ lineHeight: 22 }}
+            numberOfLines={1}
+          >
+            {/* 名字整理后为空（只含零宽字符等）就写号码，别留一片空白 */}
+            {contactNameOf(contact)}
+            {relation ? (
+              <ThemedText type="small" themeColor="textSecondary">
+                {"  "}
+                {relation}
+              </ThemedText>
+            ) : null}
+          </ThemedText>
+          <ThemedText
+            type="small"
+            themeColor="textSecondary"
+            style={{ fontSize: 13 }}
+          >
+            {contact.phone}
+          </ThemedText>
+        </View>
+      </Tappable>
       <Tappable
         accessibilityRole="button"
         accessibilityLabel={t("contacts.tell")}
@@ -177,6 +193,11 @@ export default function ContactsScreen() {
                   contact={c}
                   last={i === list.length - 1}
                   busy={deletingIds.includes(c.id)}
+                  onEdit={() =>
+                    router.navigate(
+                      `/add-contact?contactId=${encodeURIComponent(c.id)}`,
+                    )
+                  }
                   onDelete={() => remove(c)}
                 />
               </Animated.View>
@@ -227,11 +248,20 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: { padding: 20, gap: 14 },
   lead: { fontSize: 13, lineHeight: 18, paddingHorizontal: 4 },
+  // 左边留给可点的 rowMain（自带左边距和上下边距，按下的底色才铺满整行高），右边是两个按钮
   row: {
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
-    paddingHorizontal: 16,
+    paddingRight: 16,
+  },
+  rowMain: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    paddingLeft: 16,
     paddingVertical: 12,
   },
   rowBusy: { opacity: 0.55 },
