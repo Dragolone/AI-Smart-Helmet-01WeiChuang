@@ -1107,10 +1107,14 @@ export default function IntercomScreen() {
     await trtc.current.muteLocalAudio(true);
     setTalking(false);
   };
-  // 读屏用户没法「按住」：读屏的双击（activate）当开关用，双击一次开始说话、再双击一次结束
-  const pttA11yAction = (e: AccessibilityActionEvent) => {
-    if (e.nativeEvent.actionName !== "activate") return;
+  // 读屏用户没法「按住」：读屏的双击当开关用，双击一次开始说话、再双击一次结束。
+  // 安卓双击走 activate；iOS 双击只发 onAccessibilityTap，没接的话系统改发一次点按，按下松开，麦克风开了立刻又关。
+  // 一次双击只走其中一条，从 iOS 动作列表选才走 activate
+  const pttA11yToggle = () => {
     void (talking ? pttUp() : pttDown());
+  };
+  const pttA11yAction = (e: AccessibilityActionEvent) => {
+    if (e.nativeEvent.actionName === "activate") pttA11yToggle();
   };
 
   /** 一直开麦：点大按钮开 / 关麦克风 */
@@ -1442,6 +1446,7 @@ export default function IntercomScreen() {
                         }
                         accessibilityActions={[{ name: "activate" }]}
                         onAccessibilityAction={pttA11yAction}
+                        onAccessibilityTap={pttA11yToggle}
                         onPressIn={() => void pttDown()}
                         onPressOut={() => void pttUp()}
                         style={[

@@ -1342,6 +1342,27 @@ describe("房间里", () => {
     expect(r.texts()).not.toContain(tr("intercom.talking"));
   });
 
+  it("iOS 读屏双击（onAccessibilityTap）同样是开关：双击开始说话，再双击结束，一次双击只动一次麦克风", async () => {
+    const r = await inRoom();
+    const ptt = () => node(r, tr("intercom.holdToTalk"));
+    const tap = () =>
+      act(async () => {
+        ptt().props.onAccessibilityTap();
+      });
+    const mutes = mockCloud.muteLocalAudio.mock.calls.length;
+    await tap();
+    expect(mockCloud.muteLocalAudio.mock.calls.length).toBe(mutes + 1);
+    expect(lastMute()).toBe(false);
+    expect(r.texts()).toContain(tr("intercom.talking"));
+    expect(ptt().props.accessibilityValue).toEqual({
+      text: tr("intercom.talking"),
+    });
+    await tap();
+    expect(mockCloud.muteLocalAudio.mock.calls.length).toBe(mutes + 2);
+    expect(lastMute()).toBe(true);
+    expect(r.texts()).not.toContain(tr("intercom.talking"));
+  });
+
   it("持续通话第一次先看说明：暂不开启不切；开启后麦克风开、记住看过、小条标麦克风开、不再常亮；点大按钮静音 / 再开；切回按住说话关麦", async () => {
     useIntercomStore.setState({ openMicSeen: {} });
     const r = await inRoom();
