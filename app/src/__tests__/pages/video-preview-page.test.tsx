@@ -133,7 +133,7 @@ jest.mock("expo-file-system", () => ({
   },
 }));
 const mockPlayer = { snapshot: jest.fn() };
-jest.mock("react-native-vlc-media-player", () => {
+jest.mock("react-native-vlc-media-player/VLCPlayer", () => {
   const React = jest.requireActual<typeof import("react")>("react");
   const VLCPlayer = React.forwardRef(function VLCPlayer(
     props: Record<string, unknown>,
@@ -144,7 +144,7 @@ jest.mock("react-native-vlc-media-player", () => {
     }));
     return React.createElement("VLCPlayer", props);
   });
-  return { VLCPlayer };
+  return { __esModule: true, default: VLCPlayer };
 });
 
 const tr = (key: MessageKey, params?: Record<string, string | number>) =>
