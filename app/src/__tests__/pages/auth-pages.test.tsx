@@ -990,6 +990,40 @@ describe("修改密码", () => {
     expect(api.changePassword).not.toHaveBeenCalled();
   });
 
+  it("错误跟着输入走：改好那一条就收，不提前跳到下一条；旧密码太短和新密码太短是两条", () => {
+    const r = render(<ChangePasswordScreen />);
+    r.press(tr("common.save"));
+    expect(pageErrors(r)).toEqual([tr("auth.passwordTooShort")]);
+    // 旧密码改好了：新密码也太短，文案同一句，但那是另一条，不能顶上来
+    r.type(P.old, "oldpass12");
+    expect(pageErrors(r)).toEqual([]);
+    r.press(tr("common.save"));
+    expect(pageErrors(r)).toEqual([tr("auth.passwordTooShort")]);
+    // 新密码填够了：两次不一致是下一条，要等再点保存才说
+    r.type(P.pwd, "abcdefgh");
+    expect(pageErrors(r)).toEqual([]);
+    r.press(tr("common.save"));
+    expect(pageErrors(r)).toEqual([tr("auth.passwordMismatch")]);
+    r.type(P.confirm, "abcdefgh");
+    expect(pageErrors(r)).toEqual([]);
+    expect(api.changePassword).not.toHaveBeenCalled();
+  });
+
+  it("服务端说旧密码错：红字留到任一输入框改动为止", async () => {
+    api.changePassword.mockImplementationOnce(() =>
+      Promise.reject(apiError(400, "PASSWORD_INCORRECT")),
+    );
+    const r = render(<ChangePasswordScreen />);
+    r.type(P.old, "oldpass12");
+    r.type(P.pwd, "newpass12");
+    r.type(P.confirm, "newpass12");
+    r.press(tr("common.save"));
+    await flush();
+    expect(pageErrors(r)).toEqual([tr("error.passwordIncorrect")]);
+    r.type(P.old, "oldpass13");
+    expect(pageErrors(r)).toEqual([]);
+  });
+
   it("成功：画完勾提示并返回；旧密码错：页面级提示", async () => {
     jest.useFakeTimers();
     api.changePassword.mockImplementationOnce(() =>
@@ -1086,6 +1120,47 @@ describe("更换手机号", () => {
       jest.advanceTimersByTime(1100);
     });
     expect(mockRouter.back).toHaveBeenCalled();
+  });
+
+  it("错误跟着输入走：号码改对了发码前的提示就收；验证码填好了不提前跳到「密码太短」", () => {
+    const r = render(<ChangePhoneScreen />);
+    r.press(tr("auth.getCode"));
+    expect(pageErrors(r)).toEqual([tr("auth.invalidPhone")]);
+    r.type(P.phone, "13800000001");
+    expect(pageErrors(r)).toEqual([]);
+    r.press(tr("common.save"));
+    expect(pageErrors(r)).toEqual([tr("auth.invalidCode")]);
+    r.type(P.code, "111222");
+    expect(pageErrors(r)).toEqual([]);
+    r.press(tr("common.save"));
+    expect(pageErrors(r)).toEqual([tr("auth.passwordTooShort")]);
+    r.type(P.pwd, "mypassword");
+    expect(pageErrors(r)).toEqual([]);
+  });
+
+  it("服务端的错（号码已被占用 / 验证码不对）：任一输入框改动就收", async () => {
+    api.sendSmsCode.mockImplementationOnce(() =>
+      Promise.reject(apiError(409, "PHONE_ALREADY_REGISTERED")),
+    );
+    api.changePhone.mockImplementationOnce(() =>
+      Promise.reject(apiError(400, "SMS_CODE_INVALID")),
+    );
+    const r = render(<ChangePhoneScreen />);
+    r.type(P.phone, "13800000001");
+    r.press(tr("auth.getCode"));
+    await waitFor(() =>
+      expect(pageErrors(r)).toEqual([tr("auth.phoneUsedByOther")]),
+    );
+    r.type(P.phone, "13800000002");
+    expect(pageErrors(r)).toEqual([]);
+    r.type(P.code, "111222");
+    r.type(P.pwd, "mypassword");
+    r.press(tr("common.save"));
+    await waitFor(() =>
+      expect(pageErrors(r)).toEqual([tr("error.smsCodeInvalid")]),
+    );
+    r.type(P.code, "111223");
+    expect(pageErrors(r)).toEqual([]);
   });
 
   it("发码失败 / 提交失败都在页面级说明", async () => {
@@ -1269,6 +1344,32 @@ describe("注销账号", () => {
     );
     act(() => input.props.onChangeText("mypassword"));
   };
+
+  it("错误跟着输入走：输到 8 位以上「至少 8 位」就收，不用再点一次", async () => {
+    const r = renderDelete();
+    r.type(tr("auth.currentPasswordPlaceholder"), "abc");
+    await pressConfirm(r);
+    expect(pageErrors(r)).toEqual([tr("auth.passwordTooShort")]);
+    r.type(tr("auth.currentPasswordPlaceholder"), "abcdefghij");
+    expect(pageErrors(r)).toEqual([]);
+    expect(alert).not.toHaveBeenCalled();
+  });
+
+  it("服务端说密码不对：改一下输入框红字就收", async () => {
+    api.deleteMe.mockImplementation(() =>
+      Promise.reject(apiError(400, "PASSWORD_INCORRECT")),
+    );
+    const r = renderDelete();
+    typePassword(r);
+    await pressConfirm(r);
+    const buttons = alert.mock.calls[0][2] as { onPress?: () => void }[];
+    act(() => buttons[1].onPress!());
+    await waitFor(() =>
+      expect(pageErrors(r)).toEqual([tr("error.passwordIncorrect")]),
+    );
+    r.type(tr("auth.currentPasswordPlaceholder"), "mypassword2");
+    expect(pageErrors(r)).toEqual([]);
+  });
 
   it("有一单还在倒计时（O15，负责人 10-21 定）：不弹注销确认、不注销，说明原因并可直接去倒计时页", async () => {
     sosMock.activeForAccount.mockImplementation(() =>

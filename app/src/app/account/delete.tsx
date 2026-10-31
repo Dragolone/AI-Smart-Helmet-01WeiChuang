@@ -16,6 +16,7 @@ import { Card } from "@/components/list";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { showToast } from "@/components/toast";
+import { useFormErrors } from "@/hooks/use-form-errors";
 import { useTheme } from "@/hooks/use-theme";
 import { translate, useT, type MessageKey } from "@/i18n";
 import { discardRelayQueue } from "@/services/ble-relay-uplink";
@@ -56,8 +57,12 @@ export default function DeleteAccountScreen() {
   const dropSession = useAuthStore((s) => s.dropSession);
   const queryClient = useQueryClient();
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const form = useFormErrors([password], () =>
+    password.length < 8
+      ? { key: "short", message: t("auth.passwordTooShort") }
+      : null,
+  );
 
   const deleteAccount = async () => {
     setBusy(true);
@@ -77,18 +82,14 @@ export default function DeleteAccountScreen() {
     } catch (e) {
       // 会话已失效：正被送回登录页，登录页自有说明
       if (isSessionEnded(e)) return;
-      setError(toUserMessage(e));
+      form.fail(toUserMessage(e));
     } finally {
       setBusy(false);
     }
   };
 
   const confirm = async () => {
-    setError(null);
-    if (password.length < 8) {
-      setError(t("auth.passwordTooShort"));
-      return;
-    }
+    if (!form.check()) return;
     // 有进行中的求救时不让注销（O15，负责人 10-21 定）：注销会连紧急联系人一起删掉，那一单到点照样变「已通知」，
     // 却一条短信都发不出去。服务器那头也会拦（上线清单 B 线 16），这里先拦住、说清楚；查不了（断网）也注销不了
     setBusy(true);
@@ -96,7 +97,7 @@ export default function DeleteAccountScreen() {
     try {
       active = await firstActiveSos(queryClient);
     } catch (e) {
-      if (!isSessionEnded(e)) setError(toUserMessage(e));
+      if (!isSessionEnded(e)) form.fail(toUserMessage(e));
       return;
     } finally {
       setBusy(false);
@@ -177,7 +178,7 @@ export default function DeleteAccountScreen() {
         </ScrollView>
         {/* 错误放在固定的按钮区而不是滚动内容底部：键盘开着点保存时，红字在滚动内容最底下，被键盘和按钮挡住看不见 */}
         <View style={styles.bottom}>
-          <FormError message={error} />
+          <FormError message={form.pageError} />
           <PrimaryButton
             danger
             title={t("auth.deleteAccount")}
