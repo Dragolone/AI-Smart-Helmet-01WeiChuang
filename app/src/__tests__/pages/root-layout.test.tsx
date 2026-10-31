@@ -254,7 +254,7 @@ describe("模块加载时", () => {
     expect(atImport.splashHold).toBe(1);
   });
 
-  it("App 回到前台 = 查询的「窗口获得焦点」：active 才算在前台，卸下时取消监听", () => {
+  it("App 回到前台 = 查询的「窗口获得焦点」：只有 background 算失焦，iOS 的 inactive（控制中心、系统弹框）不算；卸下时取消监听", () => {
     const setup = (focusManager as unknown as { recordedSetup?: FocusSetup })
       .recordedSetup;
     expect(setup).toBeDefined();
@@ -273,7 +273,7 @@ describe("模块加载时", () => {
     onChange!("background");
     onChange!("active");
     onChange!("inactive");
-    expect(setFocused.mock.calls).toEqual([[false], [true], [false]]);
+    expect(setFocused.mock.calls).toEqual([[false], [true], [true]]);
     cleanup!();
     expect(remove).toHaveBeenCalled();
     // 根布局装的就是它：现在的焦点状态由它管
