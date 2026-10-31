@@ -36,6 +36,11 @@ class HelmetLinkServiceModule : Module() {
 
   private var wakeLock: PowerManager.WakeLock? = null
   private var wifiLock: WifiManager.WifiLock? = null
+  // Wi-Fi 锁的 acquire 不带超时，到点要自己放：不可恢复错误丢队列、退出登录、注销之后队列为空，JS 再也不会调 releaseNetwork。
+  // 续期在 JS 线程、到点在主线程，判断 isHeld 和放锁要连着做（这把锁是计数的，多放一次会抛异常）
+  private val networkHandler = Handler(Looper.getMainLooper())
+  private val wifiLockGuard = Any()
+  private val wifiLockTimeout = Runnable { releaseWifiLock() }
 
   // —— 求救倒计时警报（F15，2026-10-20 华为实测）——
   // expo-audio 把播放器写死成媒体用途（USAGE_MEDIA）：手机静音 / 媒体音量 0 时倒计时完全无声，只剩每秒 60 ms 的弱震动。
@@ -87,6 +92,7 @@ class HelmetLinkServiceModule : Module() {
 
     OnDestroy {
       stopAlarm()
+      releaseNetworkLocks()
     }
 
     /**
@@ -100,13 +106,16 @@ class HelmetLinkServiceModule : Module() {
       val wl = wakeLock ?: pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "helmet:uplink").also { wakeLock = it }
       if (!wl.isHeld) wl.acquire(timeout) else { wl.release(); wl.acquire(timeout) }
       val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-      val fl = wifiLock ?: wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "helmet:uplink").also { wifiLock = it }
-      if (!fl.isHeld) fl.acquire()
+      networkHandler.removeCallbacks(wifiLockTimeout)
+      synchronized(wifiLockGuard) {
+        val fl = wifiLock ?: wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "helmet:uplink").also { wifiLock = it }
+        if (!fl.isHeld) fl.acquire()
+      }
+      networkHandler.postDelayed(wifiLockTimeout, timeout)
     }
 
     Function("releaseNetwork") { ->
-      wakeLock?.let { if (it.isHeld) it.release() }
-      wifiLock?.let { if (it.isHeld) it.release() }
+      releaseNetworkLocks()
     }
 
     /** 起前台服务并显示常驻通知（重复调用只刷新文案） */
@@ -215,6 +224,18 @@ class HelmetLinkServiceModule : Module() {
     /** 拉起系统「忽略电池优化」对话框；机型不支持时退到电池优化设置页 */
     Function("requestIgnoreBatteryOptimizations") { ->
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) openBatterySettings()
+    }
+  }
+
+  private fun releaseNetworkLocks() {
+    wakeLock?.let { if (it.isHeld) it.release() }
+    releaseWifiLock()
+  }
+
+  private fun releaseWifiLock() {
+    networkHandler.removeCallbacks(wifiLockTimeout)
+    synchronized(wifiLockGuard) {
+      wifiLock?.let { if (it.isHeld) it.release() }
     }
   }
 
