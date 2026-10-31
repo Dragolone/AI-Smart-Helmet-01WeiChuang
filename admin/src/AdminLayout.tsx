@@ -6,6 +6,7 @@ import {
   ProfileOutlined,
   UserOutlined,
 } from '@ant-design/icons'
+import { useQueryClient } from '@tanstack/react-query'
 import { Button, Layout, Menu, Spin, Typography } from 'antd'
 import { Suspense } from 'react'
 import {
@@ -26,6 +27,7 @@ const MENU_ITEMS = [
 
 export default function AdminLayout() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const location = useLocation()
 
   if (!getToken()) return <Navigate to="/login" replace />
@@ -68,6 +70,8 @@ export default function AdminLayout() {
             icon={<LogoutOutlined />}
             onClick={() => {
               clearSession()
+              // 同一标签页换人登录时不能闪出上一个人看过的手机号和位置
+              queryClient.clear()
               navigate('/login', { replace: true })
             }}
           >

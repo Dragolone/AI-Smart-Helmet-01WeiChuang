@@ -1,6 +1,7 @@
+import { QueryClient } from '@tanstack/react-query'
 import { fireEvent, screen } from '@testing-library/react'
 import { Route, Routes } from 'react-router-dom'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import AdminLayout from './AdminLayout'
 import { getToken } from './api/client'
 import { renderWithProviders } from './test/render'
@@ -51,5 +52,15 @@ describe('AdminLayout 登录门控', () => {
     renderApp('/overview')
     const selected = Array.from(document.querySelectorAll('.ant-menu-item-selected')).map((el) => el.textContent)
     expect(selected).toEqual(['概览'])
+  })
+
+  it('退出时清掉查询缓存：同一标签页换人登录不闪出上一个人的数据', () => {
+    localStorage.setItem('admin_token', 'tok')
+    localStorage.setItem('admin_username', 'ops')
+    const clear = vi.spyOn(QueryClient.prototype, 'clear')
+    renderApp('/overview')
+    fireEvent.click(screen.getByRole('button', { name: /退出/ }))
+    expect(clear).toHaveBeenCalledTimes(1)
+    clear.mockRestore()
   })
 })

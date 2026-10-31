@@ -132,5 +132,11 @@ describe('其他三个列表页同样从地址栏取', () => {
     renderWithProviders(<AccidentsPage />, '/accidents?status=whatever')
     await waitFor(() => expect(stub2.count()).toBeGreaterThan(0))
     expect(stub2.last().searchParams.has('status')).toBe(false)
+
+    // 原型链上的名字也不算合法状态：原来 `in` 判断放行，发给后端报 400
+    const stub3 = stubApi(() => page([]))
+    renderWithProviders(<AccidentsPage />, '/accidents?status=toString')
+    await waitFor(() => expect(stub3.count()).toBeGreaterThan(0))
+    expect(stub3.last().searchParams.has('status')).toBe(false)
   })
 })
