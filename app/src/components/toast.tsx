@@ -1,4 +1,4 @@
-// 全局轻提示:2 秒自动消失,替代"操作成功"类 Alert(危险操作确认仍用 Alert)。
+// 全局轻提示:自动消失(16 字以内 2 秒,更长的按字数加到 5 秒封顶),替代"操作成功"类 Alert(危险操作确认仍用 Alert)。
 // 模块级 showToast() + 根布局挂载一次 <ToastHost/>;纯 JS,无原生依赖。
 import { useEffect, useRef, useState } from "react";
 import { Animated, StyleSheet } from "react-native";
@@ -22,6 +22,19 @@ export function showToast(message: string): void {
 }
 
 const SHOW_MS = 2000;
+const SHOW_MAX_MS = 5000;
+/** 超过这么多字才开始加时 */
+const SHORT_CHARS = 16;
+const EXTRA_MS_PER_CHAR = 150;
+
+/**
+ * 固定 2 秒读不完长句:「通话已被结束:你的账号可能在另一台手机上进入了对讲」这种一闪而过。
+ * 16 字以内不变(「已保存」这类短提示不拖长),之后每多一字加 150 ms,5 秒封顶
+ */
+function showMsFor(message: string): number {
+  const extra = Math.max(0, message.length - SHORT_CHARS) * EXTRA_MS_PER_CHAR;
+  return Math.min(SHOW_MAX_MS, SHOW_MS + extra);
+}
 
 export function ToastHost() {
   const theme = useTheme();
@@ -46,7 +59,7 @@ export function ToastHost() {
           duration: 220,
           useNativeDriver: true,
         }).start(() => setMessage(null));
-      }, SHOW_MS);
+      }, showMsFor(msg));
     };
     return () => {
       listener = null;

@@ -224,6 +224,29 @@ describe("ToastHost / showToast", () => {
     expect(r.tree.toJSON()).toBeNull();
   });
 
+  // 固定 2 秒读不完长句，「通话已被结束：…」这类一闪而过
+  it("长提示多停一会儿：16 字以内 2 秒，之后每多一字加 150 ms，5 秒封顶", () => {
+    jest.useFakeTimers();
+    const r = render(<ToastHost />);
+    const stays = (message: string, ms: number) => {
+      act(() => showToast(message));
+      act(() => {
+        jest.advanceTimersByTime(ms - 1);
+      });
+      expect(r.texts()).toEqual([message]);
+      act(() => {
+        jest.advanceTimersByTime(1);
+      });
+      expect(r.tree.toJSON()).toBeNull();
+    };
+    stays("一".repeat(16), 2000);
+    stays("一".repeat(17), 2150);
+    // 对讲被另一台手机顶掉的那条（25 字）
+    stays(tr("intercom.exit.kicked"), 3350);
+    stays("一".repeat(36), 5000);
+    stays("一".repeat(80), 5000);
+  });
+
   it("连着弹两条：第二条重新计时，不会被第一条的计时器提前收掉", () => {
     jest.useFakeTimers();
     const r = render(<ToastHost />);
