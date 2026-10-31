@@ -394,12 +394,16 @@ export default function IntercomScreen() {
 
   // 成员档案：房间里看当前频道的；频道列表里点开某个频道的「更多」时看它的
   const membersOf = inRoom ? activeId : (moreChannel?.channelId ?? null);
+  // 进房会关掉弹层，所以两种看档案的场合不会同时出现
+  const moreOpen = !inRoom && moreChannel != null;
   const members = useQuery({
     queryKey: ["voice-members", membersOf],
     queryFn: () => channelsApi.members(membersOf!),
     enabled: !!membersOf,
-    // 新成员的档案(昵称/头像)15s 内出现;实时"在房"由 TRTC 事件驱动
-    refetchInterval: 15_000,
+    // 回包带全员 data-URI 头像（5 人房一小时 11–24 MB，比语音还费流量），不能不分场合 15 s 一拉：
+    // 「更多」弹层开着是在看名单，15 s；在房且停在这一页 60 s；切走标签就不拉。
+    // 新面孔不靠这个轮询：TRTC 进房事件里档案没有这个人就立刻重拉（见 onRemoteUserEnterRoom）
+    refetchInterval: moreOpen ? 15_000 : inRoom && focused ? 60_000 : false,
   });
 
   // 别人加入 / 退出频道不会推到这台手机：每次切回这一页重拉一次列表；
