@@ -3,7 +3,7 @@
 // 从前这里渲染 messages/legal.ts 里的内置草案，与托管版内容已分叉；隐私政策必须单一来源，
 // 否则包里两份口径不同的政策会卡上架审核（也会让「同意」这个动作指向不确定的内容）。
 import { Stack } from "expo-router";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Linking,
@@ -22,6 +22,9 @@ import { useT } from "@/i18n";
 
 export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
 
+/** 连接挂住时（握手不完成、服务器不回包）WebView 既不 onLoad 也不 onError，加载圈会一直转下去 */
+const LOAD_TIMEOUT_MS = 15_000;
+
 export default function LegalDocScreen() {
   const t = useT();
   const theme = useTheme();
@@ -31,6 +34,22 @@ export default function LegalDocScreen() {
   // 重试靠换 key 强制重建 WebView：onError 之后单纯 reload() 在 Android 上不稳
   const [attempt, setAttempt] = useState(0);
   const [failed, setFailed] = useState(!url);
+
+  // 每次挂上一个新的 WebView（首次进入 / 重试）起一个超时，到点还没加载完就走下面已有的错误态（带重试）。
+  // 隐私政策打不开在合规上很要紧，不能让人对着一直转的圈干等。加载完（onLoad）、出错、重试、离开页面都清掉它
+  const loadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearLoadTimer = useCallback(() => {
+    if (loadTimer.current) clearTimeout(loadTimer.current);
+    loadTimer.current = null;
+  }, []);
+  useEffect(() => {
+    if (!url || failed) return;
+    loadTimer.current = setTimeout(() => {
+      loadTimer.current = null;
+      setFailed(true);
+    }, LOAD_TIMEOUT_MS);
+    return clearLoadTimer;
+  }, [attempt, failed, url, clearLoadTimer]);
 
   const retry = () => {
     setFailed(!url);
@@ -72,6 +91,7 @@ export default function LegalDocScreen() {
               <ActivityIndicator color={theme.brand} />
             </View>
           )}
+          onLoad={clearLoadTimer}
           onError={() => setFailed(true)}
           onHttpError={() => setFailed(true)}
         />

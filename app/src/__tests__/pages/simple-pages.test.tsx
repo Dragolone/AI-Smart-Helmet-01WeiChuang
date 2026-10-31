@@ -315,6 +315,68 @@ describe("协议阅读页（legal/[doc]）", () => {
     expect(r.allText()).toContain(tr("legal.loadError"));
   });
 
+  // 连接挂住（握手不完成 / 服务器不回包）时 WebView 既不 onLoad 也不 onError，加载圈一直转；
+  // 隐私政策打不开在合规上很要紧，到点要走错误态、能重试
+  describe("连接挂住", () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+    const tick = (ms: number) =>
+      act(() => {
+        jest.advanceTimersByTime(ms);
+      });
+
+    it("15 秒还没加载完：走打不开的错误态，带重试和用浏览器打开；重试换新的 WebView，重新计 15 秒", () => {
+      jest.useFakeTimers();
+      routerState.params = { doc: "privacy" };
+      const r = render(<LegalDocScreen />);
+      tick(14_999);
+      expect(webview(r)).toBeTruthy();
+      expect(r.allText()).not.toContain(tr("legal.loadError"));
+      tick(1);
+      expect(r.root.findAll((n) => isHost(n, "WebView"))).toHaveLength(0);
+      expect(r.allText()).toContain(tr("legal.loadError"));
+      expect(r.allText()).toContain(tr("legal.openInBrowser"));
+      r.press(tr("legal.retry"));
+      expect(webview(r)).toBeTruthy();
+      tick(14_999);
+      expect(webview(r)).toBeTruthy();
+      tick(1);
+      expect(r.allText()).toContain(tr("legal.loadError"));
+    });
+
+    it("到点前已加载完（onLoad）不算超时：之后再久也不会弹错误", () => {
+      jest.useFakeTimers();
+      routerState.params = { doc: "terms" };
+      const r = render(<LegalDocScreen />);
+      tick(5_000);
+      act(() => (webview(r).props.onLoad as () => void)());
+      tick(60_000);
+      expect(webview(r)).toBeTruthy();
+      expect(r.allText()).not.toContain(tr("legal.loadError"));
+    });
+
+    it("提前出错 / 离开页面：计时器清掉，不再有迟到的状态更新", () => {
+      jest.useFakeTimers();
+      routerState.params = { doc: "privacy" };
+      let r = render(<LegalDocScreen />);
+      act(() => (webview(r).props.onError as () => void)());
+      expect(jest.getTimerCount()).toBe(0);
+      r.unmount();
+      r = render(<LegalDocScreen />);
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+      r.unmount();
+      expect(jest.getTimerCount()).toBe(0);
+    });
+
+    it("后端地址配错（根本没有地址）：不起计时器", () => {
+      jest.useFakeTimers();
+      mockApiBase.current = "not a url";
+      render(<LegalDocScreen />);
+      expect(jest.getTimerCount()).toBe(0);
+    });
+  });
+
   it("后端地址配错（拿不到站点根）：一进来就是打不开，不给浏览器按钮，重试也还是打不开", () => {
     mockApiBase.current = "not a url";
     const r = render(<LegalDocScreen />);
