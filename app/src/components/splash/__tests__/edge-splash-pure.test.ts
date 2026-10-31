@@ -228,7 +228,50 @@ describe("开头算一次的表（buildSceneTables）", () => {
     // 终点机位正对着往下看：仰角接近 90°
     expect(tb.ob[1]).toBeGreaterThan(1.3);
     expect(Number.isFinite(tb.frontOne)).toBe(true);
-    expect(tb.camX).toBe(ZERO_ROUTE.x);
+    expect(Array.from(tb.camX)).toEqual(ZERO_ROUTE.x);
+  });
+
+  it("交给 worklet 的数值表都是 Float64Array、各占一块刚好大小的缓冲区；表里没有逐个序列化的普通数字数组", () => {
+    // 普通数字数组捕获进 worklet 时每个数都单独序列化（这张表约 4 万个，开屏时在 JS 线程上同步做完）；
+    // 类型化数组整块拷。worklet 序列化类型化数组拷的是它的整块 buffer（react-native-worklets 的 Serializable.cpp），
+    // 所以不能让几张表共用一块大缓冲区、各取一段视图。oa / ob 是 3 个数的元组，不算
+    let typed = 0;
+    let numbers = 0;
+    const walk = (v: unknown, path: string) => {
+      if (ArrayBuffer.isView(v)) {
+        expect(v).toBeInstanceOf(Float64Array);
+        const f = v as Float64Array;
+        expect([path, f.byteOffset]).toEqual([path, 0]);
+        expect([path, f.buffer.byteLength]).toEqual([path, f.length * 8]);
+        typed += 1;
+        numbers += f.length;
+      } else if (Array.isArray(v)) {
+        if (v.length > 0 && v.every((x) => typeof x === "number"))
+          expect([path, v.length]).toEqual([path, 3]);
+        else v.forEach((x, i) => walk(x, `${path}[${i}]`));
+      } else if (v && typeof v === "object") {
+        for (const [k, x] of Object.entries(v)) walk(x, `${path}.${k}`);
+      }
+    };
+    walk(tb, "tb");
+    expect(typed).toBeGreaterThan(100);
+    expect(numbers).toBeGreaterThan(30_000);
+  });
+
+  it("模拟 worklet 的序列化（整块拷 buffer，再按 byteOffset / length 重建）：每个数逐项相等", () => {
+    const roundtrip = (f: Float64Array) =>
+      new Float64Array(f.buffer.slice(0), f.byteOffset, f.length);
+    const walk = (v: unknown): void => {
+      if (ArrayBuffer.isView(v)) {
+        const f = v as Float64Array;
+        const back = roundtrip(f);
+        expect(back).toHaveLength(f.length);
+        for (let i = 0; i < f.length; i++)
+          expect(Object.is(back[i], f[i])).toBe(true);
+      } else if (Array.isArray(v)) v.forEach(walk);
+      else if (v && typeof v === "object") Object.values(v).forEach(walk);
+    };
+    walk(tb);
   });
 
   it("两次算出来一样（没有藏着的随机或全局状态）", () => {

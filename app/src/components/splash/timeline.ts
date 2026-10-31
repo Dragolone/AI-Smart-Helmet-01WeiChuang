@@ -22,22 +22,26 @@ export const STORY_TOTAL: Record<SplashLanding, number> = {
 /** 品牌名在商标下面出现：从这一刻起、用这么久 */
 export const LOCKUP = { start: 1580, dur: 260 } as const;
 
-/** realOf[s] = 故事时间 s（0..1600 的整数毫秒）对应的真实毫秒数 */
-export function buildWarp(): number[] {
-  const out = [0];
+/**
+ * realOf[s] = 故事时间 s（0..1600 的整数毫秒）对应的真实毫秒数。
+ * 是 Float64Array 而不是普通数组：被 worklet 捕获时普通数组每个数都要单独序列化（1601 个，开屏时在 JS 线程上同步做完），
+ * 类型化数组整块拷过去；仍是 64 位浮点，数值不变，用到的地方只读下标。
+ */
+export function buildWarp(): Float64Array {
+  const out = new Float64Array(MARK_DONE + 1);
   let t = 0;
   for (let s = 1; s <= MARK_DONE; s++) {
     const slow =
       smooth((s - SLOW[0]) / (SLOW[1] - SLOW[0])) *
       (1 - smooth((s - SLOW[2]) / (SLOW[3] - SLOW[2])));
     t += 1 + (PACE - 1) * slow;
-    out.push(t);
+    out[s] = t;
   }
   return out;
 }
 
 /** 真实时间 → 故事时间 */
-export function storyAt(warp: number[], real: number): number {
+export function storyAt(warp: ArrayLike<number>, real: number): number {
   "worklet";
   const end = warp[MARK_DONE];
   if (real >= end) return MARK_DONE + (real - end);
@@ -53,7 +57,7 @@ export function storyAt(warp: number[], real: number): number {
 }
 
 /** 故事时间 → 真实时间 */
-export function realAt(warp: number[], story: number): number {
+export function realAt(warp: ArrayLike<number>, story: number): number {
   "worklet";
   if (story >= MARK_DONE) return warp[MARK_DONE] + (story - MARK_DONE);
   if (story <= 0) return 0;

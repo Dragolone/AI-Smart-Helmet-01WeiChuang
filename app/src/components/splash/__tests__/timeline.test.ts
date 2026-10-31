@@ -16,6 +16,14 @@ import { SCENE_T } from "../route-scene";
 describe("故事时间 ↔ 真实时间", () => {
   const warp = buildWarp();
 
+  it("是 Float64Array（被 worklet 捕获时整块拷，不是 1601 个数各序列化一次），自己一块刚好大小的缓冲区", () => {
+    expect(warp).toBeInstanceOf(Float64Array);
+    expect(warp).toHaveLength(MARK_DONE + 1);
+    expect(warp.byteOffset).toBe(0);
+    expect(warp.buffer.byteLength).toBe((MARK_DONE + 1) * 8);
+    expect(warp[0]).toBe(0);
+  });
+
   it("一路往前走，不回头", () => {
     for (let s = 1; s <= MARK_DONE; s++)
       expect(warp[s]).toBeGreaterThan(warp[s - 1]);
