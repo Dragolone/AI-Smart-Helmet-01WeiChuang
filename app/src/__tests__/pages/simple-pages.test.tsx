@@ -8,10 +8,11 @@ import {
   it,
   jest,
 } from "@jest/globals";
-import { Alert, Linking } from "react-native";
+import { ActivityIndicator, Alert, Linking } from "react-native";
 import { act } from "react-test-renderer";
 import { mockRouter, routerState } from "@/__tests__/helpers/native-mocks";
-import { isHost, render, waitFor } from "@/__tests__/helpers/render";
+import { flat, isHost, render, waitFor } from "@/__tests__/helpers/render";
+import { Colors } from "@/constants/theme";
 import { translate, useLocaleStore, type MessageKey } from "@/i18n";
 import { useAuthStore } from "@/stores/auth-store";
 import { useThemeStore } from "@/stores/theme-store";
@@ -271,6 +272,32 @@ describe("协议阅读页（legal/[doc]）", () => {
       uri: "https://dev-api.example.com/legal/privacy",
     });
     expect(title(r)).toBe(tr("legal.privacy.title"));
+  });
+
+  // 慢网下 WebView 出来之前整屏空白；库自带的加载视图是白底，深色主题下会闪白
+  it("页面出来之前画加载中（底色跟主题，铺满盖住 WebView）", () => {
+    routerState.params = { doc: "privacy" };
+    for (const mode of ["dark", "light"] as const) {
+      act(() => useThemeStore.setState({ mode }));
+      const r = render(<LegalDocScreen />);
+      const view = webview(r);
+      expect(view.props.startInLoadingState).toBe(true);
+      const loading = render(
+        (view.props.renderLoading as () => React.ReactElement)(),
+      );
+      const box = loading.root.find(
+        (n) => isHost(n, "View") && n.props.style !== undefined,
+      );
+      expect(flat(box.props.style)).toMatchObject({
+        backgroundColor: Colors[mode].background,
+        position: "absolute",
+        top: 0,
+        bottom: 0,
+        left: 0,
+        right: 0,
+      });
+      expect(loading.root.findAllByType(ActivityIndicator)).toHaveLength(1);
+    }
   });
 
   it("加载失败：显示重试和用浏览器打开；重试换一个新的 WebView", () => {
