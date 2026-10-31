@@ -133,6 +133,38 @@ describe("FormInput", () => {
     ).not.toThrow();
   });
 
+  it("密码框（含点眼睛切成明文后）不自动大写 / 纠错，调用方仍可覆盖", () => {
+    const r = render(<FormInput label="密码" secureTextEntry />);
+    const input = () => r.root.findByType(TextInput);
+    const off = () => {
+      expect(input().props.autoCapitalize).toBe("none");
+      expect(input().props.autoCorrect).toBe(false);
+      expect(input().props.spellCheck).toBe(false);
+    };
+    off();
+    const eye = r.root.find(
+      (n) =>
+        typeof n.type !== "string" &&
+        typeof n.props.onPress === "function" &&
+        typeof n.props.accessibilityLabel === "string",
+    );
+    act(() => eye.props.onPress());
+    expect(input().props.secureTextEntry).toBe(false);
+    off();
+    r.rerender(
+      <FormInput label="密码" secureTextEntry autoCapitalize="words" />,
+    );
+    expect(input().props.autoCapitalize).toBe("words");
+  });
+
+  it("普通输入框不被强加大写 / 纠错设置", () => {
+    const r = render(<FormInput label="昵称" />);
+    const props = r.root.findByType(TextInput).props;
+    expect(props.autoCapitalize).toBeUndefined();
+    expect(props.autoCorrect).toBeUndefined();
+    expect(props.spellCheck).toBeUndefined();
+  });
+
   it("普通输入框不带眼睛，secureTextEntry 不下发", () => {
     const r = render(<FormInput label="昵称" placeholder="填昵称" />);
     expect(r.root.findByType(TextInput).props.secureTextEntry).toBeUndefined();
