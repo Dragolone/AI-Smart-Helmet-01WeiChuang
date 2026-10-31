@@ -11,6 +11,7 @@ import {
 import { createRef } from "react";
 import { act } from "react-test-renderer";
 
+import { runAmapPage } from "@/__tests__/helpers/amap-page";
 import { isHost, render } from "@/__tests__/helpers/render";
 import { translate, useLocaleStore } from "@/i18n";
 import { AmapView, type AmapViewHandle } from "../map/amap-view";
@@ -212,6 +213,28 @@ describe("AmapView", () => {
     expect(i18n.length).toBeGreaterThan(0);
     expect(i18n[0]).toContain(translate("map.err.init", undefined, "en"));
     expect(r.root.findAll((n) => isHost(n, "WebView"))).toHaveLength(1);
+  });
+
+  it("页面加载后补设底图样式只在 iOS：Android 同样式再设一次会重拉瓦片、整图重画", () => {
+    const html = (mount().web().props.source as { html: string }).html;
+
+    const android = runAmapPage(html, "Mozilla/5.0 (Linux; Android 14)");
+    android.fire("complete");
+    android.runTimeouts();
+    expect(android.map.setMapStyle).not.toHaveBeenCalled();
+    // 就绪照发：RN 侧的命令队列靠它冲刷
+    expect(android.posted()).toContainEqual({ type: "ready" });
+
+    const ios = runAmapPage(html, "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0)");
+    ios.fire("complete");
+    expect(ios.map.setMapStyle).toHaveBeenCalledTimes(1);
+    expect(ios.layers.appendChild).toHaveBeenCalled();
+    expect(ios.posted()).toContainEqual({ type: "ready" });
+    // 换样式时压暗层可能被重建：延时那一次既补样式，也确认压暗层还在
+    ios.layers.appendChild.mockClear();
+    ios.runTimeouts();
+    expect(ios.map.setMapStyle).toHaveBeenCalledTimes(2);
+    expect(ios.layers.appendChild).toHaveBeenCalled();
   });
 
   it("就绪前同一样东西的命令只留最后一条（头盔显示 / 收起同槽、轨迹画 / 清同槽），留下的保持先后；就绪后照常逐条注入", () => {
