@@ -1278,7 +1278,8 @@ function SosActiveContent() {
         <ThemedText
           allowFontScaling={false}
           accessibilityLabel={
-            left === null ? undefined : t("sos.chipLeft", { n: left })
+            // 不用屏上那个紧凑写法：英文 "45s" 读屏念成 "forty-five S"
+            left === null ? undefined : t("sos.a11yLeft", { n: left })
           }
           style={[
             styles.number,
@@ -1357,11 +1358,19 @@ function SosActiveContent() {
   // 进页念一次，过 30 / 10 秒各念一次（不每秒念：会盖住读屏用户正在听的滑条和按钮），结论变了念结论。
   // 按「跨过」判断不按「正好等于」：JS 忙时那一秒的刷新可能被跳过
   const a11ySep = t("common.a11ySep");
-  const spokenLeft = useRef<{ sosId: string; left: number } | null>(null);
+  const spokenLeft = useRef<{
+    sosId: string;
+    left: number;
+    sourceSaid: boolean;
+  } | null>(null);
   useEffect(() => {
     if (!screenReader || finished || left === null) return;
     const prev = spokenLeft.current;
-    spokenLeft.current = { sosId, left };
+    spokenLeft.current = {
+      sosId,
+      left,
+      sourceSaid: !!sourceName || (prev?.sosId === sosId && prev.sourceSaid),
+    };
     const leftText = t("sos.a11yLeft", { n: left });
     if (prev?.sosId !== sosId) {
       sayQueued(
@@ -1375,6 +1384,9 @@ function SosActiveContent() {
       );
       return;
     }
+    // 通知冷启动时设备列表比这一单晚到：进页那句没带上是哪顶头盔，到了补一句
+    if (sourceName && !prev.sourceSaid)
+      sayQueued(t("sos.fromHelmet", { name: sourceName }));
     if ((prev.left > 30 && left <= 30) || (prev.left > 10 && left <= 10))
       sayQueued(leftText);
   }, [
