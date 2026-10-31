@@ -285,6 +285,10 @@ const isNotFound = (e: unknown) =>
   (e.status === 404 || e.status === 400 || e.status === 403);
 
 function SosActiveContent() {
+  // 不让 React Compiler 编译这个组件：进行中的队列（queue = activeSosQueue(...)）读的是查询缓存，靠 cacheTick
+  // 触发重渲染来重算，编译器看不出这个依赖，会把它 memo 掉、队列就不更新了。现在编译器本来就因为下面
+  // 那处 eslint-disable 跳过它，行为是对的；这里写明，免得将来去掉 eslint-disable 后静默变坏
+  "use no memo";
   const {
     sosId: routeSosId,
     deviceId,
