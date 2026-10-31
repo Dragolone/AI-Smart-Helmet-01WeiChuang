@@ -125,6 +125,14 @@ function deferPush(push: Mock<RelayApi["relayApi"]["push"]>): {
   return handle;
 }
 
+function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
 beforeEach(() => {
   mockFiles.clear();
   mockHold.mockClear();
@@ -1006,6 +1014,51 @@ describe("深睡持锁（Android holdNetwork / releaseNetwork）", () => {
       expect(mockRelease).not.toHaveBeenCalled();
     });
 
+    it("请求挂住（深睡常见）：挂着时位置包开不了窗，放弃那次之后由提交开头开窗，最多迟 20 s", async () => {
+      const { now, up, push } = offline();
+      push.mockImplementation(() => new Promise(() => undefined));
+      up.enqueueRelayEvent(env("location_update"));
+      await tick();
+      expect(mockHold.mock.calls).toEqual([[20_000]]);
+      expect(push).toHaveBeenCalledTimes(1);
+
+      // 窗口内一直挂着：既不续锁也不并发第二个请求
+      now.mockReturnValue(open + 5_000);
+      up.enqueueRelayEvent(env("location_update"));
+      await tick();
+      expect(mockHold.mock.calls).toEqual([[20_000]]);
+      expect(push).toHaveBeenCalledTimes(1);
+
+      // 挂满 20 s：放弃重发，这时窗口已用完，重发不拿锁，放掉 Wi-Fi 锁
+      now.mockReturnValue(open + 20_000);
+      up.enqueueRelayEvent(env("location_update"));
+      await tick();
+      expect(push).toHaveBeenCalledTimes(2);
+      expect(mockHold.mock.calls).toEqual([[20_000]]);
+      expect(mockRelease).toHaveBeenCalled();
+
+      // 该开下一窗时一个请求刚挂上 15 s（下一窗 = 上一窗结束后 5 min = open + 20 s + 5 min）：位置包走不到开窗
+      const due = open + 20_000 + min5;
+      now.mockReturnValue(due - 10_000);
+      up.enqueueRelayEvent(env("location_update"));
+      await tick();
+      expect(push).toHaveBeenCalledTimes(3);
+      now.mockReturnValue(due + 5_000);
+      up.enqueueRelayEvent(env("location_update"));
+      await tick();
+      expect(mockHold.mock.calls).toEqual([[20_000]]);
+      expect(push).toHaveBeenCalledTimes(3);
+
+      // 它挂满 20 s 被放弃：重发那次开窗拿锁，这次传成功，窗口里积压全部送出
+      push.mockResolvedValue({ accepted: 1, duplicate: 0, invalid: 0 });
+      now.mockReturnValue(due + 10_000);
+      up.enqueueRelayEvent(env("location_update"));
+      await tick();
+      expect(mockHold.mock.calls).toEqual([[20_000], [20_000]]);
+      expect(push).toHaveBeenCalledTimes(4);
+      expect(up.relayBacklog().total).toBe(0);
+    });
+
     it("开窗之后时钟往回拨：窗口不会一直算「还没用完」，满 5 分钟能开下一窗", async () => {
       const { now, up, push } = offline();
       up.enqueueRelayEvent(env("location_update"));
@@ -1038,6 +1091,122 @@ describe("深睡持锁（Android holdNetwork / releaseNetwork）", () => {
       expect(mockHold.mock.calls).toEqual([[20_000]]);
       await tick();
       expect(push).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // 2026-10-31 交叉审：一批成功就放锁，后面几批在没有锁的情况下发，深睡里网络随即挂起，隧道 30 min 的积压只有前 100 条保证送得出去
+  describe("积压超过一批时后续批次都在锁内", () => {
+    const min5 = 5 * 60_000;
+    const t0 = 1_800_000_000_000;
+    /** 积压 n 条位置，距上次成功已超 5 分钟：最后一条把窗口打开并开始提交（还没 await） */
+    const backlog = (n: number) => {
+      const now = jest.spyOn(Date, "now");
+      now.mockReturnValue(t0);
+      const { up, push } = load();
+      for (let i = 0; i < n - 1; i++)
+        up.enqueueRelayEvent(env("location_update"));
+      now.mockReturnValue(t0 + min5 + 1);
+      return { now, up, push };
+    };
+    const ok = { accepted: 1, duplicate: 0, invalid: 0 };
+
+    it("250 条分三批：每一批发出去时锁都没放、且已为它续过；全部冲完才放一次", async () => {
+      const { up, push } = backlog(250);
+      const atPush: { holds: number; releases: number }[] = [];
+      push.mockImplementation(async () => {
+        atPush.push({
+          holds: mockHold.mock.calls.length,
+          releases: mockRelease.mock.calls.length,
+        });
+        return ok;
+      });
+      up.enqueueRelayEvent(env("location_update"));
+      await tick();
+      expect(push.mock.calls.map((c) => c[0].envelopes.length)).toEqual([
+        100, 100, 50,
+      ]);
+      expect(atPush).toEqual([
+        { holds: 1, releases: 0 },
+        { holds: 2, releases: 0 },
+        { holds: 3, releases: 0 },
+      ]);
+      expect(mockHold.mock.calls.every((c) => c[0] === 20_000)).toBe(true);
+      expect(mockRelease).toHaveBeenCalledTimes(1);
+    });
+
+    it("正好整批（积压刚好 100 条）：没有下一批，立刻放锁、不多续", async () => {
+      const { up, push } = backlog(100);
+      push.mockResolvedValue(ok);
+      up.enqueueRelayEvent(env("location_update"));
+      await tick();
+      expect(push).toHaveBeenCalledTimes(1);
+      expect(mockHold.mock.calls).toEqual([[20_000]]);
+      expect(mockRelease).toHaveBeenCalledTimes(1);
+    });
+
+    it("冲到一半失败：这一轮到此为止，放锁，剩下的等下一窗；不连发", async () => {
+      const { up, push } = backlog(250);
+      push
+        .mockResolvedValueOnce(ok)
+        .mockRejectedValueOnce(new Error("offline"));
+      up.enqueueRelayEvent(env("location_update"));
+      await tick();
+      expect(push).toHaveBeenCalledTimes(2);
+      expect(mockRelease).toHaveBeenCalledTimes(1);
+      expect(up.relayBacklog().total).toBe(150);
+    });
+
+    it("冲到一半 413：减半接着冲，锁不放", async () => {
+      const { up, push } = backlog(150);
+      const releasesAtPush: number[] = [];
+      push.mockImplementation(async () => {
+        releasesAtPush.push(mockRelease.mock.calls.length);
+        if (releasesAtPush.length === 2) throw httpError(413);
+        return ok;
+      });
+      up.enqueueRelayEvent(env("location_update"));
+      await tick();
+      expect(push.mock.calls.map((c) => c[0].envelopes.length)).toEqual([
+        100, 50, 25, 25,
+      ]);
+      expect(releasesAtPush).toEqual([0, 0, 0, 0]);
+      expect(mockRelease).toHaveBeenCalledTimes(1);
+      expect(up.relayBacklog().total).toBe(0);
+    });
+
+    it("补拉先跑完、后面的批次还在路上：不放锁，等批次冲完才放", async () => {
+      const { up, push } = backlog(150);
+      up.startRelayUplink("user_A");
+      await tick();
+      const resume = deferred<void>();
+      up.setCriticalAcceptedHandler(() => resume.promise);
+      const second = deferred<Counts>();
+      push.mockResolvedValueOnce(ok).mockReturnValueOnce(second.promise);
+      up.enqueueRelayEvent(env("possible_fall"));
+      await tick();
+      expect(push).toHaveBeenCalledTimes(2);
+      resume.resolve();
+      await tick();
+      expect(mockRelease).not.toHaveBeenCalled();
+      second.resolve(ok);
+      await tick();
+      expect(mockRelease).toHaveBeenCalledTimes(1);
+      up.setCriticalAcceptedHandler(null);
+      up.stopRelayUplink();
+    });
+
+    it("冲到一半停链路（退出登录）：放锁，不把标记留给下一个账号", async () => {
+      const { up, push } = backlog(250);
+      const second = deferred<Counts>();
+      push.mockResolvedValueOnce(ok).mockReturnValueOnce(second.promise);
+      up.enqueueRelayEvent(env("location_update"));
+      await tick();
+      expect(mockRelease).not.toHaveBeenCalled();
+      up.stopRelayUplink();
+      expect(mockRelease).toHaveBeenCalledTimes(1);
+      second.resolve(ok);
+      await tick();
+      expect(push).toHaveBeenCalledTimes(2);
     });
   });
 });

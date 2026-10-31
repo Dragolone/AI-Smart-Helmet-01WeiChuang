@@ -274,11 +274,27 @@ function abandonIfStuck(): void {
 /** 「高危事件已接受」后的补拉还在跑几个：它要在网络锁里把倒计时页 / 锁屏提醒拉起来，跑完之前别放锁 */
 let resumesPending = 0;
 
-/** 放网络锁：还有高危事件没送完、或补拉还在跑就先不放（满批重跑那一批先回来时原来会直接放，10-25 审查） */
+/**
+ * 积压正一批接一批往外冲：成功一批就续一次锁，冲完或失败才放。原来一批成功就放，后面几批在没有锁的情况下发，
+ * 深睡的华为网络随即挂起、请求卡住，要等下个窗口才再传 100 条（隧道 30 min 积压约 360 条，10-31 交叉审）
+ */
+let drainingBacklog = false;
+
+/** 放网络锁：还有高危事件没送完、积压没冲完、或补拉还在跑就先不放（满批重跑那一批先回来时原来会直接放，10-25 审查） */
 function releaseNetworkIfIdle(): void {
-  if (resumesPending > 0 || queue.some((e) => CRITICAL_TYPES.has(e.eventType)))
+  if (
+    drainingBacklog ||
+    resumesPending > 0 ||
+    queue.some((e) => CRITICAL_TYPES.has(e.eventType))
+  )
     return;
   HelmetLinkService.releaseNetwork();
+}
+
+function endBacklogDrain(): void {
+  if (!drainingBacklog) return;
+  drainingBacklog = false;
+  releaseNetworkIfIdle();
 }
 
 /**
@@ -336,7 +352,10 @@ const RESUME_HOLD_MAX_MS = 30_000;
 
 /** 批量提交：成功才出队；失败/断网原样保留，下轮按原 eventId 补传 */
 export async function flushRelayQueue(): Promise<void> {
-  if (queue.length === 0) return;
+  if (queue.length === 0) {
+    endBacklogDrain();
+    return;
+  }
   if (flushing) {
     abandonIfStuck();
     rerunAfterFlush = true;
@@ -394,7 +413,11 @@ export async function flushRelayQueue(): Promise<void> {
       // 这一批是满的 = 积压至少还有一批：不等 5 秒的定时器，接着冲下一批，积压不足一批再回到 5 秒一轮
       //（原来 1000 条要 50 秒才传完，优化清单 7）。失败不连发（留给下一轮）；不满的批也不连发——头盔一秒十几个点时，
       // 「有就接着发」会变成每个请求一回来就再发一两条，比 5 秒一批的请求还多
-      if (batch.length >= limit && queue.length > 0) rerunAfterFlush = true;
+      drainingBacklog = batch.length >= limit && queue.length > 0;
+      if (drainingBacklog) {
+        rerunAfterFlush = true;
+        HelmetLinkService.holdNetwork(PERIODIC_HOLD_MS);
+      }
       // 摔倒 / 求救被服务端判为 invalid 只留档不建单：出队是对的（重发也不会变合法），但不能只 devLog——骑手以为求救已发出。
       // 计数不分条，只知道这一批里有求救且有 invalid；App 自建 envelope 几乎不会 invalid，真发生多半是协议漂移（10-15 复审 F-3）
       if (
@@ -452,8 +475,10 @@ export async function flushRelayQueue(): Promise<void> {
           `${dev} 的 ${mine.length} 条事件被服务端拒绝(不可重试),已丢弃`,
           e,
         );
+        endBacklogDrain();
       } else {
         devLog("BLE-RELAY", "中转提交失败,保留缓存下轮重试", e);
+        endBacklogDrain();
       }
     }
     // 提交期间账号已切换：这次结果不写到新账号的分区里
@@ -568,6 +593,7 @@ export function stopRelayUplink(): void {
     persist();
   }
   queue = [];
+  endBacklogDrain();
   deviceCursor = 0;
   batchLimit = MAX_BATCH;
   owner = ANONYMOUS_OWNER;
