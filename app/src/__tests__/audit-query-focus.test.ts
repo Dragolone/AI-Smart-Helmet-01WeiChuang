@@ -8,10 +8,10 @@ import { describe, expect, it } from "@jest/globals";
 const layout = readFileSync(join(__dirname, "..", "app/_layout.tsx"), "utf8");
 
 describe("TanStack Query 的前台刷新接在 AppState 上", () => {
-  it("根布局用 focusManager.setEventListener 把 AppState 的 active 交给它", () => {
+  it("根布局用 focusManager.setEventListener 接 AppState：只有 background 算失焦（iOS 的 inactive 时页面还在屏上）", () => {
     expect(layout).toMatch(/focusManager\.setEventListener\(/);
     expect(layout).toMatch(
-      /AppState\.addEventListener\("change",[\s\S]{0,80}setFocused\(state === "active"\)/,
+      /AppState\.addEventListener\("change",[\s\S]{0,80}setFocused\(state !== "background"\)/,
     );
   });
 });

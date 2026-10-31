@@ -51,9 +51,11 @@ const queryClient = new QueryClient({
 // App 回到前台时，把过期的数据重新拉一遍。React Native 没有「窗口获得焦点」事件，不接 AppState 的话
 // 不轮询的数据（紧急联系人、设备列表等）只在页面第一次挂上时拉一次：在另一台手机上删光联系人，这台的
 // 「安全」格一直显示「配置正常」，切后台再回来也不变，直到重开 App（2026-10-15 iPhone 实测）。
+// iOS 的 inactive（控制中心、系统弹框）不算失焦：页面还在屏上，算失焦的话倒计时页的轮询也停了，回来又整轮重拉。
+// 安卓系统框是 background，不走这里
 focusManager.setEventListener((setFocused) => {
   const sub = AppState.addEventListener("change", (state) =>
-    setFocused(state === "active"),
+    setFocused(state !== "background"),
   );
   return () => sub.remove();
 });
