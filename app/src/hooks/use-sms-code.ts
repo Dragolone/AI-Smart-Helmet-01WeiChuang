@@ -2,7 +2,8 @@
 // 页面只管校验手机号、把错误落到字段上；这里只管发请求和限频读秒。
 import { useEffect, useReducer, useState } from "react";
 
-import { authApi, type SmsCodePurpose } from "@/api/auth";
+import type { SmsCodePurpose } from "@helmet/shared";
+import { authApi } from "@/api/auth";
 
 /** 与后端 SMS_CODE_RESEND_INTERVAL_SECONDS 默认一致；超前点击由服务端 429 兜底 */
 export const RESEND_SECONDS = 60;
