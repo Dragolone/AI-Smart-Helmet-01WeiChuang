@@ -4,22 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { Animated, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { whenSplashGone } from "@/components/splash/covering";
 import { ThemedText } from "@/components/themed-text";
+import { onToast } from "@/components/toast-bus";
 import { Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 
-type Listener = (message: string) => void;
-let listener: Listener | null = null;
-
-/**
- * 任意位置调用;Host 未挂载时静默丢弃(不阻塞业务)。
- * 冷启动开屏还盖着时先压着、等它让开再出:安卓上这条带 elevation,会叠在开屏上;
- * iOS 上被开屏挡住,2 秒后自己消失,等于没提示过(冷启动时到的低电量提醒就会落在这一段,2026-10-21)
- */
-export function showToast(message: string): void {
-  whenSplashGone(() => listener?.(message));
-}
+// showToast 本体在 toast-bus（不带界面依赖，服务 / store 也能发）；这里原样再导出，调用方不用改
+export { showToast } from "@/components/toast-bus";
 
 const SHOW_MS = 2000;
 const SHOW_MAX_MS = 5000;
@@ -45,7 +36,7 @@ export function ToastHost() {
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    listener = (msg) => {
+    const unsubscribe = onToast((msg) => {
       setMessage(msg);
       if (hideTimer.current) clearTimeout(hideTimer.current);
       Animated.timing(opacity, {
@@ -60,9 +51,9 @@ export function ToastHost() {
           useNativeDriver: true,
         }).start(() => setMessage(null));
       }, showMsFor(msg));
-    };
+    });
     return () => {
-      listener = null;
+      unsubscribe();
       if (hideTimer.current) clearTimeout(hideTimer.current);
     };
   }, [opacity]);

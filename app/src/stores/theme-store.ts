@@ -5,6 +5,7 @@ import { create } from "zustand";
 
 import { retryWhenActive } from "@/services/retry-when-active";
 import { SECURE_KEYS } from "@/services/secure-keys";
+import { notePersistFailure, warnIfDiskLow } from "@/services/persist-notice";
 
 export const THEME_MODES = ["system", "dark", "light"] as const;
 export type ThemeMode = (typeof THEME_MODES)[number];
@@ -72,8 +73,10 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     // 落盘失败不抛：本次运行照样生效（调用方是 `void setMode(m)`，抛出去就是一个没人接的 Promise 拒绝）
     try {
       await SecureStore.setItemAsync(KEY, mode, KEYCHAIN);
-    } catch {
-      /* 下次改的时候再写 */
+      warnIfDiskLow("setting");
+    } catch (e) {
+      // 下次改的时候再写；说一声是因为重启后会还原，用户看不出来（O37）
+      notePersistFailure("setting", e);
     }
   },
 }));

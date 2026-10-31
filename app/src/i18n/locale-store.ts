@@ -5,6 +5,7 @@ import { create } from "zustand";
 
 import { retryWhenActive } from "@/services/retry-when-active";
 import { SECURE_KEYS } from "@/services/secure-keys";
+import { notePersistFailure, warnIfDiskLow } from "@/services/persist-notice";
 
 export const LOCALES = ["zh-CN", "zh-TW", "en"] as const;
 export type Locale = (typeof LOCALES)[number];
@@ -103,8 +104,10 @@ export const useLocaleStore = create<LocaleState>((set, get) => ({
     // 落盘失败不抛：本次运行照样生效（调用方是 `void setLocale(loc)`）
     try {
       await SecureStore.setItemAsync(KEY, locale, KEYCHAIN);
-    } catch {
-      /* 下次改的时候再写 */
+      warnIfDiskLow("setting");
+    } catch (e) {
+      // 下次改的时候再写；说一声是因为重启后会还原，用户看不出来（O37）
+      notePersistFailure("setting", e);
     }
   },
 }));
