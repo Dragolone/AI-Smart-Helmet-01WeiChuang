@@ -1075,6 +1075,44 @@ describe("sos-alert", () => {
       expect(mockCancel).toHaveBeenCalledTimes(3); // 成功后不再重试
     });
 
+    it("O36-A：重试间隙里不挂「取消中」——每次失败就清掉在途标记（滑块、警报恢复），重试到点再标上，成功后清掉", async () => {
+      jest.useFakeTimers();
+      const second: { finish: ((v: unknown) => void) | null } = {
+        finish: null,
+      };
+      mockCancel
+        .mockRejectedValueOnce(new Error("offline"))
+        .mockImplementationOnce(
+          () =>
+            new Promise((res) => {
+              second.finish = res;
+            }) as never,
+        );
+      override(AppState, "addEventListener", () => ({
+        remove: () => undefined,
+      }));
+      let m!: SosAlert;
+      let store!: typeof import("@/stores/sos-cancel-store");
+      jest.isolateModules(() => {
+        store = require("@/stores/sos-cancel-store");
+        m = require("../sos-alert") as SosAlert;
+      });
+      loaded.push(m);
+      const inFlight = () => !!store.useSosCancelStore.getState().inFlight.s1;
+      const first = m.cancelFromNotification("s1");
+      expect(inFlight()).toBe(true); // 发出去的那一刻标上
+      expect(await first).toBe(false);
+      expect(inFlight()).toBe(false); // 失败 → 等重试的这几秒里不挂「取消中」
+      await jest.advanceTimersByTimeAsync(2_000); // 第二次到点发出、还挂着
+      expect(mockCancel).toHaveBeenCalledTimes(2);
+      expect(inFlight()).toBe(true);
+      second.finish?.({});
+      await jest.advanceTimersByTimeAsync(0);
+      expect(inFlight()).toBe(false); // 成功 → 清掉
+      await jest.advanceTimersByTimeAsync(30_000);
+      expect(mockCancel).toHaveBeenCalledTimes(2);
+    });
+
     it("取消的应答不像这一单（网关改写成字符串）：照样算成功、撤通知，但不把它交给页面写缓存（10-22 夜测）", async () => {
       mockCancel.mockResolvedValueOnce("unexpected" as never);
       const m = load();
@@ -1382,9 +1420,10 @@ describe("sos-alert", () => {
       override(AppState, "addEventListener", () => ({
         remove: () => undefined,
       }));
-      mockCancel.mockRejectedValue(new Error("network"));
+      // 请求一直挂着（没应答）：这期间标记在途；登出要把它连同重试一起清掉
+      mockCancel.mockImplementation(() => new Promise<never>(() => undefined));
       const { m, store } = loadWithStore();
-      expect(await m.cancelFromNotification("s9")).toBe(false); // 排了重试，标记在途
+      void m.cancelFromNotification("s9");
       expect(store.getState().inFlight.s9).toBe(true);
       await m.resetSosAlerts();
       expect(store.getState().inFlight.s9).toBeUndefined();
@@ -1403,7 +1442,7 @@ describe("sos-alert", () => {
       expect(store.getState().inFlight.s1).toBeUndefined();
     });
 
-    it("重试期间一直在途；重试用尽后清掉（页面上的按钮要能再按）", async () => {
+    it("每次失败都清掉在途标记（重试间隙里滑块、警报恢复，O36-A）；重试用尽后也是清的（页面上的按钮要能再按）", async () => {
       jest.useFakeTimers();
       override(AppState, "addEventListener", () => ({
         remove: () => undefined,
@@ -1411,11 +1450,13 @@ describe("sos-alert", () => {
       mockCancel.mockRejectedValue(new Error("offline"));
       const { m, store } = loadWithStore();
       expect(await m.cancelFromNotification("s1")).toBe(false);
-      expect(store.getState().inFlight.s1).toBe(true);
+      expect(store.getState().inFlight.s1).toBeUndefined(); // 原来这里是 true：间隙里什么都没在发却锁着滑块
       await jest.advanceTimersByTimeAsync(2_000);
-      expect(store.getState().inFlight.s1).toBe(true);
+      expect(mockCancel).toHaveBeenCalledTimes(2);
+      expect(store.getState().inFlight.s1).toBeUndefined();
       await jest.advanceTimersByTimeAsync(5_000);
       await jest.advanceTimersByTimeAsync(10_000);
+      expect(mockCancel).toHaveBeenCalledTimes(4);
       expect(store.getState().inFlight.s1).toBeUndefined();
     });
   });
