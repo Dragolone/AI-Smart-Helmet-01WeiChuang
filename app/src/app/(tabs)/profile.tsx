@@ -24,6 +24,7 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { showToast } from "@/components/toast";
 import { Radius } from "@/constants/theme";
+import { useNotifyPermission } from "@/hooks/use-safety";
 import { useTheme } from "@/hooks/use-theme";
 import { LOCALES, LOCALE_NAMES, translate, useLocaleStore, useT } from "@/i18n";
 import { useAuthStore } from "@/stores/auth-store";
@@ -37,6 +38,7 @@ import { drainRelayQueue } from "@/services/ble-relay-uplink";
 import { sosActiveHref } from "@/services/sos-routes";
 import { devLog } from "@/services/dev-log";
 import { showFailure, showNotice } from "@/services/notice";
+import { openNotificationSettings } from "@/services/notification-settings";
 import { profilePatch } from "@/services/profile-patch";
 import {
   avatarInitial,
@@ -75,6 +77,7 @@ export default function ProfileScreen() {
         ? t("profile.appearance.dark")
         : t("profile.appearance.light");
 
+  const notify = useNotifyPermission();
   const devices = useQuery({ queryKey: ["devices"], queryFn: devicesApi.list });
   const contacts = useQuery({
     queryKey: ["contacts"],
@@ -363,7 +366,9 @@ export default function ProfileScreen() {
               compact
               icon="notifications-outline"
               title={t("profile.notifications")}
-              value={t("profile.notificationsValue")}
+              // 写死「已开启」会在系统把通知关了时说谎，而安全页同时在警告；还没查到 / 没问过 / 查询失败都如实写
+              value={t(`safetySettings.notify.${notify ?? "unknown"}`)}
+              onPress={() => void openNotificationSettings()}
             />
             <ListRow
               compact
