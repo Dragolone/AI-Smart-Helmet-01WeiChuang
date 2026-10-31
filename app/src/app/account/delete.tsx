@@ -24,6 +24,8 @@ import { accountSecureKeysOf, SECURE_KEYS } from "@/services/secure-keys";
 import { firstActiveSos } from "@/services/active-sos";
 import { sosActiveHref } from "@/services/sos-routes";
 import { useAuthStore } from "@/stores/auth-store";
+import { useHelmetHistoryStore } from "@/stores/helmet-history-store";
+import { useLaunchMemoryStore } from "@/stores/launch-memory-store";
 
 export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
 
@@ -39,16 +41,31 @@ const CONSEQUENCES: {
 
 /**
  * 这个账号留在本机的东西：BLE 中转的积压队列文件、按账号存的几条设置（已绑头盔缓存、当前头盔、
- * 演练 / 一直开麦说明看没看过、换头盔提醒开关）。账号已经不存在，留着就是一份没人管的个人数据（10-17 评审）。
- * 删失败不影响注销本身。
+ * 演练 / 一直开麦说明看没看过、换头盔提醒开关），以及两条不按账号分键的记录里属于它的那份：
+ * 开屏用的「上次启动有没有头盔」（只存一个账号）和「有过头盔的账号」名单里的这一个。
+ * 账号已经不存在，留着就是一份没人管的个人数据（10-17 评审）。删失败不影响注销本身。
  */
 async function forgetAccountLocalData(userId: string): Promise<void> {
   discardRelayQueue(userId);
-  await Promise.all(
-    accountSecureKeysOf(userId).map((key) =>
+  // 记录不是这个账号的（同一台手机上另一个账号留下的）不动
+  const forgetLaunchMemory = useLaunchMemoryStore
+    .getState()
+    .hydrate()
+    .then(() => {
+      const { record, forget } = useLaunchMemoryStore.getState();
+      if (record?.userId === userId) forget();
+    })
+    .catch(() => undefined);
+  await Promise.all([
+    forgetLaunchMemory,
+    useHelmetHistoryStore
+      .getState()
+      .forgetUser(userId)
+      .catch(() => undefined),
+    ...accountSecureKeysOf(userId).map((key) =>
       SecureStore.deleteItemAsync(key).catch(() => undefined),
     ),
-  );
+  ]);
 }
 
 export default function DeleteAccountScreen() {

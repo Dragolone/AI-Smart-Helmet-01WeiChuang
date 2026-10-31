@@ -28,6 +28,8 @@ import { Colors } from "@/constants/theme";
 import { __resetSmsCooldownsForTests } from "@/hooks/use-sms-code";
 import { translate, useLocaleStore, type MessageKey } from "@/i18n";
 import { useAuthStore } from "@/stores/auth-store";
+import { useHelmetHistoryStore } from "@/stores/helmet-history-store";
+import { useLaunchMemoryStore } from "@/stores/launch-memory-store";
 import { useConsentStore } from "@/stores/consent-store";
 import { useThemeStore } from "@/stores/theme-store";
 import { SplashArrive } from "@/components/splash/splash-arrive";
@@ -1464,6 +1466,93 @@ describe("注销账号", () => {
     expect(dropSession.mock.invocationCallOrder[0]).toBeLessThan(
       mockDiscardRelayQueue.mock.invocationCallOrder[0],
     );
+  });
+
+  describe("本机两条不按账号分键的记录", () => {
+    const runDelete = async () => {
+      api.deleteMe.mockImplementation(() => Promise.resolve());
+      const r = renderDelete();
+      const input = r.root.find(
+        (n) =>
+          typeof n.type !== "string" &&
+          typeof n.props.onChangeText === "function" &&
+          n.props.secureTextEntry !== undefined,
+      );
+      act(() => input.props.onChangeText("mypassword"));
+      await pressConfirm(r);
+      const buttons = alert.mock.calls[0][2] as { onPress?: () => void }[];
+      act(() => buttons[1].onPress!());
+      await waitFor(() =>
+        expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith(
+          "helmet.switchReminder.u1",
+        ),
+      );
+      // 两个仓库的清理是异步的：让它们落完
+      await act(async () => {
+        await new Promise((res) => setTimeout(res, 0));
+      });
+    };
+    const deleted = () =>
+      (SecureStore.deleteItemAsync as jest.Mock).mock.calls.map((c) => c[0]);
+    beforeEach(() => {
+      useAuthStore.setState({ user: { id: "u1" } } as never);
+    });
+    afterEach(() => {
+      useLaunchMemoryStore.setState({ hydrated: false, record: null });
+      useHelmetHistoryStore.setState({ hydrated: false, users: [] });
+    });
+
+    // 账号已不存在，留着就是一份没人管的个人数据；forget() 的注释早就这么写，却一直没人调用
+    it("注销后：开屏的「上次启动有没有头盔」是这个账号的就删；「有过头盔的账号」名单里拿掉这一个，别人的留着", async () => {
+      useLaunchMemoryStore.setState({
+        hydrated: true,
+        record: { userId: "u1", hasHelmet: true },
+      });
+      useHelmetHistoryStore.setState({ hydrated: true, users: ["u2", "u1"] });
+      await runDelete();
+      expect(deleted()).toContain("helmet.launchMemory");
+      expect(useLaunchMemoryStore.getState().record).toBeNull();
+      expect(useHelmetHistoryStore.getState().users).toEqual(["u2"]);
+      expect(SecureStore.setItemAsync).toHaveBeenCalledWith(
+        "helmet.everHadHelmet",
+        JSON.stringify(["u2"]),
+      );
+      // 先清会话再清这两条：会话清掉后开屏 / 设备页都不会再替这个账号写回来
+      const dropped = dropSession.mock.invocationCallOrder[0];
+      const at = (
+        SecureStore.deleteItemAsync as jest.Mock
+      ).mock.calls.findIndex((c) => c[0] === "helmet.launchMemory");
+      expect(
+        (SecureStore.deleteItemAsync as jest.Mock).mock.invocationCallOrder[at],
+      ).toBeGreaterThan(dropped);
+    });
+
+    it("名单里只有这个账号：整条记录删掉", async () => {
+      useHelmetHistoryStore.setState({ hydrated: true, users: ["u1"] });
+      await runDelete();
+      expect(deleted()).toContain("helmet.everHadHelmet");
+      expect(useHelmetHistoryStore.getState().users).toEqual([]);
+    });
+
+    it("开屏记录是同一台手机上另一个账号留下的：不动它，名单里没有这个账号也不写", async () => {
+      useLaunchMemoryStore.setState({
+        hydrated: true,
+        record: { userId: "u9", hasHelmet: true },
+      });
+      useHelmetHistoryStore.setState({ hydrated: true, users: ["u9"] });
+      await runDelete();
+      expect(deleted()).not.toContain("helmet.launchMemory");
+      expect(deleted()).not.toContain("helmet.everHadHelmet");
+      expect(useLaunchMemoryStore.getState().record).toEqual({
+        userId: "u9",
+        hasHelmet: true,
+      });
+      expect(useHelmetHistoryStore.getState().users).toEqual(["u9"]);
+      expect(SecureStore.setItemAsync).not.toHaveBeenCalledWith(
+        "helmet.everHadHelmet",
+        expect.anything(),
+      );
+    });
   });
 
   it("密码错：页面级提示，不清会话", async () => {

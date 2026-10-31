@@ -19,6 +19,8 @@ type HelmetHistoryState = {
   users: string[];
   hydrate: () => Promise<void>;
   markHad: (userId: string) => void;
+  /** 注销账号：把这个账号从记录里拿掉（账号已不存在，留着就是一份没人管的个人数据）；别的账号的记录不动 */
+  forgetUser: (userId: string) => Promise<void>;
 };
 
 function persist(users: string[]): void {
@@ -53,6 +55,16 @@ export const useHelmetHistoryStore = create<HelmetHistoryState>((set, get) => ({
     set({ users });
     // 盘上的还没读进来时先不写：这时写会把别的账号的记录盖掉；读完那一下会合起来再存
     if (get().hydrated) persist(users);
+  },
+  forgetUser: async (userId) => {
+    // 盘上的先读进来：没读进来就删，读完会把这个账号合回去
+    await get().hydrate();
+    if (!get().users.includes(userId)) return;
+    const users = get().users.filter((u) => u !== userId);
+    set({ users });
+    if (users.length === 0)
+      SecureStore.deleteItemAsync(KEY).catch(() => undefined);
+    else persist(users);
   },
 }));
 

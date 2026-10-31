@@ -18,6 +18,9 @@ jest.mock("expo-secure-store", () => ({
     if (mockFail.set) throw new Error("User interaction is not allowed");
     mockKv.set(k, v);
   },
+  deleteItemAsync: async (k: string) => {
+    mockKv.delete(k);
+  },
 }));
 
 const KEY = "helmet.everHadHelmet";
@@ -127,5 +130,57 @@ describe("这个账号有过头盔吗", () => {
     expect(st.getState().users).toHaveLength(20);
     expect(st.getState().users[0]).toBe("u5");
     expect(st.getState().users[19]).toBe("u24");
+  });
+});
+
+describe("注销账号时拿掉这个账号", () => {
+  it("只拿掉它，别的账号的记录还在，重开 App 也一样", async () => {
+    mockKv.set(KEY, JSON.stringify(["u1", "u2"]));
+    const a = load();
+    await a.useHelmetHistoryStore.getState().forgetUser("u1");
+    expect(a.useHelmetHistoryStore.getState().users).toEqual(["u2"]);
+    await flush();
+    expect(mockKv.get(KEY)).toBe(JSON.stringify(["u2"]));
+
+    const b = load();
+    await b.useHelmetHistoryStore.getState().hydrate();
+    expect(
+      b.hadHelmetBefore(b.useHelmetHistoryStore.getState().users, "u1"),
+    ).toBe(false);
+    expect(
+      b.hadHelmetBefore(b.useHelmetHistoryStore.getState().users, "u2"),
+    ).toBe(true);
+  });
+
+  it("盘上的还没读进来就注销：先读进来再拿掉，不会读完又把它合回去", async () => {
+    mockKv.set(KEY, JSON.stringify(["u1", "u2"]));
+    const { useHelmetHistoryStore: st } = load();
+    expect(st.getState().hydrated).toBe(false);
+    await st.getState().forgetUser("u1");
+    await st.getState().hydrate();
+    await flush();
+    expect(st.getState().users).toEqual(["u2"]);
+    expect(mockKv.get(KEY)).toBe(JSON.stringify(["u2"]));
+  });
+
+  it("拿掉最后一个：整条记录删掉；没记过的账号什么都不写", async () => {
+    mockKv.set(KEY, JSON.stringify(["u1"]));
+    const { useHelmetHistoryStore: st } = load();
+    await st.getState().forgetUser("nobody");
+    await flush();
+    expect(mockKv.get(KEY)).toBe(JSON.stringify(["u1"]));
+    await st.getState().forgetUser("u1");
+    await flush();
+    expect(mockKv.has(KEY)).toBe(false);
+    expect(st.getState().users).toEqual([]);
+  });
+
+  it("读盘失败：不抛，也不拿空名单去盖盘上的", async () => {
+    mockKv.set(KEY, JSON.stringify(["u1"]));
+    mockFail.get = true;
+    const { useHelmetHistoryStore: st } = load();
+    await expect(st.getState().forgetUser("u1")).resolves.toBeUndefined();
+    await flush();
+    expect(mockKv.get(KEY)).toBe(JSON.stringify(["u1"]));
   });
 });
