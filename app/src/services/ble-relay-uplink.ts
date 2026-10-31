@@ -323,6 +323,12 @@ function periodicWindowOpen(): boolean {
 /** 高危事件（摔倒 / 求救）被服务端接受后的回调：由 use-realtime 接到「核对进行中的 SOS 并拉起倒计时页」 */
 // 返回 Promise 时（补拉进行中的求救）上行队列等它跑完再放网络锁；别的返回值不管
 let criticalAcceptedHandler: ((deviceId: string) => unknown) | null = null;
+/** 服务端说这顶不归这个账号了：让设备列表马上刷新、链路摘掉目标 */
+let relayRejected: (() => void) | null = null;
+export function setRelayRejectedHandler(handler: (() => void) | null): void {
+  relayRejected = handler;
+}
+
 export function setCriticalAcceptedHandler(
   handler: ((deviceId: string) => unknown) | null,
 ): void {
@@ -476,6 +482,9 @@ export async function flushRelayQueue(): Promise<void> {
           e,
         );
         endBacklogDrain();
+        // 别处解绑了这顶、这台手机在后台不知道：还连着就还在回 ACK，头盔擦掉、事件又被这里丢掉。
+        // 目标原来只靠页面轮询和回前台刷新（11-01 审计）
+        relayRejected?.();
       } else {
         devLog("BLE-RELAY", "中转提交失败,保留缓存下轮重试", e);
         endBacklogDrain();

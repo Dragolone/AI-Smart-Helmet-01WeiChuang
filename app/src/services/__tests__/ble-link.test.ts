@@ -237,11 +237,17 @@ jest.mock("@/services/ble-relay-uplink", () => ({
   }),
   flushRelayQueue: jest.fn(async () => undefined),
 }));
+const mockWake = jest.fn(
+  (_ms: number, _cb: () => void): (() => void) =>
+    () =>
+      undefined,
+);
 jest.mock("helmet-link-service", () => ({
   HelmetLinkService: {
     available: true,
     start: (title: string, text: string) => mockSvcStart(title, text),
     stop: () => mockSvcStop(),
+    backgroundWake: (ms: number, cb: () => void) => mockWake(ms, cb),
   },
 }));
 const mockTranslate = jest.fn((k: string, _p?: unknown) => k);
@@ -2364,6 +2370,53 @@ describe("10-31：起扫限频与连接失败的退避", () => {
     await feed(30_000);
     expect(mockScans.length).toBeLessThanOrEqual(5);
     expect(fakeDevice.connect.mock.calls.length).toBeLessThanOrEqual(5);
+  });
+
+  it("后台掉线后第一次重连失败：JS 定时器不走时靠原生叫醒，退避到点就能再连（11-01 审计）", async () => {
+    jest.useFakeTimers();
+    await startBleLink([ID]);
+    await jest.advanceTimersByTimeAsync(0);
+    await feed(2_000);
+    scanCb?.(null, fakeDevice);
+    await feed(2_000);
+    expect(link()?.phase).toBe("connected");
+
+    const wakes: (() => void)[] = [];
+    mockWake.mockImplementation((_ms, cb) => {
+      wakes.push(cb);
+      return () => undefined;
+    });
+    fakeDevice.connect.mockRejectedValueOnce(new Error("gatt 133"));
+    helmet.disconnectCb?.(null, fakeDevice);
+    await jest.advanceTimersByTimeAsync(0);
+    scanCb?.(null, fakeDevice); // 掉线那次的立即重扫发现了头盔，握手失败
+    await jest.advanceTimersByTimeAsync(0);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(link()?.phase).toBe("disconnected");
+    expect(wakes.length).toBeGreaterThan(0);
+
+    // 后台：JS 定时器一个都不跑，只有时间过去、原生到点叫醒
+    const calls = fakeDevice.connect.mock.calls.length;
+    jest.setSystemTime(Date.now() + 60_000);
+    wakes.at(-1)?.();
+    await jest.advanceTimersByTimeAsync(0);
+    scanCb?.(null, fakeDevice);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(fakeDevice.connect.mock.calls.length).toBeGreaterThan(calls);
+  });
+
+  it("设置上报卡住（半开连接上的 HTTP）：握手最多等 5 s，头盔照常标已连接", async () => {
+    jest.useFakeTimers();
+    jest
+      .mocked(devicesApi.reportSettings)
+      .mockImplementationOnce(() => new Promise<never>(() => undefined));
+    await startBleLink([ID]);
+    await jest.advanceTimersByTimeAsync(0);
+    scanCb?.(null, fakeDevice);
+    await jest.advanceTimersByTimeAsync(1_000);
+    expect(link()?.phase).toBe("handshaking");
+    await jest.advanceTimersByTimeAsync(5_000);
+    expect(link()?.phase).toBe("connected");
   });
 
   it("第一次失败照旧立刻重试（后台偶发一次 GATT 133 时这一下最管用），第二次起才等", async () => {

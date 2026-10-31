@@ -46,6 +46,7 @@ import { handleDeviceCommand } from "@/services/ble-relay";
 import {
   adoptRelayUplinkOwner,
   setCriticalAcceptedHandler,
+  setRelayRejectedHandler,
   startRelayUplink,
   stopRelayUplink,
 } from "@/services/ble-relay-uplink";
@@ -352,6 +353,12 @@ export function useRealtimeUpdates(): void {
     // 自己把摔倒 / 求救送上云且服务端接受了 → 立刻核对进行中的 SOS 并拉起倒计时页，顺手让 WS 立即重连。
     // 手机深睡时 WS 早已断、极光长连接也被挂起，这是唯一不依赖它们的拉起路径（10-06 不变式评审 F-1）
     // 和推送到达那次一样带 2 s / 5 s 重试；返回补拉的 Promise，上行队列等它跑完再放网络锁（10-25 审查）
+    // type: "all"：退到后台时页面都不在，没有观察者也要拉，链路的目标靠这份列表更新
+    setRelayRejectedHandler(() => {
+      void queryClient
+        .refetchQueries({ queryKey: ["devices"], type: "all" })
+        .catch(() => undefined);
+    });
     setCriticalAcceptedHandler((deviceId) => {
       realtimeClient.kick();
       return resumePendingSos(
@@ -626,6 +633,7 @@ export function useRealtimeUpdates(): void {
       resetBatteryAlerts();
       setPushArrivalHandler(null);
       setCriticalAcceptedHandler(null);
+      setRelayRejectedHandler(null);
       setSosCancelConfirmedListener(null);
       setOtherSosPendingCheck(null);
       presentedSos.current.clear();

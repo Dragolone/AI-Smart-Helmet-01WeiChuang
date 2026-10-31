@@ -142,24 +142,39 @@ const isOtherHelmetName = (name: string, mine: string[]): boolean =>
   !mine.some((id) => advName(id).toLowerCase() === name.toLowerCase());
 const log = (...args: unknown[]) => devLog("BLE", ...args);
 
+/** 握手收尾时等设置上报最多这么久：只是显示口径，不能挡住保命链路 */
+const SETTINGS_REPORT_WAIT_MS = 5_000;
+
 class PendingCommand {
   resolve!: (r: InboundResponse) => void;
   reject!: (e: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
+  private timer: ReturnType<typeof setTimeout>;
+  private cancelWake: () => void;
   promise: Promise<InboundResponse>;
+  clear(): void {
+    clearTimeout(this.timer);
+    this.cancelWake();
+  }
   constructor(ins: number, seq: number, onTimeout: () => void) {
     this.promise = new Promise<InboundResponse>((resolve, reject) => {
       this.resolve = resolve;
       this.reject = reject;
     });
-    this.timer = setTimeout(() => {
+    // 安卓后台 JS 定时器不走：只靠 setTimeout 的话，头盔不应答时这条命令永远不超时，握手一直占着 connecting
+    const expire = () => {
+      this.clear();
       onTimeout();
       this.reject(
         new Error(
           `BLE 指令 0x${ins.toString(16)} seq=${seq} ${COMMAND_TIMEOUT_MS}ms 无应答`,
         ),
       );
-    }, COMMAND_TIMEOUT_MS);
+    };
+    this.timer = setTimeout(expire, COMMAND_TIMEOUT_MS);
+    this.cancelWake = HelmetLinkService.backgroundWake(
+      COMMAND_TIMEOUT_MS,
+      expire,
+    );
   }
 }
 
@@ -255,10 +270,28 @@ class HelmetSession {
     // Step 6：读回内存表实际设置并上报（决策 #45）。排在补传之后——保命事件先走，
     // 设置只是显示口径。头盔大灯掉电不保存、RECOVERY 恢复出厂、别的手机改过设置，
     // 云端「当前生效设置」都无从知道，只有连上的这台手机能纠正它。
-    await this.reportHelmetSettings();
+    // 最多等一会儿：HTTP 卡在半开连接上时（后台 JS 定时器不走，请求自己的超时也不走）握手一直不结束，
+    // 页面显示未连接、全局 connecting 挡住别的头盔、这时再掉线也不重扫（11-01 审计）
+    await this.withinHandshakeWait(this.reportHelmetSettings());
     // 设置上报自己吞错，握手途中被 close（解绑 / 停链路 / 对端断开）的那次会在这里被吞掉；
     // 不抛的话 connect() 会把一台已经关掉的会话标成「已连接」（2026-10-07 iPhone 8.9 实测）
     if (this.closed) throw new Error("握手期间会话已关闭");
+  }
+
+  private withinHandshakeWait(work: Promise<void>): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        cancelWake();
+        resolve();
+      };
+      const timer = setTimeout(done, SETTINGS_REPORT_WAIT_MS);
+      const cancelWake = HelmetLinkService.backgroundWake(
+        SETTINGS_REPORT_WAIT_MS,
+        done,
+      );
+      void work.finally(done);
+    });
   }
 
   /** 读 0x20–0x2D 翻成键值上报；读失败或网络不通都不影响链路，下次握手再来 */
@@ -307,7 +340,7 @@ class HelmetSession {
         bytesToBase64(frame),
       );
     } catch (e) {
-      clearTimeout(p.timer);
+      p.clear();
       this.pending.delete(seq);
       throw e;
     }
@@ -364,7 +397,7 @@ class HelmetSession {
         log("无人等待的应答", bytesToHex(bytes));
         return;
       }
-      clearTimeout(p.timer);
+      p.clear();
       this.pending.delete(frame.seq);
       p.resolve(frame);
       return;
@@ -423,7 +456,7 @@ class HelmetSession {
     this.monitor?.remove();
     this.disconnectSub?.remove();
     for (const p of this.pending.values()) {
-      clearTimeout(p.timer);
+      p.clear();
       p.reject(new Error(`连接已关闭（${reason}）`));
     }
     this.pending.clear();
@@ -516,6 +549,13 @@ let scanRateTimer: ReturnType<typeof setTimeout> | null = null;
 let skippedWhileCooling = false;
 const reconnectDelay = new Map<string, number>();
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let cancelReconnectWake: (() => void) | null = null;
+function clearReconnectTimer(): void {
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  reconnectTimer = null;
+  cancelReconnectWake?.();
+  cancelReconnectWake = null;
+}
 let stateSub: Subscription | null = null;
 
 const store = () => useBleStore.getState();
@@ -825,13 +865,17 @@ function scheduleReconnect(key: string): number {
     prev === 0 ? RECONNECT_MIN_MS : Math.min(prev * 2, RECONNECT_MAX_MS);
   reconnectDelay.set(key, delay);
   if (!running) return delay;
-  if (reconnectTimer) clearTimeout(reconnectTimer);
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null;
+  clearReconnectTimer();
+  // 原生也排一个：连续失败时掉线那次的立即重扫已经用掉了，后面只剩这个退避，安卓后台 JS 定时器不走，
+  // 一次握手失败之后就再也不扫，要等回前台（11-01 审计）
+  const fire = () => {
+    clearReconnectTimer();
     // 已经在扫（别的头盔还没连上）且退避中的那顶在这一轮里被跳过过：重开一轮它才会再被报一次
     if (scanning && skippedWhileCooling) stopScanRound();
     void ensureScanning();
-  }, delay);
+  };
+  reconnectTimer = setTimeout(fire, delay);
+  cancelReconnectWake = HelmetLinkService.backgroundWake(delay, fire);
   return delay;
 }
 
@@ -945,10 +989,7 @@ export function setBleTargets(deviceIds: string[]): void {
 export function stopBleLink(): void {
   running = false;
   connecting = null; // 在途的 connect() 自己会在 finally 里再清一次；别让它挡住下一次启动的第一次连接
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
-  }
+  clearReconnectTimer();
   stateSub?.remove();
   stateSub = null;
   appStateSub?.remove();
@@ -999,10 +1040,7 @@ export function retryBleLink(deviceId?: string): void {
     retryAt.clear();
     blocked.clear();
   }
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
-  }
+  clearReconnectTimer();
   void ensureScanning();
 }
 
