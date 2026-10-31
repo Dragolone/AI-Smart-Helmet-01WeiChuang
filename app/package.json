@@ -89,6 +89,9 @@
   },
   "expo": {
     "autolinking": {
+      "exclude": [
+        "react-native-vector-icons"
+      ],
       "android": {
         "buildFromSource": [
           "expo-notifications"
