@@ -94,8 +94,13 @@ describe("四页提交前都过 normalizePhone", () => {
       expect(src).toContain("const cleanPhone = normalizePhone(phone)");
       expect(src).toContain("isValidPhone(cleanPhone)");
       expect(src).toContain("sms.send(cleanPhone)");
-      expect(src).toContain("phone: normalizePhone(phone)");
     }
+    expect(PAGES.register).toContain("phone: normalizePhone(phone)");
+    // 找回密码提交时先规整成 cleanPhone 再发请求：成功后回登录页带的要是请求里那个号码（见 auth-pages.test）
+    expect(
+      PAGES.reset.split("const cleanPhone = normalizePhone(phone)"),
+    ).toHaveLength(3);
+    expect(PAGES.reset).toContain("phone: cleanPhone,");
   });
 
   it("换手机号：校验、发验证码、提交、和当前号码比较都用规整后的", () => {
