@@ -10,6 +10,7 @@ import { KeyboardAvoid } from "@/components/keyboard-avoid";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { showToast } from "@/components/toast";
+import { useFormErrors } from "@/hooks/use-form-errors";
 import { useT } from "@/i18n";
 import {
   isPasswordTooLong,
@@ -23,36 +24,29 @@ export default function ChangePasswordScreen() {
   const [oldPassword, setOldPassword] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // 改好了：按钮先画勾，画完再提示并返回
   const [done, setDone] = useState(false);
 
-  const submit = async () => {
-    setError(null);
-    if (oldPassword.length < 8) {
-      setError(t("auth.passwordTooShort"));
-      return;
-    }
-    if (password !== confirm) {
-      setError(t("auth.passwordMismatch"));
-      return;
-    }
+  const form = useFormErrors([oldPassword, password, confirm], () => {
+    if (oldPassword.length < 8)
+      return { key: "oldShort", message: t("auth.passwordTooShort") };
+    if (password !== confirm)
+      return { key: "mismatch", message: t("auth.passwordMismatch") };
     // 按码点数、与服务端同口径（表情 / 生僻字原来各算两个）
-    if (isPasswordTooShort(password)) {
-      setError(t("auth.passwordTooShort"));
-      return;
-    }
+    if (isPasswordTooShort(password))
+      return { key: "newShort", message: t("auth.passwordTooShort") };
     // 按字节算、与服务端同口径：原来按字符数，30 个汉字（90 字节）在这里过了、提交后被服务端拒
-    if (isPasswordTooLong(password)) {
-      setError(t("auth.passwordTooLong"));
-      return;
-    }
+    if (isPasswordTooLong(password))
+      return { key: "newLong", message: t("auth.passwordTooLong") };
     // 新旧相同：服务端照样「改」成功并踢掉其他设备上的登录，用户什么也没得到（10-16 夜测 N25）
-    if (password === oldPassword) {
-      setError(t("auth.passwordSameAsOld"));
-      return;
-    }
+    if (password === oldPassword)
+      return { key: "same", message: t("auth.passwordSameAsOld") };
+    return null;
+  });
+
+  const submit = async () => {
+    if (!form.check()) return;
     setBusy(true);
     try {
       // 本机的 refreshToken 由 authApi 在发请求时现取（401 重试时要带轮换后的那把）
@@ -61,7 +55,7 @@ export default function ChangePasswordScreen() {
     } catch (e) {
       // 会话已失效：正被送回登录页，登录页自有说明
       if (isSessionEnded(e)) return;
-      setError(toUserMessage(e));
+      form.fail(toUserMessage(e));
     } finally {
       setBusy(false);
     }
@@ -112,7 +106,7 @@ export default function ChangePasswordScreen() {
         </ScrollView>
         {/* 错误放在固定的按钮区而不是滚动内容底部：键盘开着点保存时，红字在滚动内容最底下，被键盘和按钮挡住看不见 */}
         <View style={styles.bottom}>
-          <FormError message={error} />
+          <FormError message={form.pageError} />
           <PrimaryButton
             title={t("common.save")}
             onPress={() => void submit()}

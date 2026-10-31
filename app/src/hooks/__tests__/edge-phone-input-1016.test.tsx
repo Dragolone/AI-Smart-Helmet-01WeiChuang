@@ -234,7 +234,7 @@ describe("换手机号页：新号已被别的账号注册时的文案", () => {
 
   it("接线：换号页两处错误都走 changePhoneErrorMessage；注册页仍走通用的 toUserMessage", () => {
     expect(
-      PAGES.changePhone.match(/setError\(changePhoneErrorMessage\(e\)\)/g),
+      PAGES.changePhone.match(/form\.fail\(changePhoneErrorMessage\(e\)\)/g),
     ).toHaveLength(2);
     expect(PAGES.changePhone).not.toContain("toUserMessage");
     expect(PAGES.register).toContain("toUserMessage(e)");

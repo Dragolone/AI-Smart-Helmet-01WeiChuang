@@ -17,6 +17,7 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { showToast } from "@/components/toast";
 import { Radius } from "@/constants/theme";
+import { useFormErrors, type FormProblem } from "@/hooks/use-form-errors";
 import {
   PHONE_INPUT_MAX,
   isValidPhone,
@@ -39,7 +40,6 @@ export default function ChangePhoneScreen() {
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // 换好了：按钮先画勾，画完再提示并返回
   const [done, setDone] = useState(false);
@@ -48,18 +48,29 @@ export default function ChangePhoneScreen() {
   // 与联系人页同一个 normalizePhone：「+86 139 …」、全角数字原来被判成格式不对；
   // 和当前号码比也按规整后的比，「+86 138…」不会被当成换了个新号
   const cleanPhone = normalizePhone(phone);
-  const validPhone = (): string | null => {
-    if (!isValidPhone(cleanPhone)) return t("auth.invalidPhone");
+  const cleanCode = normalizeSmsCode(code);
+  const phoneProblem = (): FormProblem | null => {
+    if (!isValidPhone(cleanPhone))
+      return { key: "phone", message: t("auth.invalidPhone") };
     if (cleanPhone === normalizePhone(user?.phone ?? ""))
-      return t("auth.samePhone");
+      return { key: "samePhone", message: t("auth.samePhone") };
     return null;
   };
+  const form = useFormErrors([phone, code, password], () => {
+    const problem = phoneProblem();
+    if (problem) return problem;
+    if (!/^\d{6}$/.test(cleanCode))
+      return { key: "code", message: t("auth.invalidCode") };
+    if (password.length < 8)
+      return { key: "password", message: t("auth.passwordTooShort") };
+    return null;
+  });
 
   const sendCode = async () => {
-    setError(null);
-    const invalid = validPhone();
+    form.clear();
+    const invalid = phoneProblem();
     if (invalid) {
-      setError(invalid);
+      form.fail(invalid.message);
       return;
     }
     try {
@@ -67,26 +78,12 @@ export default function ChangePhoneScreen() {
     } catch (e) {
       // 会话已失效：正被送回登录页，登录页自有说明
       if (isSessionEnded(e)) return;
-      setError(changePhoneErrorMessage(e));
+      form.fail(changePhoneErrorMessage(e));
     }
   };
 
   const submit = async () => {
-    setError(null);
-    const invalid = validPhone();
-    if (invalid) {
-      setError(invalid);
-      return;
-    }
-    const cleanCode = normalizeSmsCode(code);
-    if (!/^\d{6}$/.test(cleanCode)) {
-      setError(t("auth.invalidCode"));
-      return;
-    }
-    if (password.length < 8) {
-      setError(t("auth.passwordTooShort"));
-      return;
-    }
+    if (!form.check()) return;
     setBusy(true);
     try {
       const updated = await authApi.changePhone({
@@ -103,7 +100,7 @@ export default function ChangePhoneScreen() {
     } catch (e) {
       // 会话已失效：正被送回登录页，登录页自有说明
       if (isSessionEnded(e)) return;
-      setError(changePhoneErrorMessage(e));
+      form.fail(changePhoneErrorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -209,7 +206,7 @@ export default function ChangePhoneScreen() {
         </ScrollView>
         {/* 错误放在固定的按钮区而不是滚动内容底部：键盘开着点保存时，红字在滚动内容最底下，被键盘和按钮挡住看不见 */}
         <View style={styles.bottom}>
-          <FormError message={error} />
+          <FormError message={form.pageError} />
           <PrimaryButton
             title={t("common.save")}
             onPress={() => void submit()}
