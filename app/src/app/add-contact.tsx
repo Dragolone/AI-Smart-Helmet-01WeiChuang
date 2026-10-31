@@ -10,6 +10,7 @@ import { isSessionEnded, toUserMessage } from "@/api/error-messages";
 import { FormError, FormInput, PrimaryButton } from "@/components/form";
 import { KeyboardAvoid } from "@/components/keyboard-avoid";
 import { ThemedView } from "@/components/themed-view";
+import { useEnterChain } from "@/hooks/use-enter-chain";
 import { useFormErrors } from "@/hooks/use-form-errors";
 import {
   PHONE_INPUT_MAX,
@@ -57,6 +58,8 @@ export default function AddContactScreen() {
   });
 
   const submit = async () => {
+    // 回车键也能走到这里，按钮的加载 / 成功态拦不住它
+    if (busy || done) return;
     if (!form.check()) return;
     const problem = phoneProblem();
     const contact = {
@@ -96,6 +99,8 @@ export default function AddContactScreen() {
     }
   };
 
+  const enter = useEnterChain(3, () => void submit(), "done");
+
   // 和别的表单页一样让开键盘、内容可滚（10-21 夜测）：手机竖屏时保存按钮在键盘上方，但横着拿的展开折叠屏 / 平板、
   // 小屏手机和大字号下会被键盘盖住，原来这页不能滚、按钮够不着；键盘开着时点保存也要一次就生效
   return (
@@ -107,6 +112,7 @@ export default function AddContactScreen() {
           keyboardDismissMode="on-drag"
         >
           <FormInput
+            {...enter.field(0)}
             label={t("contacts.name")}
             icon="person-outline"
             value={name}
@@ -115,6 +121,7 @@ export default function AddContactScreen() {
             placeholder={t("contacts.namePlaceholder")}
           />
           <FormInput
+            {...enter.field(1)}
             label={t("contacts.phone")}
             icon="phone-portrait-outline"
             value={phone}
@@ -125,6 +132,7 @@ export default function AddContactScreen() {
             placeholder={t("contacts.phonePlaceholder")}
           />
           <FormInput
+            {...enter.field(2)}
             label={t("contacts.relation")}
             icon="people-outline"
             value={relation}

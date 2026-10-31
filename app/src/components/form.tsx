@@ -2,7 +2,7 @@
 // 药丸主按钮（品牌荧光色 + 深色文字）、描边次按钮、深色描边输入框（可带前置图标）、危险操作红药丸
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import {
   Pressable,
   StyleSheet,
@@ -38,6 +38,8 @@ export function FormInput(
     icon?: keyof typeof Ionicons.glyphMap;
     /** 就地错误：边框变红 + 下方红字 + 抖一下；由页面按错误码映射到具体字段 */
     error?: string | null;
+    /** React 19 里 ref 就是普通 prop，经 ...rest 原样给里面的 TextInput（回车跳下一格、发完验证码聚焦验证码框用） */
+    ref?: Ref<TextInput>;
   },
 ) {
   const { label, icon, style, error, secureTextEntry, ...rest } = props;

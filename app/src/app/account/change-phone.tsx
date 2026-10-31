@@ -1,9 +1,9 @@
 // 更换手机号（已登录）：sms-code purpose=change_phone（phone 为新号）→ POST /auth/change-phone。
 // 成功即生效：用返回的档案刷新会话 store 后返回。
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { router } from "expo-router";
 import * as SecureStore from "expo-secure-store";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, TextInput, View } from "react-native";
 
 import { authApi, maskPhone } from "@/api/auth";
 import {
@@ -44,6 +44,7 @@ export default function ChangePhoneScreen() {
   // 换好了：按钮先画勾，画完再提示并返回
   const [done, setDone] = useState(false);
   const sms = useSmsCode("change_phone", phone);
+  const codeInput = useRef<TextInput>(null);
 
   // 与联系人页同一个 normalizePhone：「+86 139 …」、全角数字原来被判成格式不对；
   // 和当前号码比也按规整后的比，「+86 138…」不会被当成换了个新号
@@ -75,6 +76,8 @@ export default function ChangePhoneScreen() {
     }
     try {
       await sms.send(cleanPhone);
+      // 验证码马上就到：焦点给验证码框（iOS 键盘上方会出现短信里的验证码建议）
+      codeInput.current?.focus();
     } catch (e) {
       // 会话已失效：正被送回登录页，登录页自有说明
       if (isSessionEnded(e)) return;
@@ -167,6 +170,7 @@ export default function ChangePhoneScreen() {
           <View style={styles.codeRow}>
             <View style={styles.flex}>
               <FormInput
+                ref={codeInput}
                 label={t("auth.smsCode")}
                 icon="chatbox-ellipses-outline"
                 value={code}
