@@ -24,8 +24,6 @@ const CRITICAL_TYPES = new Set<string>([
   "collision_risk",
   "obstacle_risk",
 ]);
-/** 丢了就可能没人知道出事的两类：入队时已回 ACK，头盔 Flash 那份也擦了，这里是最后一份 */
-const SOS_TYPES = new Set<string>(["possible_fall", "manual_sos"]);
 /** 离线缓存上限：溢出丢最旧的周期事件并告警，绝不静默截断 */
 const QUEUE_MAX = 1000;
 /** 高危事件待上传期间的持锁上限：够重试几轮，不够把电池耗干 */
