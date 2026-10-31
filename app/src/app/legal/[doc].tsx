@@ -4,7 +4,13 @@
 // 否则包里两份口径不同的政策会卡上架审核（也会让「同意」这个动作指向不确定的内容）。
 import { Stack } from "expo-router";
 import { useState } from "react";
-import { Linking, Pressable, StyleSheet, View } from "react-native";
+import {
+  ActivityIndicator,
+  Linking,
+  Pressable,
+  StyleSheet,
+  View,
+} from "react-native";
 import { WebView } from "react-native-webview";
 
 import { ThemedText } from "@/components/themed-text";
@@ -53,6 +59,19 @@ export default function LegalDocScreen() {
           key={attempt}
           source={{ uri: url }}
           style={{ backgroundColor: theme.background }}
+          // 慢网下页面出来之前整屏空白；库自带的加载视图底色是白的，深色主题下会闪一整屏白，所以自己画
+          startInLoadingState
+          renderLoading={() => (
+            <View
+              style={[
+                StyleSheet.absoluteFill,
+                styles.loading,
+                { backgroundColor: theme.background },
+              ]}
+            >
+              <ActivityIndicator color={theme.brand} />
+            </View>
+          )}
           onError={() => setFailed(true)}
           onHttpError={() => setFailed(true)}
         />
@@ -71,4 +90,6 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   errorText: { textAlign: "center" },
+  // 盖在 WebView 上面（库自带的加载视图也是绝对定位铺满）
+  loading: { alignItems: "center", justifyContent: "center" },
 });
