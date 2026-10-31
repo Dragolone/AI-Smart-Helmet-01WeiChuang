@@ -46,11 +46,11 @@ export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-bo
 interface VlcHandle {
   snapshot(path: string): void;
 }
-// 库的 d.ts 声明了 VLCPlayer 类却没有导出，只能 require；类型用库自带的 props 补上
+// 库的 d.ts 声明了 VLCPlayer 类却没有导出，只能 require；类型用库自带的 props 补上。
+// 直引 VLCPlayer 子文件：库的 index.js 会连带 require 自带播放器 UI（playerView），把 MaterialCommunityIcons 字体（1.3 MB）也拖进包
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { VLCPlayer } = require("react-native-vlc-media-player") as {
-  VLCPlayer: ComponentType<VLCPlayerProps & { ref?: Ref<VlcHandle> }>;
-};
+const VLCPlayer = require("react-native-vlc-media-player/VLCPlayer")
+  .default as ComponentType<VLCPlayerProps & { ref?: Ref<VlcHandle> }>;
 
 const SNAPSHOT_WAIT_MS = 2_000;
 const SNAPSHOT_CALLBACK_TIMEOUT_MS = 4_000;
