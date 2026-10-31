@@ -854,6 +854,34 @@ describe("SlideToCancel（求救倒计时页的滑动取消：只测不改）", 
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
+  // iOS 读屏的双击只派发 onAccessibilityTap（RCTViewComponentView accessibilityActivate），
+  // 只测 onAccessibilityAction 测不到这条路
+  it("iOS 读屏双击（onAccessibilityTap）= 取消；动作带本地化名字，不念英文 activate", () => {
+    const { r, onCancel } = mount();
+    const t = r.root.find(
+      (n) =>
+        typeof n.type === "string" && n.props.accessibilityRole === "button",
+    );
+    expect(t.props.accessibilityActions).toEqual([
+      { name: "activate", label: "取消求救" },
+    ]);
+    act(() => t.props.onAccessibilityTap());
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["取消已在路上", { busy: true }],
+    ["别的操作在路上", { disabled: true }],
+  ])("%s：iOS 读屏双击不再取消", (_name, over) => {
+    const { r, onCancel } = mount(over);
+    const t = r.root.find(
+      (n) =>
+        typeof n.type === "string" && n.props.accessibilityRole === "button",
+    );
+    act(() => t.props.onAccessibilityTap());
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
   it("拖过 70% 松手 = 取消（成功触觉）；没到就弹回（轻触觉）", () => {
     const { r, onCancel } = mount();
     const g = gestureOf(r);
