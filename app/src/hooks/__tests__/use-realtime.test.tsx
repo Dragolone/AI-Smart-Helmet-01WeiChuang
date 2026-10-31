@@ -796,6 +796,11 @@ describe("蓝牙链路目标", () => {
 });
 
 describe("求救：拉起倒计时页与锁屏提醒", () => {
+  // 补拉不等列表（10-31）：手上有缓存目标是常态，这一组都按它走；没有缓存的首次登录见下面「冷启动补拉与设备列表的先后」
+  beforeEach(() => {
+    jest.mocked(loadCachedTargets).mockResolvedValue(["h1"]);
+  });
+
   it("冷启动补拉回来之前拦住系统通知授权框（O10：进行中的单要等补拉才拉起倒计时页，授权框先弹会盖在页上）：闸在调 ensure 之前装上；补拉先拉起倒计时页、结束后才放行", async () => {
     const active = deferred<{ sos: Sos | null }>();
     jest.mocked(sosApi.active).mockReturnValueOnce(active.promise);
@@ -1521,6 +1526,85 @@ describe("冷启动补拉与设备列表的先后（B 线 F-10）", () => {
     await run(() => void devicesLoad.load?.());
     expect(setBleTargets).toHaveBeenLastCalledWith(["h1"]);
     expect(sosApi.activeForAccount).not.toHaveBeenCalled();
+  });
+});
+
+describe("冷启动补拉不等设备列表（10-31：弱网下列表最坏 31 s，不在前台时重试还被暂停，60 s 倒计时等不起）", () => {
+  const account = (deviceName: string | null) => ({
+    items: [{ ...sosOf({ sosId: "s7", deviceId: "h1" }), deviceName }],
+    total: 1,
+    page: 1,
+    pageSize: 100,
+  });
+
+  it("列表一直没回来：缓存目标读完就走账号级接口，拉起倒计时页、放行授权框，不用等列表", async () => {
+    jest.mocked(devicesApi.list).mockReturnValue(new Promise(() => undefined));
+    jest.mocked(loadCachedTargets).mockResolvedValue(["h1"]);
+    jest.mocked(sosApi.activeForAccount).mockResolvedValue(account(null));
+    await mountBridge();
+    expect(sosApi.activeForAccount).toHaveBeenCalledTimes(1);
+    expect(router.push).toHaveBeenCalledWith(
+      "/sos-active?sosId=s7&deviceId=h1",
+    );
+    const released = jest.fn();
+    void jest.mocked(holdPermissionPromptUntil).mock.calls[0][0].then(released);
+    await flush();
+    expect(released).toHaveBeenCalledTimes(1);
+  });
+
+  it("缓存目标还在读：先不补拉（读完才知道退回逐台查时查谁）", async () => {
+    const cached = deferred<string[]>();
+    jest.mocked(loadCachedTargets).mockReturnValue(cached.promise);
+    await mountBridge();
+    expect(sosApi.activeForAccount).not.toHaveBeenCalled();
+    await run(() => cached.resolve(["h1"]));
+    expect(sosApi.activeForAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it("首次登录没有缓存目标、列表晚到：先补拉一次，列表到了按 F-10 再补一次；同一单不叠两页", async () => {
+    const list = deferred<DevicePublic[]>();
+    jest.mocked(devicesApi.list).mockReturnValue(list.promise);
+    jest.mocked(sosApi.activeForAccount).mockResolvedValue(account(null));
+    await mountBridge();
+    expect(sosApi.activeForAccount).toHaveBeenCalledTimes(1);
+    expect(router.push).toHaveBeenCalledTimes(1);
+
+    await run(() => list.resolve([dev("h1")]));
+    expect(sosApi.activeForAccount).toHaveBeenCalledTimes(2);
+    expect(router.push).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["写账号级接口带回来的头盔名，不写设备号", "通勤盔", "通勤盔"],
+    ["服务端也没有名字（头盔已转给别人、没起过名）才退成设备号", null, "h1"],
+  ])("列表没到时的锁屏提醒：%s", async (_label, deviceName, shown) => {
+    jest.mocked(devicesApi.list).mockReturnValue(new Promise(() => undefined));
+    jest.mocked(sosApi.activeForAccount).mockResolvedValue(account(deviceName));
+    await mountBridge();
+    expect(showSosAlertIfBackground).toHaveBeenLastCalledWith(
+      "s7",
+      "h1",
+      DEADLINE,
+      undefined,
+      shown,
+    );
+  });
+
+  it("列表已在缓存：锁屏提醒以列表里的名字为准", async () => {
+    qc.setQueryData<DevicePublic[]>(
+      ["devices"],
+      [dev("h1", { name: "新名字" })],
+    );
+    jest.mocked(devicesApi.list).mockReturnValue(new Promise(() => undefined));
+    jest.mocked(sosApi.activeForAccount).mockResolvedValue(account("旧名字"));
+    await mountBridge();
+    expect(showSosAlertIfBackground).toHaveBeenLastCalledWith(
+      "s7",
+      "h1",
+      DEADLINE,
+      undefined,
+      "新名字",
+    );
   });
 });
 
