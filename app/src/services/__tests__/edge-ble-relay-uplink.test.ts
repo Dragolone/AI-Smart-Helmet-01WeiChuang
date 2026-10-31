@@ -548,6 +548,27 @@ describe("提交失败的状态码分流", () => {
     },
   );
 
+  it("服务端说这顶不归这个账号了：叫一次回调刷新目标；网关错误页不叫（11-01 审计）", async () => {
+    const { up, push } = load();
+    const rejected = jest.fn();
+    up.setRelayRejectedHandler(rejected);
+    push.mockRejectedValue(
+      Object.assign(httpError(404), { code: "INTERNAL_ERROR" }),
+    );
+    up.enqueueRelayEvent(env("possible_fall"));
+    await tick();
+    await up.flushRelayQueue();
+    await tick();
+    expect(rejected).not.toHaveBeenCalled();
+    push.mockRejectedValue(
+      Object.assign(httpError(404), { code: "DEVICE_NOT_FOUND" }),
+    );
+    await up.flushRelayQueue();
+    await tick();
+    expect(rejected).toHaveBeenCalledTimes(1);
+    up.setRelayRejectedHandler(null);
+  });
+
   it("10-25 审查：网关 / 运营商回的 404 / 403 错误页（没有 JSON，码是 INTERNAL_ERROR）：不丢积压（含摔倒），留着下轮重发", async () => {
     const { up, push } = load();
     push.mockRejectedValue(
