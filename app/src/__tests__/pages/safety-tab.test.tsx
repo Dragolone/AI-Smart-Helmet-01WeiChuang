@@ -14,7 +14,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import type { AccidentListItem, DevicePublic } from "@helmet/shared";
 import * as Haptics from "expo-haptics";
 import { Alert } from "react-native";
-import { act } from "react-test-renderer";
+import { act, type ReactTestInstance } from "react-test-renderer";
 import { mockRouter, routerState } from "@/__tests__/helpers/native-mocks";
 import {
   flat,
@@ -821,9 +821,13 @@ describe("读屏发起求救（读屏双击只有按下松开，走不到长按�
         },
     );
 
-  it("按钮说明双击会怎样；动作带本地化名字，不念英文 activate", () => {
+  it("按钮说明双击会怎样；动作带本地化名字，不念英文 activate；朗读不再说「按住 2 秒」", () => {
     const btn = sosButton(mount());
     expect(btn.props.accessibilityHint).toBe(tr("safety.sosA11yHint"));
+    expect(btn.props.accessibilityLabel).toBe(
+      tr("safety.sosA11y", { device: "通勤" }),
+    );
+    expect(btn.props.accessibilityLabel).not.toContain("2");
     expect(btn.props.accessibilityActions).toEqual([
       { name: "activate", label: tr("safety.sosA11yAction") },
     ]);
@@ -879,6 +883,71 @@ describe("读屏发起求救（读屏双击只有按下松开，走不到长按�
     const ids = pushed().map((b) => b.envelopes[0].eventId);
     expect(ids).toHaveLength(2);
     expect(new Set(ids).size).toBe(1);
+  });
+
+  it.each([
+    [
+      "iOS（onAccessibilityTap）",
+      (b: ReactTestInstance) => b.props.onAccessibilityTap(),
+    ],
+    [
+      "安卓（activate）",
+      (b: ReactTestInstance) =>
+        b.props.onAccessibilityAction({
+          nativeEvent: { actionName: "activate" },
+        }),
+    ],
+  ])(
+    "%s：发送中再双击不再发，回来后再双击才是新的一次",
+    async (_name, doubleTap) => {
+      const pending: ((v: unknown) => void)[] = [];
+      m(relayApi.push).mockImplementation(
+        () => new Promise((resolve) => pending.push(resolve)),
+      );
+      const r = mount();
+      const tap = () =>
+        act(async () => {
+          doubleTap(sosButton(r));
+          await Promise.resolve();
+        });
+      await tap();
+      await tap();
+      expect(pushed()).toHaveLength(1);
+      await act(async () => {
+        pending[0]({ accepted: 1 });
+        for (let i = 0; i < 6; i += 1) await Promise.resolve();
+      });
+      await tap();
+      expect(pushed()).toHaveLength(2);
+      const ids = pushed().map((b) => b.envelopes[0].eventId);
+      expect(new Set(ids).size).toBe(2);
+    },
+  );
+
+  it("同一轮渲染里连发两次双击（还没来得及重渲染）：也只发一条", async () => {
+    m(relayApi.push).mockImplementation(() => new Promise(() => undefined));
+    const r = mount();
+    await act(async () => {
+      const btn = sosButton(r);
+      btn.props.onAccessibilityTap();
+      btn.props.onAccessibilityTap();
+      await Promise.resolve();
+    });
+    expect(pushed()).toHaveLength(1);
+  });
+
+  it("发送中长按照样发（只拦读屏路径，宁可多发）", async () => {
+    m(relayApi.push).mockImplementation(() => new Promise(() => undefined));
+    const r = mount();
+    await act(async () => {
+      sosButton(r).props.onAccessibilityTap();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      sosButton(r).props.onLongPress();
+      await Promise.resolve();
+    });
+    expect(pushed()).toHaveLength(2);
   });
 
   it("普通触摸：按下松开没满 2 秒仍不发（读屏入口不影响长按）", () => {
