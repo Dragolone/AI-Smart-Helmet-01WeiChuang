@@ -569,7 +569,10 @@ function SosActiveContent() {
       const me = nativeAlarm.next++;
       if (nativeAlarm.owner !== 0) HelmetLinkService.stopSosAlarm();
       nativeAlarm.owner = me;
-      HelmetLinkService.startSosAlarm(left + NATIVE_ALARM_GRACE_MS);
+      HelmetLinkService.startSosAlarm(
+        left + NATIVE_ALARM_GRACE_MS,
+        Number.isFinite(at) ? left - URGENT_SECONDS * 1000 : undefined,
+      );
       let urgentOn = false;
       const tick = setInterval(() => {
         // 截止时间解析不出来时 secondsLeft 是 null，不能拿去比（null <= 10 为真，一开始就会切急促）

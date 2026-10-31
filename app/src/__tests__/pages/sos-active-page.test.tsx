@@ -147,7 +147,8 @@ jest.mock("helmet-link-service", () => ({
     get sosAlarmAvailable() {
       return mockLink.sosAlarmAvailable;
     },
-    startSosAlarm: (ms: number) => mockLink.startSosAlarm(ms),
+    startSosAlarm: (ms: number, urgentAfterMs?: number) =>
+      mockLink.startSosAlarm(ms, urgentAfterMs),
     stopSosAlarm: () => mockLink.stopSosAlarm(),
     setSosAlarmUrgent: (u: boolean) => mockLink.setSosAlarmUrgent(u),
     holdNetwork: jest.fn(),
@@ -3079,6 +3080,10 @@ describe("安卓闹钟通道（F15）", () => {
     const cap = mockLink.startSosAlarm.mock.calls[0][0] as number;
     expect(cap).toBeGreaterThan(40_000);
     expect(cap).toBeLessThanOrEqual(45_000);
+    // 换急促也交给原生到点切（剩约 15 s，5 s 后）：锁屏 / 后台时 JS 定时器不跑
+    const urgentAfter = mockLink.startSosAlarm.mock.calls[0][1] as number;
+    expect(urgentAfter).toBeGreaterThan(0);
+    expect(urgentAfter).toBeLessThanOrEqual(5_000);
     await tick(3000);
     expect(mockAlarm.play).not.toHaveBeenCalled();
     expect(mockLink.setSosAlarmUrgent).not.toHaveBeenCalled();
@@ -3097,7 +3102,7 @@ describe("安卓闹钟通道（F15）", () => {
       Promise.resolve(sosOf({ deadline: "not-a-date" })),
     );
     const r = await mount();
-    expect(mockLink.startSosAlarm).toHaveBeenCalledWith(90_000);
+    expect(mockLink.startSosAlarm).toHaveBeenCalledWith(90_000, undefined);
     await tick(3000);
     expect(mockLink.setSosAlarmUrgent).not.toHaveBeenCalled();
     r.unmount();

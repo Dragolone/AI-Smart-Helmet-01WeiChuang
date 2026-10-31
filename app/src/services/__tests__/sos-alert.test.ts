@@ -20,6 +20,16 @@ const mockPush = jest.fn((_href: string) => undefined);
 const mockNavigate = jest.fn((_href: string) => undefined);
 const mockGetLastResponse = jest.fn((): unknown => null);
 /** 通知中心里此刻挂着的通知（getPresentedNotificationsAsync） */
+const mockBackgroundWake = jest.fn(
+  (_ms: number, _cb: () => void): (() => void) =>
+    () =>
+      undefined,
+);
+jest.mock("helmet-link-service", () => ({
+  HelmetLinkService: {
+    backgroundWake: (ms: number, cb: () => void) => mockBackgroundWake(ms, cb),
+  },
+}));
 const mockPresented = jest.fn(async (): Promise<unknown[]> => []);
 const mockClearLastResponse = jest.fn(() => undefined);
 const mockSchedule = jest.fn(async (_req: unknown) => "id");
@@ -1388,6 +1398,35 @@ describe("sos-alert", () => {
       expect(store.getState().inFlight.s9).toBe(true);
       await m.resetSosAlerts();
       expect(store.getState().inFlight.s9).toBeUndefined();
+    });
+
+    it("重试靠原生到点叫醒：点完取消回桌面，JS 定时器不跑也发得出去；叫醒后两路都收掉（11-01）", async () => {
+      jest.useFakeTimers(); // 不往前拨 = 后台 JS 定时器不跑
+      override(AppState, "addEventListener", () => ({
+        remove: () => undefined,
+      }));
+      const wake = { fire: null as (() => void) | null };
+      const cancelWake = jest.fn();
+      mockBackgroundWake.mockImplementation((_ms, cb) => {
+        wake.fire = cb;
+        return cancelWake;
+      });
+      mockCancel
+        .mockRejectedValueOnce(new Error("offline"))
+        .mockResolvedValueOnce({} as never);
+      const m = load();
+      expect(await m.cancelFromNotification("s1")).toBe(false);
+      expect(mockBackgroundWake).toHaveBeenCalledWith(
+        2000,
+        expect.any(Function),
+      );
+      expect(mockCancel).toHaveBeenCalledTimes(1);
+      wake.fire?.();
+      await jest.advanceTimersByTimeAsync(0);
+      expect(mockCancel).toHaveBeenCalledTimes(2);
+      expect(cancelWake).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(20_000);
+      expect(mockCancel).toHaveBeenCalledTimes(2);
     });
 
     it("请求发出即标记在途，服务端确认后清掉", async () => {

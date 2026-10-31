@@ -3,6 +3,7 @@
 // 真机实测：事件当秒上云、页面已推、但用户听不到任何声音）；本地通知的声音与横幅不依赖音频会话，
 // 是锁屏告警唯一可靠的路径。Android 上同样走这里（前台服务的常驻通知是静音的）。
 // 服务端仍是 SOS 权威，这里只做提醒 + 把「误触取消」放到通知按钮上少一次解锁；不做任何判断。
+import { HelmetLinkService } from "helmet-link-service";
 import { router } from "expo-router";
 import * as Notifications from "expo-notifications";
 import { AppState, Platform } from "react-native";
@@ -481,13 +482,18 @@ const CANCEL_RETRY_DELAYS_MS = [2_000, 5_000, 10_000] as const;
 /** 按单分槽：两台头盔两单并存时，点第二单的「取消」不能把第一单的重试清掉（10-06 并发评审 F2） */
 const cancelRetries = new Map<
   string,
-  { timer: ReturnType<typeof setTimeout>; sub: { remove: () => void } }
+  {
+    timer: ReturnType<typeof setTimeout>;
+    cancelWake: () => void;
+    sub: { remove: () => void };
+  }
 >();
 
 function clearCancelRetry(sosId: string): void {
   const entry = cancelRetries.get(sosId);
   if (!entry) return;
   clearTimeout(entry.timer);
+  entry.cancelWake();
   entry.sub.remove();
   cancelRetries.delete(sosId);
 }
@@ -587,6 +593,9 @@ export async function cancelFromNotification(
     };
     cancelRetries.set(sosId, {
       timer: setTimeout(() => retry(true), delay),
+      // 点完取消马上回桌面 / 锁屏：安卓后台 JS 定时器不跑，只靠上面那个定时器的话重试一次都发不出去，
+      // 单子到期照样通知联系人，用户还以为取消了（11-01 模拟器实测）。原生到点叫醒，谁先到谁算
+      cancelWake: HelmetLinkService.backgroundWake(delay, () => retry(true)),
       sub: AppState.addEventListener("change", (state) => {
         if (state === "active") retry(false);
       }),

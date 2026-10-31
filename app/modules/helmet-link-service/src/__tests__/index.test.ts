@@ -59,6 +59,9 @@ const fullNative = (): Native => ({
   startSosAlarm: jest.fn(),
   stopSosAlarm: jest.fn(),
   setSosAlarmUrgent: jest.fn(),
+  wakeAfter: jest.fn(),
+  cancelWake: jest.fn(),
+  addListener: jest.fn(() => ({ remove: jest.fn() })),
 });
 
 /** 不可用时：每个方法都能放心调、不抛，查询类给「不用管」的默认值 */
@@ -189,6 +192,9 @@ describe("HelmetLinkService", () => {
     expect(svc.sosAlarmAvailable).toBe(true);
     svc.startSosAlarm(1234.6);
     expect(n.startSosAlarm).toHaveBeenCalledWith(1235);
+    n.startSosAlarm.mockClear();
+    svc.startSosAlarm(90_000, 49_999.6);
+    expect(n.startSosAlarm).toHaveBeenCalledWith(90_000, 50_000);
     svc.setSosAlarmUrgent(true);
     expect(n.setSosAlarmUrgent).toHaveBeenCalledWith(true);
     svc.stopSosAlarm();
@@ -226,5 +232,37 @@ describe("HelmetLinkService", () => {
     expect(svc.setMicrophone(true)).toBe(false);
     expect(svc.sosAlarmAvailable).toBe(false);
     expect(svc.openAppLaunchSettings()).toBe("none");
+  });
+
+  it("backgroundWake：原生到点叫一次；取消后不叫；原生包旧 / iOS 时空操作（调用方还有 setTimeout）", () => {
+    const n = fullNative();
+    mockNative = n;
+    const svc = load();
+    const first = jest.fn();
+    const second = jest.fn();
+    const cancelFirst = svc.backgroundWake(2000.4, first);
+    const cancelSecond = svc.backgroundWake(5000, second);
+    expect(n.addListener).toHaveBeenCalledTimes(1);
+    expect(n.wakeAfter).toHaveBeenNthCalledWith(1, expect.any(Number), 2000);
+    const fire = n.addListener.mock.calls[0][1] as (e: { id: number }) => void;
+    const firstId = n.wakeAfter.mock.calls[0][0] as number;
+    const secondId = n.wakeAfter.mock.calls[1][0] as number;
+
+    fire({ id: firstId });
+    fire({ id: firstId }); // 重复的事件不再叫一次
+    expect(first).toHaveBeenCalledTimes(1);
+    cancelFirst(); // 已经到点的不用再去取消
+    expect(n.cancelWake).not.toHaveBeenCalled();
+
+    cancelSecond();
+    expect(n.cancelWake).toHaveBeenCalledWith(secondId);
+    fire({ id: secondId });
+    expect(second).not.toHaveBeenCalled();
+
+    mockNative = oldNative();
+    const old = load();
+    const cb = jest.fn();
+    expect(() => old.backgroundWake(1000, cb)()).not.toThrow();
+    expect(cb).not.toHaveBeenCalled();
   });
 });

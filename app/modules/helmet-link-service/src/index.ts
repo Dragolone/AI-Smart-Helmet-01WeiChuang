@@ -14,9 +14,15 @@ interface NativeLinkService {
   releaseNetwork(): void;
   setMicrophone(on: boolean, title: string, text: string): boolean;
   openAppLaunchSettings(): string;
-  startSosAlarm(maxMs: number): void;
+  startSosAlarm(maxMs: number, urgentAfterMs?: number): void;
   stopSosAlarm(): void;
   setSosAlarmUrgent(urgent: boolean): void;
+  wakeAfter(id: number, ms: number): void;
+  cancelWake(id: number): void;
+  addListener(
+    event: "onWake",
+    listener: (e: { id: number }) => void,
+  ): { remove: () => void };
 }
 
 const native =
@@ -31,6 +37,10 @@ const native =
 let heldUntil = 0;
 /** 上面那个时刻是什么时候算的。手机时钟往回拨过（now 比它早）heldUntil 就不可信了：不复位的话算出来一直「还持着」，高危事件的持锁被跳过 */
 let heldAt = 0;
+
+let nextWakeId = 1;
+const wakeCallbacks = new Map<number, () => void>();
+let wakeSub: { remove: () => void } | null = null;
 
 export const HelmetLinkService = {
   /** 模块是否可用（Android 且原生已链接；模拟器/未 prebuild 时为 false） */
@@ -86,10 +96,33 @@ export const HelmetLinkService = {
   get sosAlarmAvailable(): boolean {
     return typeof native?.startSosAlarm === "function";
   },
-  /** maxMs：没人叫停时原生最多响多久（App 在后台时 JS 可能停不了它） */
-  startSosAlarm(maxMs: number): void {
-    if (typeof native?.startSosAlarm === "function")
-      native.startSosAlarm(Math.round(maxMs));
+  /**
+   * maxMs：没人叫停时原生最多响多久（App 在后台时 JS 可能停不了它）。
+   * urgentAfterMs：多久后换急促震动，原生到点切——App 在后台时 JS 定时器不跑，靠 JS 切不过去；不知道截止时间时不传
+   */
+  startSosAlarm(maxMs: number, urgentAfterMs?: number): void {
+    if (typeof native?.startSosAlarm !== "function") return;
+    if (urgentAfterMs === undefined) native.startSosAlarm(Math.round(maxMs));
+    else native.startSosAlarm(Math.round(maxMs), Math.round(urgentAfterMs));
+  },
+  /**
+   * ms 后叫一次 callback，返回取消函数。给 App 在后台也必须到点的事用：安卓退后台 / 锁屏后 RN 的 JS 定时器整个停摆，
+   * 原生事件照常进 JS。iOS、原生包比 JS 旧时什么都不做，调用方要同时留一个 setTimeout，先到的那个取消另一个
+   */
+  backgroundWake(ms: number, callback: () => void): () => void {
+    const mod = native;
+    if (typeof mod?.wakeAfter !== "function") return () => undefined;
+    wakeSub ??= mod.addListener("onWake", ({ id }) => {
+      const fire = wakeCallbacks.get(id);
+      wakeCallbacks.delete(id);
+      fire?.();
+    });
+    const id = nextWakeId++;
+    wakeCallbacks.set(id, callback);
+    mod.wakeAfter(id, Math.round(ms));
+    return () => {
+      if (wakeCallbacks.delete(id)) mod.cancelWake(id);
+    };
   },
   stopSosAlarm(): void {
     if (typeof native?.stopSosAlarm === "function") native.stopSosAlarm();
