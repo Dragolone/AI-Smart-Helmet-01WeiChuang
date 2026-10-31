@@ -29,9 +29,32 @@ export class ApiError extends Error {
   }
 }
 
+/** 后端或数据库卡死但不断连接时，请求不结束、轮询也不再发，旧数字一直留着还没有提示 */
+const REQUEST_TIMEOUT_MS = 20_000
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers = new Headers(init?.headers)
-  if (init?.body !== undefined) {
+  const timeout = new AbortController()
+  const timer = setTimeout(() => timeout.abort(), REQUEST_TIMEOUT_MS)
+  try {
+    return await request<T>(path, {
+      ...init,
+      signal: init?.signal
+        ? AbortSignal.any([init.signal, timeout.signal])
+        : timeout.signal,
+    })
+  } catch (err) {
+    if (timeout.signal.aborted) {
+      throw new ApiError('REQUEST_TIMEOUT', '服务器没有响应，请稍后重试', 0)
+    }
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function request<T>(path: string, init: RequestInit): Promise<T> {
+  const headers = new Headers(init.headers)
+  if (init.body !== undefined) {
     headers.set('Content-Type', 'application/json')
   }
   const token = getToken()

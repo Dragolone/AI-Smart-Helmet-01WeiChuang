@@ -59,4 +59,29 @@ describe('admin api 客户端', () => {
     expect(assign).not.toHaveBeenCalled()
     clearSession()
   })
+
+  it('后端挂住不回：到点按超时报错，不让页面一直停在旧数字上；调用方自己的取消照常', async () => {
+    vi.useFakeTimers()
+    try {
+      const hang = (_url: string, init: RequestInit) =>
+        new Promise<never>((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () => reject(init.signal?.reason))
+        })
+      vi.stubGlobal('fetch', vi.fn(hang))
+      const pending = api('/admin/stats/overview').catch((e: unknown) => e)
+      await vi.advanceTimersByTimeAsync(20_000)
+      const err = (await pending) as ApiError
+      expect(err).toBeInstanceOf(ApiError)
+      expect(err.code).toBe('REQUEST_TIMEOUT')
+
+      const own = new AbortController()
+      const mine = api('/admin/users', { signal: own.signal }).catch((e: unknown) => e)
+      own.abort(new DOMException('cancelled', 'AbortError'))
+      const cancelled = (await mine) as Error
+      expect(cancelled).not.toBeInstanceOf(ApiError)
+      expect(cancelled.name).toBe('AbortError')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

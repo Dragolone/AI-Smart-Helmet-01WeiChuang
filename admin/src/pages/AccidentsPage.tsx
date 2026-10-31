@@ -73,7 +73,9 @@ export default function AccidentsPage() {
   const list = useListParams()
   const { page, pageSize, setPage } = list
   const statusRaw = list.get('status')
-  const status = statusRaw in STATUS_TAG ? (statusRaw as SosStatus) : undefined
+  const status = Object.hasOwn(STATUS_TAG, statusRaw)
+    ? (statusRaw as SosStatus)
+    : undefined
   const deviceId = list.get('deviceId')
 
   const query = useQuery({
@@ -112,6 +114,8 @@ export default function AccidentsPage() {
           // 后端 keyword / deviceId 上限 64 字，超出整页报 400，这里直接限住
           maxLength={64}
           style={{ width: 260 }}
+          // 点侧栏同一菜单时 URL 清空、列表回全量，框里的字也要跟着清
+          key={deviceId}
           defaultValue={deviceId}
           onSearch={(value) => list.update({ page: 1, deviceId: value.trim() })}
         />

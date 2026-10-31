@@ -70,6 +70,8 @@ export default function UsersPage() {
           // 后端 keyword / deviceId 上限 64 字，超出整页报 400，这里直接限住
           maxLength={64}
           style={{ width: 320 }}
+          // 点侧栏同一菜单时 URL 清空、列表回全量，框里的字也要跟着清
+          key={keyword}
           defaultValue={keyword}
           onSearch={(value) => list.update({ page: 1, keyword: value.trim() })}
         />
