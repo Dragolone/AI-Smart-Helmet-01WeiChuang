@@ -21,6 +21,7 @@ const mockNavigate = jest.fn((_href: string) => undefined);
 const mockGetLastResponse = jest.fn((): unknown => null);
 /** 通知中心里此刻挂着的通知（getPresentedNotificationsAsync） */
 const mockPresented = jest.fn(async (): Promise<unknown[]> => []);
+const mockScheduled = jest.fn(async (): Promise<unknown[]> => []);
 const mockClearLastResponse = jest.fn(() => undefined);
 const mockSchedule = jest.fn(async (_req: unknown) => "id");
 const mockCancelScheduled = jest.fn(async (_id: string) => undefined);
@@ -53,6 +54,7 @@ const defaultImpls = new Map(
       mockNavigate,
       mockGetLastResponse,
       mockPresented,
+      mockScheduled,
       mockClearLastResponse,
       mockSchedule,
       mockCancelScheduled,
@@ -112,6 +114,7 @@ jest.mock("expo-notifications", () => ({
   },
   getLastNotificationResponse: () => mockGetLastResponse(),
   getPresentedNotificationsAsync: () => mockPresented(),
+  getAllScheduledNotificationsAsync: () => mockScheduled(),
   clearLastNotificationResponse: () => mockClearLastResponse(),
   // 和 expo-notifications 的取值一致（不是安卓原生的 0–5）
   AndroidImportance: {
@@ -1417,6 +1420,49 @@ describe("sos-alert", () => {
       await jest.advanceTimersByTimeAsync(5_000);
       await jest.advanceTimersByTimeAsync(10_000);
       expect(store.getState().inFlight.s1).toBeUndefined();
+    });
+  });
+
+  describe("sweepStaleAlerts（进程被杀期间单子结束，11-01 模拟器实测）", () => {
+    const local = (sosId: string) => ({
+      request: { identifier: `sos-${sosId}`, content: { data: { sosId } } },
+    });
+
+    it("上一个进程留下的、已不在进行中的单：通知和预排的提醒都撤；还在进行中的不动", async () => {
+      const m = load();
+      await m.resetSosAlerts();
+      mockPresented.mockResolvedValue([local("gone"), local("live")]);
+      mockScheduled.mockResolvedValue([
+        { identifier: "sos-gone2-10", content: { data: { sosId: "gone2" } } },
+      ]);
+      await m.sweepStaleAlerts(new Set(["live"]));
+      const dismissed = mockDismiss.mock.calls.map((c) => c[0]);
+      expect(dismissed).toContain("sos-gone");
+      expect(dismissed).toContain("sos-gone2-10");
+      expect(dismissed).not.toContain("sos-live");
+    });
+
+    it("一个进程只扫一次；极光那条（远程）不归它管；读失败不抛", async () => {
+      const m = load();
+      await m.resetSosAlerts();
+      mockPresented.mockRejectedValueOnce(new Error("boom"));
+      await expect(m.sweepStaleAlerts(new Set())).resolves.toBeUndefined();
+      mockPresented.mockResolvedValue([local("gone")]);
+      await m.sweepStaleAlerts(new Set());
+      expect(mockDismiss).not.toHaveBeenCalled();
+
+      await m.resetSosAlerts(); // 登出后下一个账号重新算
+      mockPresented.mockResolvedValue([
+        {
+          request: {
+            identifier: "push-1",
+            content: { data: {} },
+            trigger: { type: "push", payload: { sosId: "remote" } },
+          },
+        },
+      ]);
+      await m.sweepStaleAlerts(new Set());
+      expect(mockDismiss).not.toHaveBeenCalled();
     });
   });
 
