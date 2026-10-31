@@ -9,7 +9,7 @@ import {
   jest,
 } from "@jest/globals";
 import * as SecureStore from "expo-secure-store";
-import { Alert, Keyboard, Text } from "react-native";
+import { Alert, Keyboard, ScrollView, Text } from "react-native";
 import { act } from "react-test-renderer";
 import { mockRouter } from "@/__tests__/helpers/native-mocks";
 import {
@@ -152,6 +152,20 @@ const pageErrors = (r: Rendered) =>
         flat(t.props.style).marginTop !== -6,
     )
     .map((t) => String(t.props.children));
+/**
+ * 账号与安全三页：页面级红字要在固定的按钮区，不能在滚动内容最底下——键盘开着点保存时，
+ * 滚动区最底下的字被键盘和按钮挡住，用户只看到「点了没反应」；拖动滚动区时顺手收键盘（与登录三页一致）
+ */
+const expectErrorOutsideScroll = (r: Rendered, message: string) => {
+  const scroll = r.root.findByType(ScrollView);
+  expect(scroll.props.keyboardDismissMode).toBe("on-drag");
+  const isError = (t: { props: { style?: unknown; children?: unknown } }) =>
+    flat(t.props.style).color === dark.danger &&
+    flat(t.props.style).marginTop !== -6 &&
+    String(t.props.children) === message;
+  expect(r.root.findAllByType(Text).filter(isError)).toHaveLength(1);
+  expect(scroll.findAllByType(Text).filter(isError)).toHaveLength(0);
+};
 /** 字段级错误：贴在某个输入框下面（FormInput 的 error，上移 6）；返回 [输入框标签, 错误] */
 const fieldErrors = (r: Rendered) => {
   const texts = r.root.findAllByType(Text);
@@ -825,6 +839,12 @@ describe("修改密码", () => {
     expect(api.changePassword).not.toHaveBeenCalled();
   });
 
+  it("页面级错误在固定的按钮区、不在滚动内容里（键盘开着也看得见）", () => {
+    const r = render(<ChangePasswordScreen />);
+    r.press(tr("common.save"));
+    expectErrorOutsideScroll(r, tr("auth.passwordTooShort"));
+  });
+
   it("新密码和当前密码相同：本地拦下，不发请求（服务端会照样改并踢掉其他设备，N25）", () => {
     const r = render(<ChangePasswordScreen />);
     r.type(P.old, "samepass12");
@@ -887,6 +907,12 @@ describe("更换手机号", () => {
     r.press(tr("common.save"));
     expect(pageErrors(r)).toEqual([tr("auth.samePhone")]);
     expect(api.sendSmsCode).not.toHaveBeenCalled();
+  });
+
+  it("页面级错误在固定的按钮区、不在滚动内容里（键盘开着也看得见）", () => {
+    const r = render(<ChangePhoneScreen />);
+    r.press(tr("auth.getCode"));
+    expectErrorOutsideScroll(r, tr("auth.invalidPhone"));
   });
 
   it("验证码 / 密码校验；发码用 change_phone；成功后刷新会话档案并返回", async () => {
@@ -991,6 +1017,12 @@ describe("注销账号", () => {
           typeof n.props.title === "string",
       )
       .pop()!;
+
+  it("页面级错误在固定的按钮区、不在滚动内容里（键盘开着也看得见）", async () => {
+    const r = renderDelete();
+    await pressConfirm(r);
+    expectErrorOutsideScroll(r, tr("auth.passwordTooShort"));
+  });
 
   it("列出四条后果；密码不足 8 位不弹确认", async () => {
     const r = renderDelete();

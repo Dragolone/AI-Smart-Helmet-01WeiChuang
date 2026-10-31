@@ -117,6 +117,7 @@ export default function ChangePhoneScreen() {
         <ScrollView
           contentContainerStyle={styles.container}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         >
           <ThemedText
             type="small"
@@ -205,9 +206,10 @@ export default function ChangePhoneScreen() {
               </ThemedText>
             </Tappable>
           </View>
-          <FormError message={error} />
         </ScrollView>
+        {/* 错误放在固定的按钮区而不是滚动内容底部：键盘开着点保存时，红字在滚动内容最底下，被键盘和按钮挡住看不见 */}
         <View style={styles.bottom}>
+          <FormError message={error} />
           <PrimaryButton
             title={t("common.save")}
             onPress={() => void submit()}
@@ -243,5 +245,5 @@ const styles = StyleSheet.create({
     minWidth: 112,
     alignItems: "center",
   },
-  bottom: { paddingHorizontal: 20, paddingTop: 6, paddingBottom: 22 },
+  bottom: { paddingHorizontal: 20, paddingTop: 6, paddingBottom: 22, gap: 10 },
 });
