@@ -2,6 +2,7 @@
 // 用 RN 内置 Animated + useNativeDriver，不引入动画库依赖
 import { useEffect, useState } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
+import { useReducedMotion } from 'react-native-reanimated';
 
 function Ring({
   progress,
@@ -45,6 +46,7 @@ function Ring({
 /**
  * 包一层相对定位容器使用：<View><PulseRing active size color /><你的圆形内容/></View>
  * count 圈波纹错峰循环；inactive 时自动停止并隐藏。
+ * 系统开了「减弱动态效果」就不画：这是装饰，状态由调用方的颜色和文字表达。
  */
 export function PulseRing({
   active,
@@ -66,8 +68,11 @@ export function PulseRing({
     Array.from({ length: count }, () => new Animated.Value(0)),
   );
 
+  const reduced = useReducedMotion();
+  const running = active && !reduced;
+
   useEffect(() => {
-    if (!active) {
+    if (!running) {
       values.forEach((v) => v.setValue(0));
       return;
     }
@@ -90,9 +95,9 @@ export function PulseRing({
       loops.forEach((l) => l.stop());
       values.forEach((v) => v.setValue(0));
     };
-  }, [active, values, count, duration]);
+  }, [running, values, count, duration]);
 
-  if (!active) return null;
+  if (!running) return null;
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       <View style={styles.center}>

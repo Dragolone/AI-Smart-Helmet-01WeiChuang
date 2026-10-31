@@ -36,6 +36,7 @@ import { FINISH_MS, SEARCH_SLOW_MS } from "@/services/device-guide";
 import { useGuideStore } from "@/stores/guide-store";
 import { useThemeStore } from "@/stores/theme-store";
 import { DeviceGuide } from "../device-guide";
+import { PulseRing } from "../pulse-ring";
 
 jest.mock("@/global.css", () => ({}));
 jest.mock("@expo/vector-icons", () =>
@@ -225,6 +226,16 @@ describe("第一步：绑定头盔", () => {
     const before = r.allText();
     settle(SEARCH_SLOW_MS);
     expect(r.allText()).not.toBe(before);
+  });
+
+  it("在找头盔时徽标有波纹；页面不在最前面就不转，回来接着转", () => {
+    const { r, update } = mount({ helmet, link: "searching" });
+    const pulse = () => r.root.findByType(PulseRing).props.active;
+    expect(pulse()).toBe(true);
+    update({ onStage: false });
+    expect(pulse()).toBe(false);
+    update({ onStage: true });
+    expect(pulse()).toBe(true);
   });
 
   it("连上了：画勾、停一下，自动换到第二步（允许通知）；进度 1 / 3", () => {

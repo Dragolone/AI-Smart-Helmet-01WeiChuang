@@ -146,6 +146,7 @@ function MemberCell({
   micOpen = false,
   maybeGone = false,
   avatarUrl,
+  focused,
   onPress,
 }: {
   name: string;
@@ -157,6 +158,8 @@ function MemberCell({
   /** 15 秒没收到他的心跳（O14）：TRTC 还没报他离开，但多半已经掉线 */
   maybeGone?: boolean;
   avatarUrl?: string | null;
+  /** 这一页在最前面：切走了波纹不用转 */
+  focused: boolean;
   onPress?: () => void;
 }) {
   const theme = useTheme();
@@ -174,7 +177,7 @@ function MemberCell({
     <>
       <View style={[styles.cellRingBox, maybeGone && styles.cellGone]}>
         <PulseRing
-          active={speaking}
+          active={speaking && focused}
           size={64}
           color={theme.brand}
           maxScale={1.3}
@@ -1341,6 +1344,7 @@ export default function IntercomScreen() {
                     micOpen={self && micOpen}
                     maybeGone={!self && goneIds.includes(id)}
                     avatarUrl={avatarOf(id)}
+                    focused={focused}
                     onPress={self ? undefined : () => void toggleMuteMember(id)}
                   />
                 );
@@ -1419,7 +1423,7 @@ export default function IntercomScreen() {
               <View style={[styles.pttCol, netDown && styles.dimmed]}>
                 <View style={styles.pttClip}>
                   <PulseRing
-                    active={liveMic}
+                    active={liveMic && focused}
                     size={112}
                     color={theme.danger}
                     count={3}
