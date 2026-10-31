@@ -929,6 +929,13 @@ describe("SlideToCancel（求救倒计时页的滑动取消：只测不改）", 
     expect(gestureOf(r).config.enabled).toEqual([false]);
   });
 
+  it("系统字体放大：两种文字都最多放大 2 倍（不封顶时 adjustsFontSizeToFit 会把字压到 4 pt）", () => {
+    const multiplierOf = (r: Rendered) =>
+      r.root.find((n) => isHost(n, "Text")).props.maxFontSizeMultiplier;
+    expect(multiplierOf(mount().r)).toBe(2);
+    expect(multiplierOf(mount({ busy: true }).r)).toBe(2);
+  });
+
   it("还没量到宽度时不能拖", () => {
     const r = render(
       <SlideToCancel
