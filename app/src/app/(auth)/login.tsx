@@ -27,7 +27,6 @@ import {
   FormInput,
   PrimaryButton,
   errorField,
-  type FormField,
 } from "@/components/form";
 import { KeyboardAvoid } from "@/components/keyboard-avoid";
 import { LOGIN_BRAND } from "@/components/splash/login-brand";
@@ -36,6 +35,7 @@ import { SplashArrive } from "@/components/splash/splash-arrive";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useFormErrors } from "@/hooks/use-form-errors";
 import { phoneFromParam, useRouteParams } from "@/hooks/use-route-params";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
@@ -75,14 +75,25 @@ export default function LoginScreen() {
     if (fromParam) setPhone(fromParam);
   }
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  /** 能落到具体字段的错误就地显示（红框 + 抖动），落不到的走页面级 FormError */
-  const [fieldError, setFieldError] = useState<{
-    field: FormField;
-    message: string;
-  } | null>(null);
-  const fe = (f: FormField) =>
-    fieldError?.field === f ? fieldError.message : null;
+  const form = useFormErrors([phone, password], () => {
+    if (needConsent && !consented)
+      return { key: "consent", message: t("auth.consentRequired") };
+    // 提交前先在本地查：不填或少一位原来要等一个来回、拿到服务端的 400 才说「输入格式不正确」，断网时更成了「网络连接失败」。
+    // 号码口径与服务端 PHONE_PATTERN 相同；密码只查空（服务端登录只要求 ≥1 位，不能按注册的 8 位挡）
+    if (!isValidPhone(normalizePhone(phone)))
+      return {
+        key: "phone",
+        field: "phone",
+        message: t("auth.invalidPhone"),
+      };
+    if (password === "")
+      return {
+        key: "password",
+        field: "password",
+        message: t("auth.passwordRequired"),
+      };
+    return null;
+  });
   const [busy, setBusy] = useState(false);
   // 顶部的商标和 App 名是开屏动画落下来的地方，尺寸两边共用
   const { width } = useWindowDimensions();
@@ -118,25 +129,10 @@ export default function LoginScreen() {
   }, []);
 
   const submit = async () => {
-    setError(null);
-    setFieldError(null);
-    if (needConsent && !consented) {
-      setError(t("auth.consentRequired"));
-      return;
-    }
+    if (!form.check()) return;
     // 「+86 138 0000 0000」、全角数字、通讯录复制带的方向标记先规整（与联系人页同一个 normalizePhone），
     // 原来原样提交，正确的号码被服务端判成「输入格式不正确」
     const cleanPhone = normalizePhone(phone);
-    // 提交前先在本地查：不填或少一位原来要等一个来回、拿到服务端的 400 才说「输入格式不正确」，断网时更成了「网络连接失败」。
-    // 号码口径与服务端 PHONE_PATTERN 相同；密码只查空（服务端登录只要求 ≥1 位，不能按注册的 8 位挡）
-    if (!isValidPhone(cleanPhone)) {
-      setFieldError({ field: "phone", message: t("auth.invalidPhone") });
-      return;
-    }
-    if (password === "") {
-      setFieldError({ field: "password", message: t("auth.passwordRequired") });
-      return;
-    }
     setBusy(true);
     try {
       const auth = await authApi.login({ phone: cleanPhone, password });
@@ -146,9 +142,7 @@ export default function LoginScreen() {
       );
       await signIn(auth); // AuthGate 检测到会话后自动跳转主页
     } catch (e) {
-      const field = errorField(e);
-      if (field) setFieldError({ field, message: toUserMessage(e) });
-      else setError(toUserMessage(e));
+      form.fail(toUserMessage(e), errorField(e) ?? undefined);
     } finally {
       setBusy(false);
     }
@@ -250,7 +244,7 @@ export default function LoginScreen() {
             <SplashArrive order={1}>
               <FormInput
                 label={t("auth.phone")}
-                error={fe("phone")}
+                error={form.fieldError("phone")}
                 icon="phone-portrait-outline"
                 value={phone}
                 onChangeText={setPhone}
@@ -265,7 +259,7 @@ export default function LoginScreen() {
             <SplashArrive order={2}>
               <FormInput
                 label={t("auth.password")}
-                error={fe("password")}
+                error={form.fieldError("password")}
                 icon="lock-closed-outline"
                 value={password}
                 onChangeText={setPassword}
@@ -278,13 +272,7 @@ export default function LoginScreen() {
             {needConsent && (
               <SplashArrive order={3}>
                 <Pressable
-                  onPress={() => {
-                    setConsented((v) => !v);
-                    // 「请先同意」是这个勾选框招来的：勾过就收掉，别的错误（密码错等）留着
-                    setError((e) =>
-                      e === t("auth.consentRequired") ? null : e,
-                    );
-                  }}
+                  onPress={() => setConsented((v) => !v)}
                   style={styles.consentRow}
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: consented }}
@@ -325,7 +313,7 @@ export default function LoginScreen() {
               </SplashArrive>
             )}
 
-            <FormError message={error} />
+            <FormError message={form.pageError} />
             <SplashArrive order={4}>
               <PrimaryButton
                 title={t("auth.login")}

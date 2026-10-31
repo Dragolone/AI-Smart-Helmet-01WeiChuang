@@ -18,13 +18,13 @@ import {
   FormInput,
   PrimaryButton,
   errorField,
-  type FormField,
 } from "@/components/form";
 import { KeyboardAvoid } from "@/components/keyboard-avoid";
 import { showToast } from "@/components/toast";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { Radius } from "@/constants/theme";
+import { useFormErrors } from "@/hooks/use-form-errors";
 import {
   PHONE_INPUT_MAX,
   isValidPhone,
@@ -51,16 +51,39 @@ export default function ResetPasswordScreen() {
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  /** 能落到具体字段的错误就地显示（红框 + 抖动），落不到的走页面级 FormError */
-  const [fieldError, setFieldError] = useState<{
-    field: FormField;
-    message: string;
-  } | null>(null);
-  const fe = (f: FormField) =>
-    fieldError?.field === f ? fieldError.message : null;
-  const fail = (field: FormField, message: string) =>
-    setFieldError({ field, message });
+  const cleanCode = normalizeSmsCode(code);
+  const form = useFormErrors([phone, code, password, confirm], () => {
+    if (!/^\d{6}$/.test(cleanCode))
+      return { key: "code", field: "code", message: t("auth.invalidCode") };
+    if (password !== confirm)
+      return {
+        key: "confirm",
+        field: "confirm",
+        message: t("auth.passwordMismatch"),
+      };
+    // 按码点数、与服务端同口径（表情 / 生僻字原来各算两个）
+    if (isPasswordTooShort(password))
+      return {
+        key: "short",
+        field: "password",
+        message: t("auth.passwordTooShort"),
+      };
+    // 上限按字节、与服务端同口径（超出时原来只回一句笼统的「输入格式不正确」）
+    if (isPasswordTooLong(password))
+      return {
+        key: "long",
+        field: "password",
+        message: t("auth.passwordTooLong"),
+      };
+    // 号码放在最后查：拿到验证码后又把号码改坏的，原来要等服务端回 400 才说「输入格式不正确」
+    if (!isValidPhone(normalizePhone(phone)))
+      return {
+        key: "phone",
+        field: "phone",
+        message: t("auth.invalidPhone"),
+      };
+    return null;
+  });
   const [busy, setBusy] = useState(false);
   // 重置成功：按钮先画勾（「已重置」），画完再提示并回登录页
   const [done, setDone] = useState(false);
@@ -69,44 +92,21 @@ export default function ResetPasswordScreen() {
   const sms = useSmsCode("reset_password", phone);
 
   const sendCode = async () => {
-    setError(null);
-    setFieldError(null);
+    form.clear();
     const cleanPhone = normalizePhone(phone);
     if (!isValidPhone(cleanPhone)) {
-      fail("phone", t("auth.invalidPhone"));
+      form.fail(t("auth.invalidPhone"), "phone");
       return;
     }
     try {
       await sms.send(cleanPhone);
     } catch (e) {
-      const field = errorField(e);
-      if (field) fail(field, toUserMessage(e));
-      else setError(toUserMessage(e));
+      form.fail(toUserMessage(e), errorField(e) ?? undefined);
     }
   };
 
   const submit = async () => {
-    setError(null);
-    setFieldError(null);
-    const cleanCode = normalizeSmsCode(code);
-    if (!/^\d{6}$/.test(cleanCode)) {
-      fail("code", t("auth.invalidCode"));
-      return;
-    }
-    if (password !== confirm) {
-      fail("confirm", t("auth.passwordMismatch"));
-      return;
-    }
-    // 按码点数、与服务端同口径（表情 / 生僻字原来各算两个）
-    if (isPasswordTooShort(password)) {
-      fail("password", t("auth.passwordTooShort"));
-      return;
-    }
-    // 上限按字节、与服务端同口径（超出时原来只回一句笼统的「输入格式不正确」）
-    if (isPasswordTooLong(password)) {
-      fail("password", t("auth.passwordTooLong"));
-      return;
-    }
+    if (!form.check()) return;
     const cleanPhone = normalizePhone(phone);
     setBusy(true);
     try {
@@ -119,9 +119,7 @@ export default function ResetPasswordScreen() {
       resetPhone.current = cleanPhone;
       setDone(true);
     } catch (e) {
-      const field = errorField(e);
-      if (field) fail(field, toUserMessage(e));
-      else setError(toUserMessage(e));
+      form.fail(toUserMessage(e), errorField(e) ?? undefined);
     } finally {
       setBusy(false);
     }
@@ -153,7 +151,7 @@ export default function ResetPasswordScreen() {
 
             <FormInput
               label={t("auth.phone")}
-              error={fe("phone")}
+              error={form.fieldError("phone")}
               icon="phone-portrait-outline"
               value={phone}
               onChangeText={setPhone}
@@ -167,7 +165,7 @@ export default function ResetPasswordScreen() {
               <View style={styles.flex}>
                 <FormInput
                   label={t("auth.smsCode")}
-                  error={fe("code")}
+                  error={form.fieldError("code")}
                   icon="chatbox-ellipses-outline"
                   value={code}
                   onChangeText={setCode}
@@ -210,7 +208,7 @@ export default function ResetPasswordScreen() {
             </View>
             <FormInput
               label={t("auth.newPassword")}
-              error={fe("password")}
+              error={form.fieldError("password")}
               icon="lock-closed-outline"
               value={password}
               onChangeText={setPassword}
@@ -221,7 +219,7 @@ export default function ResetPasswordScreen() {
             />
             <FormInput
               label={t("auth.confirmNewPassword")}
-              error={fe("confirm")}
+              error={form.fieldError("confirm")}
               icon="lock-closed-outline"
               value={confirm}
               onChangeText={setConfirm}
@@ -230,7 +228,7 @@ export default function ResetPasswordScreen() {
               autoComplete="new-password"
             />
 
-            <FormError message={error} />
+            <FormError message={form.pageError} />
             <PrimaryButton
               title={t("auth.resetPassword")}
               onPress={submit}

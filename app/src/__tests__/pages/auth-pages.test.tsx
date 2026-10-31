@@ -387,6 +387,45 @@ describe("登录页", () => {
     });
   });
 
+  it("错误跟着输入走：密码错的红框改密码或改号码就收；没填的红字填上就收，不提前跳到下一格", async () => {
+    useConsentStore.setState({ hydrated: true, privacyAccepted: true });
+    api.login.mockImplementationOnce(() =>
+      Promise.reject(apiError(400, "PASSWORD_INCORRECT")),
+    );
+    const r = render(<LoginScreen />);
+    r.type(P.phone, "13900000042");
+    r.type(P.pwd, "wrongpass");
+    r.press(tr("auth.login"));
+    await waitFor(() =>
+      expect(fieldErrors(r)).toEqual([
+        [tr("auth.password"), tr("error.passwordIncorrect")],
+      ]),
+    );
+    r.type(P.pwd, "wrongpass2");
+    expect(fieldErrors(r)).toEqual([]);
+    // 号码也算输入：服务端的错是对着那一组号码 + 密码说的
+    api.login.mockImplementationOnce(() =>
+      Promise.reject(apiError(400, "PASSWORD_INCORRECT")),
+    );
+    r.press(tr("auth.login"));
+    await waitFor(() => expect(fieldErrors(r)).toHaveLength(1));
+    r.type(P.phone, "13900000043");
+    expect(fieldErrors(r)).toEqual([]);
+    // 本地：号码少一位 → 填对就收；密码还空着，那一条要等再点登录才说
+    r.type(P.phone, "1390000004");
+    r.type(P.pwd, "");
+    r.press(tr("auth.login"));
+    expect(fieldErrors(r)).toEqual([
+      [tr("auth.phone"), tr("auth.invalidPhone")],
+    ]);
+    r.type(P.phone, "13900000042");
+    expect(fieldErrors(r)).toEqual([]);
+    r.press(tr("auth.login"));
+    expect(fieldErrors(r)).toEqual([
+      [tr("auth.password"), tr("auth.passwordRequired")],
+    ]);
+  });
+
   it("倒计时走完才登出的（O19-A）：说明后面多一句联系人多半已收到通知；普通被动登出没有这句", async () => {
     useAuthStore.setState({ sessionExpired: true, expiredDuringSos: true });
     const r = render(<LoginScreen />);
@@ -619,6 +658,80 @@ describe("注册页", () => {
     expect(api.register).not.toHaveBeenCalled();
   });
 
+  it("提交时也查手机号（拿到验证码后又把号码改坏）：落在手机号上，不发请求；排在密码等校验之后", () => {
+    const r = render(<RegisterScreen />);
+    tick(r);
+    fill(r, {
+      phone: "1390000004",
+      code: "123456",
+      pwd: "abcdefgh",
+      confirm: "abcdefgh",
+    });
+    r.press(tr("auth.registerAndLogin"));
+    expect(fieldErrors(r)).toEqual([
+      [tr("auth.phone"), tr("auth.invalidPhone")],
+    ]);
+    expect(api.register).not.toHaveBeenCalled();
+    fill(r, { phone: "13900000042" });
+    expect(fieldErrors(r)).toEqual([]);
+  });
+
+  it("没勾同意，其余全对也不发请求（合规）", () => {
+    const r = render(<RegisterScreen />);
+    fill(r, {
+      phone: "13900000042",
+      code: "123456",
+      pwd: "abcdefgh",
+      confirm: "abcdefgh",
+    });
+    r.press(tr("auth.registerAndLogin"));
+    expect(pageErrors(r)).toEqual([tr("auth.consentRequired")]);
+    expect(api.register).not.toHaveBeenCalled();
+    expect(accept).not.toHaveBeenCalled();
+  });
+
+  it("错误跟着输入走：验证码填对就收，不提前跳到「两次密码不一致」；发验证码的号码错改号码就收", () => {
+    const r = render(<RegisterScreen />);
+    r.press(tr("auth.getCode"));
+    expect(fieldErrors(r)).toEqual([
+      [tr("auth.phone"), tr("auth.invalidPhone")],
+    ]);
+    fill(r, { phone: "13900000042" });
+    expect(fieldErrors(r)).toEqual([]);
+    tick(r);
+    fill(r, { code: "12a", pwd: "abcdefgh", confirm: "abcdefgx" });
+    r.press(tr("auth.registerAndLogin"));
+    expect(fieldErrors(r)).toEqual([
+      [tr("auth.smsCode"), tr("auth.invalidCode")],
+    ]);
+    fill(r, { code: "123456" });
+    expect(fieldErrors(r)).toEqual([]);
+    r.press(tr("auth.registerAndLogin"));
+    expect(fieldErrors(r)).toEqual([
+      [tr("auth.confirmPassword"), tr("auth.passwordMismatch")],
+    ]);
+    fill(r, { confirm: "abcdefgh" });
+    expect(fieldErrors(r)).toEqual([]);
+  });
+
+  it("服务端说验证码错：改验证码就收", async () => {
+    api.register.mockImplementationOnce(() =>
+      Promise.reject(apiError(400, "SMS_CODE_INVALID")),
+    );
+    const r = render(<RegisterScreen />);
+    tick(r);
+    fill(r, {
+      phone: "13900000042",
+      code: "123456",
+      pwd: "abcdefgh",
+      confirm: "abcdefgh",
+    });
+    r.press(tr("auth.registerAndLogin"));
+    await waitFor(() => expect(fieldErrors(r)).toHaveLength(1));
+    fill(r, { code: "123457" });
+    expect(fieldErrors(r)).toEqual([]);
+  });
+
   it("注册即登录：昵称去空格后才带上；空昵称不带", async () => {
     api.register.mockImplementation(() => Promise.resolve(AUTH));
     const r = render(<RegisterScreen />);
@@ -782,6 +895,45 @@ describe("找回密码", () => {
     r.type(P.confirm, "abc");
     r.press(tr("auth.resetPassword"));
     expect(r.allText()).toContain(tr("auth.passwordTooShort"));
+  });
+
+  it("提交时也查手机号（拿到验证码后又把号码改坏）：落在手机号上，不发请求", () => {
+    const r = render(<ResetPasswordScreen />);
+    r.type(P.phone, "1390000004");
+    r.type(P.code, "654321");
+    r.type(P.pwd, "abcdefgh");
+    r.type(P.confirm, "abcdefgh");
+    r.press(tr("auth.resetPassword"));
+    expect(fieldErrors(r)).toEqual([
+      [tr("auth.phone"), tr("auth.invalidPhone")],
+    ]);
+    expect(api.resetPassword).not.toHaveBeenCalled();
+  });
+
+  it("错误跟着输入走：密码改够长就收，不提前跳到下一条；服务端的错改任一格就收", async () => {
+    const r = render(<ResetPasswordScreen />);
+    r.type(P.phone, "13900000042");
+    r.type(P.code, "654321");
+    r.type(P.pwd, "abc");
+    r.type(P.confirm, "abc");
+    r.press(tr("auth.resetPassword"));
+    expect(fieldErrors(r)).toEqual([
+      [tr("auth.newPassword"), tr("auth.passwordTooShort")],
+    ]);
+    r.type(P.pwd, "abcdefgh");
+    expect(fieldErrors(r)).toEqual([]);
+    r.press(tr("auth.resetPassword"));
+    expect(fieldErrors(r)).toEqual([
+      [tr("auth.confirmNewPassword"), tr("auth.passwordMismatch")],
+    ]);
+    r.type(P.confirm, "abcdefgh");
+    api.resetPassword.mockImplementationOnce(() =>
+      Promise.reject(apiError(404, "PHONE_NOT_REGISTERED")),
+    );
+    r.press(tr("auth.resetPassword"));
+    await waitFor(() => expect(fieldErrors(r)).toHaveLength(1));
+    r.type(P.phone, "13900000043");
+    expect(fieldErrors(r)).toEqual([]);
   });
 
   it("自动填充提示：验证码框认短信验证码、新密码框是新密码；密码长度按字数算", () => {
