@@ -104,6 +104,7 @@ export default function AddContactScreen() {
         <ScrollView
           contentContainerStyle={styles.container}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         >
           <FormInput
             label={t("contacts.name")}

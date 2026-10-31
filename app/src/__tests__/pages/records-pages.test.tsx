@@ -10,7 +10,7 @@ import {
 } from "@jest/globals";
 import { QueryClientProvider } from "@tanstack/react-query";
 import type { AccidentDetail, EmergencyContact } from "@helmet/shared";
-import { Alert, Platform, Share, Switch, Text } from "react-native";
+import { Alert, Platform, ScrollView, Share, Switch, Text } from "react-native";
 import { act } from "react-test-renderer";
 import { mockRouter, routerState } from "@/__tests__/helpers/native-mocks";
 import {
@@ -375,6 +375,13 @@ describe("添加紧急联系人", () => {
       .findAllByType(Text)
       .filter((t) => flat(t.props.style).color === dark.danger)
       .map((t) => t.props.children);
+
+  it("拖动表单时收键盘（与登录三页、账号三页一致）", () => {
+    const r = mount(<AddContactScreen />);
+    expect(r.root.findByType(ScrollView).props.keyboardDismissMode).toBe(
+      "on-drag",
+    );
+  });
 
   it("姓名和号码必填；号码规整后仍不合法就拦下", () => {
     const r = mount(<AddContactScreen />);
