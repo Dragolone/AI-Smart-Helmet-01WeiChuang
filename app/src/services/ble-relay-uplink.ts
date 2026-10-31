@@ -33,6 +33,12 @@ const CRITICAL_HOLD_MS = 90_000;
 const PERIODIC_HOLD_INTERVAL_MS = 5 * 60_000;
 const PERIODIC_HOLD_MS = 20_000;
 let lastFlushOkAt = Date.now();
+/**
+ * 最近一个补偿窗口开始的时刻；null = 开窗之后已经传成功（或还没开过）。没信号时 lastFlushOkAt 一直不更新，
+ * 原来每个位置包都续一次 20 s 锁，整个无信号期 CPU 都不能休眠：现在一个窗口只拿一次锁，窗口里逐事件重试
+ * （深睡刚醒的第一个 HTTPS 常失败、几秒后重试才成），用完仍失败就放锁，5 分钟后开下一窗
+ */
+let periodicWindowAt: number | null = null;
 /** Contract 硬上限（API.md §12.1） */
 const MAX_BATCH = 100;
 /**
@@ -222,17 +228,12 @@ export function enqueueRelayEvent(envelope: Envelope): void {
   if (CRITICAL_TYPES.has(envelope.eventType))
     HelmetLinkService.holdNetwork(CRITICAL_HOLD_MS);
   // 深睡里 JS 定时器不走（华为实测 15 min 零 flush），但 BLE 事件到达时 JS 一定在跑：
-  // 借每 5 s 一次的位置包做「距上次成功上传 >5 min 就持锁冲一次」的触发点，不依赖 setInterval
+  // 借每 5 s 一次的位置包做「距上次成功上传 >5 min 就开窗持锁冲一次」的触发点，不依赖 setInterval
   // 队列里还有高危事件（上一次上传失败，例如深睡刚醒时的 SSL 读错误）也要借这次事件立刻重试，
   // 不能等 5 min 的周期窗口——实测一次失败后保命事件被拖到下个窗口
   const criticalPending = queue.some((e) => CRITICAL_TYPES.has(e.eventType));
-  if (
-    !flushing &&
-    (criticalPending || Date.now() - lastFlushOkAt > PERIODIC_HOLD_INTERVAL_MS)
-  ) {
-    HelmetLinkService.holdNetwork(
-      criticalPending ? CRITICAL_HOLD_MS : PERIODIC_HOLD_MS,
-    );
+  if (!flushing && (criticalPending || periodicWindowOpen())) {
+    if (criticalPending) HelmetLinkService.holdNetwork(CRITICAL_HOLD_MS);
     void flushRelayQueue();
   }
   if (queue.length > QUEUE_MAX) {
@@ -280,6 +281,29 @@ function releaseNetworkIfIdle(): void {
   HelmetLinkService.releaseNetwork();
 }
 
+/**
+ * 周期事件这会儿该不该持锁上传。只给队列里没有高危事件时用：有高危走自己的 90 s 锁，不受窗口限制。
+ * 时钟往回拨过就把基准拉回现在：减出负数会一直算「不到 5 分钟」，开过的窗也会一直算「还没用完」
+ */
+function periodicWindowOpen(): boolean {
+  const now = Date.now();
+  if (now < lastFlushOkAt) lastFlushOkAt = now;
+  if (periodicWindowAt !== null && now < periodicWindowAt)
+    periodicWindowAt = null;
+  if (now - lastFlushOkAt <= PERIODIC_HOLD_INTERVAL_MS) return false;
+  const sinceOpen =
+    periodicWindowAt === null ? Infinity : now - periodicWindowAt;
+  if (sinceOpen < PERIODIC_HOLD_MS) return true;
+  if (sinceOpen >= PERIODIC_HOLD_MS + PERIODIC_HOLD_INTERVAL_MS) {
+    periodicWindowAt = now;
+    HelmetLinkService.holdNetwork(PERIODIC_HOLD_MS);
+    return true;
+  }
+  // 窗口用完了：CPU 锁已到时自己放，Wi-Fi 锁原生没有时限，不放就一直开到下次传成功
+  releaseNetworkIfIdle();
+  return false;
+}
+
 /** 高危事件（摔倒 / 求救）被服务端接受后的回调：由 use-realtime 接到「核对进行中的 SOS 并拉起倒计时页」 */
 // 返回 Promise 时（补拉进行中的求救）上行队列等它跑完再放网络锁；别的返回值不管
 let criticalAcceptedHandler: ((deviceId: string) => unknown) | null = null;
@@ -319,7 +343,9 @@ export async function flushRelayQueue(): Promise<void> {
     return;
   }
   flushing = true;
-  if (Date.now() - lastFlushOkAt > PERIODIC_HOLD_INTERVAL_MS) {
+  // 队里有高危时不走窗口：那次锁还在就不会被缩短（holdNetwork 只延长），到时了这里再续上
+  if (!queue.some((e) => CRITICAL_TYPES.has(e.eventType))) periodicWindowOpen();
+  else if (Date.now() - lastFlushOkAt > PERIODIC_HOLD_INTERVAL_MS) {
     HelmetLinkService.holdNetwork(PERIODIC_HOLD_MS);
   }
   const ownerAtStart = owner;
@@ -364,6 +390,7 @@ export async function flushRelayQueue(): Promise<void> {
       const sent = new Set(batch);
       queue = queue.filter((e) => !sent.has(e));
       lastFlushOkAt = Date.now();
+      periodicWindowAt = null;
       // 这一批是满的 = 积压至少还有一批：不等 5 秒的定时器，接着冲下一批，积压不足一批再回到 5 秒一轮
       //（原来 1000 条要 50 秒才传完，优化清单 7）。失败不连发（留给下一轮）；不满的批也不连发——头盔一秒十几个点时，
       // 「有就接着发」会变成每个请求一回来就再发一两条，比 5 秒一批的请求还多

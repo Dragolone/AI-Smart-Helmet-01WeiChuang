@@ -881,6 +881,165 @@ describe("深睡持锁（Android holdNetwork / releaseNetwork）", () => {
     await up.flushRelayQueue();
     expect(push).toHaveBeenCalledTimes(1);
   });
+
+  // 2026-10-31：没信号时 lastFlushOkAt 一直不更新，原来每个位置包都续一次 20 s 锁，整段无信号期 CPU 不能休眠
+  describe("没信号时的周期补偿窗口", () => {
+    const min5 = 5 * 60_000;
+    const t0 = 1_800_000_000_000;
+    /** 超 5 分钟没成功、推送一直失败，第一个位置包把窗口打开的时刻 */
+    const open = t0 + min5 + 1;
+    const offline = () => {
+      const now = jest.spyOn(Date, "now");
+      now.mockReturnValue(t0);
+      const { up, push } = load();
+      push.mockRejectedValue(new Error("offline"));
+      now.mockReturnValue(open);
+      return { now, up, push };
+    };
+
+    it("失败后不再逐包续锁：整个窗口只拿一次 20 s 锁，窗口内每个位置包都重试", async () => {
+      const { now, up, push } = offline();
+      for (const dt of [0, 5_000, 10_000, 15_000]) {
+        now.mockReturnValue(open + dt);
+        up.enqueueRelayEvent(env("location_update"));
+        await tick();
+      }
+      expect(mockHold.mock.calls).toEqual([[20_000]]);
+      expect(push).toHaveBeenCalledTimes(4);
+    });
+
+    it("深睡刚醒首发失败、窗口内重试成功：放锁，且从成功那一刻重新算 5 分钟", async () => {
+      const { now, up, push } = offline();
+      up.enqueueRelayEvent(env("location_update"));
+      await tick();
+      expect(mockRelease).not.toHaveBeenCalled();
+      push.mockResolvedValue({ accepted: 2, duplicate: 0, invalid: 0 });
+      now.mockReturnValue(open + 5_000);
+      up.enqueueRelayEvent(env("location_update"));
+      await tick();
+      expect(push).toHaveBeenCalledTimes(2);
+      expect(mockRelease).toHaveBeenCalledTimes(1);
+      mockHold.mockClear();
+      push.mockClear();
+      now.mockReturnValue(open + 5_000 + min5);
+      up.enqueueRelayEvent(env("location_update"));
+      await tick();
+      expect(mockHold).not.toHaveBeenCalled();
+      expect(push).not.toHaveBeenCalled();
+      // 窗口是成功后重新算的，不用等上一个窗口的 5 分 20 秒
+      now.mockReturnValue(open + 5_000 + min5 + 1);
+      up.enqueueRelayEvent(env("location_update"));
+      expect(mockHold).toHaveBeenCalledWith(20_000);
+      await tick();
+      expect(push).toHaveBeenCalledTimes(1);
+    });
+
+    it("窗口用完仍失败：不再提交也不再拿锁，放掉没有时限的 Wi-Fi 锁；再过 5 分钟开下一窗", async () => {
+      const { now, up, push } = offline();
+      up.enqueueRelayEvent(env("location_update"));
+      await tick();
+      expect(mockRelease).not.toHaveBeenCalled();
+      mockHold.mockClear();
+      push.mockClear();
+      for (const dt of [20_000, 25_000, 20_000 + min5 - 1]) {
+        now.mockReturnValue(open + dt);
+        up.enqueueRelayEvent(env("location_update"));
+        await tick();
+      }
+      expect(mockHold).not.toHaveBeenCalled();
+      expect(push).not.toHaveBeenCalled();
+      expect(mockRelease).toHaveBeenCalled();
+      now.mockReturnValue(open + 20_000 + min5);
+      up.enqueueRelayEvent(env("location_update"));
+      expect(mockHold.mock.calls).toEqual([[20_000]]);
+      await tick();
+      expect(push).toHaveBeenCalledTimes(1);
+    });
+
+    it("定时 flush 也不续锁：窗口内重试不拿锁，窗口外照常提交（屏幕亮着时定时器还在走）但不拿锁", async () => {
+      const { now, up, push } = offline();
+      up.enqueueRelayEvent(env("location_update"));
+      await tick();
+      now.mockReturnValue(open + 10_000);
+      await up.flushRelayQueue();
+      now.mockReturnValue(open + 30_000);
+      await up.flushRelayQueue();
+      expect(mockHold.mock.calls).toEqual([[20_000]]);
+      expect(push).toHaveBeenCalledTimes(3);
+    });
+
+    it("定时 flush 也能开窗：窗口外满 5 分钟后定时器先走到，同样只拿一次锁，之后的位置包不重复开窗", async () => {
+      const { now, up } = offline();
+      up.enqueueRelayEvent(env("location_update"));
+      await tick();
+      mockHold.mockClear();
+      now.mockReturnValue(open + 20_000 + min5);
+      await up.flushRelayQueue();
+      expect(mockHold.mock.calls).toEqual([[20_000]]);
+      now.mockReturnValue(open + 20_000 + min5 + 5_000);
+      up.enqueueRelayEvent(env("location_update"));
+      await tick();
+      expect(mockHold.mock.calls).toEqual([[20_000]]);
+    });
+
+    it("高危不受窗口限制：窗口外到的摔倒当场拿 90 s 锁立刻提交，失败后下一个位置包再拿 90 s 锁重试，Wi-Fi 锁不放", async () => {
+      const { now, up, push } = offline();
+      up.enqueueRelayEvent(env("location_update"));
+      await tick();
+      mockHold.mockClear();
+      mockRelease.mockClear();
+      push.mockClear();
+      now.mockReturnValue(open + 60_000);
+      const fall = env("possible_fall");
+      up.enqueueRelayEvent(fall);
+      expect(mockHold).toHaveBeenCalledWith(90_000);
+      await tick();
+      expect(push).toHaveBeenCalledTimes(1);
+      expect(sentIds(push)[0][0]).toBe(fall.eventId);
+      mockHold.mockClear();
+      now.mockReturnValue(open + 65_000);
+      up.enqueueRelayEvent(env("location_update"));
+      expect(mockHold).toHaveBeenCalledWith(90_000);
+      await tick();
+      expect(push).toHaveBeenCalledTimes(2);
+      expect(sentIds(push)[1][0]).toBe(fall.eventId);
+      expect(mockRelease).not.toHaveBeenCalled();
+    });
+
+    it("开窗之后时钟往回拨：窗口不会一直算「还没用完」，满 5 分钟能开下一窗", async () => {
+      const { now, up, push } = offline();
+      up.enqueueRelayEvent(env("location_update"));
+      await tick();
+      mockHold.mockClear();
+      push.mockClear();
+      // 回拨到开窗之前、但还在上次成功之后
+      now.mockReturnValue(t0 + 60_000);
+      up.enqueueRelayEvent(env("location_update"));
+      await tick();
+      expect(mockHold).not.toHaveBeenCalled();
+      expect(push).not.toHaveBeenCalled();
+      now.mockReturnValue(open);
+      up.enqueueRelayEvent(env("location_update"));
+      expect(mockHold.mock.calls).toEqual([[20_000]]);
+      await tick();
+      expect(push).toHaveBeenCalledTimes(1);
+    });
+
+    it("时钟往回拨到上次成功之前：基准拉回现在，5 分钟后能开窗，不用等到钟走回去", async () => {
+      const { now, up, push } = offline();
+      const back = t0 - 24 * 3600_000;
+      now.mockReturnValue(back);
+      up.enqueueRelayEvent(env("location_update"));
+      await tick();
+      expect(mockHold).not.toHaveBeenCalled();
+      expect(push).not.toHaveBeenCalled();
+      now.mockReturnValue(back + min5 + 1);
+      up.enqueueRelayEvent(env("location_update"));
+      expect(mockHold.mock.calls).toEqual([[20_000]]);
+      await tick();
+      expect(push).toHaveBeenCalledTimes(1);
+    });
+  });
 });
 
 // 注销账号之后（account/delete，2026-10-17）：这个账号分区的积压再也送不出去（头盔已全部解绑），
