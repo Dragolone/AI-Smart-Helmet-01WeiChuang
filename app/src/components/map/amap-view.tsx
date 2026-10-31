@@ -332,9 +332,11 @@ try {
     post({ type: 'ready' });
     if (++readyTries >= 6) clearInterval(readyTimer);
   }, 700);
-  // iOS WKWebView 偶发初始化期样式配置未生效（Android 正常）：complete 后与延时各补设一次
+  // iOS WKWebView 偶发初始化期样式配置未生效：complete 后与延时各补设一次。
+  // 只补 iOS：Android 初始化时就生效，而同样式再设一次不是空操作——高德重拉样式和瓦片、整图重画
+  //（10-31 高德官方 demo + 桌面 Chromium：两次补设让瓦片 16→32 张、最后一次绘制约 1.5 s→3.3 s）
   map.on('complete', function () {
-    map.setMapStyle(MAP_STYLE);
+    if (IOS) map.setMapStyle(MAP_STYLE);
     ensureDim();
     post({ type: 'ready' });
   });
@@ -351,7 +353,7 @@ try {
   function userZoom() { if (Date.now() - lastTouchAt < 600) post({ type: 'userzoom' }); }
   map.on('zoomstart', userZoom);
   map.on('rotatestart', userZoom);
-  setTimeout(function () { map.setMapStyle(MAP_STYLE); ensureDim(); }, 2500);
+  setTimeout(function () { if (IOS) map.setMapStyle(MAP_STYLE); ensureDim(); }, 2500);
   ensureDim();
 
   window.__cmd = function (cmd) {
