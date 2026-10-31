@@ -360,6 +360,7 @@ let backHandler: (() => boolean) | null;
 let backSpy: ReturnType<typeof jest.spyOn>;
 let appSpy: ReturnType<typeof jest.spyOn>;
 let appListener: ((s: string) => void) | null;
+let appStateDesc: PropertyDescriptor | undefined;
 let springSpy: ReturnType<typeof jest.spyOn>;
 
 beforeEach(() => {
@@ -416,6 +417,12 @@ beforeEach(() => {
         reset: jest.fn(),
       }) as never,
   );
+  // jest 里 AppState.currentState 不是 active：默认按 App 在前台来（地图页看得见时才干活）
+  appStateDesc = Object.getOwnPropertyDescriptor(AppState, "currentState");
+  Object.defineProperty(AppState, "currentState", {
+    value: "active",
+    configurable: true,
+  });
   appSpy = jest
     .spyOn(AppState, "addEventListener")
     .mockImplementation((_e, l) => {
@@ -426,9 +433,190 @@ beforeEach(() => {
 afterEach(() => {
   backSpy.mockRestore();
   appSpy.mockRestore();
+  if (appStateDesc)
+    Object.defineProperty(AppState, "currentState", appStateDesc);
+  else delete (AppState as { currentState?: unknown }).currentState;
   springSpy.mockRestore();
   jest.clearAllMocks();
   jest.useRealTimers();
+});
+
+describe("地图页看不见时不干活", () => {
+  const KEY = ["device-location", "h1"];
+  const point = (latitude: number) => loc({ latitude });
+  const hide = (r: Rendered, qc: QueryClient) => {
+    routerState.focused = false;
+    r.rerender(screenOf(qc));
+  };
+  const show = (r: Rendered, qc: QueryClient) => {
+    routerState.focused = true;
+    r.rerender(screenOf(qc));
+  };
+  /** 实时通道写一个新定位点（use-realtime 就是这样写缓存的） */
+  const wsPoint = (qc: QueryClient, latitude: number) =>
+    act(() => {
+      qc.setQueryData(KEY, point(latitude));
+    });
+  /** 最近一次把头盔放在了哪个纬度 */
+  const lastHelmetLat = () =>
+    (m(mockMap.setHelmet).mock.calls.at(-1)![0] as { latitude: number })
+      .latitude;
+  const mountVisible = async () => {
+    const qc = makeQueryClient();
+    const r = await mount(qc);
+    await waitFor(() => expect(mockMap.setHelmet).toHaveBeenCalled());
+    return { qc, r };
+  };
+
+  it("切到别的标签：定位不注入地图、不重渲染；缓存照写（换头盔提醒读这一份）", async () => {
+    mockRides.recent = [ride(9, { ongoing: true })];
+    mockRides.track = [loc({ latitude: 22.5 }), loc({ latitude: 22.51 })];
+    const { qc, r } = await mountVisible();
+    hide(r, qc);
+    jest.clearAllMocks();
+    const propsBefore = mockMapProps.current;
+    wsPoint(qc, 23.1);
+    wsPoint(qc, 23.2);
+    await act(async () => {
+      await new Promise((res) => setTimeout(res, 0));
+    });
+    expect(mockMap.setHelmet).not.toHaveBeenCalled();
+    expect(mockMap.setTrackTip).not.toHaveBeenCalled();
+    expect(mockMap.setTrack).not.toHaveBeenCalled();
+    // AmapView 的 onReady 闭包跟着位置变：地图页重渲染过的话，这份 props 就换了
+    expect(mockMapProps.current).toBe(propsBefore);
+    expect(qc.getQueryData<LocationPoint>(KEY)?.latitude).toBe(23.2);
+    // 别的原因让这一页重渲染了（设备列表刷新之类）：渲染拿到了新的点和新的线，也不往地图推
+    mockRides.track = [loc({ latitude: 22.5 }), loc({ latitude: 22.52 })];
+    r.rerender(screenOf(qc));
+    expect(mockMapProps.current).not.toBe(propsBefore);
+    expect(mockMap.setHelmet).not.toHaveBeenCalled();
+    expect(mockMap.setTrackTip).not.toHaveBeenCalled();
+    expect(mockMap.setTrack).not.toHaveBeenCalled();
+  });
+
+  it("切回来：把隐藏期间最新的点补上（头盔、线头、线），不用等下一个定位", async () => {
+    mockRides.recent = [ride(9, { ongoing: true })];
+    mockRides.track = [loc({ latitude: 22.5 }), loc({ latitude: 22.51 })];
+    const { qc, r } = await mountVisible();
+    hide(r, qc);
+    wsPoint(qc, 23.1);
+    wsPoint(qc, 23.2);
+    jest.clearAllMocks();
+    show(r, qc);
+    expect(mockMap.setHelmet).toHaveBeenCalledTimes(1);
+    expect(mockMap.setHelmet).toHaveBeenCalledWith(
+      expect.objectContaining({ latitude: expect.any(Number) }),
+      { follow: true },
+    );
+    expect(lastHelmetLat()).toBeCloseTo(23.2, 1);
+    expect(mockMap.setTrackTip).toHaveBeenCalledTimes(1);
+    expect(mockMap.setTrack).toHaveBeenCalledTimes(1);
+    // 回到可见后新的点照常推
+    jest.clearAllMocks();
+    wsPoint(qc, 23.3);
+    await waitFor(() => expect(mockMap.setHelmet).toHaveBeenCalledTimes(1));
+    expect(lastHelmetLat()).toBeCloseTo(23.3, 1);
+  });
+
+  it("一直没打开过地图页：第一个点放上地图（打开时位置已就位），后面的点不再推", async () => {
+    routerState.focused = false;
+    const qc = makeQueryClient();
+    await mount(qc);
+    await waitFor(() => expect(mockMap.setHelmet).toHaveBeenCalledTimes(1));
+    expect(mockMap.setHelmet).toHaveBeenCalledWith(expect.any(Object), {
+      follow: true,
+    });
+    const propsBefore = mockMapProps.current;
+    jest.clearAllMocks();
+    wsPoint(qc, 23.1);
+    await act(async () => {
+      await new Promise((res) => setTimeout(res, 0));
+    });
+    expect(mockMap.setHelmet).not.toHaveBeenCalled();
+    expect(mockMapProps.current).toBe(propsBefore);
+  });
+
+  it("隐藏时第一个点是后来才到的（接口还没回、WS 先推）：一到就放上地图", async () => {
+    routerState.focused = false;
+    m(devicesApi.latestLocation).mockImplementation(() =>
+      Promise.resolve({ location: null }),
+    );
+    const qc = makeQueryClient();
+    await mount(qc);
+    await waitFor(() => expect(mockMap.hideHelmet).toHaveBeenCalled());
+    expect(mockMap.setHelmet).not.toHaveBeenCalled();
+    wsPoint(qc, 23.1);
+    await waitFor(() => expect(mockMap.setHelmet).toHaveBeenCalledTimes(1));
+    expect(lastHelmetLat()).toBeCloseTo(23.1, 1);
+    wsPoint(qc, 23.2);
+    await act(async () => {
+      await new Promise((res) => setTimeout(res, 0));
+    });
+    expect(mockMap.setHelmet).toHaveBeenCalledTimes(1);
+  });
+
+  it("停在地图页锁屏：同样不推不重渲染；回到前台补上最新的点", async () => {
+    const { qc } = await mountVisible();
+    act(() => appListener!("background"));
+    jest.clearAllMocks();
+    const propsBefore = mockMapProps.current;
+    wsPoint(qc, 23.1);
+    await act(async () => {
+      await new Promise((res) => setTimeout(res, 0));
+    });
+    expect(mockMap.setHelmet).not.toHaveBeenCalled();
+    expect(mockMapProps.current).toBe(propsBefore);
+    act(() => appListener!("active"));
+    expect(mockMap.setHelmet).toHaveBeenCalledTimes(1);
+    expect(lastHelmetLat()).toBeCloseTo(23.1, 1);
+  });
+
+  it("隐藏时不轮询位置，切回来补拉一次、恢复轮询", async () => {
+    const { qc, r } = await mountVisible();
+    const observer = () =>
+      qc.getQueryCache().find({ queryKey: KEY })!.observers[0];
+    expect(observer().options.refetchInterval).toBe(30_000);
+    hide(r, qc);
+    // setOptions 在 effect 里：hide 的 rerender 已经包在 act 里
+    expect(observer().options.refetchInterval).toBe(false);
+    m(devicesApi.latestLocation).mockClear();
+    // 隐藏期间最后一个点是 5 秒前（超过「2 秒内刚拉过」的间隔）
+    act(() => {
+      qc.setQueryData(KEY, point(23.1), { updatedAt: Date.now() - 5000 });
+    });
+    show(r, qc);
+    expect(observer().options.refetchInterval).toBe(30_000);
+    await waitFor(() =>
+      expect(devicesApi.latestLocation).toHaveBeenCalledTimes(1),
+    );
+  });
+
+  it("隐藏时、锁屏时 10 秒时钟都停，回来再走", async () => {
+    const setSpy = jest.spyOn(global, "setInterval");
+    const clearSpy = jest.spyOn(global, "clearInterval");
+    const clocks = () =>
+      setSpy.mock.calls.filter((c) => c[1] === 10_000).length;
+    const { qc, r } = await mountVisible();
+    expect(clocks()).toBe(1);
+
+    clearSpy.mockClear();
+    hide(r, qc);
+    expect(clearSpy).toHaveBeenCalled();
+    setSpy.mockClear();
+    show(r, qc);
+    expect(clocks()).toBe(1);
+
+    clearSpy.mockClear();
+    act(() => appListener!("background"));
+    expect(clearSpy).toHaveBeenCalled();
+    setSpy.mockClear();
+    act(() => appListener!("active"));
+    expect(clocks()).toBe(1);
+
+    setSpy.mockRestore();
+    clearSpy.mockRestore();
+  });
 });
 
 describe("没有头盔", () => {
