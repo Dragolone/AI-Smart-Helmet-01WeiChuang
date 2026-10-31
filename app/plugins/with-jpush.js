@@ -157,6 +157,34 @@ function applyProjectBuildGradleHuawei(contents, { agpVersion }) {
   return next;
 }
 
+/**
+ * 钉住两个写成动态版本的安卓 SDK。TRTC 的 build.gradle 写 13.4.+，jpush 6.2.0 的 POM 写 jcore [1.0.0,)：
+ * 仓库一发新版，CI 冷构建就可能拿到没测过的版本，而极光是保命推送。版本取的是实际打进 APK 的（`:app:dependencies` 查实）。
+ * jcore 在 APK 里本来跟着 jcore-react-native 写死的 5.5.0，但 jpush-react-native 自己的编译路径上没有这条，会飘到仓库最新（当时 5.6.0），
+ * force 之后编译和运行是同一版。升级这两个库时要同步改这里（单测会提醒）。
+ */
+const PINNED_ANDROID_SDKS = [
+  "cn.jiguang.sdk:jcore:5.5.0",
+  "com.tencent.liteav:LiteAVSDK_Professional:13.4.0.20477",
+];
+
+/** 项目级 build.gradle：allprojects 里给所有 configuration 加 resolutionStrategy.force */
+function applyProjectBuildGradlePins(contents) {
+  const forced = PINNED_ANDROID_SDKS.map((dep) => `'${dep}'`).join(", ");
+  try {
+    return mergeContents({
+      src: contents,
+      newSrc: `  configurations.configureEach { resolutionStrategy.force ${forced} }`,
+      tag: `${PLUGIN_NAME}-pin-sdk-versions`,
+      anchor: /^allprojects \{\s*$/m,
+      offset: 1,
+      comment: "//",
+    }).contents;
+  } catch (e) {
+    throw new Error(`[${PLUGIN_NAME}] android/build.gradle 锚点失效：allprojects（Expo 模板变了，请更新插件；${e.message}）`);
+  }
+}
+
 /** 应用级 build.gradle：apply AGC 插件 + 极光华为插件 + HMS Push 依赖 */
 function applyAppBuildGradleHuawei(contents) {
   const tag = `${PLUGIN_NAME}-huawei-app`;
@@ -401,6 +429,7 @@ const withJPush = (config) => {
     return c;
   });
   config = withProjectBuildGradle(config, (c) => {
+    c.modResults.contents = applyProjectBuildGradlePins(c.modResults.contents);
     if (huaweiEnabled(c.modRequest.projectRoot)) {
       c.modResults.contents = applyProjectBuildGradleHuawei(c.modResults.contents, {
         agpVersion: readAgpVersion(c.modRequest.projectRoot),
@@ -453,6 +482,8 @@ module.exports = createRunOncePlugin(withJPush, PLUGIN_NAME, "1.0.0");
 module.exports.applyAppBuildGradle = applyAppBuildGradle;
 module.exports.applyAppBuildGradleHuawei = applyAppBuildGradleHuawei;
 module.exports.applyProjectBuildGradleHuawei = applyProjectBuildGradleHuawei;
+module.exports.applyProjectBuildGradlePins = applyProjectBuildGradlePins;
+module.exports.PINNED_ANDROID_SDKS = PINNED_ANDROID_SDKS;
 module.exports.readAgpVersion = readAgpVersion;
 module.exports.applyAppBuildGradleXiaomi = applyAppBuildGradleXiaomi;
 module.exports.JPUSH_VENDOR_PLUGIN_VERSION = JPUSH_VENDOR_PLUGIN_VERSION;
