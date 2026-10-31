@@ -141,8 +141,8 @@ export default function DeviceDetailScreen() {
   const volumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // BLE 近场链路状态（services/ble-link 写入 store；本页只显示，不做连接判断）
-  // 只订阅本页用到的字段：整条 link 每来一帧都会变（lastFrameAt / eventsReceived），
-  // 订阅它等于每帧把整页重画一遍
+  // 只订阅本页用到的字段：整条 link 每来一条事件都会变（eventsReceived），
+  // 订阅它等于每条事件把整页重画一遍
   const blePhase = useBleStore((st) => st.links[deviceId]?.phase);
   const bleAdapter = useBleStore((st) => st.adapter);
   const bleRow = bleRowOf(bleAdapter, blePhase);

@@ -15,7 +15,6 @@ import {
 import {
   CHAR_NOTIFY_UUID,
   CHAR_WRITE_UUID,
-  HIGH_RISK_CODES,
   Ins,
   REQUEST_MTU,
   Reg,
@@ -564,6 +563,3 @@ export async function shareLog(): Promise<void> {
     // 用户取消分享
   }
 }
-
-/** 高危事件码集合（页面按钮着色用） */
-export const HIGH_RISK = HIGH_RISK_CODES;

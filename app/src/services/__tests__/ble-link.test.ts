@@ -384,7 +384,6 @@ describe("握手", () => {
     helmet.deviceId = "helmet_other1";
     await connectHelmet();
     expect(link()?.phase).toBe("error");
-    expect(link()?.errorCode).toBe("DEVICE_ID_MISMATCH");
     expect(helmet.cancelled).toBeGreaterThan(0);
     expect(isHelmetConnected("helmet_94173f")).toBe(false);
     // 手动重试后解除封锁，可再次发现
@@ -415,7 +414,6 @@ describe("握手", () => {
     );
     await connectHelmet();
     expect(link()?.phase).toBe("connected");
-    expect(link()?.resent).toBe(2);
     expect(helmet.acks).toEqual([
       "06 01 10 00 00 00 00",
       "06 01 11 00 00 00 00",
@@ -637,7 +635,6 @@ describe("2026-10-05 评审：握手读 deviceId 失败 ≠ 身份不符", () =>
     // 握手失败后立刻回到扫描（没被拉黑——拉黑的设备不在扫描目标里，不会有第二次扫描）
     expect(mockScans).toHaveLength(2);
     expect(link()?.phase).toBe("scanning");
-    expect(link()?.errorCode).toBeUndefined();
     expect(helmet.cancelled).toBeGreaterThan(0);
     // 这次头盔正常了就能连上
     helmet.idError = 0;
@@ -1577,7 +1574,6 @@ describe("补分支（2026-10-19）", () => {
       scanCb?.(null, nameless("periph-9", [FEE0_UUID]));
       await until(() => mockScans.length >= 2);
       expect(link()?.phase).toBe("scanning");
-      expect(link()?.errorCode).toBeUndefined();
       expect(fakeDevice.connect).toHaveBeenCalledTimes(1);
 
       scanCb?.(null, nameless("periph-9", [FEE0_UUID]));
@@ -1842,7 +1838,6 @@ describe("补分支（2026-10-19）", () => {
       expect(helmet.cancelled).toBeGreaterThan(0);
       expect(isHelmetConnected(ID)).toBe(false);
       expect(link()?.phase).toBe("scanning");
-      expect(link()?.errorCode).toBeUndefined();
       expect(logged("3000ms 无应答")).toBe(true);
     });
 
@@ -1870,7 +1865,6 @@ describe("补分支（2026-10-19）", () => {
       scanCb?.(null, fakeDevice);
       await until(() => mockScans.length >= 2);
       expect(link()?.phase).toBe("scanning");
-      expect(link()?.errorCode).toBeUndefined();
       expect(logged("读 deviceId 失败：error=0x20")).toBe(true);
     });
 
@@ -1953,7 +1947,6 @@ describe("补分支（2026-10-19）", () => {
       await connectHelmet();
       expect(link()?.phase).toBe("connected");
       expect(helmet.writes.filter((w) => w.startsWith("08 "))).toHaveLength(1);
-      expect(link()?.resent).toBe(0);
       expect(flushMock).not.toHaveBeenCalled();
     });
 
@@ -1983,7 +1976,6 @@ describe("补分支（2026-10-19）", () => {
         if (logged("握手期间会话已关闭，不登记")) {
           hitGap = true;
           expect(logged("已连接，固件")).toBe(false);
-          expect(link()?.connectedAt).toBeUndefined();
         }
         stopBleLink();
         await bleStackReleased();
@@ -2029,9 +2021,7 @@ describe("补分支（2026-10-19）", () => {
 
     it("空通知（0 字节）：不当一帧处理", async () => {
       await connectHelmet();
-      useBleStore.getState().patchLink(ID, { lastFrameAt: 1 });
       helmet.notify?.(null, { value: "" });
-      expect(link()?.lastFrameAt).toBe(1);
       expect(logged("无法解析的帧")).toBe(false);
     });
 
@@ -2160,7 +2150,6 @@ describe("补分支（2026-10-19）", () => {
       failConnect(new Error("Operation was cancelled"));
       await jest.advanceTimersByTimeAsync(60_000);
       expect(link()?.phase).toBe("idle");
-      expect(link()?.errorCode).toBeUndefined();
       expect(mockScans).toHaveLength(1);
     });
 

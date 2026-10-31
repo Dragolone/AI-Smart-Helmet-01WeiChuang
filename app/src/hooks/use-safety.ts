@@ -78,8 +78,8 @@ export function useHelmets() {
 }
 
 /**
- * 各头盔的连接结论。BLE store 里整条 link 每来一帧都会变（lastFrameAt / eventsReceived），
- * 这里只订阅各台的 phase 拼成的字符串，帧到达不会让页面重画。
+ * 各头盔的连接结论。BLE store 里整条 link 每来一条事件都会变（eventsReceived），
+ * 这里只订阅各台的 phase 拼成的字符串，事件到达不会让页面重画。
  */
 export function useHelmetLinks(
   devices: readonly DevicePublic[],

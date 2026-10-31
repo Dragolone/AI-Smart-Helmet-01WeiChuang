@@ -448,8 +448,8 @@ describe("useHelmetLinks：几顶头盔各自的连接结论", () => {
     useBleStore.setState({
       adapter: "on",
       links: {
-        a: { phase: "connected", eventsReceived: 0, resent: 0 },
-        c: { phase: "scanning", eventsReceived: 0, resent: 0 },
+        a: { phase: "connected", eventsReceived: 0 },
+        c: { phase: "scanning", eventsReceived: 0 },
       },
     });
     const devices = [
@@ -470,7 +470,7 @@ describe("useHelmetLinks：几顶头盔各自的连接结论", () => {
   it("列表拉取失败（不新鲜）：只有本机连着的那顶能确定，其余待确认", async () => {
     useBleStore.setState({
       adapter: "on",
-      links: { a: { phase: "connected", eventsReceived: 0, resent: 0 } },
+      links: { a: { phase: "connected", eventsReceived: 0 } },
     });
     const r = await renderHook(() =>
       useHelmetLinks([dev("a", true), dev("b", true)], false),
@@ -483,7 +483,7 @@ describe("useHelmetLinks：几顶头盔各自的连接结论", () => {
     expect(empty.current).toEqual({});
     useBleStore.setState({
       adapter: "on",
-      links: { "x|y": { phase: "connected", eventsReceived: 0, resent: 0 } },
+      links: { "x|y": { phase: "connected", eventsReceived: 0 } },
     });
     const r = await renderHook(() =>
       useHelmetLinks([dev("x|y", false), dev("z", false)], true),
@@ -491,18 +491,16 @@ describe("useHelmetLinks：几顶头盔各自的连接结论", () => {
     expect(r.current).toEqual({ "x|y": "connected", z: "offline" });
   });
 
-  it("帧到达只改 lastFrameAt：结论不变（页面不因每一帧重画结论）", async () => {
+  it("帧到达只改事件计数：结论不变（页面不因每一帧重画结论）", async () => {
     useBleStore.setState({
       adapter: "on",
-      links: { a: { phase: "connected", eventsReceived: 0, resent: 0 } },
+      links: { a: { phase: "connected", eventsReceived: 0 } },
     });
     const devices = [dev("a", false)];
     const r = await renderHook(() => useHelmetLinks(devices, true));
     const first = r.current;
     await act(async () => {
-      useBleStore
-        .getState()
-        .patchLink("a", { lastFrameAt: Date.now(), eventsReceived: 5 });
+      useBleStore.getState().patchLink("a", { eventsReceived: 5 });
     });
     expect(r.current).toEqual(first);
   });

@@ -116,10 +116,3 @@ export const LOCALE_NAMES: Record<Locale, string> = {
   "zh-TW": "繁體中文",
   en: "English",
 };
-
-/** Intl 用的标签（日期/数字格式） */
-export const LOCALE_TAGS: Record<Locale, string> = {
-  "zh-CN": "zh-CN",
-  "zh-TW": "zh-TW",
-  en: "en-US",
-};

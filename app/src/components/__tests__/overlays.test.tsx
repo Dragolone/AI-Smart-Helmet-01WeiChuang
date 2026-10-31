@@ -461,7 +461,7 @@ describe("KeepAliveTip", () => {
   const connect = () =>
     act(() =>
       useBleStore.setState({
-        links: { h1: { phase: "connected", eventsReceived: 0, resent: 0 } },
+        links: { h1: { phase: "connected", eventsReceived: 0 } },
       }),
     );
   const flush = async () => {
@@ -541,7 +541,7 @@ describe("KeepAliveTip", () => {
     await flush();
     act(() =>
       useBleStore.setState({
-        links: { h1: { phase: "connecting", eventsReceived: 0, resent: 0 } },
+        links: { h1: { phase: "connecting", eventsReceived: 0 } },
       }),
     );
     expect(r.tree.toJSON()).toBeNull();
