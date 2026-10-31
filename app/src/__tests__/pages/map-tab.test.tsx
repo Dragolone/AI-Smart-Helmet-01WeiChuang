@@ -927,19 +927,101 @@ describe("实时位置", () => {
       expect(r.allText()).toContain(tr("map.error", { msg: "还是不行" }));
     });
 
-    it("实时通道连上（网络恢复了）：看不见时也重来一次；断开那一下不算", async () => {
+    it("实时通道连上：看不见时不重载（切过来再试）；断开那一下不算", async () => {
       routerState.focused = false;
-      await mount();
+      const qc = makeQueryClient();
+      const r = await mount(qc);
       ws(false);
       fail();
-      expect(mockMap.reload).not.toHaveBeenCalled();
       ws(true);
+      ws(false);
+      ws(true);
+      expect(mockMap.reload).not.toHaveBeenCalled();
+      setFocused(r, qc, true);
       expect(mockMap.reload).toHaveBeenCalledTimes(1);
       fail("还是不行");
       ws(false);
       expect(mockMap.reload).toHaveBeenCalledTimes(1);
+    });
+
+    it("停在地图页锁屏时实时通道连上：同样不重载", async () => {
+      await mount();
+      act(() => appListener!("background"));
+      ws(false);
+      fail();
       ws(true);
-      expect(mockMap.reload).toHaveBeenCalledTimes(2);
+      expect(mockMap.reload).not.toHaveBeenCalled();
+    });
+
+    describe("实时通道反复断连（隧道、弱网）", () => {
+      let now: number;
+      let nowSpy: ReturnType<typeof jest.spyOn>;
+      const flap = () => {
+        ws(false);
+        ws(true);
+      };
+      beforeEach(() => {
+        now = Date.now();
+        nowSpy = jest.spyOn(Date, "now").mockImplementation(() => now);
+      });
+      afterEach(() => nowSpy.mockRestore());
+
+      it("30 秒内连抖只重载一次，过了 30 秒再抖可以再重载", async () => {
+        const r = await mount();
+        ws(false);
+        fail();
+        ws(true);
+        expect(mockMap.reload).toHaveBeenCalledTimes(1);
+        fail("还是不行");
+        flap();
+        now += 29_999;
+        flap();
+        expect(mockMap.reload).toHaveBeenCalledTimes(1);
+        // 没重载就不收红条：用户看得到，也能自己点
+        expect(r.allText()).toContain(tr("map.error", { msg: "还是不行" }));
+        now += 1;
+        flap();
+        expect(mockMap.reload).toHaveBeenCalledTimes(2);
+      });
+
+      it("手机时间往回拨：放行，不会被卡住", async () => {
+        await mount();
+        ws(false);
+        fail();
+        ws(true);
+        expect(mockMap.reload).toHaveBeenCalledTimes(1);
+        fail("还是不行");
+        now -= 3_600_000;
+        flap();
+        expect(mockMap.reload).toHaveBeenCalledTimes(2);
+      });
+
+      it("点「重新加载」和切过来都不受限，也不占这 30 秒", async () => {
+        const qc = makeQueryClient();
+        const r = await mount(qc);
+        const retry = () =>
+          act(() => {
+            round(r, tr("map.errorRetry")).props.onPress();
+          });
+        ws(false);
+        fail();
+        ws(true);
+        expect(mockMap.reload).toHaveBeenCalledTimes(1);
+        // 刚因为通道连上重载过：人点按钮、切过来，照样马上试
+        fail("还是不行");
+        now += 20_000;
+        retry();
+        expect(mockMap.reload).toHaveBeenCalledTimes(2);
+        fail("还是不行");
+        setFocused(r, qc, false);
+        setFocused(r, qc, true);
+        expect(mockMap.reload).toHaveBeenCalledTimes(3);
+        // 30 秒从上一次通道引起的重载算起，人点过、切过都不重新计时
+        fail("还是不行");
+        now += 10_000;
+        flap();
+        expect(mockMap.reload).toHaveBeenCalledTimes(4);
+      });
     });
 
     it("切走那一下不重来；同一次渲染里切回来又连上：只重来一次", async () => {
