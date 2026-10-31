@@ -192,6 +192,7 @@ let alert: ReturnType<typeof jest.spyOn>;
 let sr: ReturnType<typeof jest.spyOn>;
 let srSub: ReturnType<typeof jest.spyOn>;
 let announce: ReturnType<typeof jest.spyOn>;
+let announceQueued: ReturnType<typeof jest.spyOn>;
 
 const sosOf = (over: Partial<Sos> = {}): Sos => ({
   sosId: "s1",
@@ -260,6 +261,9 @@ const failBar = (r: Rendered) => {
   return cur;
 };
 /** 读屏念的那一句：标题 + 分隔 + 倒计时那一行 */
+/** 读屏排队念过的话 */
+const queuedSpeech = (): string[] =>
+  announceQueued.mock.calls.map((c: unknown[]) => c[0] as string);
 const said = (title: MessageKey, body: string) =>
   `${tr(title)}${tr("common.a11ySep")}${body}`;
 /** 请求在 ms 毫秒后失败（超时 / 断网），按假计时器走 */
@@ -304,9 +308,13 @@ beforeEach(() => {
   announce = jest
     .spyOn(AccessibilityInfo, "announceForAccessibility")
     .mockImplementation(() => undefined);
+  announceQueued = jest
+    .spyOn(AccessibilityInfo, "announceForAccessibilityWithOptions")
+    .mockImplementation(() => undefined);
 });
 afterEach(() => {
   backSpy.mockRestore();
+  announceQueued.mockRestore();
   alert.mockRestore();
   sr.mockRestore();
   srSub.mockRestore();
@@ -1150,6 +1158,136 @@ describe("系统字体放大（倒计时页）", () => {
   });
 });
 
+describe("读屏听得到倒计时的进展和结果", () => {
+  const readerOn = () => sr.mockImplementation(() => Promise.resolve(true));
+  const counting = () =>
+    [
+      tr("sos.fall"),
+      tr("sos.a11yLeft", { n: 45 }),
+      tr("sos.a11yCancelHint"),
+    ].join(tr("common.a11ySep"));
+
+  it("读屏没开：一句都不多念", async () => {
+    m(sosApi.cancel).mockImplementation(() =>
+      Promise.resolve(sosOf({ status: "cancelled" })),
+    );
+    const r = await mount();
+    await tick(1_000);
+    act(() =>
+      slideButton(r).props.onAccessibilityAction({
+        nativeEvent: { actionName: "activate" },
+      }),
+    );
+    await tick(0);
+    expect(r.allText()).toContain(tr("sos.cancelledTitle"));
+    expect(announceQueued).not.toHaveBeenCalled();
+  });
+
+  it("进页念一次（标题、秒数、怎么取消），都带排队选项；过 30、10 秒各念一次，不每秒念", async () => {
+    readerOn();
+    const s1 = sosOf();
+    m(sosApi.snapshot).mockImplementation(() => Promise.resolve(s1));
+    await mount();
+    expect(queuedSpeech()).toEqual([counting()]);
+    expect(announceQueued.mock.calls[0][1]).toEqual({ queue: true });
+    await tick(5_000);
+    expect(queuedSpeech()).toHaveLength(1);
+    for (let i = 0; i < 12; i++) await tick(1_000);
+    expect(queuedSpeech()).toEqual([counting(), tr("sos.a11yLeft", { n: 30 })]);
+    for (let i = 0; i < 20; i++) await tick(1_000);
+    expect(queuedSpeech()).toEqual([
+      counting(),
+      tr("sos.a11yLeft", { n: 30 }),
+      tr("sos.a11yLeft", { n: 10 }),
+    ]);
+  });
+
+  it("JS 忙跳过了正好 30 的那一秒：跨过去时照样念当下的秒数", async () => {
+    readerOn();
+    const s1 = sosOf();
+    m(sosApi.snapshot).mockImplementation(() => Promise.resolve(s1));
+    await mount();
+    await tick(17_000);
+    expect(queuedSpeech()).toEqual([counting(), tr("sos.a11yLeft", { n: 29 })]);
+  });
+
+  it("已取消：念标题和正文，只念一次", async () => {
+    readerOn();
+    m(sosApi.cancel).mockImplementation(() =>
+      Promise.resolve(sosOf({ status: "cancelled" })),
+    );
+    const r = await mount();
+    act(() =>
+      slideButton(r).props.onAccessibilityAction({
+        nativeEvent: { actionName: "activate" },
+      }),
+    );
+    await tick(0);
+    await tick(1_100);
+    const line = said("sos.cancelledTitle", tr("sos.cancelledBody"));
+    expect(queuedSpeech().filter((x) => x === line)).toHaveLength(1);
+  });
+
+  it("已通知：先念正在通知；发送结果回来字变了再念一次，没变不重复", async () => {
+    readerOn();
+    let notifications: unknown[] | null = null;
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ status: "notified" })),
+    );
+    let settled: (v: AccidentDetail) => void = () => {};
+    m(sosApi.accidentDetail).mockImplementation(() =>
+      notifications
+        ? Promise.resolve({ notifications } as unknown as AccidentDetail)
+        : new Promise<AccidentDetail>((resolve) => {
+            settled = resolve;
+          }),
+    );
+    await mount();
+    await tick(1_100);
+    const sending = said("sos.notified.sending", tr("sos.notifiedBody"));
+    expect(queuedSpeech()).toEqual([sending]);
+    notifications = [
+      {
+        id: "n1",
+        channel: "sms",
+        target: "138****0001",
+        contactName: "妈妈",
+        status: "sent",
+      },
+    ];
+    await act(async () => {
+      settled({ notifications } as unknown as AccidentDetail);
+    });
+    await tick(1_100);
+    await tick(1_100);
+    expect(queuedSpeech()).toEqual([
+      sending,
+      said("sos.notified.sent", tr("sos.notified.body")),
+    ]);
+  });
+
+  it("会话已被否定（没有滑条）：进页不说「双击滑条取消」", async () => {
+    readerOn();
+    useAuthStore.setState({ sessionDeadUntil: Date.now() + 60_000 } as never);
+    try {
+      await mount();
+      expect(queuedSpeech()[0]).toContain(tr("sos.a11yLeft", { n: 45 }));
+      expect(queuedSpeech()[0]).not.toContain(tr("sos.a11yCancelHint"));
+    } finally {
+      useAuthStore.setState({ sessionDeadUntil: null } as never);
+    }
+  });
+
+  it("大数字念「45 秒」；旁边的「秒」对读屏隐藏，不然念成「45 秒，秒」", async () => {
+    const r = await mount();
+    const num = r.root.find((n) => isHost(n, "Text") && textIn(n) === "45");
+    expect(num.props.accessibilityLabel).toBe(tr("sos.chipLeft", { n: 45 }));
+    const suffix = hostTextWith(r, tr("sos.autoSendSuffix"));
+    expect(suffix.props.accessibilityElementsHidden).toBe(true);
+    expect(suffix.props.importantForAccessibility).toBe("no");
+  });
+});
+
 describe("已通知页的标题", () => {
   const notified = async (notifications: unknown[] | undefined) => {
     m(sosApi.snapshot).mockImplementation(() =>
@@ -1380,6 +1518,7 @@ describe("取消先落地、立即求救被拒时替他重发（O29，负责人 
   };
 
   it("这单已被取消：提示已重发，替这顶头盔注入 manual_sos；新单一出现就立即确认，不再倒数", async () => {
+    sr.mockImplementation(() => Promise.resolve(true));
     finalizedOnce();
     m(relayApi.push).mockImplementation(() =>
       Promise.resolve({ accepted: 1, duplicate: 0, invalid: 0 }),
@@ -1392,7 +1531,7 @@ describe("取消先落地、立即求救被拒时替他重发（O29，负责人 
     await tick(0);
     await tick(0);
     expect(r.allText()).toContain(tr("sos.resentAfterCancel"));
-    expect(announce).toHaveBeenCalledWith(tr("sos.resentAfterCancel"));
+    expect(queuedSpeech()).toContain(tr("sos.resentAfterCancel"));
     const body = m(relayApi.push).mock.calls[0][0] as {
       deviceId: string;
       envelopes: { eventType: string }[];
@@ -2344,7 +2483,9 @@ describe("多顶头盔同时求救（10-16 N10：一张页 + 顶部胶囊点切�
         flat(
           r.root.find(
             (n) =>
-              isHost(n, "View") && n.props.accessibilityLiveRegion === "polite",
+              isHost(n, "View") &&
+              flat(n.props.style).zIndex === 2 &&
+              n.props.pointerEvents === "none",
           ).props.style,
         ).top;
       expect(r.allText()).toContain(tr("sos.newAlarm", { name: "滑雪" }));
@@ -2627,6 +2768,41 @@ describe("多顶头盔同时求救（10-16 N10：一张页 + 顶部胶囊点切�
     const help = tappableStyle(r, tr("sos.needHelp"));
     expect(help.minHeight).toBe(32);
     expect(help.height).toBeUndefined();
+  });
+
+  it("读屏：又来一顶时念提示条；全部结束念总结和每顶的结论", async () => {
+    sr.mockImplementation(() => Promise.resolve(true));
+    twoHelmets();
+    m(sosApi.cancel).mockImplementation((id: unknown) =>
+      Promise.resolve(
+        sosOf({
+          sosId: id as string,
+          deviceId: id === "s2" ? "h2" : "h1",
+          status: "cancelled",
+        }),
+      ),
+    );
+    const r = await mount();
+    arrive(second());
+    await tick(0);
+    expect(queuedSpeech()).toContain(tr("sos.newAlarm", { name: "滑雪" }));
+    slideCancel(r);
+    for (let i = 0; i < 3; i++) await tick(0);
+    // 切到下一单：提示条说明切了，新的倒计时再说一遍是哪顶、剩几秒
+    expect(queuedSpeech()).toContain(
+      tr("sos.switchedCancelled", { name: "通勤" }),
+    );
+    slideCancel(r);
+    for (let i = 0; i < 3; i++) await tick(0);
+    const sep = tr("common.a11ySep");
+    expect(queuedSpeech().at(-1)).toBe(
+      [
+        tr("sos.multiDoneTitle", { n: 2 }),
+        tr("sos.multiDoneBody"),
+        `通勤${sep}${tr("sos.cancelledTitle")}`,
+        `滑雪${sep}${tr("sos.cancelledTitle")}`,
+      ].join(sep),
+    );
   });
 
   it("另一顶的单没拿到终态就离开了进行中：结果页补拉它的权威状态；在别处已取消就写已取消（可「我还是需要帮助」），不说正在通知", async () => {
