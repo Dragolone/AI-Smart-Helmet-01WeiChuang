@@ -708,6 +708,67 @@ describe("频道列表三态", () => {
     );
   });
 
+  // 以前确认后要等退出再等一次重新拉取，这行纹丝不动，还能再退一次得到「操作失败」
+  it("退出在路上：这个频道的行变淡、「更多」「进入」点不了，别的频道不受影响；服务端确认后马上拿掉这行，之后才重新拉取", async () => {
+    const r = mount();
+    await waitFor(() => expect(r.texts()).toContain(C1.name));
+    const more = (c: typeof C1) =>
+      node(r, tr("intercom.more.a11y", { name: c.name }));
+    const enterBtn = (c: typeof C1) =>
+      node(r, tr("intercom.enter.a11y", { name: c.name }));
+    const dimmed = () =>
+      r.root.findAll(
+        (n) => isHost(n, "View") && flat(n.props.style).opacity === 0.55,
+      );
+    await tap(r, tr("intercom.more.a11y", { name: C1.name }));
+    await press(r, tr("intercom.more.quit"));
+    const buttons = alert.mock.calls.at(-1)![2] as { onPress?: () => void }[];
+    let done!: () => void;
+    m(channelsApi.leave).mockImplementationOnce(
+      () => new Promise<void>((res) => (done = res)),
+    );
+    // 重新拉取还没回来：证明这行是服务端一确认就拿掉的
+    m(channelsApi.list).mockImplementation(() => new Promise(() => undefined));
+    await act(async () => {
+      buttons[1].onPress!();
+    });
+    expect(dimmed()).toHaveLength(1);
+    expect(more(C1).props.disabled).toBe(true);
+    expect(enterBtn(C1).props.disabled).toBe(true);
+    expect(more(C2).props.disabled).toBeFalsy();
+    expect(enterBtn(C2).props.disabled).toBeFalsy();
+    expect(r.texts()).toContain(C1.name);
+    await act(async () => {
+      done();
+    });
+    await waitFor(() => expect(r.texts()).not.toContain(C1.name));
+    expect(r.texts()).toContain(C2.name);
+    expect(dimmed()).toHaveLength(0);
+  });
+
+  it("退出失败：这个频道原样留着（不显示成已退）、恢复可点", async () => {
+    const r = mount();
+    await waitFor(() => expect(r.texts()).toContain(C1.name));
+    await tap(r, tr("intercom.more.a11y", { name: C1.name }));
+    await press(r, tr("intercom.more.quit"));
+    const buttons = alert.mock.calls.at(-1)![2] as { onPress?: () => void }[];
+    let fail!: (e: unknown) => void;
+    m(channelsApi.leave).mockImplementationOnce(
+      () => new Promise<void>((_res, rej) => (fail = rej)),
+    );
+    await act(async () => {
+      buttons[1].onPress!();
+    });
+    const enterBtn = () =>
+      node(r, tr("intercom.enter.a11y", { name: C1.name }));
+    expect(enterBtn().props.disabled).toBe(true);
+    await act(async () => {
+      fail(new ApiRequestError(500, { code: "INTERNAL" }));
+    });
+    await waitFor(() => expect(enterBtn().props.disabled).toBeFalsy());
+    expect(r.texts()).toContain(C1.name);
+  });
+
   it("「更多」开着时这个频道从列表里没了（在另一台手机上退了）：不再列它的成员、邀请码和退出", async () => {
     const r = mount();
     await waitFor(() => expect(r.texts()).toContain(C2.name));

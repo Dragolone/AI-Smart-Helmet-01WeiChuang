@@ -234,12 +234,14 @@ describe("紧急联系人列表", () => {
     m(contactsApi.remove).mockImplementationOnce(() => Promise.resolve());
     const r = mount(<ContactsScreen />);
     await waitFor(() => expect(r.allText()).toContain("妈妈"));
-    const del = r.root.find(
-      (n) =>
-        n.type === Tappable &&
-        n.props.accessibilityLabel === tr("common.delete"),
-    );
-    act(() => del.props.onPress());
+    // 服务端确认后这一行会被拿掉再重新拉回来，所以每次现找，不拿着旧的节点
+    const del = () =>
+      r.root.find(
+        (n) =>
+          n.type === Tappable &&
+          n.props.accessibilityLabel === tr("common.delete"),
+      );
+    act(() => del().props.onPress());
     const [title, body, buttons] = alert.mock.calls[0] as [
       string,
       string,
@@ -255,7 +257,10 @@ describe("紧急联系人列表", () => {
     m(contactsApi.remove).mockImplementationOnce(() =>
       Promise.reject(new ApiRequestError(500, { code: "INTERNAL_ERROR" })),
     );
-    act(() => del.props.onPress());
+    await waitFor(() =>
+      expect(m(contactsApi.list).mock.calls.length).toBeGreaterThanOrEqual(2),
+    );
+    act(() => del().props.onPress());
     const again = alert.mock.calls[1][2] as { onPress?: () => Promise<void> }[];
     await act(async () => {
       await again[1].onPress!();
@@ -265,6 +270,90 @@ describe("紧急联系人列表", () => {
       translate("error.internal"),
       NOTICE_OK,
     );
+  });
+
+  // 以前确认后要等 DELETE 再等一次重新拉取，这行纹丝不动、垃圾桶还能再点，再删一次得到「操作失败」（同解绑 10-06）
+  describe("删除在路上", () => {
+    const rowsOf = (r: Rendered) =>
+      r.root.findAll(
+        (n) =>
+          n.type === Tappable &&
+          n.props.accessibilityLabel === tr("common.delete"),
+      );
+    const shareOf = (r: Rendered) =>
+      r.root.findAll(
+        (n) =>
+          n.type === Tappable &&
+          n.props.accessibilityLabel === tr("contacts.tell"),
+      );
+    const dimmed = (r: Rendered) =>
+      r.root.findAll(
+        (n) => isHost(n, "View") && flat(n.props.style).opacity === 0.55,
+      );
+    const confirmDelete = async (r: Rendered, index: number) => {
+      act(() => rowsOf(r)[index].props.onPress());
+      const buttons = alert.mock.calls.at(-1)![2] as {
+        onPress?: () => void;
+      }[];
+      await act(async () => {
+        buttons[1].onPress!();
+      });
+    };
+    const mountTwo = async () => {
+      m(contactsApi.list).mockImplementation(() =>
+        Promise.resolve([contact("1", "妈妈"), contact("2", "爸爸")]),
+      );
+      const r = mount(<ContactsScreen />);
+      await waitFor(() => expect(r.allText()).toContain("爸爸"));
+      return r;
+    };
+
+    it("这一行变淡、分享和删除都点不了，别的行不受影响；服务端确认后马上拿掉这行，之后才重新拉取", async () => {
+      const r = await mountTwo();
+      let done!: () => void;
+      m(contactsApi.remove).mockImplementationOnce(
+        () => new Promise<void>((res) => (done = res)),
+      );
+      // 重新拉取还没回来：证明这行是服务端一确认就拿掉的，不是等列表
+      m(contactsApi.list).mockImplementation(
+        () => new Promise(() => undefined),
+      );
+      await confirmDelete(r, 0);
+      expect(dimmed(r)).toHaveLength(1);
+      expect(rowsOf(r).map((x) => x.props.disabled)).toEqual([true, false]);
+      expect(shareOf(r).map((x) => x.props.disabled)).toEqual([true, false]);
+      expect(r.allText()).toContain("妈妈");
+      await act(async () => {
+        done();
+      });
+      await waitFor(() => expect(r.allText()).not.toContain("妈妈"));
+      expect(r.allText()).toContain("爸爸");
+      expect(dimmed(r)).toHaveLength(0);
+      await waitFor(() =>
+        expect(m(contactsApi.list).mock.calls.length).toBeGreaterThanOrEqual(2),
+      );
+    });
+
+    it("删失败：这一行原样留着（不显示成已删）、恢复可点，弹提示", async () => {
+      const r = await mountTwo();
+      let fail!: (e: unknown) => void;
+      m(contactsApi.remove).mockImplementationOnce(
+        () => new Promise<void>((_res, rej) => (fail = rej)),
+      );
+      await confirmDelete(r, 0);
+      expect(dimmed(r)).toHaveLength(1);
+      await act(async () => {
+        fail(new ApiRequestError(500, { code: "INTERNAL_ERROR" }));
+      });
+      await waitFor(() => expect(dimmed(r)).toHaveLength(0));
+      expect(r.allText()).toContain("妈妈");
+      expect(rowsOf(r).map((x) => x.props.disabled)).toEqual([false, false]);
+      expect(alert).toHaveBeenLastCalledWith(
+        translate("common.failed"),
+        translate("error.internal"),
+        NOTICE_OK,
+      );
+    });
   });
 
   it("分享联系人说明：带上名字；分享被取消也不抛", async () => {

@@ -2,6 +2,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
+import { useState } from "react";
 import { Alert, ScrollView, Share, StyleSheet, View } from "react-native";
 import type { EmergencyContact } from "@helmet/shared";
 
@@ -32,10 +33,13 @@ const MAX_CONTACTS = 5;
 function ContactRow({
   contact,
   last,
+  busy,
   onDelete,
 }: {
   contact: EmergencyContact;
   last: boolean;
+  /** 删除请求在路上：整行变淡、按钮点不了 */
+  busy: boolean;
   onDelete: () => void;
 }) {
   const theme = useTheme();
@@ -49,6 +53,7 @@ function ContactRow({
           borderBottomWidth: StyleSheet.hairlineWidth,
           borderBottomColor: theme.border,
         },
+        busy && styles.rowBusy,
       ]}
     >
       <View
@@ -87,6 +92,7 @@ function ContactRow({
             }),
           }).catch(() => undefined)
         }
+        disabled={busy}
         hitSlop={8}
         style={styles.trash}
       >
@@ -96,6 +102,7 @@ function ContactRow({
         accessibilityRole="button"
         accessibilityLabel={t("common.delete")}
         onPress={onDelete}
+        disabled={busy}
         hitSlop={8}
         style={styles.trash}
       >
@@ -116,6 +123,8 @@ export default function ContactsScreen() {
   // 列表没拿到（还在拉 / 拉失败）≠ 一个都没加：原来拉失败也显示「尚未添加」、添加照样可点，
   // 用户以为丢了又加一遍，联系人重复（10-17 评审）
   const known = contacts.data !== undefined;
+  // 删除请求在路上的联系人：这一行变淡、不可点（要等 DELETE 再等一次重新拉取，期间原来纹丝不动，还能再点一次删得到 404）
+  const [deletingIds, setDeletingIds] = useState<string[]>([]);
 
   const remove = (c: EmergencyContact) => {
     Alert.alert(
@@ -126,13 +135,24 @@ export default function ContactsScreen() {
         {
           text: translate("common.delete"),
           style: "destructive",
-          onPress: () =>
+          onPress: () => {
+            setDeletingIds((ids) => [...ids, c.id]);
             contactsApi
               .remove(c.id)
-              .then(() =>
-                queryClient.invalidateQueries({ queryKey: ["contacts"] }),
-              )
-              .catch((e) => showFailure(translate("common.failed"), e)),
+              .then(() => {
+                // 服务端一确认就把这行拿掉，不等重新拉取（同解绑）。只在确认之后：紧急联系人不能显示成已删却没删，
+                // 所以不先删后回滚；失败时这行原样留着
+                queryClient.setQueryData<EmergencyContact[]>(
+                  ["contacts"],
+                  (prev) => prev?.filter((x) => x.id !== c.id),
+                );
+                void queryClient.invalidateQueries({ queryKey: ["contacts"] });
+              })
+              .catch((e) => showFailure(translate("common.failed"), e))
+              .finally(() =>
+                setDeletingIds((ids) => ids.filter((id) => id !== c.id)),
+              );
+          },
         },
       ],
     );
@@ -156,6 +176,7 @@ export default function ContactsScreen() {
                 <ContactRow
                   contact={c}
                   last={i === list.length - 1}
+                  busy={deletingIds.includes(c.id)}
                   onDelete={() => remove(c)}
                 />
               </Animated.View>
@@ -213,6 +234,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
+  rowBusy: { opacity: 0.55 },
   avatar: {
     width: 40,
     height: 40,
