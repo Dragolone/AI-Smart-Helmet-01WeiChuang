@@ -1640,6 +1640,7 @@ function SosActiveContent() {
                             ]}
                           >
                             <ThemedText
+                              maxFontSizeMultiplier={1.5}
                               style={[
                                 styles.avatarText,
                                 { color: P.avatarText },
@@ -1934,7 +1935,13 @@ function SosActiveContent() {
           </>
         ) : sos.status === "cancelled" ? (
           <>
-            <View style={styles.doneCenter}>
+            {/* 字放大后说明可能比屏幕高：能滚才看得到，也不会把下面的按钮挤出去 */}
+            <ScrollView
+              style={styles.flex}
+              contentContainerStyle={styles.doneCenter}
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+            >
               {drillBadge}
               <Animated.View
                 entering={pop}
@@ -1948,7 +1955,7 @@ function SosActiveContent() {
               <ThemedText themeColor="textSecondary" style={styles.doneText}>
                 {t(isDrill ? "sos.drillCancelledBody" : "sos.cancelledBody")}
               </ThemedText>
-            </View>
+            </ScrollView>
             <View style={styles.doneActions}>
               {!isDrill && (
                 <Tappable
@@ -2023,7 +2030,10 @@ function SosActiveContent() {
                           { backgroundColor: theme.backgroundSelected },
                         ]}
                       >
-                        <ThemedText style={styles.sentInitial}>
+                        <ThemedText
+                          maxFontSizeMultiplier={1.5}
+                          style={styles.sentInitial}
+                        >
                           {initialOf(n.contactName ?? n.target)}
                         </ThemedText>
                       </View>
@@ -2144,11 +2154,12 @@ const styles = StyleSheet.create({
   // 多顶同时求救：顶部胶囊 + 全部按钮
   multi: { alignSelf: "stretch", gap: 8, marginBottom: 8 },
   chipsRow: { gap: 8, paddingHorizontal: 4 },
+  // 这几种按钮用 minHeight 不用 height：定高时系统字体一放大，iOS 把文字框压到父高，第一行被切
   helmetChip: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    height: 36,
+    minHeight: 36,
     paddingHorizontal: 12,
     borderRadius: 18,
     borderWidth: 1,
@@ -2174,7 +2185,7 @@ const styles = StyleSheet.create({
   },
   batchRow: { flexDirection: "row", justifyContent: "center", gap: 8 },
   batchBtn: {
-    height: 30,
+    minHeight: 30,
     paddingHorizontal: 12,
     borderRadius: 15,
     borderWidth: 1,
@@ -2193,7 +2204,7 @@ const styles = StyleSheet.create({
   },
   toastText: { fontSize: 14, lineHeight: 20, textAlign: "center" },
   resultHelp: {
-    height: 32,
+    minHeight: 32,
     paddingHorizontal: 12,
     borderRadius: 16,
     borderWidth: 1,
@@ -2213,7 +2224,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    height: 36,
+    minHeight: 36,
     paddingLeft: 6,
     paddingRight: 14,
     borderRadius: 18,
@@ -2272,7 +2283,7 @@ const styles = StyleSheet.create({
   actFailRetryText: { fontSize: 14, lineHeight: 20, fontWeight: 700 },
   actions: { gap: 20, paddingTop: 8 },
   send: {
-    height: 72,
+    minHeight: 72,
     borderRadius: 36,
     flexDirection: "row",
     alignItems: "center",
@@ -2281,7 +2292,7 @@ const styles = StyleSheet.create({
   },
   sendText: { fontSize: 17, lineHeight: 24, fontWeight: 700 },
   doneCenter: {
-    flex: 1,
+    flexGrow: 1,
     alignItems: "center",
     justifyContent: "center",
     gap: 12,
@@ -2303,7 +2314,7 @@ const styles = StyleSheet.create({
   doneText: { fontSize: 15, lineHeight: 22, textAlign: "center" },
   doneActions: { gap: 12 },
   doneBtn: {
-    height: 56,
+    minHeight: 56,
     borderRadius: 28,
     alignItems: "center",
     justifyContent: "center",

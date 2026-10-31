@@ -160,7 +160,10 @@ export function SlideToCancel({
       />
       {busy ? (
         <View pointerEvents="none" style={styles.label}>
-          <ThemedText style={[styles.labelText, { color: colors.text }]}>
+          <ThemedText
+            maxFontSizeMultiplier={2}
+            style={[styles.labelText, { color: colors.text }]}
+          >
             {busyLabel}
           </ThemedText>
         </View>
@@ -174,6 +177,8 @@ export function SlideToCancel({
           <ThemedText
             numberOfLines={1}
             adjustsFontSizeToFit
+            // 不封顶时行高一超过轨道高，adjustsFontSizeToFit 会把字压到 4 pt 左右
+            maxFontSizeMultiplier={2}
             style={[styles.labelText, { color: colors.text }]}
           >
             {label}

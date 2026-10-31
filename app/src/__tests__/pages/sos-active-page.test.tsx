@@ -20,10 +20,11 @@ import {
   AccessibilityInfo,
   Alert,
   BackHandler,
+  ScrollView,
   StyleSheet,
   View,
 } from "react-native";
-import { act } from "react-test-renderer";
+import { act, type ReactTestInstance } from "react-test-renderer";
 import {
   mockInsets,
   mockRouter,
@@ -1069,6 +1070,55 @@ describe("取消 / 立即求救", () => {
   });
 });
 
+/** 系统字体放大时不被裁（定高 → 最小高）：默认字号下高度不变 */
+const textIn = (n: ReactTestInstance): string =>
+  n.children.map((c) => (typeof c === "string" ? c : textIn(c))).join("");
+const tappableStyle = (r: Rendered, label: string) => {
+  const hit = r.root
+    .findAllByType(Tappable)
+    .find((n) => textIn(n).includes(label));
+  if (!hit) throw new Error(`没有写着「${label}」的按钮`);
+  return flat(hit.props.style);
+};
+const hostTextWith = (r: Rendered, label: string) =>
+  r.root.find((n) => isHost(n, "Text") && textIn(n) === label);
+
+describe("系统字体放大（倒计时页）", () => {
+  it("倒数中：立即求救按钮和联系人胶囊只限最小高度，联系人首字最多放大 1.5 倍", async () => {
+    const r = await mount();
+    const send = tappableStyle(r, tr("sos.sendNow"));
+    expect(send.minHeight).toBe(72);
+    expect(send.height).toBeUndefined();
+    const initial = hostTextWith(r, "妈");
+    expect(initial.props.maxFontSizeMultiplier).toBe(1.5);
+    let chip = initial.parent;
+    while (chip && flat(chip.props.style).borderRadius !== 18)
+      chip = chip.parent;
+    expect(flat(chip!.props.style).minHeight).toBe(36);
+    expect(flat(chip!.props.style).height).toBeUndefined();
+  });
+
+  it("已取消：中部能滚动（内容不够高时撑满、仍居中），按钮只限最小高度", async () => {
+    m(sosApi.snapshot).mockImplementation(() =>
+      Promise.resolve(sosOf({ status: "cancelled" })),
+    );
+    const r = await mount();
+    for (const label of [tr("sos.needHelp"), tr("sos.close")]) {
+      expect(tappableStyle(r, label).minHeight).toBe(56);
+      expect(tappableStyle(r, label).height).toBeUndefined();
+    }
+    const center = r.root.find(
+      (n) =>
+        n.type === ScrollView && textIn(n).includes(tr("sos.cancelledTitle")),
+    );
+    const content = flat(center.props.contentContainerStyle);
+    expect(content.flexGrow).toBe(1);
+    expect(content.flex).toBeUndefined();
+    expect(content.justifyContent).toBe("center");
+    expect(content.alignItems).toBe("center");
+  });
+});
+
 describe("已通知页的标题", () => {
   const notified = async (notifications: unknown[] | undefined) => {
     m(sosApi.snapshot).mockImplementation(() =>
@@ -1085,6 +1135,19 @@ describe("已通知页的标题", () => {
     await tick(1100);
     return r;
   };
+
+  it("系统字体放大：通知记录里联系人首字最多放大 1.5 倍（圆圈是定宽定高的）", async () => {
+    const r = await notified([
+      {
+        id: "n1",
+        channel: "sms",
+        target: "138****0001",
+        contactName: "爸爸",
+        status: "sent",
+      },
+    ]);
+    expect(hostTextWith(r, "爸").props.maxFontSizeMultiplier).toBe(1.5);
+  });
 
   it("记录还没拿到不下结论；没有短信 = 没有联系人；全没发出去；还在发", async () => {
     let r = await notified(undefined);
@@ -2430,6 +2493,36 @@ describe("多顶头盔同时求救（10-16 N10：一张页 + 顶部胶囊点切�
     expect(m(sosApi.snapshot).mock.calls).toContainEqual(["s2", "h2"]);
     return r;
   };
+
+  it("系统字体放大：头盔胶囊、全部按钮只限最小高度；结果页「我还是需要帮助」也是", async () => {
+    twoHelmets();
+    m(sosApi.cancel).mockImplementation((id: unknown) =>
+      Promise.resolve(
+        sosOf({
+          sosId: id as string,
+          deviceId: id === "s2" ? "h2" : "h1",
+          status: "cancelled",
+        }),
+      ),
+    );
+    const r = await mount();
+    arrive(second());
+    await tick(0);
+    const chip = tappableStyle(r, "滑雪");
+    expect(chip.minHeight).toBe(36);
+    expect(chip.height).toBeUndefined();
+    for (const label of [tr("sos.allSendNow"), tr("sos.allCancel")]) {
+      expect(tappableStyle(r, label).minHeight).toBe(30);
+      expect(tappableStyle(r, label).height).toBeUndefined();
+    }
+    slideCancel(r);
+    for (let i = 0; i < 3; i++) await tick(0);
+    slideCancel(r);
+    for (let i = 0; i < 3; i++) await tick(0);
+    const help = tappableStyle(r, tr("sos.needHelp"));
+    expect(help.minHeight).toBe(32);
+    expect(help.height).toBeUndefined();
+  });
 
   it("另一顶的单没拿到终态就离开了进行中：结果页补拉它的权威状态；在别处已取消就写已取消（可「我还是需要帮助」），不说正在通知", async () => {
     const r = await vanishThenFinish(() =>
