@@ -5,6 +5,8 @@ import { describe, expect, it } from "@jest/globals";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const plugin = require("../with-jpush.js") as {
   applyProjectBuildGradleHuawei: (s: string, o: { agpVersion: string }) => string;
+  applyProjectBuildGradlePins: (s: string) => string;
+  PINNED_ANDROID_SDKS: string[];
   readAgpVersion: (root: string) => string;
   applyAppBuildGradleHuawei: (s: string) => string;
   applyAppBuildGradleXiaomi: (s: string) => string;
@@ -247,6 +249,49 @@ allprojects {
 apply plugin: "expo-root-project"
 apply plugin: "com.facebook.react.rootproject"
 `;
+
+describe("钉住动态版本的安卓 SDK", () => {
+  const pinned = plugin.applyProjectBuildGradlePins(PROJECT_BUILD_GRADLE_SDK57);
+  const readLibGradle = (lib: string) => {
+    const fs = require("node:fs") as typeof import("node:fs");
+    const path = require("node:path") as typeof import("node:path");
+    return fs.readFileSync(path.join(__dirname, `../../../node_modules/${lib}/android/build.gradle`), "utf8");
+  };
+
+  it("force 写在 allprojects 块里，不进 buildscript，也不进 repositories", () => {
+    const allprojects = pinned.slice(pinned.indexOf("allprojects"));
+    expect(pinned.slice(0, pinned.indexOf("allprojects"))).not.toContain("resolutionStrategy");
+    const force = allprojects.indexOf("configurations.configureEach { resolutionStrategy.force ");
+    expect(force).toBeGreaterThan(0);
+    expect(force).toBeLessThan(allprojects.indexOf("repositories"));
+    expect(allprojects).toContain("'cn.jiguang.sdk:jcore:5.5.0'");
+    expect(allprojects).toContain("'com.tencent.liteav:LiteAVSDK_Professional:13.4.0.20477'");
+  });
+
+  it("钉的都是完整版本号，不是动态写法", () => {
+    for (const dep of plugin.PINNED_ANDROID_SDKS) {
+      expect(dep).toMatch(/^[\w.]+:[\w.]+:\d+(\.\d+)+$/);
+    }
+  });
+
+  it("重复 prebuild 不叠加；和华为通道的补丁互不影响", () => {
+    expect(plugin.applyProjectBuildGradlePins(pinned)).toBe(pinned);
+    const both = plugin.applyProjectBuildGradleHuawei(pinned, { agpVersion: "8.12.0" });
+    expect(both).toContain("resolutionStrategy.force");
+    expect(both).toContain("classpath('com.huawei.agconnect:agcp:1.9.1.301')");
+    expect(plugin.applyProjectBuildGradlePins(both)).toBe(both);
+  });
+
+  it("模板变了（锚点找不到）就报错，不静默漏钉", () => {
+    expect(() => plugin.applyProjectBuildGradlePins("buildscript {}")).toThrow(/android\/build\.gradle 锚点失效/);
+  });
+
+  it("钉的版本和库自己声明的对得上（库升级后这条会提醒同步）", () => {
+    expect(readLibGradle("jcore-react-native")).toContain(plugin.PINNED_ANDROID_SDKS[0]);
+    const liteav = /LiteAVSDK_Professional:(\d+\.\d+)\.\+/.exec(readLibGradle("trtc-react-native"));
+    expect(plugin.PINNED_ANDROID_SDKS[1]).toContain(`LiteAVSDK_Professional:${liteav?.[1]}.`);
+  });
+});
 
 // 同一份产物 android/app/build.gradle 的头部与 dependencies 块（中间省略）
 const APP_BUILD_GRADLE_HEAD_SDK57 = `apply plugin: "com.android.application"

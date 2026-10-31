@@ -23,6 +23,7 @@ type Config = {
 };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const plugin = require("../with-jpush.js") as ((c: Config) => Config) & {
+  applyProjectBuildGradlePins: (s: string) => string;
   applyProjectBuildGradleHuawei: (
     s: string,
     o: { agpVersion?: string },
@@ -183,8 +184,9 @@ describe("withJPush 组装", () => {
       modRequest: { projectRoot: tmp() },
       modResults: { contents: PROJECT_GRADLE, language: "groovy" },
     });
+    // 没有华为文件：只有钉版本那一段，华为的补丁一样都不加
     expect((without.modResults as { contents: string }).contents).toBe(
-      PROJECT_GRADLE,
+      plugin.applyProjectBuildGradlePins(PROJECT_GRADLE),
     );
     expect(String(warn.mock.calls[0][0])).toContain("agconnect-services.json");
   });
