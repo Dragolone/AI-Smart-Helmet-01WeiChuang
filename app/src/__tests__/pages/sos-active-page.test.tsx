@@ -20,6 +20,7 @@ import {
   AccessibilityInfo,
   Alert,
   BackHandler,
+  Dimensions,
   ScrollView,
   StyleSheet,
   View,
@@ -717,6 +718,36 @@ describe("最后 10 秒的红底", () => {
     await tick(1000);
     expect(wash(r)).toBeNull();
     timing.mockRestore();
+  });
+});
+
+describe("滑条一进页就能滑（不等 onLayout）", () => {
+  const slide = (r: Rendered) => r.root.findByType(SlideToCancel);
+  const expected = () => Dimensions.get("window").width - 48;
+
+  it("估算宽度 = 窗口宽 - 页面左右内边距；第一次提交手势就是开的", async () => {
+    const r = await mount();
+    expect(slide(r).props.initialWidth).toBe(expected());
+    expect(
+      r.root.find((n) => isHost(n, "GestureDetector")).props.gesture.config
+        .enabled,
+    ).toEqual([true]);
+  });
+
+  it("两顶同时倒数（顶上多一排胶囊）：滑条宽度估算不变", async () => {
+    m(sosApi.snapshot).mockImplementation((id: unknown) =>
+      Promise.resolve(
+        id === "s2" ? sosOf({ sosId: "s2", deviceId: "h2" }) : sosOf(),
+      ),
+    );
+    const r = await mount();
+    act(() => {
+      qc.setQueryData(["sos-active", "h2"], {
+        sos: sosOf({ sosId: "s2", deviceId: "h2" }),
+      });
+    });
+    await tick(0);
+    expect(slide(r).props.initialWidth).toBe(expected());
   });
 });
 

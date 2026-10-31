@@ -27,6 +27,11 @@ const THUMB = 64;
 const INSET = 3;
 /** 拖过全程的这个比例就算取消 */
 const COMMIT = 0.7;
+/**
+ * 估算行程低于这个数就不信估算，等量到真实宽度。「过 70%」按行程算：行程被估得过小时，轻轻一碰就够 70%。
+ * 最窄的 iPhone（320 宽）行程也有 198
+ */
+const MIN_ESTIMATED_TRAVEL = 120;
 const EASE = Easing.bezier(0.2, 0.8, 0.2, 1);
 
 export interface SlideColors {
@@ -49,6 +54,8 @@ const success = () =>
     Haptics.NotificationFeedbackType.Success,
   ).catch(() => undefined);
 
+const travelOf = (width: number) => Math.max(0, width - 2 - THUMB - INSET * 2);
+
 export function SlideToCancel({
   label,
   busyLabel,
@@ -58,6 +65,7 @@ export function SlideToCancel({
   disabled,
   colors,
   onCancel,
+  initialWidth,
 }: {
   label: string;
   busyLabel: string;
@@ -69,20 +77,32 @@ export function SlideToCancel({
   disabled: boolean;
   colors: SlideColors;
   onCancel: () => void;
+  /**
+   * 估算的轨道宽度：第一次提交就能拖。不传时要等 onLayout → 重渲染 → 手势更新走完才能滑，
+   * JS 忙时（通知冷启动）页面看着能滑其实滑不动，那次触摸作废。
+   * 估大了只是要多拖一点、估小了行程不会低于 MIN_ESTIMATED_TRAVEL，量到真实宽度后都按真实的算
+   */
+  initialWidth?: number;
 }) {
-  const [width, setWidth] = useState(0);
+  const [width, setWidth] = useState(() =>
+    initialWidth !== undefined && travelOf(initialWidth) >= MIN_ESTIMATED_TRAVEL
+      ? initialWidth
+      : 0,
+  );
   // 轨道有 1 的描边，圆钮四周各留 3
-  const travel = Math.max(0, width - 2 - THUMB - INSET * 2);
+  const travel = travelOf(width);
   const x = useSharedValue(0);
-  const max = useSharedValue(0);
+  const max = useSharedValue(travel);
   useEffect(() => {
     max.set(travel);
   }, [travel, max]);
 
-  // 圆钮跟着「取消在不在路上」走：在路上停在右端；回到不在路上（请求失败）回左端
+  // 圆钮跟着「取消在不在路上」走：在路上停在右端；回到不在路上（请求失败）回左端。
+  // 依赖落点不依赖行程：不在路上时宽度变了也不动圆钮，正在拖的不会被拉回去
+  const rest = busy ? travel : 0;
   useEffect(() => {
-    x.set(withTiming(busy ? travel : 0, { duration: 220, easing: EASE }));
-  }, [busy, travel, x]);
+    x.set(withTiming(rest, { duration: 220, easing: EASE }));
+  }, [rest, x]);
 
   // 箭头只变明暗、不左右晃：Android 上一直在变的 transform 会不停发「内容变了」的无障碍事件
   const pulse = useSharedValue(0.45);
@@ -145,7 +165,11 @@ export function SlideToCancel({
 
   return (
     <View
-      onLayout={(e: LayoutChangeEvent) => setWidth(e.nativeEvent.layout.width)}
+      onLayout={(e: LayoutChangeEvent) => {
+        const next = e.nativeEvent.layout.width;
+        // 估算和实测差不到 1 dp 不更新：省一次重渲染和手势更新
+        setWidth((w) => (Math.abs(next - w) < 1 ? w : next));
+      }}
       style={[
         styles.track,
         {
