@@ -78,10 +78,20 @@ function frame(
   withBackground = true,
   holdMark = false,
   state: SceneState = S,
+  tables: SceneTables = tb,
 ): Uint8Array {
   const canvas = surface.getCanvas();
   canvas.clear(Skia.Color("transparent"));
-  drawRouteScene(Skia, canvas, state, tb, t, glow, withBackground, holdMark);
+  drawRouteScene(
+    Skia,
+    canvas,
+    state,
+    tables,
+    t,
+    glow,
+    withBackground,
+    holdMark,
+  );
   surface.flush();
   const img = surface.makeImageSnapshot();
   const px = img.readPixels(0, 0, {
@@ -122,6 +132,33 @@ const lumaSum = (px: Uint8Array) => {
   for (let i = 0; i < px.length; i += 4) s += px[i] + px[i + 1] + px[i + 2];
   return s;
 };
+
+/** 把表里的 Float64Array 换回同样数值的普通数组（数值表曾经就是这个样子） */
+const asPlain = <T>(v: T): T =>
+  (ArrayBuffer.isView(v)
+    ? Array.from(v as unknown as ArrayLike<number>)
+    : Array.isArray(v)
+      ? v.map(asPlain)
+      : v && typeof v === "object"
+        ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, asPlain(x)]))
+        : v) as T;
+
+describe("数值表是 Float64Array 还是普通数组，画出来一样", () => {
+  it("同样的数换成普通数组，一路上各个时刻画出的像素逐个相同（画法只读下标和 length）", () => {
+    const plainTb = asPlain(tb);
+    expect(Array.isArray(plainTb.routes[0].idx)).toBe(true);
+    const plainState = makeSceneState(Skia, plainTb, H);
+    const typedState = makeSceneState(Skia, tb, H);
+    // 线条、收拢、融成实心、换原图、之后的光：每一段都取几帧；顺序往前画（线收掉后用最后一帧线还在时的投影）
+    for (const t of [
+      0, 80, 300, 500, 800, 1000, 1200, 1400, 1550, 1580, 1700,
+    ]) {
+      const a = frame(t, glowOf(), true, false, typedState, tb);
+      const b = frame(t, glowOf(), true, false, plainState, plainTb);
+      expect(Buffer.from(a).equals(Buffer.from(b))).toBe(true);
+    }
+  });
+});
 
 describe("路线段逐帧（真的 Skia）", () => {
   it("sceneIsEmpty 说空了的那一刻：铺底时整幅都是底色，不铺底时整幅透明", () => {

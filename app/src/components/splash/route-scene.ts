@@ -98,8 +98,21 @@ export function easeOut(v: number): number {
   return 1 - (1 - p) * (1 - p) * (1 - p);
 }
 
+/**
+ * 交给 worklet 的数值表一律是 Float64Array，不用普通数组：普通数组捕获进 worklet 时每个数都要单独
+ * 序列化一次（这张表加起来约 4 万个，开屏时在 JS 线程上同步做完，中端安卓上上百毫秒），
+ * 类型化数组是整块拷过去。仍是 64 位浮点，数值与普通数组时完全一样；worklet 里对它们只读下标和 length。
+ * 每张表各自一块刚好大小的缓冲区（worklet 序列化类型化数组时拷的是整块 buffer，不能让几张表共用一块）。
+ */
+const pack = (a: readonly number[]): Float64Array => Float64Array.from(a);
+
 /** 过各关键点的单调三次曲线：速度连续，两个关键点之间不会回头 */
-type Curve = { xs: number[]; ys: number[]; hs: number[]; ms: number[] };
+type Curve = {
+  xs: Float64Array;
+  ys: Float64Array;
+  hs: Float64Array;
+  ms: Float64Array;
+};
 function makeCurve(keys: number[][]): Curve {
   const n = keys.length;
   const xs = keys.map((k) => k[0]);
@@ -118,7 +131,7 @@ function makeCurve(keys: number[][]): Curve {
       ms[i] = (w1 + w2) / (w1 / d[i - 1] + w2 / d[i]);
     }
   }
-  return { xs, ys, hs, ms };
+  return { xs: pack(xs), ys: pack(ys), hs: pack(hs), ms: pack(ms) };
 }
 function evalCurve(c: Curve, x: number): number {
   "worklet";
@@ -334,56 +347,56 @@ const STYLE_LEAD: LineStyle[] = [
 // ---------------------------------------------------------------- 开头一次算好的表
 type RouteTable = {
   /** 用到的采样点在原始路线里的序号 */
-  idx: number[];
+  idx: Float64Array;
   /** 抬升之后的基准点和法线方向（法线没有高度分量） */
-  bx: number[];
-  by: number[];
-  bz: number[];
-  nx: number[];
-  ny: number[];
-  conv: number[];
+  bx: Float64Array;
+  by: Float64Array;
+  bz: Float64Array;
+  nx: Float64Array;
+  ny: Float64Array;
+  conv: Float64Array;
 };
 type LaneTable = {
   /** 横向偏移 = offA + 收拢进度 × offB */
-  offA: number[];
-  offB: number[];
+  offA: Float64Array;
+  offB: Float64Array;
   /** 沿这条线自己量的路程 = ll0 + 收拢进度 × dll */
-  ll0: number[];
-  dll: number[];
+  ll0: Float64Array;
+  dll: Float64Array;
   /** 亮度里不随时间变的那部分 */
-  fS: number[];
+  fS: Float64Array;
   /** 路线 1：从路面上看不见、镜头升起才进入视野的程度（1 = 一直看得见） */
-  sB: number[];
+  sB: Float64Array;
   /** 这条线在这一点有多绿（只有路线 1 的领头线用） */
-  gS: number[];
+  gS: Float64Array;
 };
 export type SceneTables = {
   routes: [RouteTable, RouteTable];
   lanes: LaneTable[];
   /** 路线 1 另一条轮廓（「1」的左边和勾的内侧），只用来铺面 */
-  oneInnerOff: number[];
+  oneInnerOff: Float64Array;
   ride: Curve;
   camRise: Curve;
   oa: [number, number, number];
   ob: [number, number, number];
   frontOne: number;
   /** 商标三块的轮廓：抬升之后的点 */
-  poly: { x: number[]; y: number[]; z: number[] }[];
+  poly: { x: Float64Array; y: Float64Array; z: Float64Array }[];
   /** 商标三块在最终画面里的轮廓（以商标中心为原点，单位同屏幕） */
-  flat: number[][];
+  flat: Float64Array[];
   /** 路线 0 全分辨率的中线，镜头沿它走 */
-  camX: number[];
-  camY: number[];
-  camNx: number[];
-  camNy: number[];
-  camAlt: number[];
+  camX: Float64Array;
+  camY: Float64Array;
+  camNx: Float64Array;
+  camNy: Float64Array;
+  camAlt: Float64Array;
 };
 
 function liftK(alt: number): number {
   return 1 - alt / HC;
 }
 
-/** 开头算一次（在 JS 线程上，约一两毫秒）。返回的都是只读的普通数组，可以直接被 worklet 捕获。 */
+/** 开头算一次（在 JS 线程上，约一两毫秒）。返回的数值表都是只读的 Float64Array，可以直接被 worklet 捕获。 */
 export function buildSceneTables(): SceneTables {
   const Z = ZERO_ROUTE;
   const O = ONE_ROUTE;
@@ -427,25 +440,30 @@ export function buildSceneTables(): SceneTables {
     idx: number[],
     conv: number[] | null,
   ): RouteTable => {
-    const t: RouteTable = {
-      idx,
-      bx: [],
-      by: [],
-      bz: [],
-      nx: [],
-      ny: [],
-      conv: [],
-    };
+    const bx: number[] = [];
+    const by: number[] = [];
+    const bz: number[] = [];
+    const nx: number[] = [];
+    const ny: number[] = [];
+    const cv: number[] = [];
     for (const i of idx) {
       const k = liftK(R.alt[i]);
-      t.bx.push((R.x[i] - 300) * k);
-      t.by.push(BY * (1 - k) + (300 - R.y[i]) * k);
-      t.bz.push(R.alt[i]);
-      t.nx.push(R.nx[i] * k);
-      t.ny.push(-R.ny[i] * k);
-      t.conv.push(conv ? conv[i] : 0);
+      bx.push((R.x[i] - 300) * k);
+      by.push(BY * (1 - k) + (300 - R.y[i]) * k);
+      bz.push(R.alt[i]);
+      nx.push(R.nx[i] * k);
+      ny.push(-R.ny[i] * k);
+      cv.push(conv ? conv[i] : 0);
     }
-    return t;
+    return {
+      idx: pack(idx),
+      bx: pack(bx),
+      by: pack(by),
+      bz: pack(bz),
+      nx: pack(nx),
+      ny: pack(ny),
+      conv: pack(cv),
+    };
   };
   const routes: [RouteTable, RouteTable] = [
     routeTable(Z, zIdx, zConv),
@@ -492,25 +510,23 @@ export function buildSceneTables(): SceneTables {
     const idx = lane.route === 1 ? oIdx : zIdx;
     const l0 = lengthAt(lane, 0);
     const l1 = lane.route === 1 ? l0 : lengthAt(lane, 1);
-    const t: LaneTable = {
-      offA: [],
-      offB: [],
-      ll0: [],
-      dll: [],
-      fS: [],
-      sB: [],
-      gS: [],
-    };
+    const offA: number[] = [];
+    const offB: number[] = [];
+    const ll0: number[] = [];
+    const dll: number[] = [];
+    const fS: number[] = [];
+    const sB: number[] = [];
+    const gS: number[] = [];
     for (const i of idx) {
       const a = offFull(lane, i, 0);
-      t.offA.push(a);
-      t.offB.push(offFull(lane, i, 1) - a);
-      t.ll0.push(l0[i]);
-      t.dll.push(l1[i] - l0[i]);
+      offA.push(a);
+      offB.push(offFull(lane, i, 1) - a);
+      ll0.push(l0[i]);
+      dll.push(l1[i] - l0[i]);
       if (lane.route === 0) {
-        t.fS.push(zEdge[i] * (lane.roadOnly ? 1 - zConv[i] : 1));
-        t.sB.push(1);
-        t.gS.push(0);
+        fS.push(zEdge[i] * (lane.roadOnly ? 1 - zConv[i] : 1));
+        sB.push(1);
+        gS.push(0);
       } else {
         let f = oEdge[i];
         if (lane.dock !== undefined) {
@@ -521,14 +537,22 @@ export function buildSceneTables(): SceneTables {
             f *= 1 - smooth((i - (m0 + 0.55 * m1)) / (0.6 * m1));
           }
         }
-        t.fS.push(f);
-        t.sB.push(smooth((i - (I_B - 120)) / 80));
-        t.gS.push(lane.lead1 ? smooth((i - (I_B - 85)) / 60) : 0);
+        fS.push(f);
+        sB.push(smooth((i - (I_B - 120)) / 80));
+        gS.push(lane.lead1 ? smooth((i - (I_B - 85)) / 60) : 0);
       }
     }
-    return t;
+    return {
+      offA: pack(offA),
+      offB: pack(offB),
+      ll0: pack(ll0),
+      dll: pack(dll),
+      fS: pack(fS),
+      sB: pack(sB),
+      gS: pack(gS),
+    };
   });
-  const oneInnerOff = oIdx.map((i) => O.wi[i]);
+  const oneInnerOff = pack(oIdx.map((i) => O.wi[i]));
 
   // 镜头：先是骑行的人的视角，贴着路面沿路往前；然后离开路面，绕到环的上方，直到正对着往下看
   const ride = makeCurve([
@@ -580,20 +604,22 @@ export function buildSceneTables(): SceneTables {
 
   const polys = [POLY_ZERO, POLY_BAR, POLY_GREEN];
   const poly = polys.map((P) => {
-    const out = { x: [] as number[], y: [] as number[], z: [] as number[] };
+    const x: number[] = [];
+    const y: number[] = [];
+    const z: number[] = [];
     P.p.forEach((pt, k) => {
       const kk = liftK(P.a[k]);
-      out.x.push((pt[0] - 300) * kk);
-      out.y.push(BY * (1 - kk) + (300 - pt[1]) * kk);
-      out.z.push(P.a[k]);
+      x.push((pt[0] - 300) * kk);
+      y.push(BY * (1 - kk) + (300 - pt[1]) * kk);
+      z.push(P.a[k]);
     });
-    return out;
+    return { x: pack(x), y: pack(y), z: pack(z) };
   });
   const flat = polys.map((P) => {
     const out: number[] = [];
     for (const pt of P.p)
       out.push((pt[0] - 300) * SCALE, (pt[1] - 300) * SCALE);
-    return out;
+    return pack(out);
   });
 
   return {
@@ -607,22 +633,22 @@ export function buildSceneTables(): SceneTables {
     frontOne,
     poly,
     flat,
-    camX: Z.x,
-    camY: Z.y,
-    camNx: Z.nx,
-    camNy: Z.ny,
-    camAlt: Z.alt,
+    camX: pack(Z.x),
+    camY: pack(Z.y),
+    camNx: pack(Z.nx),
+    camNy: pack(Z.ny),
+    camAlt: pack(Z.alt),
   };
 }
 
 function ridePosition(
   t: number,
   ride: Curve,
-  x: number[],
-  y: number[],
-  nx: number[],
-  ny: number[],
-  alt: number[],
+  x: ArrayLike<number>,
+  y: ArrayLike<number>,
+  nx: ArrayLike<number>,
+  ny: ArrayLike<number>,
+  alt: ArrayLike<number>,
   o: number[],
 ): number[] {
   "worklet";
@@ -1549,7 +1575,7 @@ function fillSlices(
   }
 }
 
-function indexOfSample(idx: number[], i: number): number {
+function indexOfSample(idx: ArrayLike<number>, i: number): number {
   "worklet";
   let a = 0;
   let b = idx.length - 1;
