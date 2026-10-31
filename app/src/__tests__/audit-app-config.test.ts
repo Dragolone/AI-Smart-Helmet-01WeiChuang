@@ -6,6 +6,7 @@
 import { describe, expect, it } from "@jest/globals";
 
 import appJson from "../../app.json";
+import packageJson from "../../package.json";
 
 type PluginEntry = string | [string, Record<string, unknown>?];
 const expo = appJson.expo as unknown as {
@@ -199,5 +200,21 @@ describe("iOS 时效性通知（2026-10-06 评审 R-34）", () => {
         "com.apple.developer.usernotifications.time-sensitive"
       ],
     ).toBe(true);
+  });
+});
+
+describe("包体：原生自动链接（package.json 的 expo.autolinking）", () => {
+  it("排除 react-native-vector-icons：VLC 的 npm 依赖会把它递归链进来，iOS 的 pod 会把 16 个 .ttf（约 2.9 MB）拷进 .app，而 JS 里一处都不引用（图标走 @expo/vector-icons）", () => {
+    expect(packageJson.expo.autolinking.exclude).toContain(
+      "react-native-vector-icons",
+    );
+  });
+
+  it("平台级配置没有盖掉顶层 exclude（autolinking 是 { ...顶层, ...平台 }，平台里写了 exclude 就整个替换）", () => {
+    const perPlatform = packageJson.expo.autolinking as Record<string, unknown>;
+    for (const platform of ["android", "ios", "apple"]) {
+      const cfg = perPlatform[platform] as { exclude?: unknown } | undefined;
+      expect(cfg?.exclude).toBeUndefined();
+    }
   });
 });
