@@ -547,6 +547,112 @@ describe("有头盔", () => {
     await waitFor(() => expect(devicesApi.list).toHaveBeenCalledTimes(2));
   });
 
+  describe("光晕呼吸", () => {
+    let timing: ReturnType<typeof jest.spyOn>;
+    let cancel: ReturnType<typeof jest.spyOn>;
+    beforeEach(() => {
+      const Reanimated = jest.requireMock<
+        Record<"withTiming" | "cancelAnimation", () => unknown>
+      >("react-native-reanimated");
+      timing = jest.spyOn(Reanimated, "withTiming");
+      cancel = jest.spyOn(Reanimated, "cancelAnimation");
+    });
+    afterEach(() => {
+      timing.mockRestore();
+      cancel.mockRestore();
+    });
+    /** 呼吸循环开过几次：只有它的半周期是 2.5 s */
+    const breaths = () =>
+      timing.mock.calls.filter(
+        (c: unknown[]) => (c[1] as { duration?: number })?.duration === 2500,
+      ).length;
+    const layer = (r: Rendered) =>
+      r.root.findAll(
+        (n) => typeof n.type === "function" && n.props.breathe !== undefined,
+      )[0];
+    const litLayerOpacity = (r: Rendered) => {
+      const lit = r.root.find(
+        (n) =>
+          typeof n.type === "function" &&
+          n.props.breathe !== undefined &&
+          n.props.on === true,
+      );
+      return flat(lit.findAll((n) => isHost(n, "View"))[0].props.style).opacity;
+    };
+    const setup = async (link: string) => {
+      const qc = makeQueryClient();
+      mockSafety.links = { h1: link };
+      m(devicesApi.list).mockImplementation(() =>
+        Promise.resolve([dev("h1", { name: "通勤头盔" })]),
+      );
+      const r = await mount(qc);
+      await waitFor(() => expect(r.allText()).toContain("通勤头盔"));
+      const rerender = () =>
+        r.rerender(
+          <QueryClientProvider client={qc}>
+            <DevicesScreen />
+          </QueryClientProvider>,
+        );
+      return { r, rerender };
+    };
+
+    it("透明度量化到 1/172：看不出差别的两帧是同一个值（useAnimatedStyle 不提交），差出一步才变", async () => {
+      const { r, rerender } = await setup("connected");
+      const breathe = layer(r).props.breathe;
+      const at = (v: number) => {
+        breathe.set(v);
+        rerender();
+        return litLayerOpacity(r);
+      };
+      expect(at(0.8)).toBe(138 / 172);
+      expect(at(0.801)).toBe(138 / 172);
+      expect(at(0.804)).toBe(138 / 172);
+      expect(at(0.81)).toBe(139 / 172);
+      expect(at(1)).toBe(1);
+    });
+
+    it("没连上（没有光晕）：不起循环；连上才起，电量变色不重起", async () => {
+      const { rerender } = await setup("unknown");
+      expect(breaths()).toBe(0);
+      mockSafety.links = { h1: "connected" };
+      rerender();
+      expect(breaths()).toBe(1);
+      rerender();
+      expect(breaths()).toBe(1);
+    });
+
+    it("断开：只停循环，不把亮度拉回 1（光晕还在淡出，拉回去会跳一下）", async () => {
+      const { r, rerender } = await setup("connected");
+      const breathe = layer(r).props.breathe;
+      expect(breaths()).toBe(1);
+      breathe.set(0.85);
+      cancel.mockClear();
+      mockSafety.links = { h1: "unknown" };
+      rerender();
+      expect(cancel).toHaveBeenCalledWith(breathe);
+      expect(breathe.get()).toBe(0.85);
+      expect(breaths()).toBe(1);
+    });
+
+    it("切走停、切回来从头起；切走时断开了，回来也不起", async () => {
+      const { rerender } = await setup("connected");
+      expect(breaths()).toBe(1);
+      routerState.focused = false;
+      rerender();
+      expect(cancel).toHaveBeenCalled();
+      routerState.focused = true;
+      rerender();
+      expect(breaths()).toBe(2);
+      routerState.focused = false;
+      rerender();
+      mockSafety.links = { h1: "unknown" };
+      rerender();
+      routerState.focused = true;
+      rerender();
+      expect(breaths()).toBe(2);
+    });
+  });
+
   it("下拉刷新：重新拉设备列表", async () => {
     m(devicesApi.list).mockImplementation(() => Promise.resolve([dev("h1")]));
     const r = await mount();
