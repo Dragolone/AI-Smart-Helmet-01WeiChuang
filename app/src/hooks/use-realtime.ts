@@ -86,6 +86,11 @@ import { useCurrentHelmetStore } from "@/stores/current-helmet-store";
 /** 远程推送到达那次补拉失败后的重试间隔：弱网下 2 s、5 s 再各试一次（60 s 倒计时内够用，又不会无限打服务端） */
 const PUSH_ARRIVAL_RETRY_DELAYS_MS = [2_000, 5_000] as const;
 /**
+ * 前台核对进行中求救的间隔。实时通道半开时（静默丢包，连接看着还在、什么都收不到）别处来的单既没有 WS 也可能没有推送，
+ * 而设备页 / 地图页都不轮询求救：11-01 模拟器实测整单 58 秒不弹页。20 s 是最坏还剩 40 s 能取消
+ */
+const FOREGROUND_SOS_CHECK_MS = 20_000;
+/**
  * 冷启动补拉失败后的重试：先等 2 s，再按 5 / 10 / 20 / 30 s 补，前后约 67 s、盖住一整个 60 s 倒计时，每次一个请求。
  * 原先认为冷启动之后还有 WS 重连补拉兜底，失败就作罢——
  * 但安卓从多任务划掉后进程被推送服务撑着、WS 一直连着（bridge-lifecycle），再从桌面打开时界面重挂只做这一次补拉；
@@ -550,6 +555,26 @@ export function useRealtimeUpdates(): void {
       }
     });
 
+    // 按账号核对一次进行中的求救。kick 只管「知道自己断了」的连接，半开的连接要靠这里发现：
+    // 服务端有单、这条连接却没推过来，说明它已经不通了，顺手换掉（别的消息也一直收不到）。
+    // 倒计时页在屏上时它自己按几秒一次拉权威状态，不用再查
+    const checkActiveSos = (reason: string) => {
+      if (sosScreen.mounted) return;
+      const known = new Set(presentedSos.current);
+      void resumePendingSos(
+        queryClient,
+        bleTargetsOf(),
+        presentedSos,
+        sosDeps,
+        reason,
+      ).then((found) => {
+        if (found.some((id) => !known.has(id))) realtimeClient.reconnect();
+      });
+    };
+    const foregroundSosCheck = setInterval(() => {
+      if (AppState.currentState === "active") checkActiveSos("前台核对");
+    }, FOREGROUND_SOS_CHECK_MS);
+
     // 回前台立即触发一次兜底刷新（WS 断线期间可能漏消息）
     const appState = AppState.addEventListener("change", (state) => {
       devLog("realtime", `appState=${state}`);
@@ -557,6 +582,7 @@ export function useRealtimeUpdates(): void {
         // 断线中回前台：不等退避，立刻重连（关飞行模式/切回 Wi-Fi 后提示条秒消失）
         realtimeClient.kick();
         void queryClient.invalidateQueries({ queryKey: ["devices"] });
+        checkActiveSos("回前台核对");
         return;
       }
       // SOS-13：离开前台时按缓存补弹锁屏通知（只认 background，规则见 sos-sync）
@@ -585,6 +611,7 @@ export function useRealtimeUpdates(): void {
       unsubscribe();
       unsubscribeState();
       unsubscribeUser();
+      clearInterval(foregroundSosCheck);
       appState.remove();
       unsubscribeCache();
     };

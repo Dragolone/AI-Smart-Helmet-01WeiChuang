@@ -10,6 +10,21 @@ afterEach(() => {
 });
 
 describe("+native-intent redirectSystemPath", () => {
+  it("真单倒数中的演练链接不跳：演练页会盖在真单上、写着不会通知任何人（11-01）", () => {
+    sosScreen.counting = true;
+    for (const path of [
+      "lingyizhixing://sos-active?drill=1",
+      "/sos-active?a=1&drill=1",
+      "/sos-active?drill=1&b=2",
+    ])
+      expect(redirectSystemPath({ path, initial: false })).toBeNull();
+    // 不在倒数时演练入口照常
+    sosScreen.counting = false;
+    expect(
+      redirectSystemPath({ path: "/sos-active?drill=1", initial: false }),
+    ).toBe("/sos-active?drill=1");
+  });
+
   it("没有在倒数（没有倒计时页，或已到结果页）：任何链接原样放行（含冷启动）", () => {
     sosScreen.mounted = true; // 结果页还在屏上，但已不在倒数
     for (const path of [

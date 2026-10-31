@@ -88,6 +88,7 @@ jest.mock("@/api/realtime", () => ({
     start: jest.fn(),
     stop: jest.fn(),
     kick: jest.fn(),
+    reconnect: jest.fn(),
     subscribe: (listener: (message: unknown) => void) => {
       mockWs.listeners.add(listener);
       return () => mockWs.listeners.delete(listener);
@@ -361,6 +362,7 @@ beforeEach(() => {
     jest.mocked(realtimeClient.start),
     jest.mocked(realtimeClient.stop),
     jest.mocked(realtimeClient.kick),
+    jest.mocked(realtimeClient.reconnect),
     jest.mocked(forceRefreshTokens),
     jest.mocked(devicesApi.list),
     jest.mocked(sosApi.active),
@@ -875,7 +877,9 @@ describe("求救：拉起倒计时页与锁屏提醒", () => {
     expect(qc.getQueryData(["sos-active", "h1"])).toEqual({ sos });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["accidents"] });
     // 打开着的记录详情也跟着刷新（状态 / 短信发送结果）
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["accident", "s 1/x"] });
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ["accident", "s 1/x"],
+    });
   });
 
   it("倒计时页已在屏上：新来的单只进队列（进行中缓存 + 锁屏提醒），不再叠一页；不在设备列表里的头盔提醒写设备号", async () => {
@@ -1493,6 +1497,75 @@ describe("其余实时消息与前后台", () => {
     await setAppState("active");
     expect(realtimeClient.kick).toHaveBeenCalledTimes(1);
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["devices"] });
+  });
+});
+
+describe("实时通道半开时核对进行中的求救（11-01 模拟器实测整单不弹页）", () => {
+  const pendingNow = () =>
+    jest.mocked(sosApi.activeForAccount).mockResolvedValue({
+      items: [sosOf()],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    } as never);
+
+  it("回前台按账号核对：服务端有单、WS 没推过来 → 拉起倒计时页并换掉这条连接", async () => {
+    await mountBridge();
+    jest.mocked(sosApi.activeForAccount).mockClear();
+    pendingNow();
+    await setAppState("background");
+    await setAppState("active");
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(sosApi.activeForAccount).toHaveBeenCalledTimes(1);
+    expect(router.push).toHaveBeenCalledTimes(1);
+    expect(realtimeClient.reconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("这单 WS 已经推过：回前台核对不重开页面，也不动连接", async () => {
+    await mountBridge();
+    await wsPush("sos_update", sosOf());
+    jest.mocked(router.push).mockClear();
+    pendingNow();
+    await setAppState("background");
+    await setAppState("active");
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(router.push).not.toHaveBeenCalled();
+    expect(realtimeClient.reconnect).not.toHaveBeenCalled();
+  });
+
+  it("前台每 20 s 核对一次；倒计时页在屏上、在后台时都不查", async () => {
+    const spy = jest.spyOn(global, "setInterval");
+    await mountBridge();
+    const tick = spy.mock.calls.find(([, ms]) => ms === 20_000)?.[0] as
+      (() => void) | undefined;
+    spy.mockRestore();
+    expect(tick).toBeDefined();
+    const appState = AppState as { currentState: string };
+    const was = appState.currentState;
+    appState.currentState = "active";
+    try {
+      jest.mocked(sosApi.activeForAccount).mockClear();
+      pendingNow();
+      await run(() => tick?.());
+      expect(sosApi.activeForAccount).toHaveBeenCalledTimes(1);
+      expect(router.push).toHaveBeenCalledTimes(1);
+
+      jest.mocked(sosApi.activeForAccount).mockClear();
+      sosScreen.mounted = true;
+      await run(() => tick?.());
+      expect(sosApi.activeForAccount).not.toHaveBeenCalled();
+      sosScreen.mounted = false;
+
+      appState.currentState = "background";
+      await run(() => tick?.());
+      expect(sosApi.activeForAccount).not.toHaveBeenCalled();
+    } finally {
+      appState.currentState = was;
+    }
   });
 });
 

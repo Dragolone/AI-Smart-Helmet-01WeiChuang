@@ -75,6 +75,28 @@ describe("realtimeClient 退避与 kick", () => {
     c.stop();
   });
 
+  it("reconnect：连接看着还在（半开）也扔掉重连；kick 这时什么都不做（11-01）", async () => {
+    const c = await load();
+    const states: boolean[] = [];
+    c.subscribeState((v) => states.push(v));
+    c.start(deps);
+    const first = FakeWs.instances[0];
+    first.open();
+    c.kick();
+    expect(FakeWs.instances).toHaveLength(1);
+    c.reconnect();
+    expect(FakeWs.instances).toHaveLength(2);
+    expect(first.closed).toBe(true);
+    first.onclose?.({ code: 1006, reason: "" }); // 旧连接迟到的关闭不再触发一轮重连
+    FakeWs.instances[1].open();
+    expect(states.slice(-3)).toEqual([true, false, true]);
+    jest.advanceTimersByTime(60_000);
+    expect(FakeWs.instances).toHaveLength(2);
+    c.stop();
+    c.reconnect();
+    expect(FakeWs.instances).toHaveLength(2);
+  });
+
   it("kick：断线等待退避期间立刻重连并清零退避（飞行模式关掉后提示条不再干等）", async () => {
     const c = await load();
     const states: boolean[] = [];
