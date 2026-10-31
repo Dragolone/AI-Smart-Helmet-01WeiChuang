@@ -1855,6 +1855,81 @@ describe("房间里", () => {
   });
 });
 
+// 成员档案的回包带全员 data-URI 头像（5 人房一小时 11–24 MB）：只在有人看的时候轮询
+describe("成员档案的拉取频率", () => {
+  const advance = async (ms: number) => {
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(ms);
+    });
+  };
+  const pulls = () => m(channelsApi.members).mock.calls.length;
+  /** 档案查询当前挂着的轮询周期（没人订阅的查询不算） */
+  const intervals = () =>
+    qc
+      .getQueryCache()
+      .findAll({ queryKey: ["voice-members"] })
+      .flatMap((q) => q.observers.map((o) => o.options.refetchInterval));
+
+  it("「更多」弹层开着每 15 秒拉一次，收起就不再拉", async () => {
+    const r = mount();
+    await waitFor(() => expect(r.texts()).toContain(C1.name));
+    await tap(r, tr("intercom.more.a11y", { name: C1.name }));
+    await waitFor(() => expect(pulls()).toBe(1));
+    expect(intervals()).toEqual([15_000]);
+    // 收起后换成假时钟再打开：轮询在假时钟下重建，才量得出周期
+    act(() => r.root.findAllByType(Modal)[0].props.onRequestClose());
+    expect(intervals()).toEqual([false]);
+    jest.useFakeTimers();
+    await tap(r, tr("intercom.more.a11y", { name: C1.name }));
+    await advance(14_999);
+    expect(pulls()).toBe(1);
+    await advance(1);
+    expect(pulls()).toBe(2);
+    act(() => r.root.findAllByType(Modal)[0].props.onRequestClose());
+    await advance(10 * 60_000);
+    expect(pulls()).toBe(2);
+  });
+
+  it("在房且停在这一页每 60 秒拉一次；切到别的标签不拉，回来接着拉", async () => {
+    m(channelsApi.list).mockImplementation(() => Promise.resolve([C1, C2]));
+    const r = mount();
+    await waitFor(() => expect(r.texts()).toContain(C1.name));
+    await enter(r);
+    await waitFor(() => expect(pulls()).toBe(1));
+    expect(intervals()).toEqual([60_000]);
+    // 切走再切回来：轮询在假时钟下重建
+    routerState.focused = false;
+    r.rerender(screen());
+    expect(intervals()).toEqual([false]);
+    jest.useFakeTimers();
+    await advance(10 * 60_000);
+    expect(pulls()).toBe(1);
+    routerState.focused = true;
+    r.rerender(screen());
+    expect(intervals()).toEqual([60_000]);
+    await advance(59_999);
+    expect(pulls()).toBe(1);
+    await advance(1);
+    expect(pulls()).toBe(2);
+    await advance(60_000);
+    expect(pulls()).toBe(3);
+  });
+
+  it("在房时不轮询也不漏新面孔：切走后进房事件里档案没有的人照样立刻重拉", async () => {
+    m(channelsApi.list).mockImplementation(() => Promise.resolve([C1, C2]));
+    const r = mount();
+    await waitFor(() => expect(r.texts()).toContain(C1.name));
+    await enter(r);
+    await waitFor(() => expect(pulls()).toBe(1));
+    routerState.focused = false;
+    r.rerender(screen());
+    expect(intervals()).toEqual([false]);
+    later(1000);
+    fire("onRemoteUserEnterRoom", { userId: "stranger-9a7f" });
+    await waitFor(() => expect(pulls()).toBe(2));
+  });
+});
+
 describe("页面进出", () => {
   it("回到这一页重拉频道列表；离开页面（卸载）注销监听、退房、清掉小条和常亮", async () => {
     const r = mount();
