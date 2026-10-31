@@ -996,7 +996,9 @@ function SosActiveContent() {
     >(),
   );
   const helpQueued = useRef(new Set<string>());
-  const [helpBusy, setHelpBusy] = useState(false);
+  // 记下在发哪一顶：多顶头盔的结果页上只有发出去的那一行写「发送中…」
+  const [helpBusyDevice, setHelpBusyDevice] = useState<string | null>(null);
+  const helpBusy = helpBusyDevice !== null;
   /** 返回这次发出的 manual_sos 的 eventId（建出的单的 triggerEventId 就是它）；没有头盔号时 null */
   const needHelp = (device?: string): string | null => {
     // 外部深链只带 sosId 时路由里没有 deviceId，用这一单自己的（10-16 C1）
@@ -1014,7 +1016,7 @@ function SosActiveContent() {
       helpEnvelope.current.set(helpDevice, { afterSosId, envelope });
       helpQueued.current.delete(helpDevice);
     }
-    setHelpBusy(true);
+    setHelpBusyDevice(helpDevice);
     relayApi
       .push({ deviceId: helpDevice, envelopes: [envelope] })
       .then((counts) => {
@@ -1045,7 +1047,7 @@ function SosActiveContent() {
           `${toUserMessage(e)}\n${t("safety.sosQueued")}`,
         );
       })
-      .finally(() => setHelpBusy(false));
+      .finally(() => setHelpBusyDevice(null));
     return envelope.eventId;
   };
   // 「我还是需要帮助」之后的新单：进队列 → 上面那条 effect 自动切过去重新倒数，不再另开一页
@@ -1910,7 +1912,11 @@ function SosActiveContent() {
                           ]}
                         >
                           <ThemedText style={styles.resultHelpText}>
-                            {t("sos.needHelp")}
+                            {t(
+                              helpBusyDevice === h.deviceId
+                                ? "auth.sending"
+                                : "sos.needHelp",
+                            )}
                           </ThemedText>
                         </Tappable>
                       ) : (
@@ -1963,7 +1969,7 @@ function SosActiveContent() {
                   ]}
                 >
                   <ThemedText style={styles.doneBtnText}>
-                    {t("sos.needHelp")}
+                    {t(helpBusy ? "auth.sending" : "sos.needHelp")}
                   </ThemedText>
                 </Tappable>
               )}

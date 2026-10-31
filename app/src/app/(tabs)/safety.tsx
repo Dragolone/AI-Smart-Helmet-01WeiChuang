@@ -333,6 +333,10 @@ export default function SafetyScreen() {
   // 用户自然再按一次——两条不同 eventId 一批补传，第二条被服务端当「再按一次 = 立即求救」，60 秒取消窗口没了
   //（10-20 模拟器实测）。同 eventId 服务端幂等（duplicate），只是重试；成功过之后再按才是新动作
   const unsentSos = useRef<UnsentSos | null>(null);
+  // 求救在路上：按钮写「发送中…」、进度条留满。不写的话按满 2 秒后按钮立刻回到「按住 2 秒求救」，弱网下像没按上。
+  // 不拦第二次长按（宁可多发），所以在路上的可能不止一条，要数着，全部回来才复位
+  const sosInFlight = useRef(0);
+  const [sosSending, setSosSending] = useState(false);
   const fireSos = () => {
     if (!sosTargetId) return;
     sosFired.current = true;
@@ -346,6 +350,10 @@ export default function SafetyScreen() {
     const envelope = isRecentUnsent(prev, sosTargetId)
       ? prev.envelope
       : buildRelayEnvelope(sosTargetId, "manual_sos", {});
+    sosInFlight.current += 1;
+    setSosSending(true);
+    // 读屏双击没有按住的过程，这里补满
+    sosP.set(withTiming(1, { duration: 120 }));
     relayApi
       .push({ deviceId: sosTargetId, envelopes: [envelope] })
       .then(() => {
@@ -370,6 +378,14 @@ export default function SafetyScreen() {
           translate("safety.sosSendFailed"),
           `${toUserMessage(e)}\n${translate("safety.sosQueued")}`,
         );
+      })
+      .finally(() => {
+        sosInFlight.current -= 1;
+        if (sosInFlight.current > 0) return;
+        setSosSending(false);
+        // 倒计时页弹出后这块区域会收起，松手事件到不了这里——不在这里收回的话，
+        // 求救结束后按钮回来时进度还停在满格（看起来像一直被按着）
+        sosP.set(withTiming(0, { duration: 180 }));
       });
   };
 
@@ -730,15 +746,12 @@ export default function SafetyScreen() {
                 );
               }}
               onPressOut={() => {
-                sosP.set(withTiming(0, { duration: 180 }));
+                if (sosInFlight.current === 0)
+                  sosP.set(withTiming(0, { duration: 180 }));
                 if (!sosFired.current) jello.trigger();
               }}
-              onLongPress={() => {
-                fireSos();
-                // 触发后倒计时页弹出、这块区域随即收起，松手事件到不了这里——不主动收回的话，
-                // 求救结束后按钮回来时进度还停在满格（看起来像一直被按着）
-                sosP.set(withTiming(0, { duration: 180 }));
-              }}
+              onLongPress={fireSos}
+              accessibilityState={{ busy: sosSending }}
               style={[
                 styles.sosBtn,
                 {
@@ -762,7 +775,7 @@ export default function SafetyScreen() {
               <View style={styles.sosDivider} />
               <View style={styles.sosTextCol}>
                 <ThemedText type="smallBold" style={styles.sosTitle}>
-                  {t("safety.sosHold")}
+                  {t(sosSending ? "auth.sending" : "safety.sosHold")}
                 </ThemedText>
                 <ThemedText type="small" style={styles.sosSub}>
                   {t("safety.sosCancelable")}

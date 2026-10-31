@@ -1458,6 +1458,10 @@ describe("取消先落地、立即求救被拒时替他重发（O29，负责人 
   });
 });
 
+/** 当前点不了的按钮 */
+const busyTappables = (r: Rendered) =>
+  r.root.findAllByType(Tappable).filter((n) => n.props.disabled === true);
+
 describe("已取消后「我还是需要帮助」", () => {
   const cancelled = async () => {
     m(sosApi.snapshot).mockImplementation(() =>
@@ -1480,6 +1484,37 @@ describe("已取消后「我还是需要帮助」", () => {
     expect(body.deviceId).toBe("h1");
     expect(body.envelopes[0].eventType).toBe("manual_sos");
     expect(notifyCriticalAccepted).toHaveBeenCalledWith("h1");
+  });
+
+  it("发出后到回来之前：按钮写「发送中…」、不能再点；回来后复位（发送中不是成功口径）", async () => {
+    let done: (v: unknown) => void = () => {};
+    m(relayApi.push).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          done = resolve;
+        }),
+    );
+    const r = await cancelled();
+    r.press(tr("sos.needHelp"));
+    await tick(0);
+    expect(r.texts()).toContain(tr("auth.sending"));
+    expect(r.texts()).not.toContain(tr("sos.needHelp"));
+    expect(busyTappables(r)).toHaveLength(1);
+    done({ accepted: 1, duplicate: 0, invalid: 0 });
+    await tick(0);
+    expect(r.texts()).toContain(tr("sos.needHelp"));
+    expect(r.texts()).not.toContain(tr("auth.sending"));
+  });
+
+  it("没发出去也复位：按钮回到「我还是需要帮助」，可以再点", async () => {
+    m(relayApi.push).mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    const r = await cancelled();
+    r.press(tr("sos.needHelp"));
+    await tick(0);
+    expect(r.texts()).toContain(tr("sos.needHelp"));
+    expect(r.texts()).not.toContain(tr("auth.sending"));
   });
 
   it("服务端判 invalid（只留档不建单）：明说没被接受，不进队列", async () => {
@@ -1782,6 +1817,45 @@ describe("多顶头盔同时求救（10-16 N10：一张页 + 顶部胶囊点切�
     expect(r.texts().filter((x) => x === tr("sos.needHelp"))).toHaveLength(2);
     r.press(tr("sos.close"));
     expect(mockRouter.back).toHaveBeenCalled();
+  });
+
+  it("两顶都取消后点其中一行「我还是需要帮助」：只有那一行写「发送中…」，两行都不能再点，回来后复位", async () => {
+    twoHelmets();
+    m(sosApi.cancel).mockImplementation((id: unknown) =>
+      Promise.resolve(
+        sosOf({
+          sosId: id as string,
+          deviceId: id === "s2" ? "h2" : "h1",
+          status: "cancelled",
+        }),
+      ),
+    );
+    const r = await mount();
+    arrive(second());
+    await tick(0);
+    slideCancel(r);
+    for (let i = 0; i < 3; i++) await tick(0);
+    slideCancel(r);
+    for (let i = 0; i < 3; i++) await tick(0);
+    expect(r.texts().filter((x) => x === tr("sos.needHelp"))).toHaveLength(2);
+
+    let done: (v: unknown) => void = () => {};
+    m(relayApi.push).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          done = resolve;
+        }),
+    );
+    r.press(tr("sos.needHelp"));
+    await tick(0);
+    expect(r.texts().filter((x) => x === tr("auth.sending"))).toHaveLength(1);
+    expect(r.texts().filter((x) => x === tr("sos.needHelp"))).toHaveLength(1);
+    expect(busyTappables(r)).toHaveLength(2);
+    expect(relayApi.push).toHaveBeenCalledTimes(1);
+    done({ accepted: 1, duplicate: 0, invalid: 0 });
+    await tick(0);
+    expect(r.texts().filter((x) => x === tr("sos.needHelp"))).toHaveLength(2);
+    expect(r.texts()).not.toContain(tr("auth.sending"));
   });
 
   it("当前单结束、自动切到下一单时，滑块和「立即求救」整组按单号重建：滑到一半跨过切单的手势作废，不会取消到另一顶的单（10-25 审查）", async () => {
