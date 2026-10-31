@@ -315,9 +315,11 @@ export default function MapScreen() {
   // Marker 徽章显示本人头像（无头像回落头盔图标）
   const avatarUrl = useAuthStore((s) => s.user?.avatarUrl ?? null);
   const [mapError, setMapError] = useState<string | null>(null);
+  const mapErrorRef = useRef<string | null>(null);
   // 高德脚本没拉到 / 初始化失败（断网冷启动进来就是这样）：不会自己好，给一个「重新加载」，
   // 并且回到前台时自动重来一次（人多半是去开了网络）——2026-10-15 模拟器正式包
   const reloadMap = useCallback(() => {
+    mapErrorRef.current = null;
     setMapError(null);
     mapRef.current?.reload();
   }, []);
@@ -455,6 +457,15 @@ export default function MapScreen() {
   /** WS 加速通道健康度:断线时药丸下方提示「重连中」,野外测试知道数据是否还新鲜 */
   const [wsUp, setWsUp] = useState(true);
   useEffect(() => realtimeClient.subscribeState(setWsUp), []);
+  // 地图在看不见时就失败了（这页从启动起就挂着，安卓断网冷启动就是这样），之后网络恢复、切到地图页，
+  // 还是红条和黑图：App 没离开过前台，上面回到前台那条不触发。切到这一页、实时通道连上（等于网络恢复了）时各重来一次。
+  // 错误只从 ref 读、不放进依赖：还没网时重来又失败，不能接着再重来
+  useEffect(() => {
+    if (focused && mapErrorRef.current) reloadMap();
+  }, [focused, reloadMap]);
+  useEffect(() => {
+    if (wsUp && mapErrorRef.current) reloadMap();
+  }, [wsUp, reloadMap]);
   const deviceList = useMemo(() => devices.data ?? [], [devices.data]);
   const choice = useCurrentHelmetChoice();
   const current = currentHelmetOf(deviceList, choice.chosenId);
@@ -1144,7 +1155,10 @@ export default function MapScreen() {
         onUserZoom={() => {
           if (showRide) fitted.current.moved = true;
         }}
-        onError={(msg) => setMapError(msg)}
+        onError={(msg) => {
+          mapErrorRef.current = msg;
+          setMapError(msg);
+        }}
         // 地图（重）就绪时重推当前状态：WebView 重挂载/进程重启后 effect 依赖未变不会重发
         onReady={() => {
           const map = mapRef.current;

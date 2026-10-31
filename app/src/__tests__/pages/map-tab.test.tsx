@@ -835,6 +835,78 @@ describe("实时位置", () => {
     expect(mockMap.reload).toHaveBeenCalledTimes(1);
   });
 
+  describe("地图在隐藏页就失败了（安卓断网冷启动）", () => {
+    const fail = (msg = "脚本加载失败") =>
+      act(() => {
+        (mockMapProps.current.onError as (m: string) => void)(msg);
+      });
+    const ws = (up: boolean) =>
+      act(() => {
+        mockWs.forEach((l) => l(up));
+      });
+    const setFocused = (r: Rendered, qc: QueryClient, focused: boolean) => {
+      routerState.focused = focused;
+      r.rerender(screenOf(qc));
+    };
+
+    it("切到地图页：重来一次，红条收起；还是失败就停在红条，不接着重来", async () => {
+      routerState.focused = false;
+      const qc = makeQueryClient();
+      const r = await mount(qc);
+      fail();
+      expect(mockMap.reload).not.toHaveBeenCalled();
+      setFocused(r, qc, true);
+      expect(mockMap.reload).toHaveBeenCalledTimes(1);
+      expect(r.allText()).not.toContain(
+        tr("map.error", { msg: "脚本加载失败" }),
+      );
+      fail("还是不行");
+      r.rerender(screenOf(qc));
+      expect(mockMap.reload).toHaveBeenCalledTimes(1);
+      expect(r.allText()).toContain(tr("map.error", { msg: "还是不行" }));
+    });
+
+    it("实时通道连上（网络恢复了）：看不见时也重来一次；断开那一下不算", async () => {
+      routerState.focused = false;
+      await mount();
+      ws(false);
+      fail();
+      expect(mockMap.reload).not.toHaveBeenCalled();
+      ws(true);
+      expect(mockMap.reload).toHaveBeenCalledTimes(1);
+      fail("还是不行");
+      ws(false);
+      expect(mockMap.reload).toHaveBeenCalledTimes(1);
+      ws(true);
+      expect(mockMap.reload).toHaveBeenCalledTimes(2);
+    });
+
+    it("切走那一下不重来；同一次渲染里切回来又连上：只重来一次", async () => {
+      const qc = makeQueryClient();
+      const r = await mount(qc);
+      ws(false);
+      fail();
+      setFocused(r, qc, false);
+      expect(mockMap.reload).not.toHaveBeenCalled();
+      await act(async () => {
+        mockWs.forEach((l) => l(true));
+        routerState.focused = true;
+        r.rerender(screenOf(qc));
+      });
+      expect(mockMap.reload).toHaveBeenCalledTimes(1);
+    });
+
+    it("没有错误时切页面、连上实时通道都不重载", async () => {
+      const qc = makeQueryClient();
+      const r = await mount(qc);
+      setFocused(r, qc, false);
+      setFocused(r, qc, true);
+      ws(false);
+      ws(true);
+      expect(mockMap.reload).not.toHaveBeenCalled();
+    });
+  });
+
   it("点第一行（状态和更新时间那一行）也能收起 / 展开抽屉", async () => {
     const r = await mount();
     await waitFor(() => expect(r.allText()).toContain(tr("map.still")));
