@@ -314,6 +314,8 @@ describe("登录页", () => {
     expect(
       r.root.findAll((n) => n.props.accessibilityRole === "checkbox"),
     ).toHaveLength(0);
+    r.type(P.phone, "13900000042");
+    r.type(P.pwd, "secret123");
     r.press(tr("auth.login"));
     await waitFor(() => expect(signIn).toHaveBeenCalled());
     expect(accept).not.toHaveBeenCalled();
@@ -325,6 +327,8 @@ describe("登录页", () => {
       Promise.reject(apiError(400, "PASSWORD_INCORRECT")),
     );
     const r = render(<LoginScreen />);
+    r.type(P.phone, "13900000042");
+    r.type(P.pwd, "wrong-pass");
     r.press(tr("auth.login"));
     await waitFor(() =>
       expect(r.allText()).toContain(tr("error.passwordIncorrect")),
@@ -339,6 +343,47 @@ describe("登录页", () => {
     r.press(tr("auth.login"));
     await waitFor(() => expect(pageErrors(r)).toEqual([tr("error.network")]));
     expect(signIn).not.toHaveBeenCalled();
+  });
+
+  it("提交前先在本地查号码和密码：不填 / 少一位落在手机号、密码空落在密码，都不发请求（断网也一样）", async () => {
+    useConsentStore.setState({ hydrated: true, privacyAccepted: true });
+    // 原来空着点登录要等一个来回，服务端回 400 才说「输入格式不正确」，断网时更成了「网络连接失败」
+    api.login.mockImplementation(() =>
+      Promise.reject(new TypeError("Network request failed")),
+    );
+    const r = render(<LoginScreen />);
+    r.press(tr("auth.login"));
+    expect(fieldErrors(r)).toEqual([
+      [tr("auth.phone"), tr("auth.invalidPhone")],
+    ]);
+    r.type(P.phone, "1390000004");
+    r.type(P.pwd, "secret123");
+    r.press(tr("auth.login"));
+    expect(fieldErrors(r)).toEqual([
+      [tr("auth.phone"), tr("auth.invalidPhone")],
+    ]);
+    r.type(P.phone, "13900000042");
+    r.type(P.pwd, "");
+    r.press(tr("auth.login"));
+    expect(fieldErrors(r)).toEqual([
+      [tr("auth.password"), tr("auth.passwordRequired")],
+    ]);
+    expect(pageErrors(r)).toEqual([]);
+    expect(api.login).not.toHaveBeenCalled();
+  });
+
+  it("本地校验按服务端同一口径放行：带 +86 / 空格的号码规整后照常提交；旧账号不足 8 位的密码不挡", async () => {
+    useConsentStore.setState({ hydrated: true, privacyAccepted: true });
+    api.login.mockImplementation(() => Promise.resolve(AUTH));
+    const r = render(<LoginScreen />);
+    r.type(P.phone, "+86 139 0000 0042");
+    r.type(P.pwd, "short");
+    r.press(tr("auth.login"));
+    await waitFor(() => expect(signIn).toHaveBeenCalledWith(AUTH));
+    expect(api.login).toHaveBeenCalledWith({
+      phone: "13900000042",
+      password: "short",
+    });
   });
 
   it("倒计时走完才登出的（O19-A）：说明后面多一句联系人多半已收到通知；普通被动登出没有这句", async () => {
