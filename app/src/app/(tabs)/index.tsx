@@ -134,7 +134,11 @@ function GlowLayer({
   useEffect(() => {
     k.set(withTiming(on ? 1 : 0, { duration: TINT_MS }));
   }, [on, k]);
-  const st = useAnimatedStyle(() => ({ opacity: breathe.get() * k.get() }));
+  // 光晕比屏幕还宽，每提交一次都要重绘整块径向渐变。2.5 s 半个周期里中心像素最多变约 19 级，
+  // 60–120 Hz 下多数帧看不出变化：量化到每步不到半级，值没变时 useAnimatedStyle 不提交
+  const st = useAnimatedStyle(() => ({
+    opacity: (Math.round(breathe.get() * 172) / 172) * k.get(),
+  }));
   return (
     <Animated.View
       pointerEvents="none"
@@ -184,12 +188,14 @@ function Hero({
   const name = helmetNameOf(device);
   const status = t(pill.text);
 
-  // 光晕缓慢呼吸（5 s 一个来回），只在这一页显示着的时候跑。
+  // 光晕缓慢呼吸（5 s 一个来回），只在这一页显示着、并且有光晕（连着头盔）的时候跑。
   // 动的是透明度而不是大小：Android 上持续变 transform 会不停发无障碍「内容变了」事件，
   // 读屏和 uiautomator 都等不到界面静止。从暗往亮走：系统开了「减弱动态效果」时停在最亮。
   const breathe = useSharedValue(1);
+  const hasGlow = accent !== null;
   useFocusEffect(
     useCallback(() => {
+      if (!hasGlow) return;
       breathe.set(0.78);
       breathe.set(
         withRepeat(
@@ -198,11 +204,9 @@ function Hero({
           true,
         ),
       );
-      return () => {
-        cancelAnimation(breathe);
-        breathe.set(1);
-      };
-    }, [breathe]),
+      // 只停不归位：断开时光晕正在淡出，这里把亮度拉回 1 会跳一下。下次开始时会从 0.78 重来
+      return () => cancelAnimation(breathe);
+    }, [breathe, hasGlow]),
   );
   // 搜索中的脉冲点同理：头盔关机时蓝牙会长期搜索，切到别的标签后它不能还按屏幕刷新率在 UI 线程上循环
   const focused = useIsFocused();
