@@ -72,7 +72,7 @@ import type {
 import { ApiRequestError } from "@/api/client";
 import { contactsApi } from "@/api/contacts";
 import { devicesApi } from "@/api/devices";
-import { clearSosAlert } from "@/services/sos-alert";
+import { cancelFromNotification, clearSosAlert } from "@/services/sos-alert";
 import { toUserMessage } from "@/api/error-messages";
 import { buildRelayEnvelope, relayApi } from "@/api/relay";
 import { sosApi } from "@/api/sos";
@@ -569,7 +569,10 @@ function SosActiveContent() {
       const me = nativeAlarm.next++;
       if (nativeAlarm.owner !== 0) HelmetLinkService.stopSosAlarm();
       nativeAlarm.owner = me;
-      HelmetLinkService.startSosAlarm(left + NATIVE_ALARM_GRACE_MS);
+      HelmetLinkService.startSosAlarm(
+        left + NATIVE_ALARM_GRACE_MS,
+        Number.isFinite(at) ? left - URGENT_SECONDS * 1000 : undefined,
+      );
       let urgentOn = false;
       const tick = setInterval(() => {
         // 截止时间解析不出来时 secondsLeft 是 null，不能拿去比（null <= 10 为真，一开始就会切急促）
@@ -764,6 +767,10 @@ function SosActiveContent() {
               f?.kind === kind ? [...f.ids.filter((x) => x !== id), id] : [id],
           }));
           announceFail(kind, due ? [due] : []);
+          // 滑完马上锁屏 / 回桌面时失败：页面上的提示没人看得到，也没人再滑一次，单子到期照样通知联系人。
+          // 交给通知取消那条重试链，原生到点叫醒（11-01 模拟器实测）
+          if (kind === "cancel" && AppState.currentState !== "active")
+            void cancelFromNotification(id, 0, sos?.deviceId ?? deviceId);
         });
       })
       .finally(() => clearBusy([id]));
