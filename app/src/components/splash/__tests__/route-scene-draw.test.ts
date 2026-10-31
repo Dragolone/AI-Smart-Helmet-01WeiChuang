@@ -1,7 +1,7 @@
 // 开屏路线段逐帧画出来对不对：用电脑上那套真的 Skia（CanvasKit，scripts/splash-frames.ts 出图用的同一套）
 // 画几帧，读像素断言——不替换画布，画法代码原样跑。
 // 断言的是画面上看得见的结论：底色、商标实心部分什么时候在、光什么时候收、脉冲环画在哪、
-// sceneIsEmpty 说「空了」的时候画面确实只剩底色。
+// 换完原图、光也收掉之后画面确实只剩底色。
 import { afterAll, beforeAll, describe, expect, it } from "@jest/globals";
 import path from "node:path";
 import { TextDecoder as NodeTextDecoder } from "node:util";
@@ -16,7 +16,6 @@ import {
   easeOut,
   lerp,
   makeSceneState,
-  sceneIsEmpty,
   type MarkGlow,
   type SceneState,
   type SceneTables,
@@ -161,10 +160,9 @@ describe("数值表是 Float64Array 还是普通数组，画出来一样", () =>
 });
 
 describe("路线段逐帧（真的 Skia）", () => {
-  it("sceneIsEmpty 说空了的那一刻：铺底时整幅都是底色，不铺底时整幅透明", () => {
+  it("换完原图、商标离开原位之后（光已收掉）：铺底时整幅都是底色，不铺底时整幅透明", () => {
     const glow = glowOf({ dock: 1 });
     const t = SCENE_T.raster[1] + 200;
-    expect(sceneIsEmpty(t, glow)).toBe(true);
     const withBg = frame(t, glow, true);
     expect(notBg(withBg)).toBe(0);
     expect(at(withBg, 0, 0)).toEqual([...BG, 255]);

@@ -2,7 +2,6 @@
 // 只做展示、不进业务；解析口径与 protocol.ts 一致——字节流为准（手册十进制标注有误处以字节为准，
 // DEVICE_PROTOCOL §10 第 6 条）。
 import type { DeviceSettingKey } from "@helmet/shared";
-import { DEVICE_SETTINGS } from "@helmet/shared";
 
 import { asciiZ, bytesToHex, readI32, readU16, readU32 } from "./bytes";
 import {
@@ -219,9 +218,3 @@ export function parseHexInput(input: string): Uint8Array | null {
     out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
   return out;
 }
-
-/** 设置键的取值范围提示（写越界用例要知道上限） */
-export const settingRange = (key: DeviceSettingKey): string => {
-  const spec = DEVICE_SETTINGS[key];
-  return spec.kind === "bool" ? "0/1" : `${spec.min}–${spec.max}`;
-};

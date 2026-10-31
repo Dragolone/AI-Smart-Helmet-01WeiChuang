@@ -596,21 +596,6 @@ export async function cancelFromNotification(
 }
 
 /**
- * 通知权限是否被拒：被拒时锁屏上的 SOS 提醒一条都发不出，安全页要明确告诉用户（REGRESSION 8.2）。
- * 「还没问过」不算被拒——新用户首次登录时系统授权框还没弹完，安全页就先查到 undetermined，
- * 原来 `!granted` 会立刻弹「通知权限已关闭」并和系统框叠在一起（2026-10-05 评审）。
- */
-export async function isSosAlertPermissionDenied(): Promise<boolean> {
-  try {
-    const p = await Notifications.getPermissionsAsync();
-    if (p.granted) return isSosChannelBlocked();
-    return (p as { status?: string }).status !== "undetermined";
-  } catch {
-    return false; // 查不到权限状态时不吓唬用户
-  }
-}
-
-/**
  * Android：App 的通知总开关开着，但求救那条通道被单独关了，锁屏提醒照样一条都出不来，
  * 而 getPermissionsAsync 仍报 granted。华为 P30 实测（2026-10-19）：通知总开关关着的时候
  * App 首次启动建的通道会被记成「关闭」，之后把总开关打开，通道还是关的——界面得把这种也算成未开启，

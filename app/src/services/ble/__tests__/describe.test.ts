@@ -9,7 +9,6 @@ import {
   eventName,
   parseHexInput,
   regName,
-  settingRange,
 } from "../describe";
 
 const h = hexToBytes;
@@ -226,10 +225,5 @@ describe("2026-10-19 补分支：截短的下行帧、充电中、清除全部�
     expect(d.text).toBe(
       "事件 location_update seq=12 · 未校时 · 30.232301,120.159255 速度 5 m/s 航向 90° 精度 5 m",
     );
-  });
-
-  it("settingRange：开关给 0/1，数值给上下限", () => {
-    expect(settingRange("buzzer")).toBe("0/1");
-    expect(settingRange("volume")).toBe("1–100");
   });
 });

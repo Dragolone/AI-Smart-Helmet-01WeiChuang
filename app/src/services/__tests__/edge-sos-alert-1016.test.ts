@@ -289,20 +289,3 @@ describe("通知按钮「取消」遇到不可重试的错误", () => {
     await m.resetSosAlerts();
   });
 });
-
-describe("通知权限查询", () => {
-  it("granted / denied / undetermined / 查询抛错：只有明确拒绝才算被拒", async () => {
-    const m = load();
-    for (const [perm, denied] of [
-      [{ granted: true, status: "granted" }, false],
-      [{ granted: false, status: "denied" }, true],
-      [{ granted: false, status: "undetermined" }, false],
-      [{ granted: false }, true],
-    ] as const) {
-      mockPermissions.mockResolvedValueOnce(perm);
-      expect(await m.isSosAlertPermissionDenied()).toBe(denied);
-    }
-    mockPermissions.mockRejectedValueOnce(new Error("boom"));
-    expect(await m.isSosAlertPermissionDenied()).toBe(false);
-  });
-});

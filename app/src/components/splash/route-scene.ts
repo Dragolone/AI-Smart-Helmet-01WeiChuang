@@ -1664,16 +1664,6 @@ export function rasterOpacityAt(t: number): number {
   );
 }
 
-/** 这一刻之后画布上什么都不剩（线已收完、商标周围的光也收掉了），可以卸掉画布 */
-export function sceneIsEmpty(t: number, glow: MarkGlow): boolean {
-  "worklet";
-  return (
-    t >= SCENE_T.raster[1] &&
-    glow.dock > 0.995 &&
-    (glow.pulse < 0 || glow.pulse >= 1.25)
-  );
-}
-
 /** 完成之后的商标（三块平面形状），只在算光的时候用 */
 function drawFlatMark(
   S: SceneState,

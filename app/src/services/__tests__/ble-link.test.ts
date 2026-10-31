@@ -274,7 +274,6 @@ import {
   noteServerDate,
 } from "@/services/server-clock";
 import {
-  bleReady,
   bleStackReleased,
   currentBleTargets,
   isHelmetConnected,
@@ -2243,13 +2242,6 @@ describe("补分支（2026-10-19）", () => {
       });
       await tick();
       expect(fakeDevice.connect).not.toHaveBeenCalled();
-    });
-
-    it("bleReady：适配器 PoweredOn 才算就绪", async () => {
-      mockState.mockResolvedValueOnce("PoweredOn");
-      await expect(bleReady()).resolves.toBe(true);
-      mockState.mockResolvedValueOnce("PoweredOff");
-      await expect(bleReady()).resolves.toBe(false);
     });
   });
 

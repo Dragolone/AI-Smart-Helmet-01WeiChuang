@@ -238,27 +238,3 @@ export function toGcj02(
   }
   return wgs84ToGcj02(point.longitude, point.latitude);
 }
-
-/** 两点球面距离（米），Haversine */
-export function haversineMeters(a: LngLat, b: LngLat): number {
-  const R = 6371000;
-  const dLat = ((b.latitude - a.latitude) * PI) / 180;
-  const dLng = ((b.longitude - a.longitude) * PI) / 180;
-  const la = (a.latitude * PI) / 180;
-  const lb = (b.latitude * PI) / 180;
-  const h =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(la) * Math.cos(lb) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(h));
-}
-
-/** 轨迹累计里程（米）：cumulative[i] = 起点到第 i 点的累计距离，供回放进度实时取值 */
-export function cumulativeMeters(points: LngLat[]): number[] {
-  const result: number[] = new Array<number>(points.length);
-  let sum = 0;
-  for (let i = 0; i < points.length; i++) {
-    if (i > 0) sum += haversineMeters(points[i - 1], points[i]);
-    result[i] = sum;
-  }
-  return result;
-}

@@ -1,5 +1,4 @@
 // 轻量动效原语（2026-09-17 动效批次 2）：只调"手感"，不堆视觉料；全部 reanimated 本地实现。
-// - AnimatedChip：选中态颜色过渡 + 选中瞬间小弹一下（分段选择不再硬切）
 // - ValueTransition：数值变化时旧值上滑淡出、新值下滑淡入（数据"活"起来）
 // - PulseDot：进行中状态的呼吸点（搜索/连接中）；静态时不动
 // - DotsLoader：三点波浪 loader（按钮 loading 态）
@@ -10,20 +9,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import {
-  StyleSheet,
-  View,
-  type StyleProp,
-  type TextStyle,
-  type ViewStyle,
-} from "react-native";
+import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import Animated, {
   Easing,
   FadeInDown,
-  interpolateColor,
   useAnimatedReaction,
   useAnimatedStyle,
-  useDerivedValue,
   useReducedMotion,
   useSharedValue,
   withDelay,
@@ -33,10 +24,6 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
-import { Tappable } from "@/components/tappable";
-import { ThemedText } from "@/components/themed-text";
-
-const COLOR_MS = 180;
 /** 状态色过渡的时长：连上 / 断开、电量跨档、核对项变档都用它 */
 export const TINT_MS = 240;
 
@@ -164,79 +151,6 @@ export function CrossfadeIcon({
       {layer(0)}
       {layer(1)}
     </Animated.View>
-  );
-}
-
-export function AnimatedChip({
-  active,
-  onPress,
-  disabled = false,
-  label,
-  activeBg,
-  inactiveBg,
-  activeFg,
-  inactiveFg,
-  style,
-  textStyle,
-  borderActive,
-  borderInactive,
-}: {
-  active: boolean;
-  onPress: () => void;
-  disabled?: boolean;
-  label: string;
-  activeBg: string;
-  inactiveBg: string;
-  activeFg: string;
-  inactiveFg: string;
-  style?: StyleProp<ViewStyle>;
-  textStyle?: StyleProp<TextStyle>;
-  borderActive?: string;
-  borderInactive?: string;
-}) {
-  const progress = useSharedValue(active ? 1 : 0);
-  const pop = useSharedValue(1);
-  useEffect(() => {
-    progress.set(withTiming(active ? 1 : 0, { duration: COLOR_MS }));
-    if (active) {
-      // 选中瞬间：1 → 1.06 → 1，低阻尼回弹
-      pop.set(
-        withSequence(
-          withTiming(1.06, { duration: 90 }),
-          withSpring(1, { damping: 12, stiffness: 320 }),
-        ),
-      );
-    }
-  }, [active, progress, pop]);
-  const boxStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(
-      progress.get(),
-      [0, 1],
-      [inactiveBg, activeBg],
-    ),
-    ...(borderActive && borderInactive
-      ? {
-          borderColor: interpolateColor(
-            progress.get(),
-            [0, 1],
-            [borderInactive, borderActive],
-          ),
-        }
-      : {}),
-    transform: [{ scale: pop.get() }],
-  }));
-  const fg = useDerivedValue(() =>
-    interpolateColor(progress.get(), [0, 1], [inactiveFg, activeFg]),
-  );
-  const labelStyle = useAnimatedStyle(() => ({ color: fg.get() }));
-  return (
-    <Tappable disabled={disabled} onPress={onPress} feedback="opacity">
-      <Animated.View style={[style, boxStyle]}>
-        <Animated.Text style={[styles.chipText, textStyle, labelStyle]}>
-          {label}
-        </Animated.Text>
-      </Animated.View>
-    </Tappable>
   );
 }
 
@@ -491,11 +405,7 @@ export function useJello() {
 export const listEntering = (i: number) =>
   FadeInDown.duration(280).delay(Math.min(i * 40, 320));
 
-/** 供需要纯文本动画样式的地方复用 */
-export const MotionText = ThemedText;
-
 const styles = StyleSheet.create({
-  chipText: { fontSize: 13, fontWeight: "700" },
   shrink: { flexShrink: 1, minWidth: 0 },
   outgoing: { position: "absolute", left: 0, top: 0, right: 0 },
   dotsRow: { flexDirection: "row", alignItems: "center", gap: 5, height: 20 },

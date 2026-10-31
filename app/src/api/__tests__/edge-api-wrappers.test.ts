@@ -344,7 +344,5 @@ describe("devicesApi", () => {
     expect(last().path).toBe(`/devices/d1/locations/track?${q}&maxPoints=1000`);
     await devicesApi.track("d1", from, to, 200);
     expect(last().path).toBe(`/devices/d1/locations/track?${q}&maxPoints=200`);
-    await devicesApi.locations("d1", from, to, 2, 100);
-    expect(last().path).toBe(`/devices/d1/locations?${q}&page=2&pageSize=100`);
   });
 });

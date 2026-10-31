@@ -22,10 +22,8 @@ import Animated from "react-native-reanimated";
 import { BatteryArc } from "../battery-arc";
 import { CHECK_DRAW_MS, CheckDraw } from "../check-draw";
 import {
-  AnimatedChip,
   CrossfadeIcon,
   DotsLoader,
-  MotionText,
   PulseDot,
   TINT_MS,
   ValueTransition,
@@ -33,7 +31,6 @@ import {
   useJello,
   useTintStyle,
 } from "../motion";
-import { ThemedText } from "../themed-text";
 
 jest.mock("@/global.css", () => ({}));
 jest.mock("@expo/vector-icons", () =>
@@ -323,32 +320,6 @@ describe("motion 原语", () => {
     expect(activeIcon(r)).toEqual(["c"]);
   });
 
-  it("AnimatedChip：显示文字、点了回调；disabled 时不响应", () => {
-    const onPress = jest.fn();
-    const common = {
-      label: "全部",
-      activeBg: "#1",
-      inactiveBg: "#2",
-      activeFg: "#3",
-      inactiveFg: "#4",
-      onPress,
-    };
-    const r = render(
-      <AnimatedChip {...common} active borderActive="#5" borderInactive="#6" />,
-    );
-    expect(r.texts()).toEqual(["全部"]);
-    r.press("全部");
-    expect(onPress).toHaveBeenCalledTimes(1);
-    r.rerender(<AnimatedChip {...common} active={false} disabled />);
-    const p = r.root.find(
-      (n) =>
-        typeof n.type !== "string" &&
-        n.props.disabled === true &&
-        typeof n.props.onPress === "function",
-    );
-    expect(p).toBeTruthy();
-  });
-
   it("ValueTransition：动画线程第一次跑到反应时已经换过值，新值那层也要亮起来（同 CrossfadeIcon，10-31）", () => {
     const el = (v: string) => (
       <ValueTransition value={v}>
@@ -484,9 +455,8 @@ describe("motion 原语", () => {
     expect(TINT_MS).toBe(240);
   });
 
-  it("listEntering 按序号错峰（构造器可链式调用）；MotionText 就是 ThemedText", () => {
+  it("listEntering 按序号错峰（构造器可链式调用）", () => {
     expect(listEntering(0)).toBeTruthy();
     expect(listEntering(100)).toBeTruthy();
-    expect(MotionText).toBe(ThemedText);
   });
 });
