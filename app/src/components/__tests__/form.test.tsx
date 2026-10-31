@@ -8,6 +8,7 @@ import {
   it,
   jest,
 } from "@jest/globals";
+import { createRef } from "react";
 import { Text, TextInput } from "react-native";
 import { act } from "react-test-renderer";
 import { mockFlags } from "@/__tests__/helpers/native-mocks";
@@ -93,6 +94,28 @@ describe("FormInput", () => {
     expect(labelColor()).toBe(dark.brand);
     act(() => input.props.onBlur());
     expect(labelColor()).toBe(dark.textSecondary);
+  });
+
+  it("ref 和回车键相关的属性原样给里面的 TextInput（回车跳下一格 / 聚焦用）", () => {
+    const ref = createRef<TextInput>();
+    const onSubmitEditing = jest.fn();
+    const r = render(
+      <FormInput
+        ref={ref}
+        label="手机号"
+        returnKeyType="next"
+        submitBehavior="submit"
+        onSubmitEditing={onSubmitEditing}
+      />,
+    );
+    const input = r.root.findByType(TextInput);
+    expect(ref.current).toBe(input.instance);
+    expect(input.props).toMatchObject({
+      returnKeyType: "next",
+      submitBehavior: "submit",
+    });
+    act(() => input.props.onSubmitEditing());
+    expect(onSubmitEditing).toHaveBeenCalledTimes(1);
   });
 
   it("有错误：下方红字、边框红色；没错误不显示", () => {

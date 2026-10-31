@@ -9,7 +9,7 @@ import {
   jest,
 } from "@jest/globals";
 import * as SecureStore from "expo-secure-store";
-import { Alert, Keyboard, ScrollView, Text } from "react-native";
+import { Alert, Keyboard, ScrollView, Text, TextInput } from "react-native";
 import { act } from "react-test-renderer";
 import { mockRouter, routerState } from "@/__tests__/helpers/native-mocks";
 import {
@@ -195,6 +195,22 @@ const inputProps = (r: Rendered, placeholder: string) =>
         typeof n.props.onChangeText === "function",
     )
     .map((n) => n.props as Record<string, unknown>);
+/** 占位文字为 placeholder 的那个 TextInput（回车键相关的属性和 ref 都在它身上） */
+const textInput = (r: Rendered, placeholder: string) =>
+  r.root.find(
+    (n) => n.type === TextInput && n.props.placeholder === placeholder,
+  );
+/** 把某个输入框的 focus 换成替身（共用的 TextInput 替身的 focus 是所有实例共享的，分不出是谁） */
+const spyFocus = (r: Rendered, placeholder: string) => {
+  const focus = jest.fn();
+  (
+    textInput(r, placeholder).instance as unknown as { focus: () => void }
+  ).focus = focus;
+  return focus;
+};
+/** 按一下某格的回车键；每次现找，拿到的是当前这一帧的处理函数（和真机一样） */
+const enterOn = (r: Rendered, placeholder: string) =>
+  act(() => textInput(r, placeholder).props.onSubmitEditing());
 /** 7 个表情：14 个 UTF-16 单元，服务端按码点数只有 7 位 */
 const SEVEN_EMOJI = "😀".repeat(7);
 /** 25 个汉字：25 位、但按 UTF-8 是 75 字节，超过服务端 72 字节的上限 */
@@ -424,6 +440,28 @@ describe("登录页", () => {
     expect(fieldErrors(r)).toEqual([
       [tr("auth.password"), tr("auth.passwordRequired")],
     ]);
+  });
+
+  it("回车键：手机号 → 密码，焦点直接过去不收键盘；密码是最后一格，回车 = 点登录；请求在途时再按回车不重复发", async () => {
+    useConsentStore.setState({ hydrated: true, privacyAccepted: true });
+    api.login.mockImplementation(() => new Promise(() => undefined));
+    const r = render(<LoginScreen />);
+    expect(textInput(r, P.phone).props).toMatchObject({
+      returnKeyType: "next",
+      submitBehavior: "submit",
+    });
+    expect(textInput(r, P.pwd).props.returnKeyType).toBe("go");
+    // 最后一格走默认（先收键盘再提交），不能写成 submit
+    expect(textInput(r, P.pwd).props.submitBehavior).toBeUndefined();
+    const focusPwd = spyFocus(r, P.pwd);
+    enterOn(r, P.phone);
+    expect(focusPwd).toHaveBeenCalledTimes(1);
+    r.type(P.phone, "13900000042");
+    r.type(P.pwd, "secret123");
+    enterOn(r, P.pwd);
+    expect(api.login).toHaveBeenCalledTimes(1);
+    enterOn(r, P.pwd);
+    expect(api.login).toHaveBeenCalledTimes(1);
   });
 
   it("倒计时走完才登出的（O19-A）：说明后面多一句联系人多半已收到通知；普通被动登出没有这句", async () => {
@@ -732,6 +770,52 @@ describe("注册页", () => {
     expect(fieldErrors(r)).toEqual([]);
   });
 
+  it("回车键：手机号 → 验证码 → 密码 → 确认 → 昵称逐格往下，昵称是最后一格，回车 = 点注册；在途时再按不重复发", async () => {
+    api.register.mockImplementation(() => new Promise(() => undefined));
+    const r = render(<RegisterScreen />);
+    const order = [P.phone, P.code, P.pwd, P.confirm, P.nick];
+    order.forEach((ph, i) => {
+      const last = i === order.length - 1;
+      expect(textInput(r, ph).props.returnKeyType).toBe(last ? "go" : "next");
+      expect(textInput(r, ph).props.submitBehavior).toBe(
+        last ? undefined : "submit",
+      );
+    });
+    for (let i = 0; i < order.length - 1; i++) {
+      const focusNext = spyFocus(r, order[i + 1]);
+      enterOn(r, order[i]);
+      expect(focusNext).toHaveBeenCalledTimes(1);
+    }
+    tick(r);
+    fill(r, {
+      phone: "13900000042",
+      code: "123456",
+      pwd: "abcdefgh",
+      confirm: "abcdefgh",
+    });
+    enterOn(r, P.nick);
+    enterOn(r, P.nick);
+    expect(api.register).toHaveBeenCalledTimes(1);
+  });
+
+  it("发验证码成功后焦点给验证码框；号码不对 / 发送失败不动", async () => {
+    api.sendSmsCode.mockImplementationOnce(() =>
+      Promise.reject(apiError(409, "PHONE_ALREADY_REGISTERED")),
+    );
+    const r = render(<RegisterScreen />);
+    const focusCode = spyFocus(r, P.code);
+    r.press(tr("auth.getCode"));
+    fill(r, { phone: "13900000042" });
+    r.press(tr("auth.getCode"));
+    await flush();
+    expect(focusCode).not.toHaveBeenCalled();
+    api.sendSmsCode.mockImplementationOnce(() => Promise.resolve());
+    fill(r, { phone: "13900000043" });
+    r.press(tr("auth.getCode"));
+    await flush();
+    expect(focusCode).toHaveBeenCalledTimes(1);
+  });
+
   it("注册即登录：昵称去空格后才带上；空昵称不带", async () => {
     api.register.mockImplementation(() => Promise.resolve(AUTH));
     const r = render(<RegisterScreen />);
@@ -934,6 +1018,52 @@ describe("找回密码", () => {
     await waitFor(() => expect(fieldErrors(r)).toHaveLength(1));
     r.type(P.phone, "13900000043");
     expect(fieldErrors(r)).toEqual([]);
+  });
+
+  it("回车键：逐格往下，确认密码是最后一格，回车 = 点重置；在途 / 已成功时再按不重复发", async () => {
+    api.resetPassword.mockImplementation(() => new Promise(() => undefined));
+    const r = render(<ResetPasswordScreen />);
+    const order = [P.phone, P.code, P.pwd, P.confirm];
+    order.forEach((ph, i) => {
+      const last = i === order.length - 1;
+      expect(textInput(r, ph).props.returnKeyType).toBe(last ? "go" : "next");
+    });
+    for (let i = 0; i < order.length - 1; i++) {
+      const focusNext = spyFocus(r, order[i + 1]);
+      enterOn(r, order[i]);
+      expect(focusNext).toHaveBeenCalledTimes(1);
+    }
+    r.type(P.phone, "13900000042");
+    r.type(P.code, "654321");
+    r.type(P.pwd, "abcdefgh");
+    r.type(P.confirm, "abcdefgh");
+    enterOn(r, P.confirm);
+    enterOn(r, P.confirm);
+    expect(api.resetPassword).toHaveBeenCalledTimes(1);
+  });
+
+  it("成功态（按钮画勾的那一秒）再按回车不重复发", async () => {
+    jest.useFakeTimers();
+    api.resetPassword.mockImplementation(() => Promise.resolve());
+    const r = render(<ResetPasswordScreen />);
+    r.type(P.phone, "13900000042");
+    r.type(P.code, "654321");
+    r.type(P.pwd, "abcdefgh");
+    r.type(P.confirm, "abcdefgh");
+    enterOn(r, P.confirm);
+    await flush();
+    enterOn(r, P.confirm);
+    expect(api.resetPassword).toHaveBeenCalledTimes(1);
+  });
+
+  it("发验证码成功后焦点给验证码框", async () => {
+    api.sendSmsCode.mockImplementation(() => Promise.resolve());
+    const r = render(<ResetPasswordScreen />);
+    const focusCode = spyFocus(r, P.code);
+    r.type(P.phone, "13900000042");
+    r.press(tr("auth.getCode"));
+    await flush();
+    expect(focusCode).toHaveBeenCalledTimes(1);
   });
 
   it("自动填充提示：验证码框认短信验证码、新密码框是新密码；密码长度按字数算", () => {
@@ -1161,6 +1291,26 @@ describe("修改密码", () => {
     expect(api.changePassword).not.toHaveBeenCalled();
   });
 
+  it("回车键：当前 → 新 → 确认逐格往下，确认是最后一格（done），回车 = 点保存；在途时再按不重复发", () => {
+    api.changePassword.mockImplementation(() => new Promise(() => undefined));
+    const r = render(<ChangePasswordScreen />);
+    expect(textInput(r, P.old).props.returnKeyType).toBe("next");
+    expect(textInput(r, P.pwd).props.returnKeyType).toBe("next");
+    expect(textInput(r, P.confirm).props.returnKeyType).toBe("done");
+    const focusPwd = spyFocus(r, P.pwd);
+    const focusConfirm = spyFocus(r, P.confirm);
+    enterOn(r, P.old);
+    enterOn(r, P.pwd);
+    expect(focusPwd).toHaveBeenCalledTimes(1);
+    expect(focusConfirm).toHaveBeenCalledTimes(1);
+    r.type(P.old, "oldpass12");
+    r.type(P.pwd, "newpass12");
+    r.type(P.confirm, "newpass12");
+    enterOn(r, P.confirm);
+    enterOn(r, P.confirm);
+    expect(api.changePassword).toHaveBeenCalledTimes(1);
+  });
+
   it("服务端说旧密码错：红字留到任一输入框改动为止", async () => {
     api.changePassword.mockImplementationOnce(() =>
       Promise.reject(apiError(400, "PASSWORD_INCORRECT")),
@@ -1288,6 +1438,24 @@ describe("更换手机号", () => {
     expect(pageErrors(r)).toEqual([tr("auth.passwordTooShort")]);
     r.type(P.pwd, "mypassword");
     expect(pageErrors(r)).toEqual([]);
+  });
+
+  it("发验证码成功后焦点给验证码框；号码不对 / 发送失败不动", async () => {
+    api.sendSmsCode.mockImplementationOnce(() =>
+      Promise.reject(apiError(409, "PHONE_ALREADY_REGISTERED")),
+    );
+    const r = render(<ChangePhoneScreen />);
+    const focusCode = spyFocus(r, P.code);
+    r.press(tr("auth.getCode"));
+    r.type(P.phone, "13800000001");
+    r.press(tr("auth.getCode"));
+    await flush();
+    expect(focusCode).not.toHaveBeenCalled();
+    api.sendSmsCode.mockImplementationOnce(() => Promise.resolve());
+    r.type(P.phone, "13800000002");
+    r.press(tr("auth.getCode"));
+    await flush();
+    expect(focusCode).toHaveBeenCalledTimes(1);
   });
 
   it("服务端的错（号码已被占用 / 验证码不对）：任一输入框改动就收", async () => {
@@ -1496,6 +1664,13 @@ describe("注销账号", () => {
     );
     act(() => input.props.onChangeText("mypassword"));
   };
+
+  it("危险操作不接回车：密码框没有回车提交，也不改回车键的样子", () => {
+    const r = renderDelete();
+    const props = textInput(r, tr("auth.currentPasswordPlaceholder")).props;
+    expect(props.onSubmitEditing).toBeUndefined();
+    expect(props.returnKeyType).toBeUndefined();
+  });
 
   it("错误跟着输入走：输到 8 位以上「至少 8 位」就收，不用再点一次", async () => {
     const r = renderDelete();

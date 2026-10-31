@@ -10,6 +10,7 @@ import { KeyboardAvoid } from "@/components/keyboard-avoid";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { showToast } from "@/components/toast";
+import { useEnterChain } from "@/hooks/use-enter-chain";
 import { useFormErrors } from "@/hooks/use-form-errors";
 import { useT } from "@/i18n";
 import {
@@ -46,6 +47,8 @@ export default function ChangePasswordScreen() {
   });
 
   const submit = async () => {
+    // 回车键也能走到这里，按钮的加载 / 成功态拦不住它
+    if (busy || done) return;
     if (!form.check()) return;
     setBusy(true);
     try {
@@ -60,6 +63,8 @@ export default function ChangePasswordScreen() {
       setBusy(false);
     }
   };
+
+  const enter = useEnterChain(3, () => void submit(), "done");
 
   return (
     <ThemedView style={styles.flex}>
@@ -77,6 +82,7 @@ export default function ChangePasswordScreen() {
             {t("auth.changePasswordLead")}
           </ThemedText>
           <FormInput
+            {...enter.field(0)}
             label={t("auth.currentPassword")}
             icon="lock-closed-outline"
             value={oldPassword}
@@ -86,6 +92,7 @@ export default function ChangePasswordScreen() {
             placeholder={t("auth.currentPasswordPlaceholder")}
           />
           <FormInput
+            {...enter.field(1)}
             label={t("auth.newPassword")}
             icon="key-outline"
             value={password}
@@ -95,6 +102,7 @@ export default function ChangePasswordScreen() {
             placeholder={t("auth.passwordPlaceholder")}
           />
           <FormInput
+            {...enter.field(2)}
             label={t("auth.confirmNewPassword")}
             icon="key-outline"
             value={confirm}

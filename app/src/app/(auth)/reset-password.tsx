@@ -24,6 +24,7 @@ import { showToast } from "@/components/toast";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { Radius } from "@/constants/theme";
+import { useEnterChain } from "@/hooks/use-enter-chain";
 import { useFormErrors } from "@/hooks/use-form-errors";
 import {
   PHONE_INPUT_MAX,
@@ -91,21 +92,9 @@ export default function ResetPasswordScreen() {
   const resetPhone = useRef("");
   const sms = useSmsCode("reset_password", phone);
 
-  const sendCode = async () => {
-    form.clear();
-    const cleanPhone = normalizePhone(phone);
-    if (!isValidPhone(cleanPhone)) {
-      form.fail(t("auth.invalidPhone"), "phone");
-      return;
-    }
-    try {
-      await sms.send(cleanPhone);
-    } catch (e) {
-      form.fail(toUserMessage(e), errorField(e) ?? undefined);
-    }
-  };
-
   const submit = async () => {
+    // 回车键也能走到这里，按钮的加载 / 成功态拦不住它
+    if (busy || done) return;
     if (!form.check()) return;
     const cleanPhone = normalizePhone(phone);
     setBusy(true);
@@ -122,6 +111,24 @@ export default function ResetPasswordScreen() {
       form.fail(toUserMessage(e), errorField(e) ?? undefined);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const enter = useEnterChain(4, () => void submit());
+
+  const sendCode = async () => {
+    form.clear();
+    const cleanPhone = normalizePhone(phone);
+    if (!isValidPhone(cleanPhone)) {
+      form.fail(t("auth.invalidPhone"), "phone");
+      return;
+    }
+    try {
+      await sms.send(cleanPhone);
+      // 验证码马上就到：焦点给验证码框（iOS 键盘上方会出现短信里的验证码建议）
+      enter.focus(1);
+    } catch (e) {
+      form.fail(toUserMessage(e), errorField(e) ?? undefined);
     }
   };
 
@@ -150,6 +157,7 @@ export default function ResetPasswordScreen() {
             </ThemedText>
 
             <FormInput
+              {...enter.field(0)}
               label={t("auth.phone")}
               error={form.fieldError("phone")}
               icon="phone-portrait-outline"
@@ -164,6 +172,7 @@ export default function ResetPasswordScreen() {
             <View style={styles.codeRow}>
               <View style={styles.flex}>
                 <FormInput
+                  {...enter.field(1)}
                   label={t("auth.smsCode")}
                   error={form.fieldError("code")}
                   icon="chatbox-ellipses-outline"
@@ -207,6 +216,7 @@ export default function ResetPasswordScreen() {
               </Pressable>
             </View>
             <FormInput
+              {...enter.field(2)}
               label={t("auth.newPassword")}
               error={form.fieldError("password")}
               icon="lock-closed-outline"
@@ -218,6 +228,7 @@ export default function ResetPasswordScreen() {
               autoComplete="new-password"
             />
             <FormInput
+              {...enter.field(3)}
               label={t("auth.confirmNewPassword")}
               error={form.fieldError("confirm")}
               icon="lock-closed-outline"

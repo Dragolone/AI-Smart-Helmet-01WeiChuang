@@ -35,6 +35,7 @@ import { SplashArrive } from "@/components/splash/splash-arrive";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useEnterChain } from "@/hooks/use-enter-chain";
 import { useFormErrors } from "@/hooks/use-form-errors";
 import { phoneFromParam, useRouteParams } from "@/hooks/use-route-params";
 import { useTheme } from "@/hooks/use-theme";
@@ -129,6 +130,8 @@ export default function LoginScreen() {
   }, []);
 
   const submit = async () => {
+    // 回车键也能走到这里，按钮的「登录中」拦不住它
+    if (busy) return;
     if (!form.check()) return;
     // 「+86 138 0000 0000」、全角数字、通讯录复制带的方向标记先规整（与联系人页同一个 normalizePhone），
     // 原来原样提交，正确的号码被服务端判成「输入格式不正确」
@@ -147,6 +150,8 @@ export default function LoginScreen() {
       setBusy(false);
     }
   };
+
+  const enter = useEnterChain(2, () => void submit());
 
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: theme.background }]}>
@@ -243,6 +248,7 @@ export default function LoginScreen() {
 
             <SplashArrive order={1}>
               <FormInput
+                {...enter.field(0)}
                 label={t("auth.phone")}
                 error={form.fieldError("phone")}
                 icon="phone-portrait-outline"
@@ -258,6 +264,7 @@ export default function LoginScreen() {
             </SplashArrive>
             <SplashArrive order={2}>
               <FormInput
+                {...enter.field(1)}
                 label={t("auth.password")}
                 error={form.fieldError("password")}
                 icon="lock-closed-outline"

@@ -10,7 +10,15 @@ import {
 } from "@jest/globals";
 import { QueryClientProvider } from "@tanstack/react-query";
 import type { AccidentDetail, EmergencyContact } from "@helmet/shared";
-import { Alert, Platform, ScrollView, Share, Switch, Text } from "react-native";
+import {
+  Alert,
+  Platform,
+  ScrollView,
+  Share,
+  Switch,
+  Text,
+  TextInput,
+} from "react-native";
 import { act } from "react-test-renderer";
 import { mockRouter, routerState } from "@/__tests__/helpers/native-mocks";
 import {
@@ -451,6 +459,28 @@ describe("添加紧急联系人", () => {
     );
     r.type(P.rel, "亲戚");
     expect(errors(r)).toEqual([]);
+  });
+
+  it("回车键：姓名 → 号码 → 关系逐格往下，关系是最后一格（done），回车 = 点保存；在途时再按不重复发", () => {
+    m(contactsApi.create).mockImplementation(
+      () => new Promise(() => undefined),
+    );
+    const r = mount(<AddContactScreen />);
+    const input = (ph: string) =>
+      r.root.find((n) => n.type === TextInput && n.props.placeholder === ph);
+    expect(input(P.name).props.returnKeyType).toBe("next");
+    expect(input(P.phone).props.returnKeyType).toBe("next");
+    expect(input(P.rel).props.returnKeyType).toBe("done");
+    const focusPhone = jest.fn();
+    (input(P.phone).instance as unknown as { focus: () => void }).focus =
+      focusPhone;
+    act(() => input(P.name).props.onSubmitEditing());
+    expect(focusPhone).toHaveBeenCalledTimes(1);
+    r.type(P.name, "妈妈");
+    r.type(P.phone, "13800000001");
+    act(() => input(P.rel).props.onSubmitEditing());
+    act(() => input(P.rel).props.onSubmitEditing());
+    expect(contactsApi.create).toHaveBeenCalledTimes(1);
   });
 
   it("号码已经是联系人了（规整后相同）：页面级说明，不提交", () => {

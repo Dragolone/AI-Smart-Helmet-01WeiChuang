@@ -23,6 +23,7 @@ import { KeyboardAvoid } from "@/components/keyboard-avoid";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { Radius } from "@/constants/theme";
+import { useEnterChain } from "@/hooks/use-enter-chain";
 import { useFormErrors } from "@/hooks/use-form-errors";
 import {
   PHONE_INPUT_MAX,
@@ -97,21 +98,9 @@ export default function RegisterScreen() {
   const [busy, setBusy] = useState(false);
   const sms = useSmsCode("register", phone);
 
-  const sendCode = async () => {
-    form.clear();
-    const cleanPhone = normalizePhone(phone);
-    if (!isValidPhone(cleanPhone)) {
-      form.fail(t("auth.invalidPhone"), "phone");
-      return;
-    }
-    try {
-      await sms.send(cleanPhone);
-    } catch (e) {
-      form.fail(toUserMessage(e), errorField(e) ?? undefined);
-    }
-  };
-
   const submit = async () => {
+    // 回车键也能走到这里，按钮的「加载中」拦不住它
+    if (busy) return;
     if (!form.check()) return;
     setBusy(true);
     try {
@@ -129,6 +118,24 @@ export default function RegisterScreen() {
       form.fail(toUserMessage(e), errorField(e) ?? undefined);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const enter = useEnterChain(5, () => void submit());
+
+  const sendCode = async () => {
+    form.clear();
+    const cleanPhone = normalizePhone(phone);
+    if (!isValidPhone(cleanPhone)) {
+      form.fail(t("auth.invalidPhone"), "phone");
+      return;
+    }
+    try {
+      await sms.send(cleanPhone);
+      // 验证码马上就到：焦点给验证码框（iOS 键盘上方会出现短信里的验证码建议）
+      enter.focus(1);
+    } catch (e) {
+      form.fail(toUserMessage(e), errorField(e) ?? undefined);
     }
   };
 
@@ -154,6 +161,7 @@ export default function RegisterScreen() {
             <ThemedText type="title">{t("auth.register")}</ThemedText>
 
             <FormInput
+              {...enter.field(0)}
               label={t("auth.phone")}
               error={form.fieldError("phone")}
               icon="phone-portrait-outline"
@@ -167,6 +175,7 @@ export default function RegisterScreen() {
             <View style={styles.codeRow}>
               <View style={styles.flex}>
                 <FormInput
+                  {...enter.field(1)}
                   label={t("auth.smsCode")}
                   error={form.fieldError("code")}
                   icon="chatbox-ellipses-outline"
@@ -210,6 +219,7 @@ export default function RegisterScreen() {
               </Pressable>
             </View>
             <FormInput
+              {...enter.field(2)}
               label={t("auth.password")}
               error={form.fieldError("password")}
               icon="lock-closed-outline"
@@ -221,6 +231,7 @@ export default function RegisterScreen() {
               autoComplete="new-password"
             />
             <FormInput
+              {...enter.field(3)}
               label={t("auth.confirmPassword")}
               error={form.fieldError("confirm")}
               icon="lock-closed-outline"
@@ -231,6 +242,7 @@ export default function RegisterScreen() {
               autoComplete="new-password"
             />
             <FormInput
+              {...enter.field(4)}
               label={t("auth.nickname")}
               error={form.fieldError("nickname")}
               icon="person-outline"

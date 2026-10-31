@@ -37,7 +37,7 @@ describe("注册页同意勾选", () => {
     // 同意是校验（useFormErrors 的 validate）里的第一条，submit 第一句就是 check()，没过直接返回
     const validate = src.slice(
       src.indexOf("useFormErrors("),
-      src.indexOf("const sendCode"),
+      src.indexOf("const submit = async"),
     );
     expect(validate.indexOf("if (!consented)")).toBeGreaterThanOrEqual(0);
     expect(validate.indexOf("if (!consented)")).toBe(validate.indexOf("if ("));
@@ -46,9 +46,13 @@ describe("注册页同意勾选", () => {
     const call = body.indexOf("authApi.register");
     expect(guard).toBeGreaterThanOrEqual(0);
     expect(call).toBeGreaterThan(guard);
-    // 守卫之前不能插进别的语句
+    // 守卫之前不能插进别的语句；只允许回车键防重入的 `if (busy) return;`（它只会更早返回，绕不过同意）
     expect(
-      body.slice(0, guard).replace(/^const submit = async \(\) => \{\s*/, ""),
+      body
+        .slice(0, guard)
+        .replace(/^const submit = async \(\) => \{\s*/, "")
+        .replace(/\/\/[^\n]*\n\s*/g, "")
+        .replace(/^if \(busy\) return;\s*/, ""),
     ).toBe("");
   });
 
