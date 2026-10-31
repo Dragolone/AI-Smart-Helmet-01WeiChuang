@@ -96,6 +96,16 @@ class RealtimeClient {
     this.connect();
   }
 
+  /**
+   * 连接看着还在、其实已经收不到东西（半开：静默丢包时 onclose 迟迟不来，kick 又因为「已连上」直接返回）：扔掉重连。
+   * 前台核对发现「服务端有单、这条连接没推过来」时调用（11-01 模拟器实测）
+   */
+  reconnect(): void {
+    if (!this.running) return;
+    this.setConnected(false);
+    this.kick();
+  }
+
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
