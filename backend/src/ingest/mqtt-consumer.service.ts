@@ -307,7 +307,11 @@ export class MqttConsumerService implements OnModuleInit, OnModuleDestroy {
           `入库失败（第 ${attempt} 次），${PERSIST_RETRY_DELAY_MS}ms 后重试：${errorMessage(err)}`,
         ),
     );
-    this.logger.log(`[${sanitize(topic)}] → ${outcome}`);
+    // 正常入库（stored）每条一行会撑爆容器日志轮转：6 台 Mock 约 16 MB/天，5×20MB 只够留 6 天，
+    // 真机量更大时不到一小时就滚没了。只留非常规结果（重复 / 校验失败留档等），排查异常时日志才不被刷掉
+    if (outcome !== 'stored') {
+      this.logger.log(`[${sanitize(topic)}] → ${outcome}`);
+    }
   }
 
   async onModuleDestroy(): Promise<void> {
