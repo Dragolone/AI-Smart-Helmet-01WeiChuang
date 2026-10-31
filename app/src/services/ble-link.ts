@@ -119,11 +119,6 @@ export async function checkBlePermissions(): Promise<boolean> {
   return results.every(Boolean);
 }
 
-/** 蓝牙就绪(PoweredOn);未开蓝牙时调用方引导用户去系统设置 */
-export async function bleReady(): Promise<boolean> {
-  return (await getBleManager().state()) === State.PoweredOn;
-}
-
 // ——————————————————————————————————————————————————————————————
 // 链路管理
 // ——————————————————————————————————————————————————————————————

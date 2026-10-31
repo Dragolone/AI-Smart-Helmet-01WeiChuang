@@ -30,9 +30,6 @@ export const common = {
     "ble.launchGuide.body":
       "接下来会打开系统设置：\n1. 若看到的是「应用信息」，点「耗电详情」（有的手机叫「电池」），再点「启动管理」\n2. 关闭零一智行的「自动管理」\n3. 把「允许自启动」「允许关联启动」「允许后台活动」三项都打开，点「确定」\n\n三项要全部打开，否则划掉 App 后系统仍会强行停止它。",
     "ble.onboarding.go": "去设置",
-    "ble.banner.off": "手机蓝牙已关闭，头盔无法连接",
-    "ble.banner.unauthorized": "未允许蓝牙权限，头盔无法连接",
-    "ble.banner.unauthorizedLocation": "未允许位置信息权限，搜索不到头盔",
     "keepalive.title": "保持 App 在后台运行",
     "keepalive.body":
       "使用头盔时，请保持 App 运行，并确保手机蓝牙和网络可用。锁屏或切换应用后，App 可在后台运行；强制关闭 App 可能导致摔倒和求救通知延迟或无法发送。",
@@ -142,9 +139,6 @@ export const common = {
     "ble.launchGuide.body":
       "接下來會打開系統設定：\n1. 若看到的是「應用程式資訊」，點「耗電詳情」（有的手機叫「電池」），再點「啟動管理」\n2. 關閉零一智行的「自動管理」\n3. 把「允許自啟動」「允許關聯啟動」「允許背景活動」三項都打開，點「確定」\n\n三項要全部打開，否則滑掉 App 後系統仍會強制停止它。",
     "ble.onboarding.go": "去設定",
-    "ble.banner.off": "手機藍牙已關閉，頭盔無法連線",
-    "ble.banner.unauthorized": "未允許藍牙權限，頭盔無法連線",
-    "ble.banner.unauthorizedLocation": "未允許位置資訊權限，搜尋不到頭盔",
     "keepalive.title": "保持 App 在背景執行",
     "keepalive.body":
       "使用頭盔時，請保持 App 執行，並確保手機藍牙和網路可用。鎖定螢幕或切換應用程式後，App 可在背景執行；強制關閉 App 可能導致跌倒和求救通知延遲或無法傳送。",
@@ -257,11 +251,6 @@ export const common = {
     "ble.launchGuide.body":
       "System settings will open next:\n1. If you see App info, tap Power usage details (Battery on some phones), then App launch\n2. Turn off Manage automatically for this app\n3. Turn on Auto-launch, Secondary launch and Run in background, then tap OK\n\nAll three must be on, or the system will still force-stop the app when you swipe it away.",
     "ble.onboarding.go": "Settings",
-    "ble.banner.off": "Bluetooth is off, the helmet can't connect",
-    "ble.banner.unauthorized":
-      "Bluetooth permission denied, the helmet can't connect",
-    "ble.banner.unauthorizedLocation":
-      "Location permission is off. The helmet can't be found.",
     "keepalive.title": "Keep the app running in the background",
     "keepalive.body":
       "Keep the app running while using your helmet, with Bluetooth and internet available. The app can run in the background when you lock the screen or switch apps. Force-closing it may delay or prevent fall and SOS alerts.",

@@ -43,10 +43,8 @@ import {
   frontAt,
   lerp,
   rasterOpacityAt,
-  sceneIsEmpty,
   smooth,
   smoother,
-  type MarkGlow,
 } from "../route-scene";
 import { forgetSteady, steady } from "../steady-style";
 import { LOCKUP, MARK_DONE } from "../timeline";
@@ -102,25 +100,6 @@ describe("路线段的缓动", () => {
     );
     expect(rasterOpacityAt(SCENE_T.raster[1])).toBe(1);
     expect(rasterOpacityAt(5000)).toBe(1);
-  });
-
-  it("画布什么时候可以卸：换完原图、商标离开原位、脉冲没有或已走完，三样都满足", () => {
-    const glow = (over: Partial<MarkGlow>): MarkGlow => ({
-      cx: 0,
-      cy: 0,
-      scale: 1,
-      dock: 1,
-      breath: 0,
-      pulse: -1,
-      ...over,
-    });
-    const done = SCENE_T.raster[1];
-    expect(sceneIsEmpty(done, glow({}))).toBe(true);
-    expect(sceneIsEmpty(done - 1, glow({}))).toBe(false);
-    expect(sceneIsEmpty(done, glow({ dock: 0.99 }))).toBe(false);
-    expect(sceneIsEmpty(done, glow({ pulse: 0.5 }))).toBe(false);
-    expect(sceneIsEmpty(done, glow({ pulse: 1.25 }))).toBe(true);
-    expect(sceneIsEmpty(done, glow({ pulse: 0 }))).toBe(false);
   });
 });
 

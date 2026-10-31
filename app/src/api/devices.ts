@@ -6,7 +6,6 @@ import type {
   DevicePublic,
   DeviceStatus,
   LatestLocationResponse,
-  LocationPoint,
   LocationSummaryResponse,
   PutSettingsRequest,
   ReportSettingsRequest,
@@ -16,7 +15,7 @@ import type {
   TrackResponse,
   UpdateDeviceRequest,
 } from "@helmet/shared";
-import { api, apiList, apiPage, ApiRequestError } from "./client";
+import { api, apiList, ApiRequestError } from "./client";
 import {
   isShapedObject,
   normalizeDevice,
@@ -124,17 +123,5 @@ export const devicesApi = {
   track: (deviceId: string, from: string, to: string, maxPoints = 1000) =>
     api<TrackResponse>(
       `/devices/${encodeURIComponent(deviceId)}/locations/track?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&maxPoints=${maxPoints}`,
-    ),
-
-  /** 历史轨迹（API.md §5：from/to 必填、范围 ≤24h、timestamp 升序、pageSize ≤100） */
-  locations: (
-    deviceId: string,
-    from: string,
-    to: string,
-    page: number,
-    pageSize: number,
-  ) =>
-    apiPage<LocationPoint>(
-      `/devices/${encodeURIComponent(deviceId)}/locations?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&page=${page}&pageSize=${pageSize}`,
     ),
 };

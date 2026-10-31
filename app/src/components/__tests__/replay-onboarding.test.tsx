@@ -19,11 +19,7 @@ import { translate, useLocaleStore, type MessageKey } from "@/i18n";
 import { shortTime } from "@/i18n/format";
 import { useBleStore, type BleAdapterState } from "@/stores/ble-store";
 import { useThemeStore } from "@/stores/theme-store";
-import {
-  BleBlockerBanner,
-  BleFirstConnectGuide,
-  useBleOnboardingSteps,
-} from "../ble-onboarding";
+import { BleFirstConnectGuide, useBleOnboardingSteps } from "../ble-onboarding";
 import { RideReplay, type ReplayEvent } from "../map/ride-replay";
 import { Tappable } from "../tappable";
 
@@ -605,44 +601,5 @@ describe("首次连接引导", () => {
     expect(
       (SecureStore.setItemAsync as jest.Mock).mock.calls.length,
     ).toBeGreaterThanOrEqual(2);
-  });
-
-  it("硬阻塞横幅：只在蓝牙关 / 权限拒时出现，文案各不相同，点了回调", () => {
-    const onPress = jest.fn();
-    let r = render(<BleBlockerBanner onPress={onPress} />);
-    expect(r.tree.toJSON()).toBeNull();
-    setAdapter("off");
-    r = render(<BleBlockerBanner onPress={onPress} />);
-    expect(r.texts()).toEqual([tr("ble.banner.off")]);
-    r.press(tr("ble.banner.off"));
-    expect(onPress).toHaveBeenCalled();
-    setAdapter("unauthorized");
-    expect(r.texts()).toEqual([tr("ble.banner.unauthorized")]);
-    setAdapter("on");
-    expect(r.tree.toJSON()).toBeNull();
-  });
-
-  it("硬阻塞横幅：安卓 12 以下没权限时说位置信息（系统设置里没有单独的蓝牙权限）", () => {
-    const os = Platform.OS;
-    const version = Platform.Version;
-    Object.defineProperty(Platform, "OS", {
-      value: "android",
-      configurable: true,
-    });
-    Object.defineProperty(Platform, "Version", {
-      value: 29,
-      configurable: true,
-    });
-    try {
-      setAdapter("unauthorized");
-      const r = render(<BleBlockerBanner onPress={jest.fn()} />);
-      expect(r.texts()).toEqual([tr("ble.banner.unauthorizedLocation")]);
-    } finally {
-      Object.defineProperty(Platform, "OS", { value: os, configurable: true });
-      Object.defineProperty(Platform, "Version", {
-        value: version,
-        configurable: true,
-      });
-    }
   });
 });

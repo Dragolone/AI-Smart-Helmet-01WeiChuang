@@ -879,29 +879,6 @@ describe("sos-alert", () => {
     });
   });
 
-  describe("isSosAlertPermissionDenied（8.2：权限被拒要有提示）", () => {
-    it("未授权 → true；已授权 → false；查询抛错 → false（不吓唬用户）", async () => {
-      const m = load();
-      mockGetPerms.mockResolvedValueOnce({ granted: false });
-      expect(await m.isSosAlertPermissionDenied()).toBe(true);
-      mockGetPerms.mockResolvedValueOnce({ granted: true });
-      expect(await m.isSosAlertPermissionDenied()).toBe(false);
-      mockGetPerms.mockRejectedValueOnce(new Error("x"));
-      expect(await m.isSosAlertPermissionDenied()).toBe(false);
-    });
-
-    it("还没问过（undetermined）不算被拒：新用户首次登录时系统授权框还没点，不能先弹「通知权限已关闭」", async () => {
-      const m = load();
-      mockGetPerms.mockResolvedValueOnce({
-        granted: false,
-        status: "undetermined",
-      });
-      expect(await m.isSosAlertPermissionDenied()).toBe(false);
-      mockGetPerms.mockResolvedValueOnce({ granted: false, status: "denied" });
-      expect(await m.isSosAlertPermissionDenied()).toBe(true);
-    });
-  });
-
   describe("isSosChannelBlocked / 总开关开着但求救通道被单独关了（华为 10-19 实测）", () => {
     it("Android：通道 importance 为 NONE → 算被拒；通道正常 / 还没建 / 查不到 → 不算", async () => {
       override(Platform, "OS", "android");
@@ -909,10 +886,8 @@ describe("sos-alert", () => {
       mockGetPerms.mockResolvedValue({ granted: true, status: "granted" });
       mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 2 });
       expect(await m.isSosChannelBlocked()).toBe(true);
-      mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 2 });
-      expect(await m.isSosAlertPermissionDenied()).toBe(true);
       mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 7 });
-      expect(await m.isSosAlertPermissionDenied()).toBe(false);
+      expect(await m.isSosChannelBlocked()).toBe(false);
       // 被调成「静默」（LOW / MIN）：不响不弹，算没开（O28，10-21 模拟器）；「默认」会响，不算
       mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 4 });
       expect(await m.isSosChannelBlocked()).toBe(true);
@@ -926,9 +901,9 @@ describe("sos-alert", () => {
       mockGetChannel.mockResolvedValueOnce({ id: "sos", importance: 0 });
       expect(await m.isSosChannelBlocked()).toBe(false);
       mockGetChannel.mockResolvedValueOnce(null);
-      expect(await m.isSosAlertPermissionDenied()).toBe(false);
+      expect(await m.isSosChannelBlocked()).toBe(false);
       mockGetChannel.mockRejectedValueOnce(new Error("x"));
-      expect(await m.isSosAlertPermissionDenied()).toBe(false);
+      expect(await m.isSosChannelBlocked()).toBe(false);
       expect(mockGetChannel).toHaveBeenCalledWith("sos");
     });
 
@@ -938,7 +913,6 @@ describe("sos-alert", () => {
       mockGetPerms.mockResolvedValue({ granted: true, status: "granted" });
       mockGetChannel.mockResolvedValue({ id: "sos", importance: 2 });
       expect(await m.isSosChannelBlocked()).toBe(false);
-      expect(await m.isSosAlertPermissionDenied()).toBe(false);
       expect(mockGetChannel).not.toHaveBeenCalled();
     });
   });

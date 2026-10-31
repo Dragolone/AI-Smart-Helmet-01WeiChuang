@@ -136,8 +136,6 @@ describe("查询参数编码", () => {
     expect(queryOf(lastUrl()).get("to")).toBe(to);
     await devicesApi.track("h1", from, to);
     expect(queryOf(lastUrl()).get("maxPoints")).toBe("1000");
-    await devicesApi.locations("h1", from, to, 2, 100);
-    expect(queryOf(lastUrl()).get("page")).toBe("2");
   });
 
   it("事件列表：多个类型逗号分隔原样带上；可选参数不传就不出现；页码 / 条数缺省 1 / 20", async () => {

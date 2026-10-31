@@ -1,7 +1,7 @@
 // 首次连接引导（决策 #41 落地后的第一屏）：开蓝牙 → 允许权限 → 加省电白名单（Android）→ 应用启动管理（华为 / 荣耀）。
 // 每步带「去设置」。蓝牙版头盔所有事件都靠这条链路，新用户不知道要开蓝牙/给权限就等于没戴头盔。
-// 这里有三样：三步的状态与入口（useBleOnboardingSteps，设备详情状态卡、安全设置页也用）、
-// 设备详情页第一次进入时弹一次的引导面板（BleFirstConnectGuide）、设备首页的硬阻塞横幅（BleBlockerBanner）。
+// 这里有两样：三步的状态与入口（useBleOnboardingSteps，设备详情状态卡、安全设置页也用）、
+// 设备详情页第一次进入时弹一次的引导面板（BleFirstConnectGuide）。
 import { Ionicons } from "@expo/vector-icons";
 import * as SecureStore from "expo-secure-store";
 import { useEffect, useState } from "react";
@@ -15,7 +15,7 @@ import {
   StyleSheet,
   View,
 } from "react-native";
-import Animated, { FadeInDown, FadeOut } from "react-native-reanimated";
+import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { HelmetLinkService } from "helmet-link-service";
 
@@ -299,44 +299,6 @@ export function BleFirstConnectGuide() {
   );
 }
 
-/** 设备首页的一行横幅：只在硬阻塞（蓝牙关 / 权限拒）时出现，点了去设备页看完整引导 */
-export function BleBlockerBanner({ onPress }: { onPress: () => void }) {
-  const theme = useTheme();
-  const t = useT();
-  const adapter = useBleStore((s) => s.adapter);
-  if (adapter !== "off" && adapter !== "unauthorized") return null;
-  return (
-    <Animated.View
-      entering={FadeInDown.duration(220)}
-      exiting={FadeOut.duration(160)}
-    >
-      <Tappable
-        feedback="fill"
-        onPress={onPress}
-        style={[
-          styles.banner,
-          { backgroundColor: theme.dangerBg, borderColor: theme.danger },
-        ]}
-      >
-        <Ionicons name="bluetooth" size={16} color={theme.danger} />
-        <ThemedText
-          type="small"
-          style={[styles.bannerText, { color: theme.danger }]}
-        >
-          {t(
-            adapter === "off"
-              ? "ble.banner.off"
-              : bleNeedsLocationPermission()
-                ? "ble.banner.unauthorizedLocation"
-                : "ble.banner.unauthorized",
-          )}
-        </ThemedText>
-        <Ionicons name="chevron-forward" size={16} color={theme.danger} />
-      </Tappable>
-    </Animated.View>
-  );
-}
-
 const styles = StyleSheet.create({
   mask: {
     flex: 1,
@@ -375,14 +337,4 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: Radius.pill,
   },
-  banner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    borderRadius: Radius.card,
-    borderWidth: 1,
-  },
-  bannerText: { flex: 1, minWidth: 0, lineHeight: 18 },
 });
