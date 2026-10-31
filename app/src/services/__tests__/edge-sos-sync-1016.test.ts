@@ -58,6 +58,7 @@ beforeEach(() => {
     openCountdown: jest.fn<SosSyncDeps["openCountdown"]>(),
     showLockScreenAlert: jest.fn<SosSyncDeps["showLockScreenAlert"]>(),
     clearLockScreenAlert: jest.fn<SosSyncDeps["clearLockScreenAlert"]>(),
+    sweepStaleAlerts: jest.fn<(ids: ReadonlySet<string>) => void>(),
     log: jest.fn<NonNullable<SosSyncDeps["log"]>>(),
   };
 });
