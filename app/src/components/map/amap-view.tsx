@@ -257,6 +257,7 @@ try {
     zIndex: 120,
   });
   var helmetShown = false;
+  var followed = false;
   // iOS 深色：把压暗底图的那一层放到底图画布上面（z-index 1：在轨迹画布 100、Marker 120 之下）。
   // 地图换样式时这一层可能被重建掉，所以每次 complete / 定时补设样式时都确认一遍它还在
   function ensureDim() {
@@ -360,7 +361,12 @@ try {
         var p = new AMap.LngLat(cmd.lng, cmd.lat);
         helmet.setPosition(p);
         if (!helmetShown) { helmet.setMap(map); helmetShown = true; }
-        if (cmd.follow) map.panTo(p);
+        if (cmd.follow) {
+          // 页面加载后第一次跟随直接到位：默认中心写死深圳，头盔在外地时 panTo 会从深圳横扫过去
+          //（10-31 实测定位在北京：看到位置 1.3 s→0.87 s）。WebView 重建后页面重载，这个标记自然复位
+          if (followed) map.panTo(p);
+          else { followed = true; map.setCenter(p, true); }
+        }
       } else if (cmd.type === 'hideHelmet') {
         helmet.setMap(null); helmetShown = false;
       } else if (cmd.type === 'track') {
