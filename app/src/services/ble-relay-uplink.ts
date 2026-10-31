@@ -24,6 +24,8 @@ const CRITICAL_TYPES = new Set<string>([
   "collision_risk",
   "obstacle_risk",
 ]);
+/** 丢了就可能没人知道出事的两类：入队时已回 ACK，头盔 Flash 那份也擦了，这里是最后一份 */
+const SOS_TYPES = new Set<string>(["possible_fall", "manual_sos"]);
 /** 离线缓存上限：溢出丢最旧的周期事件并告警，绝不静默截断 */
 const QUEUE_MAX = 1000;
 /** 高危事件待上传期间的持锁上限：够重试几轮，不够把电池耗干 */
@@ -237,9 +239,14 @@ export function enqueueRelayEvent(envelope: Envelope): void {
     void flushRelayQueue();
   }
   if (queue.length > QUEUE_MAX) {
-    // 先丢最旧的周期事件（位置/心跳）；整队都是高危事件时才丢最旧的那条（审计 BLE-04）
-    const victim = queue.findIndex((e) => !CRITICAL_TYPES.has(e.eventType));
-    const dropped = queue.splice(victim === -1 ? 0 : victim, 1)[0];
+    // 先丢最旧的周期事件（位置/心跳，审计 BLE-04），再丢最旧的碰撞 / 障碍提醒；
+    // 整队都是摔倒 / 求救才丢最旧的那条。原来高危一视同仁，长时间没信号时摔倒会被后来的障碍事件挤掉（11-01 审计）
+    const periodic = queue.findIndex((e) => !CRITICAL_TYPES.has(e.eventType));
+    const nonSos =
+      periodic !== -1
+        ? periodic
+        : queue.findIndex((e) => !SOS_TYPES.has(e.eventType));
+    const dropped = queue.splice(nonSos === -1 ? 0 : nonSos, 1)[0];
     devLog(
       "BLE-RELAY",
       `缓存溢出(>${QUEUE_MAX}),丢弃最旧一条 ${dropped.eventType}`,

@@ -426,7 +426,7 @@ describe("持久化文件部分损坏", () => {
 });
 
 describe("溢出与批内次序的极端情况", () => {
-  it("整队 1000 条都是高危：再来一条高危才丢最旧的那条高危", async () => {
+  it("整队 1000 条都是高危：丢最旧的碰撞 / 障碍提醒，摔倒留着（11-01 审计，原来摔倒排最前就被挤掉）", async () => {
     const { up, push } = load();
     push.mockRejectedValue(new Error("offline"));
     const first = env("possible_fall");
@@ -444,8 +444,26 @@ describe("溢出与批内次序的极端情况", () => {
     }
     const all = sentIds(push).flat();
     expect(all).toHaveLength(1000);
+    expect(all).toContain(first.eventId);
+    expect(all).not.toContain(second.eventId);
+  });
+
+  it("整队都是摔倒 / 求救：才丢最旧的那条", async () => {
+    const { up, push } = load();
+    push.mockRejectedValue(new Error("offline"));
+    const first = env("possible_fall");
+    up.enqueueRelayEvent(first);
+    for (let i = 0; i < 1000; i += 1) up.enqueueRelayEvent(env("manual_sos"));
+    await tick();
+    push.mockClear();
+    push.mockResolvedValue({ accepted: 100, duplicate: 0, invalid: 0 });
+    for (let i = 0; i < 12; i += 1) {
+      await up.flushRelayQueue();
+      await tick();
+    }
+    const all = sentIds(push).flat();
+    expect(all).toHaveLength(1000);
     expect(all).not.toContain(first.eventId);
-    expect(all[0]).toBe(second.eventId);
   });
 
   it("整队都是高危时新来的周期事件自己被丢，不挤掉任何高危", async () => {
