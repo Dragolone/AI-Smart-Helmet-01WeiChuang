@@ -30,14 +30,19 @@ export type RideToday =
   | { status: "none" }
   | { status: "rode"; distanceMeters: number; movingSeconds: number };
 
-export function useRideToday(deviceId: string): RideToday {
+/**
+ * focused：这一页是不是在眼前。不在时不按分钟轮询、也不跟着回前台去拉；首次拉取照旧（启动时预取，
+ * 第一次切过来不用等）。切回来的补拉由调用方的 useRefetchOnFocus(["ride-today", deviceId]) 负责。
+ */
+export function useRideToday(deviceId: string, focused = true): RideToday {
   const summary = useQuery({
     queryKey: ["ride-today", deviceId],
     queryFn: () => {
       const { from, to } = todayWindow();
       return devicesApi.locationSummary(deviceId, from, to);
     },
-    refetchInterval: 60_000,
+    refetchInterval: focused ? 60_000 : false,
+    refetchOnWindowFocus: focused,
     retry: false,
   });
   const s = summary.data;

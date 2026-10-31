@@ -500,6 +500,114 @@ describe("最近一条 SOS 与入口", () => {
   });
 });
 
+describe("切到别的标签：最近一条 SOS 不再空轮询（只管周期，首次拉取照旧）", () => {
+  const setup = () => {
+    mockSafety.list = [dev("h1"), dev("h2")];
+    const qc = makeQueryClient();
+    const el = () => (
+      <QueryClientProvider client={qc}>
+        <SafetyScreen />
+      </QueryClientProvider>
+    );
+    // 每顶头盔那份缓存上各个观察者的 [轮询间隔, 回前台是否拉]
+    const opts = (id: string) =>
+      qc
+        .getQueryCache()
+        .find({ queryKey: ["accidents", id] })!
+        .observers.map((o) => [
+          o.options.refetchInterval,
+          o.options.refetchOnWindowFocus,
+        ]);
+    const age = (id: string, ms: number) =>
+      act(() => {
+        qc.getQueryCache()
+          .find({ queryKey: ["accidents", id] })!
+          .setState({ dataUpdatedAt: Date.now() - ms });
+      });
+    return { qc, el, opts, age };
+  };
+  afterEach(() => {
+    routerState.focused = true;
+  });
+
+  it("在眼前 30 秒一轮；失焦停轮询、也不跟着回前台去拉；切回来恢复", async () => {
+    const { el, opts } = setup();
+    const r = render(el());
+    await waitFor(() => expect(sosApi.accidents).toHaveBeenCalledTimes(2));
+    expect(opts("h1")).toEqual([[30_000, true]]);
+    routerState.focused = false;
+    r.rerender(el());
+    expect(opts("h1")).toEqual([[false, false]]);
+    expect(opts("h2")).toEqual([[false, false]]);
+    routerState.focused = true;
+    r.rerender(el());
+    expect(opts("h1")).toEqual([[30_000, true]]);
+  });
+
+  it("冷启动时这一页就不在眼前：第一次照样拉（启动时预取，第一次切过来不用等），之后不轮询", async () => {
+    routerState.focused = false;
+    const { el, opts } = setup();
+    const r = render(el());
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("records.sosEmptyAll")),
+    );
+    expect(sosApi.accidents).toHaveBeenCalledTimes(2);
+    expect(opts("h1")).toEqual([[false, false]]);
+  });
+
+  it("失焦期间实时通道失效缓存照样重拉（保命的更新走这条，不走轮询）", async () => {
+    const { qc, el } = setup();
+    const r = render(el());
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("records.sosEmptyAll")),
+    );
+    routerState.focused = false;
+    r.rerender(el());
+    m(sosApi.accidents).mockImplementation(() =>
+      Promise.resolve({
+        items: [
+          {
+            sosId: "s1",
+            createdAt: "2026-10-12T01:00:00.000Z",
+            triggerType: "manual_sos",
+            status: "notified",
+          } as AccidentListItem,
+        ],
+        total: 1,
+      }),
+    );
+    await act(async () => {
+      await qc.invalidateQueries({ queryKey: ["accidents"] });
+    });
+    expect(sosApi.accidents).toHaveBeenCalledTimes(4);
+  });
+
+  it("切回来补拉各顶头盔的记录；2 秒内刚拉过的不重拉", async () => {
+    const { el, age } = setup();
+    const r = render(el());
+    await waitFor(() =>
+      expect(r.allText()).toContain(tr("records.sosEmptyAll")),
+    );
+    // 刚拉过：切走再回来不拉
+    routerState.focused = false;
+    r.rerender(el());
+    routerState.focused = true;
+    r.rerender(el());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(sosApi.accidents).toHaveBeenCalledTimes(2);
+    // h1 已是 5 秒前、h2 刚拉过：只补 h1
+    age("h1", 5_000);
+    routerState.focused = false;
+    r.rerender(el());
+    routerState.focused = true;
+    r.rerender(el());
+    await waitFor(() => expect(sosApi.accidents).toHaveBeenCalledTimes(3));
+    expect(m(sosApi.accidents).mock.calls[2][0]).toBe("h1");
+  });
+});
+
 describe("求救在路上：显示发送中", () => {
   const fillWidth = (r: Rendered) =>
     flat(

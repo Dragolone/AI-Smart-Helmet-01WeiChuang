@@ -13,7 +13,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
-import { router } from "expo-router";
+import { router, useIsFocused } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { Alert, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -295,13 +295,18 @@ export default function SafetyScreen() {
 
   // 与安全记录页「SOS 记录」同一份缓存（每台一份，最新在前）：实时通道收到 sos_update 时按前缀失效，
   // 30 秒轮询兜底。这里只取所有头盔里最近的一条
+  const focused = useIsFocused();
   const sosRecords = useQueries({
     queries: list.map((d) => ({
       queryKey: ["accidents", d.deviceId],
       queryFn: () => sosApi.accidents(d.deviceId),
-      refetchInterval: 30_000,
+      // 这只是「最近一条」那一行，进行中的求救不看它（看 usePendingSos）：切走就不轮询、也不跟着回前台去拉；
+      // 首次拉取照旧，切回来补一次（下面）。安全记录页（压在这一页上面时）自己轮询这份缓存
+      refetchInterval: focused ? 30_000 : false,
+      refetchOnWindowFocus: focused,
     })),
   });
+  useRefetchOnFocus(["accidents"]);
   const latestSos = sosRecords
     .map((q) => q.data?.items[0])
     // null 也滤掉：分页校验只管 items 是不是数组，里面夹着 null 时排序会在 .createdAt 上抛错（10-25 审查）

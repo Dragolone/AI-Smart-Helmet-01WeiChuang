@@ -116,12 +116,19 @@ jest.mock("expo-secure-store", () => ({
 jest.mock("@/api/devices", () => ({ devicesApi: { list: jest.fn() } }));
 jest.mock("@/api/contacts", () => ({ contactsApi: { list: jest.fn() } }));
 jest.mock("@/hooks/use-app-active", () => ({ useAppActive: () => true }));
-const mockRide = { value: { status: "unknown" } as Record<string, unknown> };
+const mockRide = {
+  value: { status: "unknown" } as Record<string, unknown>,
+  /** 页面最近一次调 useRideToday 的参数 */
+  args: [] as unknown[],
+};
 jest.mock("@/hooks/use-ride-today", () => ({
   ...jest.requireActual<typeof import("@/hooks/use-ride-today")>(
     "@/hooks/use-ride-today",
   ),
-  useRideToday: () => mockRide.value,
+  useRideToday: (...args: unknown[]) => {
+    mockRide.args = args;
+    return mockRide.value;
+  },
 }));
 jest.mock("@/components/splash/guide-handover", () => ({
   prepareGuideHandover: jest.fn(),
@@ -545,6 +552,52 @@ describe("有头盔", () => {
     routerState.focused = true;
     r.rerender(el());
     await waitFor(() => expect(devicesApi.list).toHaveBeenCalledTimes(2));
+  });
+
+  it("今日骑行：切走告诉它不在眼前（不再按分钟轮询），切回来补拉一次；2 秒内刚拉过不拉", async () => {
+    m(devicesApi.list).mockImplementation(() => Promise.resolve([dev("h1")]));
+    const qc = makeQueryClient();
+    const ride = jest
+      .fn<() => Promise<unknown>>()
+      .mockResolvedValue({ distanceMeters: 0, movingSeconds: 0 });
+    // 页面里的 useRideToday 在本文件被替换掉了，自己挂一个同 key 的活跃查询来看有没有被补拉
+    const unsub = new QueryObserver(qc, {
+      queryKey: ["ride-today", "h1"],
+      queryFn: ride as () => Promise<unknown>,
+      retry: false,
+    }).subscribe(() => undefined);
+    const r = await mount(qc);
+    await waitFor(() => expect(ride).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(r.allText()).toContain(tr("ride.today")));
+    const el = () => (
+      <QueryClientProvider client={qc}>
+        <DevicesScreen />
+      </QueryClientProvider>
+    );
+    expect(mockRide.args).toEqual(["h1", true]);
+    routerState.focused = false;
+    r.rerender(el());
+    expect(mockRide.args).toEqual(["h1", false]);
+    // 刚拉过：切回来不拉
+    routerState.focused = true;
+    r.rerender(el());
+    expect(mockRide.args).toEqual(["h1", true]);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(ride).toHaveBeenCalledTimes(1);
+    // 上次拉取已是 5 秒前：切回来就补拉
+    act(() => {
+      qc.getQueryCache()
+        .find({ queryKey: ["ride-today", "h1"] })!
+        .setState({ dataUpdatedAt: Date.now() - 5_000 });
+    });
+    routerState.focused = false;
+    r.rerender(el());
+    routerState.focused = true;
+    r.rerender(el());
+    await waitFor(() => expect(ride).toHaveBeenCalledTimes(2));
+    unsub();
   });
 
   describe("光晕呼吸", () => {
