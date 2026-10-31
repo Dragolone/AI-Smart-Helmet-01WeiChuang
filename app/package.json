@@ -34,13 +34,10 @@
     "expo-symbols": "~57.0.2",
     "expo-system-ui": "~57.0.2",
     "expo-video": "~57.0.2",
-    "expo-web-browser": "~57.0.2",
     "jcore-react-native": "^2.3.7",
     "jest": "~29.7.0",
     "jest-expo": "~57.0.5",
     "jpush-react-native": "^3.2.8",
-    "js-sha256": "^1.0.0",
-    "pako": "^3.0.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.2",
@@ -57,7 +54,6 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
-    "@types/pako": "^2.0.4",
     "@types/react": "~19.2.2",
     "eslint-config-expo": "~57.0.1",
     "typescript": "~6.0.3"
