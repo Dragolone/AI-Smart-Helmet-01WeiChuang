@@ -31,13 +31,13 @@ import {
   HELMET_HOTSPOT,
   JOIN_TIMEOUT_MS,
   NO_PICTURE_HINT_MS,
-  VLC_INIT_OPTIONS,
   holdsHelmetWifi,
   initialPreviewState,
   previewReducer,
   showsPlayer,
   suggestsLocalNetwork,
   toFsPath,
+  vlcSource,
 } from "@/services/video-preview";
 import { HelmetWifi } from "helmet-wifi";
 
@@ -333,7 +333,7 @@ export default function VideoPreviewScreen() {
             key={state.attempt}
             ref={playerRef}
             style={StyleSheet.absoluteFill}
-            source={{ uri: streamUrl, initOptions: VLC_INIT_OPTIONS }}
+            source={vlcSource(streamUrl)}
             autoplay
             resizeMode="contain"
             onPlaying={() => {
