@@ -29,6 +29,7 @@ import { contactsApi } from "@/api/contacts";
 import { devicesApi } from "@/api/devices";
 import { BatteryArc } from "@/components/battery-arc";
 import { DeviceGuide } from "@/components/device-guide";
+import { PulseDot } from "@/components/motion";
 import { Skeleton } from "@/components/skeleton";
 import { releaseSplashHold } from "@/components/splash/bus";
 import { prepareGuideHandover } from "@/components/splash/guide-handover";
@@ -386,6 +387,34 @@ describe("有头盔", () => {
     await waitFor(() =>
       expect(useHelmetHistoryStore.getState().users).toContain("u1"),
     );
+  });
+
+  it("搜索中的脉冲点只在这一页看得见时循环；头盔关机长期搜索，切到别的标签就停（不白占 UI 线程）", async () => {
+    m(devicesApi.list).mockImplementation(() =>
+      Promise.resolve([dev("h1", { name: "通勤头盔" })]),
+    );
+    mockSafety.links = { h1: "searching" };
+    const qc = makeQueryClient();
+    const r = await mount(qc);
+    await waitFor(() => expect(r.allText()).toContain("通勤头盔"));
+    const el = () => (
+      <QueryClientProvider client={qc}>
+        <DevicesScreen />
+      </QueryClientProvider>
+    );
+    const dot = () => r.root.findByType(PulseDot).props.active;
+    expect(r.allText()).toContain(tr("devices.link.searching"));
+    expect(dot()).toBe(true);
+    routerState.focused = false;
+    r.rerender(el());
+    expect(dot()).toBe(false);
+    routerState.focused = true;
+    r.rerender(el());
+    expect(dot()).toBe(true);
+    // 不在搜索：本来就不循环
+    mockSafety.links = { h1: "connected" };
+    r.rerender(el());
+    expect(dot()).toBe(false);
   });
 
   it("「设为当前」的选择还没读出来时先画骨架，不先显示一台再跳", async () => {

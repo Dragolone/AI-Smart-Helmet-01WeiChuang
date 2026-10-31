@@ -204,6 +204,8 @@ function Hero({
       };
     }, [breathe]),
   );
+  // 搜索中的脉冲点同理：头盔关机时蓝牙会长期搜索，切到别的标签后它不能还按屏幕刷新率在 UI 线程上循环
+  const focused = useIsFocused();
   // 光晕的浓度。浅色底上同样的浓度几乎看不出来，最浓的中间那块还被头盔背后的白底盖住，
   // 所以浅色给得更足、往外也退得更慢，环外面才留得下一圈颜色
   const glowAlpha = dark ? 0.32 : 0.34;
@@ -339,7 +341,11 @@ function Hero({
       <SplashAnchor name="heroPill">
         <SplashArrive cue="pill" kind="pop">
           <Animated.View style={[styles.statusPill, pillTint]}>
-            <PulseDot size={6} active={pill.searching} color={pillFg} />
+            <PulseDot
+              size={6}
+              active={pill.searching && focused}
+              color={pillFg}
+            />
             <Animated.Text style={[styles.statusText, pillTextTint]}>
               {status}
             </Animated.Text>
