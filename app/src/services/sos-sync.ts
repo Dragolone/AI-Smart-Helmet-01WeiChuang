@@ -8,7 +8,7 @@
 //   ② 同一单只拉起一次倒计时页；
 //   ③ App 不在前台 && 有进行中的 SOS ⇒ 锁屏上一定有通知（sos-alert 按 sosId 去重）。
 import type { QueryClient } from "@tanstack/react-query";
-import type { ActiveSosResponse, Sos } from "@helmet/shared";
+import type { ActiveSosItem, ActiveSosResponse, Sos } from "@helmet/shared";
 
 export type SosSyncDeps = {
   fetchActive: (deviceId: string) => Promise<ActiveSosResponse>;
@@ -16,13 +16,18 @@ export type SosSyncDeps = {
    * 账号级进行中列表（GET /users/me/sos/active，B 线第 12 项）：给了就一次拿全，不再逐台查。
    * 返回 null = 服务端还没有这个接口（旧服务端 404），退回逐台 fetchActive
    */
-  fetchAccountActive?: () => Promise<{ items: Sos[]; total: number } | null>;
+  fetchAccountActive?: () => Promise<{
+    items: (Sos & Partial<Pick<ActiveSosItem, "deviceName">>)[];
+    total: number;
+  } | null>;
   openCountdown: (sosId: string, deviceId: string) => void;
   showLockScreenAlert: (
     sosId: string,
     deviceId: string,
     deadline: string,
     triggeredAt?: string,
+    /** 账号级补拉带回来的头盔名：设备列表还没到时用它 */
+    deviceName?: string | null,
   ) => void;
   clearLockScreenAlert: (sosId: string) => void;
   log?: (message: string) => void;
@@ -137,7 +142,11 @@ export async function resumePendingSos(
   retryDelaysMs: readonly number[] = [],
 ): Promise<string[]> {
   const found: string[] = [];
-  const take = (deviceId: string, sos: Sos | null) => {
+  const take = (
+    deviceId: string,
+    sos: Sos | null,
+    deviceName?: string | null,
+  ) => {
     if (!sos || sos.status !== "pending") return;
     if (isFinal(qc, sos.sosId)) return;
     qc.setQueryData<ActiveSosResponse>(["sos-active", deviceId], { sos });
@@ -147,6 +156,7 @@ export async function resumePendingSos(
       deviceId,
       sos.deadline,
       sos.triggeredAt,
+      deviceName,
     );
     found.push(sos.sosId);
     if (present({ sosId: sos.sosId, deviceId }, presented, deps)) {
@@ -156,7 +166,9 @@ export async function resumePendingSos(
   // 账号级接口一次拿全：绑了多少顶都只发一个请求（原来逐台查，1 万顶时冷启动 / 重连要串行一万个请求，10-16 F10）；
   // 头盔已解绑、单还是本人的也在里面。deviceIds 只在退回逐台查时用
   if (deps.fetchAccountActive) {
-    let account: { items: Sos[]; total?: number } | null = null;
+    let account: Awaited<
+      ReturnType<NonNullable<SosSyncDeps["fetchAccountActive"]>>
+    > = null;
     const startedAt = Date.now();
     // 远程推送到达那次补拉是前台 + WS 没连上时唯一能把倒计时页拉起来的路径：弱网下这一个请求失败就再也没有下一次
     //（10-20 模拟器 30% 丢包实测：通知到了、页面整单没弹到到期）。调用方给了 retryDelaysMs 就按它有限重试几次；
@@ -179,7 +191,8 @@ export async function resumePendingSos(
     // 冷启动补拉进行中的求救不能因为一个坏应答整个跳过
     if (account && Array.isArray(account.items)) {
       dropEndedElsewhere(qc, account, startedAt, deps, reason);
-      for (const sos of account.items) if (sos) take(sos.deviceId, sos);
+      for (const sos of account.items)
+        if (sos) take(sos.deviceId, sos, sos.deviceName);
       return found;
     }
   }

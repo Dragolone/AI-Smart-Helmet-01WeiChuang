@@ -173,6 +173,7 @@ describe("resumePendingSos（冷启动 / 重连补拉，SOS-12）", () => {
       "d1",
       sos().deadline,
       undefined, // triggeredAt：测试样本没带；带了要原样透传（见下）
+      undefined, // 头盔名：逐台查没有
     );
     expect(deps.openCountdown).toHaveBeenCalledWith("s1", "d1");
     expect(deps.log).toHaveBeenCalledWith("重连补拉发现进行中 SOS s1");
@@ -344,6 +345,25 @@ describe("resumePendingSos：账号级接口一次拿全（B 线第 12 项）", 
       ["s9", "d-unbound"],
     ]);
     expect(deps.showLockScreenAlert).toHaveBeenCalledTimes(2);
+  });
+
+  it("账号级列表里的头盔名交给锁屏提醒（设备列表还没到时用它）；逐台查没有这个名字", async () => {
+    deps.fetchAccountActive.mockResolvedValue({
+      items: [
+        { ...sos({ sosId: "s1", deviceId: "d1" }), deviceName: "通勤盔" },
+      ],
+      total: 1,
+    });
+    await resumePendingSos(qc, ["d1"], presented, deps);
+    expect(deps.showLockScreenAlert.mock.lastCall?.[4]).toBe("通勤盔");
+
+    deps.fetchAccountActive.mockResolvedValue(null);
+    deps.fetchActive.mockResolvedValue({
+      sos: sos({ sosId: "s2", deviceId: "d1" }),
+    });
+    await resumePendingSos(qc, ["d1"], presented, deps);
+    expect(deps.showLockScreenAlert.mock.lastCall?.[0]).toBe("s2");
+    expect(deps.showLockScreenAlert.mock.lastCall?.[4]).toBeUndefined();
   });
 
   it("账号级应答的 items 不是数组（服务端出错）：不抛，退回逐台查；列表里夹着空项就跳过（10-25 iOS 改写应答）", async () => {

@@ -245,7 +245,13 @@ export function useRealtimeUpdates(): void {
         if (sosScreen.mounted || !bridgeUi.attached) return;
         router.push(sosActiveHref(sosId, deviceId));
       },
-      showLockScreenAlert: (sosId, deviceId, deadline, triggeredAt) =>
+      showLockScreenAlert: (
+        sosId,
+        deviceId,
+        deadline,
+        triggeredAt,
+        deviceName,
+      ) =>
         void showSosAlertIfBackground(
           sosId,
           deviceId,
@@ -255,7 +261,8 @@ export function useRealtimeUpdates(): void {
             queryClient
               .getQueryData<DevicePublic[]>(["devices"])
               ?.find((d) => d.deviceId === deviceId) ?? {
-              name: null,
+              // 列表还没到：用账号级接口带回来的名字。这条提醒排上就不再改，不能先写成设备号
+              name: deviceName ?? null,
               deviceId,
             },
           ),
@@ -277,7 +284,7 @@ export function useRealtimeUpdates(): void {
           ),
       ),
     );
-    // 设备列表：拉失败就退避重试到成功为止（后台也在跑，不靠首页轮询）；第一次尝试结束后做冷启动补拉
+    // 设备列表：拉失败就退避重试到成功为止（后台也在跑，不靠首页轮询）
     const devicesLoad = loadWithRetry(() =>
       queryClient.fetchQuery({
         queryKey: ["devices"],
@@ -285,12 +292,14 @@ export function useRealtimeUpdates(): void {
         staleTime: 10_000,
       }),
     );
-    // 冷启动那次补拉若手上一台目标都没有（首拉失败且没有缓存），列表之后拉到了要再补一次，
+    // 冷启动那次补拉若手上一台目标都没有（列表还没到且没有缓存），列表之后拉到了要再补一次，
     // 否则进行中的 SOS 要等 WS 重连或回前台才会被发现（B 线 10-06 评审 F-10）
     let coldResumeHadTargets: boolean | null = null;
     let resumedAfterListArrived = false;
     let coldRetryTimer: ReturnType<typeof setTimeout> | null = null;
-    void Promise.all([devicesLoad.firstAttempt, cachedReady]).then(() => {
+    // 补拉不等列表：账号级接口用不着设备号，只有退回逐台查才用（缓存目标够用，没有时走上面的 F-10）。
+    // 弱网下列表第一次尝试最坏要 31 s（15 + 1 + 15），不在前台时失败后的重试还被暂停到回前台，60 s 的倒计时等不起
+    void cachedReady.then(() => {
       if (cancelled) return;
       const ids = bleTargetsOf();
       coldResumeHadTargets = ids.length > 0;
