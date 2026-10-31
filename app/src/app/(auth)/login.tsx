@@ -16,7 +16,11 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { authApi } from "@/api/auth";
-import { PHONE_INPUT_MAX, normalizePhone } from "@/hooks/use-sms-code";
+import {
+  PHONE_INPUT_MAX,
+  isValidPhone,
+  normalizePhone,
+} from "@/hooks/use-sms-code";
 import { toUserMessage } from "@/api/error-messages";
 import {
   FormError,
@@ -111,6 +115,16 @@ export default function LoginScreen() {
     // 「+86 138 0000 0000」、全角数字、通讯录复制带的方向标记先规整（与联系人页同一个 normalizePhone），
     // 原来原样提交，正确的号码被服务端判成「输入格式不正确」
     const cleanPhone = normalizePhone(phone);
+    // 提交前先在本地查：不填或少一位原来要等一个来回、拿到服务端的 400 才说「输入格式不正确」，断网时更成了「网络连接失败」。
+    // 号码口径与服务端 PHONE_PATTERN 相同；密码只查空（服务端登录只要求 ≥1 位，不能按注册的 8 位挡）
+    if (!isValidPhone(cleanPhone)) {
+      setFieldError({ field: "phone", message: t("auth.invalidPhone") });
+      return;
+    }
+    if (password === "") {
+      setFieldError({ field: "password", message: t("auth.passwordRequired") });
+      return;
+    }
     setBusy(true);
     try {
       const auth = await authApi.login({ phone: cleanPhone, password });

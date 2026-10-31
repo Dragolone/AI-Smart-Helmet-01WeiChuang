@@ -48,6 +48,7 @@ export const auth = {
     "consent.signOut": "不同意，退出登录",
     "auth.invalidPhone": "请先输入正确的 11 位手机号",
     "auth.invalidCode": "请输入 6 位短信验证码",
+    "auth.passwordRequired": "请输入密码",
     "auth.passwordMismatch": "两次输入的密码不一致",
     "auth.passwordSameAsOld": "新密码不能与当前密码相同",
     "auth.passwordTooShort": "密码至少 8 位",
@@ -202,6 +203,7 @@ export const auth = {
     "consent.signOut": "不同意，退出登入",
     "auth.invalidPhone": "請先輸入正確的 11 位手機號碼",
     "auth.invalidCode": "請輸入 6 位簡訊驗證碼",
+    "auth.passwordRequired": "請輸入密碼",
     "auth.passwordMismatch": "兩次輸入的密碼不一致",
     "auth.passwordSameAsOld": "新密碼不能與目前密碼相同",
     "auth.passwordTooShort": "密碼至少 8 位",
@@ -358,6 +360,7 @@ export const auth = {
     "consent.signOut": "Don't agree — log out",
     "auth.invalidPhone": "Enter a valid 11-digit phone number first",
     "auth.invalidCode": "Enter the 6-digit SMS code",
+    "auth.passwordRequired": "Enter your password",
     "auth.passwordMismatch": "Passwords do not match",
     "auth.passwordSameAsOld":
       "The new password must be different from the current one",
