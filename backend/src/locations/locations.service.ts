@@ -9,10 +9,15 @@ import type {
 } from '@helmet/shared';
 import { latestPlausibleTime } from '../common/device-time';
 import { BindingScopeService } from '../devices/binding-scope.service';
+import type { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { toWireLocation } from './location-wire';
 import { MIN_RIDE_METERS, RIDE_MAX_MS, splitRides, thin } from './ride-split';
-import { computeRideStats, type RideStats } from './ride-stats';
+import {
+  computeRideStats,
+  type RideStats,
+  type RideStatsPoint,
+} from './ride-stats';
 
 /** 单次轨迹查询时间范围上限（API.md §5 定稿：24h） */
 const MAX_RANGE_MS = 24 * 60 * 60 * 1000;
@@ -25,6 +30,15 @@ const MAX_RIDES_RANGE_MS = 32 * 24 * 60 * 60 * 1000;
 const RIDES_PAD_BEFORE_MS = RIDE_MAX_MS;
 /** 往后多取这么长：一趟最长不到两个 RIDE_MAX_MS（起点不在网格点上时，到第二个网格点才切） */
 const RIDES_PAD_AFTER_MS = 2 * RIDE_MAX_MS;
+
+/**
+ * 行程查询每批取的点数。一个月的 Mock 约 30 万点（真实用户约 10 万），一次 findMany 在 Prisma 里
+ * 同步映射要停顿事件循环 0.2 s 以上（2C4G 估 0.5 s），期间 Ingest、WS 推送全停；分批后每批之间的 await 就让出了。
+ */
+export const RIDES_BATCH_SIZE = 20_000;
+
+/** 键集翻页要 id 当同一时间戳的次序键；其余是统计 / 切分用到的列 */
+type RidePoint = RideStatsPoint & { id: string };
 
 const toSummary = (s: RideStats): LocationSummaryResponse => ({
   distanceMeters: s.distanceMeters,
@@ -137,11 +151,7 @@ export class LocationsService {
       new Date(from.getTime() - RIDES_PAD_BEFORE_MS),
       new Date(upper),
     );
-    const points = await this.prisma.locationPoint.findMany({
-      where,
-      orderBy: [{ timestamp: 'asc' }, { id: 'asc' }],
-      select: { latitude: true, longitude: true, speed: true, timestamp: true },
-    });
+    const points = await this.ridePoints(where);
     const rides = splitRides(points, new Date(), from)
       .map((span) => {
         const s = computeRideStats(points.slice(span.start, span.end + 1));
@@ -167,6 +177,53 @@ export class LocationsService {
         endAt: r.endAt.toISOString(),
       }));
     return { rides };
+  }
+
+  /**
+   * 按 (timestamp, id) 键集分批取点，排序与单次查询一致（timestamp 升序，同刻按 id）。
+   * 下一批从「时间 ≥ 上一批最后一点的时间，且（时间更晚，或同一时间 id 更大）」开始：
+   * 同一时间戳的点跨批也不重不漏；外层的 timestamp >= 让 (device_id, timestamp) 索引直接定位起点。
+   * 不用 Prisma 的 cursor：它生成带子查询的 OR 条件，每批都得从范围起点重新扫。
+   * 少于一批只发 1 个查询；恰好整批会多发 1 个取空的查询来确认到头。
+   * 各批不在同一个事务里：批间新到的迟到点要等下一次请求才看得到，对行程统计无影响。
+   */
+  private async ridePoints(
+    where: Prisma.LocationPointWhereInput,
+    batchSize = RIDES_BATCH_SIZE,
+  ): Promise<RidePoint[]> {
+    const points: RidePoint[] = [];
+    let after: { timestamp: Date; id: string } | null = null;
+    for (;;) {
+      const batch: RidePoint[] = await this.prisma.locationPoint.findMany({
+        where: after
+          ? {
+              AND: [
+                where,
+                { timestamp: { gte: after.timestamp } },
+                {
+                  OR: [
+                    { timestamp: { gt: after.timestamp } },
+                    { id: { gt: after.id } },
+                  ],
+                },
+              ],
+            }
+          : where,
+        orderBy: [{ timestamp: 'asc' }, { id: 'asc' }],
+        take: batchSize,
+        select: {
+          id: true,
+          latitude: true,
+          longitude: true,
+          speed: true,
+          timestamp: true,
+        },
+      });
+      for (const p of batch) points.push(p);
+      if (batch.length < batchSize) return points;
+      const last = batch[batch.length - 1];
+      after = { timestamp: last.timestamp, id: last.id };
+    }
   }
 
   /**

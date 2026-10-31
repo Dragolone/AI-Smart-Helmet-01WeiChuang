@@ -1,7 +1,7 @@
 // 位置查询服务（API.md §5）：最新位置上界、24h / 32 天范围校验、绑定区间、抽稀与统计、行程列表的边界归属。
 import { BindingScopeService } from '../devices/binding-scope.service';
 import type { PrismaService } from '../prisma/prisma.service';
-import { LocationsService } from './locations.service';
+import { LocationsService, RIDES_BATCH_SIZE } from './locations.service';
 
 const H = 3_600_000;
 const T0 = Date.parse('2026-10-16T00:00:00Z');
@@ -19,6 +19,40 @@ const dbPoint = (i: number, atMs: number, meters = i * 50) => ({
   timestamp: new Date(atMs),
   receivedAt: new Date(atMs + 1000),
 });
+
+type Where = Record<string, any>;
+const cmp = (a: Date | string, b: Date | string) =>
+  a instanceof Date
+    ? a.getTime() - (b as Date).getTime()
+    : a < b
+      ? -1
+      : a > b
+        ? 1
+        : 0;
+/** 够用的 Prisma where 求值：AND / OR / deviceId 相等 / 字段的 gte gt lte lt；认不得的运算符一律不匹配，让测试大声失败 */
+const matches = (row: Where, w: Where): boolean =>
+  Object.entries(w).every(([k, v]) => {
+    if (k === 'AND')
+      return ((Array.isArray(v) ? v : [v]) as Where[]).every((x) =>
+        matches(row, x),
+      );
+    if (k === 'OR') return (v as Where[]).some((x) => matches(row, x));
+    if (k === 'deviceId') return row.deviceId === v;
+    return Object.entries(v as Record<string, Date | string>).every(
+      ([op, bound]) => {
+        const c = cmp(row[k] as Date | string, bound);
+        return op === 'gte'
+          ? c >= 0
+          : op === 'gt'
+            ? c > 0
+            : op === 'lte'
+              ? c <= 0
+              : op === 'lt'
+                ? c < 0
+                : false;
+      },
+    );
+  });
 
 describe('LocationsService', () => {
   const prisma = {
@@ -268,6 +302,126 @@ describe('LocationsService', () => {
       ]);
       expect(rides.every((r) => !r.ongoing)).toBe(true);
       expect(rides[0].distanceMeters).toBeGreaterThanOrEqual(50);
+    });
+  });
+  describe('rides 分批取点（按 (timestamp, id) 键集翻页）', () => {
+    const base = { deviceId: 'helmet_001', timestamp: { gte: new Date(0) } };
+    type Row = ReturnType<typeof dbPoint>;
+    // 真实 id 是 cuid：和时间先后无关。用 65537（素数）取模打乱，保证唯一又不随时间递增
+    const row = (i: number, atMs: number): Row => ({
+      ...dbPoint(i, atMs),
+      id: `p${String((i * 48271) % 65537).padStart(6, '0')}`,
+    });
+    /** 假库：按 where 过滤、按 (timestamp, id) 排序、取 take 条；honorTake=false 时一次返回全部 */
+    const fakeDb = (rows: Row[], honorTake = true) =>
+      prisma.locationPoint.findMany.mockImplementation(
+        (args: { where: Where; orderBy: unknown; take?: number }) => {
+          expect(args.orderBy).toEqual([{ timestamp: 'asc' }, { id: 'asc' }]);
+          const hit = rows
+            .filter((r) => matches(r, args.where))
+            .sort((a, b) => cmp(a.timestamp, b.timestamp) || cmp(a.id, b.id));
+          return Promise.resolve(honorTake ? hit.slice(0, args.take) : hit);
+        },
+      );
+    const ridePoints = (batchSize: number) =>
+      (
+        svc as unknown as {
+          ridePoints: (w: Where, n: number) => Promise<Row[]>;
+        }
+      ).ridePoints(base, batchSize);
+
+    // 10 个点：0-1 同刻，2-6 同刻（5 个并列），7-9 各自一刻——任何批大小都有一批断在并列中间
+    const rows = [0, 0, 1, 1, 1, 1, 1, 2, 3, 4]
+      .map((t, i) => row(i, T0 + t * 10_000))
+      .sort((a, b) => cmp(a.timestamp, b.timestamp) || cmp(a.id, b.id));
+
+    it.each([1, 2, 3, 4, 5, 6, 7, 9, 10, 11])(
+      '批大小 %i：同一时间戳跨批不重不漏，顺序与单次查询一致',
+      async (n) => {
+        fakeDb(rows);
+        const got = await ridePoints(n);
+        expect(got.map((p) => p.id)).toEqual(rows.map((r) => r.id));
+      },
+    );
+
+    it('第二批的条件：时间 ≥ 上批末点，且（时间更晚 或 同刻 id 更大）；不用 cursor / skip', async () => {
+      fakeDb(rows);
+      await ridePoints(4);
+      expect(prisma.locationPoint.findMany).toHaveBeenCalledTimes(3);
+      const [first, second] = prisma.locationPoint.findMany.mock.calls.map(
+        (c) => c[0] as Where,
+      );
+      expect(first.where).toBe(base);
+      expect(first.take).toBe(4);
+      const last = rows[3]; // 第一批在 5 个并列点的中间断开
+      expect(second.where).toEqual({
+        AND: [
+          base,
+          { timestamp: { gte: last.timestamp } },
+          {
+            OR: [
+              { timestamp: { gt: last.timestamp } },
+              { id: { gt: last.id } },
+            ],
+          },
+        ],
+      });
+      expect(second.take).toBe(4);
+      for (const arg of [first, second]) {
+        expect(arg.cursor).toBeUndefined();
+        expect(arg.skip).toBeUndefined();
+      }
+    });
+
+    it('少于一批：只发 1 个查询', async () => {
+      fakeDb(rows.slice(0, 3));
+      await expect(ridePoints(4)).resolves.toHaveLength(3);
+      expect(prisma.locationPoint.findMany).toHaveBeenCalledTimes(1);
+    });
+
+    it('恰好整批：再发 1 个查询确认到头，结果不多不少', async () => {
+      fakeDb(rows.slice(0, 8));
+      await expect(ridePoints(4)).resolves.toHaveLength(8);
+      expect(prisma.locationPoint.findMany).toHaveBeenCalledTimes(3);
+    });
+
+    it('空结果：1 个查询，返回空数组', async () => {
+      fakeDb([]);
+      await expect(ridePoints(4)).resolves.toEqual([]);
+      expect(prisma.locationPoint.findMany).toHaveBeenCalledTimes(1);
+    });
+
+    it('rides()：每批 RIDES_BATCH_SIZE；跨批结果与一次取全的结果完全相同（含批界上的同刻点）', async () => {
+      jest.useFakeTimers({ now: T0 + 60 * H });
+      const n = 2 * RIDES_BATCH_SIZE + 5;
+      // 每秒一点、每点约 22 m，中途断档 30 分钟 → 两趟；批界（第 RIDES_BATCH_SIZE 个点）前后 5 个点同一时刻
+      const all = Array.from({ length: n }, (_, i) => {
+        const gap = i >= n / 2 ? 30 * 60_000 : 0;
+        const atMs =
+          Math.abs(i - RIDES_BATCH_SIZE) <= 2
+            ? T0 + H + (RIDES_BATCH_SIZE - 3) * 1000
+            : T0 + H + i * 1000 + gap;
+        return { ...row(i, atMs), latitude: 22.5 + i * 0.0002 };
+      });
+      const args = [
+        'u1',
+        'helmet_001',
+        new Date(T0).toISOString(),
+        new Date(T0 + 24 * H).toISOString(),
+      ] as const;
+
+      fakeDb(all);
+      const batched = await svc.rides(...args);
+      expect(prisma.locationPoint.findMany).toHaveBeenCalledTimes(3);
+      expect(findManyArg().take).toBe(RIDES_BATCH_SIZE);
+
+      prisma.locationPoint.findMany.mockReset();
+      fakeDb(all, false);
+      const single = await svc.rides(...args);
+      expect(prisma.locationPoint.findMany).toHaveBeenCalledTimes(2);
+
+      expect(batched.rides).toHaveLength(2);
+      expect(JSON.stringify(batched)).toBe(JSON.stringify(single));
     });
   });
 });
