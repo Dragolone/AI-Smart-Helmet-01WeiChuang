@@ -320,6 +320,38 @@ describe("AmapView", () => {
     );
   });
 
+  it("页面加载后第一次跟随直接到位（不从默认中心横扫过去），之后照旧平滑移动；页面重载后重新算第一次", () => {
+    const html = (mount().web().props.source as { html: string }).html;
+    const page = runAmapPage(html, "Mozilla/5.0 (Linux; Android 14)");
+    const helmet = (lng: number, follow: boolean) =>
+      page.cmd({ type: "helmet", lng, lat: 39.9, follow });
+
+    // 不跟随的（回放走这条）不动镜头，也不占掉「第一次」
+    helmet(116.3, false);
+    expect(page.map.setCenter).not.toHaveBeenCalled();
+    expect(page.map.panTo).not.toHaveBeenCalled();
+
+    helmet(116.4, true);
+    expect(page.map.setCenter).toHaveBeenCalledTimes(1);
+    expect(page.map.setCenter).toHaveBeenCalledWith(
+      expect.objectContaining({ lng: 116.4 }),
+      true,
+    );
+    expect(page.map.panTo).not.toHaveBeenCalled();
+
+    helmet(116.5, true);
+    expect(page.map.setCenter).toHaveBeenCalledTimes(1);
+    expect(page.map.panTo).toHaveBeenCalledTimes(1);
+    expect(page.map.panTo).toHaveBeenCalledWith(
+      expect.objectContaining({ lng: 116.5 }),
+    );
+
+    const reloaded = runAmapPage(html, "Mozilla/5.0 (Linux; Android 14)");
+    reloaded.cmd({ type: "helmet", lng: 116.6, lat: 39.9, follow: true });
+    expect(reloaded.map.setCenter).toHaveBeenCalledTimes(1);
+    expect(reloaded.map.panTo).not.toHaveBeenCalled();
+  });
+
   it("卸载时清掉命令句柄", () => {
     const { ref, r } = mount();
     expect(ref.current).not.toBeNull();
