@@ -6,6 +6,7 @@ import { attachSession } from "@/api/client";
 import { authApi } from "@/api/auth";
 import { countdownHoldUntil } from "@/services/countdown-hold";
 import { SECURE_KEYS } from "@/services/secure-keys";
+import { notePersistFailure } from "@/services/persist-notice";
 import { markSignedIn } from "@/services/sign-in-moment";
 
 const TOKEN_KEY = SECURE_KEYS.sessionTokens;
@@ -115,21 +116,27 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       expiredDuringSos: false,
     });
     cancelDeadTimer();
-    await Promise.all([
-      SecureStore.setItemAsync(
-        TOKEN_KEY,
-        JSON.stringify({
-          accessToken: auth.accessToken,
-          refreshToken: auth.refreshToken,
-        }),
-        KEYCHAIN,
-      ),
-      SecureStore.setItemAsync(
-        USER_KEY,
-        JSON.stringify(toPersistable(auth.user)),
-        KEYCHAIN,
-      ),
-    ]);
+    // 写不进钥匙串（存储满等）不算登录失败：内存态已经登录、本次照常可用，只是重启后要重新登录——
+    // 原来这里一抛，登录页的 catch 在跳转之后才 setError，用户什么都看不到（O37）
+    try {
+      await Promise.all([
+        SecureStore.setItemAsync(
+          TOKEN_KEY,
+          JSON.stringify({
+            accessToken: auth.accessToken,
+            refreshToken: auth.refreshToken,
+          }),
+          KEYCHAIN,
+        ),
+        SecureStore.setItemAsync(
+          USER_KEY,
+          JSON.stringify(toPersistable(auth.user)),
+          KEYCHAIN,
+        ),
+      ]);
+    } catch (e) {
+      notePersistFailure("login", e);
+    }
   },
 
   signOut: async () => {
@@ -155,10 +162,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       sessionDeadUntil: null,
       expiredDuringSos: false,
     });
-    await Promise.all([
-      SecureStore.deleteItemAsync(TOKEN_KEY),
-      SecureStore.deleteItemAsync(USER_KEY),
-    ]);
+    // 删键在安卓上也要重写整个 SharedPreferences 文件，存储满时会失败：内存已登出、回到登录页，
+    // 但冷启动又会用留下的 token 登回去（服务端 refresh token 已作废，access token 最长还能用 15 分钟）。
+    // 删不掉就说一声，让人清理空间后再退一次（O37）
+    try {
+      await Promise.all([
+        SecureStore.deleteItemAsync(TOKEN_KEY),
+        SecureStore.deleteItemAsync(USER_KEY),
+      ]);
+    } catch (e) {
+      notePersistFailure("logout", e);
+    }
   },
 
   setUser: async (user) => {

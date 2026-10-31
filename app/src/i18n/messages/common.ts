@@ -6,6 +6,12 @@ export const common = {
       "{name}，我已在「零一智行」智能头盔 App 中将你设为紧急联系人。触发求救后，如果倒计时结束前未取消，系统会尝试向你发送短信提醒。收到后请先联系我；若无法联系，请协助求助。谢谢！",
     "app.crashTitle": "页面暂时无法显示",
     "app.crashBody": "请重试或重新打开 App。",
+    "persist.loginNotSaved":
+      "登录状态没能保存到本机（可能是存储空间不足），下次打开要重新登录",
+    "persist.logoutIncomplete":
+      "本机的登录信息没能清掉（可能是存储空间不足），清理空间后请再退出一次",
+    "persist.settingNotSaved":
+      "这项设置没能保存到本机（可能是存储空间不足），重启后会还原",
     "app.pageCrashBody": "其他页面照常可用。请重试，或稍后再进这一页。",
     "app.crashRetry": "重试",
     "common.close": "关闭",
@@ -115,6 +121,12 @@ export const common = {
       "{name}，我已在「零一智行」智慧頭盔 App 中將你設為緊急聯絡人。觸發求救後，如果倒數結束前未取消，系統會嘗試向你傳送簡訊提醒。收到後請先聯絡我；若無法聯絡，請協助求助。謝謝！",
     "app.crashTitle": "頁面暫時無法顯示",
     "app.crashBody": "請重試或重新開啟 App。",
+    "persist.loginNotSaved":
+      "登入狀態沒能保存到本機（可能是儲存空間不足），下次開啟要重新登入",
+    "persist.logoutIncomplete":
+      "本機的登入資訊沒能清掉（可能是儲存空間不足），清理空間後請再登出一次",
+    "persist.settingNotSaved":
+      "這項設定沒能保存到本機（可能是儲存空間不足），重啟後會還原",
     "app.pageCrashBody": "其他頁面照常可用。請重試，或稍後再進這一頁。",
     "app.crashRetry": "重試",
     "common.close": "關閉",
@@ -223,6 +235,12 @@ export const common = {
       "{name}, I have added you as an emergency contact in the Lingyi Weichuang helmet app. If an SOS countdown ends without being cancelled, the app will attempt to send you a text alert. Please contact me if you receive one. If you cannot reach me, please help me get assistance. Thank you.",
     "app.crashTitle": "Unable to display this page",
     "app.crashBody": "Try again or reopen the app.",
+    "persist.loginNotSaved":
+      "Couldn't save your sign-in on this phone (storage may be full). You'll need to sign in again next time.",
+    "persist.logoutIncomplete":
+      "Couldn't clear the saved sign-in on this phone (storage may be full). Free up space and sign out again.",
+    "persist.settingNotSaved":
+      "This setting couldn't be saved on this phone (storage may be full) and will reset after a restart.",
     "app.pageCrashBody":
       "The rest of the app still works. Try again, or come back to this page later.",
     "app.crashRetry": "Try again",
