@@ -132,6 +132,8 @@
 | 4.32 补：只关「紧急求助」一个通道再打开 | 同上 | ✅ 关 → 4 s 内「通知未开启」+ 一次性说明框；开 → 4 s 内恢复。先前一次误判「警告不消」是把那个说明框当成了页面状态 |
 | 8.24 真分屏（不是 wm size） | 同上，最近任务 → 分屏 + 设置 | ✅ 上半屏地图 / 倒计时紧凑版 / 滑动取消都正常 |
 | 3.24 真实跨午夜 + 换时区 | 模拟器时区改 Pacific/Pitcairn（UTC-8），等真实 UTC 08:00 = 那边午夜；两趟用 app-relay 灌 | ✅ 午夜后今日卡只剩午夜后的 4 分钟、跨午夜那趟整趟归昨天（3.21 口径）、换回悉尼全回今天；小疑问「今天 0 趟 / 今日 0.7 km」→ O40 |
+| 4.91 / 4.92 读屏发起 / 取消求救（想在模拟器上用 TalkBack 先过一遍） | 安卓 16 模拟器自带 TalkBack，`settings put secure enabled_accessibility_services …TalkBackService` 能开 | ➖ 开着 TalkBack 时 adb 注入的点按 / 滑动 / `input keycombination`（Alt+Shift+方向）都进不了读屏的手势层，焦点框一直停在页标题（logcat 里 TalkBack 报 "Failed to query component interface for required system resources"，-no-audio 也没有 TTS）；只能真机，手测 26 不变 |
+| Draven 又合 #547–#560 之后的 main 1327c65 | 全量 jest + tsc | ✅ 3614 例全过、tsc 0 错 |
 | 4.34 倒计时中时钟跳变 | 没重跑 | 10-20 模拟器 ✅ 且 server-clock 有单测（往回跳立刻补偿、往前跳等下一个响应纠正），不再重复 |
 
 **还缺 / 可继续**：跨午夜 / 跨月的「今日骑行」与行程翻页（要等真实午夜或改服务器时钟；日期格式函数的跨年 / 闰日 / 夏令时单测早就有）、头像上传 HEIC / 大图（选图后统一裁方形缩到 256 px，风险低）、登出瞬间推送到达（要真推送）、iOS 低数据模式 / 后台刷新关闭 / 专注模式、安卓 13 自动撤权与用户删通知通道。
