@@ -237,9 +237,14 @@ export function enqueueRelayEvent(envelope: Envelope): void {
     void flushRelayQueue();
   }
   if (queue.length > QUEUE_MAX) {
-    // 先丢最旧的周期事件（位置/心跳）；整队都是高危事件时才丢最旧的那条（审计 BLE-04）
-    const victim = queue.findIndex((e) => !CRITICAL_TYPES.has(e.eventType));
-    const dropped = queue.splice(victim === -1 ? 0 : victim, 1)[0];
+    // 先丢最旧的周期事件（位置/心跳，审计 BLE-04），再丢最旧的碰撞 / 障碍提醒；
+    // 整队都是摔倒 / 求救才丢最旧的那条。原来高危一视同仁，长时间没信号时摔倒会被后来的障碍事件挤掉（11-01 审计）
+    const periodic = queue.findIndex((e) => !CRITICAL_TYPES.has(e.eventType));
+    const nonSos =
+      periodic !== -1
+        ? periodic
+        : queue.findIndex((e) => !SOS_TYPES.has(e.eventType));
+    const dropped = queue.splice(nonSos === -1 ? 0 : nonSos, 1)[0];
     devLog(
       "BLE-RELAY",
       `缓存溢出(>${QUEUE_MAX}),丢弃最旧一条 ${dropped.eventType}`,
