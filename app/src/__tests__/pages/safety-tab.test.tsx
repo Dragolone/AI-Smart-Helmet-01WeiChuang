@@ -500,6 +500,109 @@ describe("最近一条 SOS 与入口", () => {
   });
 });
 
+describe("求救在路上：显示发送中", () => {
+  const fillWidth = (r: Rendered) =>
+    flat(
+      r.root.find(
+        (n) =>
+          typeof n.type === "string" &&
+          flat(n.props.style).backgroundColor === "rgba(255,255,255,0.22)",
+      ).props.style,
+    ).width;
+  /** 手动放行的 push：测试里决定它什么时候回来 */
+  const deferredPush = () => {
+    const pending: {
+      resolve: (v: unknown) => void;
+      reject: (e: unknown) => void;
+    }[] = [];
+    m(relayApi.push).mockImplementation(
+      () => new Promise((resolve, reject) => pending.push({ resolve, reject })),
+    );
+    return pending;
+  };
+  const settle = () =>
+    act(async () => {
+      for (let i = 0; i < 6; i += 1) await Promise.resolve();
+    });
+
+  it("按满 2 秒后：写「发送中…」、进度条留满（松手也不收），回来才复位——不写成已发出", async () => {
+    const pending = deferredPush();
+    const r = mount();
+    expect(r.allText()).toContain(tr("safety.sosHold"));
+    act(() => sosButton(r).props.onPressIn());
+    await act(async () => {
+      sosButton(r).props.onLongPress();
+      await Promise.resolve();
+    });
+    expect(r.allText()).toContain(tr("auth.sending"));
+    expect(r.allText()).not.toContain(tr("safety.sosHold"));
+    expect(fillWidth(r)).toBe("100%");
+    expect(sosButton(r).props.accessibilityState).toEqual({ busy: true });
+    act(() => sosButton(r).props.onPressOut());
+    r.rerender(
+      <QueryClientProvider client={makeQueryClient()}>
+        <SafetyScreen />
+      </QueryClientProvider>,
+    );
+    expect(fillWidth(r)).toBe("100%");
+
+    pending[0].resolve({ accepted: 1 });
+    await settle();
+    expect(r.allText()).toContain(tr("safety.sosHold"));
+    expect(r.allText()).not.toContain(tr("auth.sending"));
+    expect(fillWidth(r)).toBe("0%");
+    expect(sosButton(r).props.accessibilityState).toEqual({ busy: false });
+  });
+
+  it("发送失败也复位：按钮回到「按住 2 秒求救」，弹窗说明已暂存", async () => {
+    const pending = deferredPush();
+    const r = mount();
+    await act(async () => {
+      sosButton(r).props.onLongPress();
+      await Promise.resolve();
+    });
+    expect(r.allText()).toContain(tr("auth.sending"));
+    pending[0].reject(new TypeError("Network request failed"));
+    await settle();
+    expect(r.allText()).toContain(tr("safety.sosHold"));
+    expect(fillWidth(r)).toBe("0%");
+    expect(enqueueRelayEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("在路上时不拦第二次长按：照样发新的 eventId；两条都回来才复位", async () => {
+    const pending = deferredPush();
+    const r = mount();
+    const fire = () =>
+      act(async () => {
+        sosButton(r).props.onLongPress();
+        await Promise.resolve();
+      });
+    await fire();
+    await fire();
+    const ids = m(relayApi.push).mock.calls.map(
+      (c) =>
+        (c[0] as { envelopes: { eventId: string }[] }).envelopes[0].eventId,
+    );
+    expect(new Set(ids).size).toBe(2);
+    pending[0].resolve({ accepted: 1 });
+    await settle();
+    expect(r.allText()).toContain(tr("auth.sending"));
+    expect(fillWidth(r)).toBe("100%");
+    pending[1].resolve({ accepted: 1 });
+    await settle();
+    expect(r.allText()).toContain(tr("safety.sosHold"));
+    expect(fillWidth(r)).toBe("0%");
+  });
+
+  it("没按满松手：不进发送中，也不发", () => {
+    const r = mount();
+    act(() => sosButton(r).props.onPressIn());
+    act(() => sosButton(r).props.onPressOut());
+    expect(r.allText()).not.toContain(tr("auth.sending"));
+    expect(relayApi.push).not.toHaveBeenCalled();
+  });
+});
+
 describe("长按求救", () => {
   it("按下就有重触觉；没按满 2 秒松手不触发（只抖一下）", () => {
     const r = mount();
