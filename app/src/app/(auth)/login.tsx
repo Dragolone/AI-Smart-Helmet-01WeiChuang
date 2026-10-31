@@ -16,12 +16,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { authApi } from "@/api/auth";
-import {
-  PHONE_INPUT_MAX,
-  normalizePhone,
-  phoneFromParam,
-} from "@/hooks/use-sms-code";
-import { useRouteParams } from "@/hooks/use-route-params";
+import { PHONE_INPUT_MAX, normalizePhone } from "@/hooks/use-sms-code";
 import { toUserMessage } from "@/api/error-messages";
 import {
   FormError,
@@ -37,6 +32,7 @@ import { SplashArrive } from "@/components/splash/splash-arrive";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { phoneFromParam, useRouteParams } from "@/hooks/use-route-params";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
 import { SECURE_KEYS } from "@/services/secure-keys";

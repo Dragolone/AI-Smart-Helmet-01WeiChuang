@@ -30,10 +30,9 @@ import {
   isValidPhone,
   normalizePhone,
   normalizeSmsCode,
-  phoneFromParam,
   useSmsCode,
 } from "@/hooks/use-sms-code";
-import { useRouteParams } from "@/hooks/use-route-params";
+import { phoneFromParam, useRouteParams } from "@/hooks/use-route-params";
 import {
   isPasswordTooLong,
   isPasswordTooShort,

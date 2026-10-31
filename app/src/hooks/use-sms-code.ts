@@ -43,13 +43,6 @@ export function normalizePhone(value: string): string {
 }
 
 /**
- * 登录页 ↔ 找回密码页经路由参数互相带的号码：只认 1–11 位纯数字，其余（乱写的链接）当没有。
- * 带的是用户在页面里填的号码，不写日志、不落盘，只在 App 内导航用。
- */
-export const phoneFromParam = (value: string | undefined): string =>
-  value !== undefined && /^\d{1,11}$/.test(value) ? value : "";
-
-/**
  * 验证码输入框里的值规整成 6 位半角数字：中文输入法全角状态打出的「１２３４５６」、
  * 从短信里复制带的空格 / 横线（「123 456」「123-456」）原来都被判成「验证码格式不正确」。
  */

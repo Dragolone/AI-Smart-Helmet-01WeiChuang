@@ -342,48 +342,6 @@ describe("登录页", () => {
     expect(signIn).not.toHaveBeenCalled();
   });
 
-  it("点「忘记密码」带上已填的号码（规整后的纯数字）；没填 / 填的不是号码就不带", async () => {
-    const r = render(<LoginScreen />);
-    await flush();
-    const href = () =>
-      r.root.findAll((n) => isHost(n, "Link"))[1].props.href as unknown;
-    expect(href()).toEqual({ pathname: "/reset-password", params: {} });
-    r.type(P.phone, "+86 139 0000 0042");
-    expect(href()).toEqual({
-      pathname: "/reset-password",
-      params: { phone: "13900000042" },
-    });
-    r.type(P.phone, "139");
-    expect(href()).toEqual({
-      pathname: "/reset-password",
-      params: { phone: "139" },
-    });
-    r.type(P.phone, "abc");
-    expect(href()).toEqual({ pathname: "/reset-password", params: {} });
-  });
-
-  it("找回密码成功 dismissTo 回来带着号码：直接填进手机号格；之后自己改的号码不会被盖掉", async () => {
-    (SecureStore.getItemAsync as jest.Mock).mockImplementationOnce(() =>
-      Promise.resolve("13700000001"),
-    );
-    routerState.params = { phone: "13900000042" };
-    const r = render(<LoginScreen />);
-    await flush();
-    // 参数里的号码比「上次登录的手机号」新：不被后者盖掉
-    expect(r.valueOf(P.phone)).toBe("13900000042");
-    r.type(P.phone, "13600000002");
-    r.rerender(<LoginScreen />);
-    expect(r.valueOf(P.phone)).toBe("13600000002");
-    // 登录页没重建，回来时只有参数变了
-    routerState.params = { phone: "13800000000" };
-    r.rerender(<LoginScreen />);
-    expect(r.valueOf(P.phone)).toBe("13800000000");
-    // 参数不是号码：不动输入框
-    routerState.params = { phone: "abc" };
-    r.rerender(<LoginScreen />);
-    expect(r.valueOf(P.phone)).toBe("13800000000");
-  });
-
   it("倒计时走完才登出的（O19-A）：说明后面多一句联系人多半已收到通知；普通被动登出没有这句", async () => {
     useAuthStore.setState({ sessionExpired: true, expiredDuringSos: true });
     const r = render(<LoginScreen />);
@@ -431,6 +389,48 @@ describe("登录页", () => {
     expect(title.props.delayLongPress).toBe(3000);
     act(() => title.props.onLongPress());
     expect(mockRouter.navigate).toHaveBeenLastCalledWith("/ble-bench");
+  });
+
+  it("点「忘记密码」带上已填的号码（规整后的纯数字）；没填 / 填的不是号码就不带", async () => {
+    const r = render(<LoginScreen />);
+    await flush();
+    const href = () =>
+      r.root.findAll((n) => isHost(n, "Link"))[1].props.href as unknown;
+    expect(href()).toEqual({ pathname: "/reset-password", params: {} });
+    r.type(P.phone, "+86 139 0000 0042");
+    expect(href()).toEqual({
+      pathname: "/reset-password",
+      params: { phone: "13900000042" },
+    });
+    r.type(P.phone, "139");
+    expect(href()).toEqual({
+      pathname: "/reset-password",
+      params: { phone: "139" },
+    });
+    r.type(P.phone, "abc");
+    expect(href()).toEqual({ pathname: "/reset-password", params: {} });
+  });
+
+  it("找回密码成功 dismissTo 回来带着号码：直接填进手机号格；之后自己改的号码不会被盖掉", async () => {
+    (SecureStore.getItemAsync as jest.Mock).mockImplementationOnce(() =>
+      Promise.resolve("13700000001"),
+    );
+    routerState.params = { phone: "13900000042" };
+    const r = render(<LoginScreen />);
+    await flush();
+    // 参数里的号码比「上次登录的手机号」新：不被后者盖掉
+    expect(r.valueOf(P.phone)).toBe("13900000042");
+    r.type(P.phone, "13600000002");
+    r.rerender(<LoginScreen />);
+    expect(r.valueOf(P.phone)).toBe("13600000002");
+    // 登录页没重建，回来时只有参数变了
+    routerState.params = { phone: "13800000000" };
+    r.rerender(<LoginScreen />);
+    expect(r.valueOf(P.phone)).toBe("13800000000");
+    // 参数不是号码：不动输入框
+    routerState.params = { phone: "abc" };
+    r.rerender(<LoginScreen />);
+    expect(r.valueOf(P.phone)).toBe("13800000000");
   });
 
   it("深色用透明商标，浅色用带底的图标（白色的「0」在浅底上看不见）", () => {

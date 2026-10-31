@@ -2,7 +2,11 @@
 import { describe, expect, it, jest } from "@jest/globals";
 import { act, create } from "react-test-renderer";
 
-import { firstParam, useRouteParams } from "../use-route-params";
+import {
+  firstParam,
+  phoneFromParam,
+  useRouteParams,
+} from "../use-route-params";
 
 let mockRaw: Record<string, string | string[]> = {};
 jest.mock("expo-router", () => ({ useLocalSearchParams: () => mockRaw }));
@@ -38,5 +42,22 @@ describe("useRouteParams", () => {
   });
   it("空数组的参数当作没给", () => {
     expect(paramsOf({ sosId: [] })).toEqual({});
+  });
+});
+
+describe("phoneFromParam", () => {
+  it("只认 1–11 位纯数字；别的（乱写的链接）当没有", () => {
+    expect(phoneFromParam("13900000042")).toBe("13900000042");
+    expect(phoneFromParam("139")).toBe("139");
+    for (const bad of [
+      undefined,
+      "",
+      "abc",
+      "139 0000",
+      "+8613900000042",
+      "139000000421",
+      "１３９",
+    ])
+      expect(phoneFromParam(bad)).toBe("");
   });
 });
