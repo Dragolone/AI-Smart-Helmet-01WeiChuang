@@ -404,9 +404,8 @@ export async function flushRelayQueue(): Promise<void> {
       devLog(
         "BLE-RELAY",
         `已中转 ${dev} accepted=${counts.accepted} duplicate=${counts.duplicate} invalid=${counts.invalid}` +
-          (queue.length > 0
-            ? `(缓存剩余 ${queue.length}: ${queue.map((e) => `${e.eventType}@${e.deviceId}`).join(",")})`
-            : ""),
+          // 只写条数：积压时队列最多 1000 条（约 26 KB），每次 flush 都整条拼进日志会刷屏
+          (queue.length > 0 ? `(缓存剩余 ${queue.length})` : ""),
       );
     } catch (e) {
       if ((e as { status?: unknown })?.status === 413 && batch.length > 1) {

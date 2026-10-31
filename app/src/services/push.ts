@@ -41,6 +41,14 @@ function loadJPush(): JPushStatic | null {
   return jpush;
 }
 
+/**
+ * 日志里的用户 ID / 极光注册号：正式包只留末 4 位（日志会进手机的系统日志和用户导出的反馈包，完整 ID 是个人标识），
+ * 排查时对得上就够；开发包照旧完整，联调要靠它认哪个账号
+ */
+function idForLog(id: string): string {
+  return __DEV__ || id.length <= 4 ? id : `…${id.slice(-4)}`;
+}
+
 /** 服务端推送时塞进 extras 的键（sos-trigger / sos-notifier 两处都是这两个） */
 export type PushExtras = { sosId?: string; deviceId?: string; kind?: string };
 
@@ -125,7 +133,7 @@ function sendSetAlias(sdk: JPushStatic, userId: string): void {
   sequence += 1;
   aliasOps.set(sequence, { kind: "set", userId });
   sdk.setAlias({ alias: userId, sequence });
-  devLog("PUSH", `setAlias ${userId}`);
+  devLog("PUSH", `setAlias ${idForLog(userId)}`);
 }
 
 function retrySetAlias(sdk: JPushStatic, userId: string, why: string): void {
@@ -365,7 +373,10 @@ function initOnce(sdk: JPushStatic, cfg: PushConfig): void {
   sdk.init({ appKey: cfg.appKey, channel: cfg.channel, production: !__DEV__ });
   landFromLaunchResponse();
   sdk.getRegistrationID(({ registerID }) => {
-    devLog("PUSH", `registrationID ${registerID || "（尚未注册）"}`);
+    devLog(
+      "PUSH",
+      `registrationID ${registerID ? idForLog(registerID) : "（尚未注册）"}`,
+    );
   });
 }
 
