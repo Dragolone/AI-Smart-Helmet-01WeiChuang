@@ -936,7 +936,11 @@ export default function MapScreen() {
   // 第一次打开时位置已就位，不在用户眼前从默认中心跳过去。之后的点等重新可见时一次补上
   const replayPos = showRide ? ridePath[replayIdx ?? 0] : undefined;
   const placedFor = useRef<string | undefined>(undefined);
+  const wasVisible = useRef(visible);
   useEffect(() => {
+    // 重新可见时补的这个点可能离地图上的旧位置很远（冷启动停在设备页骑了半小时）：镜头直接到位，不横扫过去
+    const returning = visible && !wasVisible.current;
+    wasVisible.current = visible;
     if (!visible && (showRide || placedFor.current === deviceId)) return;
     const map = mapRef.current;
     if (!map) return;
@@ -944,7 +948,10 @@ export default function MapScreen() {
       if (replayPos) map.setHelmet(replayPos);
       else map.hideHelmet();
     } else if (livePos) {
-      map.setHelmet(livePos, { follow: following });
+      map.setHelmet(
+        livePos,
+        returning ? { follow: following, jump: true } : { follow: following },
+      );
       placedFor.current = deviceId;
     } else map.hideHelmet();
   }, [visible, deviceId, showRide, replayPos, livePos, following]);

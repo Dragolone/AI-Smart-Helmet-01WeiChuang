@@ -507,7 +507,7 @@ describe("地图页看不见时不干活", () => {
     expect(mockMap.setHelmet).toHaveBeenCalledTimes(1);
     expect(mockMap.setHelmet).toHaveBeenCalledWith(
       expect.objectContaining({ latitude: expect.any(Number) }),
-      { follow: true },
+      { follow: true, jump: true },
     );
     expect(lastHelmetLat()).toBeCloseTo(23.2, 1);
     expect(mockMap.setTrackTip).toHaveBeenCalledTimes(1);
@@ -554,6 +554,67 @@ describe("地图页看不见时不干活", () => {
       await new Promise((res) => setTimeout(res, 0));
     });
     expect(mockMap.setHelmet).toHaveBeenCalledTimes(1);
+  });
+
+  it("切回来那一次镜头直接到位，只这一次；之后的点照旧平滑跟随", async () => {
+    const { qc, r } = await mountVisible();
+    hide(r, qc);
+    wsPoint(qc, 30.1);
+    jest.clearAllMocks();
+    show(r, qc);
+    expect(mockMap.setHelmet).toHaveBeenCalledTimes(1);
+    expect(m(mockMap.setHelmet).mock.calls[0][1]).toEqual({
+      follow: true,
+      jump: true,
+    });
+    jest.clearAllMocks();
+    wsPoint(qc, 30.2);
+    await waitFor(() => expect(mockMap.setHelmet).toHaveBeenCalledTimes(1));
+    expect(m(mockMap.setHelmet).mock.calls[0][1]).toEqual({ follow: true });
+  });
+
+  it("从没打开过地图页、第一次打开：同样直接到位（第一个点之后骑了很远）", async () => {
+    routerState.focused = false;
+    const qc = makeQueryClient();
+    const r = await mount(qc);
+    await waitFor(() => expect(mockMap.setHelmet).toHaveBeenCalledTimes(1));
+    // 隐藏时放的第一个点不用 jump：页内第一次跟随本来就直接到位
+    expect(m(mockMap.setHelmet).mock.calls[0][1]).toEqual({ follow: true });
+    wsPoint(qc, 30.1);
+    jest.clearAllMocks();
+    show(r, qc);
+    expect(mockMap.setHelmet).toHaveBeenCalledTimes(1);
+    expect(lastHelmetLat()).toBeCloseTo(30.1, 1);
+    expect(m(mockMap.setHelmet).mock.calls[0][1]).toEqual({
+      follow: true,
+      jump: true,
+    });
+  });
+
+  it("锁屏回前台那一次也直接到位", async () => {
+    const { qc } = await mountVisible();
+    act(() => appListener!("background"));
+    wsPoint(qc, 30.1);
+    jest.clearAllMocks();
+    act(() => appListener!("active"));
+    expect(m(mockMap.setHelmet).mock.calls.at(-1)![1]).toEqual({
+      follow: true,
+      jump: true,
+    });
+  });
+
+  it("用户拖开过地图（不跟随）：切回来只挪头盔，镜头不跟", async () => {
+    const { qc, r } = await mountVisible();
+    act(() => {
+      (mockMapProps.current.onUserPan as () => void)();
+    });
+    hide(r, qc);
+    wsPoint(qc, 30.1);
+    jest.clearAllMocks();
+    show(r, qc);
+    expect(m(mockMap.setHelmet).mock.calls.at(-1)![1]).toMatchObject({
+      follow: false,
+    });
   });
 
   it("停在地图页锁屏：同样不推不重渲染；回到前台补上最新的点", async () => {
