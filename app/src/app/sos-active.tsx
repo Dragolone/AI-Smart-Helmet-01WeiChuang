@@ -118,6 +118,12 @@ import { showNotice } from "@/services/notice";
 
 export { RouteErrorBoundary as ErrorBoundary } from "@/components/route-error-boundary";
 
+/** 读屏念一句，不打断正在念的（安卓没有排队选项，RN 退回普通 announce） */
+const sayQueued = (message: string) =>
+  AccessibilityInfo.announceForAccessibilityWithOptions(message, {
+    queue: true,
+  });
+
 /** 读屏（VoiceOver / TalkBack）开没开 */
 function useScreenReader(): boolean {
   const [on, setOn] = useState(false);
@@ -666,7 +672,6 @@ function SosActiveContent() {
         const current = queryClient.getQueryData<Sos>(["sos", id]);
         if (current?.status !== "cancelled" || !device) return;
         setToast(t("sos.resentAfterCancel"));
-        AccessibilityInfo.announceForAccessibility(t("sos.resentAfterCancel"));
         const eventId = needHelp(device);
         if (eventId) resendFor.current.push({ eventId, at: Date.now() });
       });
@@ -1272,6 +1277,9 @@ function SosActiveContent() {
       <Animated.View style={tickStyle}>
         <ThemedText
           allowFontScaling={false}
+          accessibilityLabel={
+            left === null ? undefined : t("sos.chipLeft", { n: left })
+          }
           style={[
             styles.number,
             {
@@ -1286,8 +1294,12 @@ function SosActiveContent() {
       </Animated.View>
       {/* 环内只显示时间单位，完整说明在上方并跟随系统字号。 */}
       {left !== null ? (
+        // 「秒」已经念在数字里了，这里单独再念一遍就成了「45 秒，秒」
         <ThemedText
           allowFontScaling={false}
+          accessible={false}
+          accessibilityElementsHidden
+          importantForAccessibility="no"
           style={[
             styles.suffix,
             bare && styles.suffixBare,
@@ -1320,6 +1332,89 @@ function SosActiveContent() {
         : delivery === "unknown"
           ? t("sos.notifiedBody")
           : t("sos.notified.body");
+  /** 结果页上一顶头盔的结论 */
+  const handledResultOf = (h: Sos) => {
+    const status = handledStatus(h);
+    const d = deliveryStateOf(
+      (h.sosId === sosId
+        ? detail.data
+        : handledDetails[otherHandled.findIndex((o) => o.sosId === h.sosId)]
+            ?.data
+      )?.notifications,
+    );
+    const outcome =
+      status === "cancelled"
+        ? t("sos.cancelledTitle")
+        : status === "pending"
+          ? t("sos.multiStatusUnknown")
+          : notifiedTitleOf(d);
+    return { status, d, outcome };
+  };
+  const pendingTitle =
+    sos?.triggerType === "manual_sos" ? t("safety.manualSos") : t("sos.fall");
+
+  // 读屏：警报一停听不出是已取消还是已通知，屏上的字也不会自己念（iOS 读屏不认 accessibilityLiveRegion）。
+  // 进页念一次，过 30 / 10 秒各念一次（不每秒念：会盖住读屏用户正在听的滑条和按钮），结论变了念结论。
+  // 按「跨过」判断不按「正好等于」：JS 忙时那一秒的刷新可能被跳过
+  const a11ySep = t("common.a11ySep");
+  const spokenLeft = useRef<{ sosId: string; left: number } | null>(null);
+  useEffect(() => {
+    if (!screenReader || finished || left === null) return;
+    const prev = spokenLeft.current;
+    spokenLeft.current = { sosId, left };
+    const leftText = t("sos.a11yLeft", { n: left });
+    if (prev?.sosId !== sosId) {
+      sayQueued(
+        [
+          pendingTitle,
+          ...(sourceName ? [t("sos.fromHelmet", { name: sourceName })] : []),
+          leftText,
+          // 会话已被否定时没有滑条，那边另有一句说明
+          ...(sessionDead ? [] : [t("sos.a11yCancelHint")]),
+        ].join(a11ySep),
+      );
+      return;
+    }
+    if ((prev.left > 30 && left <= 30) || (prev.left > 10 && left <= 10))
+      sayQueued(leftText);
+  }, [
+    screenReader,
+    finished,
+    left,
+    sosId,
+    pendingTitle,
+    sourceName,
+    sessionDead,
+    a11ySep,
+    t,
+  ]);
+  // 和下面结果页三个分支写的是同一份字；发送状态变了字就变，会再念一次
+  const resultLines =
+    !sos || sos.status === "pending" || nextId
+      ? null
+      : multiDone
+        ? [
+            t("sos.multiDoneTitle", { n: handledList.length }),
+            t("sos.multiDoneBody"),
+            ...handledList.map(
+              (h) =>
+                `${nameOf(h.deviceId)}${a11ySep}${handledResultOf(h).outcome}`,
+            ),
+          ]
+        : sos.status === "cancelled"
+          ? [
+              t(isDrill ? "sos.drillDoneTitle" : "sos.cancelledTitle"),
+              t(isDrill ? "sos.drillCancelledBody" : "sos.cancelledBody"),
+            ]
+          : [notifiedTitle, notifiedBody];
+  const resultSpeech = resultLines?.join(a11ySep) ?? null;
+  useEffect(() => {
+    if (screenReader && resultSpeech) sayQueued(resultSpeech);
+  }, [screenReader, resultSpeech]);
+  // 提示条是自己冒出来的，4 秒就消失。不用 accessibilityLiveRegion：iOS 不认，安卓对新挂上的视图又不一定念
+  useEffect(() => {
+    if (screenReader && toast) sayQueued(toast);
+  }, [screenReader, toast]);
 
   const pop = ZoomIn.duration(320).easing(Easing.out(Easing.back(2)));
   const drillBadge = isDrill ? (
@@ -1401,7 +1496,6 @@ function SosActiveContent() {
         <Animated.View
           entering={FadeIn.duration(200)}
           pointerEvents="none"
-          accessibilityLiveRegion="polite"
           style={[
             styles.toast,
             {
@@ -1561,9 +1655,7 @@ function SosActiveContent() {
                   accessibilityRole="header"
                   style={[styles.title, { color: P.text }]}
                 >
-                  {sos?.triggerType === "manual_sos"
-                    ? t("safety.manualSos")
-                    : t("sos.fall")}
+                  {pendingTitle}
                 </ThemedText>
                 {sourceName ? (
                   <ThemedText
@@ -1872,21 +1964,7 @@ function SosActiveContent() {
                 ]}
               >
                 {handledList.map((h, i) => {
-                  const status = handledStatus(h);
-                  const d = deliveryStateOf(
-                    (h.sosId === sosId
-                      ? detail.data
-                      : handledDetails[
-                          otherHandled.findIndex((o) => o.sosId === h.sosId)
-                        ]?.data
-                    )?.notifications,
-                  );
-                  const outcome =
-                    status === "cancelled"
-                      ? t("sos.cancelledTitle")
-                      : status === "pending"
-                        ? t("sos.multiStatusUnknown")
-                        : notifiedTitleOf(d);
+                  const { status, d, outcome } = handledResultOf(h);
                   return (
                     <View
                       key={h.sosId}
