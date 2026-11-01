@@ -7,6 +7,7 @@ export type BleAdapterState =
   | 'unsupported' // 模拟器 / 无蓝牙硬件
   | 'unauthorized' // 用户拒绝蓝牙权限
   | 'off' // 蓝牙关闭，引导去系统设置
+  | 'locationOff' // 安卓 11 及以下：蓝牙开着，但系统定位总开关关着，扫描直接报错
   | 'on';
 
 export type BleLinkPhase =

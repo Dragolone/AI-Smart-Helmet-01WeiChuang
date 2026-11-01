@@ -63,6 +63,8 @@ export function safetyTileOf(
         return { text: "safety.link.mismatch", tone: "fault" };
       if (link === "bluetoothOff")
         return { text: "safety.link.bluetoothOff", tone: "warn" };
+      if (link === "locationOff")
+        return { text: "safety.link.locationOff", tone: "warn" };
       if (link === "bluetoothDenied")
         return {
           text: bleNeedsLocationPermission()

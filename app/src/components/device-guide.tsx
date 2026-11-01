@@ -75,6 +75,7 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useTheme } from "@/hooks/use-theme";
 import { useT } from "@/i18n";
 import { mixHex, withAlpha } from "@/services/color";
+import { openLocationSettings } from "@/services/ble-platform";
 import { openNotificationSettings } from "@/services/notification-settings";
 import {
   FINISH_MS,
@@ -978,7 +979,8 @@ export function DeviceGuide({
     link !== "connected" &&
     link !== "online" &&
     link !== "bluetoothOff" &&
-    link !== "bluetoothDenied";
+    link !== "bluetoothDenied" &&
+    link !== "locationOff";
   // 搜了一阵还没找到：换一句更具体的提示
   const [slowFor, setSlowFor] = useState<string | null>(null);
   const helmetId = helmet?.deviceId ?? null;
@@ -1100,6 +1102,7 @@ export function DeviceGuide({
       router.navigate({ pathname: "/bind-device", params: { manual: "1" } });
     else if (a === "openBluetooth")
       ble.find((s) => s.key === "bluetooth")?.action();
+    else if (a === "openLocationSettings") void openLocationSettings();
     else if (a === "openAppSettings") void Linking.openSettings();
     // 通知那一件直接进本 App 的通知页（和安全页一致），不是应用信息页再找「通知管理」
     else if (a === "openNotifySettings") void openNotificationSettings();

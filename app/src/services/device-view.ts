@@ -8,11 +8,13 @@ import type { BleAdapterState, BleLinkPhase } from "@/stores/ble-store";
 export type BleRowState =
   | BleLinkPhase // idle / scanning / connecting / handshaking / connected / disconnected / error
   | "off"
+  | "locationOff"
   | "unauthorized"
   | "unsupported";
 
 /** 这一行能提供的现有入口：重试连接 / 去开蓝牙 / 去给权限 */
-export type BleRowAction = "retry" | "bluetoothSettings" | "appSettings";
+export type BleRowAction =
+  "retry" | "bluetoothSettings" | "locationSettings" | "appSettings";
 
 /**
  * 与改版前设备页的判断一致：手机蓝牙关着 / 没权限 / 不支持时先说手机这边的原因，否则按链路阶段。
@@ -23,6 +25,8 @@ export function bleRowOf(
   phase: BleLinkPhase | undefined,
 ): { state: BleRowState; action: BleRowAction | null } {
   if (adapter === "off") return { state: "off", action: "bluetoothSettings" };
+  if (adapter === "locationOff")
+    return { state: "locationOff", action: "locationSettings" };
   if (adapter === "unauthorized")
     return { state: "unauthorized", action: "appSettings" };
   if (adapter === "unsupported") return { state: "unsupported", action: null };

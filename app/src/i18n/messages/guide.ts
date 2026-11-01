@@ -19,6 +19,9 @@ export const guide = {
     "guide.helmet.btOffTitle": "打开手机蓝牙",
     "guide.helmet.btOffBody": "头盔靠蓝牙和手机相连，现在蓝牙关着",
     "guide.helmet.btOffAction": "去打开蓝牙",
+    "guide.helmet.locOffTitle": "打开手机定位",
+    "guide.helmet.locOffBody": "这台手机要打开系统定位才能搜到头盔",
+    "guide.helmet.locOffAction": "去打开定位",
     "guide.helmet.btDeniedTitle": "允许使用蓝牙",
     "guide.helmet.btDeniedBody": "需要在系统设置里允许 App 使用蓝牙",
     "guide.helmet.locDeniedTitle": "允许使用位置信息",
@@ -74,6 +77,9 @@ export const guide = {
     "guide.helmet.btOffTitle": "開啟手機藍牙",
     "guide.helmet.btOffBody": "頭盔靠藍牙和手機相連，現在藍牙關著",
     "guide.helmet.btOffAction": "去開啟藍牙",
+    "guide.helmet.locOffTitle": "開啟手機定位",
+    "guide.helmet.locOffBody": "這台手機要開啟系統定位才能搜尋到頭盔",
+    "guide.helmet.locOffAction": "去開啟定位",
     "guide.helmet.btDeniedTitle": "允許使用藍牙",
     "guide.helmet.btDeniedBody": "需要在系統設定裡允許 App 使用藍牙",
     "guide.helmet.locDeniedTitle": "允許使用位置資訊",
@@ -130,6 +136,10 @@ export const guide = {
     "guide.helmet.btOffBody":
       "The helmet connects over Bluetooth, which is off",
     "guide.helmet.btOffAction": "Turn on Bluetooth",
+    "guide.helmet.locOffTitle": "Turn on location",
+    "guide.helmet.locOffBody":
+      "This phone needs location turned on to find the helmet",
+    "guide.helmet.locOffAction": "Turn on location",
     "guide.helmet.btDeniedTitle": "Allow Bluetooth",
     "guide.helmet.btDeniedBody":
       "Allow Bluetooth for this app in system settings",
