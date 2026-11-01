@@ -55,6 +55,7 @@ export type HelmetLink =
   | "searching" // 本机没连上，正在搜索 / 连接 / 握手（头盔关机时会一直停在这里）
   | "bluetoothOff"
   | "bluetoothDenied"
+  | "locationOff" // 安卓 11 及以下：系统定位关着，搜不到头盔
   | "disconnected" // 本机曾连上，现在掉线（后台自动重连中）
   | "mismatch" // 握手失败：连到的头盔与绑定信息不符
   | "offline"
@@ -75,6 +76,7 @@ export function helmetLinkOf(
   if (ble.phase === "disconnected") {
     if (ble.adapter === "off") return "bluetoothOff";
     if (ble.adapter === "unauthorized") return "bluetoothDenied";
+    if (ble.adapter === "locationOff") return "locationOff";
     return "disconnected";
   }
   if (ble.phase === "error") return "mismatch";
@@ -82,6 +84,7 @@ export function helmetLinkOf(
   if (device.online) return "online";
   if (ble.adapter === "off") return "bluetoothOff";
   if (ble.adapter === "unauthorized") return "bluetoothDenied";
+  if (ble.adapter === "locationOff") return "locationOff";
   if (
     ble.phase === "scanning" ||
     ble.phase === "connecting" ||
@@ -120,6 +123,7 @@ export function linkCheckLevelOf(link: HelmetLink): CheckLevel {
   if (level === "unknown") return "unknown";
   return link === "bluetoothOff" ||
     link === "bluetoothDenied" ||
+    link === "locationOff" ||
     link === "mismatch"
     ? "bad"
     : "warn";

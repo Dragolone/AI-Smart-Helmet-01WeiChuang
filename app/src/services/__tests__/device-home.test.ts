@@ -92,6 +92,9 @@ describe("safetyTileOf：与安全页状态卡同一口径", () => {
       text: "safety.link.bluetoothOff",
       tone: "warn",
     });
+    expect(safetyTileOf("linkDown", "locationOff").text).toBe(
+      "safety.link.locationOff",
+    );
     expect(safetyTileOf("linkDown", "bluetoothDenied").text).toBe(
       "safety.link.bluetoothDenied",
     );

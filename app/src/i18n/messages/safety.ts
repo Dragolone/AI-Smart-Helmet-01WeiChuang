@@ -16,6 +16,7 @@ export const safety = {
     "safety.link.online": "头盔在线",
     "safety.link.searching": "头盔未连接，正在搜索",
     "safety.link.bluetoothOff": "手机蓝牙已关闭",
+    "safety.link.locationOff": "手机定位已关闭",
     "safety.link.bluetoothDenied": "未允许蓝牙权限",
     "safety.link.locationDenied": "未允许位置信息权限",
     "safety.link.disconnected": "头盔连接已断开",
@@ -39,6 +40,8 @@ export const safety = {
       "手机暂时无法接收该头盔的安全事件。请确认头盔已开机，并保持在手机蓝牙范围内。",
     "safety.state.bluetoothBody":
       "请开启手机蓝牙并允许 App 使用蓝牙，以连接头盔并接收安全事件。",
+    "safety.state.locationBody":
+      "这台手机要打开系统定位才能搜到头盔。打开后会自动连接并接收安全事件。",
     "safety.state.mismatchBody":
       "连接到的头盔与绑定信息不一致，请在头盔详情中检查绑定。",
     "safety.state.notifyOff": "锁屏提醒受限",
@@ -158,6 +161,7 @@ export const safety = {
     "safety.link.online": "頭盔在線",
     "safety.link.searching": "頭盔未連接，正在搜尋",
     "safety.link.bluetoothOff": "手機藍牙已關閉",
+    "safety.link.locationOff": "手機定位已關閉",
     "safety.link.bluetoothDenied": "未允許藍牙權限",
     "safety.link.locationDenied": "未允許位置資訊權限",
     "safety.link.disconnected": "頭盔連接已中斷",
@@ -181,6 +185,8 @@ export const safety = {
       "手機暫時無法接收此頭盔的安全事件。請確認頭盔已開機，並保持在手機藍牙範圍內。",
     "safety.state.bluetoothBody":
       "請開啟手機藍牙並允許 App 使用藍牙，以連接頭盔並接收安全事件。",
+    "safety.state.locationBody":
+      "這台手機要開啟系統定位才能搜尋到頭盔。開啟後會自動連線並接收安全事件。",
     "safety.state.mismatchBody":
       "連接的頭盔與綁定資訊不一致，請在頭盔詳情中檢查綁定。",
     "safety.state.notifyOff": "鎖屏提醒受限",
@@ -300,6 +306,7 @@ export const safety = {
     "safety.link.online": "Helmet online",
     "safety.link.searching": "Helmet not connected, searching",
     "safety.link.bluetoothOff": "Phone Bluetooth is off",
+    "safety.link.locationOff": "Phone location is off",
     "safety.link.bluetoothDenied": "Bluetooth permission not granted",
     "safety.link.locationDenied": "Location permission not allowed",
     "safety.link.disconnected": "Helmet disconnected",
@@ -327,6 +334,8 @@ export const safety = {
       "Your phone cannot currently receive safety events from this helmet. Make sure the helmet is on and within Bluetooth range.",
     "safety.state.bluetoothBody":
       "Turn on Bluetooth and allow the app to use it to connect the helmet and receive safety events.",
+    "safety.state.locationBody":
+      "This phone needs location turned on to find the helmet. It will connect automatically and receive safety events once location is on.",
     "safety.state.mismatchBody":
       "The connected helmet does not match the account record. Check the helmet details.",
     "safety.state.notifyOff": "Lock-screen alerts are limited",

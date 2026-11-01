@@ -14,6 +14,10 @@ describe("bleRowOf", () => {
       state: "off",
       action: "bluetoothSettings",
     });
+    expect(bleRowOf("locationOff", "scanning")).toEqual({
+      state: "locationOff",
+      action: "locationSettings",
+    });
     expect(bleRowOf("unauthorized", "idle")).toEqual({
       state: "unauthorized",
       action: "appSettings",

@@ -472,6 +472,7 @@ let scanning = false;
 /** 本轮是否全量扫描（过滤扫描无命中后的兜底） */
 let unfiltered = false;
 const SCAN_FALLBACK_MS = 20_000;
+const LOCATION_OK_AFTER_MS = 1_000;
 /** 当前这一轮扫描的兜底定时器（每条停扫路径都会清它，所以不会有上一轮的定时器来搅下一轮） */
 let scanFallbackTimer: ReturnType<typeof setTimeout> | null = null;
 let appStateSub: { remove: () => void } | null = null;
@@ -484,6 +485,10 @@ let appStateSub: { remove: () => void } | null = null;
 let scanRound = 0;
 
 /** 停掉当前这一轮扫描（连同它的兜底定时器），并让在途的 ensureScanning 作废 */
+function clearLocationOff(): void {
+  if (store().adapter === "locationOff") store().setAdapter("on");
+}
+
 function stopScanRound(): void {
   scanRound += 1;
   if (scanFallbackTimer) clearTimeout(scanFallbackTimer);
@@ -510,6 +515,14 @@ const unfilteredAllowedNow = (): boolean =>
  * 而 JS 定时器随后可能被冻住——不能冻在全量那一轮上）；回到前台也重开一轮，给兜底重新计时。
  */
 function onAppStateForScan(state: string): void {
+  // 用户多半刚从系统设置打开定位回来：别让他再等最长 30 s 的退避
+  if (running && state === "active" && store().adapter === "locationOff") {
+    reconnectDelay.delete(SCAN_ERROR_KEY);
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+    void ensureScanning();
+    return;
+  }
   if (!running || !scanning) return;
   if (state !== "active" && !unfiltered) return; // 已经是过滤扫描：不打断
   log(`前后台切换（${state}），从过滤扫描重开一轮`);
@@ -648,6 +661,10 @@ async function ensureScanning(): Promise<void> {
   // 按服务 UUID FEE0 过滤扫描，再按广播名 `Helmet-<后6位>` 匹配到具体设备：
   // iOS 退后台后只有带服务 UUID 过滤的扫描才会继续投递（真机实测 2026-09-16，不过滤时锁屏即停），
   // 因此硬件广播包必须携带 FEE0（DEVICE_PROTOCOL §1.2 已向硬件确认项）。
+  // 定位开回来后扫描不再报错，但附近不一定有设备能回调：这一轮撑过 1 秒没报错就算好了
+  const locationOkTimer = setTimeout(() => {
+    if (!stale()) clearLocationOff();
+  }, LOCATION_OK_AFTER_MS);
   mgr.startDeviceScan(
     unfiltered ? null : [SERVICE_UUID],
     { allowDuplicates: false },
@@ -655,12 +672,18 @@ async function ensureScanning(): Promise<void> {
       if (stale()) return; // 这一轮已停：ble-plx 不会替我们摘掉旧监听，迟到的回调一律不认
       if (error) {
         clearTimeout(fallbackTimer);
+        clearTimeout(locationOkTimer);
         log("扫描错误", error.message);
         scanning = false;
+        // 蓝牙开着、权限也有，只是系统定位关了（11-01 华为实测）：不说的话页面只写「未连接」，
+        // 还让人去确认头盔开机，用户想不到是定位的事
+        if (error.errorCode === BleErrorCode.LocationServicesDisabled)
+          store().setAdapter("locationOff");
         scheduleReconnect(SCAN_ERROR_KEY);
         return;
       }
       if (!device) return;
+      clearLocationOff();
       // 扫描又能出结果了：扫描出错累起来的退避清零，之后再出错从 2 s 算（原来要等停链路才清，
       // 恢复、连上头盔后掉线再偶发一次出错要等 16–30 s 才重扫；10-19 夜测 #282 测出）
       reconnectDelay.delete(SCAN_ERROR_KEY);
