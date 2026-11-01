@@ -1,6 +1,7 @@
 // 实时视频预览（决策 #37/#49，DEVICE_PROTOCOL §1.3）：手机连头盔 SoftAP → RTSP over TCP 拉流 → libVLC 硬解。
 // 约束（§1.3 App 侧硬要求）：本页不发任何外网请求（此时手机在没有互联网的头盔热点上）；
 // Android 进程绑在头盔热点期间连不上云端，所以只在前台持有，离开 / 退后台 / 摔倒求救入队时立即释放。
+import { HelmetLinkService } from "helmet-link-service";
 import { useFocusEffect } from "expo-router";
 import { File, Paths } from "expo-file-system";
 import type { ComponentType, Ref } from "react";
@@ -150,7 +151,7 @@ export default function VideoPreviewScreen() {
         dispatch({ type: "joined" });
         // 连上那一刻系统弹窗多半还没关、AppState 还是 background（华为实测连上 0.5 s 后弹窗才收）；
         // 2 s 后仍在后台才是人按了 HOME：照退后台处理，回前台再重连
-        setTimeout(() => {
+        const leaveIfBackground = () => {
           if (
             AppState.currentState === "background" &&
             holdsHelmetWifi(phaseRef.current)
@@ -158,7 +159,11 @@ export default function VideoPreviewScreen() {
             releaseWifi();
             dispatch({ type: "suspend", reason: "background" });
           }
-        }, 2000);
+        };
+        setTimeout(leaveIfBackground, 2000);
+        // 连接途中按了 HOME、在后台连上：JS 定时器不走，上面那个不到回前台都不触发，这段时间整个进程
+        // 绑在头盔热点上，云端全断（11-01 审计）。重复调用无害，第二次时已经不持有热点
+        HelmetLinkService.backgroundWake(2000, leaveIfBackground);
       },
       (e: { code?: string }) => {
         devLog("VIDEO", "连接头盔热点失败", e?.code);

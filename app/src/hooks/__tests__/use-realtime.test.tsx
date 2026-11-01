@@ -136,6 +136,7 @@ jest.mock("@/services/ble-relay", () => ({ handleDeviceCommand: jest.fn() }));
 jest.mock("@/services/ble-relay-uplink", () => ({
   adoptRelayUplinkOwner: jest.fn(),
   setCriticalAcceptedHandler: jest.fn(),
+  setRelayRejectedHandler: jest.fn(),
   startRelayUplink: jest.fn(),
   stopRelayUplink: jest.fn(),
 }));
