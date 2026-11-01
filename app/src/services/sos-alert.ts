@@ -479,6 +479,8 @@ function confirmCancelledIfHidden(sosId: string, deviceId?: string): void {
 
 /** 失败后的重试节奏：请求被挂起中断多半几秒内就能恢复，三次之后放弃（通知仍留在锁屏上） */
 const CANCEL_RETRY_DELAYS_MS = [2_000, 5_000, 10_000] as const;
+/** 重试发出到拿到结果之外多留一点，免得锁正好在收应答时放掉 */
+const CANCEL_RETRY_HOLD_MARGIN_MS = 2_000;
 /** 按单分槽：两台头盔两单并存时，点第二单的「取消」不能把第一单的重试清掉（10-06 并发评审 F2） */
 const cancelRetries = new Map<
   string,
@@ -602,6 +604,11 @@ export async function cancelFromNotification(
         deviceId,
       );
     };
+    // 熄屏后手机一睡，原生定时器也不走（按开机后的运行时长计时，休眠不算），华为还会挂起 HTTP（2026-09-16 实测）。
+    // 模拟器和插着线的真机都不进深睡，测不出来。这段时间持着 CPU / Wi-Fi 锁，等到下一次重试发完
+    HelmetLinkService.pinNetwork(
+      delay + REQUEST_TIMEOUT_MS + CANCEL_RETRY_HOLD_MARGIN_MS,
+    );
     cancelRetries.set(sosId, {
       timer: setTimeout(() => retry(true), delay),
       // 点完取消马上回桌面 / 锁屏：安卓后台 JS 定时器不跑，只靠上面那个定时器的话重试一次都发不出去，

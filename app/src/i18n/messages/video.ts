@@ -12,7 +12,8 @@ export const video = {
     "video.manual.continue": "已连接，继续",
     "video.retry": "重新连接",
     "video.err.denied": "你取消了连接头盔 Wi-Fi",
-    "video.err.notFound": "没有连上头盔 Wi-Fi。请确认头盔已开机并在身边",
+    "video.err.notFound":
+      "没有连上头盔 Wi-Fi。请确认手机 Wi-Fi 已打开、头盔已开机并在身边",
     "video.err.bind": "已连上头盔 Wi-Fi，但手机没有把流量切过去，请重试",
     "video.err.noWifi": "还没检测到 Wi-Fi 连接，请先连上「{ssid}」",
     "video.err.stream": "画面连接失败，请确认连的是头盔 Wi-Fi 后重试",
@@ -43,7 +44,8 @@ export const video = {
     "video.manual.continue": "已連接，繼續",
     "video.retry": "重新連接",
     "video.err.denied": "你取消了連接頭盔 Wi-Fi",
-    "video.err.notFound": "沒有連上頭盔 Wi-Fi。請確認頭盔已開機並在身邊",
+    "video.err.notFound":
+      "沒有連上頭盔 Wi-Fi。請確認手機 Wi-Fi 已開啟、頭盔已開機並在身邊",
     "video.err.bind": "已連上頭盔 Wi-Fi，但手機沒有把流量切過去，請重試",
     "video.err.noWifi": "還沒偵測到 Wi-Fi 連接，請先連上「{ssid}」",
     "video.err.stream": "畫面連接失敗，請確認連的是頭盔 Wi-Fi 後重試",
@@ -75,7 +77,7 @@ export const video = {
     "video.retry": "Reconnect",
     "video.err.denied": "You cancelled joining the helmet Wi-Fi",
     "video.err.notFound":
-      "Couldn't join the helmet Wi-Fi. Make sure the helmet is on and nearby",
+      "Couldn't join the helmet Wi-Fi. Make sure your phone's Wi-Fi is on and the helmet is on and nearby",
     "video.err.bind":
       "Joined the helmet Wi-Fi, but traffic didn't switch over. Please retry",
     "video.err.noWifi": 'No Wi-Fi connection yet. Join "{ssid}" first',

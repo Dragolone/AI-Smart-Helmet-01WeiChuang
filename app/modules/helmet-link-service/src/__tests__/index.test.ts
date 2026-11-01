@@ -109,6 +109,24 @@ describe("HelmetLinkService", () => {
     expectInert(svc);
   });
 
+  it("pinNetwork 期间上行队列的 releaseNetwork 不放锁，到时后恢复（11-01：通知取消的重试不能被位置包传完顺手放掉）", () => {
+    jest.useFakeTimers();
+    try {
+      mockPlatform.OS = "android";
+      const n = (mockNative = fullNative());
+      const svc = load();
+      svc.pinNetwork(19_000);
+      expect(n.holdNetwork).toHaveBeenLastCalledWith(19_000);
+      svc.releaseNetwork();
+      expect(n.releaseNetwork).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(19_000);
+      svc.releaseNetwork();
+      expect(n.releaseNetwork).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it("网络锁只延长不缩短（10-25 审查）：持着 90 s 时再要 20 s 不转给原生（原生会按 20 s 重新拿锁）；更长的照转；放锁后重新计", () => {
     jest.useFakeTimers();
     try {
