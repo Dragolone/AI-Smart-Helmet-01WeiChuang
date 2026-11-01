@@ -514,9 +514,11 @@ export default function SafetyScreen() {
             body={t(
               link === "bluetoothOff" || link === "bluetoothDenied"
                 ? "safety.state.bluetoothBody"
-                : link === "mismatch"
-                  ? "safety.state.mismatchBody"
-                  : "safety.state.linkDownBody",
+                : link === "locationOff"
+                  ? "safety.state.locationBody"
+                  : link === "mismatch"
+                    ? "safety.state.mismatchBody"
+                    : "safety.state.linkDownBody",
             )}
             checks={checks}
             actionLabel={t("safety.action.checkLink")}

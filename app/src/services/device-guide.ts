@@ -34,6 +34,7 @@ export type GuideAction =
   | "scan"
   | "manual"
   | "openBluetooth"
+  | "openLocationSettings"
   | "openAppSettings"
   | "openNotifySettings"
   | "askNotify"
@@ -151,6 +152,19 @@ function helmetCard(f: GuideFacts): GuideCard {
         label: "guide.helmet.btOffAction",
         icon: "bluetooth",
         action: "openBluetooth",
+      },
+      link: later,
+    };
+  if (f.link === "locationOff")
+    return {
+      ...base,
+      chip,
+      title: "guide.helmet.locOffTitle",
+      body: { key: "guide.helmet.locOffBody" },
+      primary: {
+        label: "guide.helmet.locOffAction",
+        icon: "bluetooth",
+        action: "openLocationSettings",
       },
       link: later,
     };

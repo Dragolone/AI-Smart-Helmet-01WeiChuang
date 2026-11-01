@@ -91,6 +91,9 @@ describe("三步指引：卡片上写什么", () => {
     const [denied] = guideCards(facts({ link: "bluetoothDenied" }));
     expect(denied.primary?.action).toBe("openAppSettings");
     expect(denied.chip.tone).toBe("good");
+    const [loc] = guideCards(facts({ link: "locationOff" }));
+    expect(loc.primary?.action).toBe("openLocationSettings");
+    expect(loc.link?.action).toBe("skip");
   });
 
   it("搜索中：没有主按钮，状态条跟着蓝牙走到哪一步变，久了换一句提示", () => {
