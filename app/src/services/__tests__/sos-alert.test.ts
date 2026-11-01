@@ -20,6 +20,7 @@ const mockPush = jest.fn((_href: string) => undefined);
 const mockNavigate = jest.fn((_href: string) => undefined);
 const mockGetLastResponse = jest.fn((): unknown => null);
 /** 通知中心里此刻挂着的通知（getPresentedNotificationsAsync） */
+const mockPinNetwork = jest.fn((_ms: number) => undefined);
 const mockBackgroundWake = jest.fn(
   (_ms: number, _cb: () => void): (() => void) =>
     () =>
@@ -28,6 +29,7 @@ const mockBackgroundWake = jest.fn(
 jest.mock("helmet-link-service", () => ({
   HelmetLinkService: {
     backgroundWake: (ms: number, cb: () => void) => mockBackgroundWake(ms, cb),
+    pinNetwork: (ms: number) => mockPinNetwork(ms),
   },
 }));
 const mockPresented = jest.fn(async (): Promise<unknown[]> => []);
@@ -1423,6 +1425,8 @@ describe("sos-alert", () => {
         2000,
         expect.any(Function),
       );
+      // 手机睡着时原生定时器也不走：等待 + 下一次请求的 15 s 超时都要持着锁
+      expect(mockPinNetwork.mock.calls[0]?.[0]).toBeGreaterThanOrEqual(17_000);
       expect(mockCancel).toHaveBeenCalledTimes(1);
       wake.fire?.();
       await jest.advanceTimersByTimeAsync(0);

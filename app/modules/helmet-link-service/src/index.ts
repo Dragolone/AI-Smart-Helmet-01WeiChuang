@@ -37,6 +37,8 @@ const native =
 let heldUntil = 0;
 /** 上面那个时刻是什么时候算的。手机时钟往回拨过（now 比它早）heldUntil 就不可信了：不复位的话算出来一直「还持着」，高危事件的持锁被跳过 */
 let heldAt = 0;
+/** 这个时刻之前 releaseNetwork 不生效，见 pinNetwork */
+let pinnedUntil = 0;
 
 let nextWakeId = 1;
 const wakeCallbacks = new Map<number, () => void>();
@@ -72,7 +74,16 @@ export const HelmetLinkService = {
     // 原生包可能比 JS 旧（dev client 热更）：方法不存在时静默跳过，绝不让上传链路因此失败
     if (typeof native?.holdNetwork === "function") native.holdNetwork(ms);
   },
+  /**
+   * 同 holdNetwork，但上行队列空了也不放：给释放时机不归队列管的事用。队列传完就调 releaseNetwork，
+   * 这把锁会被顺手放掉。原生锁到时自己放，不用配对释放
+   */
+  pinNetwork(ms: number): void {
+    pinnedUntil = Date.now() + ms;
+    HelmetLinkService.holdNetwork(ms);
+  },
   releaseNetwork(): void {
+    if (Date.now() < pinnedUntil) return;
     heldUntil = 0;
     if (typeof native?.releaseNetwork === "function") native.releaseNetwork();
   },
