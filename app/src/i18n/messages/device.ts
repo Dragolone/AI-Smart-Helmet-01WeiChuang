@@ -106,6 +106,7 @@ export const device = {
     "device.ble.handshaking": "正在验证头盔…",
     "device.ble.error": "身份不匹配，请检查绑定",
     "device.ble.off": "手机蓝牙已关闭",
+    "device.ble.locationOff": "手机定位已关闭（搜索头盔要用）",
     "device.ble.unauthorized": "未授权蓝牙权限",
     "device.ble.unauthorizedLocation": "未允许位置信息（搜索头盔要用）",
     "device.ble.unsupported": "本机不支持蓝牙",
@@ -273,6 +274,7 @@ export const device = {
     "device.ble.handshaking": "正在驗證頭盔…",
     "device.ble.error": "身份不符，請檢查綁定",
     "device.ble.off": "手機藍牙已關閉",
+    "device.ble.locationOff": "手機定位已關閉（搜尋頭盔要用）",
     "device.ble.unauthorized": "未授權藍牙權限",
     "device.ble.unauthorizedLocation": "未允許位置資訊（搜尋頭盔要用）",
     "device.ble.unsupported": "本機不支援藍牙",
@@ -452,6 +454,8 @@ export const device = {
     "device.ble.handshaking": "Verifying helmet…",
     "device.ble.error": "Identity mismatch, check binding",
     "device.ble.off": "Phone Bluetooth is off",
+    "device.ble.locationOff":
+      "Phone location is off (needed to find the helmet)",
     "device.ble.unauthorized": "Bluetooth permission denied",
     "device.ble.unauthorizedLocation":
       "Location permission needed to find the helmet",

@@ -55,6 +55,20 @@ describe("helmetLinkOf", () => {
     ).toBe("bluetoothOff");
     expect(
       helmetLinkOf(
+        { online: true },
+        { adapter: "locationOff", phase: "disconnected" },
+        true,
+      ),
+    ).toBe("locationOff");
+    expect(
+      helmetLinkOf(
+        { online: false },
+        { adapter: "locationOff", phase: "scanning" },
+        true,
+      ),
+    ).toBe("locationOff");
+    expect(
+      helmetLinkOf(
         { online: false },
         { adapter: "unauthorized", phase: "disconnected" },
         true,

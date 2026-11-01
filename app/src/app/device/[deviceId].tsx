@@ -61,7 +61,10 @@ import { useDeviceSettings } from "@/hooks/use-device-settings";
 import { useTheme } from "@/hooks/use-theme";
 import { useLocale, useT, type MessageKey } from "@/i18n";
 import { relativeTime } from "@/i18n/format";
-import { bleNeedsLocationPermission } from "@/services/ble-platform";
+import {
+  bleNeedsLocationPermission,
+  openLocationSettings,
+} from "@/services/ble-platform";
 import { retryBleLink } from "@/services/ble-link";
 import {
   bleRowOf,
@@ -91,6 +94,7 @@ const BLE_DETAIL: Partial<Record<BleRowState, MessageKey>> = {
   error: "device.ble.error",
   idle: "device.ble.idle",
   off: "device.ble.off",
+  locationOff: "device.ble.locationOff",
   unauthorized: "device.ble.unauthorized",
   unsupported: "device.ble.unsupported",
 };
@@ -158,12 +162,17 @@ export default function DeviceDetailScreen() {
             label: t("ble.onboarding.go"),
             run: () => linkSteps.find((x) => x.key === "bluetooth")?.action(),
           }
-        : bleRow.action === "appSettings"
+        : bleRow.action === "locationSettings"
           ? {
               label: t("ble.onboarding.go"),
-              run: () => void Linking.openSettings(),
+              run: () => void openLocationSettings(),
             }
-          : null;
+          : bleRow.action === "appSettings"
+            ? {
+                label: t("ble.onboarding.go"),
+                run: () => void Linking.openSettings(),
+              }
+            : null;
 
   /** 头盔确认过的音量；没上报过 / 设置还没拿到 / 没拉到时是 null——不拿出厂默认冒充 */
   const confirmedVolume =

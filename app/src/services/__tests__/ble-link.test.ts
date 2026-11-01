@@ -210,7 +210,7 @@ jest.mock("react-native-ble-plx", () => ({
     Unauthorized: "Unauthorized",
     Unsupported: "Unsupported",
   },
-  BleErrorCode: { OperationCancelled: 2 },
+  BleErrorCode: { OperationCancelled: 2, LocationServicesDisabled: 601 },
   BleManager: jest.fn().mockImplementation(() => ({
     state: () => mockState(),
     onStateChange: (cb: (s: string) => void, emit: boolean) => {
@@ -1724,6 +1724,62 @@ describe("补分支（2026-10-19）", () => {
         await jest.advanceTimersByTimeAsync(1);
         expect(mockScans).toHaveLength(i + 2);
       }
+    });
+
+    it("系统定位关着：扫描报错时说是定位的事；开回来后这一轮 1 秒没报错就清掉，回前台不等退避（11-01 华为实测）", async () => {
+      jest.useFakeTimers();
+      await startBleLink([ID]);
+      await jest.advanceTimersByTimeAsync(0);
+      const located = () => useBleStore.getState().adapter;
+      expect(located()).toBe("on");
+      for (let i = 0; i < 3; i += 1) {
+        scanCb?.(
+          Object.assign(new Error("Location services are disabled"), {
+            errorCode: 601,
+          }) as never,
+          null,
+        );
+        expect(located()).toBe("locationOff");
+        await jest.advanceTimersByTimeAsync(2_000 * 2 ** i);
+      }
+      // 第四轮不报错了（用户开了定位）
+      const n = mockScans.length;
+      expect(located()).toBe("locationOff");
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(located()).toBe("on");
+      expect(mockScans).toHaveLength(n);
+    });
+
+    it("系统定位关着时回到前台（多半刚从系统设置回来）：立刻重扫，不等最长 30 s 的退避；退避也清零", async () => {
+      jest.useFakeTimers();
+      let appCb: ((s: string) => void) | null = null;
+      jest.spyOn(AppState, "addEventListener").mockImplementation(((
+        _t: string,
+        cb: (s: string) => void,
+      ) => {
+        appCb = cb;
+        return { remove: () => undefined };
+      }) as never);
+      await startBleLink([ID]);
+      await jest.advanceTimersByTimeAsync(0);
+      const located = () =>
+        scanCb?.(
+          Object.assign(new Error("Location services are disabled"), {
+            errorCode: 601,
+          }) as never,
+          null,
+        );
+      located();
+      await jest.advanceTimersByTimeAsync(2_000);
+      located();
+      await jest.advanceTimersByTimeAsync(4_000);
+      located();
+      const n = mockScans.length;
+      (appCb as ((s: string) => void) | null)?.("active");
+      await jest.advanceTimersByTimeAsync(0);
+      expect(mockScans).toHaveLength(n + 1);
+      await jest.advanceTimersByTimeAsync(8_000); // 原来排着的退避不能再起一轮
+      expect(mockScans).toHaveLength(n + 1);
     });
 
     it("外设掉线：立刻重新扫描，不等退避定时器（安卓后台 JS 定时器不走，10-25 审查）；重扫期间仍标已断开；退避到点不重复起扫描；重新连上", async () => {
