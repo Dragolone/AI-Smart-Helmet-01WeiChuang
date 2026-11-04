@@ -21,6 +21,7 @@ import {
   Alert,
   BackHandler,
   Dimensions,
+  AppState,
   ScrollView,
   StyleSheet,
   View,
@@ -55,7 +56,7 @@ import {
   notifyCriticalAccepted,
 } from "@/services/ble-relay-uplink";
 import { devLog } from "@/services/dev-log";
-import { clearSosAlert } from "@/services/sos-alert";
+import { cancelFromNotification, clearSosAlert } from "@/services/sos-alert";
 import { sosScreen } from "@/services/sos-queue";
 import {
   __resetServerClockForTests,
@@ -147,7 +148,8 @@ jest.mock("helmet-link-service", () => ({
     get sosAlarmAvailable() {
       return mockLink.sosAlarmAvailable;
     },
-    startSosAlarm: (ms: number) => mockLink.startSosAlarm(ms),
+    startSosAlarm: (ms: number, urgentAfterMs?: number) =>
+      mockLink.startSosAlarm(ms, urgentAfterMs),
     stopSosAlarm: () => mockLink.stopSosAlarm(),
     setSosAlarmUrgent: (u: boolean) => mockLink.setSosAlarmUrgent(u),
     holdNetwork: jest.fn(),
@@ -160,6 +162,7 @@ jest.mock("@/hooks/use-keep-awake-safe", () => ({
 jest.mock("@/services/dev-log", () => ({ devLog: jest.fn() }));
 jest.mock("@/services/sos-alert", () => ({
   clearSosAlert: jest.fn(() => Promise.resolve()),
+  cancelFromNotification: jest.fn(() => Promise.resolve(false)),
 }));
 jest.mock("@/services/ble-relay-uplink", () => ({
   enqueueRelayEvent: jest.fn(),
@@ -875,6 +878,35 @@ describe("取消 / 立即求救", () => {
   });
 
   // 原来这两种失败弹系统提示框：盖住还在走的倒计时、不写剩余秒数，要先点「确定」才能再滑（O7，10-20 模拟器）
+  it("滑动取消失败时已不在前台：交给通知取消的重试链；在前台时不交（页面上能再滑一次）（11-01）", async () => {
+    const s1 = sosOf();
+    m(sosApi.snapshot).mockImplementation(() => Promise.resolve(s1));
+    m(sosApi.cancel).mockImplementation(failAfter(8_000));
+    const appState = AppState as { currentState: string };
+    const was = appState.currentState;
+    m(cancelFromNotification).mockClear();
+    const r = await mount();
+    const slideNow = () =>
+      act(() =>
+        slideButton(r).props.onAccessibilityAction({
+          nativeEvent: { actionName: "activate" },
+        }),
+      );
+    try {
+      appState.currentState = "active";
+      slideNow();
+      await tick(9_000);
+      expect(cancelFromNotification).not.toHaveBeenCalled();
+
+      appState.currentState = "background";
+      slideNow();
+      await tick(9_000);
+      expect(cancelFromNotification).toHaveBeenCalledWith("s1", 0, "h1");
+    } finally {
+      appState.currentState = was;
+    }
+  });
+
   it("滑动取消没成功（8 s 超时）：不弹框；按钮区上方写「取消没有成功」和约几秒后通知（按失败这一刻算、跟着倒计时走），倒计时和警报照常、滑块复位可再滑；读屏念一遍；点重试再发一次取消，成功 → 已取消页、提示条收起", async () => {
     // 跨过 10 s 轮询：快照每次给同一个 deadline（默认的 sosOf() 每次按当下现算）
     const s1 = sosOf();
@@ -3136,6 +3168,10 @@ describe("安卓闹钟通道（F15）", () => {
     const cap = mockLink.startSosAlarm.mock.calls[0][0] as number;
     expect(cap).toBeGreaterThan(40_000);
     expect(cap).toBeLessThanOrEqual(45_000);
+    // 换急促也交给原生到点切（剩约 15 s，5 s 后）：锁屏 / 后台时 JS 定时器不跑
+    const urgentAfter = mockLink.startSosAlarm.mock.calls[0][1] as number;
+    expect(urgentAfter).toBeGreaterThan(0);
+    expect(urgentAfter).toBeLessThanOrEqual(5_000);
     await tick(3000);
     expect(mockAlarm.play).not.toHaveBeenCalled();
     expect(mockLink.setSosAlarmUrgent).not.toHaveBeenCalled();
@@ -3154,7 +3190,7 @@ describe("安卓闹钟通道（F15）", () => {
       Promise.resolve(sosOf({ deadline: "not-a-date" })),
     );
     const r = await mount();
-    expect(mockLink.startSosAlarm).toHaveBeenCalledWith(90_000);
+    expect(mockLink.startSosAlarm).toHaveBeenCalledWith(90_000, undefined);
     await tick(3000);
     expect(mockLink.setSosAlarmUrgent).not.toHaveBeenCalled();
     r.unmount();

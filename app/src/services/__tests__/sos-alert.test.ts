@@ -20,6 +20,18 @@ const mockPush = jest.fn((_href: string) => undefined);
 const mockNavigate = jest.fn((_href: string) => undefined);
 const mockGetLastResponse = jest.fn((): unknown => null);
 /** 通知中心里此刻挂着的通知（getPresentedNotificationsAsync） */
+const mockPinNetwork = jest.fn((_ms: number) => undefined);
+const mockBackgroundWake = jest.fn(
+  (_ms: number, _cb: () => void): (() => void) =>
+    () =>
+      undefined,
+);
+jest.mock("helmet-link-service", () => ({
+  HelmetLinkService: {
+    backgroundWake: (ms: number, cb: () => void) => mockBackgroundWake(ms, cb),
+    pinNetwork: (ms: number) => mockPinNetwork(ms),
+  },
+}));
 const mockPresented = jest.fn(async (): Promise<unknown[]> => []);
 const mockScheduled = jest.fn(async (): Promise<unknown[]> => []);
 const mockClearLastResponse = jest.fn(() => undefined);
@@ -1391,6 +1403,37 @@ describe("sos-alert", () => {
       expect(store.getState().inFlight.s9).toBe(true);
       await m.resetSosAlerts();
       expect(store.getState().inFlight.s9).toBeUndefined();
+    });
+
+    it("重试靠原生到点叫醒：点完取消回桌面，JS 定时器不跑也发得出去；叫醒后两路都收掉（11-01）", async () => {
+      jest.useFakeTimers(); // 不往前拨 = 后台 JS 定时器不跑
+      override(AppState, "addEventListener", () => ({
+        remove: () => undefined,
+      }));
+      const wake = { fire: null as (() => void) | null };
+      const cancelWake = jest.fn();
+      mockBackgroundWake.mockImplementation((_ms, cb) => {
+        wake.fire = cb;
+        return cancelWake;
+      });
+      mockCancel
+        .mockRejectedValueOnce(new Error("offline"))
+        .mockResolvedValueOnce({} as never);
+      const m = load();
+      expect(await m.cancelFromNotification("s1")).toBe(false);
+      expect(mockBackgroundWake).toHaveBeenCalledWith(
+        2000,
+        expect.any(Function),
+      );
+      // 手机睡着时原生定时器也不走：等待 + 下一次请求的 15 s 超时都要持着锁
+      expect(mockPinNetwork.mock.calls[0]?.[0]).toBeGreaterThanOrEqual(17_000);
+      expect(mockCancel).toHaveBeenCalledTimes(1);
+      wake.fire?.();
+      await jest.advanceTimersByTimeAsync(0);
+      expect(mockCancel).toHaveBeenCalledTimes(2);
+      expect(cancelWake).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(20_000);
+      expect(mockCancel).toHaveBeenCalledTimes(2);
     });
 
     it("会话已失效：请求没发出去，不按网络失败重试，直接说要重新登录（10-21 O19-A）", async () => {

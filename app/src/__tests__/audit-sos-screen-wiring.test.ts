@@ -19,8 +19,8 @@ describe("倒计时页 app/sos-active.tsx", () => {
     expect(src).toMatch(
       /if \(finished && !isDrill\) void clearSosAlert\(sosId\);/,
     );
-    expect(src).toContain(
-      'import { clearSosAlert } from "@/services/sos-alert";',
+    expect(src).toMatch(
+      /import \{[^}]*\bclearSosAlert\b[^}]*\} from "@\/services\/sos-alert";/,
     );
   });
 

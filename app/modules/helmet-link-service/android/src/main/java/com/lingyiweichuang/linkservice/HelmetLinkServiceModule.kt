@@ -52,6 +52,7 @@ class HelmetLinkServiceModule : Module() {
   // 播放器起不来时只剩震动，也算在响：最后 10 秒照样换急促
   private var alarmOn = false
   private var alarmVolume = ALARM_START_VOLUME
+  private var alarmUrgentOn = false
   private val alarmHandler = Handler(Looper.getMainLooper())
   private val alarmRamp = object : Runnable {
     override fun run() {
@@ -72,12 +73,26 @@ class HelmetLinkServiceModule : Module() {
     stopAlarm()
   }
 
+  // 最后 10 秒换急促也要原生到点切：锁屏 / 退后台时 JS 定时器不跑，靠 JS 切的话根本切不过去（11-01 模拟器实测）
+  private val alarmUrgent = Runnable {
+    alarmCtx?.let { if (alarmOn) setUrgent(it, true) }
+  }
+
+  // JS 定时器在后台不跑时的闹钟：到点发 onWake 事件，事件照常进 JS（蓝牙回调同理）
+  private val wakeHandler = Handler(Looper.getMainLooper())
+  private val wakes = HashMap<Int, Runnable>()
+
   override fun definition() = ModuleDefinition {
     Name("HelmetLinkService")
 
-    /** 求救倒计时开始：闹钟用途循环播放警报 + 满幅震动（重复调用不叠加）；maxMs 后没人叫停就自己停 */
-    Function("startSosAlarm") { maxMs: Int ->
-      onMain { startAlarm(maxMs.toLong()) }
+    Events("onWake")
+
+    /**
+     * 求救倒计时开始：闹钟用途循环播放警报 + 满幅震动（重复调用不叠加）；maxMs 后没人叫停就自己停。
+     * urgentAfterMs：多久后换成最后 10 秒的急促震动
+     */
+    Function("startSosAlarm") { maxMs: Int, urgentAfterMs: Int? ->
+      onMain { startAlarm(maxMs.toLong(), urgentAfterMs?.toLong()) }
     }
 
     /** 倒计时结束 / 取消 / 页面离开：停声、停震、还音频焦点 */
@@ -87,10 +102,28 @@ class HelmetLinkServiceModule : Module() {
 
     /** 最后 10 秒：震动换成每秒两下（声音不变） */
     Function("setSosAlarmUrgent") { urgent: Boolean ->
-      onMain { alarmCtx?.let { if (alarmOn) vibrateAlarm(it, urgent) } }
+      onMain { alarmCtx?.let { if (alarmOn) setUrgent(it, urgent) } }
+    }
+
+    /** ms 后发一次 onWake { id }。App 在后台也到点（RN 的 JS 定时器这时不跑） */
+    Function("wakeAfter") { id: Int, ms: Int ->
+      onMain {
+        val fire = Runnable {
+          wakes.remove(id)
+          sendEvent("onWake", mapOf("id" to id))
+        }
+        wakes[id] = fire
+        wakeHandler.postDelayed(fire, ms.toLong())
+      }
+    }
+
+    Function("cancelWake") { id: Int ->
+      onMain { wakes.remove(id)?.let { wakeHandler.removeCallbacks(it) } }
     }
 
     OnDestroy {
+      wakeHandler.removeCallbacksAndMessages(null)
+      wakes.clear()
       stopAlarm()
       releaseNetworkLocks()
     }
@@ -239,7 +272,7 @@ class HelmetLinkServiceModule : Module() {
     }
   }
 
-  private fun startAlarm(maxMs: Long) {
+  private fun startAlarm(maxMs: Long, urgentAfterMs: Long?) {
     if (alarmOn) return
     val ctx = appContext.reactContext?.applicationContext ?: return
     alarmOn = true
@@ -273,12 +306,15 @@ class HelmetLinkServiceModule : Module() {
       Log.w(TAG, "SOS alarm (alarm stream) failed to start", e)
       releaseAlarmPlayer()
     }
+    alarmUrgentOn = false
     vibrateAlarm(ctx, false)
+    urgentAfterMs?.let { alarmHandler.postDelayed(alarmUrgent, it.coerceAtLeast(0)) }
   }
 
   private fun stopAlarm() {
     alarmHandler.removeCallbacks(alarmRamp)
     alarmHandler.removeCallbacks(alarmWatchdog)
+    alarmHandler.removeCallbacks(alarmUrgent)
     releaseAlarmPlayer()
     val ctx = alarmCtx ?: appContext.reactContext?.applicationContext
     alarmOn = false
@@ -308,6 +344,13 @@ class HelmetLinkServiceModule : Module() {
       @Suppress("DEPRECATION")
       ctx.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
     }
+
+  /** 原生定时和 JS 都可能切一次：只切一次，重复调用会把震动打断重来 */
+  private fun setUrgent(ctx: Context, urgent: Boolean) {
+    if (alarmUrgentOn == urgent) return
+    alarmUrgentOn = urgent
+    vibrateAlarm(ctx, urgent)
+  }
 
   /** 普通：每秒一下 400 ms；急促（最后 10 秒）：每秒两下 200 ms。满幅、闹钟用途（静音模式下照震） */
   private fun vibrateAlarm(ctx: Context, urgent: Boolean) {
